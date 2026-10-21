@@ -810,7 +810,7 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
             if StrPos(GetLastErrorText(), 'Unhandled UI') = 0 then Error('got %1', GetLastErrorText());
         end;
 
-        // network/TestHttpClient.al:36 [StrMenuHandler] AllowOnceHandler
+        // handlers/TestUnhandledUiAndDialogDefaults.al:164 [StrMenuHandler]
         [Test] [HandlerFunctions('Menu')]
         procedure StrMenuHandlerChoosesAnOption()
         var C: Integer;

@@ -73,7 +73,10 @@ impl Session {
         let blocked_anyway = match policy {
             Some("BlockOutboundRequests") => !self.has(al_version::Gate::HttpHandlerUnderBlockOutboundFrom29),
             Some("AllowOutboundFromHandler") => !self.has(al_version::Gate::HttpHandlerUnderAllowFromHandlerFrom29),
-            _ => false,
+            // Under the default policy and AllowAllOutboundRequests a handler answers from BC 29; before, it is not called, the
+            // request goes out for real and the unused handler does not fail the test
+            // (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line: 1 on BC 29, 0 on 27 and 28).
+            _ => !self.has(al_version::Gate::HttpHandlerUnderDefaultPolicyFrom29),
         };
         if blocked_anyway && bound {
             self.http_handlers_count_as_run();
@@ -86,16 +89,15 @@ impl Session {
                     ),
                     "TestCodeunitUnhandledHttpRequest",
                 ),
-                _ => unsupported(
-                    "an outbound HTTP request with no [HttpClientHandler] bound to the test: the runtime never opens a connection (ADR-027)",
-                ),
+                // The request goes out for real, with no approval prompt (corpus bump 43: network/TestHttpClient.al and
+                // lt-cz-http-leads/CzHttpOutbound.al bind no StrMenuHandler).
+                _ => real_request(&request.url),
             };
         }
-        // A handler is pinned under BlockOutboundRequests (PZHttpBlock.al) and AllowOutboundFromHandler (PZHttpHandler.al,
-        // AyHttpHandler.al) only; under the default policy or AllowAllOutboundRequests nothing is measured.
-        if !matches!(policy, Some("BlockOutboundRequests" | "AllowOutboundFromHandler")) {
+        if !request.url.contains("://") && !matches!(policy, Some("BlockOutboundRequests" | "AllowOutboundFromHandler"))
+        {
             return unsupported(
-                "an [HttpClientHandler] under TestHttpRequestPolicy AllowAllOutboundRequests or no policy: whether it answers is not measured (docs/probes-needed.md)",
+                "a request to a relative path with no base address reaches a [HttpClientHandler] under the default policy or AllowAllOutboundRequests: not measured",
             );
         }
         if !request.url.contains("://") {
@@ -138,24 +140,9 @@ impl Session {
         };
         match answer {
             Value::Boolean(false) | Value::Null => {}
-            Value::Boolean(true) => {
-                // BC then asks whether to allow the real request (StrMenu "Allow Always,Allow Once,Block Always,Block Once"); with
-                // no StrMenu handler the call answers false with that unhandled-UI error as the last error, whatever the host
-                // (AyHttpHandler.al:Handler_FallThrough_ConnectionRefused, http://localhost:1; PZHttpHandler.al:
-                // HandlerAnsweringTrue_SendsTheRealRequest, example.invalid). What a StrMenu handler's choice does is not measured.
-                if self.has_ui_handler(crate::ui::UiKind::StrMenu) {
-                    return unsupported(
-                        "an [HttpClientHandler] answering true with a StrMenuHandler bound: what the allow-request choice does is not measured",
-                    );
-                }
-                let mut failed = fresh_test_response();
-                failed.request_failed = true;
-                failed.failure = Some((
-                    "Unhandled UI: StrMenu Allow Always,Allow Once,Block Always,Block Once".into(),
-                    "MissingUIHandler".into(),
-                ));
-                return Ok(failed);
-            }
+            // The handler lets the real request go, with no approval prompt: AyHttpHandler.al:Handler_FallThrough_ConnectionRefused
+            // and the PY_HandlerTrue_* tests (BC 29, `menu=0`), PyHttpPolicy.al:Handler_AnswersTrue_* (corpus bump 43).
+            Value::Boolean(true) => return real_request(&request.url),
             other => return unsupported(format!("an [HttpClientHandler] that answers {}", other.describe())),
         }
         match resp {
@@ -166,6 +153,22 @@ impl Session {
             },
             _ => unsupported("an [HttpClientHandler] left something else than a TestHttpResponseMessage"),
         }
+    }
+}
+
+/// A request that goes out for real: answered only where it fails before any connection
+/// (`al_builtins::http::failure_without_connection`), else refused, since the runtime never opens a connection (ADR-027).
+fn real_request(url: &str) -> Result<TestHttpResponseState, Signal> {
+    match al_builtins::http::failure_without_connection(url) {
+        Some((message, code)) => {
+            let mut failed = fresh_test_response();
+            failed.request_failed = true;
+            failed.failure = Some((message.into(), code.into()));
+            Ok(failed)
+        }
+        None => unsupported(
+            "an outbound HTTP request that a test handler does not answer: the runtime never opens a connection (ADR-027)",
+        ),
     }
 }
 

@@ -192,10 +192,19 @@ pub enum Gate {
     /// before, CalcFields raises `The following fields must have the same type` (`DB:TypeMisMatch`)
     /// (calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:166-186, corpus bump 28).
     FlowFieldCountFilterBigIntegerFromIntegerFrom29,
+    /// `Format` of a Decimal under the fr-FR format region groups with U+00A0 (no-break space) from BC 29; BC 27 and 28 group
+    /// with U+202F (narrow no-break space) (misc/lt-probes-needed-8/PnH4CurrReport.al:247,311; corpus bump 43).
+    FrFrGroupSeparatorNoBreakSpaceFrom29,
+    /// Under the default `TestHttpRequestPolicy` and `AllowAllOutboundRequests` an `[HttpClientHandler]` answers the request from
+    /// BC 29; before, the handler is not called, the request is sent for real and the unused handler does not fail the test
+    /// (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line; corpus bump 43).
+    HttpHandlerUnderDefaultPolicyFrom29,
 }
 
 impl Gate {
     pub const ALL: &'static [Gate] = &[
+        Gate::FrFrGroupSeparatorNoBreakSpaceFrom29,
+        Gate::HttpHandlerUnderDefaultPolicyFrom29,
         Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29,
         Gate::CaseTimeZeroLabelFrom29,
         Gate::DataTransferAddDestinationFilterFrom28,
@@ -279,7 +288,9 @@ impl Gate {
             | Gate::HttpHandlerUnderAllowFromHandlerFrom29
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
-            | Gate::HttpBlankHeaderNameIsFormatFrom29 => 29,
+            | Gate::HttpBlankHeaderNameIsFormatFrom29
+            | Gate::FrFrGroupSeparatorNoBreakSpaceFrom29
+            | Gate::HttpHandlerUnderDefaultPolicyFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -307,6 +318,14 @@ impl Gate {
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
+            Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 => &[Evidence {
+                file: "misc/lt-probes-needed-8/PnH4CurrReport.al",
+                lines: "247,311",
+            }],
+            Gate::HttpHandlerUnderDefaultPolicyFrom29 => &[Evidence {
+                file: "../al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al",
+                lines: "129,147",
+            }],
             Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29 => &[Evidence {
                 file: "calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al",
                 lines: "38,95,127,147,155,176,181",
@@ -830,7 +849,7 @@ impl Gate {
             }],
             Gate::HttpHandlerUnderAllowFromHandlerFrom29 => &[Evidence {
                 file: "../al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al",
-                lines: "185-202",
+                lines: "190-207",
             }],
             Gate::HttpBlankHeaderNameIsFormatFrom29 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",

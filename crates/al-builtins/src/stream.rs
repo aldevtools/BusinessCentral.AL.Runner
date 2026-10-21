@@ -1467,7 +1467,7 @@ mod blob_cell_tests {
         // A box-drawing byte nothing pins is not decoded.
         assert!(!Encoding::MsDos.decode_pinned(&[0xC4]));
         // The UTF-8 bytes of U+202F and of `年月日` in a SaveAs Xml dataset read through the default encoding
-        // (report/lt-y-report-props/YReportPropsTests.al:84, :96).
+        // (report/lt-y-report-props/YReportPropsTests.al:80, :96).
         let ja = "2025\u{5E74}1\u{6708}31\u{65E5} 1\u{202F}2".as_bytes();
         assert!(Encoding::MsDos.decode_pinned(ja));
         assert_eq!(
