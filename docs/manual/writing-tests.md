@@ -21,10 +21,12 @@ Each is a folder with an `app.json`, a source archive (`*.Source.zip`), or an
 `app.json`, as it would for the AL compiler.
 
 Each app sees the AL methods of the `runtime` its own `app.json` declares. A call
-of a method newer than that runtime gets the AL compiler's AL0666, and the routine
-that makes it does not run. For an app whose `runtime` is older than 16.0, AL Runner
-clears a call only when Microsoft's documentation lists the method for that runtime
-or an older one; a routine with any other call does not run, and a note says so.
+of a method newer than that runtime gets the AL compiler's AL0666, and the run stops
+with exit 3, as the compiler's would. For an app whose `runtime` is older than 16.0,
+AL Runner uses a table measured with the AL compiler itself, so it reports the same
+AL0666. Where the compiler reports something other than AL0666 for the call (for
+example a method only OnPrem apps may use, in an app older than runtime 4.0), the
+routine that makes the call does not run, and a note says so.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 
@@ -95,8 +97,8 @@ al-runner test --isolation test     ./MyApp ./MyApp.Test
 
 ## Test-first work with `--tdd`
 
-`--tdd` lets you write the test before the code. A test that calls a procedure of
-a codeunit that does not exist yet runs against a stub instead of failing to
+`--tdd` lets you write the test before the code. A test that calls a procedure
+that does not exist yet runs against a stub instead of failing to
 compile. The stub returns the default value of the type the call site asks for
 (`0`, `''`, `false`, an empty record), writes nothing and never raises. `var`
 arguments stay unchanged.
@@ -111,7 +113,10 @@ al-runner test ./MyApp ./MyApp.Test --tdd
 - A stubbed pass counts as a pass for the exit code.
 - `--output-json` adds `stubbed` and `generatedStubs` per test and in the summary,
   and `--junit` adds a `stubbed` property.
-- Only procedure calls on codeunit variables, in test apps, become stubs so far.
+- In test apps, these calls become stubs so far: a procedure that does not exist on a
+  codeunit, record, page or report variable, on `Rec`, `CurrPage` or `this`; a bare call
+  of a procedure the object does not declare; and a call whose argument count no
+  overload takes. A call on a TestPage, an interface or a built-in type stays an error.
   A call site whose type the use does not reveal is refused, and its test is not run.
 - `serve` takes it as the `tdd` field of `runTests`, or `serve --tdd`.
 
