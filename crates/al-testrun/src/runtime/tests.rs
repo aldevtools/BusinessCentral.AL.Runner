@@ -172,7 +172,11 @@ fn a_failure_after_a_test_refused_at_an_http_call_is_trusted_when_it_sends_no_re
     let o = outcomes_of(src, "T");
     let by = |n: &str| o.iter().find(|(x, _)| x == n).map(|(_, x)| x.clone()).unwrap();
     assert!(matches!(by("HttpGet"), Outcome::NotRun(_)), "{:?}", by("HttpGet"));
-    assert!(matches!(by("CompanyNameRead"), Outcome::Fail(m) if m.starts_with("company=")), "{:?}", by("CompanyNameRead"));
+    assert!(
+        matches!(by("CompanyNameRead"), Outcome::Fail(m) if m.starts_with("company=")),
+        "{:?}",
+        by("CompanyNameRead")
+    );
 }
 
 // record/TestTransactionModelAutoRollback.al:Test01-Test03: an AutoRollback test's write is

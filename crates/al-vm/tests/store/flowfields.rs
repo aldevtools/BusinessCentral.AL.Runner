@@ -1654,5 +1654,8 @@ codeunit 50112 C
         Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("quoted"), "{why}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
-    assert_eq!(format!("{:?}", al_testkit::run_in(src, "C", "Plain").unwrap()), "Decimal(17)");
+    assert_eq!(
+        format!("{:?}", al_testkit::run_in(src, "C", "Plain").unwrap()),
+        "Decimal(17)"
+    );
 }

@@ -1142,8 +1142,12 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
             .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
         (file, output::compile_error_line(e))
     };
-    let parse_errors: Vec<(String, String)> =
-        rt.compile_errors().iter().filter(|e| e.code.is_empty()).map(located).collect();
+    let parse_errors: Vec<(String, String)> = rt
+        .compile_errors()
+        .iter()
+        .filter(|e| e.code.is_empty())
+        .map(located)
+        .collect();
     if !parse_errors.is_empty() {
         eprintln!(
             "parse: {} place(s) in the APPs our parser did not accept; the tests that need those files are not run",
@@ -1154,8 +1158,12 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         }
     }
     if rt.compile_errors().iter().any(|e| !e.code.is_empty()) {
-        let errors: Vec<(String, String)> =
-            rt.compile_errors().iter().filter(|e| !e.code.is_empty()).map(located).collect();
+        let errors: Vec<(String, String)> = rt
+            .compile_errors()
+            .iter()
+            .filter(|e| !e.code.is_empty())
+            .map(located)
+            .collect();
         for (file, line) in errors.iter().take(100) {
             eprintln!("compile: {file}{line}");
         }

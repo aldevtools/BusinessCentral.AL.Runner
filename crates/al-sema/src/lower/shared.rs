@@ -339,7 +339,11 @@ pub(crate) fn lower_object<'a>(
         // Source of an app under test that our parser did not accept. It is not a compile error: the parser can reject
         // valid AL (al-runner issue 5576), so nothing in the file runs and the tests that need it are not run, with the
         // parse error as the reason (orchestrator decision 2026-10-21). A dependency app's file is handled by its load.
-        if let Some(d) = ws.diagnostics.iter().find(|d| d.code == "AR0000" && &d.file == path && d.app == ws.files[o.file].app) {
+        if let Some(d) = ws
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "AR0000" && &d.file == path && d.app == ws.files[o.file].app)
+        {
             global_reasons.push(format!("the parser did not accept {}: {}", d.file, d.message));
         }
     }
