@@ -1,3 +1,5 @@
+> **This is AL Runner version 2, frozen.** It gets no further releases. AL Runner 3 is on the `main` branch of this repository: see its README for install steps and the migration notes.
+
 # BusinessCentral.AL.Runner
 
 [![Test Matrix](https://github.com/StefanMaron/BusinessCentral.AL.Runner/actions/workflows/test-matrix.yml/badge.svg)](https://github.com/StefanMaron/BusinessCentral.AL.Runner/actions/workflows/test-matrix.yml)
