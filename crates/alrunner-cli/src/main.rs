@@ -15,6 +15,8 @@ mod recipe;
 mod recipe_run;
 mod run;
 mod serve;
+mod sources;
+mod sources_report;
 mod style;
 mod testdata;
 mod version;
@@ -197,6 +199,13 @@ fn real_main() -> ExitCode {
             }
         },
         Command::Debug(a, transport) => match debug::run(&a, transport) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Command::TestMicrosoft(a) => match sources::test_microsoft(&a) {
             Ok(code) => ExitCode::from(code),
             Err(e) => {
                 eprintln!("error: {e}");

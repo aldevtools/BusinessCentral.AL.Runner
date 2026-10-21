@@ -14,5 +14,6 @@ pub mod load;
 pub mod package;
 pub mod remote;
 pub mod select;
+pub mod test_apps;
 pub mod version;
 pub mod zip;

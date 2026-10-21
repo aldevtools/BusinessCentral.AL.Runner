@@ -475,3 +475,24 @@ Planned: `crates/alrunner-cli/tests/test_microsoft.rs`, `tests/test_sources.rs` 
 above, on the fake artifact feed and fixture apps under `tests/fixtures/sources`), unit tests in `sources.rs` (source
 parsing, the extension and own-test split, refusals) and `matrix.rs` (cell lists, "differs", the exit helper), and
 the serve refusal test in `args.rs`.
+
+## Decided without owner review (2026-10-22, build step 1)
+
+- **One run per test app.** `test-microsoft` runs each Microsoft test app as its own recipe run, not all of them in
+  one run. A test app that cannot be fetched, loaded or compiled is then one row with exit 2 while the others still
+  run, and each run's memory is returned before the next. The compile cache keeps the shared dependency layers, so
+  later apps load them instead of compiling them.
+- **Which entries are candidates.** A `*.Source.zip` under `Applications/` or `Applications.<COUNTRY>/` whose path
+  contains `test` (any case): the platform artifact keeps test apps in `Test`, `Tests` and `Test Library` folders, a
+  country artifact keeps all apps in one folder where only the file name says it. A candidate is a test app when its
+  source holds a `Subtype = Test` codeunit; the others (test libraries, the test framework) are left out with a line.
+- **`_Exclude_` apps.** Test apps whose artifact name starts with `_Exclude_` (`_Exclude_APIV2_ Tests`) are left out
+  by default, with a line; `--app` runs them. The prefix marks apps Microsoft keeps apart; whether its own CI runs
+  them was not checked.
+- **The Legacy lane's package.** The run fetches the platform artifact's RapidStart package
+  (`ConfigurationPackages/*ENU.EXTENDED*.rapidstart`) into `<cache>/artifacts/<build>/packages/` once and gives it to
+  every app's Legacy lane. Before this, `--recipe microsoft` found the package only in an extracted artifact on disk,
+  so a run from the artifact feed could not build the Legacy company.
+- **Output files.** `--junit FILE` and `--output-json FILE` get the app's name before the extension, then the lane
+  (`FILE.Tests-ERM.legacy.xml`). `--output-json` without a FILE is refused: several documents cannot share stdout.
+

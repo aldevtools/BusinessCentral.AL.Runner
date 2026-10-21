@@ -48,6 +48,42 @@ page 50100 P { SourceTable = T; layout { area(Content) { field(X; Assign-to No.)
     assert!(reasons.iter().any(|r| r.contains("missing operand")), "{reasons:?}");
 }
 
+/// A statement the parser recovered from an error can lack its parts (an `if` with no condition: `If: Integer;` in a var
+/// section once parsed as `if :`). Lowering refuses such a statement; it must never panic (the panic is caught, but it
+/// is a bug, and the reason says "internal error").
+#[test]
+fn a_statement_with_missing_parts_is_refused_not_a_panic() {
+    for body in [
+        "if : Integer;",
+        "if := 1;",
+        "if : Integer;",
+        "while : Integer;",
+        "for : Integer;",
+        "foreach : Integer;",
+        "with : Integer;",
+        "case : Integer;",
+        "while do;",
+        "repeat until;",
+        "for to do;",
+        "foreach in do;",
+        "with do;",
+        "case of end;",
+        "X := ;",
+    ] {
+        let src = format!(
+            "codeunit 50100 C {{ Subtype = Test; [Test] procedure P() var X: Integer; begin {body} end;
+            [Test] procedure Q() {body} begin end; [Test] procedure R() var {body} begin end; }}"
+        );
+        // A panic while lowering a routine is caught and becomes this reason (shared.rs); it is still a bug.
+        let (_, l) = lower_pos(&src);
+        let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+        assert!(
+            !reasons.iter().any(|r| r.contains("internal error")),
+            "`{body}`: {reasons:?}"
+        );
+    }
+}
+
 #[test]
 fn a_page_field_with_a_lone_quoted_source_name_lowers() {
     let (_, l) = lower_files(
