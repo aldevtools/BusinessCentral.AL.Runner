@@ -55,6 +55,9 @@ pub struct Lowered {
     pub(crate) skipped: Vec<bool>,
     /// Per object: left out by a lean compile (`check::Roots::lean`), its routines refuse with `check::LEFT_OUT`.
     pub left_out: Vec<bool>,
+    /// `--tdd` (ADR-051): the stub sites by the object that holds them (object, signature), for the incremental
+    /// compile to renew `Program::tdd_stubs` (`check::tdd::sites_by_object`). Empty without `--tdd`.
+    pub(crate) tdd_sites: Vec<(usize, String)>,
 }
 
 /// The routines a variable of a page, report or xmlport type can run besides the ones the code

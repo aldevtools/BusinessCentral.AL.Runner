@@ -40,6 +40,8 @@ pub struct TestEvent {
     pub coverage: Vec<(u32, u32)>,
     /// With `RunOptions::capture`: what the test's code did, statement by statement.
     pub captured: Option<CapturedAt>,
+    /// `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, sorted (`TestResult::stubs`).
+    pub stubs: Vec<String>,
 }
 
 type OnTest = Arc<dyn Fn(TestEvent) + Send + Sync>;

@@ -409,7 +409,8 @@ SERVE
                          --cache-dir, --no-download, --test-data, ...); --recipe and --impact-of are
                          refused. A runTests request carries
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
-                         perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl.
+                         perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
+                         tdd (`serve --tdd` makes it the default).
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 
 WARM

@@ -501,6 +501,7 @@ fn run_unit(
             time,
             coverage,
             captured: None,
+            stubs: Vec::new(),
         };
         match &result {
             Ok((done, stacks, times, _, covs, _)) => {

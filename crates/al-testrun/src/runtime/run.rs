@@ -628,7 +628,7 @@ pub(crate) fn run_codeunit_core(
         // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
         let reached = session.take_tdd_reached();
         if !reached.is_empty() {
-            scratch.stubbed.push((routine.name.clone(), reached));
+            scratch.stubbed.push((routine.name.clone(), reached.clone()));
         }
         let took = test_started.elapsed();
         if execute {
@@ -665,6 +665,7 @@ pub(crate) fn run_codeunit_core(
                 time: took,
                 coverage: cov.clone(),
                 captured: captured_at.clone(),
+                stubs: reached,
             });
         }
         if covering {
@@ -695,6 +696,7 @@ pub(crate) fn run_codeunit_core(
                     time: std::time::Duration::ZERO,
                     coverage: Vec::new(),
                     captured: None,
+                    stubs: Vec::new(),
                 });
             }
             out.push((obj.routines[r].name.clone(), outcome));

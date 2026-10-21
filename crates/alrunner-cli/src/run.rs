@@ -1097,7 +1097,9 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
             )?
         }
         Some(w) => {
+            // `--tdd` changes what compiles (ADR-051 decision 9), so it is part of the key.
             let target_key = format!("{:?} {}", chosen.target, a.execute);
+            let target_key = format!("{target_key} tdd={}", a.tdd);
             let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
