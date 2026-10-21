@@ -1564,7 +1564,16 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        self.record_op_tracked(method, rec, args)
+        let pin = (!rec.borrow().temporary)
+            .then(|| crate::sqlcounters::pinned_change(method, args))
+            .flatten();
+        let Some(pin) = pin else {
+            return self.record_op_tracked(method, rec, args);
+        };
+        let before = (self.store.accesses(), self.calls_made);
+        let r = self.record_op_tracked(method, rec, args);
+        self.sql_after_op(pin, before, &r);
+        r
     }
 
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {

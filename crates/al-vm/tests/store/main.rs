@@ -41,5 +41,7 @@ mod temp_sums_by_ref;
 mod temp_tables;
 mod transactions;
 mod userpersonalization;
+mod user_gaps_filters;
+mod user_gaps_sql;
 mod usertable;
 mod xrec;

@@ -58,6 +58,7 @@ mod relations;
 mod rename;
 mod reports;
 mod sessionops;
+mod sqlcounters;
 mod sqltime;
 mod testdata;
 mod transactions;
@@ -494,6 +495,8 @@ pub struct Session {
     /// How many AL routine calls the session has made: `Record.IsDirty` notes whether a record write ran triggers or
     /// subscribers (isdirty.rs).
     pub(crate) calls_made: u64,
+    /// `SessionInformation.SqlStatementsExecuted` and `SqlRowsRead` (sqlcounters.rs).
+    pub(crate) sql: crate::sqlcounters::SqlCounters,
     /// How many record methods that Record.IsDirty tracks are running (isdirty.rs).
     pub(crate) dirty_ops_open: u32,
     /// Whether the test running has reseeded the `Random` sequence (`Randomize`); see [`Session::inherited_random_draws`].
@@ -728,6 +731,7 @@ impl Session {
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
+            sql: Default::default(),
             dirty_ops_open: 0,
             reseeded_in_test: false,
             inherited_draws: 0,
@@ -873,6 +877,7 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
+        self.sql.read_in_test = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
     }
