@@ -1654,6 +1654,23 @@ impl Session {
         if self.stored_row(&rec)?.is_none() {
             return Ok(());
         }
+        // A list whose filters no longer hold the row it stands on, when CurrPage.Update asked for the refresh: which row it
+        // settles on, and what a move reads then, is pinned only after an action (`read_list_again_from_row`,
+        // pages/lt-ai-list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain). Tests-SCM 137831
+        // BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord reaches it: Bin Contents (page 7374) filters to a location
+        // without rows in a control's OnValidate.
+        if by_update && self.is_list(st) && !st.borrow().dirty {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if !matches!(
+                self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+                Value::Boolean(true)
+            ) {
+                return unsupported(
+                    "CurrPage.Update on a list whose filters left the row it stands on, outside an action (which row it shows then is not pinned)",
+                );
+            }
+        }
         if !st.borrow().dirty {
             self.ret_used = true;
             let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);

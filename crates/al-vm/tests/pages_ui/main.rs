@@ -5,6 +5,7 @@ mod base_access;
 mod bg_task_id;
 mod update_new_line_filter;
 mod open_onopenpage_moves_rec;
+mod update_filter_away_row;
 mod control_entry;
 mod control_properties;
 mod control_text;
