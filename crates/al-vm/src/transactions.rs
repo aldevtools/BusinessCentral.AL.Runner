@@ -301,6 +301,15 @@ impl Session {
 
     /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
     /// test (not pinned: refused there).
+    /// The table of a duplicate-key `Insert` whose error is still deferred: the next access to the table or a `Commit`
+    /// raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). `None` when there is none.
+    pub fn deferred_insert_table(&self) -> Option<String> {
+        self.tx
+            .deferred_insert
+            .as_ref()
+            .map(|(t, _)| self.engine.program.objects[*t].name.clone())
+    }
+
     pub fn inconsistent_table(&self) -> Option<String> {
         self.tx
             .inconsistent

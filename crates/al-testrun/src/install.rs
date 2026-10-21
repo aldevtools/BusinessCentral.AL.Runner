@@ -467,12 +467,55 @@ fn company_open(lowered: &Lowered, session: &mut Session, app: usize) -> Result<
 
 /// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
 /// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/lt-bf-company-open/BfCompanyOpenTests.al:19-38,
-/// :40-50; events/lt-platform-events-v/PeVTests.al:297). Here the subscribers of the apps under test run; a subscriber that
-/// writes the database refuses the codeunit (what the runner does with those writes is not pinned). The subscribers of
-/// dependency apps do not run here, as in the install session (A4 item 4).
-pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session) -> Result<(), String> {
+/// :40-50; events/lt-platform-events-v/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
+/// does with the database writes of a subscriber is not pinned: the tables they can write are returned, and a test whose
+/// reach can read one is not run (`CompanyOpenWrites::refuses`; al-runner issue 5606). A subscriber that writes and whose
+/// reach is not known refuses the codeunit. The subscribers of dependency apps do not run here, as in the install session
+/// (A4 item 4).
+/// The tables the Company Triggers subscribers of the test session can write ([`test_session_company_open`]).
+#[derive(Debug, Default)]
+pub(crate) struct CompanyOpenWrites {
+    /// The first subscriber that writes, for the reason text.
+    pub who: Option<String>,
+    pub tables: BTreeSet<u32>,
+    /// A write whose table is not known statically: any table.
+    pub any: bool,
+}
+
+impl CompanyOpenWrites {
+    /// Why a routine whose reach is `facts` is not run: it can read a table a subscriber wrote, or its reach is not known.
+    /// `None` when no subscriber wrote, or the routine cannot see the writes.
+    pub fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
+        let who = self.who.as_ref()?;
+        let what = match &facts.unknown {
+            Some(why) => format!("part of this test's reach is not known ({why})"),
+            None => {
+                let met = if self.any {
+                    facts.touched.iter().next()
+                } else {
+                    self.tables.intersection(&facts.touched).next()
+                };
+                let t = met?;
+                format!(
+                    "this test can read table {}",
+                    lowered
+                        .program
+                        .objects
+                        .get(*t as usize)
+                        .map_or("?", |o| o.name.as_str())
+                )
+            }
+        };
+        Some(format!(
+            "Company Triggers OnCompanyOpen(Completed) subscriber {who} writes the database in the test session before the first test, and {what}: what the test runner does with the writes is not pinned (ADR-046 amendment 1, A4 item 10)"
+        ))
+    }
+}
+
+pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session) -> Result<CompanyOpenWrites, String> {
     let engine = session.engine.clone();
     let objs = &lowered.program.objects;
+    let mut wrote = CompanyOpenWrites::default();
     let mut subs = Vec::new();
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
         let mut of_event: Vec<(usize, usize)> = engine
@@ -489,10 +532,19 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
     }
     for (o, r) in subs {
         let who = label(lowered, o, r);
-        if !closure(lowered, o, r).written.is_empty() {
-            return Err(format!(
-                "Company Triggers OnCompanyOpen(Completed) subscriber {who} writes the database in the test session before the first test: what the test runner does with it is not pinned (ADR-046 amendment 1, A4 item 10)"
-            ));
+        let written = closure(lowered, o, r).written;
+        let index = engine.derived(|| crate::runtime::written::ReachIndex::new(&engine.events, lowered));
+        let facts = crate::runtime::written::reach_facts(&engine.events, lowered, &index, o, r);
+        if !written.is_empty() || !facts.writes.is_empty() || facts.writes_any {
+            if let Some(why) = &facts.unknown {
+                return Err(format!(
+                    "Company Triggers OnCompanyOpen(Completed) subscriber {who} writes the database in the test session before the first test, and part of its reach is not known ({why}): what the test runner does with the writes is not pinned (ADR-046 amendment 1, A4 item 10)"
+                ));
+            }
+            wrote.tables.extend(written);
+            wrote.tables.extend(facts.writes.iter().copied());
+            wrote.any |= facts.writes_any;
+            wrote.who.get_or_insert(who.clone());
         }
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
             return Err(format!(
@@ -519,7 +571,7 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             }
         }
     }
-    Ok(())
+    Ok(wrote)
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.

@@ -1605,3 +1605,57 @@ table 60012 "ALT TFB"
         "ok|Data must have a value in ALT TFB: Id=1. It cannot be zero or empty."
     );
 }
+
+/// al-runner issue 5575: a CalcFormula filter written as one quoted literal with filter operators in it
+/// (`filter('10|200..299|400..499')`) sums the matching entries on BC 29, where the runtime read it as one literal value
+/// and summed nothing. No corpus test pins how the quoted form is read, so the FlowField is refused; a quoted literal
+/// with no operator in it reads the same either way.
+#[test]
+fn a_calc_formula_filter_quoted_whole_with_operators_is_refused() {
+    let src = r#"
+table 50110 "Filter Entry" { fields { field(1; "Entry No."; Integer) { } field(2; Category; Code[20]) { } field(3; Amount; Decimal) { } } keys { key(PK; "Entry No.") { } } }
+table 50111 "Filter Summary"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Total; Decimal) { FieldClass = FlowField; CalcFormula = sum("Filter Entry".Amount where(Category = filter('10|200..299|400..499'))); }
+        field(3; Plain; Decimal) { FieldClass = FlowField; CalcFormula = sum("Filter Entry".Amount where(Category = filter('250'))); }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 50112 C
+{
+    local procedure Seed()
+    var E: Record "Filter Entry";
+    begin
+        E.DeleteAll();
+        E."Entry No." := 1; E.Category := '250'; E.Amount := 17; E.Insert();
+    end;
+
+    procedure Union(): Decimal
+    var S: Record "Filter Summary";
+    begin
+        Seed();
+        S.CalcFields(Total);
+        exit(S.Total);
+    end;
+
+    procedure Plain(): Decimal
+    var S: Record "Filter Summary";
+    begin
+        Seed();
+        S.CalcFields(Plain);
+        exit(S.Plain);
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "C", "Union") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("quoted"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert_eq!(
+        format!("{:?}", al_testkit::run_in(src, "C", "Plain").unwrap()),
+        "Decimal(17)"
+    );
+}

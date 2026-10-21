@@ -1097,6 +1097,8 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
         tdd: a.tdd,
+        // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
+        stop_on_compile_errors: true,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
             Arc::new(
@@ -1179,6 +1181,78 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
     let p = &rt.phases;
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
+
+    // An app under test that does not compile runs no test (al-runner issue 5602), as the AL compiler would not
+    // publish it: the errors, exit 3, and `compilationErrors` in the JSON document. Source our parser does not accept
+    // is not such an error, as the parser can reject valid AL (al-runner issue 5576): it is said, and the tests that
+    // need the file are not run (orchestrator decision 2026-10-21).
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let located = |e: &al_testrun::runtime::CompileError| {
+        let file = inputs
+            .get(e.app)
+            .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
+        (file, output::compile_error_line(e))
+    };
+    let parse_errors: Vec<(String, String)> = rt
+        .compile_errors()
+        .iter()
+        .filter(|e| e.code.is_empty())
+        .map(located)
+        .collect();
+    if !parse_errors.is_empty() {
+        eprintln!(
+            "parse: {} place(s) in the APPs our parser did not accept; the tests that need those files are not run",
+            parse_errors.len()
+        );
+        for (file, line) in parse_errors.iter().take(100) {
+            eprintln!("parse: {file}{line}");
+        }
+    }
+    if rt.compile_errors().iter().any(|e| !e.code.is_empty()) {
+        let errors: Vec<(String, String)> = rt
+            .compile_errors()
+            .iter()
+            .filter(|e| !e.code.is_empty())
+            .map(located)
+            .collect();
+        for (file, line) in errors.iter().take(100) {
+            eprintln!("compile: {file}{line}");
+        }
+        if errors.len() > 100 {
+            eprintln!("compile: ... {} more", errors.len() - 100);
+        }
+        let code = output::COMPILE_ERRORS;
+        let why = format!(
+            "the APPs do not compile: {} error(s); no test ran (exit {code})",
+            errors.len()
+        );
+        let total_time = started.elapsed();
+        if let Some(into) = collect {
+            into.bc_build = bc_build.clone();
+            return Ok(code);
+        }
+        say!("{why}");
+        let result = format!("Result: COMPILE ERRORS (exit {code})");
+        say!("{}", style::bold(&style::yellow(&result)));
+        let doc = output::json_compile_errors(code, total_time.as_secs_f64(), &errors);
+        if let Some(w) = warm {
+            w.report = Some(Report {
+                doc: serde_json::from_str(&doc).unwrap_or_default(),
+                coverage: None,
+                messages: Vec::new(),
+                object_names: Vec::new(),
+                captured: Vec::new(),
+                warnings: vec![why.clone()],
+            });
+        }
+        if let Some(target) = &a.output_json {
+            match target {
+                Some(path) => write_file(path, &doc)?,
+                None => println!("{doc}"),
+            }
+        }
+        return Ok(code);
+    }
 
     // The selected tests, in a stable order: app, codeunit, then declaration order.
     let mut results: Vec<&TestResult> = rt
