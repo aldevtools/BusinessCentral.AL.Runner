@@ -66,6 +66,9 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<al_builtins::value::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
+    /// written its by-reference task id back (see `Session::bg_enqueue`).
+    pub(crate) bg_drain_after_call: Option<Rc<RefCell<al_builtins::value::PageState>>>,
     /// The xRec fields the next `Modify` hands the table's triggers instead of the stored row: a
     /// page saving a row passes its own xRec (corpus
     /// handlers/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
@@ -173,6 +176,9 @@ pub(crate) struct ReportState {
     pub(crate) report_save_tried: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// Report variables a procedure of the caller initialized before their run (`SetParameters` and the like).
     pub(crate) prepared: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose request page OnInit ran at a procedure's first use (`Session::first_use`): the run does not
+    /// run it again.
+    pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: whether `CurrReport.Preview()` is pinned to be
     /// false for it (it was started by `Run` or `RunModal`).
     pub(crate) report_preview_pinned: Vec<bool>,

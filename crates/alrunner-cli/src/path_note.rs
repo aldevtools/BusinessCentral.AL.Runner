@@ -71,7 +71,8 @@ fn others_from_env() -> Vec<PathBuf> {
 /// True when the stamp is missing, unreadable, or older than a day (or dated in the future).
 pub fn due(stamp: &Path, now: SystemTime) -> bool {
     match std::fs::metadata(stamp).and_then(|m| m.modified()) {
-        Ok(t) => now.duration_since(t).map_or(true, |age| age >= ONCE_PER),
+        // A stamp newer than `now` (written after `now` was read, or a clock that went back) is not old.
+        Ok(t) => now.duration_since(t).is_ok_and(|age| age >= ONCE_PER),
         Err(_) => true,
     }
 }
