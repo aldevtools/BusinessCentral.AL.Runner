@@ -1,6 +1,6 @@
 # ADR-051: `--tdd`: a test that calls a procedure that does not exist yet runs against a stub
 
-- Status: Proposed (the behavior in "Owner design" is fixed by the owner, 2026-10-21; the rest is proposed)
+- Status: Accepted (owner, 2026-10-21: all of v2's kinds; the flagging in "Owner design" is fixed)
 - Date: 2026-10-21
 - Related: ADR-009 (an optional looser mode needs an ADR: this is it), ADR-011 (IR), ADR-016 (owner decision
   2026-10-21 that 3.0.0 needs v2's features), ADR-028 (serve), ADR-029 (incremental compile), ADR-048 (debug),
@@ -70,9 +70,9 @@ All references are to the `v2` branch.
    - AL0126 when no overload of the procedure has the call's argument count (a stub overload; an existing overload
      with the right count but other types is an ordinary compile error, as in BC).
 
-   The target object may be in the workspace or in a dependency app; the stub lives at the call site, so no
-   object is changed or generated. Call sites are taken in the test apps (apps that declare a test codeunit). See
-   open question 2 for call sites in the app under test. Every other diagnostic stays an error, as without `--tdd`.
+   The target object may be in the workspace or in a dependency app; a stub procedure lives at the call site, so
+   no object is changed for it (fields, enum values and objects: decision 10). Call sites are taken in the test apps (apps that declare a test codeunit). Call sites in
+   the app under test stay compile errors (owner, 2026-10-21). Every other diagnostic stays an error, as without `--tdd`.
 3. **The return type comes from the use.** In this order:
    - a bare statement `Target.DoThing();`: no return value (nothing reads it, so any type gives the same run; v2
      refused it);
@@ -104,9 +104,8 @@ All references are to the `v2` branch.
    - the return type cannot be inferred: `--tdd: cannot infer the return type of Target.DoThing (both sides are
      unknown)` and similar reasons for disagreeing `Variant` siblings and a call whose result is used as a receiver
      (`Target.GetRec().Insert()`);
-   - a missing member that is not a procedure: a field, an enum value, a page control on a `TestPage` (see open
-     question 1);
-   - a missing object (AL0185): `--tdd does not create objects; declare <name> first` (see open question 1);
+   - a field, enum value or object whose type cannot be inferred (decision 10), or an object with no free id;
+   - a page control on a `TestPage`, and missing pages, reports, queries, xmlports and interfaces (as v2);
    - a missing method of a builtin type (`Text`, `List`, `JsonObject`, ...): it is a typo, not a procedure to write;
    - a call on an interface variable: a stub would have to stand for every implementation.
 8. **Output.**
@@ -124,12 +123,36 @@ All references are to the `v2` branch.
    compile cache of the dependency apps is unchanged. An incremental compile (ADR-029) finds the stub sites of the
    objects it lowers. Adding the real procedure is a declaration change and compiles the workspace again, after
    which the stub is gone and the test is no longer flagged.
-10. **No change without stubs.** With `--tdd` and no stub site, the program is byte-for-byte the program without
+10. **Fields, enum values and objects (all of v2's kinds, owner 2026-10-21).** These are declarations, not call
+    sites, so the checker adds stub declarations to the workspace compile. Nothing is written to disk and nothing
+    from a dependency app is changed.
+    - **A missing field** (AL0132 on a record field, read or written in a test app): a stub field in a stub table
+      extension of that table (also of a dependency table, which is re-lowered as for any workspace extension,
+      ADR-022). Field class Normal. The type comes from the use, by the rules of decision 3 (`Rec.F := 5`,
+      `Validate`, `SetRange`, `TestField`, a comparison). It is a real column: a write is stored and read back, as
+      in v2. Text and Code get the largest length (2048), because the real length is not known yet; a longer write
+      raises `Signal::Unsupported` ("--tdd: the length of the stub field F is unknown"), never a made-up overflow
+      error. The test is flagged either way.
+    - **A missing enum value** (`Enum::"E"::NewValue`, also of a dependency enum): a stub member in a stub enum
+      extension, ordinal the first free one above the highest existing ordinal.
+    - **A missing overload** (AL0126): decision 2 already covers it.
+    - **A missing object** (AL0185) of kind codeunit, table or enum, named by a variable declaration or an
+      `Enum::`/`Codeunit::`/`Database::` reference in a test app, when no app in reach declares that name: a stub
+      object with the first free id from the test app's `idRanges` (as v2). A codeunit stub has no procedures; calls
+      on it are stub procedures (decision 2). A table stub has one primary key field `"TDD Key"` (Integer,
+      AutoIncrement, as v2) plus its stub fields. An enum stub has the stub members its references need, ordinals
+      from 0 in source order. Refused when a same-named object exists but is out of reach (another namespace, a
+      missing dependency) or no id is free.
+    - **Flagging** stays the owner design: a test is stubbed when, while it ran, a stub procedure ran, a stub field
+      was read or written, a stub enum value was used, or a stub object was instantiated. Entries in
+      `generatedStubs`: `<Table>: field "<Name>": <Type>`, `<Enum>: value "<Name>"`, `<kind> "<Name>" (id N)`, in
+      v2's `<Object>: <kind> <signature>` form.
+11. **No change without stubs.** With `--tdd` and no stub site, the program is byte-for-byte the program without
     `--tdd` (checked with the compile dump).
 
 ## Combinations
 
-- `--watch --tdd`: allowed (as v2). `--affected --tdd`: allowed (ADR-050 decision 8; v2 refused it).
+- `--affected --tdd`: allowed (ADR-050 decision 8; v2 refused it). There is no `--watch` in 3.0.0 (ADR-049 rejected).
 - `debug --tdd`: allowed (ADR-048; v2 refused it). A stub has no statements to step into.
 - `--tdd` with `--impact-of` and `impact-index build`: refused (exit 2). Those compare Microsoft's tests and have
   nothing to stub.
@@ -153,32 +176,35 @@ Tests in `crates/alrunner-cli/tests/tdd.rs` and unit tests in `al-sema` for the 
 10. Without `--tdd` the same fixtures give the compile errors of today.
 11. With `--tdd` on a project without missing procedures the compile dump equals the dump without it.
 12. Serve: `tdd: true`, a daemon `--tdd` with `tdd: false`, `execute` warning.
-13. Watch: add the real procedure, the next cycle is no longer stubbed.
-14. Text totals, JSON summary, JUnit property, exit codes.
+13. Serve: add the real procedure, the next request is no longer stubbed.
+14. A stub field: written and read back; type from each use; a 2049-character write refused; on a dependency table.
+15. A stub enum value on a workspace enum and on a dependency enum; ordinals.
+16. Stub codeunit, table (with `"TDD Key"`) and enum objects; the free-id rule; an out-of-reach name refused.
+17. A test that only touches a stub field or enum value is flagged.
+18. Text totals, JSON summary, JUnit property, exit codes.
 
 ## Size
 
-About 5 agent-days: 2 for the checker (diagnostics to stub sites, the type rule, the refusal reasons); 1 for the IR
-node, lowering and the per-test record in the VM; 1 for output (text, JSON, serve, JUnit); 1 for fixtures, tests
-and docs (user guide, migration guide, parity row SEL-10). Fields, enum values and missing objects (open question 1)
-add about 3 days.
+About 9 agent-days: 2 for the checker (diagnostics to stub sites, the type rule, the refusal reasons); 1 for the IR
+node, lowering and the per-test record in the VM; 3 for fields, enum values and missing objects (stub declarations,
+dependency extensions, free ids, flagging); 1 for output (text, JSON, serve, JUnit); 2 for fixtures, tests and docs
+(user guide, migration guide, parity row SEL-10).
 
 ## Consequences
 
 - An additive IR expression and additive session state; no seam changes.
-- Stubs never touch an object, so dependency apps need no stub objects and nothing is recompiled for them, unlike
-  v2's precompiled stub codeunits and overlays.
+- Stub procedures live at the call site, so a dependency app needs no stub codeunit, unlike v2's precompiled stubs
+  and overlays. Stub fields and enum values of a dependency object are workspace extensions, as any extension is.
 - The flag is exact (observed), so a stubbed pass means a stub really ran.
 
-## Open questions for the owner
+## Owner decisions (2026-10-21)
 
-1. Scope for 3.0: procedures only, with fields, enum values and missing objects refused with a reason (recommended),
-   or all of v2's kinds (about 3 more days; a field stub would read the default and drop writes).
-2. Call sites: in test apps only (recommended) or also in the app under test.
-3. A run whose failures are all stubbed: exit 1 like any failure (recommended, v2) or a separate exit code.
-4. Summary `generatedStubs`: every stub of the program (recommended) or only the stubs that ran.
+1. Scope: all of v2's kinds (procedures, overloads, fields, enum values, missing codeunits, tables and enums).
+2. Call sites: test apps only.
+3. A run whose failures are all stubbed exits 1, as v2.
+4. Summary `generatedStubs`: every stub of the program.
 
 ## Conformance
 
 `crates/alrunner-cli/tests/tdd.rs`, the `al-sema` unit tests of the type rule, and the compile-dump comparison of
-decision 10.
+decision 11.

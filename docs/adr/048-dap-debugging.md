@@ -1,6 +1,6 @@
 # ADR-048: `alrunner debug`: Debug Adapter Protocol over stdio or TCP
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-21, with the recommended answers to the open questions)
 - Date: 2026-10-21
 - Related: ADR-016 (gate R item 5, step 6 of the owner decision of 2026-10-15, owner decision 2026-10-21 that 3.0.0
   needs v2's features), ADR-002 (synchronous VM), ADR-006 (core purity), ADR-030 (value rendering), ADR-034
@@ -102,7 +102,7 @@ All references are to the `v2` branch.
    - `setExceptionBreakpoints` answers success with no filters, so VS Code does not log an error.
    - `stopped` keeps v2's extra `line` field.
    - `evaluate`, `setVariable`, conditional breakpoints, `source` and stop-on-error stay `unsupported command: X`,
-     as v2. See open question 2.
+     as v2 (owner, 2026-10-21).
 6. **Breakpoints as v2.** Exact line of a statement position, every statement on the line in every object of the
    file, column narrowing, a reason when unverified ("the app did not compile", "no executable AL statement on this
    line in this file", "no source file for this app"), replacement per file, path comparison by OS. Breakpoints in a
@@ -113,7 +113,7 @@ All references are to the `v2` branch.
 8. **Scopes and values.** One scope `Locals` with the named locals and parameters of the frame, as v2. Values come
    from the ADR-030 renderer and are written in v2's form: a number bare, a text in JSON quotes, a record as its
    primary key. A value the renderer does not render yet shows `<not rendered: KIND>`, never a made-up value.
-   See open question 1 for globals and expandable records.
+   No globals scope and no expandable records in 3.0 (owner, 2026-10-21).
 9. **Time limits.** The per-test time limit (`--test-timeout-secs`) stops counting while the test is paused.
 10. **Values the test sees do not change** when it is debugged: the test clock steps per read (ADR-045), and the
     debug form runs the same ops between hits. A test gives the same outcome with and without the debugger
@@ -121,7 +121,7 @@ All references are to the `v2` branch.
 
 ## What is refused
 
-- `debug` together with `serve`, `--watch`, `--affected`, `--output-json`, `--jobs` above 1 and `--impact-of`
+- `debug` together with `serve`, `--affected`, `--output-json`, `--jobs` above 1 and `--impact-of`
   (exit 2, with the reason).
 - More than one client per process (a second TCP connection is closed).
 - The WebAssembly hosts: no TCP and no blocking thread (ADR-016 already lists it).
@@ -167,7 +167,12 @@ this estimate.
 - Because the debug run uses the stepping test clock, a test behaves the same under the debugger. v2 could not
   promise that.
 
-## Open questions for the owner
+## Owner decisions (2026-10-21)
+
+All four answered as recommended: `Locals` only; no `evaluate` or conditional breakpoints in 3.0; ALchemist adds
+the VS Code debugger contribution; one session runs the selected tests and exits.
+
+## Open questions (answered above)
 
 1. Variables: `Locals` only as v2 (recommended for 3.0) or also a `Globals` scope and expandable record fields
    (about 1.5 more days).

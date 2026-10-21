@@ -1,6 +1,6 @@
 # ADR-049: `alrunner test --watch`: rerun the tests when AL source changes
 
-- Status: Proposed
+- Status: Rejected (owner 2026-10-21: not needed for 3.0.0)
 - Date: 2026-10-21
 - Related: ADR-016 (release gates, owner decision 2026-10-21 that 3.0.0 needs v2's features), ADR-028 (warm
   server), ADR-029 and ADR-033 (incremental compile), ADR-050 (`--affected`), ADR-051 (`--tdd`), ADR-006 (core purity)
