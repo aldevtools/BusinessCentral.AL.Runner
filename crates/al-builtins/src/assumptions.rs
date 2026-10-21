@@ -268,13 +268,13 @@ registry! {
     BgTaskIdSetBeforeCompletion => {
         id: "bg-task-id-set-before-completion",
         assumed: "Under a TestPage, CurrPage.EnqueueBackgroundTask stores the new task id in its var TaskId argument before the task runs, so OnPageBackgroundTaskCompleted already sees the page variable set to the id it receives.",
-        tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue).",
+        tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue). Refusing the path instead blocks 1340 Microsoft tests (measured 2026-10-21, BC 27.5: 1099 Tests-ERM, 241 Tests-SCM).",
         probe: "A card whose OnOpenPage enqueues a task into a page global TaskId and whose OnPageBackgroundTaskCompleted logs that global and its own TaskId parameter.",
     },
     ReportLinkFlowFilterWithoutFilter => {
         id: "report-link-flowfilter-without-filter",
         assumed: "A report DataItemLink whose parent field is a FlowFilter with no filter on it puts no filter on the child's field (a FlowFilter with a filter is refused).",
-        tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected).",
+        tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected). Refusing the path instead blocks 166 Microsoft tests (measured 2026-10-21, BC 27.5: 4 Tests-ERM, 162 Tests-SCM, mostly physical inventory and Item Age Composition reports).",
         probe: "A parent item with a FlowFilter field and a child linked to it: child rows with an empty and a non-empty value; run with no filter on the FlowFilter, with SetRange to one value, and with SetFilter to a range; log the child rows and the child's GetFilters in OnPreDataItem.",
     },
     UpdateRefreshOnFindRecord => {
