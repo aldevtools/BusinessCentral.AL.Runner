@@ -21,7 +21,7 @@ The owner chose the warm design.
    slot (`al_testrun::runtime::Warm`). `try_run_suites_with` is split into `compile_suites` (produces `Compiled`)
    and `run_compiled`. The server keeps the last `Compiled`: the compiled dependency apps, the lowered workspace,
    the loaded test-data tables and the post-install database snapshot source.
-3. **Reuse rule.** A key hashes the workspace sources, the dependency identities and the symbols. Same key:
+3. **Reuse rule.** A key hashes the workspace sources, the manifests of the workspace apps (`app.json`, the files of the resource folders and the layout files; issue 5604), the dependency identities and the symbols. Same key:
    the compiled workspace is reused (`cached:true` in the summary). Changed source: the workspace and the
    dependencies are compiled again (see Limits). A request that selects tests outside the compiled selection
    recompiles for the union of both selections, so later requests of either kind hit.

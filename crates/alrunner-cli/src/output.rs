@@ -54,6 +54,45 @@ impl Counts {
 /// machine, not of the tests; unless `allow_not_run`), 7 when a test was not run (unless
 /// `allow_not_run`), else 0. Codes 2 and 3 are decided
 /// before this point.
+/// The exit code of a run whose APPs do not compile: no test ran (al-runner issue 5602; AL Runner v2 used 3 too).
+pub const COMPILE_ERRORS: u8 = 3;
+
+/// One compile error after its file, in the AL compiler's form: `(line,column): error AL0118: text`; a parse error has
+/// no code.
+pub fn compile_error_line(e: &al_testrun::runtime::CompileError) -> String {
+    if e.code.is_empty() {
+        format!("({},{}): error: {}", e.line, e.column, e.message)
+    } else {
+        format!("({},{}): error {}: {}", e.line, e.column, e.code, e.message)
+    }
+}
+
+/// The `--output-json` document of a run whose APPs do not compile: no tests, every count 0, and `compilationErrors`
+/// as AL Runner v2 had it (`[{file, errors[]}]`, one entry per file, each error the AL compiler's line after the file).
+pub fn json_compile_errors(exit_code: u8, wall_s: f64, errors: &[(String, String)]) -> String {
+    use serde_json::json;
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for (file, line) in errors {
+        match groups.iter_mut().find(|(f, _)| f == file) {
+            Some((_, v)) => v.push(format!("{file}{line}")),
+            None => groups.push((file.clone(), vec![format!("{file}{line}")])),
+        }
+    }
+    let doc = json!({
+        "tests": [],
+        "passed": 0,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "notRun": 0,
+        "total": 0,
+        "exitCode": exit_code,
+        "wallSeconds": (wall_s * 1000.0).round() / 1000.0,
+        "compilationErrors": groups.iter().map(|(f, e)| json!({"file": f, "errors": e})).collect::<Vec<_>>(),
+    });
+    serde_json::to_string_pretty(&doc).expect("a JSON value serializes")
+}
+
 pub fn exit_code(c: &Counts, allow_not_run: bool) -> u8 {
     if c.total == 0 {
         6

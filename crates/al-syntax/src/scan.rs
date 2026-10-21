@@ -246,7 +246,8 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
         let mut names = Vec::new();
         loop {
             let mut parts = Vec::new();
-            while c < header.len() && header[c].is_name() && !is_clause(&header[c]) {
+            // A target by its id (`extends 50100`) is one part.
+            while c < header.len() && (header[c].is_name() || header[c].kind == Integer) && !is_clause(&header[c]) {
                 if header[c].kind != Dot {
                     parts.push(header[c].ident_text());
                 }
@@ -507,6 +508,13 @@ mod tests {
             ("codeunit", Some(80), "Sales-Post")
         );
         assert!(f.objects[0].offset < f.objects[1].offset);
+    }
+
+    #[test]
+    fn an_extension_target_by_id_is_one_part() {
+        let f = s("pageextension 50101 \"E\" extends 50100 { }");
+        assert_eq!(f.objects[0].extends, Some(vec!["50100".to_string()]));
+        assert_eq!(f.objects[0].name, "E");
     }
 
     #[test]

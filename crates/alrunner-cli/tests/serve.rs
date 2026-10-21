@@ -1033,3 +1033,33 @@ fn a_kept_tdd_compile_follows_the_sources_and_the_real_procedure_ends_the_stub()
     s.send(json!({"command": "shutdown"}));
     s.line();
 }
+
+/// Issue 5604: a changed resource file is seen by the next request, which does not reuse the earlier compile.
+#[test]
+fn a_changed_resource_file_is_seen_by_the_next_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = d.path().join("res");
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000005604","name":"Res","publisher":"Test","version":"1.0.0.0","dependencies":[],"resourceFolders":["ProbeResources"]}"#,
+    );
+    write(&a, "ProbeResources/active.txt", "M0001");
+    write(
+        &a,
+        "src/T.al",
+        "codeunit 50650 \"Res Tests\" { Subtype = Test; [Test] procedure ResourceIs() begin Error('res=%1', NavApp.GetResourceAsText('active.txt')); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let run = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50650.ResourceIs"}));
+        s.until_summary()
+    };
+    let lines = run(&mut s);
+    assert!(lines[0]["message"].as_str().unwrap().contains("res=M0001"), "{lines:?}");
+    write(&a, "ProbeResources/active.txt", "M0002");
+    let lines = run(&mut s);
+    assert!(lines[0]["message"].as_str().unwrap().contains("res=M0002"), "{lines:?}");
+    assert_eq!(lines.last().unwrap()["cached"], false, "{lines:?}");
+}

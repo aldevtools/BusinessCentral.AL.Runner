@@ -18,6 +18,7 @@ mod gone_row_key_filter;
 mod goto_next_call;
 mod gotokey_walk_parts;
 mod host_save_record_parts;
+mod list_caption_filter;
 mod no_source_card;
 mod open_onopenpage_moves_rec;
 mod page_inserts;

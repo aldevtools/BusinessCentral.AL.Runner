@@ -160,6 +160,25 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
     assert_eq!(u[0].1, Outcome::Fail("real failure".into()));
 }
 
+/// al-runner issue 5610: a test refused at an HttpClient call can change only what an HTTP server received, which a later
+/// test sees only by sending a request itself. A later failure that sends none is trusted.
+#[test]
+fn a_failure_after_a_test_refused_at_an_http_call_is_trusted_when_it_sends_no_request() {
+    // A request no test handler answers is refused (ADR-027): the runtime never opens a connection.
+    let src = "codeunit 60105 T { Subtype = Test;
+                [Test] procedure HttpGet() var C: HttpClient; R: HttpResponseMessage; begin C.Get('https://example.com/x', R); end;
+                [Test] procedure UserIdRead() begin if UserId() = '' then Error('empty user'); end;
+                [Test] procedure CompanyNameRead() begin Error('company=%1', CompanyName()); end; }";
+    let o = outcomes_of(src, "T");
+    let by = |n: &str| o.iter().find(|(x, _)| x == n).map(|(_, x)| x.clone()).unwrap();
+    assert!(matches!(by("HttpGet"), Outcome::NotRun(_)), "{:?}", by("HttpGet"));
+    assert!(
+        matches!(by("CompanyNameRead"), Outcome::Fail(m) if m.starts_with("company=")),
+        "{:?}",
+        by("CompanyNameRead")
+    );
+}
+
 // record/TestTransactionModelAutoRollback.al:Test01-Test03: an AutoRollback test's write is
 // rolled back when it finishes; the next default-model test's write survives.
 #[test]
@@ -2193,8 +2212,9 @@ fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach
 
 // ADR-046 amendment 1, A4 item 10: the test session raises Company Triggers OnCompanyOpen then OnCompanyOpenCompleted to the
 // app's subscribers once, before the first test of the codeunit, and not again for the second test
-// (events/lt-bf-company-open/BfCompanyOpenTests.al:19-38, :40-50). A subscriber that writes the database refuses the codeunit:
-// what the runner does with those writes is not pinned.
+// (events/lt-bf-company-open/BfCompanyOpenTests.al:19-38, :40-50). What the runner does with the writes of a subscriber is not
+// pinned: a test whose reach can read a table one wrote is not run, the other tests run (al-runner issue 5606: the whole
+// codeunit was refused).
 #[test]
 fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
     let o = outcomes(
@@ -2216,6 +2236,29 @@ fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
             codeunit 60907 Subs {
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
                 local procedure Open() var R: Record Co; begin R.K := 'X'; if R.Insert() then; end; }
+            table 60902 Other { fields { field(1; K; Code[10]) { } } }
+            codeunit 60903 Helper { procedure Count(): Integer var R: Record Co; begin exit(R.Count()); end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure First() begin end;
+                [Test] procedure ReadsCo() var R: Record Co; begin if R.IsEmpty() then Error('empty'); end;
+                [Test] procedure ReadsCoThroughAHelper() var H: Codeunit Helper; begin if H.Count() = 0 then Error('empty'); end;
+                [Test] procedure WritesOther() var R: Record Other; begin R.K := 'Y'; R.Insert(); end; }",
+    );
+    let of = |n: &str| o.iter().find(|(t, _)| t == n).map(|(_, r)| r.clone()).unwrap();
+    assert_eq!(of("First"), Outcome::Pass, "{o:?}");
+    assert_eq!(of("WritesOther"), Outcome::Pass, "{o:?}");
+    for n in ["ReadsCo", "ReadsCoThroughAHelper"] {
+        assert!(
+            matches!(&of(n), Outcome::NotRun(r) if r.contains("OnCompanyOpen") && r.contains("Co")),
+            "{n}: {o:?}"
+        );
+    }
+    // A subscriber whose reach is not known (a codeunit run by an id known only at run time) may write any table.
+    let o = outcomes(
+        "table 60901 Co { fields { field(1; K; Code[10]) { } } }
+            codeunit 60907 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+                local procedure Open() var R: Record Co; Id: Integer; begin R.K := 'X'; if R.Insert() then; Id := R.Count(); Codeunit.Run(Id); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure First() begin end; }",
     );
