@@ -212,6 +212,7 @@ impl Session {
             s.window_from_start = false;
             s.window_eof = false;
             s.window_whole = false;
+            s.opened_on_moved_rec = false;
             s.focus = None;
             s.focus_in_row = false;
             s.errors = Vec::new();
@@ -794,26 +795,35 @@ impl Session {
             && self.declares(st, "onopenpage")
             && !self.declares(st, "onfindrecord")
             && !self.is_request_page(st)
+            && self.rec_moved_by_onopenpage(st)?
         {
-            self.refuse_rec_moved_by_onopenpage(st)?;
+            return self.open_on_rec_moved_by_onopenpage(st);
         }
         self.page_first_row(st)
     }
 
     /// A page without OnFindRecord opened without a record, whose OnOpenPage left Rec on a key that is neither blank nor the
-    /// first row of the view: whether it opens on that row or on the first one is not pinned (the corpus pins Rec as OnOpenPage
-    /// left it only for pages with OnFindRecord, pages/lt-ai-list-order/AiListOrderTests.al:825
-    /// OpenOnRow_SetPositionInOnOpenPage_LastRow). Tests-ERM 134710 EmptySetup reaches it (Payment Registration Setup inserts the
-    /// user's row in OnOpenPage while another user's row sorts first).
-    fn refuse_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<(), Signal> {
+    /// first row of the view: true when the page opens `=><` from Rec as OnOpenPage left it. A Card or List page, opened by
+    /// TestPage OpenView/OpenEdit, Page.Run or Page.RunModal, opens on the row Rec was left on, in the view OnOpenPage set, and
+    /// on the nearest row of the view when Rec is outside the filter it set (corpus
+    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:175 QR_Card_OpenView_Get `C|bravo`, :188 _FindLast, :201 _FindFirstNext,
+    /// :214 _SetRangeFindLast, :227 _SetCurrentKeyGet, :240 _KeyAssigned `C` without a read, :253 _GetThenFilterExcludes `B` for
+    /// C with filter A..B, :279 QR_Card_OpenEdit_Get, :292-396 the same for a List, :540 QR_Card_PageRun_Get, :555
+    /// QR_List_PageRun_Get, :600 QR_Card_RunModal_Get, :615 QR_List_RunModal_FindLast). A temporary source OnOpenPage fills opens
+    /// on the row Rec was left on too (:409 QR_TempCard_OpenView_NoMove `D` after the inserts, :474 QR_TempList_OpenView_NoMove,
+    /// :422-526, :570, :585, :630). Another page type, a page in lookup mode or with OnNextRecord are not pinned: refused (a
+    /// temporary source of another page type keeps the first row, as before: handlers/TestTempIntegerListPart.al:92,
+    /// handlers/TestPageVariableControlCaption_Tests.al:120, testpart/BnrBlankPart.al:596 do not tell the two apart). A part is
+    /// not asked (the caller checks). Tests-ERM 134710 EmptySetup reaches it (Payment Registration Setup inserts the user's row
+    /// in OnOpenPage while another user's row sorts first).
+    fn rec_moved_by_onopenpage(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
-        // A temporary source that OnOpenPage fills is kept as it was (kept, not pinned): refusing it would lose the baseline
-        // cases handlers/TestTempIntegerListPart.al:92 TempIntegerPart_SelfLoaded_FirstRowIsNumberOne,
-        // handlers/TestPageVariableControlCaption_Tests.al:120 PrecompiledPage_PageVariableControl_NoCaption_IsTheControlName
-        // and testpart/BnrBlankPart.al:596 NoRow_TempListInsertingInOnOpenPage_ShowsARow, none of which tells the first row
-        // from the one OnOpenPage left Rec on.
-        if rec.borrow().temporary {
-            return Ok(());
+        let pinned_type = matches!(
+            self.engine.object_facts[st.borrow().object as usize].page_type,
+            Some(al_ir::PageType::Card | al_ir::PageType::List)
+        );
+        if rec.borrow().temporary && !pinned_type {
+            return Ok(false);
         }
         let key = self.row_key(&rec)?;
         let table = self.table(&rec)?;
@@ -825,7 +835,7 @@ impl Session {
             .map(|ty| self.default_value(ty))
             .collect();
         if Self::same_key(&key, &blank) {
-            return Ok(());
+            return Ok(false);
         }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
@@ -834,11 +844,68 @@ impl Session {
             _ => None,
         };
         if first.is_some_and(|f| Self::same_key(&f, &key)) {
-            return Ok(());
+            return Ok(false);
         }
-        unsupported(
-            "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",
-        )
+        if !pinned_type || st.borrow().lookup || self.declares(st, "onnextrecord") {
+            return unsupported(
+                "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",
+            );
+        }
+        Ok(true)
+    }
+
+    /// Opens a Card or List on the row OnOpenPage left Rec on (see `rec_moved_by_onopenpage`): `=><` from Rec, so a Rec outside
+    /// the view it set lands on the nearest row of the view (QrMovedTests.al:253 QR_Card_OpenView_GetThenFilterExcludes `B` for
+    /// C with filter A..B, `O:C;R:B;C:B;`). A card whose key OnOpenPage changed reads its row once more first (:227
+    /// QR_Card_OpenView_SetCurrentKeyGet `O:B;R:B;R:B;C:B;`); a list in such a key is refused. A list's open read goes on above the row (`read_rows_above_the_moved_rec`); its rows then start at the first row of the
+    /// view. A view with no row is not pinned.
+    fn open_on_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let key_changed = rec.borrow().key != 0;
+        // A key a SourceTableView set is not one OnOpenPage changed: not pinned.
+        let object = st.borrow().object as usize;
+        if key_changed
+            && self.engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("SourceTableView"))
+        {
+            return unsupported(
+                "a page with a SourceTableView key opened without a record whose OnOpenPage left Rec on a row other than the first of its view (not pinned)",
+            );
+        }
+        let list = self.is_list(st);
+        // A list in a key OnOpenPage changed reads each row more often than in its primary key (:344
+        // QR_List_OpenView_SetCurrentKeyGet `...;R:B;R:B;R:B;C:B;`, `next log` `R:A;R:A;R:A;C:A;`); that read is not modelled.
+        if key_changed && list {
+            return unsupported(
+                "a list opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (the reads are not implemented)",
+            );
+        }
+        if !self.nav_find(st, "=><")? {
+            return unsupported(
+                "a page opened without a record whose OnOpenPage left Rec where its view has no row (not pinned)",
+            );
+        }
+        if key_changed {
+            self.populate_current(st)?;
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.cursor = Cursor::Row;
+            s.landing_first = true;
+            s.open_reads_above = list;
+        }
+        let r = self.arrive(st);
+        {
+            let mut s = st.borrow_mut();
+            s.landing_first = false;
+            s.open_reads_above = false;
+        }
+        r?;
+        st.borrow_mut().window_from_start = list;
+        st.borrow_mut().opened_on_moved_rec = list;
+        Ok(())
     }
 
     pub(super) fn save_values(&self, st: &St) -> bool {
