@@ -4,6 +4,7 @@ mod action_moved_rec;
 mod base_access;
 mod bg_task_id;
 mod update_new_line_filter;
+mod open_onopenpage_moves_rec;
 mod control_entry;
 mod control_properties;
 mod control_text;
