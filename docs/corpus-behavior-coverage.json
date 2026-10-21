@@ -15901,7 +15901,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1318,
+        "line": 1340,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -15910,7 +15910,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1321,
+        "line": 1343,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -15952,10 +15952,19 @@
         "template": "The 'Name'='' part of the cookie is invalid."
       },
       {
+        "code": "InvalidValue",
+        "file": "crates/al-builtins/src/mathfns.rs",
+        "generic": false,
+        "line": 80,
+        "pinned": true,
+        "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
+        "template": "The supplied value is not valid."
+      },
+      {
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 99,
+        "line": 111,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBErrorsCollections.al:467",
         "template": "Value was either too large or too small for a Decimal."
@@ -16333,7 +16342,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1295,
+        "line": 1300,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16405,7 +16414,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3251,
+        "line": 3260,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16540,14 +16549,14 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/views.rs",
         "generic": false,
-        "line": 553,
+        "line": 557,
         "pinned": true,
         "site": "record/TestRecordViewCopyMarkContracts.al:145",
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 78,
-    "sites": 79
+    "pinned": 79,
+    "sites": 80
   },
   "language": {
     "bc": "27-29",
