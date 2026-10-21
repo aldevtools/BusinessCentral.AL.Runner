@@ -901,6 +901,8 @@ impl CorpusRuntime {
                                 captured: None,
                                 impact: Vec::new(),
                                 stubs: Vec::new(),
+                                entered: Vec::new(),
+                                dotnet: false,
                             });
                         }
                     }
@@ -1037,6 +1039,8 @@ impl CorpusRuntime {
                     captured,
                     impact,
                     stubs: Vec::new(),
+                    entered: Vec::new(),
+                    dotnet: false,
                 })
             };
             match r.result {
@@ -1089,6 +1093,12 @@ impl CorpusRuntime {
                         if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
                             if let Some(last) = list.last_mut() {
                                 last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
+                            }
+                        }
+                        if let Some(i) = scratch.entered.iter().position(|(n, _, _)| *n == name) {
+                            if let Some(last) = list.last_mut() {
+                                last.entered = std::mem::take(&mut scratch.entered[i].1);
+                                last.dotnet = scratch.entered[i].2;
                             }
                         }
                         times_by_case.insert((r.si, r.id, name.to_lowercase()), time);

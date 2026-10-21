@@ -210,6 +210,8 @@ mod tests {
             captured: None,
             impact: Vec::new(),
             stubs: Vec::new(),
+            entered: Vec::new(),
+            dotnet: false,
         }
     }
 

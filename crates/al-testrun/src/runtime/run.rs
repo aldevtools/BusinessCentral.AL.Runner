@@ -693,6 +693,11 @@ pub(crate) fn run_codeunit_core(
         let cov = if covering { session.take_coverage() } else { Vec::new() };
         if scratch.trace {
             let touched = session.take_impact_trace();
+            scratch.entered.push((
+                routine.name.clone(),
+                crate::affected::entered_keys(&lowered.program, &touched, &lowered.dependency),
+                touched.dotnet,
+            ));
             scratch.traces.push((
                 routine.name.clone(),
                 crate::impact_trace::keys(&lowered.program, &touched),

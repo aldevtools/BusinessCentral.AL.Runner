@@ -298,6 +298,17 @@ ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capt
    shows `<not rendered: KIND>`; `--test` and `--codeunit` select tests (v2 ran all); a file of a dependency read from a
    source package is shown from `<cache>/debug-sources/` (`docs/debugging.md`).
 
+### A note for ALchemist's author
+
+The debugger needs one change in ALchemist: the arguments of the `DebugAdapterExecutable`
+(`debugAdapterFactory.ts:56-98`). Pass `['debug', '--stdio', ...sourcePaths]` instead of
+`['--dap', 'stdio', ...sourcePaths]`, with `--dep` for a dependency folder whose code should be debugged and the
+launch configuration's `testFilter` as `--test`. Nothing else in the DAP code has to change: requests, capabilities,
+events and breakpoint answers are v2's. ALchemist's text that says "stepping acts as continue"
+(`debugLaunch.ts:61-62`) is out of date: `next`, `stepIn` and `stepOut` step. `docs/debugging.md`, section "Using the
+debugger from ALchemist", has the command line and a table of what differs from v2. AL Runner ships no VS Code
+extension of its own (ADR-048, owner decision 3).
+
 ## 10. What does not change for a tool
 
 The names of the tests (`Codeunit<ID>.<Method>`), the meaning of pass and fail, `durationMs`, the
