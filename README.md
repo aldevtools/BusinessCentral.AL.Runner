@@ -478,6 +478,12 @@ load it.
   instead of failing to compile. Each such test is reported as stubbed, pass or fail, and the
   summary counts stubbed tests apart. So far only procedure calls on codeunit variables become
   stubs (ADR-051). `serve` takes it as the `tdd` field of `runTests`, or `serve --tdd`.
+- `--affected` (ADR-050): run only the test codeunits a change since the last `--affected`
+  run can affect, against a stored result in the cache folder (or `--affected-store FILE`, for
+  CI). The other tests keep their stored outcome: they are counted as skipped, never as passed,
+  and one that failed last time keeps the exit code at 1. A change the rule cannot follow
+  (an added object, `app.json`, a dependency app) runs everything and says why.
+  `--include-failing` also runs every test that did not pass last time. Not in `serve` yet.
 - Only three targets are built: Linux x64, Windows x64 and macOS arm64.
 
 **Report problems** as a GitHub issue, using the "Alpha feedback" template.

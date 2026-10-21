@@ -18,6 +18,9 @@ pub struct Counts {
     pub stubbed_pass: usize,
     pub stubbed_fail: usize,
     pub stubbed_not_run: usize,
+    /// `--affected` (ADR-050 decision 11): the skipped tests whose stored outcome is not a pass. They are not counted
+    /// in `fail`; the failed count says them apart.
+    pub still_failing: usize,
 }
 
 impl Counts {
@@ -174,8 +177,13 @@ pub fn summary_line(c: &Counts, test_data: bool) -> String {
             String::new()
         }
     };
+    let still = if c.still_failing > 0 {
+        format!(" (+{} still failing, not re-run)", c.still_failing)
+    } else {
+        String::new()
+    };
     format!(
-        "Tests: {} total, {} passed{flagged}, {} failed{}, {} not run{}{}",
+        "Tests: {} total, {} passed{flagged}, {} failed{}{still}, {} not run{}{}",
         c.total,
         c.pass,
         c.fail,

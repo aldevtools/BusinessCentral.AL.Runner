@@ -1082,6 +1082,17 @@ fn test_inner(
         host,
         ..Default::default()
     };
+    // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
+    let affected = if a.affected && collect.is_none() {
+        Some(crate::affected::Affected::prepare(
+            a,
+            &inputs,
+            &dependencies,
+            bc_build.as_deref(),
+        )?)
+    } else {
+        None
+    };
     let hooks = match warm.as_deref() {
         Some(w) => {
             let pick = selection.clone();
@@ -1149,8 +1160,12 @@ fn test_inner(
         hooks,
         clock_starts: None,
         quiet_baseline: !a.verbose,
-        impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
-        narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
+        impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace) || affected.is_some(),
+        narrow: collect
+            .as_ref()
+            .and_then(|c| c.narrow.clone())
+            .or_else(|| affected.as_ref().map(crate::affected::Affected::narrow)),
+        object_hashes: affected.is_some(),
         tdd: a.tdd,
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
@@ -1318,7 +1333,17 @@ fn test_inner(
         .filter(|r| a.test_apps.is_none_or(|n| r.app < n))
         .collect();
     results.sort_by_key(|r| (r.app, r.codeunit));
-    let counts = Counts::of(results.iter().copied());
+    // `--affected`: the stored result for the next run is written; the skipped codeunits keep their stored outcomes
+    // and are reported apart (ADR-050 decisions 9 to 11).
+    let affected = affected.and_then(|af| af.finish(rt.results(), rt.impact_keys()));
+    let mut counts = Counts::of(results.iter().copied());
+    if let Some(r) = &affected {
+        counts.still_failing = r.still_failing().len();
+    }
+    let skipped_results: Vec<TestResult> = affected
+        .as_ref()
+        .map(crate::affected::Report::junit_results)
+        .unwrap_or_default();
     // A missing .NET helper stops tests for a reason that is the machine's, not the tests': say so
     // before the results and again with the summary.
     let dotnet_warning = results
@@ -1629,10 +1654,12 @@ fn test_inner(
     }
     let total_time = started.elapsed();
     if let Some(path) = &a.junit {
+        let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();
+        with_skipped.sort_by_key(|r| (r.app, r.codeunit));
         write_file(
             path,
             &output::junit(
-                &results,
+                &with_skipped,
                 bc_build.as_deref(),
                 total_time.as_secs_f64(),
                 &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
@@ -1664,6 +1691,11 @@ fn test_inner(
     {
         if !a.quiet {
             say!("{w}");
+        }
+    }
+    if let Some(r) = &affected {
+        for line in r.lines() {
+            say!("{line}");
         }
     }
     say!("{}", style::bold(&output::summary_line(&counts, test_data.is_some())));
@@ -1712,7 +1744,10 @@ fn test_inner(
             eprintln!("{line}");
         }
     }
-    let code = output::exit_code(&counts, a.allow_not_run);
+    let mut code = output::exit_code(&counts, a.allow_not_run);
+    if let Some(r) = &affected {
+        code = r.exit_code(code);
+    }
     let verdict = match code {
         0 => "PASSED",
         1 => "FAILED",
@@ -1747,8 +1782,11 @@ fn test_inner(
     );
     if let Some(w) = warm {
         w.report = Some(Report {
-            doc: serde_json::from_str(&output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs))
-                .unwrap_or_default(),
+            doc: serde_json::from_str(&crate::affected::with_selection(
+                output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                affected.as_ref(),
+            ))
+            .unwrap_or_default(),
             coverage: coverage_doc.as_deref().and_then(|d| serde_json::from_str(d).ok()),
             messages: results.iter().map(|r| r.messages.clone()).collect(),
             object_names: results.iter().map(|r| r.codeunit_name.clone()).collect(),
@@ -1772,7 +1810,10 @@ fn test_inner(
         });
     }
     if let Some(target) = &a.output_json {
-        let doc = output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs);
+        let doc = crate::affected::with_selection(
+            output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+            affected.as_ref(),
+        );
         match target {
             Some(path) => write_file(path, &doc)?,
             None => println!("{doc}"),

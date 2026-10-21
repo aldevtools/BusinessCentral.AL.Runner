@@ -154,7 +154,7 @@ folder"). **Corpus** is the AL language test corpus used as the oracle (ADR-007)
 | PERF-3 | Ncl rewrite cache, shadow runtime, re-exec, Win32 shim, JIT and GC tuning | `NclShadowRuntime.cs`, `Win32Stubs/` | N/A | - | Gone with the .NET engine | - |
 | PERF-4 | `--watch`: stay resident; rerun on `.al` save; wait for quiet (250 ms, max 10 s) | `WatchSource.cs`, `AL_RUNNER_WATCH_QUIET_MS`, `AL_RUNNER_WATCH_MAX_WAIT_MS` | No | CLI | `al-runner test --watch`. File watcher in the CLI layer. A full rerun is fast enough | - |
 | PERF-5 | Live terminal dashboard; plain lines when not a terminal | `WatchDashboard.cs` | No | CLI | Same behaviour | - |
-| PERF-6 | `--watch --affected`, `--include-failing`, `--strict-environment`: rerun only tests an edit can affect | `Infrastructure/Affected*.cs`, `docs/watch-affected.md` | No | NEW-ADR | Deferred. v3 may not need it. Revisit if a full run with Base Application is slow | Hard: per-test dependency tracking, baselines across environments |
+| PERF-6 | `--watch --affected`, `--include-failing`, `--strict-environment`: rerun only tests an edit can affect | `Infrastructure/Affected*.cs`, `docs/watch-affected.md` | Partly | NEW-ADR | ADR-050 (Accepted 2026-10-21): `al-runner test --affected [--include-failing] [--strict-environment] [--affected-store FILE]` on the command line, without `--watch`; serve fields not yet | Per-object IR hash, trace and entered objects per test codeunit; any environment change is a full run |
 | PERF-7 | Scratch folder sweeping; package-dedup cache; memory census | `Infrastructure/ScratchDirs.cs`, `PkgDedupCache.cs` | N/A | - | v3 writes no scratch folders | - |
 
 ## 6. Editors, debugging, other tools
