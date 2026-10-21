@@ -1,6 +1,6 @@
 # ADR-052: Test sources (`--affected-from`, `al-runner test-microsoft`) and matrix runs over BC versions and countries
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-21, with the answers recorded under the open questions)
 - Date: 2026-10-21
 - Related: ADR-013 (dependency apps from source, compiled-only apps refused), ADR-015 (one runtime for every BC
   major), ADR-022 (compile cache), ADR-028 (serve), ADR-043 (impact selection), ADR-046 (install code, companies),
