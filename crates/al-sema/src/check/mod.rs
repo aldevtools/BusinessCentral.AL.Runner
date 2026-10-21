@@ -53,6 +53,10 @@ pub struct CheckResult {
     pub from_codes: Vec<Diagnostic>,
     /// The check ran with `--tdd` (`Roots::tdd`).
     pub tdd: bool,
+    /// With `--tdd`: the stub declarations of the compile's stub files (ADR-051 decision 10), which lowering marks.
+    pub tdd_decls: Option<std::sync::Arc<tdd_decl::TddDecls>>,
+    /// `Roots::object_hashes`: lowering hashes the symbolic form of each object it lowers (`Lowered::object_hashes`).
+    pub object_hashes: bool,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -210,6 +214,11 @@ pub struct Roots {
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist becomes a stub site
     /// ([`Res::TddStub`]) instead of an error. Off, nothing changes.
     pub tdd: bool,
+    /// With `tdd`: the `idRanges` of each app by app id, for the ids of stub declarations (`tdd_decl::stub_files`).
+    pub tdd_id_ranges: std::collections::BTreeMap<String, Vec<(u32, u32)>>,
+    /// `--affected` (ADR-050 decision 3): lowering hashes the symbolic form of each object it lowers, with its source
+    /// positions, so the next run can tell which objects changed. Off, nothing is hashed.
+    pub object_hashes: bool,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -406,6 +415,8 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         from_checker,
         from_codes,
         tdd: c.tdd_apps.is_some(),
+        tdd_decls: c.tdd_apps.is_some().then(|| std::sync::Arc::new(tdd_decl::decls(ws))),
+        object_hashes: roots.object_hashes,
     }
 }
 
@@ -1028,6 +1039,7 @@ mod member;
 mod object;
 pub(crate) mod posmap;
 pub mod tdd;
+pub mod tdd_decl;
 #[cfg(test)]
 mod tests;
 

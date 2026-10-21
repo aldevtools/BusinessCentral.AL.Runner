@@ -204,6 +204,37 @@ dependency extensions, free ids, flagging); 1 for output (text, JSON, serve, JUn
 3. A run whose failures are all stubbed exits 1, as v2.
 4. Summary `generatedStubs`: every stub of the program.
 
+## Decided without owner review (2026-10-21, slice 4: decision 10)
+
+- **Two-pass compile.** The checker notes the declarations a test app needs; they are written as AL source into one
+  extra file of that app (`<tdd>/stubs.al`, in memory only) and the apps are compiled again, at most 3 more times (a
+  stub table's fields are found once the table exists). A compile without needs is not repeated (decision 11).
+- **Names and ids.** Table and enum extensions are named `"TDD Stub <id>"`. Every id (objects, extensions, the fields of
+  a table extension) is the first free one of the test app's `idRanges`; an app without `idRanges` gets no
+  declaration, and its sites stay refused.
+- **Flagging granularity.** A use of a stub field or enum value marks the statement that holds it
+  (`ir::Stmt::TddMark`, as `Stmt::Assume` marks an assumption); a stub object marks the routines that declare a
+  parameter or local of its type. A global variable of a stub type does not flag by itself (changed in slice 5,
+  below).
+- **Length.** An assignment and `Validate` check the 2048-character limit of a stub Text or Code field
+  (`ir::Expr::TddFit`); other writes (a `FieldRef`, `TransferFields`) keep the declared length's error (changed in
+  slice 5, below).
+- **Signature types.** A Text or Code stub field is listed as `Text` or `Code`, without the length.
+- **Serve.** An incremental compile of a compile with stub declarations is refused; the request compiles completely
+  and declares the stubs again from the new sources, so a stub that is no longer needed goes.
+
+## Decided without owner review (2026-10-21, slice 5: follow-ups)
+
+- **Globals.** A statement that names a global variable whose type is a stub object (codeunit, table, enum) is marked
+  as a use of that object, so every test that touches the global is stubbed, never a clean pass. A test that does not
+  name the global is not flagged by it.
+- **Bare field names.** A bare name that is not called, in a trigger or procedure of a table or table extension of a
+  test app, that nothing supplies (no variable, field, system variable, platform function or named section) is a stub
+  field site of the table, as `Rec.F` is. Field triggers and other sections are left out, as for AL0118.
+- **Dynamic writes.** A text longer than the 2048 characters of a stub Text or Code field is refused with the `--tdd`
+  length reason also through `FieldRef.Value`, `FieldRef.Validate`, `Validate` by field number and `TransferFields`
+  (`ir::Field::tdd_length_unknown`, read by the VM before it converts the value).
+
 ## Conformance
 
 `crates/alrunner-cli/tests/tdd.rs`, the `al-sema` unit tests of the type rule, and the compile-dump comparison of

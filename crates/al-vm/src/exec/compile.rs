@@ -657,6 +657,17 @@ impl<'a> Compiler<'a> {
                 let a = self.expr_any(query)?;
                 self.aux(AuxSite::QueryColumn { column: *column }, d, a);
             }
+            E::TddFit { max, why, inner } => {
+                let a = self.expr_any(inner)?;
+                self.aux(
+                    AuxSite::TddFit {
+                        max: *max,
+                        why: why.clone(),
+                    },
+                    d,
+                    a,
+                );
+            }
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -808,7 +819,7 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::CapHit { p: *p });
                 // Markers of an assumption sit between the position and its statement.
                 let mut j = i + 1;
-                while let Some(m @ ir::Stmt::Assume(_)) = stmts.get(j) {
+                while let Some(m @ (ir::Stmt::Assume(_) | ir::Stmt::TddMark(_))) = stmts.get(j) {
                     self.stmt(m)?;
                     j += 1;
                 }
@@ -1124,6 +1135,20 @@ impl<'a> Compiler<'a> {
             }
             S::Assume(a) => {
                 self.emit(Op::Assume { a: *a });
+            }
+            // `--tdd` (ADR-051 decision 10): the stub is noted as reached; the slot it writes is a scratch one.
+            S::TddMark(stub) => {
+                let mark = self.next;
+                let t = self.alloc()?;
+                self.aux(
+                    AuxSite::TddStub {
+                        stub: stub.clone(),
+                        ty: None,
+                    },
+                    t,
+                    t,
+                );
+                self.next = mark;
             }
         }
         Ok(())

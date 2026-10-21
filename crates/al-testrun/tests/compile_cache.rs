@@ -54,6 +54,7 @@ fn apps(base: &str) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
                 include_source: false,
                 target: String::new(),
                 layout_files: Vec::new(),
+                id_ranges: Vec::new(),
                 symbols: vec![],
             },
             Manifest {
@@ -63,6 +64,7 @@ fn apps(base: &str) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
                 include_source: false,
                 target: String::new(),
                 layout_files: Vec::new(),
+                id_ranges: Vec::new(),
                 symbols: vec![],
             },
         ],

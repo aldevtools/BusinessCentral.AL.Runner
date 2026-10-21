@@ -32,6 +32,11 @@ pub struct Touches {
     /// Enums whose values were read: names, ordinals or captions listed, a value formatted, evaluated from text or
     /// shown on a page, an interface dispatched on a value.
     pub enums: HashSet<u32>,
+    /// For `--affected` (ADR-050 decision 4): the objects whose code ran (a routine entered, also one with no
+    /// statement, or a `Codeunit.Run` of a codeunit with no `OnRun`). Not a raise or a touch: `is_empty` leaves it out.
+    pub entered: HashSet<usize>,
+    /// For `--affected` (decision 6): a DotNet operation ran (its state is not keyed).
+    pub dotnet: bool,
 }
 
 impl Touches {
@@ -84,6 +89,26 @@ impl crate::Session {
             if write {
                 t.writes.insert(table);
             }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn note_entered(&self, object: usize) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            t.entered.insert(object);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn note_dotnet(&self) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            t.dotnet = true;
         }
     }
 

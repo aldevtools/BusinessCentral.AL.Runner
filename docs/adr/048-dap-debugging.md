@@ -205,4 +205,6 @@ the VS Code debugger contribution; one session runs the selected tests and exits
 ## Conformance
 
 `crates/alrunner-cli/tests/debug.rs` (the ported v2 sequences above) and the unit tests in
-`crates/alrunner-cli/src/debug/`.
+`crates/alrunner-cli/src/debug/`. Test plan item 9 (same outcomes with and without the debugger) is
+`every_outcome_is_the_same_with_and_without_the_debugger` on a fixture app, and the ignored
+`outcomes_of_a_given_app_are_the_same_with_and_without_the_debugger` for any app (`docs/debugging.md`).

@@ -546,6 +546,16 @@ impl Lowerer<'_> {
         self.rt(&f.ty).unwrap_or(RtType::Variant)
     }
 
+    /// `--tdd` (ADR-051 decision 10): why a long write into field `f` of table `oi` is refused, when it is a stub Text or
+    /// Code field (`ir::Field::tdd_length_unknown`).
+    fn tdd_length_unknown(&self, oi: usize, f: &crate::members::FieldInfo) -> Option<String> {
+        let d = self.checked.tdd_decls.as_ref().filter(|d| !d.fields.is_empty())?;
+        if !matches!(f.ty, Ty::Text(_) | Ty::Code(_)) || !d.fields.contains_key(&(oi, f.id)) {
+            return None;
+        }
+        Some(crate::check::tdd_decl::stub_field_reason(&f.name))
+    }
+
     pub(crate) fn table_schema(
         &self,
         oi: usize,
@@ -612,6 +622,7 @@ impl Lowerer<'_> {
                     caption_class_refusal: self.field_caption_class_refusal(oi, f, &extensions),
                     auto_format_expression: self.field_auto_format(oi, f, &extensions, routine_at),
                     auto_format_refusal: self.field_auto_format_refusal(oi, f, &extensions),
+                    tdd_length_unknown: self.tdd_length_unknown(oi, f),
                     flow_filter: f.class == crate::members::FieldClass::FlowFilter,
                     calc,
                     calc_refusal: refusal,

@@ -840,7 +840,7 @@ pub(crate) fn lower_core(
             })
             .collect(),
         uncompiled_subscribers,
-        tdd_stubs: crate::check::tdd::stub_list(&tdd_sites),
+        tdd_stubs: tdd_stub_list(checked, &tdd_sites),
         ..Default::default()
     };
     let mut out = Lowered {
@@ -863,6 +863,12 @@ pub(crate) fn lower_core(
         skipped: checked.skipped.clone(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
         tdd_sites,
+        tdd_needs: if checked.tdd {
+            crate::check::tdd_decl::needs(ws, checked)
+        } else {
+            Vec::new()
+        },
+        object_hashes: Vec::new(),
     };
     if positions {
         program.sources = ws
@@ -1179,14 +1185,23 @@ pub(crate) fn lower_core(
         modify_properties: &modify_properties,
         over_max_length: &over_max_length,
     };
-    let Linking { linked, expected, syms } = link_pieces(
+    let Linking {
+        linked,
+        expected,
+        syms,
+        hashes,
+    } = link_pieces(
         staged,
         program,
         &prov,
         &routine_keys,
         &lookups,
         subscriber_decls,
-        LinkOptions { check, export },
+        LinkOptions {
+            check,
+            export,
+            hash: checked.object_hashes,
+        },
     )?;
     if let Some(set) = exported.as_mut() {
         for ((unsupported, calls), object) in block_meta.into_iter().zip(syms) {
@@ -1197,6 +1212,7 @@ pub(crate) fn lower_core(
             });
         }
     }
+    out.object_hashes = hashes;
     out.pos_ranges = linked.pos_ranges;
     let mut program = linked.program;
     if !shared.early_relations || check {
@@ -1774,12 +1790,16 @@ struct Linking {
     linked: al_link::Linked,
     expected: Option<Expected>,
     syms: Vec<Option<al_ir::sym::SymObject>>,
+    /// With `LinkOptions::hash`: `Lowered::object_hashes`.
+    hashes: Vec<Option<super::ObjectHash>>,
 }
 
 /// What `link_pieces` is asked to do besides linking.
 struct LinkOptions {
     check: bool,
     export: bool,
+    /// Hash each lowered object's symbolic form (`Lowered::object_hashes`).
+    hash: bool,
 }
 
 /// The program built the way lowering used to build it, and where each object's source positions are (the check).
@@ -1825,7 +1845,7 @@ fn link_pieces(
     subscribers: Vec<Vec<al_ir::sym::SubscriberDecl>>,
     options: LinkOptions,
 ) -> Result<Linking, String> {
-    let LinkOptions { check, export } = options;
+    let LinkOptions { check, export, hash } = options;
     use al_ir::sym::ObjKey;
     let keys: Vec<ObjKey> = staged
         .iter()
@@ -1970,10 +1990,47 @@ fn link_pieces(
     } else {
         Vec::new()
     };
+    let hashes: Vec<Option<super::ObjectHash>> = if hash {
+        al_link::par_map(units.iter().enumerate().collect(), workers, |oi, (_, u)| {
+            (!u.placeholder && !provided(oi)).then(|| object_hash(u, &base.sources))
+        })
+    } else {
+        Vec::new()
+    };
     let mut base = base;
     base.uncompiled_subscribers.clear();
     let linked = al_link::link(units, base, workers, &routines_of).map_err(|e| format!("link: {e}"))?;
-    Ok(Linking { linked, expected, syms })
+    Ok(Linking {
+        linked,
+        expected,
+        syms,
+        hashes,
+    })
+}
+
+/// The hash of an object's symbolic form (ADR-050 decision 3), positions included. What depends on where the object
+/// is in the program or where its app is on disk is taken out first: the object's own index and app index, and the
+/// index of each position's file, which is hashed as the path the app names the file by.
+pub(crate) fn object_hash(u: &al_ir::sym::SymObject, sources: &[ir::SourceFile]) -> super::ObjectHash {
+    use sha2::Digest;
+    let mut s = u.clone();
+    let mut files: Vec<&str> = Vec::with_capacity(s.positions.len());
+    for p in &mut s.positions {
+        files.push(sources.get(p.file as usize).map_or("", |f| f.path.as_str()));
+        p.file = 0;
+        p.object = 0;
+    }
+    s.object.app = 0;
+    let mut h = sha2::Sha256::new();
+    h.update(postcard::to_stdvec(&s).expect("a symbolic object serializes"));
+    for f in files {
+        h.update(f.as_bytes());
+        h.update([0]);
+    }
+    super::ObjectHash {
+        hash: h.finalize().iter().map(|b| format!("{b:02x}")).collect(),
+        refers: s.refs.objects,
+    }
 }
 
 /// The incremental compile (`incremental.rs`): the objects `dirty` changed in code only (the declarations of
@@ -2105,6 +2162,12 @@ pub fn relower_objects(
             )?,
         ));
     }
+    // `Roots::object_hashes`: the objects lowered again get their new hash.
+    if !old.object_hashes.is_empty() {
+        for (oi, u) in &replace {
+            old.object_hashes[*oi] = Some(object_hash(u, &program.sources));
+        }
+    }
     al_link::relink(program, &mut old.pos_ranges, &keys, &routines_of, replace).map_err(|e| format!("link: {e}"))?;
     program.uncompiled_subscribers = uncompiled_subscribers;
     // `--tdd` (ADR-051 decision 9): the stubs of the objects checked again replace theirs; the others stay.
@@ -2115,7 +2178,8 @@ pub fn relower_objects(
                 .into_iter()
                 .filter(|(oi, _)| dirty.contains(oi)),
         );
-        program.tdd_stubs = crate::check::tdd::stub_list(&old.tdd_sites);
+        program.tdd_stubs = tdd_stub_list(&checked, &old.tdd_sites);
+        old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
     // The diagnostics: what the checker found in the files that did not change stays.
@@ -2202,3 +2266,15 @@ pub(crate) const PARALLEL_OBJECTS_PER_WORKER: usize = 16;
 pub(crate) const LOWER_CHUNK: usize = 4;
 /// Stack of a lowering worker: lowering recurses on the nesting of the code.
 pub(crate) const LOWER_STACK: usize = 64 << 20;
+
+/// `--tdd`: every stub of the program, sorted, each once: the stub procedures and the stub declarations
+/// (`ir::Program::tdd_stubs`).
+fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String> {
+    let mut all = crate::check::tdd::stub_list(sites);
+    if let Some(d) = &checked.tdd_decls {
+        all.extend(d.all.iter().cloned());
+        all.sort();
+        all.dedup();
+    }
+    all
+}
