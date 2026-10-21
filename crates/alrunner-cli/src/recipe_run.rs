@@ -6,7 +6,7 @@
 use crate::args::TestArgs;
 use crate::recipe::{self, AppUnits, Lane, Recipe};
 use crate::run::{self, WarmCtx};
-use crate::{apps, bcapps};
+use crate::{apps, bcapps, sources_report};
 use std::path::{Path, PathBuf};
 
 /// What a lane's run came to.
@@ -144,30 +144,32 @@ pub fn summary_lines(results: &[LaneResult], unrun: usize) -> Vec<String> {
     out
 }
 
-/// The exit code of the recipe run: a lane that failed gives 1; a lane that was not run, or whose tests were not run,
-/// gives 7; nothing selected gives 6; else 0.
+/// The exit code of the recipe run, by the shared rule of ADR-052 (1.7, [`sources_report::worst`]): a lane that
+/// failed gives 1; a lane that was not run, or whose tests were not run, gives 7; 6 only when no lane selected a test.
 pub fn exit_code(results: &[LaneResult]) -> u8 {
-    if results.is_empty() {
-        return 6;
-    }
-    let mut code = 0;
-    for r in results {
-        let c = match &r.outcome {
-            LaneOutcome::Refused(_) => 7,
-            LaneOutcome::Ran { code, .. } => *code,
-        };
-        code = match (code, c) {
-            (1, _) | (_, 1) => 1,
-            (0, c) => c,
-            (c, 0) => c,
-            (a, b) => a.max(b),
-        };
-    }
-    code
+    sources_report::worst(results.iter().map(|r| match &r.outcome {
+        LaneOutcome::Refused(_) => 7,
+        LaneOutcome::Ran { code, .. } => *code,
+    }))
+}
+
+/// What a recipe run came to: the lanes, and the codeunits of a `TestType` no lane runs.
+pub struct RecipeRun {
+    pub results: Vec<LaneResult>,
+    pub unrun: usize,
 }
 
 /// Runs the recipe.
 pub fn test(a: &TestArgs) -> Result<u8, String> {
+    let run = run_lanes(a)?;
+    for line in summary_lines(&run.results, run.unrun) {
+        println!("{line}");
+    }
+    Ok(exit_code(&run.results))
+}
+
+/// Runs every lane of the recipe and returns what each came to; prints the lanes' own reports.
+pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
     let inputs = a
         .apps
         .iter()
@@ -244,10 +246,10 @@ pub fn test(a: &TestArgs) -> Result<u8, String> {
             },
         });
     }
-    for line in summary_lines(&results, plan.unrun.len()) {
-        println!("{line}");
-    }
-    Ok(exit_code(&results))
+    Ok(RecipeRun {
+        results,
+        unrun: plan.unrun.len(),
+    })
 }
 
 #[cfg(test)]
@@ -332,6 +334,9 @@ mod tests {
         assert_eq!(exit_code(&[ran(0), refused.clone()]), 7);
         assert_eq!(exit_code(&[ran(1), refused.clone()]), 1);
         assert_eq!(exit_code(&[refused, ran(1)]), 1);
+        // ADR-052 1.7: a lane that selected nothing does not hide another lane's pass (the old rule gave 6).
+        assert_eq!(exit_code(&[ran(6), ran(0)]), 0);
+        assert_eq!(exit_code(&[ran(6), ran(6)]), 6);
     }
 
     #[test]

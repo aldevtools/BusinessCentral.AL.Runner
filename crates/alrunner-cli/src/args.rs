@@ -10,6 +10,9 @@ pub enum Command {
     /// `al-runner --list-assumptions`: the registry of unprobed assumptions with the counts of the last run.
     ListAssumptions(Option<PathBuf>),
     Test(Box<TestArgs>),
+    /// `al-runner test-microsoft [OPTIONS]` (ADR-052 section 2): every Microsoft test app of the build, run by Microsoft's
+    /// recipe, without collecting their paths.
+    TestMicrosoft(Box<TestArgs>),
     /// `al-runner debug [--stdio | --port [N]] APP... [test options]` (ADR-048): the tests under a Debug Adapter
     /// Protocol client.
     Debug(Box<TestArgs>, crate::debug::Transport),
@@ -155,6 +158,9 @@ pub struct TestArgs {
     /// Not a command line option: only the test codeunits of the first N APPs are selected (the "with" side of an
     /// impact run gives the extensions as further APPs).
     pub test_apps: Option<usize>,
+    /// `--microsoft-app NAME` (`--app NAME` in `test-microsoft`): the Microsoft test apps to run, by their name in the
+    /// artifact (`Tests-ERM`), without case. Repeatable. Empty: all of them.
+    pub microsoft_apps: Vec<String>,
 }
 
 impl TestArgs {
@@ -188,6 +194,7 @@ al-runner: run AL tests without a service tier (AL Runner, alpha)
 
 USAGE
     al-runner test [OPTIONS] APP...
+    al-runner test-microsoft [OPTIONS]
     al-runner serve [--protocol 2] [OPTIONS]
     al-runner debug [--stdio | --port [N]] [OPTIONS] APP...
     al-runner impact-index build|check-static [OPTIONS] APP...
@@ -677,6 +684,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     let mut index_build = false;
     let mut check_static = false;
     let mut debug: Option<crate::debug::Transport> = None;
+    let mut test_microsoft = false;
     match first.as_str() {
         "--help" | "-h" | "help" => return Ok(Command::Help),
         "--version" | "-V" | "version" => return Ok(Command::Version),
@@ -692,6 +700,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             return Ok(Command::ListAssumptions(dir));
         }
         "test" => {}
+        "test-microsoft" => test_microsoft = true,
         "impact-index" => match it.next().as_deref() {
             Some("build") => index_build = true,
             Some("check-static") => {
@@ -921,6 +930,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.recipe = true;
             }
             "--bcapps" => a.bcapps_dir = Some(text()?.into()),
+            "--microsoft-app" => a.microsoft_apps.push(text()?),
+            "--app" if test_microsoft => a.microsoft_apps.push(text()?),
             "--test-data-normalize-company" => {
                 return Err(format!(
                     "{flag} is not available: AL Runner v2's company normalization rules are not ported (ADR-020)"
@@ -935,6 +946,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             _ => return Err(format!("unknown option `{flag}` (see --help)")),
         }
+    }
+    if test_microsoft {
+        return test_microsoft_args(a);
+    }
+    if !a.microsoft_apps.is_empty() {
+        return Err("--microsoft-app works with `al-runner test-microsoft` only".into());
     }
     if a.apps.is_empty() {
         return Err("al-runner test needs at least one APP (an app folder or a *.Source.zip)".into());
@@ -1032,6 +1049,45 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     Ok(Command::Test(Box::new(a)))
 }
 
+/// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are
+/// refused, as `--recipe microsoft` refuses them.
+fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
+    if !a.apps.is_empty() {
+        return Err("al-runner test-microsoft with an APP (the Microsoft tests your extension can affect) is not built yet (ADR-052 build step 2); without an APP it runs all of Microsoft's test apps of the build, or those --app names".into());
+    }
+    for (given, flag) in [
+        (a.recipe, "--recipe"),
+        (a.company_package, "--company-data package / --package"),
+        (a.test_data_asked_for(), "--test-data"),
+        (a.no_test_data, "--no-test-data"),
+        (a.disabled_tests_dir.is_some(), "--disabled-tests"),
+        (a.parity, "--parity"),
+        (a.test_data_company.is_some(), "--test-data-company"),
+        (a.explain.is_some(), "--explain"),
+        (!a.impact_of.is_empty(), "--impact-of"),
+        (a.impact.is_some(), "--impact"),
+        (a.impact_accept.is_some(), "--impact-accept"),
+        (a.impact_json.is_some(), "--impact-json"),
+        (a.execute, "a scratch run"),
+        (a.tdd, "--tdd"),
+        (a.coverage, "--coverage, --coverage-out and --coverage-json"),
+    ] {
+        if given {
+            return Err(format!(
+                "al-runner test-microsoft runs Microsoft's recipe (company per codeunit, Microsoft's disabled tests skipped): {flag} cannot be combined with it"
+            ));
+        }
+    }
+    if matches!(a.output_json, Some(None)) {
+        return Err("al-runner test-microsoft writes one --output-json document per test app and lane: name a FILE (`--output-json results.json`)".into());
+    }
+    if a.verbose && a.quiet {
+        return Err("--verbose and --quiet cannot be combined".into());
+    }
+    a.recipe = true;
+    Ok(Command::TestMicrosoft(Box::new(a)))
+}
+
 /// The checks of an impact run's options (ADR-043).
 fn impact_args(a: &TestArgs) -> Result<(), String> {
     // An impact run compares Microsoft's tests with and without an extension: nothing to stub (ADR-051).
@@ -1089,6 +1145,42 @@ mod tests {
             Command::Test(a) => *a,
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn test_microsoft_needs_no_app_and_turns_the_recipe_on() {
+        match p("test-microsoft --bc-version 29.0 --app Tests-ERM --microsoft-app tests-bank --junit r.xml").unwrap() {
+            Command::TestMicrosoft(a) => {
+                assert!(a.apps.is_empty() && a.recipe);
+                assert_eq!(a.microsoft_apps, vec!["Tests-ERM", "tests-bank"]);
+                assert_eq!(a.bc_version.as_deref(), Some("29.0"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_microsoft_refuses_what_the_recipe_decides_and_an_app_until_step_2() {
+        for flag in [
+            "--recipe microsoft",
+            "--disabled-tests d",
+            "--parity",
+            "--company-data package",
+            "--test-data",
+            "--no-test-data",
+            "--test-data-company X",
+            "--explain T",
+        ] {
+            let e = p(&format!("test-microsoft {flag}")).unwrap_err();
+            assert!(e.contains("test-microsoft") && e.contains("cannot be combined"), "{flag}: {e}");
+        }
+        assert!(p("test-microsoft MyApp").unwrap_err().contains("step 2"));
+        assert!(p("test-microsoft --affected-from microsoft").is_err());
+        assert!(p("test-microsoft --output-json").unwrap_err().contains("FILE"));
+        assert!(p("test-microsoft --output-json r.json").is_ok());
+        // `--app` is the short form in this command only; `--microsoft-app` needs the command too.
+        assert!(p("test A --app Tests-ERM").unwrap_err().contains("unknown option"));
+        assert!(p("test A --microsoft-app Tests-ERM").unwrap_err().contains("test-microsoft"));
     }
 
     #[test]

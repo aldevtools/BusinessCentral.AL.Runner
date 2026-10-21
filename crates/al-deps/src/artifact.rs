@@ -287,7 +287,7 @@ struct LocalPlatform {
 
 /// The build of `root` that the query picks. With `exact_only`, only a query that names one whole
 /// build (four numbers) picks, and it picks that build or none.
-fn pick_local(root: &Path, q: &BuildQuery, exact_only: bool, country: &str) -> Option<Selection> {
+pub(crate) fn pick_local(root: &Path, q: &BuildQuery, exact_only: bool, country: &str) -> Option<Selection> {
     let builds = local_builds_for(root, country);
     if exact_only && !q.exact().is_some_and(|e| builds.contains(&e)) {
         return None;
@@ -304,20 +304,20 @@ pub fn newest_published<C: Cdn>(cdn: &C, query: &BuildQuery) -> Result<Selection
     select_build(query, &[], Some(&published), "(none consulted)").map_err(|e| e.to_string())
 }
 
-fn published_builds<C: Cdn>(cdn: &C, country: &str) -> Result<Vec<BuildId>, String> {
+pub(crate) fn published_builds<C: Cdn>(cdn: &C, country: &str) -> Result<Vec<BuildId>, String> {
     let bytes = cdn.index_for(country).map_err(|e| format!("artifact index: {e}"))?;
     parse_index(&String::from_utf8_lossy(&bytes))
 }
 
 /// The country artifact of a build, open for ranged reads, as far as the Microsoft apps go.
-struct CountryZip<S> {
-    url: String,
-    zip: RemoteZip<S>,
+pub(crate) struct CountryZip<S> {
+    pub(crate) url: String,
+    pub(crate) zip: RemoteZip<S>,
     /// The entries under `Applications.<COUNTRY>/`: the country's own apps. (`Extensions/` holds
     /// the same apps again as compiled packages; those are not used.)
-    entries: Vec<Entry>,
+    pub(crate) entries: Vec<Entry>,
     /// Lower-case names of the apps that have a `<name>.Source.zip` there.
-    names: HashSet<String>,
+    pub(crate) names: HashSet<String>,
 }
 
 /// The names of the apps the entries hold sources of (`<name>.Source.zip`), lower case.
@@ -334,7 +334,7 @@ fn source_names(entries: &[Entry]) -> HashSet<String> {
 /// Opens the country artifact of `build`: the central directory from the saved copy in `cbd`, else
 /// by range from the feed (and saved). Fails when the feed does not have the artifact, or when
 /// downloading is off and nothing is saved: the apps of a country are never replaced by the platform's.
-fn open_country<C: Cdn>(cdn: &C, fetch: &Fetch, cbd: &BuildDir, build: &BuildId) -> Result<CountryZip<C::Src>, String> {
+pub(crate) fn open_country<C: Cdn>(cdn: &C, fetch: &Fetch, cbd: &BuildDir, build: &BuildId) -> Result<CountryZip<C::Src>, String> {
     let (url, src) = cdn.country(build, &fetch.country);
     let zip = match cbd.load_tail() {
         Some((total, tail)) => RemoteZip::from_tail(src, total, tail).map_err(|e| format!("{url}: {e}"))?,

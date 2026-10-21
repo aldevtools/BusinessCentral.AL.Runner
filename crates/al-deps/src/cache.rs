@@ -257,8 +257,14 @@ impl BuildDir {
 
     /// Saves one entry's bytes (already inflated and CRC-checked by the caller) and records them.
     pub fn put_entry(&self, entry: &str, url: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        self.put_entry_in("apps", entry, url, bytes)
+    }
+
+    /// [`BuildDir::put_entry`] into another folder of the build: a file that is not an app (the RapidStart package)
+    /// stays out of the folder the dependency pool searches.
+    pub fn put_entry_in(&self, folder: &str, entry: &str, url: &str, bytes: &[u8]) -> Result<PathBuf, String> {
         let name = file_name_of(entry);
-        let path = self.apps_dir().join(&name);
+        let path = self.dir.join(folder).join(&name);
         let crc = crc32fast::hash(bytes);
         let meta = serde_json::json!({
             "build": self.build.as_str(), "entry": entry, "url": url, "size": bytes.len(), "crc": crc,
@@ -267,6 +273,18 @@ impl BuildDir {
         write_atomic(&path, bytes)?;
         write_atomic(&sidecar(&path), meta.to_string().as_bytes())?;
         Ok(path)
+    }
+
+    /// The cached copy of one archive entry, when it is there, intact and recorded as that entry.
+    pub fn cached(&self, entry: &str) -> Option<PathBuf> {
+        self.cached_in("apps", entry)
+    }
+
+    /// [`BuildDir::cached`] in another folder of the build (`packages` for the RapidStart package).
+    pub fn cached_in(&self, folder: &str, entry: &str) -> Option<PathBuf> {
+        let path = self.dir.join(folder).join(file_name_of(entry));
+        let r = self.check(&path).ok()?;
+        (r.entry == entry).then_some(path)
     }
 
     /// The entries that are cached and intact. Files that are damaged, or have no sidecar, are
