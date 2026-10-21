@@ -256,18 +256,19 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         // The untracked call stack marker moves between Text slots unread (see `native::text_of`).
         (Value::Text(s), T::Text(_)) if s.has_marker() => Value::Text(s),
-        // A Date handed to a Text (`FieldRef.Value` straight into a Text parameter: Incoming Document
-        // `FindByDocumentNoAndPostingDate(.., PostingDateFieldRef.Value)` and `Evaluate` of it, 474 Tests-ERM tests) is its
-        // default `Format` text. Not pinned: assumption date-to-text-is-format. A Variant variable holding a Date raises before it
-        // gets here (the parameter binding in al-vm, the assignment guards in al-sema lower/stmt.rs; P147DateToText.al:89-105).
-        (v @ Value::Date(..), T::Text(_) | T::Code(_)) => {
+        // A Date, Time or DateTime handed to a Text or Code (`FieldRef.Value` straight into a Text, Text[30] or Code[20] parameter
+        // or assigned to a Text or Code variable) is its default `Format` text, which `Evaluate` reads back; a Code drops the
+        // leading blank of a Time (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-489, corpus bump 45:
+        // QO_DateFieldRef_EachConversion, QO_TimeFieldRef_EachConversion, QO_DateTimeFieldRef_EachConversion). A Variant
+        // variable holding one raises before it gets here (the parameter binding in al-vm, the assignment guards in al-sema
+        // lower/stmt.rs; P147DateToText.al:89-105, QO_*Variant_EachConversion).
+        (v @ (Value::Date(..) | Value::Time(_) | Value::DateTime(_)), T::Text(_) | T::Code(_)) => {
             struct NoEnums;
             impl crate::format::FormatCtx for NoEnums {
                 fn enum_name(&self, _: u32, _: i32) -> String {
                     String::new()
                 }
             }
-            crate::assumptions::assume(crate::assumptions::Assumption::DateToTextIsFormat);
             let text = crate::format::try_format(&v, 0, 0, &NoEnums).map_err(Signal::Unsupported)?;
             match t {
                 T::Text(max) => Value::Text(fit_txt(text.into(), *max)?),

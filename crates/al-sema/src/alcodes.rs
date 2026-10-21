@@ -71,11 +71,18 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 ];
 
 /// Codes the must-not-compile corpus expects and this front end cannot decide, with the reason. AL0175 is reported
-/// for `Char - Text` and `Text - Char` on two variables only (case 0500); a case that finds its code matches.
-pub const NOT_CHECKED: &[(&str, &str)] = &[(
-    "AL0175",
-    "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
-)];
+/// for `Char - Text` and `Text - Char` on two variables only (case 0500), AL0666 for catalog methods only (`check/calls.rs`);
+/// a case that finds its code matches.
+pub const NOT_CHECKED: &[(&str, &str)] = &[
+    (
+        "AL0175",
+        "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
+    ),
+    (
+        "AL0666",
+        "reported by the checker only for a call of a catalog method tagged newer than the app's runtime (cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824); properties, layouts and methods the catalog does not tag (the runtime 18.0 ones) are not decided.",
+    ),
+];
 
 /// Why `code` is not checked, if it is listed in [`NOT_CHECKED`]; `Some("not implemented")` for a
 /// code in neither list.
@@ -331,6 +338,7 @@ pub const REMOVED_PLATFORM_TABLES_27: &[(&str, &str)] = &[
 fn push(out: &mut Vec<Diagnostic>, ws: &Workspace, file: usize, offset: usize, code: &'static str, message: String) {
     out.push(Diagnostic {
         file: ws.files[file].path.clone(),
+        app: ws.files[file].app,
         offset,
         code,
         message,

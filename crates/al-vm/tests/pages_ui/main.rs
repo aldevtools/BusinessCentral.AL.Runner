@@ -2,6 +2,7 @@
 
 mod action_moved_rec;
 mod base_access;
+mod bg_task_id;
 mod control_entry;
 mod control_properties;
 mod control_text;
@@ -17,7 +18,9 @@ mod gone_row_key_filter;
 mod goto_next_call;
 mod gotokey_walk_parts;
 mod host_save_record_parts;
+mod list_caption_filter;
 mod no_source_card;
+mod open_onopenpage_moves_rec;
 mod page_inserts;
 mod pageext;
 mod pages;
@@ -34,3 +37,5 @@ mod run_record_group2;
 mod trap_reopen;
 mod trigger_errors;
 mod trust_refusals;
+mod update_filter_away_row;
+mod update_new_line_filter;

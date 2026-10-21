@@ -355,6 +355,12 @@ pub struct PageState {
     pub field_captions_settled: bool,
     /// A `Next()` of the page is filling its row.
     pub moving_next: bool,
+    /// A fill after the open (a part refilled after its host moved) runs the CaptionClass expressions with its first row
+    /// only, as the open does (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1022-1066 QO_Doc_OpenEdit_HostSteps).
+    pub field_captions_fill_first: bool,
+    /// The refill comes from a SetValue of the host's link field: when it finds no row it runs nothing
+    /// (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue`).
+    pub field_captions_link_refill: bool,
     /// Primary keys of the rows a repeater page has populated (its window).
     pub window: Vec<WindowRow>,
     /// The window holds the rows from the first row of the view on, with none missing: the page
@@ -609,6 +615,8 @@ pub struct PageState {
     /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
     /// (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al), so it marks no assumption.
     pub refresh_pinned: bool,
+    /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
+    pub refresh_by_update: bool,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value)>,
@@ -645,6 +653,8 @@ impl PageState {
             field_captions_opened: false,
             field_captions_settled: false,
             moving_next: false,
+            field_captions_fill_first: false,
+            field_captions_link_refill: false,
             window: Vec::new(),
             window_from_start: false,
             window_eof: false,
@@ -740,6 +750,7 @@ impl PageState {
             lookup_set: false,
             statement_run: false,
             refresh_pinned: false,
+            refresh_by_update: false,
             bg_tasks: Default::default(),
             bg_next_id: 1,
         }

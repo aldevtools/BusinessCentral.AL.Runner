@@ -55,6 +55,37 @@ pub struct RunOptions {
     pub narrow: Option<Narrow>,
     /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
     pub tdd: bool,
+    /// `al-runner debug` (ADR-048): called once the compile is done and the install baseline has run, before any test
+    /// runs; it returns when the tests may start. The tests then run on one thread, one after the other, with the
+    /// debugger of `hooks.debugger`.
+    pub debug_ready: Option<DebugReadyHook>,
+    /// Run no test when an app under test does not compile (`CorpusRuntime::compile_errors`): the AL compiler would not
+    /// publish it (`al-runner test`, al-runner issue 5602). Off, the errors are printed and the run goes on, as the
+    /// corpus job does.
+    pub stop_on_compile_errors: bool,
+    /// `al-runner test --run-selected-only` (issue 5611): of each test codeunit that runs, only these tests run, as
+    /// (codeunit id, test name in lower case); the others are left out as BC's test tool leaves out the test methods
+    /// that are not enabled. `None`: every test of the codeunit runs.
+    pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+}
+
+/// What [`RunOptions::debug_ready`] sees of the compile.
+pub struct DebugReady<'a> {
+    pub program: &'a Arc<al_ir::Program>,
+    /// Per app of the program: its index as the caller gave it.
+    pub order: &'a [usize],
+    /// The first error the AL compiler would give for the workspace's code (code, file and message), if any.
+    pub first_error: Option<String>,
+}
+
+/// See [`RunOptions::debug_ready`].
+#[derive(Clone)]
+pub struct DebugReadyHook(pub Arc<dyn Fn(&DebugReady) + Send + Sync>);
+
+impl std::fmt::Debug for DebugReadyHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DebugReadyHook(..)")
+    }
 }
 
 /// What [`RunOptions::narrow`] sees of the compile.
@@ -280,15 +311,8 @@ impl Compiled {
                 }
             }
         }
-        if !lowered.al_diagnostics.is_empty() {
-            eprintln!(
-                "compile: {} error(s) the AL compiler would give for the workspace's code",
-                lowered.al_diagnostics.len()
-            );
-            for d in lowered.al_diagnostics.iter().take(100) {
-                eprintln!("compile: error {} {}: {}", d.code, d.file, d.message);
-            }
-        }
+        // The compile errors are the caller's to print (`CorpusRuntime::compile_errors`): only `al-runner serve` renews a
+        // compile.
         *compile_time = started.elapsed();
         if std::env::var_os("ALRUNNER_INCR_TIMINGS").is_some() {
             eprintln!(

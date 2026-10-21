@@ -180,7 +180,8 @@ impl Lowerer<'_> {
             // related table when the text is members joined by `|`, a quoted one alone, or `<>` and a quoted one
             // (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46, :126-207; misc/lt-probes-needed-6/
             // PnF03RelationQuotedFilter.al:40-48; query/lt-query-links-relations-httpstream/RelQuotedOption.al:27,
-            // RelQuotedEnum.al:36, :235). A range, `&` or any other form stays under the assumption.
+            // RelQuotedEnum.al:36, :235), and the ranges and `&` forms of `quoted_relation_text_pinned`
+            // (TableRelationQuotes.al:279-397). Any other form stays under the assumption.
             let quoted = a.wheres.iter().flatten().any(|w| {
                 matches!(w, crate::relation::ParsedWhere::Value { related, text }
                     if !text.starts_with('\'') && !text.contains("::") && text.contains('"')
@@ -716,7 +717,21 @@ impl Lowerer<'_> {
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
             let value = match &c.value {
                 CondValue::Const(raw) => ir::CalcValue::Const(self.calc_const(decl, raw, &src_fields[pos].ty)?),
-                CondValue::Filter(raw) => ir::CalcValue::Filter(rewrite_quotes(raw)),
+                CondValue::Filter(raw) => {
+                    // One quoted literal with filter operators in it (`filter('10|200..299')`): BC 29 reads the text as a
+                    // filter (al-runner issue 5575 sums the entries of 250), the filter grammar here as one value. No
+                    // corpus test pins the quoted form in a CalcFormula, so it is refused (docs/probes-needed.md "User
+                    // issues (lane-user-trust)"). Without an operator both readings are the same value.
+                    if crate::queries::whole_literal(raw)
+                        .is_some_and(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')']))
+                    {
+                        return Err(format!(
+                            "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",
+                            raw.trim()
+                        ));
+                    }
+                    ir::CalcValue::Filter(rewrite_quotes(raw))
+                }
                 CondValue::Field(n) => ir::CalcValue::Field(own_pos(n)?),
                 CondValue::UpperLimit(n) => ir::CalcValue::UpperLimit(own_pos(n)?),
                 CondValue::FieldFilter(n) => ir::CalcValue::FieldFilter(own_pos(n)?),
@@ -759,7 +774,7 @@ impl Lowerer<'_> {
 
 /// Whether a `filter(...)` or `const(...)` text of a TableRelation with a `"`-quoted member has a pinned form: on an Enum
 /// or Option field, terms joined by `|`, each a plain member name or a quoted one, or `<>` and one quoted member
-/// (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46).
+/// (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46), and the ranges and `&` forms below.
 fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
     if !matches!(ty, Ty::Enum(_) | Ty::Option(_)) {
         return false;
@@ -773,6 +788,26 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
             && !t[1..t.len() - 1].trim().is_empty()
     };
     let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+    // A range with one quoted and one plain bound (`A .. "B C"`, `"B C" .. D`, on an Enum and an Option field), and a quoted
+    // lower bound with no upper one on an Enum field (`"B C" ..`): TableRelationQuotes.al:279-363, :383-397 (corpus bump 45).
+    if let Some((l, r)) = text.split_once("..") {
+        let (l, r) = (l.trim(), r.trim());
+        if r.is_empty() {
+            return quoted(l) && matches!(ty, Ty::Enum(_));
+        }
+        return (quoted(l) && plain(r)) || (plain(l) && quoted(r));
+    }
+    // Two `<>` terms joined by `&`, one quoted and one plain (`<> A & <> "B C"` on an Enum field, `<> "B C" & <> D` on an
+    // Option field): TableRelationQuotes.al:313-329, :365-381 (corpus bump 45).
+    if text.contains('&') {
+        let terms: Option<Vec<&str>> = text
+            .split('&')
+            .map(|p| p.trim().strip_prefix("<>").map(str::trim))
+            .collect();
+        return terms.is_some_and(|ts| {
+            ts.len() == 2 && ts.iter().filter(|t| quoted(t)).count() == 1 && ts.iter().all(|t| quoted(t) || plain(t))
+        });
+    }
     if let Some(rest) = text.trim().strip_prefix("<>") {
         return quoted(rest.trim());
     }

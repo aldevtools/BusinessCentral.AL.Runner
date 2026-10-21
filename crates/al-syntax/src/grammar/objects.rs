@@ -79,7 +79,12 @@ fn object(p: &mut Parser) {
     qualified_name(p);
     loop {
         if p.eat_kw("extends") || p.eat_kw("customizes") {
-            qualified_name(p);
+            // The target by its id (`extends 50100`): the AL compiler takes it (al-runner issue 5576; alc 18.0.39.10160-beta
+            // compiles a page and a table extension by id, the oracle for compile acceptance). Probe row in
+            // docs/probes-needed.md "User issues (lane-user-trust)".
+            if !p.eat(Integer) {
+                qualified_name(p);
+            }
         } else if p.eat_kw("implements") {
             loop {
                 qualified_name(p);
@@ -236,6 +241,24 @@ mod tests {
             ),
             "(Object table 1 T (ObjectBody { (Section fields (ObjectBody { (Section field (SectionArgs ( 2 ; F ; Decimal )) (ObjectBody { (Property FieldClass = (PropertyValue FlowField) ;) (Property CalcFormula = (PropertyValue sum ( L . Amount where ( \"No.\" = field ( \"No.\" ) , T = filter ( A | B ) ) )) ;) })) })) }))"
         );
+    }
+
+    /// The AL compiler takes the object id as the target of `extends` (al-runner issue 5576: `pageextension 50101 E
+    /// extends 50100` compiles on BC 29 and with alc 18.0.39.10160-beta).
+    #[test]
+    fn an_extension_names_its_target_by_id() {
+        assert_eq!(
+            f("pageextension 50101 \"E\" extends 50100 { }"),
+            "(Object pageextension 50101 \"E\" extends 50100 (ObjectBody { }))"
+        );
+        let p = crate::parse("tableextension 50102 X extends 50100 { }", &Default::default());
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        let file = crate::ast::SourceFile::cast(p.syntax()).expect("file");
+        let o = file.objects().next().expect("object");
+        assert_eq!(o.extends().as_deref(), Some("50100"));
+        assert_eq!(o.extends_parts(), Some(vec!["50100".to_string()]));
+        assert_eq!(o.name(), "X");
+        assert_eq!(o.id(), Some(50102));
     }
 
     #[test]

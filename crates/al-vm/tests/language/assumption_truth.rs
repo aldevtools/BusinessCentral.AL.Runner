@@ -133,7 +133,13 @@ table 69868 "AT TQ Src"
         field(4; "By Quoted Only"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter("B C")); }
         field(6; "By Const"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = const("B C")); }
         field(7; "By Not"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter(<> "B C")); }
-        field(8; "By Range"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter(A .. "B C")); }
+        field(8; "By Open Lower"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter(.. "B C")); }
+        field(9; "Range AB"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter(A .. "B C")); }
+        field(10; "Range BD"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter("B C" .. D)); }
+        field(11; "Kind And"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter(<> A & <> "B C")); }
+        field(12; "Opt And"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Opt = filter(<> "B C" & <> D)); }
+        field(13; "Open Upper"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Kind = filter("B C" ..)); }
+        field(14; "Opt Range BD"; Code[10]) { TableRelation = "AT TQ Ref"."Code" where (Opt = filter("B C" .. D)); }
     }
     keys { key(PK; "No.") { } }
 }
@@ -175,6 +181,11 @@ codeunit 69869 T
         Seed();
         exit(Probe(8));
     end;
+    procedure H(): Text
+    begin
+        Seed();
+        exit(Probe(9) + ';' + Probe(10) + ';' + Probe(11) + ';' + Probe(12) + ';' + Probe(13) + ';' + Probe(14));
+    end;
 }
 "#;
 
@@ -187,8 +198,9 @@ fn a_quoted_member_in_a_table_relation_filter_is_pinned() {
         .replace("procedure G()", "procedure F()"));
     assert!(
         hits.contains(&"table-relation-quotes"),
-        "a range with a quoted member is not pinned: {hits:?} {got}"
+        "an open lower range with a quoted member is not pinned: {hits:?} {got}"
     );
+    assert_eq!(got, "ok,ok,err,");
     let (got, hits) = run(REL_SRC);
     assert_eq!(got, "ok,ok,err,;ok,ok,err,;err,ok,err,;err,ok,err,;ok,err,ok,");
     assert!(!hits.contains(&"table-relation-quotes"), "{hits:?}");
@@ -370,4 +382,140 @@ codeunit 69882 T
     let (got, hits) = run(src);
     assert_eq!(got, "R1");
     assert!(hits.contains(&"table-relation-quotes"), "{hits:?}");
+}
+
+/// types/lt-bigint-enum-option/BigIntToEnumOption.al:353-449 (corpus bump 45): a Variant holding a BigInteger beyond Integer
+/// into an Option variable or field raises TypeConversion:Overflow; through FieldRef.Value or FieldRef.Validate of an Option or
+/// an Enum field it raises AL:Overflow. In range, missing and negative ordinals are kept.
+#[test]
+fn a_variant_holding_a_biginteger_into_an_option_or_enum_is_pinned() {
+    let src = r#"
+enum 69890 "AT VE" { Extensible = true; value(0; Zero) { } value(1; One) { } value(7; Seven) { } }
+table 69891 "AT VO" { fields { field(1; Id; Integer) { } field(2; Opt; Option) { OptionMembers = Zero,One,Two; } field(3; E; Enum "AT VE") { } } keys { key(PK; Id) { } } }
+codeunit 69892 T
+{
+    [TryFunction]
+    local procedure TryIt(Kind: Integer; V: Variant; var Res: Text)
+    var R: Record "AT VO"; O: Option Zero,One,Two; RecRef: RecordRef; FR: FieldRef;
+    begin
+        case Kind of
+            1: begin O := V; Res := Format(O, 0, 2); exit; end;
+            3: R.Opt := V;
+            7, 9, 10:
+                begin
+                    RecRef.GetTable(R);
+                    if Kind = 7 then FR := RecRef.Field(2) else FR := RecRef.Field(3);
+                    if Kind = 10 then FR.Validate(V) else FR.Value := V;
+                    RecRef.SetTable(R);
+                end;
+        end;
+        if Kind in [3, 7] then Res := Format(R.Opt, 0, 2) else Res := Format(R.E.AsInteger());
+    end;
+    local procedure Probe(Kind: Integer; V: Variant): Text
+    var Res: Text;
+    begin
+        if TryIt(Kind, V, Res) then exit(Res);
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+    procedure F(): Text
+    var Big: BigInteger; Small: BigInteger; S: Text; Kind: Integer;
+    begin
+        Evaluate(Big, '2147483648');
+        Small := -1;
+        for Kind := 1 to 10 do
+            if Kind in [1, 3, 7, 9, 10] then
+                S += Probe(Kind, Small) + ';' + Probe(Kind, Big) + ';';
+        exit(S);
+    end;
+}
+"#;
+    let (got, _) = run(src);
+    let tc = "-1;The expression Variant cannot be type-converted to a Integer value.|TypeConversion:Overflow;";
+    let ov = "-1;Arithmetic operation resulted in an overflow.|AL:Overflow;";
+    assert_eq!(got, format!("{tc}{tc}{ov}{ov}{ov}"));
+}
+
+/// record/lt-table-relation-quotes/TableRelationQuotes.al:279-397 (corpus bump 45, R1 = A, R2 = "B C", R3 = D): the ranges
+/// `A .. "B C"`, `"B C" .. D` (enum and option field), `"B C" ..` and `<> A & <> "B C"`, `<> "B C" & <> D` run without the mark.
+#[test]
+fn a_quoted_member_in_a_table_relation_range_or_and_is_pinned() {
+    let (got, hits) = run(&REL_SRC
+        .replace("procedure F()", "procedure F_()")
+        .replace("procedure H()", "procedure F()"));
+    assert_eq!(
+        got,
+        "ok,ok,err,;err,ok,ok,;err,err,ok,;ok,err,err,;err,ok,ok,;err,ok,ok,"
+    );
+    assert!(!hits.contains(&"table-relation-quotes"), "{hits:?}");
+}
+
+/// report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-489 (corpus bump 45): `FieldRef.Value` of a
+/// Date, Time or DateTime field handed straight to a Text, Text[30] or Code[20] parameter or assigned to a Text or Code
+/// variable is its Format text (a Code drops the leading blank of a Time); a Variant holding one raises TypeConversion.
+#[test]
+fn a_date_time_or_datetime_into_text_is_pinned() {
+    let src = r#"
+table 69893 "AT DT" { fields { field(1; Id; Integer) { } field(2; D; Date) { } field(3; DT; DateTime) { } field(4; T; Time) { } } keys { key(PK; Id) { } } }
+codeunit 69894 T
+{
+    local procedure TakeText(X: Text): Text begin exit(X); end;
+    local procedure TakeText30(X: Text[30]): Text begin exit(X); end;
+    local procedure TakeCode20(X: Code[20]): Text begin exit(X); end;
+    [TryFunction]
+    local procedure FromVariant(Kind: Integer; V: Variant; var Res: Text)
+    var AsText: Text; AsCode: Code[20];
+    begin
+        case Kind of
+            1: begin AsText := V; Res := AsText; end;
+            2: Res := TakeText(V);
+            3: Res := TakeText30(V);
+            4: Res := TakeCode20(V);
+            5: begin AsCode := V; Res := AsCode; end;
+        end;
+    end;
+    local procedure FromFieldRef(Kind: Integer; FR: FieldRef): Text
+    var AsText: Text; AsCode: Code[20];
+    begin
+        case Kind of
+            1: begin AsText := FR.Value; exit(AsText); end;
+            2: exit(TakeText(FR.Value));
+            3: exit(TakeText30(FR.Value));
+            4: exit(TakeCode20(FR.Value));
+            5: begin AsCode := FR.Value; exit(AsCode); end;
+        end;
+    end;
+    procedure F(): Text
+    var R: Record "AT DT"; RecRef: RecordRef; V: Variant; S: Text; Res: Text; Kind: Integer; No: Integer; D: Date;
+    begin
+        R.Id := 1; R.D := DMY2Date(5, 3, 2024); R.T := 134500T; R.DT := CreateDateTime(DMY2Date(5, 3, 2024), 134500T); R.Insert();
+        RecRef.GetTable(R);
+        for No := 2 to 4 do begin
+            for Kind := 1 to 5 do
+                S += '[' + FromFieldRef(Kind, RecRef.Field(No)) + ']';
+            S += ';';
+        end;
+        Evaluate(D, FromFieldRef(1, RecRef.Field(2)));
+        S += Format(D, 0, 9) + ';';
+        for No := 3 to 4 do begin
+            if No = 3 then V := R.DT else V := R.T;
+            for Kind := 1 to 5 do
+                if FromVariant(Kind, V, Res) then S += 'ok,' else S += CopyStr(GetLastErrorText(), 94) + ',';
+            S += ';';
+        end;
+        exit(S);
+    end;
+}
+"#;
+    let (got, hits) = run(src);
+    let dt = "[03/05/24 01:45 PM]";
+    let t = "Microsoft.Dynamics.Nav.Runtime.NavText value.,";
+    let c = "Microsoft.Dynamics.Nav.Runtime.NavCode value.,";
+    let raised = format!("{t}{t}{t}{c}{c};");
+    assert_eq!(
+        got,
+        format!(
+            "[03/05/24][03/05/24][03/05/24][03/05/24][03/05/24];{dt}{dt}{dt}{dt}{dt};[ 1:45:00 PM][ 1:45:00 PM][ 1:45:00 PM][1:45:00 PM][1:45:00 PM];2024-03-05;{raised}{raised}"
+        )
+    );
+    assert!(!hits.contains(&"date-to-text-is-format"), "{hits:?}");
 }

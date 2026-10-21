@@ -444,8 +444,9 @@ impl CorpusRuntime {
             }
         }
         // Code the AL compiler rejects (must-not-compile corpus, `alcodes.rs`). Said, not acted on: the
-        // run goes on, so an error found here that BC would not give shows in the output, not as a refusal.
-        if !lowered.al_diagnostics.is_empty() {
+        // run goes on, so an error found here that BC would not give shows in the output, not as a refusal. With
+        // `stop_on_compile_errors` the caller prints them (`CorpusRuntime::compile_errors`) and no test runs.
+        if !lowered.al_diagnostics.is_empty() && !opts.stop_on_compile_errors {
             eprintln!(
                 "compile: {} error(s) the AL compiler would give for the workspace's code",
                 lowered.al_diagnostics.len()
@@ -561,13 +562,56 @@ impl CorpusRuntime {
             None => opts_only.clone(),
         };
         let suites = &suites[..];
+        let compile_errors = super::compile_errors(ws, lowered, order);
+        // A parse error alone does not stop the run (`CompileError`): its file's routines refuse instead.
+        if opts.stop_on_compile_errors && compile_errors.iter().any(|e| !e.code.is_empty()) {
+            // A debugger answers its client's `launch` with the first error; no test runs.
+            if let (Some(ready), Some(e)) = (&opts.debug_ready, compile_errors.iter().find(|e| !e.code.is_empty())) {
+                (ready.0)(&DebugReady {
+                    program: &lowered.program,
+                    order,
+                    first_error: Some(format!(
+                        "error {} {}:{}:{}: {}",
+                        e.code, e.file, e.line, e.column, e.message
+                    )),
+                });
+            }
+            return CorpusRuntime {
+                outcomes: Default::default(),
+                times: Default::default(),
+                suites: suites.iter().map(|s| s.name.clone()).collect(),
+                panics: 0,
+                phases: Phases {
+                    compile: *compile_phase,
+                    compile_parts: lowered.timings,
+                    cache: cache_report.clone(),
+                    lean: *lean,
+                    compiles: *compiles,
+                    ..Default::default()
+                },
+                details: Default::default(),
+                results: Vec::new(),
+                marks: Default::default(),
+                coverage_statements: Vec::new(),
+                impact_keys: Vec::new(),
+                impact_baseline: None,
+                program_apps: Vec::new(),
+                tdd_stubs: lowered.program.tdd_stubs.clone(),
+                compile_errors,
+            };
+        }
         let blocked: Vec<Vec<Option<String>>> = lowered
             .unsupported
             .iter()
             .map(|o| o.iter().map(|r| r.first().cloned()).collect())
             .collect();
         let limit = opts.test_time_limit;
-        let workers = if opts.trace { 1 } else { test_workers() };
+        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3).
+        let workers = if opts.trace || opts.hooks.debugger.is_some() {
+            1
+        } else {
+            test_workers()
+        };
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         let make_engine = || {
@@ -723,6 +767,17 @@ impl CorpusRuntime {
                 opts_only = Some(in_program_order(&only));
             }
         }
+        // A debugger is told the program (to place its breakpoints) and starts the tests when its client says so.
+        if let Some(ready) = &opts.debug_ready {
+            (ready.0)(&DebugReady {
+                program: &lowered.program,
+                order,
+                first_error: lowered
+                    .al_diagnostics
+                    .first()
+                    .map(|d| format!("error {} {}: {}", d.code, d.file, d.message)),
+            });
+        }
         let tests_started = std::time::Instant::now();
         let mut outcomes = std::collections::HashMap::new();
         let mut marks_by_test: std::collections::HashMap<(usize, u32, String), Vec<Assumption>> =
@@ -761,6 +816,7 @@ impl CorpusRuntime {
                         hooks: opts.hooks.clone(),
                         clock_start: None,
                         impact: opts.impact_trace,
+                        run_only: None,
                     });
                 }
                 continue;
@@ -786,6 +842,7 @@ impl CorpusRuntime {
                         hooks: opts.hooks.clone(),
                         clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
                         impact: opts.impact_trace,
+                        run_only: opts.run_only.clone(),
                     }),
                     Err(why) => {
                         for r in test_routines(o) {
@@ -1087,6 +1144,7 @@ impl CorpusRuntime {
             impact_baseline,
             program_apps,
             tdd_stubs: lowered.program.tdd_stubs.clone(),
+            compile_errors,
         }
     }
 }
@@ -1119,6 +1177,12 @@ impl CorpusRuntime {
     /// `--tdd` (ADR-051): the signature of every stub of the compiled program, sorted; empty without `--tdd`.
     pub fn tdd_stubs(&self) -> &[String] {
         &self.tdd_stubs
+    }
+
+    /// The errors in the apps under test (`CompileError`); with `RunOptions::stop_on_compile_errors` a run that has
+    /// one with an AL code ran no test.
+    pub fn compile_errors(&self) -> &[CompileError] {
+        &self.compile_errors
     }
 
     /// Every test the run decided, with its codeunit's name and app, codeunit by codeunit.

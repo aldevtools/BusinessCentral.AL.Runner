@@ -1126,21 +1126,19 @@ impl Lowerer<'_> {
                     ret_used: true,
                 })
             };
-            // Into a Code variable only a Date is settled: it raises with the Code text (the Date: QO observations of
-            // P147DateToText.al on BC 27-29; the NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al).
+            // A Date, Time or DateTime in a Variant raises into a Text and a Code variable alike
+            // (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-399, QO_*Variant_EachConversion; the
+            // NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al). Into a Code variable nothing else is settled.
+            let or = |a: ir::Expr, b: ir::Expr| ir::Expr::Binary(ir::BinOp::Or, Box::new(a), Box::new(b));
+            let dates = or(
+                or(is("Variant.IsDate#1")?, is("Variant.IsTime#1")?),
+                is("Variant.IsDateTime#1")?,
+            );
             let (cond, kind) = if matches!(target_ty, Ty::Code(_)) {
-                (is("Variant.IsDate#1")?, "NavCode")
+                (dates, "NavCode")
             } else {
-                let cond = ir::Expr::Binary(
-                    ir::BinOp::Or,
-                    Box::new(ir::Expr::Binary(
-                        ir::BinOp::Or,
-                        Box::new(is("Variant.IsInteger#1")?),
-                        Box::new(is("Variant.IsDate#1")?),
-                    )),
-                    // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`).
-                    Box::new(is("Variant.IsOption#1")?),
-                );
+                // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`).
+                let cond = or(or(is("Variant.IsInteger#1")?, dates), is("Variant.IsOption#1")?);
                 (cond, "NavText")
             };
             let converted = self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?;
@@ -1214,11 +1212,25 @@ impl Lowerer<'_> {
                     Some("Interface.AssertAssigned#1")
                 }
                 (Ty::Integer, Ty::Variant) => Some("Variant.IntoInteger#1"),
+                // A Variant into an Option variable or field: a BigInteger beyond Integer raises TypeConversion:Overflow
+                // (types/lt-bigint-enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable,
+                // QO_Variant_ToOptionField_Assign); the value then converts as any value does.
+                (Ty::Option(_), Ty::Variant) => Some("Variant.IntoOption#1"),
                 _ => None,
             };
             if let Some(id) = checked {
                 let value = match id {
                     "Interface.AssertAssigned#1" => self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?,
+                    "Variant.IntoOption#1" => {
+                        let checked = ir::Expr::Builtin {
+                            id: super::call::builtin_id(id)?,
+                            receiver: None,
+                            args: vec![ir::Arg::Value(value)],
+                            ret_used: true,
+                        };
+                        let value = self.convert_to(&target_ty, &Ty::Variant, checked)?;
+                        return Ok(ir::Stmt::Assign(place, value));
+                    }
                     _ => value,
                 };
                 return Ok(ir::Stmt::Assign(

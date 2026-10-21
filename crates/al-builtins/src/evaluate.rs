@@ -11,6 +11,25 @@ use crate::value::Value;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
+/// Whether `t` is a short list of numbers: two or three pieces of digits (one may hold a point) or nothing, with blanks around them,
+/// joined by one of `;`, `|`, `:`, `/` or `&` used throughout. Format number 0 rejects such a text for Decimal, Integer and BigInteger
+/// (types/lt-bl-evaluate-lists/EvaluateLists.al:13-29 Inputs, :48-142: `1;5;10`, `1;`, `;1`, `;`, `1|5|10`, `1:5`, `1/5`, `1&5`,
+/// `1;5.5`, ` 1 ; 5 `). Longer lists and mixed separators are not pinned.
+fn number_list(t: &str) -> bool {
+    let Some(sep) = t.chars().find(|c| matches!(c, ';' | '|' | ':' | '/' | '&')) else {
+        return false;
+    };
+    let pieces: Vec<&str> = t.split(sep).collect();
+    (2..=3).contains(&pieces.len())
+        && pieces.iter().all(|p| {
+            let p = p.trim_matches(' ');
+            p.is_empty()
+                || (p.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                    && p.bytes().filter(|b| *b == b'.').count() <= 1
+                    && p.bytes().any(|b| b.is_ascii_digit()))
+        })
+}
+
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
@@ -104,7 +123,7 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
             "Evaluate of `{text}` into BigInteger with an exponent (not pinned)"
         ));
     }
-    if t.bytes().any(|b| b.is_ascii_alphabetic() || matches!(b, b'%' | b'_')) {
+    if t.bytes().any(|b| b.is_ascii_alphabetic() || matches!(b, b'%' | b'_')) || (number == 0 && number_list(t)) {
         return Ok(Parsed::Rejected);
     }
     if !t.is_ascii()
@@ -173,6 +192,9 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     let t = text.trim_matches(' ');
     if t.contains(' ') {
         // `1 3` (types/lt-evaluate-decimal-text via the oracle, P129Evaluate.al).
+        return Ok(Parsed::Rejected);
+    }
+    if number == 0 && number_list(t) {
         return Ok(Parsed::Rejected);
     }
     // A trailing minus sign and parentheses mark a negative number: `100-` and `(100)` read as -100

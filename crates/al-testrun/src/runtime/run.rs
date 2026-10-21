@@ -191,6 +191,10 @@ pub(crate) fn run_codeunit_core(
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("Test"))
+                // `--run-selected-only`: a test that is not selected does not run (issue 5611).
+                && scratch.run_only.as_ref().is_none_or(|keep| {
+                    keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
+                })
         })
         .collect();
     if execute {
@@ -206,7 +210,10 @@ pub(crate) fn run_codeunit_core(
     // for the next one (docs/probes-needed.md), so it is refused (hard rule 4).
     if isolation == TestIsolation::Disabled {
         return all(Outcome::NotRun(
-            "TestIsolation = Disabled: what the runner leaves between tests and test codeunits is not pinned".into(),
+            "TestIsolation = Disabled is not supported yet: no corpus test pins what BC keeps between tests and test \
+             codeunits in this mode (corpus issue 645). Run with TestIsolation = Codeunit (al-runner: --isolation codeunit, \
+             the default) or Function (--isolation test)"
+                .into(),
         ));
     }
     // A [TransactionModel] other than AutoCommit, AutoRollback or None is refused.
@@ -243,12 +250,23 @@ pub(crate) fn run_codeunit_core(
     session.test_object = Some(object);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
     // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.
-    if !execute {
-        if let Err(why) = crate::install::test_session_company_open(lowered, &mut session) {
-            return all(Outcome::NotRun(why));
+    let company_open = if execute {
+        crate::install::CompanyOpenWrites::default()
+    } else {
+        match crate::install::test_session_company_open(lowered, &mut session) {
+            Err(why) => return all(Outcome::NotRun(why)),
+            Ok(wrote) => {
+                session.commit_transaction();
+                wrote
+            }
         }
-        session.commit_transaction();
-    }
+    };
+    // The reach facts of a routine of this codeunit, for the writes of the Company Triggers subscribers.
+    let company_open_refuses = |r: usize| -> Option<String> {
+        company_open.who.as_ref()?;
+        let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+        company_open.refuses(&reach_facts(&engine.events, lowered, &index, object, r), lowered)
+    };
     // A test codeunit with SingleInstance = true runs its tests on the session's single instance: a variable of its own type
     // and its manual subscriber share its globals, and the second test sees what the first left
     // (codeunit/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98 QI_SI_2_SecondTestSeesTheFirst).
@@ -265,6 +283,9 @@ pub(crate) fn run_codeunit_core(
         .filter(|_| !execute)
     {
         if let Some(reason) = blocked_reason(lowered, object, on_run) {
+            return all(Outcome::NotRun(format!("OnRun: {reason}")));
+        }
+        if let Some(reason) = company_open_refuses(on_run) {
             return all(Outcome::NotRun(format!("OnRun: {reason}")));
         }
         match session.call(object, on_run, instance.clone(), Vec::new()) {
@@ -292,6 +313,14 @@ pub(crate) fn run_codeunit_core(
     if scratch.capture.any() {
         session.enable_capture(scratch.capture);
     }
+    // `al-runner debug` (ADR-048): the tests run with the debugger; the install code above did not.
+    let paused = match crate::events::debugger() {
+        Some((hook, paused)) => {
+            session.attach_debugger(hook);
+            paused
+        }
+        None => None,
+    };
     let mut out = Vec::new();
     // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
     // or failed. A later failure is not trusted when such a test could have changed what it reads (`written.rs`).
@@ -341,6 +370,8 @@ pub(crate) fn run_codeunit_core(
             .map(|(_, why)| why)
         {
             Outcome::NotRun(reason.clone())
+        } else if let Some(reason) = company_open_refuses(r) {
+            Outcome::NotRun(reason)
         } else {
             let bound = handlers.unwrap_or_default();
             // A scratch run has no UI scope: its `Message` calls are kept, not handled.
@@ -380,10 +411,11 @@ pub(crate) fn run_codeunit_core(
                     let cancel = if execute { crate::events::cancel_flag() } else { None };
                     let watchdog = match (limit, &cancel) {
                         (None, None) => None,
-                        (l, _) => Some(Watchdog::start_cancellable(
+                        (l, _) => Some(Watchdog::start_paused(
                             session.stop_flag(),
                             l.unwrap_or(std::time::Duration::from_secs(u32::MAX.into())),
                             cancel.clone(),
+                            paused.clone(),
                         )),
                     };
                     session.set_runner_frames(runner_frames(&lowered.program, engine));
@@ -437,6 +469,19 @@ pub(crate) fn run_codeunit_core(
                                 None => result,
                             }
                         }
+                        r => r,
+                    };
+                    // A duplicate-key Insert whose error is still deferred when the test ends: the next access to the
+                    // table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:180-209), but what the
+                    // runner's commit or rollback at the end of the test does with it is not pinned (al-runner issue
+                    // 5603: the test passed here).
+                    let result = match result {
+                        Ok(_) if unexecuted.is_empty() => match session.deferred_insert_table() {
+                            Some(t) => Err(Signal::Unsupported(format!(
+                                "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is not pinned"
+                            ))),
+                            None => result,
+                        },
                         r => r,
                     };
                     let outcome = match result {
@@ -598,7 +643,10 @@ pub(crate) fn run_codeunit_core(
         // pinned (docs/probes-needed.md): a test that passed through one is not reported as run.
         let outcome = match outcome {
             Outcome::Pass if committed && checkpoint.is_some() => Outcome::NotRun(
-                "Commit inside a test under TestIsolation = Function: what the runner keeps is not pinned".into(),
+                "Commit inside a test under TestIsolation = Function is not supported yet: no corpus test pins whether \
+                 BC keeps the committed rows for the next test (corpus issue 645). Run this codeunit with TestIsolation = \
+                 Codeunit (al-runner: --isolation codeunit, the default)"
+                    .into(),
             ),
             o => o,
         };
@@ -730,11 +778,24 @@ impl Watchdog {
 
     /// [`Watchdog::start`] that also stops the routine when `cancel` is set (a scratch run: `cancel` ends it at once;
     /// a test run lets the running test finish).
+    #[cfg(test)]
     pub(crate) fn start_cancellable(
         flag: Arc<std::sync::atomic::AtomicBool>,
         limit: std::time::Duration,
         cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Watchdog {
+        Watchdog::start_paused(flag, limit, cancel, None)
+    }
+
+    /// [`Watchdog::start_cancellable`] whose wall clock leaves out the time `paused` counts (the time a debugger kept the
+    /// test stopped, ADR-048 decision 9). A stopped thread uses no CPU time, so only the wall clock needs it.
+    pub(crate) fn start_paused(
+        flag: Arc<std::sync::atomic::AtomicBool>,
+        limit: std::time::Duration,
+        cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+        paused: Option<Arc<crate::events::PauseClock>>,
+    ) -> Watchdog {
+        let paused_at_start = paused.as_ref().map(|p| p.total()).unwrap_or_default();
         let clock = crate::cpuclock::ThreadClock::current();
         // The thread's CPU clock counts from the thread's birth, and a worker thread runs many tests:
         // the limit is measured from the reading at the start of this test.
@@ -742,6 +803,14 @@ impl Watchdog {
         let (done, rx) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
             let started = std::time::Instant::now();
+            // The wall time of the test, without the time a debugger kept it stopped.
+            let elapsed = || {
+                let stopped = paused
+                    .as_ref()
+                    .map(|p| p.total().saturating_sub(paused_at_start))
+                    .unwrap_or_default();
+                started.elapsed().saturating_sub(stopped)
+            };
             let stop = |flag: &std::sync::atomic::AtomicBool| {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 true
@@ -764,13 +833,13 @@ impl Watchdog {
                     .map(|cpu| cpu.saturating_sub(base));
                 match used {
                     Some(cpu) => {
-                        if cpu >= limit || started.elapsed() >= limit * WALL_BACKSTOP {
+                        if cpu >= limit || elapsed() >= limit * WALL_BACKSTOP {
                             return stop(&flag);
                         }
                     }
                     // No CPU clock: the wall clock counts.
                     None => {
-                        if started.elapsed() >= limit {
+                        if elapsed() >= limit {
                             return stop(&flag);
                         }
                     }

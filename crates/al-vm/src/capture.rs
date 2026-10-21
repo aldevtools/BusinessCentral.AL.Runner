@@ -212,7 +212,7 @@ pub(crate) fn written_locals(s: &ir::Stmt) -> Vec<usize> {
 impl Session {
     /// Turns capture on. `Session::take_capture` hands over what was collected.
     pub fn enable_capture(&mut self, cfg: CaptureConfig) {
-        self.capturing = false;
+        self.form = self.plain_form();
         self.capture = cfg.any().then(|| {
             Box::new(Capture {
                 cfg,
@@ -237,12 +237,12 @@ impl Session {
         c.active.clear();
         c.stmt.clear();
         c.open.clear();
-        self.capturing = false;
+        self.form = self.plain_form();
         let c = self.capture.as_mut().expect("checked above");
         std::mem::take(&mut c.out)
     }
 
-    fn render(&self, v: &Value) -> Rendered {
+    pub(crate) fn render(&self, v: &Value) -> Rendered {
         use al_builtins::format::format_value;
         let text = |v: &Value, standard: i32| match format_value(v, 0, standard, self) {
             Ok(t) => Rendered::Text(t),
@@ -309,7 +309,11 @@ impl Session {
         let Some(c) = self.capture.as_mut() else { return };
         let active_at_start = c.active.len();
         let stmt_base = c.stmt.len();
-        self.capturing = tracked;
+        self.form = if tracked {
+            crate::Form::Captured
+        } else {
+            self.plain_form()
+        };
         let Some(c) = self.capture.as_mut() else { return };
         c.frames.push(CapFrame {
             tracked,
@@ -336,7 +340,12 @@ impl Session {
         }
         c.active.truncate(fr.active_at_start);
         c.stmt.truncate(fr.stmt_base);
-        self.capturing = c.frames.last().is_some_and(|f| f.tracked);
+        let tracked = c.frames.last().is_some_and(|f| f.tracked);
+        self.form = if tracked {
+            crate::Form::Captured
+        } else {
+            self.plain_form()
+        };
     }
 
     /// A statement marker ran: the statement is one of the open loops' pass.

@@ -84,13 +84,18 @@ impl Selection {
     }
 
     fn picks(&self, codeunit: u32, test: &str) -> bool {
-        let included = self.includes_none()
-            || self.codeunits.contains(&codeunit)
-            || self.filters.iter().any(|f| Self::matches(f, codeunit, test))
-            || self
-                .exact
-                .iter()
-                .any(|e| e.eq_ignore_ascii_case(test) || e.eq_ignore_ascii_case(&qualified(codeunit, test)));
+        let by_filter = self.filters.iter().any(|f| Self::matches(f, codeunit, test));
+        let by_exact = self
+            .exact
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(test) || e.eq_ignore_ascii_case(&qualified(codeunit, test)));
+        // `--test` with `--test-exact` narrows to the tests both match, as AL Runner v2 did, so that a tool that
+        // sends both selects no more than either alone (issue 5612). Each alone selects what it matches.
+        let by_name = match (self.filters.is_empty(), self.exact.is_empty()) {
+            (false, false) => by_filter && by_exact,
+            _ => by_filter || by_exact,
+        };
+        let included = self.includes_none() || self.codeunits.contains(&codeunit) || by_name;
         included
             && !self.excludes.iter().any(|x| Self::matches(x, codeunit, test))
             && !self.parity.as_ref().is_some_and(|d| d.is_disabled(codeunit, test))
@@ -484,7 +489,7 @@ pub struct Collected {
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
-    test_inner(a, None, Some(into))
+    test_inner(a, None, Some(into), None)
 }
 
 /// What the server hears for each test as it finishes: the event, and its capture as JSON.
@@ -537,7 +542,8 @@ impl Report {
     }
 }
 
-/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names, the dependency apps, the symbols, the target.
+/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names,
+/// the manifests (resources, layout files, `app.json`), the dependency apps, the symbols, the target.
 fn warm_key(
     inputs: &[AppInput],
     dependencies: &al_testrun::deps::Dependencies,
@@ -553,7 +559,27 @@ fn warm_key(
         for (path, _) in &i.source.files {
             path.hash(&mut h);
         }
-        i.manifest.version.hash(&mut h);
+        // What the app's manifest gives the program beside its code: a change to a resource file, a layout file or
+        // `app.json` is a new key, as the warm compile takes in only source text (issue 5604).
+        let m = &i.manifest;
+        (
+            &m.publisher,
+            &m.version,
+            &m.resources,
+            m.include_source,
+            &m.target,
+            &m.symbols,
+            &m.layout_files,
+        )
+            .hash(&mut h);
+        i.symbols.hash(&mut h);
+        let j = &i.json;
+        (&j.id, &j.name, &j.publisher, j.version.to_string()).hash(&mut h);
+        (
+            j.platform.as_ref().map(ToString::to_string),
+            j.application.as_ref().map(ToString::to_string),
+        )
+            .hash(&mut h);
     }
     for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
         app.id.hash(&mut h);
@@ -575,13 +601,35 @@ fn warm_key(
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
-    test_inner(a, warm, None)
+    test_inner(a, warm, None, None)
 }
 
-fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut Collected>) -> Result<u8, String> {
+/// What `al-runner debug` adds to a run (ADR-048).
+pub struct DebugSetup {
+    /// Called once the compile is done; returns when the tests may start.
+    pub ready: al_testrun::runtime::DebugReadyHook,
+    /// The debugger of each test codeunit's session.
+    pub debugger: al_testrun::events::MakeDebugger,
+    /// The time the debugger kept the tests stopped (the time limit does not count it).
+    pub paused: Arc<al_testrun::events::PauseClock>,
+    /// Called for each selected test as it finishes.
+    pub on_test: Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>,
+}
+
+/// `al-runner debug`: the run of `al-runner test` with a debugger. The report goes to stderr.
+pub fn test_debug(a: &TestArgs, debug: DebugSetup) -> Result<u8, String> {
+    test_inner(a, None, None, Some(debug))
+}
+
+fn test_inner(
+    a: &TestArgs,
+    mut warm: Option<&mut WarmCtx>,
+    collect: Option<&mut Collected>,
+    debug: Option<DebugSetup>,
+) -> Result<u8, String> {
     let started = Instant::now();
     REPORT_TO_STDERR.store(
-        matches!(a.output_json, Some(None)) || warm.is_some(),
+        matches!(a.output_json, Some(None)) || warm.is_some() || debug.is_some(),
         std::sync::atomic::Ordering::Relaxed,
     );
     {
@@ -594,7 +642,7 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         };
         let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
         // A server request is never colored.
-        style::set(warm.is_none() && a.color.enabled(terminal, no_color));
+        style::set(warm.is_none() && debug.is_none() && a.color.enabled(terminal, no_color));
     }
     let test_timeout = test_timeout_secs(a)?;
     // The country of the run (ADR-020 amendment): only `--country` selects it. An unknown one stops here, before
@@ -695,9 +743,23 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
             "no test codeunit (Subtype = Test) in the given apps"
         };
         eprintln!("error: {what}");
+        let empty = Report::empty(6, started.elapsed().as_secs_f64(), what);
+        // `--output-json` writes the document of a run with no test, with the reason in `warnings`, as `serve`
+        // answers its summary (issue 5613).
+        if let Some(target) = &a.output_json
+            && warm.is_none()
+        {
+            let mut doc = empty.doc.clone();
+            doc["warnings"] = serde_json::json!(empty.warnings);
+            let doc = serde_json::to_string_pretty(&doc).expect("a JSON value serializes");
+            match target {
+                Some(path) => write_file(path, &doc)?,
+                None => println!("{doc}"),
+            }
+        }
         // A server request answers a summary with exit code 6, as `al-runner test` exits 6 (ADR-028 item 1).
         if let Some(w) = warm.as_deref_mut() {
-            w.report = Some(Report::empty(6, started.elapsed().as_secs_f64(), what));
+            w.report = Some(empty);
         }
         return Ok(6);
     }
@@ -715,6 +777,12 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         &al_version::BcVersion::new(NEWEST_VERIFIED, 0),
     )
     .map_err(|e| e.to_string())?;
+    // Each app under test sees the builtins of the runtime its own app.json declares (al-runner issue 5573): the AL
+    // compiler rejects a call newer than that runtime with AL0666.
+    chosen.target.app_runtimes = inputs
+        .iter()
+        .filter_map(|i| Some((i.source.id.clone(), i.versions.runtime?)))
+        .collect();
     for note in &chosen.notes {
         eprintln!("note: {note}");
     }
@@ -1033,9 +1101,29 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
                 }),
                 on_start: w.on_start.clone(),
                 cancel: w.cancel.clone(),
+                debugger: None,
+                paused: None,
             }
         }
-        None => Default::default(),
+        None => match &debug {
+            // `al-runner debug` (ADR-048): each selected test is told as it finishes, and the sessions get a debugger.
+            Some(d) => {
+                let pick = selection.clone();
+                let on_test = d.on_test.clone();
+                al_testrun::events::Hooks {
+                    on_test: Some(Arc::new(move |e: al_testrun::events::TestEvent| {
+                        if pick.picks(e.codeunit, &e.test) {
+                            on_test(e)
+                        }
+                    })),
+                    on_start: None,
+                    cancel: None,
+                    debugger: Some(d.debugger.clone()),
+                    paused: Some(d.paused.clone()),
+                }
+            }
+            None => Default::default(),
+        },
     };
     let opts = RunOptions {
         only: opts_only,
@@ -1057,6 +1145,20 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
         tdd: a.tdd,
+        debug_ready: debug.as_ref().map(|d| d.ready.clone()),
+        // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
+        stop_on_compile_errors: true,
+        // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
+        run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
+            Arc::new(
+                found
+                    .iter()
+                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                    .filter(|(id, t)| selection.picks(*id, t))
+                    .map(|(id, t)| (id, t.to_lowercase()))
+                    .collect(),
+            )
+        }),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
@@ -1128,6 +1230,78 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
     let p = &rt.phases;
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
+
+    // An app under test that does not compile runs no test (al-runner issue 5602), as the AL compiler would not
+    // publish it: the errors, exit 3, and `compilationErrors` in the JSON document. Source our parser does not accept
+    // is not such an error, as the parser can reject valid AL (al-runner issue 5576): it is said, and the tests that
+    // need the file are not run (orchestrator decision 2026-10-21).
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let located = |e: &al_testrun::runtime::CompileError| {
+        let file = inputs
+            .get(e.app)
+            .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
+        (file, output::compile_error_line(e))
+    };
+    let parse_errors: Vec<(String, String)> = rt
+        .compile_errors()
+        .iter()
+        .filter(|e| e.code.is_empty())
+        .map(located)
+        .collect();
+    if !parse_errors.is_empty() {
+        eprintln!(
+            "parse: {} place(s) in the APPs our parser did not accept; the tests that need those files are not run",
+            parse_errors.len()
+        );
+        for (file, line) in parse_errors.iter().take(100) {
+            eprintln!("parse: {file}{line}");
+        }
+    }
+    if rt.compile_errors().iter().any(|e| !e.code.is_empty()) {
+        let errors: Vec<(String, String)> = rt
+            .compile_errors()
+            .iter()
+            .filter(|e| !e.code.is_empty())
+            .map(located)
+            .collect();
+        for (file, line) in errors.iter().take(100) {
+            eprintln!("compile: {file}{line}");
+        }
+        if errors.len() > 100 {
+            eprintln!("compile: ... {} more", errors.len() - 100);
+        }
+        let code = output::COMPILE_ERRORS;
+        let why = format!(
+            "the APPs do not compile: {} error(s); no test ran (exit {code})",
+            errors.len()
+        );
+        let total_time = started.elapsed();
+        if let Some(into) = collect {
+            into.bc_build = bc_build.clone();
+            return Ok(code);
+        }
+        say!("{why}");
+        let result = format!("Result: COMPILE ERRORS (exit {code})");
+        say!("{}", style::bold(&style::yellow(&result)));
+        let doc = output::json_compile_errors(code, total_time.as_secs_f64(), &errors);
+        if let Some(w) = warm {
+            w.report = Some(Report {
+                doc: serde_json::from_str(&doc).unwrap_or_default(),
+                coverage: None,
+                messages: Vec::new(),
+                object_names: Vec::new(),
+                captured: Vec::new(),
+                warnings: vec![why.clone()],
+            });
+        }
+        if let Some(target) = &a.output_json {
+            match target {
+                Some(path) => write_file(path, &doc)?,
+                None => println!("{doc}"),
+            }
+        }
+        return Ok(code);
+    }
 
     // The selected tests, in a stable order: app, codeunit, then declaration order.
     let mut results: Vec<&TestResult> = rt
@@ -1743,5 +1917,34 @@ mod disabled_line_tests {
         };
         let line = disabled_line(&d, &[], &found, &sel, true);
         assert!(line.starts_with("Disabled by Microsoft: 2 tests not run"), "{line}");
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn sel(filters: &[&str], exact: &[&str]) -> Selection {
+        Selection {
+            filters: filters.iter().map(|s| s.to_string()).collect(),
+            exact: exact.iter().map(|s| s.to_string()).collect(),
+            ..Selection::default()
+        }
+    }
+
+    /// Issue 5612: `--test` with `--test-exact` narrows to the tests both match, as in AL Runner v2
+    /// (`TestExactFlagTests.TestAndTestExact_Together_AreTheIntersection` on the `v2` branch).
+    #[test]
+    fn test_and_test_exact_together_select_the_tests_both_match() {
+        let s = sel(&["Codeunit50650.Passes"], &["Codeunit50650.Passes"]);
+        assert!(s.picks(50650, "Passes"));
+        assert!(!s.picks(50650, "PassesToo"));
+        let s = sel(&["PassesToo"], &["Codeunit50650.Passes"]);
+        assert!(!s.picks(50650, "Passes") && !s.picks(50650, "PassesToo"));
+        // Each kind alone, and several of one kind, still select every test one of them matches.
+        let s = sel(&["Passes", "Other"], &[]);
+        assert!(s.picks(50650, "PassesToo") && s.picks(1, "Other"));
+        let s = sel(&[], &["Codeunit50650.Passes", "Codeunit1.Other"]);
+        assert!(s.picks(50650, "Passes") && s.picks(1, "Other") && !s.picks(50650, "PassesToo"));
     }
 }

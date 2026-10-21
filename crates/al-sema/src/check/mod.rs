@@ -355,6 +355,14 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         eprintln!("incremental: check: objects {:.3}", t_start.elapsed().as_secs_f64());
     }
     let rest_started = std::time::Instant::now();
+    // What the selection left out of the check is still checked for its compile errors: the AL compiler rejects an app
+    // for an error anywhere in it (al-runner issue 5602).
+    if roots.only_tests.is_some() {
+        let started = std::time::Instant::now();
+        let more = left_out_diagnostics(ws, members, catalog, &roots, &skip, &provided, &c.diags);
+        c.diags.extend(more);
+        timings.workspace += started.elapsed();
+    }
     let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
     let from_checker = c.diags.clone();
     let from_codes = crate::alcodes::check_workspace(ws);
@@ -399,6 +407,47 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         from_codes,
         tdd: c.tdd_apps.is_some(),
     }
+}
+
+/// The compile errors of the workspace code a selection left out of the check (`Roots::only_tests`): test codeunits it
+/// did not select, objects a lean compile left out, and procedures `reach_only` found unreached. They are checked on a
+/// checker of their own without a demand state, so nothing they name in the dependency apps is reached or compiled;
+/// only the diagnostics are kept, without the ones `found` already holds.
+fn left_out_diagnostics(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    catalog: &Catalog,
+    roots: &Roots,
+    skip: &dyn Fn(usize) -> bool,
+    provided: &dyn Fn(usize) -> bool,
+    found: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    let objects: Vec<usize> = (0..ws.objects.len())
+        .filter(|&oi| !ws.is_dependency(oi) && !provided(oi))
+        .filter(|oi| roots.only_objects.as_ref().is_none_or(|only| only.contains(oi)))
+        .filter(|&oi| {
+            skip(oi)
+                || (roots.reach_only
+                    && ast::routines_in(ws.object_ast(oi).syntax())
+                        .iter()
+                        .any(|r| ws.routine_unreached(oi, usize::from(r.syntax().text_range().start()))))
+        })
+        .collect();
+    if objects.is_empty() {
+        return Vec::new();
+    }
+    let mut c = Checker::new(ws, members, catalog, system_enums(catalog), false);
+    c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
+    c.all_routines = true;
+    for oi in objects {
+        c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
+        c.take_calls();
+    }
+    let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
+    c.diags
+        .into_iter()
+        .filter(|d| !seen.contains(&(d.file.as_str(), d.offset, d.code)))
+        .collect()
 }
 
 /// The complete check of fewer objects than this stays on the calling thread.
@@ -709,6 +758,9 @@ pub(crate) struct Checker<'a> {
     tdd_apps: Option<std::sync::Arc<Vec<bool>>>,
     /// The stub sites of the routine being checked whose return type is not known yet.
     tdd_pending: Vec<posmap::PosKey>,
+    /// Check the routines a selection left out as unreached too (`Workspace::routine_unreached`): the check of what a
+    /// selection leaves out, for its compile errors only (`left_out_diagnostics`).
+    all_routines: bool,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].

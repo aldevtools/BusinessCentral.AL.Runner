@@ -933,8 +933,19 @@ impl Session {
             s.pending = None;
         }
         let mode = child.borrow().mode;
+        // The refill runs the CaptionClass expressions with its first row only (QdCaptionClassAreas.al:1022-1066
+        // QO_Doc_OpenEdit_HostSteps `host_next = rest=70@3;71@3;`, `host_next_exprA = Line 3`).
+        {
+            let mut c = child.borrow_mut();
+            c.field_captions_settled = false;
+            c.field_captions_fill_first = true;
+        }
         let loaded = self.load_first_row(child, mode, false);
-        child.borrow_mut().field_captions_settled = true;
+        {
+            let mut c = child.borrow_mut();
+            c.field_captions_settled = true;
+            c.field_captions_fill_first = false;
+        }
         loaded
     }
 
@@ -1006,7 +1017,10 @@ impl Session {
                         .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
             });
             if reads {
-                self.sync_part(st, *i, child)?;
+                child.borrow_mut().field_captions_link_refill = true;
+                let r = self.sync_part(st, *i, child);
+                child.borrow_mut().field_captions_link_refill = false;
+                r?;
             }
         }
         Ok(())
@@ -1141,6 +1155,7 @@ impl Session {
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = !both;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1158,6 +1173,7 @@ impl Session {
         st.borrow_mut().refresh = false;
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = true;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1230,6 +1246,7 @@ impl Session {
         }
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = false;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1299,6 +1316,7 @@ impl Session {
         }
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = true;
         h.read_keeps_xrec = true;
         drop(h);

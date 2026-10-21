@@ -20,11 +20,13 @@ pub(crate) use state::*;
 mod baseline;
 mod capture;
 mod ctx;
+mod debug;
 mod exec;
 mod interp;
 pub use baseline::Baseline;
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
+pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
 pub use exec::{disassemble as exec_disassemble, report as exec_report};
 pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
@@ -553,8 +555,11 @@ pub struct Session {
     pub(crate) tdd_reached: std::collections::BTreeSet<String>,
     /// Value capture and loop tracking (`capture.rs`); `None`: off, and the statements run as they always did.
     pub(crate) capture: Option<Box<capture::Capture>>,
-    /// A capture is on and the routine running is one of the run's apps: the only thing the statements test (one byte).
-    pub(crate) capturing: bool,
+    /// Which executable form the next routine runs (one byte): the plain one, the captured one (a capture is on and the
+    /// routine is one of the run's apps), or the debug one (a debugger is attached, ADR-048).
+    pub(crate) form: Form,
+    /// The debugger attached to this session (ADR-048); `None`: no debugger, and the statements run as they always did.
+    pub(crate) debug: Option<Box<debug::Debugger>>,
     /// The constants of the program that cost something to build (a Decimal parsed from its text, a shared text, an
     /// Option's member list), built the first time a node is evaluated, by the address of the node: the program does not
     /// change while the session runs.
@@ -770,7 +775,8 @@ impl Session {
             scratch_messages: None,
             tdd_reached: Default::default(),
             capture: None,
-            capturing: false,
+            form: Form::Plain,
+            debug: None,
             constants: Default::default(),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             commits: 0,
@@ -811,6 +817,7 @@ impl Session {
                 traps: Vec::new(),
                 scope_unpinned: Vec::new(),
                 bg_worker: None,
+                bg_drain_after_call: None,
                 page_xrec: None,
                 curr_field_no: Vec::new(),
                 lenient_bind: false,
@@ -855,6 +862,7 @@ impl Session {
                 report_executed: Vec::new(),
                 report_save_tried: Vec::new(),
                 prepared: Vec::new(),
+                rp_init_done: Vec::new(),
                 report_preview_pinned: Vec::new(),
                 set_view_filters: Vec::new(),
                 dataset: None,
@@ -1427,13 +1435,16 @@ impl Session {
                 // A Variant holding a number, a Boolean, a Date, an Enum or an Option handed to a by-value Text or Code parameter
                 // raises TypeConversion (types/lt-variant-to-text-fields/VariantNumberToTextParam.al:TextParam_ByValue_VariantNumbers,
                 // CodeParam_ByValue_VariantNumbers, TextParam_ByValue_VariantTextAndBoolean; report/lt-requestpage-savevalues-date-text-setvalue/
-                // P147DateToText.al:P147_DateVariant_DefaultLanguage for a Date).
+                // P147DateToText.al:P147_DateVariant_DefaultLanguage for a Date; QO_TimeVariant_EachConversion and
+                // QO_DateTimeVariant_EachConversion for a Time and a DateTime).
                 (
                     Value::Integer(_)
                     | Value::BigInteger(_)
                     | Value::Decimal(_)
                     | Value::Boolean(_)
                     | Value::Date(..)
+                    | Value::Time(_)
+                    | Value::DateTime(_)
                     | Value::Enum(..)
                     | Value::Option(..),
                     false,
@@ -1512,10 +1523,11 @@ impl Session {
             self.cap_enter_frame(object, r, &frame.locals);
         }
         // A capture watches a tracked routine through its captured form (ADR-030).
-        let chunk = if self.capturing {
-            engine.exec.captured_chunk(&engine.program, object, routine)
-        } else {
-            chunk
+        // A debugger runs every routine in its debug form (ADR-048).
+        let chunk = match self.form {
+            Form::Plain => chunk,
+            Form::Captured => engine.exec.captured_chunk(&engine.program, object, routine),
+            Form::Debug => engine.exec.debug_chunk(&engine.program, object, routine),
         };
         let mut outcome = if let Some(chunk) = chunk {
             if exec::counting() {
@@ -1663,6 +1675,16 @@ pub(crate) struct TableFacts {
 
 /// The shared storage of an array value.
 type Cells = Rc<RefCell<Vec<Value>>>;
+
+/// The executable form a routine runs in (`Session::form`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Form {
+    Plain,
+    /// Value capture and loop tracking (ADR-030).
+    Captured,
+    /// A debugger is attached (ADR-048): one `Op::DbgHit` per statement.
+    Debug,
+}
 
 /// A routine on the call stack and the position of the statement it is running.
 #[derive(Clone, Copy)]

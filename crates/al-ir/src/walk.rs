@@ -1073,11 +1073,13 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         routine: _,
         unsupported: _,
         field,
+        item_field,
         include_caption: _,
         decimal_places: _,
         option_caption_ml: _,
     } = c;
     field_opt(v, field, table);
+    field_opt(v, item_field, table);
 }
 
 fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {

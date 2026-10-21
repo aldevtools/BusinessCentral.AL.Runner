@@ -5,6 +5,7 @@ mod args;
 mod bcapps;
 mod capture;
 mod coverage;
+mod debug;
 mod impact;
 mod impact_index;
 mod output;
@@ -188,6 +189,13 @@ fn real_main() -> ExitCode {
             }
         },
         Command::ImpactIndexBuild(a) => match impact_index::build(&a) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Command::Debug(a, transport) => match debug::run(&a, transport) {
             Ok(code) => ExitCode::from(code),
             Err(e) => {
                 eprintln!("error: {e}");

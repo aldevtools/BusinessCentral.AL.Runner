@@ -1,0 +1,403 @@
+# GENERATED from corpus/scripts/al-surface.json by al-builtins (ADR-008). Do not edit.
+# <catalog line>\t<runtime>: the runtime Microsoft's docs give for the overload ("Available or changed with
+# runtime version"), for every overload above 1.0; `?` when the docs give none. Other generated lines: 1.0.
+BigInteger.ToText inst () -> Text	15.0
+Boolean.ToText inst () -> Text	15.0
+Boolean.ToText inst (?Invariant: Boolean) -> Text	15.1
+Byte.ToText inst () -> Text	15.0
+Byte.ToText inst (?Invariant: Boolean) -> Text	15.1
+Codeunit.Run static (FullyQualifiedName: Text, ?var Record: Record) -> Boolean? @17.0	17.0
+CompanyProperty.ID static () -> Guid	12.0
+Cookie.Domain inst () -> Text	13.0
+Cookie.Expires inst () -> DateTime	13.0
+Cookie.HttpOnly inst () -> Boolean	13.0
+Cookie.Name inst (?Name: Text) -> Text	13.0
+Cookie.Path inst () -> Text	13.0
+Cookie.Secure inst () -> Boolean	13.0
+Cookie.Value inst (?Value: Text) -> Text	13.0
+DataTransfer.AddConstantValue inst (Value: Any, DestinationField: Integer)	10.0
+DataTransfer.AddDestinationFilter inst (DestinationField: Integer, String: Text, ?Value: Any*) @17.0	17.0
+DataTransfer.AddFieldValue inst (SourceField: Integer, DestinationField: Integer)	10.0
+DataTransfer.AddJoin inst (SourceField: Integer, DestinationField: Integer)	10.0
+DataTransfer.AddSourceFilter inst (SourceField: Integer, String: Text, ?Value: Any*)	10.0
+DataTransfer.CopyFields inst ()	10.0
+DataTransfer.CopyRows inst ()	10.0
+DataTransfer.SetTables inst (SourceTable: Integer, DestinationTable: Integer)	10.0
+DataTransfer.UpdateAuditFields inst (?UpdateAuditFields: Boolean) -> Boolean?	10.0
+Database.AlterKey static (KeyRef: KeyRef, Enable: Boolean)	13.0
+Database.IsInWriteTransaction static () -> Boolean	11.0
+Database.LastUsedRowVersion static () -> BigInteger	10.0
+Database.LockTimeoutDuration static (?LockTimeoutDuration: Integer) -> Integer?	16.0
+Database.MinimumActiveRowVersion static () -> BigInteger	10.0
+Database.SelectLatestVersion static (Table: Integer)	14.0
+Date.Day inst () -> Integer	14.0
+Date.DayOfWeek inst () -> Integer	14.0
+Date.Month inst () -> Integer	14.0
+Date.ToText inst (?Invariant: Boolean) -> Text	15.0
+Date.WeekNo inst () -> Integer	14.0
+Date.Year inst () -> Integer	14.0
+DateTime.Date inst () -> Date	14.0
+DateTime.Time inst () -> Time	14.0
+DateTime.ToText inst (?Invariant: Boolean) -> Text	15.0
+Decimal.ToText inst () -> Text	15.0
+Decimal.ToText inst (?Invariant: Boolean) -> Text	15.1
+Dialog.Error static (Message: ErrorInfo)	3.0
+Dialog.LogInternalError static (Message: Text, DataClassificationInstance: DataClassification, VerbosityInstance: Verbosity)	6.0
+Dialog.LogInternalError static (Message: Text, SubstitutionString: Text, DataClassificationInstance: DataClassification, VerbosityInstance: Verbosity)	6.0
+Duration.ToText inst (?Invariant: Boolean) -> Text	15.0
+Enum.AsInteger inst () -> Integer	4.0
+Enum.FromInteger static (Value: Integer) -> Any	4.0
+Enum.Names inst () -> List of [Text]	4.0
+Enum.Ordinals inst () -> List of [Integer]	4.0
+ErrorInfo.AddAction inst (Caption: Text, CodeunitID: Integer, MethodName: Text)	11.0
+ErrorInfo.AddAction inst (Caption: Text, CodeunitID: Integer, MethodName: Text, Description: Text)	12.0
+ErrorInfo.AddNavigationAction inst (?Caption: Text)	11.0
+ErrorInfo.AddNavigationAction inst (?Caption: Text, ?Description: Text)	12.0
+ErrorInfo.Callstack inst () -> Text	8.0
+ErrorInfo.Collectible inst (?Collectible: Boolean) -> Boolean?	8.0
+ErrorInfo.ControlName inst (?ControlName: Text) -> Text?	8.0
+ErrorInfo.Create static () -> ErrorInfo	9.0
+ErrorInfo.Create static (Message: String, ?Collectible: Boolean, ?var Record: Record, ?FieldNo: Integer, ?PageNo: Integer, ?ControlName: String, ?Verbosity: Verbosity, ?DataClassification: DataClassification, ?CustomDimensions: Dictionary of [Text, Text]) -> ErrorInfo	8.0
+ErrorInfo.Create static (Message: Text, ?Collectible: Boolean, ?var Record: Record, ?FieldNo: Integer, ?PageNo: Integer, ?ControlName: Text, ?Verbosity: Verbosity, ?DataClassification: DataClassification, ?CustomDimensions: Dictionary of [Text, Text]) -> ErrorInfo	8.0
+ErrorInfo.CustomDimensions inst (?CustomDimensions: Dictionary of [Text, Text]) -> Dictionary of [Text, Text]?	8.0
+ErrorInfo.DataClassification inst (?DataClassification: DataClassification) -> DataClassification?	3.0
+ErrorInfo.DetailedMessage inst (?DetailedMessage: Text) -> Text?	8.0
+ErrorInfo.ErrorType inst (?ErrorType: ErrorType) -> ErrorType?	3.0
+ErrorInfo.FieldNo inst (?FieldNo: Integer) -> Integer?	8.0
+ErrorInfo.Message inst (?Message: Text) -> Text?	3.0
+ErrorInfo.PageNo inst (?PageNo: Integer) -> Integer?	8.0
+ErrorInfo.RecordId inst (?RecordId: RecordId) -> RecordId?	8.0
+ErrorInfo.SystemId inst (?SystemId: Guid) -> Guid?	8.0
+ErrorInfo.TableId inst (?TableId: Integer) -> Integer?	8.0
+ErrorInfo.Title inst (?Title: Text) -> Text?	11.0
+ErrorInfo.Verbosity inst (?Verbosity: Verbosity) -> Verbosity?	3.0
+FieldRef.EnumValueCount inst () -> Integer	4.0
+FieldRef.FieldError inst (ErrorInfo: ErrorInfo)	8.1
+FieldRef.GetEnumValueCaption inst (Index: Integer) -> Text	7.0
+FieldRef.GetEnumValueCaptionFromOrdinalValue inst (Ordinal: Integer) -> Text	7.0
+FieldRef.GetEnumValueName inst (Index: Integer) -> Text	4.0
+FieldRef.GetEnumValueNameFromOrdinalValue inst (Ordinal: Integer) -> Text	4.0
+FieldRef.GetEnumValueOrdinal inst (Index: Integer) -> Integer	4.0
+FieldRef.IsEnum inst () -> Boolean	12.0
+FieldRef.IsOptimizedForTextSearch inst () -> Boolean	14.0
+FieldRef.TestField inst (ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Any, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: BigInteger, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Boolean, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Byte, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Char, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Code, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Date, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: DateTime, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Decimal, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Enum)	2.0
+FieldRef.TestField inst (Value: Enum, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Guid, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Integer, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Label)	4.0
+FieldRef.TestField inst (Value: Label, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Option, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Text, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Time, ErrorInfo: ErrorInfo)	8.1
+FieldRef.TestField inst (Value: Variant, ErrorInfo: ErrorInfo)	8.1
+File.IsPathTemporary static (Name: Text) -> Boolean?	2.0
+File.UploadIntoStream static (FromFilter: Text, var InStream: InStream) -> Boolean?	7.0
+File.View static (FromFile: Text, ?AllowDownloadAndPrint: Boolean) -> Boolean?	15.0
+File.ViewFromStream static (InStream: InStream, FileName: Text, ?AllowDownloadAndPrint: Boolean) -> Boolean?	15.0
+FileUpload.CreateInStream inst (InStream: InStream)	14.0
+FileUpload.CreateInStream inst (InStream: InStream, Encoding: TextEncoding)	13.0
+FileUpload.FileName inst () -> Text	13.0
+FilterPageBuilder.AddField inst (Name: Text, Field: FieldRef, ?Filter: Text) -> Boolean?	2.0
+Guid.CreateGuid static () -> Guid	16.0
+Guid.CreateSequentialGuid static () -> Guid	16.0
+Guid.ToText inst () -> Text	15.0
+Guid.ToText inst (?Invariant: Boolean) -> Text	15.1
+HttpClient.AddCertificate inst (Certificate: SecretText, ?Password: SecretText)	12.0
+HttpClient.Patch inst (Path: Text, Content: HttpContent, var Response: HttpResponseMessage) -> Boolean?	14.0
+HttpClient.UseDefaultNetworkWindowsAuthentication inst () -> Boolean?	3.0
+HttpClient.UseResponseCookies inst (UseResponseCookies: Boolean)	13.0
+HttpClient.UseServerCertificateValidation inst (UseServerCertificateValidation: Boolean) -> Boolean?	15.0
+HttpClient.UseWindowsAuthentication inst (UserName: SecretText, Password: SecretText, ?Domain: SecretText) -> Boolean?	12.0
+HttpClient.UseWindowsAuthentication inst (UserName: Text, Password: Text, ?Domain: Text) -> Boolean?	3.0
+HttpContent.IsSecretContent inst () -> Boolean?	12.0
+HttpContent.ReadAs inst (var OutputSecretText: SecretText) -> Boolean?	12.0
+HttpContent.WriteFrom inst (SecretText: SecretText)	12.0
+HttpHeaders.Add inst (Name: Text, Value: SecretText) -> Boolean?	12.0
+HttpHeaders.ContainsSecret inst (Key: Text) -> Boolean?	12.0
+HttpHeaders.GetSecretValues inst (Key: Text, Values: Array of [SecretText]) -> Boolean?	12.0
+HttpHeaders.GetSecretValues inst (Key: Text, Values: List of [SecretText]) -> Boolean?	12.0
+HttpHeaders.GetValues inst (Key: Text, Values: List of [Text]) -> Boolean?	8.0
+HttpHeaders.Keys inst () -> List of [Text]	8.0
+HttpHeaders.TryAddWithoutValidation inst (Name: Text, Value: SecretText) -> Boolean?	12.0
+HttpHeaders.TryAddWithoutValidation inst (Name: Text, Value: Text) -> Boolean?	3.0
+HttpRequestMessage.GetCookie inst (Name: Text, var Cookie: Cookie) -> Boolean?	13.0
+HttpRequestMessage.GetCookieNames inst () -> List of [Text]	13.0
+HttpRequestMessage.GetSecretRequestUri inst () -> SecretText	12.0
+HttpRequestMessage.RemoveCookie inst (Name: Text) -> Boolean?	13.0
+HttpRequestMessage.SetCookie inst (Cookie: Cookie) -> Boolean?	13.0
+HttpRequestMessage.SetCookie inst (Name: Text, Value: Text) -> Boolean?	13.0
+HttpRequestMessage.SetSecretRequestUri inst (RequestUri: SecretText) -> Boolean?	12.0
+HttpResponseMessage.GetCookie inst (Name: Text, var Cookie: Cookie) -> Boolean?	13.0
+HttpResponseMessage.GetCookieNames inst () -> List of [Text]	13.0
+HttpResponseMessage.IsBlockedByEnvironment inst () -> Boolean	2.0
+InStream.Length inst () -> BigInteger	11.0
+InStream.Position inst (?Length: BigInteger) -> BigInteger?	11.0
+InStream.ResetPosition inst () -> Boolean?	11.0
+Integer.ToText inst () -> Text	15.0
+IsolatedStorage.Contains static (Key: Text, ?DataScope: DataScope) -> Boolean	2.0
+IsolatedStorage.Contains static (Key: Text, ?DataScope: DataScope, var isSecret: Boolean) -> Boolean	13.0
+IsolatedStorage.Delete static (Key: Text, ?DataScope: DataScope) -> Boolean?	2.0
+IsolatedStorage.Get static (Key: Text, ?DataScope: DataScope, var Value: SecretText) -> Boolean?	13.0
+IsolatedStorage.Get static (Key: Text, ?DataScope: DataScope, var Value: Text) -> Boolean?	2.0
+IsolatedStorage.Get static (Key: Text, var Value: SecretText) -> Boolean?	13.0
+IsolatedStorage.Get static (Key: Text, var Value: Text) -> Boolean?	2.0
+IsolatedStorage.Set static (Key: Text, Value: SecretText, ?DataScope: DataScope) -> Boolean?	13.0
+IsolatedStorage.Set static (Key: Text, Value: Text, ?DataScope: DataScope) -> Boolean?	2.0
+IsolatedStorage.SetEncrypted static (Key: Text, Value: SecretText, ?DataScope: DataScope) -> Boolean?	13.0
+IsolatedStorage.SetEncrypted static (Key: Text, Value: Text, ?DataScope: DataScope) -> Boolean?	2.0
+JsonArray.GetArray inst (Index: Integer) -> JsonArray	15.0
+JsonArray.GetBigInteger inst (Index: Integer) -> BigInteger	15.0
+JsonArray.GetBoolean inst (Index: Integer) -> Boolean	15.0
+JsonArray.GetByte inst (Index: Integer) -> Byte	15.0
+JsonArray.GetChar inst (Index: Integer) -> Char	15.0
+JsonArray.GetDate inst (Index: Integer) -> Date	15.0
+JsonArray.GetDateTime inst (Index: Integer) -> DateTime	15.0
+JsonArray.GetDecimal inst (Index: Integer) -> Decimal	15.0
+JsonArray.GetDuration inst (Index: Integer) -> Option	15.0
+JsonArray.GetInteger inst (Index: Integer) -> Integer	15.0
+JsonArray.GetObject inst (Index: Integer) -> JsonObject	15.0
+JsonArray.GetOption inst (Index: Integer) -> Option	15.0
+JsonArray.GetText inst (Index: Integer) -> Text	15.0
+JsonArray.GetTime inst (Index: Integer) -> Time	15.0
+JsonArray.SelectTokens inst (Path: Text, var Result: List of [JsonToken]) -> Boolean? @17.0	17.0
+JsonObject.GetArray inst (Key: Text, ?DefaultIfNotFound: Boolean) -> JsonArray	15.0
+JsonObject.GetBigInteger inst (Key: Text, ?DefaultIfNotFound: Boolean) -> BigInteger	15.0
+JsonObject.GetBoolean inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Boolean	15.0
+JsonObject.GetByte inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Byte	15.0
+JsonObject.GetChar inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Char	15.0
+JsonObject.GetDate inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Date	15.0
+JsonObject.GetDateTime inst (Key: Text, ?DefaultIfNotFound: Boolean) -> DateTime	15.0
+JsonObject.GetDecimal inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Decimal	15.0
+JsonObject.GetDuration inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Duration	15.0
+JsonObject.GetInteger inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Integer	15.0
+JsonObject.GetObject inst (Key: Text, ?DefaultIfNotFound: Boolean) -> JsonObject	15.0
+JsonObject.GetOption inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Option	15.0
+JsonObject.GetText inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Text	15.0
+JsonObject.GetTime inst (Key: Text, ?DefaultIfNotFound: Boolean) -> Time	15.0
+JsonObject.ReadFromYaml inst (InStream: InStream) -> Boolean?	14.3
+JsonObject.ReadFromYaml inst (String: Text) -> Boolean?	14.3
+JsonObject.SelectTokens inst (Path: Text, var Result: List of [JsonToken]) -> Boolean? @17.0	17.0
+JsonObject.WriteToYaml inst (OutStream: OutStream) -> Boolean?	14.3
+JsonObject.WriteToYaml inst (var String: Text) -> Boolean?	14.3
+JsonObject.WriteWithSecretsTo inst (Path: Text, Secret: SecretText, var Result: SecretText) -> Boolean?	15.1
+JsonObject.WriteWithSecretsTo inst (Secrets: Dictionary of [Text, SecretText], var Result: SecretText) -> Boolean?	15.1
+JsonToken.SelectTokens inst (Path: Text, var Result: List of [JsonToken]) -> Boolean? @17.0	17.0
+Label.Contains inst (Value: Text) -> Boolean	15.0
+Label.EndsWith inst (Value: Text) -> Boolean	15.0
+Label.IndexOf inst (Value: Text, ?StartIndex: Integer) -> Integer	15.0
+Label.IndexOfAny inst (Values: List of [Char], ?StartIndex: Integer) -> Integer	15.0
+Label.IndexOfAny inst (Values: Text, ?StartIndex: Integer) -> Integer	15.0
+Label.LastIndexOf inst (Value: Text, ?StartIndex: Integer) -> Integer	15.0
+Label.PadLeft inst (Count: Integer, ?Char: Char) -> Text	15.0
+Label.PadRight inst (Count: Integer, ?Char: Char) -> Text	15.0
+Label.Remove inst (StartIndex: Integer, ?Count: Integer) -> Text	15.0
+Label.Replace inst (OldValue: Text, NewValue: Text) -> Text	15.0
+Label.Split inst (?Separators: Text*) -> List of [Text]	15.0
+Label.Split inst (Separators: List of [Char]) -> List of [Text]	15.0
+Label.Split inst (Separators: List of [Text]) -> List of [Text]	15.0
+Label.StartsWith inst (Value: Text) -> Boolean	15.0
+Label.Substring inst (StartIndex: Integer, ?Count: Integer) -> Text	15.0
+Label.ToLower inst () -> Text	15.0
+Label.ToUpper inst () -> Text	15.0
+Label.Trim inst () -> Text	15.0
+Label.TrimEnd inst (?Chars: Text) -> Text	15.0
+Label.TrimStart inst (?Chars: Text) -> Text	15.0
+Media.FindOrphans static () -> List of [Guid]	11.0
+Media.ImportStream inst (Stream: InStream, Description: Text, MimeType: Text, FileName: Text) -> Guid?	3.0
+MediaSet.FindOrphans static () -> List of [Guid]	11.0
+ModuleInfo.PackageId inst () -> Guid	7.1
+NavApp.GetCallerCallstackModuleInfos static () -> List of [ModuleInfo]	14.0
+NavApp.GetCallerModuleInfo static (var Info: ModuleInfo) -> Boolean?	6.0
+NavApp.GetCallstackModuleInfos static () -> List of [ModuleInfo]	14.0
+NavApp.GetResource static (ResourceName: Text, var ResourceStream: InStream, ?Encoding: TextEncoding)	14.0
+NavApp.GetResourceAsJson static (ResourceName: Text, ?Encoding: TextEncoding) -> JsonObject	14.0
+NavApp.GetResourceAsText static (ResourceName: Text, ?Encoding: TextEncoding) -> Text	14.0
+NavApp.IsEntitled static (Id: Text, ?AppId: Guid) -> Boolean?	10.2
+NavApp.IsUnlicensed static (?AppId: Guid) -> Boolean?	10.2
+NavApp.ListResources static (?Filter: Text) -> List of [Text]	14.1
+Notification.AddAction inst (Caption: Text, CodeunitID: Integer, MethodName: Text, Description: Text)	12.0
+NumberSequence.Current static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger	4.0
+NumberSequence.Delete static (Name: Text, ?CompanySpecific: Boolean)	4.0
+NumberSequence.Exists static (Name: Text, ?CompanySpecific: Boolean) -> Boolean	4.0
+NumberSequence.Insert static (Name: Text, ?Seed: BigInteger, ?Increment: BigInteger, ?CompanySpecific: Boolean)	4.0
+NumberSequence.Next static (Name: Text, ?CompanySpecific: Boolean) -> BigInteger	4.0
+NumberSequence.Range static (Name: Text, Count: Integer, ?CompanySpecific: Boolean) -> BigInteger	13.0
+NumberSequence.Range static (Name: Text, Count: Integer, var Increment: BigInteger, ?CompanySpecific: Boolean) -> BigInteger	13.0
+NumberSequence.Restart static (Name: Text, ?Seed: BigInteger, ?CompanySpecific: Boolean)	13.0
+OutStream.Write inst (Value: Any, ?Length: Integer) -> Integer?	2.0
+OutStream.Write inst (Value: Label, ?Length: Integer) -> Integer?	3.0
+OutStream.Write inst (Value: TextConst, ?Length: Integer) -> Integer?	3.0
+OutStream.Write inst (Value: Variant, ?Length: Integer) -> Integer?	2.0
+Page.CancelBackgroundTask inst (TaskId: Integer) -> Boolean?	4.0
+Page.EnqueueBackgroundTask inst (var TaskId: Integer, CodeunitId: Integer, ?var Parameters: Dictionary of [Text, Text], ?Timeout: Integer, ?ErrorLevel: PageBackgroundTaskErrorLevel) -> Boolean?	4.0
+Page.GetBackgroundParameters static () -> Dictionary of [Text, Text]	4.0
+Page.PromptMode inst (?NewPromptMode: PromptMode) -> PromptMode?	12.1
+Page.Run static (FullyQualifiedName: Text, ?Record: Record, ?Field: Any) @17.0	17.0
+Page.Run static (FullyQualifiedName: Text, Record: Record, FieldNo: Integer) @17.0	17.0
+Page.RunModal static (FullyQualifiedName: Text, ?Record: Record, ?Field: Any) -> Action? @17.0	17.0
+Page.RunModal static (FullyQualifiedName: Text, Record: Record, FieldNo: Integer) -> Action? @17.0	17.0
+Page.RunModal static (FullyQualifiedName: Text, Record: Record, FieldRef: FieldRef) -> Action? @17.0	17.0
+Page.RunModal static (Number: Integer, Record: Record, FieldRef: FieldRef) -> Action?	3.0
+Page.SetBackgroundTaskResult static (Results: Dictionary of [Text, Text])	4.0
+Query.SaveAsJson inst (OutStream: OutStream) -> Boolean?	14.0
+Query.SaveAsJson static (Number: Integer, OutStream: OutStream) -> Boolean?	14.0
+Record.AddLoadFields inst (?Fields: Any*) -> Boolean?	6.0
+Record.AreFieldsLoaded inst (Fields: Any*) -> Boolean	6.0
+Record.CopyLinks inst (FromRecordRef: RecordRef)	4.0
+Record.FieldError inst (Field: Any, ErrorInfo: ErrorInfo)	8.1
+Record.FullyQualifiedName inst () -> Text @17.0	17.0
+Record.GetBySystemId inst (SystemId: Guid) -> Boolean?	4.0
+Record.Insert inst (RunTrigger: Boolean, InsertWithSystemId: Boolean) -> Boolean?	4.0
+Record.LoadFields inst (Fields: Any*) -> Boolean?	6.0
+Record.ReadIsolation inst (?ReadIsolation: IsolationLevel) -> IsolationLevel?	11.0
+Record.SetBaseLoadFields inst () -> Boolean?	12.0
+Record.SetLoadFields inst (?Fields: Any*) -> Boolean?	6.0
+Record.TestField inst (Field: Any, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Any, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: BigInteger, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Boolean, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Code, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Decimal, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Enum)	2.0
+Record.TestField inst (Field: Any, Value: Enum, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Guid, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Integer, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Label)	3.0
+Record.TestField inst (Field: Any, Value: Label, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: Text, ErrorInfo: ErrorInfo)	8.1
+Record.TestField inst (Field: Any, Value: TextConst)	3.0
+Record.TestField inst (Field: Any, Value: TextConst, ErrorInfo: ErrorInfo)	8.1
+Record.TransferFields inst (var FromRecord: Record, InitPrimaryKeyFields: Boolean, SkipFieldsNotMatchingType: Boolean)	4.2
+Record.Truncate inst (?ResetAutoIncrement: Boolean) -> Boolean?	16.0
+RecordRef.AddLoadFields inst (?Fields: Integer*) -> Boolean?	6.0
+RecordRef.AreFieldsLoaded inst (Fields: Integer*) -> Boolean	6.0
+RecordRef.ClearMarks inst ()	5.3
+RecordRef.Copy inst (FromRecordRef: RecordRef, ?ShareTable: Boolean)	5.3
+RecordRef.Copy inst (var FromRecord: Record, ?ShareTable: Boolean)	5.3
+RecordRef.CopyLinks inst (FromRecordOrRecordRef: Variant)	3.0
+RecordRef.Field inst (FieldName: Text) -> FieldRef	16.0
+RecordRef.FieldExist inst (FieldName: Text) -> Boolean	16.0
+RecordRef.FullyQualifiedName inst () -> Text @17.0	17.0
+RecordRef.GetBySystemId inst (SystemId: Guid) -> Boolean?	4.3
+RecordRef.Insert inst (RunTrigger: Boolean, InsertWithSystemId: Boolean) -> Boolean?	4.1
+RecordRef.IsDirty inst () -> Boolean	5.0
+RecordRef.LoadFields inst (Fields: Integer*) -> Boolean?	6.0
+RecordRef.Mark inst (?Mark: Boolean) -> Boolean?	5.3
+RecordRef.MarkedOnly inst (?MarkedOnly: Boolean) -> Boolean?	5.3
+RecordRef.Open inst (FullyQualifiedName: Text, ?Temp: Boolean, ?CompanyName: Text) @17.0	17.0
+RecordRef.ReadIsolation inst (?ReadIsolation: IsolationLevel) -> IsolationLevel?	11.0
+RecordRef.SetAutoCalcFields inst (?Fields: Integer*) -> Boolean?	15.0
+RecordRef.SetLoadFields inst (?Fields: Integer*) -> Boolean?	6.0
+RecordRef.SetTable inst (Rec: Record, ShareTable: Boolean)	11.0
+RecordRef.SystemCreatedAtNo inst () -> Integer	6.0
+RecordRef.SystemCreatedByNo inst () -> Integer	6.0
+RecordRef.SystemIdNo inst () -> Integer	4.0
+RecordRef.SystemModifiedAtNo inst () -> Integer	6.0
+RecordRef.SystemModifiedByNo inst () -> Integer	6.0
+RecordRef.Truncate inst (?ResetAutoIncrement: Boolean) -> Boolean?	16.0
+Report.ExcelLayout inst (var InStream: InStream) -> Boolean?	9.0
+Report.ExcelLayout static (Number: Integer, InStream: InStream) -> Boolean?	9.0
+Report.Execute static (FullyQualifiedName: Text, Parameters: Text, ?RecordRef: RecordRef) @17.0	17.0
+Report.FormatRegion inst (?FormatRegion: Text) -> Text?	11.0
+Report.GetSubstituteReportId static (ReportId: Integer) -> Integer	2.0
+Report.IsReadOnly inst () -> Boolean	7.0
+Report.Run static (FullyQualifiedName: Text, ?RequestWindow: Boolean, ?SystemPrinter: Boolean, ?var Record: Record) @17.0	17.0
+Report.RunModal static (FullyQualifiedName: Text, ?RequestWindow: Boolean, ?SystemPrinter: Boolean, ?var Record: Record) @17.0	17.0
+Report.ShowOutput inst (Value: Boolean) -> Boolean?	2.3
+Report.TargetFormat inst () -> ReportFormat	15.0
+Report.ValidateAndPrepareLayout inst (LayoutStream: InStream, var PreparedLayoutStream: InStream, ReportLayoutType: ReportLayoutType) -> Boolean?	9.0
+Report.ValidateAndPrepareLayout static (Number: Integer, LayoutStream: InStream, var PreparedLayoutStream: InStream, ReportLayoutType: ReportLayoutType) -> Boolean?	9.0
+SecretText.IsEmpty inst () -> Boolean	12.0
+SecretText.SecretStrSubstNo static (String: Text, ?Value1: SecretText*) -> SecretText	12.0
+SecretText.Unwrap inst () -> Text	12.0
+Session.EnableVerboseTelemetry static (EnableFullALFunctionTracing: Boolean, Duration: Duration)	3.2
+Session.LogAuditMessage static (SecurityAuditDescription: Text, SecurityAuditOperationResult: SecurityOperationResult, SecurityAuditCategory: AuditCategory, AuditMessageOperation: Integer, AuditMessageOperationResult: Integer, ?CustomDimensions: Dictionary of [Text, Text])	13.1
+Session.LogMessage static (EventId: Text, Message: Text, Verbosity: Verbosity, DataClassification: DataClassification, TelemetryScope: TelemetryScope, CustomDimensions: Dictionary of [Text, Text])	5.4
+Session.LogMessage static (EventId: Text, Message: Text, Verbosity: Verbosity, DataClassification: DataClassification, TelemetryScope: TelemetryScope, Dimension1: Text, Value1: Text, ?Dimension2: Text, ?Value2: Text)	5.4
+Session.LogSecurityAudit static (Description: Text, Result: SecurityOperationResult, ResultDescription: Text, AuditCategory: AuditCategory, ?TargetType: Array of [Text], ?TargetName: Array of [Text])	7.0
+Session.SetDocumentServiceToken static (Token: Text)	6.0
+Session.StartSession static (var SessionId: Integer, CodeunitId: Integer, Company: Text, var Record: Record, Timeout: Duration) -> Boolean?	7.0
+Session.StartSession static (var SessionId: Integer, CodeunitId: Integer, Timeout: Duration, ?Company: Text, ?var Record: Record) -> Boolean?	7.1
+SessionInformation.AITokensUsed static () -> BigInteger	14.0
+SessionInformation.Callstack static () -> Text	15.0
+SessionInformation.SqlRowsRead static () -> BigInteger	4.0
+SessionInformation.SqlStatementsExecuted static () -> BigInteger	4.0
+System.CanLoadType static (DotNet: DotNet) -> Boolean	2.0
+System.Clear static (var Variable: SecretText)	12.0
+System.ClearCollectedErrors static ()	8.0
+System.GetCollectedErrors static (?Clear: Boolean) -> List of [ErrorInfo]	8.0
+System.GetDotNetType static (Expression: Any) -> DotNet	2.0
+System.GetLastErrorObject static () -> DotNet	2.0
+System.GetLastErrorText static (ExcludeCustomerContent: Boolean) -> Text	7.0
+System.GetUrl static (ClientType: ClientType, ?Company: Text, ?ObjectType: ObjectType, ?ObjectId: Integer, ?Record: Record, ?UseFilters: Boolean, ?Layout: Text) -> Text	15.0
+System.GetUrl static (ClientType: ClientType, Company: Text, ObjectType: ObjectType, ObjectId: Integer, RecordRef: RecordRef, ?UseFilters: Boolean, ?Layout: Text) -> Text	15.0
+System.HasCollectedErrors static () -> Boolean	8.0
+System.IsCollectingErrors static () -> Boolean	8.1
+System.IsNull static (DotNet: DotNet) -> Boolean	2.0
+TaskScheduler.CreateTask static (CodeunitId: Integer, FailureCodeunitId: Integer, IsReady: Boolean, Company: Text, NotBefore: DateTime, RecordID: RecordId, Timeout: Duration) -> Guid?	7.0
+TestField.Lookup inst (Selected: RecordRef)	7.0
+TestHttpRequestMessage.HasSecretUri inst () -> Boolean	15.0
+TestHttpRequestMessage.Path inst () -> Text	15.0
+TestHttpRequestMessage.QueryParameters inst () -> Dictionary of [Text, Text]	15.0
+TestHttpRequestMessage.RequestType inst () -> HttpRequestType	15.0
+TestHttpResponseMessage.Content inst () -> HttpContent	15.0
+TestHttpResponseMessage.Headers inst () -> HttpHeaders	15.0
+TestHttpResponseMessage.HttpStatusCode inst (?SetStatusCode: Integer) -> Integer?	15.0
+TestHttpResponseMessage.IsBlockedByEnvironment inst (?SetIsBlockedByEnvironment: Boolean) -> Boolean?	15.0
+TestHttpResponseMessage.IsSuccessfulRequest inst (?SetIsSuccessfulRequest: Boolean) -> Boolean?	15.0
+TestHttpResponseMessage.ReasonPhrase inst (?SetReasonPhrase: Text) -> Text?	15.0
+TestPage.GetField inst (Id: Integer) -> TestField	3.0
+TestPage.Prev inst () -> Boolean?	3.0
+TestPage.RunPageBackgroundTask inst (CodeunitId: Integer, ?var Parameters: Dictionary of [Text, Text], ?RunCompletionTriggers: Boolean) -> Dictionary of [Text, Text]	4.0
+TestPart.Enabled inst () -> Boolean	15.1
+TestPart.GetField inst (Id: Integer) -> TestField	3.0
+TestPart.Prev inst () -> Boolean?	3.0
+TestPart.Visible inst () -> Boolean	15.1
+Text.IncStr static (String: Text, Increment: BigInteger) -> Text	15.0
+TextConst.Contains inst (Value: Text) -> Boolean	15.1
+TextConst.EndsWith inst (Value: Text) -> Boolean	15.1
+TextConst.IndexOf inst (Value: Text, ?StartIndex: Integer) -> Integer	15.1
+TextConst.IndexOfAny inst (Values: List of [Char], ?StartIndex: Integer) -> Integer	15.1
+TextConst.IndexOfAny inst (Values: Text, ?StartIndex: Integer) -> Integer	15.1
+TextConst.LastIndexOf inst (Value: Text, ?StartIndex: Integer) -> Integer	15.1
+TextConst.PadLeft inst (Count: Integer, ?Char: Char) -> Text	15.1
+TextConst.PadRight inst (Count: Integer, ?Char: Char) -> Text	15.1
+TextConst.Remove inst (StartIndex: Integer, ?Count: Integer) -> Text	15.1
+TextConst.Replace inst (OldValue: Text, NewValue: Text) -> Text	15.1
+TextConst.Split inst (?Separators: Text*) -> List of [Text]	15.1
+TextConst.Split inst (Separators: List of [Char]) -> List of [Text]	15.1
+TextConst.Split inst (Separators: List of [Text]) -> List of [Text]	15.1
+TextConst.StartsWith inst (Value: Text) -> Boolean	15.1
+TextConst.Substring inst (StartIndex: Integer, ?Count: Integer) -> Text	15.1
+TextConst.ToLower inst () -> Text	15.1
+TextConst.ToUpper inst () -> Text	15.1
+TextConst.Trim inst () -> Text	15.1
+TextConst.TrimEnd inst (?Chars: Text) -> Text	15.1
+TextConst.TrimStart inst (?Chars: Text) -> Text	15.1
+Time.Hour inst () -> Integer	14.0
+Time.Millisecond inst () -> Integer	14.0
+Time.Minute inst () -> Integer	14.0
+Time.Second inst () -> Integer	14.0
+Time.ToText inst (?Invariant: Boolean) -> Text	15.0
+Variant.IsDataClassification inst () -> Boolean	8.0
+Variant.IsDictionary inst () -> Boolean	12.0
+Variant.IsList inst () -> Boolean	12.0
+Variant.IsPromptMode inst () -> Boolean	12.1
+Version.ToText inst () -> Text	15.0
+WebServiceActionContext.AddEntityKey inst (FieldId: Integer, FieldValue: Any) -> Boolean?	2.0
+WebServiceActionContext.GetObjectId inst () -> Integer	2.0
+WebServiceActionContext.GetObjectType inst () -> ObjectType	2.0
+WebServiceActionContext.GetResultCode inst () -> WebServiceActionResultCode	2.0
+WebServiceActionContext.SetObjectId inst (ObjectId: Integer)	2.0
+WebServiceActionContext.SetObjectType inst (ObjectType: ObjectType)	2.0
+WebServiceActionContext.SetResultCode inst (ResultCode: WebServiceActionResultCode)	2.0

@@ -923,17 +923,54 @@ fn a_builtin_newer_than_the_target_runtime_makes_the_routine_unsupported() {
     let (oi, _) = routine(&l, "Ok");
     assert_eq!(
         l.unsupported[0][pi],
-        vec!["AR1005 `Run` is not available in runtime 16.0 (introduced in 17.0)".to_string()],
+        vec![
+            "AL0666 'Run' is not available in runtime version '16.0'. The supported runtime versions are: '17.0' or greater."
+                .to_string()
+        ],
         "refused at runtime 16.0"
     );
     assert!(l.unsupported[0][oi].is_empty());
     // At runtime 17.0 the by-name overload exists; the call lowers (the VM refuses it later).
     let (_, l) = compile_for(apps(), &Default::default(), &target("28"));
     assert!(
-        !l.unsupported[0][pi].iter().any(|r| r.contains("AR1005")),
+        !l.unsupported[0][pi].iter().any(|r| r.contains("AL0666")),
         "{:?}",
         l.unsupported[0][pi]
     );
+}
+
+#[test]
+fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_docs_clear() {
+    // al-runner issue 5573: an app that declares runtime 13.0 calls NavApp.GetResourceAsText (docs: 14.0). The AL
+    // compiler rejects it (AL0666); AL Runner refuses that routine and runs the others.
+    let src = "codeunit 50100 \"Resource Reader\" { procedure Value(): Text begin exit(NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8)); end; procedure Ok(): Text begin exit(UpperCase('x')); end; }";
+    let apps = || {
+        vec![AppSource {
+            id: "6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e11".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), src.into())],
+        }]
+    };
+    let mut target = al_version::Target::for_bc(al_version::BcVersion::parse("28.5").unwrap());
+    target.app_runtimes = vec![(
+        "6F1D2F8E-5B0A-4C1E-9A43-0D6B8A2C5E11".into(),
+        al_version::Runtime { major: 13, minor: 0 },
+    )];
+    let (_, l) = compile_for(apps(), &Default::default(), &target);
+    let (vi, _) = routine(&l, "Value");
+    let (oi, _) = routine(&l, "Ok");
+    assert_eq!(l.unsupported[0][vi].len(), 1, "{:?}", l.unsupported[0][vi]);
+    assert!(
+        l.unsupported[0][vi][0].starts_with("AR1007 `GetResourceAsText`"),
+        "{:?}",
+        l.unsupported[0][vi]
+    );
+    assert!(l.unsupported[0][oi].is_empty(), "{:?}", l.unsupported[0][oi]);
+    // Declared at 14.0 the call is cleared.
+    target.app_runtimes[0].1 = al_version::Runtime { major: 14, minor: 0 };
+    let (_, l) = compile_for(apps(), &Default::default(), &target);
+    assert!(l.unsupported[0][vi].is_empty(), "{:?}", l.unsupported[0][vi]);
 }
 
 #[test]
@@ -1888,5 +1925,53 @@ fn a_number_variable_into_text_is_refused_but_a_variant_into_text_lowers() {
     }
     for ok in ["T := V;", "K := V;", "T := Format(B);"] {
         assert!(reasons(ok).is_empty(), "{ok}: {:?}", reasons(ok));
+    }
+}
+
+/// A selection compiles less of the workspace (`only_tests`, `reach_only`, `lean`), but the AL compiler rejects an app
+/// for an error anywhere in it: the errors of what the selection leaves out are still found (al-runner issue 5602, an
+/// AL0118 in a procedure no selected test names gave a clean pass).
+#[test]
+fn a_selection_still_finds_the_compile_errors_of_what_it_leaves_out() {
+    const SRC: &str = "codeunit 50100 \"Helper\" {
+            procedure Used(): Integer begin exit(1); end;
+            procedure Unused(): Integer var I: Integer; begin I := NoSuchProcA(); exit(I); end; }
+        codeunit 50101 \"Apart\" { procedure Two(): Integer begin exit(NoSuchProcB()); end; }
+        codeunit 50102 \"T\" { Subtype = Test; var H: Codeunit \"Helper\";
+            [Test] procedure P() begin if H.Used() <> 1 then Error('x'); end; }
+        codeunit 50103 \"Other Test\" { Subtype = Test; [Test] procedure Q() begin NoSuchProcC(); end; }";
+    for (reach_only, lean) in [(false, false), (true, false), (true, true)] {
+        let (_, l) = compile_apps_with(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".to_string(), SRC.to_string())],
+            }],
+            vec![crate::workspace::AppKind::Workspace],
+            &Default::default(),
+            None,
+            crate::check::Roots {
+                baseline: false,
+                only_tests: Some(vec![(0, 50102)]),
+                reach_only,
+                lean,
+                ..Default::default()
+            },
+        );
+        let got: Vec<String> = l
+            .al_diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code, d.message))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                "AL0118 The name 'NoSuchProcA' does not exist in the current context.".to_string(),
+                "AL0118 The name 'NoSuchProcB' does not exist in the current context.".to_string(),
+                "AL0118 The name 'NoSuchProcC' does not exist in the current context.".to_string(),
+            ],
+            "reach_only {reach_only}, lean {lean}"
+        );
     }
 }

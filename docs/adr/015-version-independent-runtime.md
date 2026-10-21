@@ -712,3 +712,19 @@ Recommendation: yes, with the note. The app is not asking us to emulate BC 24,
 
 **Owner's answer (Q7):** Yes. A floor below BC 27 runs as BC 27 / runtime 16.0 with a printed note. This amends ADR-013 Layer A step 2 (the same wording is added to ADR-013). Accepted 2026-10-13.
 it only declares the lowest server it can run on.
+
+## Decided without owner review (2026-10-21): the runtime each app declares (al-runner issue 5573)
+
+- `Target::app_runtimes` carries the `runtime` each app under test declares in its app.json when it is below the
+  target's runtime. The checker gates the builtins of that app's code by its own runtime, not by the target's
+  (dependency apps are never gated: the AL compiler vetted them). Before, only the first app's runtime set the target,
+  and a runtime below 16.0 silently ran as 16.0.
+- A call of a catalog overload tagged newer than the app's runtime is the AL compiler's AL0666, with its text
+  (must-not-compile 0576, 0620, 0364, ...); it replaces the runtime's own AR1005. Lowering refuses the routine.
+- Below the runtime floor (16.0) the catalog's tags decide nothing. Microsoft's docs give each overload the runtime
+  it was "available or changed" with (`catalog/docs-runtimes.txt`, generated from `corpus/scripts/al-surface.json`).
+  A docs runtime at or below the app's runtime clears the call (the overload existed then). A later one, or none
+  (a line only `overrides.txt` has), is undecidable ("or changed"): the call is AR1007 and the routine is refused.
+  The compiler's AL0666 text is not reported there: no corpus case pins it below 16.0.
+- Not covered: language features, properties and object types newer than the app's runtime. They are as ungated as
+  before, at every runtime.

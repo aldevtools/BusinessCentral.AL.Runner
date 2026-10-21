@@ -25,7 +25,7 @@ built on the language, not on BC's internals".
 | 3 | `al-runner serve` (`runTests`, `cancel`, `shutdown`) | done (section 4b; ADR-028, Proposed) |
 | 4 | `execute`, `cancel`, `coverage`, `perTestCoverage` in `serve` | done (section 4b; ADR-028) |
 | 5 | `captureValues`, `iterationTracking` | done (section 4b; ADR-030, Proposed) |
-| 6 | `al-runner debug --stdio` (DAP) | not yet |
+| 6 | `al-runner debug --stdio` (DAP) | done for the apps given on the command line (`docs/debugging.md`; ADR-048) |
 
 ## 1. The command
 
@@ -35,7 +35,8 @@ built on the language, not on BC's internals".
 | `al-runner [FLAGS] DIR [DIR]` | `al-runner test [FLAGS] APP...` | Put the word `test` first. APP is an app folder (with `app.json`), a `*.Source.zip` or an `.app` that carries source. |
 | install: `dotnet tool install -g msdyn365bc.al.runner` | one binary | Do not run `dotnet tool`. The user sets the path. v3 needs no .NET (an optional helper exists for `DotNet` variables). |
 | `al-runner --server [--package-cache P]... [--define S]... [--test-timeout N]` | `al-runner serve [--package-cache P]... [--define S]... [--test-timeout N]` | Same options (section 4b). |
-| `al-runner --dap stdio` | `al-runner debug --stdio` | Step 6. Not available yet. |
+| `al-runner --dap stdio DIR` | `al-runner debug --stdio APP...` | Same DAP session (`docs/debugging.md`). |
+| `al-runner --dap [PORT] DIR` | `al-runner debug [--port [PORT]] APP...` | Default port 4711 as v2. The listening line is on stderr (`al-runner debug: listening on 127.0.0.1:PORT`); v2 printed `[dap] listening on ...` on stdout. |
 
 ## 2. `--version`
 
@@ -60,9 +61,9 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 | `--output-json=FILE` | Same, with a FILE of any name. Without the `=`, a file name is taken only if it ends in `.json`. |
 | `--isolation codeunit\|test\|disabled` (also `--test-isolation`) | `codeunit`: the database is rolled back when a test codeunit ends (the default, as in Microsoft's test runner). `test` (aliases `function`, `method`): the database goes back to its state after `OnRun` after every test method, **the codeunit's AL variables are kept** (BC's `TestIsolation = Function`). v2's `test` also reset the codeunit's state; a tool that relied on that must not. `disabled`: not pinned, so every test is reported as not run (exit 7). |
 | `--test TEXT` (also `--filter`) | Case-insensitive substring. TEXT with a dot, such as `Codeunit50011.Foo`, is matched against the qualified name `Codeunit<ID>.<Method>`; TEXT without a dot against the method name. v2 matched the qualified name for both. A bare name that is also a part of the word `Codeunit` is not special. |
-| `--test-exact NAME` | New in v3 for the tools: the test whose method name or qualified name is exactly NAME (any case). Repeatable. |
+| `--test-exact NAME` | New in v3 for the tools: the test whose method name or qualified name is exactly NAME (any case). Repeatable. Given with `--test`, it narrows: only the tests that both match are selected, as in v2. A name is the AL name as written, without quotes: `--test-exact "Codeunit50650.Space Step"`. |
 | `--exclude-test TEXT` | Removes the tests TEXT matches (the same matching as `--test`). Wins over every selecting option. Repeatable. Use whole qualified names to exclude exactly one test. |
-| `--define SYMBOL` | Adds a preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable. `--preprocessor-symbols A,B` adds several. v3 defines its own predefined symbols (ADR-015): they are not v2's list. |
+| `--define SYMBOL` | Adds a preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable. `--preprocessor-symbols A,B` adds several. v3 defines its own predefined symbols (ADR-015): they are not v2's list. v2 defined `CLEANSCHEMA1` to `CLEANSCHEMA25` for every app; the AL compiler defines none of them, and neither does v3. A tool that relied on them passes them with `--define` (or the app lists them in `preprocessorSymbols`). |
 | `--package-cache DIR` | Same. Repeatable. |
 | `--test-timeout N`, `--test-timeout-secs N` | Seconds. Differences: v3 counts **CPU time** of the test (the load of the machine does not count) and a test that hangs without computing is stopped at 10 times N of wall time. Default 20 seconds. `0` means no limit. |
 | `--auto-provision` | Accepted and ignored. v3 always fetches Microsoft's apps from the artifact feed unless `--no-download`. |
@@ -76,6 +77,10 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 Selection runs whole codeunits: tests of one codeunit share state, so `al-runner` runs the codeunit
 of every selected test and reports only the selected tests. A tool that selects one test and
 excludes its siblings sees the same rows as in v2; it does not save the time of the siblings.
+With `--run-selected-only` (in `serve`: `"runSelectedOnly": true`) only the selected tests run, as in
+v2 and as BC's test tool runs only the test methods that are enabled: the codeunit's `OnRun` runs,
+then the selected tests in declaration order. Globals, rows, time limits and refusals of the other
+tests then do not reach them.
 
 ## 4. The `--output-json` document
 
@@ -112,6 +117,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `skipped` | present | always 0 | none |
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
+| `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
 | `compilationErrors`, `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | v3 has no compile stage: what it cannot compile becomes `notRun` rows. A tool that treats "compile failed" as exit 3 must treat all-rows-`notRun` instead (see LethAL, below). |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
 | `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`. `status` is the test's own outcome; a stubbed pass is `pass`. |
@@ -170,7 +176,7 @@ plain way, and these make a run of another kind.
 
 | Command | v3 |
 |---|---|
-| `runTests` | Fields `sourcePaths` (required), `packagePaths`, `coverage`, `perTestCoverage`, `test` (matched like `--test`, section 3: `Codeunit50100.` with the dot selects a codeunit), `excludeTests`, `testIsolation` (`codeunit`, `test`, `disabled`; the aliases of `--isolation` are refused), `serverUrl` (as `--server-url`), `announceStart` (one `{"type":"started","codeunit":<id>,"test":"<method>"}` line when the first test starts; ADR-028). `tdd` (true or false): as `--tdd` for this request; a server started with `serve --tdd` stubs by default and `"tdd": false` turns it off for one request, as in v2. A stubbed `test` line has `stubbed: true` and `generatedStubs`, and the summary `stubbed` and `generatedStubs` (as `--output-json`, section 4; ADR-051). `tdd` is part of the kept compile's key: switching it compiles again. `affectedOnly`, `includeFailing`, `strictEnvironment`: `{"error": ...}` (deferred). `captureValues`, `iterationTracking`: `capturedValues` and `loops` on each `test` line (ADR-030; v2 has them for `execute` only). `code`: accepted, with a `warnings` entry in the summary. Any other field: `{"error": "unknown field ..."}`. |
+| `runTests` | Fields `sourcePaths` (required), `packagePaths`, `coverage`, `perTestCoverage`, `test` (matched like `--test`, section 3: `Codeunit50100.` with the dot selects a codeunit), `excludeTests`, `testIsolation` (`codeunit`, `test`, `disabled`; the aliases of `--isolation` are refused), `serverUrl` (as `--server-url`), `announceStart` (one `{"type":"started","codeunit":<id>,"test":"<method>"}` line when the first test starts; ADR-028). `tdd` (true or false): as `--tdd` for this request; a server started with `serve --tdd` stubs by default and `"tdd": false` turns it off for one request, as in v2. A stubbed `test` line has `stubbed: true` and `generatedStubs`, and the summary `stubbed` and `generatedStubs` (as `--output-json`, section 4; ADR-051). `tdd` is part of the kept compile's key: switching it compiles again. `runSelectedOnly` (true or false): as `--run-selected-only` for this request. `affectedOnly`, `includeFailing`, `strictEnvironment`: `{"error": ...}` (deferred). `captureValues`, `iterationTracking`: `capturedValues` and `loops` on each `test` line (ADR-030; v2 has them for `execute` only). `code`: accepted, with a `warnings` entry in the summary. Any other field: `{"error": "unknown field ..."}`. |
 | `execute` | Runs the `OnRun` trigger of one codeunit per app (`sourcePaths`) or of inline `code`; one answer line without `type`: `{"exitCode","tests":[{"name","status","durationMs","message","stackTrace","stackFrames","messages"}],"warnings","coverage","perTestCoverage"}`. `captureValues` and `iterationTracking` give `capturedValues` and `loops` on each test and, with `iterationTracking`, the tagged `messages` on the response (ADR-030; `runTests` takes both too: they are on the `test` lines). Names: `Codeunit<ID>.OnRun`, for `code` `<object name>.OnRun`. `code` and `sourcePaths` together are an error. `testIsolation` and the `runTests`-only fields (`tdd` among them) are accepted with a `warnings` entry; `serve --tdd` has no effect on `execute`. An app with no codeunit that has an `OnRun` trigger answers `exitCode` 6, `tests: []` and a warning. Details in ADR-028, item 9. |
 | `cancel` | Answered at once: `{"type":"ack","command":"cancel","noop":bool}`. During a run it stops **after the current test**: the tests that ran were already streamed, and the summary has `cancelled: true`, `exitCode: 130`, as in v2. A run that `shutdown` or the end of input stops has exit code 130 too. |
 | `shutdown` | `{"status":"shutting down"}`, then exit 0. During a run it stops the run after the current test like `cancel`: the summary (`cancelled: true`) comes first, then `{"status":"shutting down"}`. EOF on stdin stops a run the same way and exits 0. |
@@ -276,7 +282,7 @@ compile failure not scorable) must hold with the changes above.
 ## 9. ALchemist
 
 ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capture (step 5) and `al-runner debug`
-(step 6). Test Explorer runs can move now; scratch runs, inline values and debugging cannot.
+(step 6). All four exist; scratch runs, inline values and debugging need the changes below.
 
 1. Binary lookup (`alRunnerManager.ts:47-51, 129-139`): also `which al-runner`; spawn `al-runner serve` instead of
    `al-runner --server` (`serverProcess.ts:125-141`). The version check only warns and accepts `3.0.0` (A3).
@@ -286,7 +292,11 @@ ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capt
 3. `coverage` arrives in the summary in the v2 shape (section 4a). ALchemist reads `hitStatements` and `totalStatements`,
    which neither v2 nor v3 sends (a tool-side issue noted in `alchemist-lethal.md`, section 6).
 4. Test names are `Codeunit<ID>.<Method>` as in v2; the label match in `testController.ts:493` (A8) must be checked on a run.
-5. Debugger: `al-runner debug --stdio` instead of `al-runner --dap stdio` (step 6).
+5. Debugger: start `al-runner debug --stdio APP...` instead of `al-runner --dap stdio DIR` (step 6). Requests, capabilities,
+   events and breakpoint answers are v2's. Differences: `pause` stops at the next statement (v2 continued);
+   `setExceptionBreakpoints` succeeds with no filters; frame names are `Object.Routine`; a value that is not rendered yet
+   shows `<not rendered: KIND>`; `--test` and `--codeunit` select tests (v2 ran all); breakpoints in a dependency are not
+   supported yet.
 
 ## 10. What does not change for a tool
 

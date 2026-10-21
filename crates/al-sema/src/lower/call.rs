@@ -773,15 +773,16 @@ impl Lowerer<'_> {
         }
     }
 
-    /// The checker's AR1005 on this call, if any.
+    /// The checker's runtime refusal of this call, if any: AL0666 (a builtin newer than the app's runtime) or AR1007
+    /// (an app below the runtime floor calls a builtin AL Runner cannot clear for it; al-runner issue 5573).
     pub(crate) fn runtime_refusal(&self, node: &SyntaxNode) -> Option<String> {
         let path = &self.ws.files[self.file].path;
         let at: usize = node.text_range().start().into();
         self.checked
             .diagnostics
             .iter()
-            .find(|d| d.code == "AR1005" && d.offset == at && &d.file == path)
-            .map(|d| format!("AR1005 {}", d.message))
+            .find(|d| matches!(d.code, "AL0666" | "AR1007") && d.offset == at && &d.file == path)
+            .map(|d| format!("{} {}", d.code, d.message))
     }
 }
 

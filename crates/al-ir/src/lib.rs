@@ -385,6 +385,10 @@ pub struct ReportColumn {
     /// The position of the table field the source names, when the source is just that field.
     #[serde(default)]
     pub field: Option<usize>,
+    /// The position of the table field a source `Item.Field` names, where `Item` is the column's own data item. Only a Blob column
+    /// reads it (a field the report did not calculate shows what the row stores); `field` stays None for such a source.
+    #[serde(default)]
+    pub item_field: Option<usize>,
     /// `IncludeCaption = true`: the dataset's Labels block carries `<Name>Caption`.
     #[serde(default)]
     pub include_caption: bool,
