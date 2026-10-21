@@ -395,6 +395,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             }
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
+            ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
             ObjKind::Report => report_columns(ws, o.file, obj.sections(), &mut out),
             _ => {}
@@ -519,6 +520,52 @@ fn page_customization_variables(ws: &Workspace, oi: usize, obj: &ast::Object, ou
         }
     }
     walk(ws, ws.objects[oi].file, &page_ast, obj.sections(), false, out);
+}
+
+/// AL0322 (corpus must-not-compile 2000): `Visible`, `Enabled` or `Editable` of a page's field control is a call of one
+/// of the page's procedures with no arguments ("Procedure calls is not valid for client expressions."). The same
+/// binding on an action compiles (warning AL0573, pages/lt-qq-procedure-bound-action/QqBoundObjects.al). Other forms of a
+/// call (with arguments, inside a larger expression) are not judged.
+fn field_control_procedure_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    let procedures: Vec<String> = obj
+        .routines()
+        .filter(|r| !r.is_trigger())
+        .map(|r| r.name().trim_matches('"').to_ascii_lowercase())
+        .collect();
+    fn walk(
+        ws: &Workspace,
+        file: usize,
+        procedures: &[String],
+        sections: impl Iterator<Item = ast::Section>,
+        out: &mut Vec<Diagnostic>,
+    ) {
+        for s in sections {
+            let name = s.name().to_ascii_lowercase();
+            if name == "actions" {
+                continue;
+            }
+            if name == "field" {
+                for p in s.properties() {
+                    let prop = p.name().to_ascii_lowercase();
+                    if ["visible", "enabled", "editable"].contains(&prop.as_str())
+                        && crate::pages::bare_call_name(&p.value_text())
+                            .is_some_and(|f| procedures.contains(&f.to_ascii_lowercase()))
+                    {
+                        push(
+                            out,
+                            ws,
+                            file,
+                            offset_of(p.syntax()),
+                            "AL0322",
+                            "Procedure calls is not valid for client expressions.".to_string(),
+                        );
+                    }
+                }
+            }
+            walk(ws, file, procedures, s.sections(), out);
+        }
+    }
+    walk(ws, ws.objects[oi].file, &procedures, obj.sections(), out);
 }
 
 /// An object name as the compiler shows it in a message: quoted unless it is a plain identifier.
@@ -1382,6 +1429,19 @@ mod tests {
         // And it resolves when the platform app has it.
         let sat = "codeunit 2000000002 \"System Action Triggers\" { }";
         assert!(codes_with_platform(&[user, sub], sat).is_empty());
+    }
+
+    #[test]
+    fn al0322_a_field_control_property_bound_to_a_procedure_call() {
+        // must-not-compile 2000: Visible, Enabled and Editable of a field control bound to a call of a page procedure.
+        let t = "table 52000 T { fields { field(1; Id; Integer) { } field(2; A; Integer) { } } }";
+        let page = "page 52000 P { PageType = Card; SourceTable = T; layout { area(Content) { field(Id; Rec.Id) { Visible = IsOk(); } \
+                    field(A; Rec.A) { Enabled = IsOk(); Editable = IsOk(); } } } procedure IsOk(): Boolean begin exit(true); end; }";
+        assert_eq!(codes(&[t, page]), vec!["AL0322", "AL0322", "AL0322"]);
+        // On an action the same binding compiles (warning AL0573, pages/lt-qq-procedure-bound-action/QqBoundObjects.al).
+        let action = "page 52001 Q { PageType = Card; actions { area(Processing) { action(X) { Visible = IsOk(); Enabled = IsOk(); } } } \
+                      procedure IsOk(): Boolean begin exit(true); end; }";
+        assert!(codes(&[action]).is_empty());
     }
 
     #[test]

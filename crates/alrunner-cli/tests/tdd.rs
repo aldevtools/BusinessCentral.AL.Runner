@@ -298,3 +298,38 @@ fn a_stub_may_stand_for_a_procedure_of_another_app_but_the_app_under_test_keeps_
         assert_eq!(all.len(), 1, "{label}: {all:?}");
     }
 }
+
+#[test]
+fn stubs_stand_for_procedures_of_records_rec_pages_reports_bare_calls_and_new_overloads() {
+    let cases = [
+        ("OnARecord", r#"Tdd Rec Item: procedure "OnRecord"(): Integer"#),
+        ("OnRecInTheTable", r#"Tdd Rec Item: procedure "ViaRec"(): Integer"#),
+        ("OnAPage", r#"Tdd Rec Card: procedure "OnPage"(): Boolean"#),
+        ("OnAReport", r#"Tdd Rec Report: procedure "OnReport"(Arg1: Integer)"#),
+        (
+            "BareLocalCall",
+            r#"Tdd Receiver Tests: procedure "NotWrittenYet"(Arg1: Integer): Text"#,
+        ),
+        (
+            "NewOverload",
+            r#"Tdd Rec Target: procedure "Existing"(Arg1: Integer): Integer"#,
+        ),
+    ];
+    let (doc, o) = json_run(&fixture("receivers"), &["--tdd"]);
+    for (method, stub) in cases {
+        let r = row(&doc, method);
+        assert_eq!(r["status"], "pass", "{method}: {r:#}\n{}", text(&o));
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert_eq!(stubs(r), vec![stub], "{method}: {r:#}");
+    }
+    // Without --tdd the app does not compile, as before: the AL compiler's errors for the record member and the bare
+    // name, and no test runs.
+    let (doc, o) = json_run(&fixture("receivers"), &[]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert_eq!(doc["tests"].as_array().map(Vec::len), Some(0), "{doc:#}");
+    let errors = doc["compilationErrors"].to_string();
+    for want in ["AL0132", "'OnRecord'", "'ViaRec'", "AL0118", "'NotWrittenYet'"] {
+        assert!(errors.contains(want), "{want}: {errors}");
+    }
+    assert!(doc.get("generatedStubs").is_none(), "{doc:#}");
+}

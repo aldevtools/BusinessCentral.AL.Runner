@@ -43,8 +43,8 @@ impl Lowerer<'_> {
             TddRet::Refused(why) => return Err(why.clone()),
             TddRet::Pending => {
                 return Err(format!(
-                    "--tdd: cannot infer the return type of {}.{} from its use",
-                    site.receiver, site.name
+                    "--tdd: cannot infer the return type of {} from its use",
+                    site.shown()
                 ));
             }
             TddRet::NoValue => None,

@@ -97,8 +97,8 @@ al-runner test --isolation test     ./MyApp ./MyApp.Test
 
 ## Test-first work with `--tdd`
 
-`--tdd` lets you write the test before the code. A test that calls a procedure of
-a codeunit that does not exist yet runs against a stub instead of failing to
+`--tdd` lets you write the test before the code. A test that calls a procedure
+that does not exist yet runs against a stub instead of failing to
 compile. The stub returns the default value of the type the call site asks for
 (`0`, `''`, `false`, an empty record), writes nothing and never raises. `var`
 arguments stay unchanged.
@@ -113,7 +113,10 @@ al-runner test ./MyApp ./MyApp.Test --tdd
 - A stubbed pass counts as a pass for the exit code.
 - `--output-json` adds `stubbed` and `generatedStubs` per test and in the summary,
   and `--junit` adds a `stubbed` property.
-- Only procedure calls on codeunit variables, in test apps, become stubs so far.
+- In test apps, these calls become stubs so far: a procedure that does not exist on a
+  codeunit, record, page or report variable, on `Rec`, `CurrPage` or `this`; a bare call
+  of a procedure the object does not declare; and a call whose argument count no
+  overload takes. A call on a TestPage, an interface or a built-in type stays an error.
   A call site whose type the use does not reveal is refused, and its test is not run.
 - `serve` takes it as the `tdd` field of `runTests`, or `serve --tdd`.
 

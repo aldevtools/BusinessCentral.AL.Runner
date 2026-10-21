@@ -53,10 +53,29 @@ impl Lowerer<'_> {
                           p: &ast::Property,
                           unsupported: &mut Vec<String>,
                           big_integer: &mut Vec<String>,
-                          control: &str| {
+                          control: &str,
+                          kind: Option<ir::ControlKind>| {
             let name = p.name().to_ascii_lowercase();
             let value = p.value_text();
             let off = usize::from(p.syntax().text_range().start()) - ow.base;
+            // An action's Visible or Enabled, or an action group's Visible, bound to a call of one of the page's own
+            // procedures with no arguments compiles with warning AL0573 and reads No whatever the procedure returns; the
+            // procedure never runs (pages/lt-qq-procedure-bound-action/QqBoundProps.al:29, :77-211, QQ_ProcBound_VisibleEnabled
+            // and QQ_ProcBound_EditMode, on BC 27, 28 and 29). Only `kind` of the page's own controls is passed. A call with
+            // arguments, inside a larger expression or of anything else is not pinned and stays refused below.
+            let procedure_bound = match kind {
+                Some(ir::ControlKind::Action) => name == "visible" || name == "enabled",
+                Some(ir::ControlKind::ActionGroup) => name == "visible",
+                _ => false,
+            } && crate::pages::bare_call_name(&value).is_some_and(|f| {
+                self.routine_nodes
+                    .get(ow.object)
+                    .iter()
+                    .any(|r| r.name().trim_matches('"').eq_ignore_ascii_case(&f))
+            });
+            if procedure_bound {
+                return (name, "false".to_string(), None);
+            }
             let dynamic = crate::pages::dynamic_type(&name).filter(|t| !crate::pages::is_literal(*t, &value));
             // A Boolean control expression BC compiles on the client when the page opens (see `client_expression`).
             if dynamic == Some(crate::pages::PropType::Boolean) {
@@ -114,8 +133,14 @@ impl Lowerer<'_> {
             let ow = owner_of(raw.owner);
             let mut props: Vec<(String, ir::PropVal)> = Vec::new();
             for p in sec.properties() {
-                let (name, value, routine) =
-                    prop_value(&ow, &p, &mut unsupported, &mut big_integer_expressions, &raw.name);
+                let (name, value, routine) = prop_value(
+                    &ow,
+                    &p,
+                    &mut unsupported,
+                    &mut big_integer_expressions,
+                    &raw.name,
+                    raw.owner.is_none().then(|| raw.kind.clone()),
+                );
                 props.push((
                     name,
                     match routine {
@@ -133,8 +158,14 @@ impl Lowerer<'_> {
                 let mut changed = Vec::new();
                 let mut added = Vec::new();
                 for p in msec.properties() {
-                    let (name, value, routine) =
-                        prop_value(&mow, &p, &mut unsupported, &mut big_integer_expressions, &raw.name);
+                    let (name, value, routine) = prop_value(
+                        &mow,
+                        &p,
+                        &mut unsupported,
+                        &mut big_integer_expressions,
+                        &raw.name,
+                        None,
+                    );
                     let val = match routine {
                         Some(r) => ir::PropVal::Ext(*e, r),
                         None => ir::PropVal::Lit(value),
