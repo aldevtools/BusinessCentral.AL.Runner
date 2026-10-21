@@ -21,10 +21,12 @@ Each is a folder with an `app.json`, a source archive (`*.Source.zip`), or an
 `app.json`, as it would for the AL compiler.
 
 Each app sees the AL methods of the `runtime` its own `app.json` declares. A call
-of a method newer than that runtime gets the AL compiler's AL0666, and the routine
-that makes it does not run. For an app whose `runtime` is older than 16.0, AL Runner
-clears a call only when Microsoft's documentation lists the method for that runtime
-or an older one; a routine with any other call does not run, and a note says so.
+of a method newer than that runtime gets the AL compiler's AL0666, and the run stops
+with exit 3, as the compiler's would. For an app whose `runtime` is older than 16.0,
+AL Runner uses a table measured with the AL compiler itself, so it reports the same
+AL0666. Where the compiler reports something other than AL0666 for the call (for
+example a method only OnPrem apps may use, in an app older than runtime 4.0), the
+routine that makes the call does not run, and a note says so.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 

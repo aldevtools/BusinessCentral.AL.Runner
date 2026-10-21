@@ -1526,9 +1526,9 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
 }
 
 /// al-runner issue 5573: an app that declares runtime 13.0 calls NavApp.GetResourceAsText, which the AL compiler
-/// rejects below runtime 14.0 (AL0666). The test that reaches the call is not run; one that does not reach it runs.
+/// rejects below runtime 14.0 (AL0666). The run ends as the compiler's does: a compile error, exit 3.
 #[test]
-fn a_call_newer_than_the_apps_declared_runtime_is_not_run() {
+fn a_call_newer_than_the_apps_declared_runtime_is_a_compile_error() {
     let d = tempfile::tempdir().unwrap();
     let app = d.path().join("app");
     let manifest = |id: &str, name: &str, deps: &[(&str, &str)]| {
@@ -1560,22 +1560,17 @@ fn a_call_newer_than_the_apps_declared_runtime_is_not_run() {
         "src/ReaderTest.Codeunit.al",
         "codeunit 50150 \"Resource Reader Test\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsResource()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Value() <> 'HELLO' then\n            Error('expected HELLO, got %1', Reader.Value());\n    end;\n\n    [Test]\n    procedure ReadsPlain()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Plain() <> 'HELLO' then\n            Error('expected HELLO');\n    end;\n}\n",
     );
-    let o = alrunner(&[
-        "test",
-        app.to_str().unwrap(),
-        test.to_str().unwrap(),
-        "--no-download",
-        "--output-json",
-    ]);
-    let doc = json_of(&o);
-    let status = |name: &str| row(&doc, name)["status"].as_str().unwrap_or_default().to_string();
-    assert_ne!(status("Codeunit50150.ReadsResource"), "pass", "{doc}");
-    let m = row(&doc, "Codeunit50150.ReadsResource")["message"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    assert!(m.contains("GetResourceAsText") && m.contains("runtime 13.0"), "{m}");
-    assert_eq!(status("Codeunit50150.ReadsPlain"), "pass", "{doc}");
+    let o = alrunner(&["test", app.to_str().unwrap(), test.to_str().unwrap(), "--no-download"]);
+    // As the AL compiler 18.1 does (catalog/alc-runtimes.txt): AL0666, no test runs, exit 3.
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o).contains(
+            "src/Reader.Codeunit.al(5,14): error AL0666: 'GetResourceAsText' is not available in runtime version '13.0'. The supported runtime versions are: '14.0' or greater."
+        ),
+        "{}",
+        text(&o)
+    );
+    assert!(text(&o).contains("Result: COMPILE ERRORS (exit 3)"), "{}", text(&o));
 }
 
 /// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a

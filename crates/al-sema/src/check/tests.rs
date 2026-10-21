@@ -338,35 +338,57 @@ fn an_app_declaring_an_older_runtime_than_the_target_gets_al0666_for_its_own_run
 }
 
 #[test]
-fn below_the_runtime_floor_a_call_the_docs_do_not_clear_is_refused_with_ar1007() {
-    // al-runner issue 5573: NavApp.GetResourceAsText is "available or changed with runtime 14.0" in the docs.
+fn below_the_runtime_floor_the_al_compilers_table_decides() {
+    // al-runner issue 5573: AL compiler 18.1 rejects NavApp.GetResourceAsText(Text, TextEncoding) below runtime 14.0
+    // (catalog/alc-runtimes.txt). The sentence is the one must-not-compile 0620 pins; the versions part is alc's.
     let src =
         cu("procedure P() var T: Text; begin T := NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8); end;");
-    let at13 = diags_declared("28", "13.0", &[&src]);
-    assert_eq!(at13.len(), 1, "{at13:?}");
-    assert!(
-        at13[0].starts_with("AR1007 `GetResourceAsText` is listed in Microsoft's docs as available or changed with runtime 14.0; the app declares runtime 13.0"),
-        "{at13:?}"
+    assert_eq!(
+        diags_declared("28", "13.0", &[&src]),
+        vec![
+            "AL0666 'GetResourceAsText' is not available in runtime version '13.0'. The supported runtime versions are: '14.0' or greater."
+        ]
     );
     assert_eq!(diags_declared("28", "14.0", &[&src]), Vec::<String>::new());
-    // Message is 1.0 in the docs: cleared at any runtime.
+    // Message compiles at every runtime alc accepts.
     let msg = cu("procedure P() begin Message('x'); end;");
-    assert_eq!(diags_declared("28", "9.2", &[&msg]), Vec::<String>::new());
-    // A builtin only overrides.txt has (no docs runtime) is refused below the floor.
-    let clear = cu("procedure P() var R: Record \"ALT Universal\"; begin Clear(R); end;");
-    let got = diags_declared("28", "13.0", &[TABLE, &clear]);
-    assert!(
-        got.iter()
-            .any(|d| d.starts_with("AR1007 `Clear` has no runtime in Microsoft's docs")),
-        "{got:?}"
-    );
-    // A builtin tagged newer than the floor is refused too (the compiler's text is not pinned below the floor).
+    assert_eq!(diags_declared("28", "1.0", &[&msg]), Vec::<String>::new());
+    // Codeunit.Run by name is tagged 17.0: below the floor the table gives alc's text too.
     let by_name = cu("procedure P() begin Codeunit.Run('Some Codeunit'); end;");
-    let got = diags_declared("28", "13.0", &[&by_name]);
+    assert_eq!(
+        diags_declared("28", "13.0", &[&by_name]),
+        vec![
+            "AL0666 'Run' is not available in runtime version '13.0'. The supported runtime versions are: '17.0' or greater."
+        ]
+    );
+}
+
+#[test]
+fn below_the_runtime_floor_a_call_without_an_al0666_answer_is_refused_with_ar1007() {
+    // Below runtime 4.0 an app cannot target OnPrem, so alc reports AL0296 (scope) for File.Exists, not AL0666.
+    let src = cu("procedure P() var B: Boolean; begin B := File.Exists('x'); end;");
+    let got = diags_declared("28", "3.0", &[&src]);
     assert!(
-        got.len() == 1 && got[0].starts_with("AR1007 `Run` needs runtime 17.0 or later"),
+        got.len() == 1 && got[0].starts_with("AR1007 `Exists` does not compile at runtime 3.0 with AL compiler 18."),
         "{got:?}"
     );
+    assert_eq!(diags_declared("28", "4.0", &[&src]), Vec::<String>::new());
+}
+
+#[test]
+fn a_method_removed_in_an_older_runtime_is_al0666_at_every_later_runtime() {
+    // must-not-compile 0561-testpage-prev.al:1: `'Prev' is not available in runtime version '`; alc 18.1:
+    // "The supported runtime versions are: '3.0' until, but not including '13.0'."
+    let src = "codeunit 50100 T { Subtype = Test; procedure P() var Pg: TestPage \"ALT Page\"; begin Pg.Prev(); end; }";
+    let page = "page 50101 \"ALT Page\" { }";
+    let want = |at: &str| {
+        vec![format!(
+            "AL0666 'Prev' is not available in runtime version '{at}'. The supported runtime versions are: '3.0' until, but not including '13.0'."
+        )]
+    };
+    assert_eq!(diags_for("27", &[src, page]), want("16.0"));
+    assert_eq!(diags_declared("28", "13.0", &[src, page]), want("13.0"));
+    assert_eq!(diags_declared("28", "12.0", &[src, page]), Vec::<String>::new());
 }
 
 #[test]

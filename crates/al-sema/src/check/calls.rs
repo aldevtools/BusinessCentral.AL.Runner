@@ -1,11 +1,11 @@
 //! Overload picking and the lookup of callables.
 use super::*;
 
-/// The reason of an AR1007: a call in an app whose declared runtime is below the runtime floor, where AL Runner cannot
-/// tell whether the AL compiler accepts it (al-runner issue 5573).
+/// The reason of an AR1007: a call in an app whose declared runtime is below the runtime floor, where the table of
+/// what the AL compiler reports (`al-builtins/catalog/alc-runtimes.txt`) gives no AL0666 text (al-runner issue 5573).
 fn below_floor(name: &str, at: al_version::Runtime, why: &str) -> String {
     format!(
-        "`{name}` {why}; the app declares runtime {at}, older than the runtimes AL Runner knows the members of ({} and later), so AL Runner cannot tell whether the AL compiler accepts the call (it would report AL0666)",
+        "`{name}` {why}; the app declares runtime {at}, older than the runtimes the corpus covers ({} and later), so AL Runner cannot tell what the AL compiler reports for the call",
         al_version::Runtime::floor()
     )
 }
@@ -18,6 +18,68 @@ impl<'a> Checker<'a> {
             return None;
         }
         self.catalog.app_runtime(&self.ws.apps.get(app)?.id)
+    }
+
+    /// Whether the file belongs to a dependency app (not gated by runtime: alc compiled it already).
+    fn in_dependency(&self, file: usize) -> bool {
+        self.ws
+            .files
+            .get(file)
+            .is_some_and(|f| self.ws.kinds.get(f.app) == Some(&crate::workspace::AppKind::Dependency))
+    }
+
+    /// Whether alc compiles the builtin call `id` with `argc` arguments at some runtime before `at` but not at `at`:
+    /// a method removed in an older runtime.
+    fn removed_at(&self, id: &str, argc: usize, at: al_version::Runtime) -> bool {
+        match self.catalog.alc_runtime(id, argc) {
+            Some(al_builtins::catalog::AlcRuntime::Measured { ranges, .. }) => {
+                !ranges
+                    .iter()
+                    .any(|(from, to)| *from <= at && to.is_none_or(|to| at < to))
+                    && ranges.iter().any(|(_, to)| to.is_some_and(|to| to <= at))
+            }
+            _ => false,
+        }
+    }
+
+    /// What the AL compiler reports for the builtin call `id` with `argc` arguments in an app at runtime `at`
+    /// (`al-builtins/catalog/alc-runtimes.txt`, measured by compiling a probe of the call at every runtime alc accepts).
+    /// Reports AL0666 with alc's text or, where the table has none, refuses with AR1007; true when it reported.
+    fn alc_verdict(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        id: &str,
+        argc: usize,
+        name: &str,
+        at: al_version::Runtime,
+    ) -> bool {
+        use al_builtins::catalog::{AlcOutcome, AlcRuntime};
+        let alc = al_builtins::catalog::alc_runtimes_compiler();
+        let why = match self.catalog.alc_runtime(id, argc) {
+            Some(a) if a.compiles_at(at) == Some(true) => return false,
+            Some(a @ AlcRuntime::Measured { .. }) => match a.outcome_at(at) {
+                Some(AlcOutcome::Al0666(text)) => {
+                    // The compiler's text: must-not-compile 0620-record-fullyqualifiedname-runtime-16.al:1 ('16.0'),
+                    // 0561-testpage-prev.al:1 (a removed method); the part after "are: " is alc's own (alc-runtimes.txt).
+                    let text = format!(
+                        "'{name}' is not available in runtime version '{at}'. The supported runtime versions are: {text}."
+                    );
+                    self.diag(sc, node, "AL0666", text);
+                    return true;
+                }
+                Some(AlcOutcome::Other(code)) => {
+                    format!(
+                        "does not compile at runtime {at} with AL compiler {alc}, which reports {code} there, not AL0666"
+                    )
+                }
+                None => format!("is not measured at runtime {at} by AL compiler {alc}"),
+            },
+            Some(AlcRuntime::NotExpressible(e)) => format!("has no probe that compiles with AL compiler {alc} ({e})"),
+            None => format!("with {argc} arguments has no row in the table of AL compiler {alc}"),
+        };
+        self.diag(sc, node, "AR1007", below_floor(name, at, &why));
+        true
     }
 
     /// Chooses an overload: by arity, then by how many argument types fit the
@@ -69,20 +131,23 @@ impl<'a> Checker<'a> {
             best
         };
         let (best, newer) = (best_of(false), best_of(true));
+        let floor = al_version::Runtime::floor();
         // An overload of a newer runtime that fits strictly better than every visible one
         // is what the author meant: BC's compiler refuses the call (ADR-015 3.3 point 4).
         if let Some((h, hs)) = newer {
             if best.is_none_or(|(_, s)| hs > s) {
                 let since = since_of(h).expect("a hidden candidate has its runtime");
                 let at = declared.or(self.catalog.runtime()).unwrap_or(since);
-                if at < al_version::Runtime::floor() {
-                    // Below the runtimes the corpus covers, the compiler's text is not pinned: refused, not reported.
-                    self.diag(
-                        sc,
-                        node,
-                        "AR1007",
-                        below_floor(name, at, &format!("needs runtime {since} or later")),
-                    );
+                if at < floor {
+                    // Below the runtimes the corpus covers, alc's own measurement decides (al-runner issue 5573).
+                    let reported = match &h.target {
+                        Res::Builtin(id) => self.alc_verdict(sc, node, &id.clone(), argc, name, at),
+                        _ => false,
+                    };
+                    if !reported {
+                        let why = format!("is tagged {since} in the catalog, but the AL compiler compiles it at {at}");
+                        self.diag(sc, node, "AR1007", below_floor(name, at, &why));
+                    }
                 } else {
                     // The AL compiler's text: must-not-compile 0620-record-fullyqualifiedname-runtime-16.al:1 and
                     // 0576-codeunit-run-by-name-runtime17.al:1 ('16.0' / '16.1'), 0364-jsonobject-selecttokens-runtime17.al:1.
@@ -98,20 +163,18 @@ impl<'a> Checker<'a> {
                 return Ty::Unknown;
             }
         }
-        // Below the runtime floor the catalog's tags say nothing: only the docs runtime of the overload can clear the
-        // call ("available or changed with runtime X": at X or later it exists). A later or unknown one is refused.
-        if let (Some(r), Some((c, _))) = (declared.filter(|r| *r < al_version::Runtime::floor()), best) {
+        if let Some((c, _)) = best {
             if let Res::Builtin(id) = &c.target {
-                match self.catalog.docs_runtime(id) {
-                    Some(d) if d <= r => {}
-                    Some(d) => {
-                        let why = format!("is listed in Microsoft's docs as available or changed with runtime {d}");
-                        self.diag(sc, node, "AR1007", below_floor(name, r, &why));
-                        return Ty::Unknown;
-                    }
-                    None => {
-                        let why = "has no runtime in Microsoft's docs";
-                        self.diag(sc, node, "AR1007", below_floor(name, r, why));
+                let id = id.clone();
+                // The app's runtime: the one it declares, else the catalog's (a dependency app is never gated).
+                let at = declared
+                    .or(self.catalog.runtime())
+                    .filter(|_| !self.in_dependency(sc.file));
+                if let Some(r) = at {
+                    // Below the runtime floor the catalog's tags say nothing: the AL compiler's measurement decides.
+                    // At or above it, only a method removed before the app's runtime (TestPage.Prev: must-not-compile
+                    // 0561-testpage-prev.al:1, 0562-testpart-prev.al:1) is checked: alc reports AL0666 there.
+                    if (r < floor || self.removed_at(&id, argc, r)) && self.alc_verdict(sc, node, &id, argc, name, r) {
                         return Ty::Unknown;
                     }
                 }
