@@ -810,6 +810,8 @@ impl Session {
             // Management") has no row for the action to delete, so it stays open.
             let stored_before = !st.borrow().never_stored;
             st.borrow_mut().save_record_called = false;
+            st.borrow_mut().refresh_update_false = false;
+            let empty_view = self.empty_list_view(st)?;
             let empty = self.empty_page_shape(st)?;
             let held_before = (empty.is_none()
                 && self.is_list(st)
@@ -855,6 +857,9 @@ impl Session {
                 st.borrow_mut().refresh = false;
             }
             r?;
+            if empty_view && self.update_on_empty_list_view(st)? {
+                return Ok(Value::Null);
+            }
             if let Some(shape) = empty {
                 if self.empty_page_after_action(st, shape)? {
                     return Ok(Value::Null);
@@ -1100,6 +1105,61 @@ impl Session {
             }
             _ => Ok(None),
         }
+    }
+
+    /// A list opened for view that shows no row (its view was empty), with or without OnFindRecord and OnNextRecord.
+    fn empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open
+                && s.host.is_none()
+                && s.parts.is_empty()
+                && s.window.is_empty()
+                && !s.dirty
+                && s.cursor == Cursor::None
+                && s.mode == PageMode::View
+        };
+        Ok(shape && self.is_list(st) && self.has_source(st) && !self.is_request_page(st))
+    }
+
+    /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
+    /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
+    /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
+    /// (pages/lt-ai-list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
+    /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
+    /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
+    /// no Update, or Rec on a row of the view go on as before.
+    fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        {
+            let s = st.borrow();
+            if !(s.open && s.refresh && s.refresh_by_update && s.refresh_update_false && !s.dirty && s.cursor == Cursor::None) {
+                return Ok(false);
+            }
+        }
+        let n = self.view_row_count(st)?;
+        if n < 2 {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let on_row = self
+            .stored_row(&rec)?
+            .is_some_and(|f| rec.borrow().filters.iter().all(|x| x.expr.matches(&f[x.field])));
+        if on_row {
+            return Ok(false);
+        }
+        if n > 6 {
+            return unsupported(
+                "CurrPage.Update(false) after an action on a list opened for view that showed no row, whose new view has more than 6 rows (the fill is pinned for 4 and 6)",
+            );
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+        }
+        self.page_first_row(st)?;
+        Ok(true)
     }
 
     /// The rows of the page's view, counted on a copy of its record.

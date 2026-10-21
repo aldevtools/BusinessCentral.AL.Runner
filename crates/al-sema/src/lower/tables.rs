@@ -192,7 +192,12 @@ impl Lowerer<'_> {
                 .condition_raw
                 .iter()
                 .zip(&a.filter_conditions)
-                .any(|(raw, filter)| *filter && raw.contains('"'));
+                .zip(&a.conditions)
+                .any(|((raw, filter), (name, _))| {
+                    *filter
+                        && raw.contains('"')
+                        && !field_pos(own, name).is_some_and(|p| quoted_condition_text_pinned(raw, &own.fields[p].ty))
+                });
             arms.push(ir::RelationArm {
                 conditions,
                 table,
@@ -761,6 +766,31 @@ impl Lowerer<'_> {
 /// Whether a `filter(...)` or `const(...)` text of a TableRelation with a `"`-quoted member has a pinned form: on an Enum
 /// or Option field, terms joined by `|`, each a plain member name or a quoted one, or `<>` and one quoted member
 /// (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46), and the ranges and `&` forms below.
+/// Whether the filter(...) text of an arm's if (...) condition that quotes a member with `"` is a pinned form: on an Option
+/// field, two `<>` terms joined by `&`, one quoted and one plain (`filter(<> "B C" & <> D)`), and members joined by `|`, quoted
+/// or plain, the quoted blank member included (`filter(" " | A)`): record/lt-table-relation-quotes/TableRelationQuotes.al:76-123
+/// (table 87157), QP_Arms_* and QP_BlankOr_* (corpus bump 46).
+fn quoted_condition_text_pinned(text: &str, ty: &Ty) -> bool {
+    if !matches!(ty, Ty::Option(_)) {
+        return false;
+    }
+    let quoted = |t: &str| t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"');
+    let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if text.contains('&') {
+        let terms: Option<Vec<&str>> = text
+            .split('&')
+            .map(|p| p.trim().strip_prefix("<>").map(str::trim))
+            .collect();
+        return terms.is_some_and(|ts| {
+            ts.len() == 2
+                && ts.iter().filter(|t| quoted(t)).count() == 1
+                && ts.iter().all(|t| (quoted(t) && !t[1..t.len() - 1].trim().is_empty()) || plain(t))
+        });
+    }
+    let terms: Vec<&str> = text.split('|').map(str::trim).collect();
+    terms.len() >= 2 && terms.iter().all(|t| quoted(t) || plain(t))
+}
+
 fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
     if !matches!(ty, Ty::Enum(_) | Ty::Option(_)) {
         return false;

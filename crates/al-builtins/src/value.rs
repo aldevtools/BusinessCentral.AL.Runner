@@ -617,6 +617,8 @@ pub struct PageState {
     pub refresh_pinned: bool,
     /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
     pub refresh_by_update: bool,
+    /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
+    pub refresh_update_false: bool,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value)>,
@@ -751,6 +753,7 @@ impl PageState {
             statement_run: false,
             refresh_pinned: false,
             refresh_by_update: false,
+            refresh_update_false: false,
             bg_tasks: Default::default(),
             bg_next_id: 1,
         }

@@ -599,7 +599,9 @@ fn typing_into_the_draft_line_inserts_a_row_with_the_link_key_validated() {
         ),
         "F",
     );
-    assert_eq!(text(r), "H1/20000/H1/NEWREC/Yes/1");
+    // The blank line typed without New() takes the first AutoSplitKey number (NewLineStampsFilters.al
+    // QP_TwoKeyLink_TypeFirst_BlankLine); the corpus test above pins only that the line is stored.
+    assert_eq!(text(r), "H1/10000/H1/NEWREC/Yes/1");
 }
 
 // handlers/TestPagePartOnNewRecordCount.al: showing the draft line starts the record once; First()
@@ -930,7 +932,8 @@ fn a_new_hosts_part_follows_the_header_once_it_is_stored() {
             end;",
         "F",
     );
-    assert_eq!(text(r), "N1/N1/20000");
+    // First AutoSplitKey number on the blank line (NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine).
+    assert_eq!(text(r), "N1/N1/10000");
 }
 
 // A part the control tree dropped (Visible = false) is still there for the page's own code: Base Application's Sales

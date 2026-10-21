@@ -1807,11 +1807,23 @@ impl Session {
         // (`PageState::empty_part_xrec`).
         let held = self.page_xrec_fields(st);
         st.borrow_mut().empty_part_xrec = Some(held.clone());
+        // A value typed on this blank line without New() is stored with the first AutoSplitKey number, 10000
+        // (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
+        // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
+        // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
+        st.borrow_mut().split_starts_low = true;
         for validate in [true, false, true] {
             if validate {
                 self.set_xrec_fields(st, held.clone());
             }
             if validate {
+                // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
+                // one entry, not two (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine
+                // `draft = Order|H1|type:no=[H1];no:type=[Order];` after the host's GoToKey).
+                let rec = self.page_rec(st);
+                let table = rec.borrow().table as usize;
+                let fresh = self.initial_fields(table);
+                rec.borrow_mut().fields = fresh;
                 self.stamp_from_filters(st, true)?;
             }
             self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
@@ -2069,10 +2081,14 @@ impl Session {
         use rust_decimal::Decimal as D;
         let step = D::from(10000);
         let is_decimal = matches!(ty, RtType::Decimal);
-        let starts_low = st.borrow().split_starts_low;
+        let starts_low = {
+            let s = st.borrow();
+            s.split_starts_low && (s.host.is_none() || s.placeholder_line)
+        };
         let number = match (lower, upper) {
             // The blank line of a top-level list that took key filter values, typed without New(), starts at 10000
-            // (misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow).
+            // (misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow),
+            // and so does the placeholder line of an empty part (NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine).
             (None, _) if starts_low && !burned => step,
             // An empty grid burns one interval on the blank placeholder row.
             (None, _) => D::from(20000),
