@@ -1034,6 +1034,70 @@ fn a_kept_tdd_compile_follows_the_sources_and_the_real_procedure_ends_the_stub()
     s.line();
 }
 
+const TDD_TABLE: &str = r#"table 50150 "Serve Tdd Item"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+}
+"#;
+
+const TDD_FIELD_TESTS: &str = r#"codeunit 50151 "Serve Tdd Field Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure WritesAField()
+    var
+        Item: Record "Serve Tdd Item";
+    begin
+        Item.Weight := 7;
+        if Item.Weight <> 7 then
+            Error('Weight is %1', Item.Weight);
+    end;
+}
+"#;
+
+#[test]
+fn a_stub_field_is_declared_on_each_request_and_the_real_field_ends_it() {
+    let d = tempfile::tempdir().unwrap();
+    let a = d.path().join("tddfield");
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-0000000000ab","name":"tddfield","publisher":"Test","version":"1.0.0.0","idRanges":[{"from":50150,"to":50159}],"dependencies":[]}"#,
+    );
+    write(&a, "src/Item.al", TDD_TABLE);
+    write(&a, "src/Tests.al", TDD_FIELD_TESTS);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let run = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true}));
+        s.until_summary()
+    };
+    let weight = r#"Serve Tdd Item: field "Weight": Integer"#;
+    for _ in 0..2 {
+        let lines = run(&mut s);
+        let t = line_of(&lines, "WritesAField");
+        assert_eq!(t["status"], "pass", "{lines:?}");
+        assert_eq!(t["generatedStubs"], json!([weight]), "{t}");
+    }
+    // The real field is added: no stub, and no clash with the stub of the request before.
+    write(
+        &a,
+        "src/Item.al",
+        &TDD_TABLE.replace("{ }\n    }", "{ }\n        field(2; Weight; Integer) { }\n    }"),
+    );
+    let lines = run(&mut s);
+    let t = line_of(&lines, "WritesAField");
+    assert_eq!(t["status"], "pass", "{lines:?}");
+    assert!(t.get("stubbed").is_none(), "{t}");
+    assert_eq!(lines.last().unwrap()["generatedStubs"], json!([]), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
 /// Issue 5604: a changed resource file is seen by the next request, which does not reuse the earlier compile.
 #[test]
 fn a_changed_resource_file_is_seen_by_the_next_request() {

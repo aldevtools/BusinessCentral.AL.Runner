@@ -175,6 +175,11 @@ impl Lowerer<'_> {
             Some(b) => self.stmts_of(&b),
             None => Vec::new(),
         };
+        // `--tdd` (ADR-051 decision 10): a routine with a variable of a stub object instantiates the object.
+        if self.checked.tdd_decls.as_ref().is_some_and(|d| !d.objects.is_empty()) {
+            let marks = self.tdd_object_marks(r);
+            body.splice(0..0, marks);
+        }
         if !declared_security.is_empty() {
             let prologue = self.declared_security_filtering(&declared_security, &locals);
             body.splice(0..0, prologue);
@@ -571,7 +576,75 @@ impl Lowerer<'_> {
         }
     }
 
+    /// `--tdd` (ADR-051 decision 10): a value written to a stub Text or Code field is refused when it is longer than the
+    /// length the stub is declared with, as the real length is not known yet.
+    pub(crate) fn tdd_fit(&self, target: &SyntaxNode, target_ty: &Ty, value: ir::Expr) -> ir::Expr {
+        let Some(d) = self.checked.tdd_decls.as_ref().filter(|d| !d.fields.is_empty()) else {
+            return value;
+        };
+        if !matches!(target_ty, Ty::Text(_) | Ty::Code(_)) {
+            return value;
+        }
+        let Some(Res::Field { table, id }) = self.res(target).cloned() else {
+            return value;
+        };
+        if !d.fields.contains_key(&(table, id)) {
+            return value;
+        }
+        let name = self.members[table]
+            .fields
+            .iter()
+            .find(|f| f.id == id)
+            .map(|f| f.name.clone())
+            .unwrap_or_default();
+        ir::Expr::TddFit {
+            max: crate::check::tdd_decl::STUB_TEXT_LENGTH,
+            why: crate::check::tdd_decl::stub_field_reason(&name),
+            inner: Box::new(value),
+        }
+    }
+
+    /// `--tdd`: a `Stmt::TddMark` for each stub object a parameter or local of `r` has as its type.
+    fn tdd_object_marks(&self, r: &ast::Routine) -> Vec<ir::Stmt> {
+        let Some(d) = self.checked.tdd_decls.as_ref() else {
+            return Vec::new();
+        };
+        let tys = r
+            .params()
+            .filter_map(|p| p.type_ref())
+            .chain(r.local_var_decls().filter_map(|v| v.type_ref()))
+            .map(|t| Ty::from_type_ref(&t));
+        if d.objects.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = Vec::new();
+        for t in tys {
+            if let Some(sig) = self.tdd_object_sig(&t) {
+                if !out.contains(&sig) {
+                    out.push(sig);
+                }
+            }
+        }
+        out.into_iter().map(ir::Stmt::TddMark).collect()
+    }
+
+    /// `--tdd`: the signature of the stub object a variable of type `t` is an instance of, if it is one.
+    pub(crate) fn tdd_object_sig(&self, t: &Ty) -> Option<String> {
+        let d = self.checked.tdd_decls.as_ref().filter(|d| !d.objects.is_empty())?;
+        let (kind, name) = match t {
+            Ty::Record { table, .. } => (ObjKind::Table, table),
+            Ty::Object(k, n) => (*k, n),
+            Ty::Enum(n) => (ObjKind::Enum, n),
+            _ => return None,
+        };
+        match self.ws.resolve_ref(self.file, kind, &[name.to_string()]) {
+            Resolution::Found(oi) => d.objects.get(&oi).cloned(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn stmt(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {
+        self.tdd_marked.borrow_mut().push(Vec::new());
         self.assumed.push(Vec::new());
         let mark = self.tys.len();
         let mut out = self.stmt_plain(n);
@@ -579,11 +652,16 @@ impl Lowerer<'_> {
             self.seal_stmts(mark, &out);
         }
         let marks = self.assumed.pop().unwrap_or_default();
-        if !marks.is_empty() && !out.is_empty() {
+        let tdd = self.tdd_marked.borrow_mut().pop().unwrap_or_default();
+        if (!marks.is_empty() || !tdd.is_empty()) && !out.is_empty() {
             // After the position marker, which belongs to the statement that follows it.
             let at = usize::from(matches!(out.first(), Some(ir::Stmt::Pos(_))));
+            let n_marks = marks.len();
             for (i, a) in marks.into_iter().enumerate() {
                 out.insert(at + i, ir::Stmt::Assume(a));
+            }
+            for (i, s) in tdd.into_iter().enumerate() {
+                out.insert(at + n_marks + i, ir::Stmt::TddMark(s));
             }
         }
         out
@@ -1086,6 +1164,7 @@ impl Lowerer<'_> {
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
         let rhs = self.expr(&kids[1])?;
+        let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(
                 t.kind(),
@@ -1540,6 +1619,9 @@ impl Lowerer<'_> {
                 Ok(ir::Place::Index(Box::new(base), idx))
             }
             _ => match self.res(n) {
+                Some(Res::TddStub(site)) if site.kind != crate::check::tdd::TddKind::Proc => {
+                    Err(crate::check::tdd_decl::site_reason(site))
+                }
                 Some(Res::Local(name)) if self.var_attr_refusal(name, true).is_some() => {
                     let why = self.var_attr_refusal(name, true).unwrap_or_default();
                     self.run_refusals.insert(why.clone());

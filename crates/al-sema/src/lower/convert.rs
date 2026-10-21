@@ -4,7 +4,31 @@ use super::*;
 impl<'a> Lowerer<'a> {
     /// What `n` resolved to; a name a `with` statement supplied is read as the member it names.
     pub(crate) fn res(&self, n: &SyntaxNode) -> Option<&Res> {
-        self.checked.resolutions.get(&key(self.file, n)).map(Res::inner)
+        let r = self.checked.resolutions.get(&key(self.file, n)).map(Res::inner);
+        if let (Some(d), Some(r)) = (&self.checked.tdd_decls, r) {
+            if !d.is_empty() {
+                self.tdd_note(d, r);
+            }
+        }
+        r
+    }
+
+    /// `--tdd` (ADR-051 decision 10): a use of a stub field or enum value, or of a global whose type is a stub object,
+    /// marks the statement being lowered.
+    fn tdd_note(&self, d: &crate::check::tdd_decl::TddDecls, r: &Res) {
+        let sig = match r {
+            Res::Field { table, id } => d.fields.get(&(*table, *id)),
+            Res::EnumValue { object, value } => d.values.get(&(*object, *value)),
+            Res::Global(n) => self.tdd_globals.get(n),
+            _ => None,
+        };
+        if let Some(sig) = sig {
+            if let Some(frame) = self.tdd_marked.borrow_mut().last_mut() {
+                if !frame.contains(sig) {
+                    frame.push(sig.clone());
+                }
+            }
+        }
     }
 
     /// The record `n` is a member of, when a `with` statement supplied the name; else the implicit `Rec`.

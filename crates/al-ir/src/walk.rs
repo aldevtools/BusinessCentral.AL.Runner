@@ -383,7 +383,7 @@ fn walk_stmt<V: RefVisitor>(s: &mut Stmt, v: &mut V) {
             }
         }
         Stmt::AssertError(b) => walk_stmts(b, v),
-        Stmt::Break | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::Continue => {}
+        Stmt::Break | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) | Stmt::Continue => {}
     }
 }
 
@@ -563,6 +563,7 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
+        Expr::TddFit { inner, .. } => walk_expr(inner, v),
         Expr::TddStub { stub: _, args, ty } => {
             if let Some(t) = ty {
                 walk_rt(t, v);
@@ -659,6 +660,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         relation_runtime,
         relation_texts: _,
         flow_filter: _,
+        tdd_length_unknown: _,
         calc,
         calc_refusal: _,
         declared_in,

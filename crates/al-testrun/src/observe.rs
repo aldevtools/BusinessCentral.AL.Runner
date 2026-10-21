@@ -480,7 +480,7 @@ impl Walk<'_> {
             }
             Stmt::Exit(e) => e.as_ref().map_or(Ok(()), |e| self.expr(e)),
             Stmt::AssertError(b) => self.stmts(b),
-            Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) => Ok(()),
+            Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => Ok(()),
         }
     }
 
@@ -574,6 +574,7 @@ impl Walk<'_> {
                 args.iter().try_for_each(|a| self.arg(a))
             }
             // A stub (ADR-051) touches nothing; the value it yields is a slot of its type.
+            Expr::TddFit { inner, .. } => self.expr(inner),
             Expr::TddStub { args, ty, .. } => {
                 if let Some(t) = ty {
                     self.slot(t)?;

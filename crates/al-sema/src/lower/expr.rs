@@ -545,6 +545,10 @@ impl Lowerer<'_> {
                 self.call(n, &kids[0], &args)
             }
             ScopeExpr => match self.res(n).cloned() {
+                // `--tdd`: a stub field or enum value is declared by the compile that follows; here it is refused.
+                Some(Res::TddStub(site)) if site.kind != crate::check::tdd::TddKind::Proc => {
+                    Err(crate::check::tdd_decl::site_reason(&site))
+                }
                 // `Mode::Decompress` with `Mode: DotNet CompressionMode`: the type's static member.
                 Some(Res::DotNetMember(name)) => {
                     let Ty::DotNet(alias) = self.ty_of(n) else {
@@ -592,6 +596,10 @@ impl Lowerer<'_> {
                 self.control(&part)
             }
             NameRef | MemberExpr | IndexExpr => match self.res(n).cloned() {
+                // `--tdd`: a stub field or enum value is declared by the compile that follows; here it is refused.
+                Some(Res::TddStub(site)) if site.kind != crate::check::tdd::TddKind::Proc => {
+                    Err(crate::check::tdd_decl::site_reason(&site))
+                }
                 Some(Res::Proc { .. }) | Some(Res::Builtin(_)) | Some(Res::DotNetMember(_)) => self.call(n, n, &[]),
                 // `Q.Amount`: the current row's value of a query column.
                 Some(Res::QueryColumn { query, column })

@@ -419,6 +419,7 @@ pub(crate) fn run_codeunit_core(
                         )),
                     };
                     session.set_runner_frames(runner_frames(&lowered.program, engine));
+                    session.start_sleep_budget(limit);
                     // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not
                     // the process (a server must outlive it). The session is not trusted after it.
                     let called = match reset {
@@ -447,8 +448,16 @@ pub(crate) fn run_codeunit_core(
                     };
                     session.set_runner_frames(String::new());
                     let timed_out = watchdog.is_some_and(Watchdog::finish);
-                    // The reason names the limit; the VM only knows that it was stopped.
+                    let slept_out = session.sleep_budget_passed();
+                    session.end_sleep_budget();
+                    // The reason names the limit; the VM only knows that it was stopped. Both reasons start with the
+                    // same words, which the outputs turn into the timeout row (`Test exceeded <N>s timeout.`).
                     let result = match result {
+                        Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+                            "the test used more than the time limit of {} s and was stopped (--test-timeout-secs): its Sleep calls asked to wait {} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+                            limit.map_or(0, |l| l.as_secs()),
+                            session.slept_in_test_ms()
+                        ))),
                         Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
                             "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
                             limit.map_or(0, |l| l.as_secs())
@@ -693,6 +702,11 @@ pub(crate) fn run_codeunit_core(
         let cov = if covering { session.take_coverage() } else { Vec::new() };
         if scratch.trace {
             let touched = session.take_impact_trace();
+            scratch.entered.push((
+                routine.name.clone(),
+                crate::affected::entered_keys(&lowered.program, &touched, &lowered.dependency),
+                touched.dotnet,
+            ));
             scratch.traces.push((
                 routine.name.clone(),
                 crate::impact_trace::keys(&lowered.program, &touched),

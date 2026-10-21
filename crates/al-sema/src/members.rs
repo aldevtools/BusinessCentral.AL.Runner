@@ -296,6 +296,21 @@ pub(crate) fn first_string_literal(value: &str) -> Option<String> {
     None
 }
 
+/// The fields object `i` (a table or a table extension) declares itself, by id (`--tdd`, `check::tdd_decl`).
+pub(crate) fn own_fields(ws: &Workspace, i: usize) -> Vec<(u32, FieldInfo)> {
+    own_members(ws, i)
+        .fields
+        .into_iter()
+        .filter(|f| f.declared_in == Some(i))
+        .map(|f| (f.id, f))
+        .collect()
+}
+
+/// The values object `i` (an enum or an enum extension) declares itself (`--tdd`, `check::tdd_decl`).
+pub(crate) fn own_enum_values(ws: &Workspace, i: usize) -> Vec<(u32, String)> {
+    own_members(ws, i).enum_values
+}
+
 fn own_members(ws: &Workspace, i: usize) -> Members {
     let obj = ws.object_ast(i);
     let mut m = Members::default();
