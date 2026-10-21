@@ -35,6 +35,15 @@ numbered alpha. You can also download an archive from the releases page and chec
 it against `SHA256SUMS`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.
 
+**With the .NET tool.** If you already work with .NET tools and do not want to set
+up mise or a script, the `MSDyn365BC.AL.Runner` NuGet package runs the same engine.
+It is a thin wrapper around the Rust binary, so it needs the .NET SDK and adds a
+small start-up overhead:
+
+```bash
+dotnet tool install --global MSDyn365BC.AL.Runner
+```
+
 **Which build?** `edge` is rebuilt every night from the newest commit of `main`
 that passed CI. A numbered alpha (`3.0.0-alpha.N`) is released by hand. Use a
 numbered alpha when you need a version you can name in a bug report.
@@ -44,11 +53,13 @@ numbered alpha when you need a version you can name in a bug report.
 Windows, SmartScreen warns; choose "More info", then "Run anyway", or run
 `Unblock-File .\al-runner.exe`.
 
-**Two commands named `al-runner`.** Version 2's dotnet tool has the same command
-name. If both are installed, the one found first on your `PATH` runs. Version 3
-prints a note on stderr when it finds the other one, and `al-runner --version`
-lists all copies. Remove version 2 with
-`dotnet tool uninstall -g MSDyn365BC.AL.Runner`, or silence the note with
+**Two commands named `al-runner`.** The .NET tool installs a command with the same
+name. If you install both it and the standalone binary, the one found first on your
+`PATH` runs. The standalone binary prints a note on stderr when it finds another
+copy, and `al-runner --version` lists all copies. An old 2.x tool, which still runs
+the version 2 engine, is the case to watch for: update it with
+`dotnet tool update -g MSDyn365BC.AL.Runner`, or remove it with
+`dotnet tool uninstall -g MSDyn365BC.AL.Runner`. Silence the note with
 `ALRUNNER_NO_PATH_NOTE=1`.
 
 Check the install:

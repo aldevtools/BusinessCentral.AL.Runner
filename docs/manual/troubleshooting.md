@@ -63,11 +63,13 @@ The short flags `-v` and `-q` appear in `--help` but are read as app paths in
 `3.0.0-alpha.3`
 ([issue 5618](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5618)). Use `--verbose` and `--quiet`.
 
-## Two versions of `al-runner`
+## Two copies of `al-runner`
 
-A note on stderr says another `al-runner` is on your `PATH`. That is version 2's
-dotnet tool. `al-runner --version` lists both. Remove version 2 with
-`dotnet tool uninstall -g MSDyn365BC.AL.Runner`, or set `ALRUNNER_NO_PATH_NOTE=1`.
+A note on stderr says another `al-runner` is on your `PATH`, for example the .NET
+tool next to the standalone binary. `al-runner --version` lists all copies. If one
+of them is an old 2.x .NET tool, it runs the version 2 engine: update it with
+`dotnet tool update -g MSDyn365BC.AL.Runner`, or remove it. Set
+`ALRUNNER_NO_PATH_NOTE=1` to silence the note.
 
 ## The binary is blocked
 

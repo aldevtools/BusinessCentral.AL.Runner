@@ -7,10 +7,14 @@ Version 3 replaces version 2. Version 2 was written in C# on top of Business
 Central's own compiler and runtime. Version 3 is written in Rust and reproduces
 what AL code can observe: values, errors, data, and the order of triggers and
 events. That is the public contract of the language, so it changes slowly and
-visibly. Version 2 is frozen on the
-[`v2` branch](https://github.com/aldevtools/BusinessCentral.AL.Runner/tree/v2). Its
-dotnet tool [`MSDyn365BC.AL.Runner`](https://www.nuget.org/packages/MSDyn365BC.AL.Runner)
-stays on NuGet and keeps working, but gets no further releases.
+visibly. The version 2 engine is frozen on the
+[`v2` branch](https://github.com/aldevtools/BusinessCentral.AL.Runner/tree/v2).
+
+The NuGet package [`MSDyn365BC.AL.Runner`](https://www.nuget.org/packages/MSDyn365BC.AL.Runner)
+stays and keeps getting updates. It becomes a wrapper around the version 3 engine,
+so you can keep installing with `dotnet tool` and run the new engine. The wrapper
+adds some start-up overhead, which should be small. Releases of the package that
+predate the wrapper still contain the version 2 engine and keep working.
 
 If you maintain a tool that calls AL Runner, read
 [Migrating tools from AL Runner v2 to v3](../integrations/migrating-tools-to-v3.md).
@@ -19,7 +23,7 @@ If you maintain a tool that calls AL Runner, read
 
 | | Version 2 | Version 3 |
 |---|---|---|
-| Install | `dotnet tool install -g MSDyn365BC.AL.Runner`, needs the .NET SDK | One binary, no .NET. Use mise or the install script. |
+| Install | `dotnet tool install -g MSDyn365BC.AL.Runner`, needs the .NET SDK | Standalone binary with no .NET: use mise or the install script. Or keep using `dotnet tool`, now a wrapper around the version 3 engine. |
 | Command | `al-runner [FLAGS] DIR...` | `al-runner test [FLAGS] APP...` |
 | Input | A "bundle" folder | An app folder, a source archive or an `.app` with source. Name the app and its test app. |
 | Unsupported surface | The test fails with `RunnerOutOfScopeException` | The test is **not run**, with a reason. Exit code 7. |
