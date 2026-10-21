@@ -172,6 +172,19 @@ this estimate.
 All four answered as recommended: `Locals` only; no `evaluate` or conditional breakpoints in 3.0; ALchemist adds
 the VS Code debugger contribution; one session runs the selected tests and exits.
 
+## Decided without owner review (2026-10-21)
+
+1. `al-runner debug` without `--stdio` or `--port` listens on TCP port 4711, as v2's `--dap` without a port.
+   `--port 0` takes a free port. The listening line goes to stderr (v2: stdout); with `--stdio` stdout carries only
+   frames, as v2.
+2. A stack frame is named `Object.Routine`. v2 sends the name of BC's generated scope class, which an AL user does
+   not know; ALchemist shows the name and does not parse it.
+3. A value the renderer cannot write yet is shown as `<not rendered: KIND>`.
+4. `DebugHook` has one method that returns `Resume`, which has one variant (`Continue`) for now: the hook blocks
+   inside itself while stopped. Further variants (for example stop the test) are additive.
+5. Slice 1 covers the apps given on the command line. Breakpoints in a dependency given as source come in a later
+   slice; until then they are unverified (`no executable AL statement on this line in this file`).
+
 ## Open questions (answered above)
 
 1. Variables: `Locals` only as v2 (recommended for 3.0) or also a `Globals` scope and expandable record fields

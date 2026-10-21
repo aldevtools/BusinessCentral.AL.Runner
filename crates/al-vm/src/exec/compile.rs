@@ -9,6 +9,16 @@ use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
 /// what a statement did.
 pub(crate) fn compile(r: &ir::Routine, captured: bool) -> Option<Chunk> {
+    compile_form(r, captured, false)
+}
+
+/// The debug form of `r` (ADR-048): the plain form with an `Op::DbgHit` after each statement marker, where a debugger
+/// may stop. The ops between two markers are the plain form's, so a debugged test computes what it computes without one.
+pub(crate) fn compile_debug(r: &ir::Routine) -> Option<Chunk> {
+    compile_form(r, false, true)
+}
+
+fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
@@ -40,6 +50,7 @@ pub(crate) fn compile(r: &ir::Routine, captured: bool) -> Option<Chunk> {
         loops: Vec::new(),
         captured,
         cap_depth: 0,
+        debug,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -72,6 +83,8 @@ struct Compiler<'a> {
     captured: bool,
     /// The statements open at this point of the code (captured form only).
     cap_depth: u32,
+    /// The debug form (ADR-048).
+    debug: bool,
 }
 
 type R<T> = Result<T, ()>;
@@ -867,6 +880,9 @@ impl<'a> Compiler<'a> {
         match s {
             S::Pos(p) => {
                 self.emit(Op::Pos { p: *p });
+                if self.debug {
+                    self.emit(Op::DbgHit { p: *p });
+                }
             }
             S::Assign(p, e) => self.assign(p, e)?,
             S::Expr(e) => {

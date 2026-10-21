@@ -489,7 +489,7 @@ pub struct Collected {
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
-    test_inner(a, None, Some(into))
+    test_inner(a, None, Some(into), None)
 }
 
 /// What the server hears for each test as it finishes: the event, and its capture as JSON.
@@ -601,13 +601,35 @@ fn warm_key(
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
-    test_inner(a, warm, None)
+    test_inner(a, warm, None, None)
 }
 
-fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut Collected>) -> Result<u8, String> {
+/// What `al-runner debug` adds to a run (ADR-048).
+pub struct DebugSetup {
+    /// Called once the compile is done; returns when the tests may start.
+    pub ready: al_testrun::runtime::DebugReadyHook,
+    /// The debugger of each test codeunit's session.
+    pub debugger: al_testrun::events::MakeDebugger,
+    /// The time the debugger kept the tests stopped (the time limit does not count it).
+    pub paused: Arc<al_testrun::events::PauseClock>,
+    /// Called for each selected test as it finishes.
+    pub on_test: Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>,
+}
+
+/// `al-runner debug`: the run of `al-runner test` with a debugger. The report goes to stderr.
+pub fn test_debug(a: &TestArgs, debug: DebugSetup) -> Result<u8, String> {
+    test_inner(a, None, None, Some(debug))
+}
+
+fn test_inner(
+    a: &TestArgs,
+    mut warm: Option<&mut WarmCtx>,
+    collect: Option<&mut Collected>,
+    debug: Option<DebugSetup>,
+) -> Result<u8, String> {
     let started = Instant::now();
     REPORT_TO_STDERR.store(
-        matches!(a.output_json, Some(None)) || warm.is_some(),
+        matches!(a.output_json, Some(None)) || warm.is_some() || debug.is_some(),
         std::sync::atomic::Ordering::Relaxed,
     );
     {
@@ -620,7 +642,7 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         };
         let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
         // A server request is never colored.
-        style::set(warm.is_none() && a.color.enabled(terminal, no_color));
+        style::set(warm.is_none() && debug.is_none() && a.color.enabled(terminal, no_color));
     }
     let test_timeout = test_timeout_secs(a)?;
     // The country of the run (ADR-020 amendment): only `--country` selects it. An unknown one stops here, before
@@ -1079,9 +1101,29 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
                 }),
                 on_start: w.on_start.clone(),
                 cancel: w.cancel.clone(),
+                debugger: None,
+                paused: None,
             }
         }
-        None => Default::default(),
+        None => match &debug {
+            // `al-runner debug` (ADR-048): each selected test is told as it finishes, and the sessions get a debugger.
+            Some(d) => {
+                let pick = selection.clone();
+                let on_test = d.on_test.clone();
+                al_testrun::events::Hooks {
+                    on_test: Some(Arc::new(move |e: al_testrun::events::TestEvent| {
+                        if pick.picks(e.codeunit, &e.test) {
+                            on_test(e)
+                        }
+                    })),
+                    on_start: None,
+                    cancel: None,
+                    debugger: Some(d.debugger.clone()),
+                    paused: Some(d.paused.clone()),
+                }
+            }
+            None => Default::default(),
+        },
     };
     let opts = RunOptions {
         only: opts_only,
@@ -1103,6 +1145,7 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
         tdd: a.tdd,
+        debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
         stop_on_compile_errors: true,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.

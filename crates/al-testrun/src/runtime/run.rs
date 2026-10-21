@@ -313,6 +313,14 @@ pub(crate) fn run_codeunit_core(
     if scratch.capture.any() {
         session.enable_capture(scratch.capture);
     }
+    // `al-runner debug` (ADR-048): the tests run with the debugger; the install code above did not.
+    let paused = match crate::events::debugger() {
+        Some((hook, paused)) => {
+            session.attach_debugger(hook);
+            paused
+        }
+        None => None,
+    };
     let mut out = Vec::new();
     // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
     // or failed. A later failure is not trusted when such a test could have changed what it reads (`written.rs`).
@@ -403,10 +411,11 @@ pub(crate) fn run_codeunit_core(
                     let cancel = if execute { crate::events::cancel_flag() } else { None };
                     let watchdog = match (limit, &cancel) {
                         (None, None) => None,
-                        (l, _) => Some(Watchdog::start_cancellable(
+                        (l, _) => Some(Watchdog::start_paused(
                             session.stop_flag(),
                             l.unwrap_or(std::time::Duration::from_secs(u32::MAX.into())),
                             cancel.clone(),
+                            paused.clone(),
                         )),
                     };
                     session.set_runner_frames(runner_frames(&lowered.program, engine));
@@ -769,11 +778,24 @@ impl Watchdog {
 
     /// [`Watchdog::start`] that also stops the routine when `cancel` is set (a scratch run: `cancel` ends it at once;
     /// a test run lets the running test finish).
+    #[cfg(test)]
     pub(crate) fn start_cancellable(
         flag: Arc<std::sync::atomic::AtomicBool>,
         limit: std::time::Duration,
         cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Watchdog {
+        Watchdog::start_paused(flag, limit, cancel, None)
+    }
+
+    /// [`Watchdog::start_cancellable`] whose wall clock leaves out the time `paused` counts (the time a debugger kept the
+    /// test stopped, ADR-048 decision 9). A stopped thread uses no CPU time, so only the wall clock needs it.
+    pub(crate) fn start_paused(
+        flag: Arc<std::sync::atomic::AtomicBool>,
+        limit: std::time::Duration,
+        cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+        paused: Option<Arc<crate::events::PauseClock>>,
+    ) -> Watchdog {
+        let paused_at_start = paused.as_ref().map(|p| p.total()).unwrap_or_default();
         let clock = crate::cpuclock::ThreadClock::current();
         // The thread's CPU clock counts from the thread's birth, and a worker thread runs many tests:
         // the limit is measured from the reading at the start of this test.
@@ -781,6 +803,14 @@ impl Watchdog {
         let (done, rx) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
             let started = std::time::Instant::now();
+            // The wall time of the test, without the time a debugger kept it stopped.
+            let elapsed = || {
+                let stopped = paused
+                    .as_ref()
+                    .map(|p| p.total().saturating_sub(paused_at_start))
+                    .unwrap_or_default();
+                started.elapsed().saturating_sub(stopped)
+            };
             let stop = |flag: &std::sync::atomic::AtomicBool| {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 true
@@ -803,13 +833,13 @@ impl Watchdog {
                     .map(|cpu| cpu.saturating_sub(base));
                 match used {
                     Some(cpu) => {
-                        if cpu >= limit || started.elapsed() >= limit * WALL_BACKSTOP {
+                        if cpu >= limit || elapsed() >= limit * WALL_BACKSTOP {
                             return stop(&flag);
                         }
                     }
                     // No CPU clock: the wall clock counts.
                     None => {
-                        if started.elapsed() >= limit {
+                        if elapsed() >= limit {
                             return stop(&flag);
                         }
                     }

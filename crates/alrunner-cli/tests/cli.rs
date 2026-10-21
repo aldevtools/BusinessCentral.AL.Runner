@@ -146,6 +146,10 @@ fn help_and_version_exit_0_and_say_what_the_command_does() {
     assert_eq!(code(&o), 0);
     let t = text(&o);
     assert!(t.contains("al-runner test [OPTIONS] APP..."), "{t}");
+    assert!(
+        t.contains("al-runner debug [--stdio | --port [N]] [OPTIONS] APP..."),
+        "{t}"
+    );
     assert!(t.contains("--dep PATH") && t.contains("--package-cache DIR"), "{t}");
     assert!(t.contains("7  some tests were not run"), "{t}");
     assert_eq!(code(&alrunner(&["--version"])), 0);
@@ -167,7 +171,8 @@ fn a_bad_invocation_exits_2_and_says_why() {
         (vec!["test", ".", "--nope"], "unknown option"),
         (vec!["test", ".", "--test-data", "--no-test-data"], "cannot be combined"),
         (vec!["test", ".", "--test-data", "/no/such/Demo.bak"], "Demo.bak"),
-        (vec!["debug"], "not implemented yet"),
+        (vec!["run"], "not implemented yet"),
+        (vec!["debug"], "at least one APP"),
     ] {
         let o = alrunner(&args);
         assert_eq!(code(&o), 2, "{args:?}");
