@@ -562,7 +562,16 @@ fn warm_key(
         // What the app's manifest gives the program beside its code: a change to a resource file, a layout file or
         // `app.json` is a new key, as the warm compile takes in only source text (issue 5604).
         let m = &i.manifest;
-        (&m.publisher, &m.version, &m.resources, m.include_source, &m.target, &m.symbols, &m.layout_files).hash(&mut h);
+        (
+            &m.publisher,
+            &m.version,
+            &m.resources,
+            m.include_source,
+            &m.target,
+            &m.symbols,
+            &m.layout_files,
+        )
+            .hash(&mut h);
         i.symbols.hash(&mut h);
         format!("{:?}", i.json).hash(&mut h);
     }

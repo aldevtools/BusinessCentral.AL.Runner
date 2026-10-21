@@ -680,7 +680,12 @@ mod tests {
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": true})).unwrap().0.tdd);
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": 1})).is_err());
         // Issue 5611: `runSelectedOnly` is `--run-selected-only` for one request.
-        assert!(run(json!({"sourcePaths": ["/a"], "runSelectedOnly": true})).unwrap().0.run_selected_only);
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "runSelectedOnly": true}))
+                .unwrap()
+                .0
+                .run_selected_only
+        );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.run_selected_only);
         assert!(run(json!({"sourcePaths": ["/a"], "runSelectedOnly": "yes"})).is_err());
         assert!(

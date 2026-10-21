@@ -1527,15 +1527,33 @@ fn output_json_writes_the_document_when_the_selection_matches_no_test() {
     let d = tempfile::tempdir().unwrap();
     let app = mixed_app(d.path());
     let a = app.to_str().unwrap();
-    let o = alrunner(&["test", a, "--no-download", "--output-json", "--test", "Codeunit0.NoSuchTest"]);
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--output-json",
+        "--test",
+        "Codeunit0.NoSuchTest",
+    ]);
     assert_eq!(code(&o), 6, "{}", text(&o));
     let doc = json_of(&o);
     assert_eq!(doc["exitCode"], 6, "{doc}");
     assert_eq!(doc["total"], 0, "{doc}");
     assert_eq!(doc["tests"].as_array().map(Vec::len), Some(0), "{doc}");
-    assert!(doc["warnings"][0].as_str().unwrap().contains("matches no test"), "{doc}");
+    assert!(
+        doc["warnings"][0].as_str().unwrap().contains("matches no test"),
+        "{doc}"
+    );
     let file = d.path().join("out.json");
-    let o = alrunner(&["test", a, "--no-download", "--output-json", file.to_str().unwrap(), "--test", "NoSuchTest"]);
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--output-json",
+        file.to_str().unwrap(),
+        "--test",
+        "NoSuchTest",
+    ]);
     assert_eq!(code(&o), 6, "{}", text(&o));
     let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(doc["exitCode"], 6, "{doc}");
@@ -1547,7 +1565,11 @@ fn output_json_writes_the_document_when_the_selection_matches_no_test() {
 fn a_quoted_test_name_is_selected_by_its_al_name() {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().join("quoted");
-    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000000072", "Quoted", &[]));
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000072", "Quoted", &[]),
+    );
     write(
         &dir,
         "src/Tests.al",
@@ -1573,7 +1595,10 @@ fn a_quoted_test_name_is_selected_by_its_al_name() {
     assert_eq!(names(&["--test-exact", "Codeunit50650.Space Step"]), space);
     assert_eq!(names(&["--test-exact", "space step"]), space);
     assert_eq!(names(&["--test", "Space Step"]), space);
-    assert_eq!(names(&["--test-exact", "Codeunit50650.Dot.Name"]), vec!["Codeunit50650.Dot.Name".to_string()]);
+    assert_eq!(
+        names(&["--test-exact", "Codeunit50650.Dot.Name"]),
+        vec!["Codeunit50650.Dot.Name".to_string()]
+    );
     assert_eq!(names(&["--test", "Dot"]), vec!["Codeunit50650.Dot.Name".to_string()]);
     assert_eq!(
         names(&["--test", "Codeunit50650.Passes", "--test-exact", "Codeunit50650.Passes"]),
@@ -1590,7 +1615,11 @@ fn a_quoted_test_name_is_selected_by_its_al_name() {
 fn isolation_refusals_say_why_and_what_to_use_instead() {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().join("commit");
-    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005607", "Commit", &[]));
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005607", "Commit", &[]),
+    );
     write(
         &dir,
         "src/Tests.al",
@@ -1603,9 +1632,15 @@ fn isolation_refusals_say_why_and_what_to_use_instead() {
         json_of(&o)["tests"][0]["message"].as_str().unwrap().to_string()
     };
     let m = message("disabled");
-    assert!(m.contains("no corpus test pins") && m.contains("--isolation codeunit"), "{m}");
+    assert!(
+        m.contains("no corpus test pins") && m.contains("--isolation codeunit"),
+        "{m}"
+    );
     let m = message("test");
-    assert!(m.contains("no corpus test pins") && m.contains("--isolation codeunit"), "{m}");
+    assert!(
+        m.contains("no corpus test pins") && m.contains("--isolation codeunit"),
+        "{m}"
+    );
     let o = alrunner(&["test", a, "--no-download", "--isolation", "codeunit"]);
     assert_eq!(code(&o), 0, "{}", text(&o));
 }
@@ -1617,21 +1652,38 @@ fn isolation_refusals_say_why_and_what_to_use_instead() {
 fn an_unhandled_outbound_request_fails_as_bc_does_or_says_why_it_is_refused() {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().join("http");
-    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005608", "Http", &[]));
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005608", "Http", &[]),
+    );
     let unit = |id: u32, policy: &str| {
         format!(
             "codeunit {id} \"Http Tests {id}\"\n{{\n    Subtype = Test;\n{policy}\n    [Test]\n    procedure Local()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://localhost:1/x', Response);\n    end;\n\n    [Test]\n    procedure Public()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://example.com/x', Response);\n    end;\n}}\n"
         )
     };
     write(&dir, "src/Default.al", &unit(50670, ""));
-    write(&dir, "src/Block.al", &unit(50671, "    TestHttpRequestPolicy = BlockOutboundRequests;"));
+    write(
+        &dir,
+        "src/Block.al",
+        &unit(50671, "    TestHttpRequestPolicy = BlockOutboundRequests;"),
+    );
     let o = alrunner(&["test", dir.to_str().unwrap(), "--no-download", "--output-json"]);
     let doc = json_of(&o);
     let message = |name: &str| row(&doc, name)["message"].as_str().unwrap().to_string();
-    assert!(message("Codeunit50670.Local").contains("violates security requirements"), "{doc}");
-    assert!(message("Codeunit50671.Public").starts_with("Unhandled outbound HTTP requests are not permitted"), "{doc}");
+    assert!(
+        message("Codeunit50670.Local").contains("violates security requirements"),
+        "{doc}"
+    );
+    assert!(
+        message("Codeunit50671.Public").starts_with("Unhandled outbound HTTP requests are not permitted"),
+        "{doc}"
+    );
     let m = message("Codeunit50670.Public");
-    assert!(m.contains("[HttpClientHandler]") && m.contains("BlockOutboundRequests"), "{m}");
+    assert!(
+        m.contains("[HttpClientHandler]") && m.contains("BlockOutboundRequests"),
+        "{m}"
+    );
 }
 
 /// Issue 5611: --run-selected-only runs only the selected tests of a codeunit, as BC's test tool runs only the test
@@ -1640,7 +1692,11 @@ fn an_unhandled_outbound_request_fails_as_bc_does_or_says_why_it_is_refused() {
 fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().join("persist");
-    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005611", "Persist", &[]));
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005611", "Persist", &[]),
+    );
     write(
         &dir,
         "src/Tests.al",
@@ -1650,7 +1706,14 @@ fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
     let o = alrunner(&["test", a, "--no-download", "--test-exact", "Codeunit50680.PersistB"]);
     assert_eq!(code(&o), 1, "the whole codeunit runs by default: {}", text(&o));
     assert!(text(&o).contains("counter=1"), "{}", text(&o));
-    let o = alrunner(&["test", a, "--no-download", "--test-exact", "Codeunit50680.PersistB", "--run-selected-only"]);
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--test-exact",
+        "Codeunit50680.PersistB",
+        "--run-selected-only",
+    ]);
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(text(&o).contains("Tests: 1 total, 1 passed"), "{}", text(&o));
 }

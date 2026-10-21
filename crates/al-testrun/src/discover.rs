@@ -82,7 +82,10 @@ fn blank(out: &mut String, text: &str, keep_quotes: bool) {
 fn name_at(src: &str, at: usize) -> Option<&str> {
     let rest = src.get(at..)?.trim_start();
     if let Some(q) = rest.strip_prefix('"') {
-        return q.find(['"', '\n']).filter(|&e| q.as_bytes()[e] == b'"').map(|e| &q[..e]);
+        return q
+            .find(['"', '\n'])
+            .filter(|&e| q.as_bytes()[e] == b'"')
+            .map(|e| &q[..e]);
     }
     let end = rest
         .find(|c: char| !(c.is_alphanumeric() || c == '_'))
