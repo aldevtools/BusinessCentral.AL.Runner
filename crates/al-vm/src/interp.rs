@@ -456,6 +456,14 @@ impl Session {
             // What the conversion of a BigInteger into an Integer gives, without the Decimal in between; a counter
             // beyond Integer takes the general path, which reports it.
             Ok(Value::Integer(n))
+        } else if let (Ok(o), RtType::Option(_) | RtType::Enum(_)) = (i32::try_from(i), slot_ty) {
+            // An Option or Enum counter holds the ordinal of each round, a member the type lacks included (an enum with a gap
+            // shows Red,Green,2,3,4,Blue), as variable or field, up or downto (types/lt-for-option-time-decimal/
+            // ForLoopOptionVariable.al:31-54, :221-237; ForOptionEnum_risky.al:39-104).
+            Ok(match slot_ty {
+                RtType::Enum(id) => Value::Enum(*id, o),
+                _ => ops::convert(Value::Integer(o), slot_ty)?,
+            })
         } else {
             ops::convert(Value::BigInteger(i), slot_ty)
         }

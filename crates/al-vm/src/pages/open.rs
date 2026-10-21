@@ -1882,18 +1882,38 @@ impl Session {
             }
             stamped.push((pos, v.clone()));
         }
-        // Every value is on the record before the first validation runs: the table relation of a link field filters on
-        // Document Type of the same line (Service Item Line: "Document No." is field 1, "Document Type" field 43).
-        // Assumed, see Assumption::NewLineStampsAllBeforeValidating.
-        for (pos, v) in &stamped {
-            rec.borrow_mut().fields[*pos] = v.clone();
-        }
-        if validate {
-            if stamped.len() > 1 {
+        // One validated value is pinned: the link field's OnValidate and table relation see the rest of the line as it
+        // was, a SourceTableView value of a field outside the key is not stamped (pages/lt-new-line-stamps-filters/
+        // NewLineStampsFilters.al:214-237, :264-287). With two or more validated values, whether the later ones are on
+        // the record while the first validates is not pinned. Every value goes on first; when code can see the order (an
+        // OnValidate, a table relation, a table extension's validate trigger or a subscriber to the validate events of a
+        // stamped field) that runs under Assumption::NewLineStampsAllBeforeValidating (kept, not pinned: refusing it costs
+        // 7 baseline cases, handlers/TestPageActionRunPageView.al and misc/lt-probes-needed-7/PnGRefresh.al).
+        if validate && stamped.len() > 1 {
+            let mut seen = false;
+            let schema = engine.program.objects[table.object as usize]
+                .table
+                .as_ref()
+                .expect("table");
+            for (pos, _) in &stamped {
+                let f = &schema.fields[*pos];
+                seen |= f.on_validate.is_some()
+                    || f.relation
+                    || !f.ext_before_validate.is_empty()
+                    || !f.ext_after_validate.is_empty()
+                    || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
+                    || self.listened(&table, "onaftervalidateevent", Some(&f.name))?;
+            }
+            if seen {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::NewLineStampsAllBeforeValidating,
                 );
             }
+        }
+        for (pos, v) in &stamped {
+            rec.borrow_mut().fields[*pos] = v.clone();
+        }
+        if validate {
             for (pos, v) in stamped {
                 self.ret_used = false;
                 self.record_op(RecordOp::Validate, &rec, &mut [Value::Integer(pos as i32), v])?;
