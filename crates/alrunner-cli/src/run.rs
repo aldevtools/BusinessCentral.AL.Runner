@@ -1082,6 +1082,17 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
         tdd: a.tdd,
+        // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
+        run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
+            Arc::new(
+                found
+                    .iter()
+                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                    .filter(|(id, t)| selection.picks(*id, t))
+                    .map(|(id, t)| (id, t.to_lowercase()))
+                    .collect(),
+            )
+        }),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(

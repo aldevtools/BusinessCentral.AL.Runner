@@ -761,6 +761,7 @@ impl CorpusRuntime {
                         hooks: opts.hooks.clone(),
                         clock_start: None,
                         impact: opts.impact_trace,
+                        run_only: None,
                     });
                 }
                 continue;
@@ -786,6 +787,7 @@ impl CorpusRuntime {
                         hooks: opts.hooks.clone(),
                         clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
                         impact: opts.impact_trace,
+                        run_only: opts.run_only.clone(),
                     }),
                     Err(why) => {
                         for r in test_routines(o) {

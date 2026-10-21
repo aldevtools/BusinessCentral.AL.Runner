@@ -191,6 +191,10 @@ pub(crate) fn run_codeunit_core(
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("Test"))
+                // `--run-selected-only`: a test that is not selected does not run (issue 5611).
+                && scratch.run_only.as_ref().is_none_or(|keep| {
+                    keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
+                })
         })
         .collect();
     if execute {

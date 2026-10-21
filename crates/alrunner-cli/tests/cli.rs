@@ -1633,3 +1633,24 @@ fn an_unhandled_outbound_request_fails_as_bc_does_or_says_why_it_is_refused() {
     let m = message("Codeunit50670.Public");
     assert!(m.contains("[HttpClientHandler]") && m.contains("BlockOutboundRequests"), "{m}");
 }
+
+/// Issue 5611: --run-selected-only runs only the selected tests of a codeunit, as BC's test tool runs only the test
+/// methods that are enabled: a sibling that is not selected does not run, so its global does not carry over.
+#[test]
+fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("persist");
+    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005611", "Persist", &[]));
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50680 \"Persist Tests\"\n{\n    Subtype = Test;\n\n    var\n        Counter: Integer;\n\n    [Test]\n    procedure PersistA()\n    begin\n        Counter += 1;\n    end;\n\n    [Test]\n    procedure PersistB()\n    begin\n        if Counter <> 0 then\n            Error('counter=%1', Counter);\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--test-exact", "Codeunit50680.PersistB"]);
+    assert_eq!(code(&o), 1, "the whole codeunit runs by default: {}", text(&o));
+    assert!(text(&o).contains("counter=1"), "{}", text(&o));
+    let o = alrunner(&["test", a, "--no-download", "--test-exact", "Codeunit50680.PersistB", "--run-selected-only"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("Tests: 1 total, 1 passed"), "{}", text(&o));
+}

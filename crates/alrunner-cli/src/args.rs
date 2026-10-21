@@ -76,6 +76,8 @@ pub struct TestArgs {
     pub coverage: bool,
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
     pub tdd: bool,
+    /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
+    pub run_selected_only: bool,
     /// `--coverage-out FILE`: write Cobertura XML there (implies `--coverage`; default `coverage.cobertura.xml`).
     pub coverage_out: Option<PathBuf>,
     /// `--coverage-json FILE`: write the statements and the statements of each test as JSON (implies `--coverage`).
@@ -272,6 +274,10 @@ selects only the tests both match)
                          lines it left from. Selects that test like --filter.
     A selected test's codeunit runs whole (tests of a codeunit share state); only the selected
     tests are reported. Only the selected codeunits are compiled.
+    --run-selected-only  Run only the selected tests of each codeunit, as BC's test tool runs only
+                         the test methods that are enabled: the other tests do not run, so their
+                         globals, rows, time and refusals do not reach the selected ones. The
+                         codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
 
 OUTPUT
     Default: the version line, one line per failing test with the AL call stack of its error
@@ -883,6 +889,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 ));
             }
             "--tdd" => a.tdd = true,
+            "--run-selected-only" => a.run_selected_only = true,
             "--watch" | "--affected" | "--per-suite" | "--include-failing" | "--strict-environment" => {
                 return Err(format!(
                     "{flag} is deferred in v3 (ADR-016, owner direction 2026-10-13): features that only hide start-up or run cost wait until they are measured to matter"
