@@ -210,9 +210,11 @@ pub struct CorpusRuntime {
     compile_errors: Vec<CompileError>,
 }
 
-/// An error in the code of an app under test that stops it from compiling: one the AL compiler gives (an `AL` code
-/// from `al_sema::alcodes` or the checker, pinned by the must-not-compile corpus), or source the parser does not accept
-/// (`code` is empty). Dependency apps are not judged: the AL compiler has already vetted them.
+/// An error in the code of an app under test: one the AL compiler gives (an `AL` code from `al_sema::alcodes` or the
+/// checker, pinned by the must-not-compile corpus), which stops it from compiling, or source our parser does not accept
+/// (`code` is empty). A parse error is not a compile error, as the parser can reject valid AL (al-runner issue 5576):
+/// the objects of the file refuse their routines instead (`al_sema::lower`). Dependency apps are not judged: the AL
+/// compiler has already vetted them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     /// The app, as the caller numbered the apps of the run.
@@ -230,11 +232,15 @@ pub struct CompileError {
 /// The compile errors of the workspace apps of a compiled program, in file order; `order[i]` is the caller's number of
 /// program app `i`.
 pub(crate) fn compile_errors(ws: &al_sema::Workspace, lowered: &Lowered, order: &[usize]) -> Vec<CompileError> {
-    let parse = ws.diagnostics.iter().filter(|d| d.code == "AR0000");
+    let parse: Vec<&al_sema::Diagnostic> = ws.diagnostics.iter().filter(|d| d.code == "AR0000").collect();
+    // An AL diagnostic in a file the parser did not accept may come from the parser's recovery: the parse error stands
+    // for the file.
+    let unparsed = |d: &al_sema::Diagnostic| parse.iter().any(|p| p.app == d.app && p.file == d.file);
     let mut out: Vec<CompileError> = lowered
         .al_diagnostics
         .iter()
-        .chain(parse)
+        .filter(|d| !unparsed(d))
+        .chain(parse.iter().copied())
         .filter(|d| ws.kinds.get(d.app).is_some_and(|k| *k != al_sema::AppKind::Dependency))
         .map(|d| {
             let text = ws

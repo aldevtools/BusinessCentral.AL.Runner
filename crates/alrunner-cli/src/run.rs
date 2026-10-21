@@ -1132,19 +1132,30 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
     sidecar_host.shutdown();
 
     // An app under test that does not compile runs no test (al-runner issue 5602), as the AL compiler would not
-    // publish it: the errors, exit 3, and `compilationErrors` in the JSON document.
-    if !rt.compile_errors().is_empty() {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let errors: Vec<(String, String)> = rt
-            .compile_errors()
-            .iter()
-            .map(|e| {
-                let file = inputs
-                    .get(e.app)
-                    .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
-                (file, output::compile_error_line(e))
-            })
-            .collect();
+    // publish it: the errors, exit 3, and `compilationErrors` in the JSON document. Source our parser does not accept
+    // is not such an error, as the parser can reject valid AL (al-runner issue 5576): it is said, and the tests that
+    // need the file are not run (orchestrator decision 2026-10-21).
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let located = |e: &al_testrun::runtime::CompileError| {
+        let file = inputs
+            .get(e.app)
+            .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
+        (file, output::compile_error_line(e))
+    };
+    let parse_errors: Vec<(String, String)> =
+        rt.compile_errors().iter().filter(|e| e.code.is_empty()).map(located).collect();
+    if !parse_errors.is_empty() {
+        eprintln!(
+            "parse: {} place(s) in the APPs our parser did not accept; the tests that need those files are not run",
+            parse_errors.len()
+        );
+        for (file, line) in parse_errors.iter().take(100) {
+            eprintln!("parse: {file}{line}");
+        }
+    }
+    if rt.compile_errors().iter().any(|e| !e.code.is_empty()) {
+        let errors: Vec<(String, String)> =
+            rt.compile_errors().iter().filter(|e| !e.code.is_empty()).map(located).collect();
         for (file, line) in errors.iter().take(100) {
             eprintln!("compile: {file}{line}");
         }

@@ -386,10 +386,11 @@ EXIT CODES
     0  every selected test passed
     1  a test failed
     2  bad invocation or the run could not start
-    3  the APPs do not compile: an error the AL compiler gives (its code, such as AL0118)
-       or source the parser does not accept; no test ran. The errors are on stderr and
-       in `compilationErrors` of --output-json. The check covers the AL compiler's
-       errors that the must-not-compile corpus pins, not all of them
+    3  the APPs do not compile: an error the AL compiler gives (its code, such as AL0118);
+       no test ran. The errors are on stderr and in `compilationErrors` of --output-json.
+       The check covers the AL compiler's errors that the must-not-compile corpus pins,
+       not all of them. Source our parser does not accept is not such an error: the
+       tests that need the file are not run (exit 7), with the parse error as the reason
     6  the selection matched no test
     7  some tests were not run (a refusal); --allow-not-run makes this 0
     8  some tests were not run because the .NET helper could not be used (not found, no .NET 8

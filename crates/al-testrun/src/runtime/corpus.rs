@@ -563,7 +563,8 @@ impl CorpusRuntime {
         };
         let suites = &suites[..];
         let compile_errors = super::compile_errors(ws, lowered, order);
-        if opts.stop_on_compile_errors && !compile_errors.is_empty() {
+        // A parse error alone does not stop the run (`CompileError`): its file's routines refuse instead.
+        if opts.stop_on_compile_errors && compile_errors.iter().any(|e| !e.code.is_empty()) {
             return CorpusRuntime {
                 outcomes: Default::default(),
                 times: Default::default(),
@@ -1149,8 +1150,8 @@ impl CorpusRuntime {
         &self.tdd_stubs
     }
 
-    /// The errors that stop an app under test from compiling (`CompileError`); with
-    /// `RunOptions::stop_on_compile_errors` a run that has any ran no test.
+    /// The errors in the apps under test (`CompileError`); with `RunOptions::stop_on_compile_errors` a run that has
+    /// one with an AL code ran no test.
     pub fn compile_errors(&self) -> &[CompileError] {
         &self.compile_errors
     }

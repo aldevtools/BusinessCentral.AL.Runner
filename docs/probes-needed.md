@@ -636,6 +636,16 @@ pages/lt-ah-pages/PwCloseRevalidate.al (86157).
 | Previous on the top row of a descending OnFindRecord list that holds more than one row | REFUSED | PnF06 MovesDesc with 2 rows: First, then Previous |
 | Moves other than Next() on a list row whose OnValidate refused an entry, and what Next() answers there | REFUSED | PwCloseRevalidate list: `B := P.Next()`, and Previous/First/Last/New after the refusal; read where the cursor stands and what is stored |
 
+## User issues (lane-user-trust, 2026-10-21)
+
+From AL Runner issues filed by users (al-runner issues 5603, 5606, 5576).
+
+| What is not pinned | Today | Probe wanted |
+|---|---|---|
+| A test whose last statement is a statement-form `Rec.Insert()` on a primary key that already exists (BC defers the insert; whether the test fails with the 'already exists' error at its end) | REFUSED when the test otherwise passes (al-runner issue 5603) | A test that inserts the same key twice as a statement and ends; a second test that commits after it. Read the test results and the stored rows |
+| What a test sees of rows that an `OnCompanyOpenCompleted` subscriber (Company Triggers) writes before the tests run | REFUSED for the tests and OnRun triggers that reach a written table, or whose reach is unknown (al-runner issue 5606) | A subscriber that inserts one row; a test that counts the table and one that does not touch it |
+| An extension that names its target by object id (`pageextension 50101 E extends 50100`, the same for a table extension) | ACCEPTED: alc 18.0.39.10160-beta compiles it, the oracle for compile acceptance (al-runner issue 5576) | A compile-acceptance case in the corpus with a page and a table extension by id, and a test that reads the added field |
+
 ## Assumptions in force (generated from the registry)
 
 Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test needs may be implemented before its probe, and every test that passes through such behavior is reported as a FLAGGED pass. The registry is `crates/al-builtins/src/assumptions.rs`; each code path marks its entry when it runs. This table is generated from it (do not edit it by hand: `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions` rewrites it). `alrunner test --top-assumptions` ranks the entries by flagged passes, `--list-assumptions` prints them with the hit counts of the last run. When a probe pins an entry, delete it from the registry; the compiler names every place that still marks it.

@@ -79,7 +79,9 @@ fn object(p: &mut Parser) {
     qualified_name(p);
     loop {
         if p.eat_kw("extends") || p.eat_kw("customizes") {
-            // The target by its id (`extends 50100`): the AL compiler takes it (al-runner issue 5576).
+            // The target by its id (`extends 50100`): the AL compiler takes it (al-runner issue 5576; alc 18.0.39.10160-beta
+            // compiles a page and a table extension by id, the oracle for compile acceptance). Probe row in
+            // docs/probes-needed.md "User issues (lane-user-trust)".
             if !p.eat(Integer) {
                 qualified_name(p);
             }
@@ -242,7 +244,7 @@ mod tests {
     }
 
     /// The AL compiler takes the object id as the target of `extends` (al-runner issue 5576: `pageextension 50101 E
-    /// extends 50100` compiles on BC 29 and with alc 18.0).
+    /// extends 50100` compiles on BC 29 and with alc 18.0.39.10160-beta).
     #[test]
     fn an_extension_names_its_target_by_id() {
         assert_eq!(

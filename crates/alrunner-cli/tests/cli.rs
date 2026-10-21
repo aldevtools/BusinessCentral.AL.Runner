@@ -1521,7 +1521,7 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
 }
 
 /// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a
-/// test codeunit the selection leaves out, and source the parser does not accept each stop the run with exit 3, the
+/// test codeunit the selection leaves out each stop the run with exit 3, the
 /// errors on stderr in the AL compiler's form, and `compilationErrors` in the JSON document. Before, the selected test
 /// passed with exit 0.
 #[test]
@@ -1597,13 +1597,22 @@ fn code_that_does_not_compile_runs_no_test_and_exits_3() {
     assert!(text(&o).contains("src/Other.al(1,75): error AL0118"), "{}", text(&o));
     std::fs::remove_file(tests.join("src/Other.al")).unwrap();
 
-    // Source that does not parse, in a procedure no test calls.
+    // Source our parser does not accept is not a compile error: the parser can reject valid AL (al-runner issue 5576).
+    // A test that does not need the file runs; one that needs it is not run (exit 7), with the parse error as the reason.
     write(
         &app,
         "src/Broken.al",
-        "codeunit 50601 \"Broken\" {\n    procedure Spin(: Integer\n    begin\n    end;\n}\n",
+        "codeunit 50601 \"Broken\" {\n    procedure Ok(): Integer begin exit(1); end;\n    procedure Spin(: Integer\n    begin\n    end;\n}\n",
     );
     let o = run(&["--test-exact", "Codeunit50650.Passes"]);
-    assert_eq!(code(&o), 3, "{}", text(&o));
-    assert!(text(&o).contains("src/Broken.al(2,20): error: "), "{}", text(&o));
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("src/Broken.al(3,20): "), "{}", text(&o));
+    write(
+        &tests,
+        "src/NeedsBroken.al",
+        "codeunit 50652 \"Needs Broken\" { Subtype = Test; [Test] procedure UsesIt() var B: Codeunit \"Broken\"; begin if B.Ok() <> 1 then Error('bad'); end; }",
+    );
+    let o = run(&["--codeunit", "50652"]);
+    assert_eq!(code(&o), 7, "{}", text(&o));
+    assert!(text(&o).contains("the parser did not accept"), "{}", text(&o));
 }
