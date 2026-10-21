@@ -1878,6 +1878,66 @@ fn a_test_over_its_time_limit_is_stopped_and_not_run() {
     assert!(matches!(get("AfterFails"), Outcome::Fail(_)), "{:?}", get("AfterFails"));
 }
 
+/// Runs the test codeunit `name` of `src` with the time limit `limit`; the outcome per test and the wall time used.
+fn run_with_limit(src: &str, name: &str, limit: std::time::Duration) -> (Vec<(String, Outcome)>, std::time::Duration) {
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), src.into())],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let engine = Engine::new(l.program.clone(), blocked);
+    let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
+    let started = std::time::Instant::now();
+    let out = run_codeunit_limited(&engine, &l, oi, None, TestIsolation::Codeunit, Some(limit));
+    (out, started.elapsed())
+}
+
+/// Al-runner issue 5605: `Sleep` does not wait, but the time it asks for counts toward the test's time limit, summed
+/// over the test. A test whose Sleeps go past the limit is stopped and reported like a test over its CPU limit (the
+/// reason starts with "the test used more than the time limit of N s", which the outputs turn into v2's timeout
+/// row); one whose Sleeps stay under it passes. The sum starts again for each test.
+#[test]
+fn sleep_time_counts_toward_the_time_limit() {
+    let src = "codeunit 61401 Sleepy { Subtype = Test;
+            [Test] procedure RetryForEver() var Done: Boolean; Tries: Integer; begin
+                repeat Sleep(400); Tries += 1; if Tries > 1000000 then Done := true; until Done; end;
+            [Test] procedure OneLongSleep() begin Sleep(600000); Error('after the sleep'); end;
+            [Test] procedure JustUnder() begin Sleep(1000); Sleep(999); end;
+            [Test] procedure JustUnderAgain() begin Sleep(1999); end; }";
+    let (out, wall) = run_with_limit(src, "Sleepy", std::time::Duration::from_secs(2));
+    let get = |n: &str| out.iter().find(|(name, _)| name == n).unwrap().1.clone();
+    for t in ["RetryForEver", "OneLongSleep"] {
+        match get(t) {
+            Outcome::NotRun(r) => {
+                assert!(
+                    r.starts_with("the test used more than the time limit of 2 s"),
+                    "{t}: {r}"
+                );
+                assert!(r.contains("Sleep"), "{t}: {r}");
+            }
+            o => panic!("{t}: {o:?}"),
+        }
+    }
+    assert!(matches!(get("JustUnder"), Outcome::Pass), "{:?}", get("JustUnder"));
+    assert!(
+        matches!(get("JustUnderAgain"), Outcome::Pass),
+        "{:?}",
+        get("JustUnderAgain")
+    );
+    // Sleep never waits: the whole codeunit takes far less than one limit.
+    assert!(wall < std::time::Duration::from_secs(2), "{wall:?}");
+}
+
 /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
 /// limit (the machine's load must not decide an outcome), one that computes is.
 #[cfg(unix)]

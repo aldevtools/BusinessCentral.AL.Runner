@@ -1105,6 +1105,48 @@ fn define_adds_a_preprocessor_symbol_and_the_v2_flags_are_accepted() {
     assert!(text(&o).contains("AL_RUNNER_TEST_TIMEOUT_SEC"), "{}", text(&o));
 }
 
+/// Al-runner issue 5605: `Sleep` does not wait, but the time it asks for, summed over the test, counts toward
+/// `--test-timeout`. A test whose Sleeps go past the limit gets the row of a test the CPU limit stopped
+/// (`Test exceeded <N>s timeout.`, `notRun: true`, exit code 7); Sleeps that stay under it pass.
+#[test]
+fn sleep_time_past_the_test_timeout_is_reported_as_a_timeout() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("sleepy");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000041", "Sleepy", &[]),
+    );
+    write(
+        &app,
+        "T.al",
+        "codeunit 50410 \"Sleepy\" { Subtype = Test;
+            [Test] procedure PollsForEver() var Done: Boolean; begin repeat Sleep(500); until Done; end;
+            [Test] procedure LongSleep() begin Sleep(600000); Error('after the sleep'); end;
+            [Test] procedure UnderTheLimit() begin Sleep(2000); Sleep(999); end; }",
+    );
+    let a = app.to_str().unwrap();
+    let started = std::time::Instant::now();
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--no-test-data",
+        "--test-timeout",
+        "3",
+        "--output-json",
+    ]);
+    assert!(started.elapsed() < std::time::Duration::from_secs(3), "Sleep waited");
+    assert_eq!(code(&o), 7, "{}", text(&o));
+    let j = json_of(&o);
+    for t in ["PollsForEver", "LongSleep"] {
+        let r = row(&j, &format!("Codeunit50410.{t}"));
+        assert_eq!(r["message"], "Test exceeded 3s timeout.", "{r}");
+        assert_eq!(r["notRun"], true, "{r}");
+    }
+    assert_eq!(row(&j, "Codeunit50410.UnderTheLimit")["status"], "pass");
+}
+
 // ---- coverage (docs/integrations/alchemist-lethal.md, step 2) ----
 
 const COVERED: &str = r#"
