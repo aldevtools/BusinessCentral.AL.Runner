@@ -1,6 +1,9 @@
 use super::*;
 
 impl al_builtins::format::FormatCtx for Session {
+    fn format_gate(&self, gate: al_version::Gate) -> bool {
+        self.has(gate)
+    }
     fn language(&self) -> i32 {
         self.global_language
     }
