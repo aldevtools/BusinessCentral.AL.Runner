@@ -53,6 +53,8 @@ pub struct CheckResult {
     pub from_codes: Vec<Diagnostic>,
     /// The check ran with `--tdd` (`Roots::tdd`).
     pub tdd: bool,
+    /// `Roots::object_hashes`: lowering hashes the symbolic form of each object it lowers (`Lowered::object_hashes`).
+    pub object_hashes: bool,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -210,6 +212,9 @@ pub struct Roots {
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist becomes a stub site
     /// ([`Res::TddStub`]) instead of an error. Off, nothing changes.
     pub tdd: bool,
+    /// `--affected` (ADR-050 decision 3): lowering hashes the symbolic form of each object it lowers, with its source
+    /// positions, so the next run can tell which objects changed. Off, nothing is hashed.
+    pub object_hashes: bool,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -406,6 +411,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         from_checker,
         from_codes,
         tdd: c.tdd_apps.is_some(),
+        object_hashes: roots.object_hashes,
     }
 }
 

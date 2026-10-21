@@ -15,7 +15,7 @@ use al_vm::impact::Touches;
 use std::collections::{BTreeSet, HashMap};
 
 /// The name of an event's publisher object in a key: `<kind> <id>`. `None`: an object without an id.
-fn publisher(program: &Program, object: usize) -> Option<String> {
+pub(crate) fn publisher(program: &Program, object: usize) -> Option<String> {
     match object {
         al_vm::events::CAPTION_CLASS => Some("platform captionclass".into()),
         al_vm::events::GLOBAL_TRIGGERS => Some("codeunit 2000000002".into()),
@@ -159,7 +159,7 @@ fn routine_label(program: &Program, object: usize, routine: usize) -> String {
 use crate::impact_static::GLOBAL_WRITE_EVENTS;
 
 /// The table, page and report events whose raises `al_vm::impact` notes.
-const TABLE_EVENTS: [&str; 10] = [
+pub(crate) const TABLE_EVENTS: [&str; 10] = [
     "onbeforeinsertevent",
     "onafterinsertevent",
     "onbeforemodifyevent",
@@ -171,7 +171,7 @@ const TABLE_EVENTS: [&str; 10] = [
     "onbeforevalidateevent",
     "onaftervalidateevent",
 ];
-const PAGE_EVENTS: [&str; 11] = [
+pub(crate) const PAGE_EVENTS: [&str; 11] = [
     "onopenpageevent",
     "onclosepageevent",
     "onaftergetcurrrecordevent",

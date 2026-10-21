@@ -33,6 +33,7 @@ fn obj(kind: ObjKind, id: u32, hash: &str) -> ObjectFacts {
         install: false,
         test: false,
         refers: Vec::new(),
+        unfollowed: Vec::new(),
     }
 }
 
@@ -384,4 +385,103 @@ fn a_narrowed_run_keeps_the_codeunits_it_did_not_run() {
     assert_eq!(merged.codeunits[1], stored.codeunits[1]);
     let full = stored.merge(header(), now, &existing, vec![again.clone()], true);
     assert_eq!(full.codeunits, vec![again]);
+}
+
+#[test]
+fn a_changed_object_the_trace_cannot_follow_is_a_full_run() {
+    let (stored, mut now) = base();
+    let o = now.iter_mut().find(|o| o.id == Some(50000)).expect("codeunit");
+    o.hash = "c0'".into();
+    o.unfollowed = vec!["subscriber X to codeunit 1 onlogin: its raises are not noted".into()];
+    assert_eq!(
+        select(&stored, &now).full.as_deref(),
+        Some(
+            "a change of codeunit 50000 O50000 is not followed by the trace: subscriber X to codeunit 1 onlogin: its raises are not noted"
+        )
+    );
+}
+
+// The facts of a compiled workspace (`facts`).
+const FACTS_SRC: &str = r#"
+table 50300 "F Tab" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+tableextension 50301 "F TabExt" extends "F Tab" { fields { field(50000; X; Integer) { } } }
+enum 50302 "F Enum" { value(0; A) { } }
+codeunit 50303 "F Pub"
+{
+    [IntegrationEvent(false, false)]
+    procedure OnFoo() begin end;
+}
+codeunit 50304 "F Sub"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"F Pub", 'OnFoo', '', false, false)]
+    local procedure Handle()
+    var
+        E: Enum "F Enum";
+    begin
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"F Tab", 'OnAfterInsertEvent', '', false, false)]
+    local procedure AfterInsert(var Rec: Record "F Tab"; RunTrigger: Boolean) begin end;
+}
+codeunit 50305 "F Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin end;
+}
+codeunit 50306 "F Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure T() begin end;
+}
+"#;
+
+#[test]
+fn the_facts_of_a_compiled_workspace() {
+    let (_ws, lowered) = al_sema::lower::compile_apps_with(
+        vec![al_sema::workspace::AppSource {
+            id: "A1".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), FACTS_SRC.into())],
+        }],
+        vec![al_sema::workspace::AppKind::Workspace],
+        &Default::default(),
+        None,
+        al_sema::check::Roots {
+            object_hashes: true,
+            ..Default::default()
+        },
+    );
+    let facts = facts(&lowered);
+    let f = |id: u32| {
+        facts
+            .iter()
+            .find(|o| o.id == Some(id))
+            .unwrap_or_else(|| panic!("{id}: {facts:?}"))
+    };
+    assert!(facts.iter().all(|o| o.app == "a1" && o.hash.len() == 64), "{facts:?}");
+    assert_eq!(f(50300).uses, vec!["table 50300".to_string()]);
+    assert_eq!(f(50301).uses, vec!["table 50300".to_string()]);
+    assert_eq!(f(50302).uses, vec!["enum 50302".to_string()]);
+    let mut subs = f(50304).subscribes.clone();
+    subs.sort();
+    assert_eq!(
+        subs,
+        vec![
+            "event codeunit 50303 onfoo".to_string(),
+            "event table 50300 onafterinsertevent".to_string()
+        ]
+    );
+    assert!(
+        f(50304).refers.contains(&"a1/enum 50302".to_string()),
+        "{:?}",
+        f(50304).refers
+    );
+    assert!(f(50305).install && !f(50304).install);
+    assert!(f(50306).test && !f(50303).test);
+    assert!(
+        facts.iter().all(|o| o.unfollowed.is_empty() && !o.global_triggers),
+        "{facts:?}"
+    );
 }

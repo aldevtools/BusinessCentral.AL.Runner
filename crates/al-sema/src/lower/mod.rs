@@ -58,6 +58,20 @@ pub struct Lowered {
     /// `--tdd` (ADR-051): the stub sites by the object that holds them (object, signature), for the incremental
     /// compile to renew `Program::tdd_stubs` (`check::tdd::sites_by_object`). Empty without `--tdd`.
     pub(crate) tdd_sites: Vec<(usize, String)>,
+    /// With `Roots::object_hashes` (ADR-050 decision 3): per object lowered from source, the hash of its symbolic form
+    /// with its source positions (file paths as the app names them, so the hash does not depend on where the app is or
+    /// on the place of the object in the program) and the objects that form refers to. `None` for an object a compile
+    /// cache supplied or nothing lowered. Empty when off.
+    pub object_hashes: Vec<Option<ObjectHash>>,
+}
+
+/// See [`Lowered::object_hashes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectHash {
+    /// SHA-256 of the symbolic form, as hex.
+    pub hash: String,
+    /// The objects its references name (`Refs::objects`).
+    pub refers: Vec<al_ir::sym::ObjKey>,
 }
 
 /// The routines a variable of a page, report or xmlport type can run besides the ones the code
@@ -427,6 +441,8 @@ mod coverage_ids;
 mod dotnet;
 mod expr;
 mod localize;
+#[cfg(test)]
+mod object_hash_tests;
 mod pages;
 mod shared;
 mod stmt;

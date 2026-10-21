@@ -60,6 +60,9 @@ pub struct ObjectFacts {
     pub test: bool,
     /// The workspace objects (`key`) its symbolic form refers to.
     pub refers: Vec<String>,
+    /// Why a change of it cannot be followed by the trace (a subscriber to an event whose raises are not noted, a
+    /// test runner, an extension whose base is not in the program): a change of it is a full run.
+    pub unfollowed: Vec<String>,
 }
 
 impl ObjectFacts {
@@ -248,6 +251,12 @@ impl Stored {
                     names,
                 );
             }
+            if let Some(why) = [b, n].into_iter().flatten().find_map(|f| f.unfollowed.first()) {
+                return full(
+                    format!("a change of {} is not followed by the trace: {why}", o.display()),
+                    names,
+                );
+            }
             if b.is_some_and(|f| f.install) || n.is_some_and(|f| f.install) {
                 return full(format!("install code changed: {}", o.display()), names);
             }
@@ -366,6 +375,7 @@ impl Stored {
                 "install": o.install,
                 "test": o.test,
                 "refers": o.refers,
+                "unfollowed": o.unfollowed,
             })).collect::<Vec<_>>(),
             "codeunits": self.codeunits.iter().map(|c| json!({
                 "app": c.app,
@@ -429,6 +439,7 @@ impl Stored {
                 install: o["install"].as_bool().unwrap_or(true),
                 test: o["test"].as_bool().unwrap_or(false),
                 refers: texts(&o["refers"]),
+                unfollowed: texts(&o["unfollowed"]),
             });
         }
         let mut codeunits = Vec::new();
@@ -473,6 +484,209 @@ impl Stored {
             codeunits,
         })
     }
+}
+
+/// The key of object `oi` of `program` (as [`ObjectFacts::key`] makes it).
+pub fn object_key(program: &al_ir::Program, oi: usize) -> Option<String> {
+    let o = program.objects.get(oi)?;
+    let app = program.apps.get(o.app as usize)?.id.to_lowercase();
+    Some(match o.id {
+        Some(id) => format!("{app}/{} {id}", o.kind.label()),
+        None => format!("{app}/{} {}", o.kind.label(), o.name.to_lowercase()),
+    })
+}
+
+/// The keys of the workspace objects a test entered (`Touches::entered`), sorted; `dependency` marks the objects of
+/// dependency apps, which are left out (a change of a dependency app is a full run).
+pub fn entered_keys(program: &al_ir::Program, t: &al_vm::impact::Touches, dependency: &[bool]) -> Vec<String> {
+    let mut out: Vec<String> = t
+        .entered
+        .iter()
+        .filter(|&&oi| !dependency.get(oi).copied().unwrap_or(false))
+        .filter_map(|&oi| object_key(program, oi))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The facts of the workspace objects of a compile made with `Roots::object_hashes`: what [`Stored::select`] reads
+/// of the current compile and keeps for the next one.
+pub fn facts(lowered: &al_sema::lower::Lowered) -> Vec<ObjectFacts> {
+    use crate::impact_static::GLOBAL_WRITE_EVENTS;
+    use crate::impact_trace::{PAGE_EVENTS, TABLE_EVENTS, publisher};
+    let program = &lowered.program;
+    let registry = al_vm::events::Registry::build(program);
+    let workspace = |oi: usize| !lowered.dependency.get(oi).copied().unwrap_or(true);
+    let has = |o: &al_ir::Object, name: &str, value: &str| {
+        o.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case(value))
+    };
+    // Each object by its symbolic key, for `refers`.
+    let by_key: std::collections::HashMap<al_ir::sym::ObjKey, usize> = program
+        .objects
+        .iter()
+        .enumerate()
+        .map(|(oi, o)| (al_ir::sym::ObjKey::of(o, &program.apps), oi))
+        .collect();
+    // The base of each extension.
+    let mut base: BTreeMap<usize, usize> = BTreeMap::new();
+    for (oi, o) in program.objects.iter().enumerate() {
+        for e in o.table.iter().flat_map(|t| t.extensions.iter()) {
+            base.insert(*e, oi);
+        }
+        for e in o.page.iter().flat_map(|p| p.extensions.iter()) {
+            base.insert(*e, oi);
+        }
+        if let Some(x) = &o.report_ext {
+            base.insert(oi, x.base);
+        }
+        if o.kind == ObjKind::EnumExtension {
+            if let Some(b) = o.extends_id.and_then(|id| {
+                program
+                    .objects
+                    .iter()
+                    .position(|e| e.kind == ObjKind::Enum && e.id == Some(id))
+            }) {
+                base.insert(oi, b);
+            }
+        }
+    }
+    let mut out: BTreeMap<usize, ObjectFacts> = BTreeMap::new();
+    for (oi, h) in lowered.object_hashes.iter().enumerate() {
+        let (Some(h), Some(o)) = (h, program.objects.get(oi)) else {
+            continue;
+        };
+        if !workspace(oi) {
+            continue;
+        }
+        let mut unfollowed = Vec::new();
+        let used = |kind: ObjKind, oi: usize| -> Option<String> {
+            let id = program.objects.get(oi)?.id?;
+            let what = match kind {
+                ObjKind::Table | ObjKind::TableExtension => "table",
+                ObjKind::Page | ObjKind::PageExtension => "page",
+                ObjKind::Report | ObjKind::ReportExtension => "report",
+                ObjKind::Enum | ObjKind::EnumExtension => "enum",
+                _ => return None,
+            };
+            Some(format!("{what} {id}"))
+        };
+        let uses = match o.kind {
+            ObjKind::Table | ObjKind::Page | ObjKind::Report | ObjKind::Enum => used(o.kind, oi).into_iter().collect(),
+            ObjKind::TableExtension | ObjKind::PageExtension | ObjKind::ReportExtension | ObjKind::EnumExtension => {
+                match base.get(&oi).and_then(|&b| used(o.kind, b)) {
+                    Some(k) => vec![k],
+                    None => {
+                        unfollowed.push(format!("its base {} is not in the program", o.kind.label()));
+                        Vec::new()
+                    }
+                }
+            }
+            _ => Vec::new(),
+        };
+        if has(o, "Subtype", "TestRunner") {
+            unfollowed.push("it is a test runner".into());
+        }
+        let refers: BTreeSet<String> = h
+            .refers
+            .iter()
+            .filter_map(|k| by_key.get(k).copied())
+            .filter(|&r| r != oi && workspace(r))
+            .filter_map(|r| object_key(program, r))
+            .collect();
+        let key = object_key(program, oi).unwrap_or_default();
+        out.insert(
+            oi,
+            ObjectFacts {
+                app: key.split('/').next().unwrap_or_default().to_string(),
+                kind: o.kind,
+                id: o.id,
+                name: o.name.clone(),
+                hash: h.hash.clone(),
+                uses,
+                subscribes: Vec::new(),
+                global_triggers: false,
+                install: o.kind == ObjKind::Codeunit && (has(o, "Subtype", "Install") || has(o, "Subtype", "Upgrade")),
+                test: o.kind == ObjKind::Codeunit && has(o, "Subtype", "Test"),
+                refers: refers.into_iter().collect(),
+                unfollowed,
+            },
+        );
+    }
+    // Subscribers: the event each binds, as the trace keys a raise; install code; what the trace does not note.
+    for &(so, _, _) in &registry.install_subscribers {
+        if let Some(f) = out.get_mut(&so) {
+            f.install = true;
+        }
+    }
+    for ((object, event), list) in &registry.subscribers {
+        for s in list {
+            let Some(f) = out.get_mut(&s.object) else {
+                continue;
+            };
+            if f.install
+                && registry
+                    .install_subscribers
+                    .iter()
+                    .any(|(o, r, _)| (*o, *r) == (s.object, s.routine))
+            {
+                continue;
+            }
+            let kind = program.objects.get(*object).map(|o| o.kind);
+            // `Company Triggers` runs the subscribers of the apps under test in the install session (ADR-046).
+            if program
+                .objects
+                .get(*object)
+                .is_some_and(|o| o.kind == ObjKind::Codeunit && o.id == Some(2_000_000_003))
+                || *object == al_vm::events::COMPANY_TRIGGERS
+            {
+                f.install = true;
+                continue;
+            }
+            if *object == registry.global_key {
+                if GLOBAL_WRITE_EVENTS.contains(&event.as_str()) {
+                    f.global_triggers = true;
+                } else {
+                    f.unfollowed.push(format!(
+                        "a subscriber to the Global Triggers event {event}, whose raises are not noted"
+                    ));
+                }
+                continue;
+            }
+            let routine_publisher = registry
+                .publishers
+                .values()
+                .any(|p| p.object == *object && p.event == *event);
+            let keyed = *object == al_vm::events::CAPTION_CLASS
+                || routine_publisher
+                || (kind == Some(ObjKind::Table) && TABLE_EVENTS.contains(&event.as_str()))
+                || (kind == Some(ObjKind::Page) && PAGE_EVENTS.contains(&event.as_str()));
+            match publisher(program, *object) {
+                Some(name) if keyed => {
+                    let element = s.element.to_lowercase();
+                    f.subscribes.push(if element.is_empty() {
+                        format!("event {name} {event}")
+                    } else {
+                        format!("event {name} {event}/{element}")
+                    });
+                }
+                _ => f
+                    .unfollowed
+                    .push(format!("a subscriber to the event {event}, whose raises are not noted")),
+            }
+        }
+    }
+    out.into_values()
+        .map(|mut f| {
+            f.subscribes.sort();
+            f.subscribes.dedup();
+            f.unfollowed.sort();
+            f.unfollowed.dedup();
+            f
+        })
+        .collect()
 }
 
 /// `table <id>` of a platform table (see [`PLATFORM_TABLES`]).
