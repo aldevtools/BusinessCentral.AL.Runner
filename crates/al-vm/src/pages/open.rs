@@ -1760,9 +1760,6 @@ impl Session {
         // (`PageState::empty_part_xrec`).
         let held = self.page_xrec_fields(st);
         st.borrow_mut().empty_part_xrec = Some(held.clone());
-        // The next OnAfterGetCurrRecord on a stored row (after the host moves on to a row with lines) sees that xRec too
-        // (QjPartPropagation.al:2620 QN_EmptyPart_HostNext_ThenNextAgain `log-move = S.AGCR(50000 r=5 x=3)`).
-        st.borrow_mut().agcr_xrec = Some(held.clone());
         for validate in [true, false, true] {
             if validate {
                 self.set_xrec_fields(st, held.clone());

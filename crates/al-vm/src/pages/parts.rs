@@ -1652,8 +1652,10 @@ impl Session {
                 let s = st.borrow();
                 s.cursor == Cursor::NewLine && s.draft && !s.dirty && s.window.is_empty()
             };
-            // The runs of the blank line are pinned (QjPartPropagation.al:2441 QN_EmptyPart_OpenEdit_FirstHostEmpty two runs,
-            // :2591 QN_EmptyPart_HostOpenNew five runs on a new host) but not built for a part whose view the client does not hold.
+            // Last() on a part whose view holds no row runs its blank line again and answers No: twice on a stored host
+            // (QjPartPropagation.al:2441 QN_EmptyPart_OpenEdit_FirstHostEmpty `log-last = S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0)` two
+            // times), five times on a new host (:2591 QN_EmptyPart_HostOpenNew), OnNewRecord seeing the xRec the part held as it
+            // landed on the blank line (`PageState::empty_part_xrec`, blank in both probes).
             let view_empty = empty_line && {
                 let rec = self.page_rec(st);
                 let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -1664,9 +1666,24 @@ impl Session {
                 )
             };
             if view_empty {
-                return unsupported(
-                    "Last() on a part that shows no row and observes OnNewRecord, on a part whose view is not held (the runs of the blank line are not built)",
-                );
+                let x = st.borrow().empty_part_xrec.clone();
+                let host_new = st
+                    .borrow()
+                    .host
+                    .as_ref()
+                    .and_then(|(h, _)| h.upgrade())
+                    .is_some_and(|h| h.borrow().draft);
+                let Some(x) = x else {
+                    return unsupported(
+                        "Last() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
+                    );
+                };
+                self.empty_part_new_line_pinned(st)?;
+                for _ in 0..if host_new { 5 } else { 2 } {
+                    self.set_xrec_fields(st, x.clone());
+                    self.land_on_new_line(st)?;
+                }
+                return Ok(Some(false));
             }
         }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {

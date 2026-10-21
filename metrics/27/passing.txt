@@ -13993,6 +13993,7 @@
 86889 QN_EmptyPart_HostLast
 86889 QN_EmptyPart_HostNext
 86889 QN_EmptyPart_HostPrevious
+86889 QN_EmptyPart_OpenEdit_FirstHostEmpty
 86889 QN_ListPlusBoth_NewPartRow_PartUpdate_HostRowUnchanged
 86889 QN_PartAGR_First_OnFirstRow
 86889 QN_PartAGR_LastNew
