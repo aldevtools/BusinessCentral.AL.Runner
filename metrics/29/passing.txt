@@ -11676,6 +11676,11 @@
 73937 Find_OnPosition
 73937 Find_RowOnlyAbove
 73937 Find_RowOnlyBelow
+73940 Assign_BigToOption
+73941 Argument_BigToOption
+73941 Field_AssignBigToOption
+73941 Field_BigFieldToOptionField
+73941 Field_ValidateBigToOption
 73943 Boolean_EvaluateFromBigIntegerText
 73943 Boolean_EvaluateFromText
 73943 Boolean_FormatNumbers
@@ -11769,6 +11774,9 @@
 74062 PX_Query_GetFilters_TwoDataItems_Columns_1
 74062 PX_Query_GetFilters_TwoDataItems_Columns_2
 74062 PX_Query_OuterAggregates_NoColumnFilter
+74064 Enum_FromBigInteger_BeyondInteger
+74064 Enum_FromBigInteger_InRangeAndLacking
+74064 Option_FromBigInteger_BeyondInteger
 74064 Option_FromBigInteger_InRangeAndLacking
 74068 Validate_ByConst_QuotedFilter
 74068 Validate_ByKind_QuotedFilter
@@ -12674,6 +12682,7 @@
 74933 TextField_FromFieldRefValue_InsertedRow
 74933 TextField_FromFieldRefValue_Numbers
 74936 TextField_FromVariantEnum_Result
+74936 TextField_FromVariantOption_Result
 74937 Sum_AssignedToDecimalAndBigInteger
 74937 Sum_ComparedWithIntegerAndBigInteger
 74946 ThreeKeyConditions_Validate
@@ -13142,6 +13151,8 @@
 80006 AT_GetInteger_CodeKey_RowMissing_ReturnValueUsed
 80011 AT_FieldAttribute_EmptyField_Export
 80150 Array_CopyArray_OneDimIntoRow
+80150 BigInteger_IntoEnum_BeyondInteger
+80150 BigInteger_IntoOption_BeyondInteger
 80150 BigInteger_IntoOption_LackingOrdinal
 80150 Case_OnlyElseBranch
 80150 ControlAddIn_Events_OnTestPage
