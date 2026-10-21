@@ -5450,6 +5450,7 @@
 68703 CancelPreviousTask_OnRowMove
 68703 FailingTask_DatabaseErrorCode
 68703 FailingTask_ErrorCodeAndText
+68703 QP_CompletedTaskId_AgainstPageVariable_OpenView
 68703 RunPageBackgroundTask_CompletionTriggerAndTaskId
 68703 TwoTasks_NewPageVariableCountsFromOneAgain
 68703 TwoTasks_OrderAndIds_AcrossRows
@@ -7628,6 +7629,10 @@
 70652 SetFilter_ByCaption_Result
 70652 SetFilter_ByName_Result
 70652 SetFilter_CaptionEqualsOtherName_Result
+70655 QP_CodeunitRun_VariantRecordRef_Filtered
+70655 QP_CodeunitRun_VariantRecordRef_Guarded
+70655 QP_CodeunitRun_VariantRecordRef_OtherTable
+70655 QP_CodeunitRun_VariantRecordRef_Plain
 70655 RecordFromVariant_IsCopy_Result
 70655 RecordFromVariant_OpenedNoCurrentRow_Result
 70655 RecordFromVariant_SameTable_Result
@@ -10471,6 +10476,13 @@
 73023 View_SetViewThenFilterChange_GetView
 73023 View_WithKeyAndOrder
 73024 FieldRef_Assignment_Aliasing
+73024 QP_Blob_GetTable_EmptyBlob
+73024 QP_Blob_GetTable_ValueWithoutCalcFields
+73024 QP_Blob_OpenFind_ValueWithoutCalcFields
+73024 QP_DateFormula_CurrentWeekNoBrackets
+73024 QP_DateFormula_MinusOneYear
+73024 QP_DateFormula_MonthPlusCurrentMonth
+73024 QP_DateFormula_TenDaysNoBrackets
 73024 Value_Get_Defaults
 73024 Value_Guid_RecordId_DateFormula
 73024 Value_Rounding_Decimal
@@ -11516,6 +11528,11 @@
 73838 NoPrintOnlyIfDetail_Dataset
 73838 PrintOnlyIfDetail_Dataset
 73838 PrintOnlyIfDetail_NoChildren_EmptyDataset
+73838 QP_DataItemLink_FlowFilter_NoFilter
+73838 QP_DataItemLink_FlowFilter_OrFilter
+73838 QP_DataItemLink_FlowFilter_Range
+73838 QP_DataItemLink_FlowFilter_ReportRunPlain
+73838 QP_DataItemLink_FlowFilter_SingleValue
 73838 RequestFilterFields_Handler_NoFilter
 73838 RequestFilterFields_Handler_SetsFilters
 73838 RequestFilterFields_ParametersText
@@ -11773,6 +11790,14 @@
 74068 QO_Validate_OptAnd_Quoted
 74068 QO_Validate_OptRange_QuotedLower
 74068 QO_Validate_OptRange_QuotedUpper
+74068 QP_Arms_TypeA
+74068 QP_Arms_TypeBC
+74068 QP_Arms_TypeBlank
+74068 QP_Arms_TypeD
+74068 QP_BlankOr_TypeA
+74068 QP_BlankOr_TypeBC
+74068 QP_BlankOr_TypeBlank
+74068 QP_BlankOr_TypeD
 74068 Validate_ByConst_QuotedFilter
 74068 Validate_ByKind_QuotedFilter
 74068 Validate_ByNot_QuotedFilter
@@ -11815,6 +11840,9 @@
 74141 PartB_ExistingHeaderTypeA_NewLine
 74141 PartB_OpenNewHeader_NoThenType
 74141 PartPlain_ExistingHeaderTypeA_NewLine
+74141 QP_TwoKeyLink_NoFirst_NewLine
+74141 QP_TwoKeyLink_TypeFirst_NewLine
+74141 QP_TwoKeyLink_WithRelation_NewLine
 74146 Card_OpenNew_KeyOnly_Close
 74146 Card_OpenNew_KeyThenField_Close
 74146 Card_OpenNew_KeyThenField_OK
@@ -14057,3 +14085,7 @@
 86889 QN_PartSplitOnly_NextNew
 86889 QN_SubPart_HostEdited_PartUpdate_HostRowUnchanged
 86889 QN_SubPart_NewPartRow_PartUpdate_HostRowUnchanged
+87141 VarGlobal_BothChangeInTurn
+87141 VarGlobal_IntegerAndTextInsideP
+87141 VarGlobal_PChangesParam_QReadsGlobal
+87141 VarGlobal_QChangesGlobal_PReadsParam
