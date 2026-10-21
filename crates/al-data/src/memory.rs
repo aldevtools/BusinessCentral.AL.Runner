@@ -155,9 +155,6 @@ pub struct MemStore {
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
     /// not settled (platform/lt-aw-fresh-tenant/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
     virtual_write_pending: bool,
-    /// How many times the store was read or written through [`Store`] (and [`MemStore::stored_rows`]); only ever grows. The VM
-    /// tells by it whether something reached the database between two points (`SessionInformation.SqlStatementsExecuted`).
-    accesses: std::cell::Cell<u64>,
 }
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
@@ -554,19 +551,9 @@ impl MemStore {
 
     /// The rows a Modify stored for the computed table `t` (a provider answers them over its own).
     pub fn stored_rows(&self, cx: &AccessContext, t: &TableDef) -> Vec<Row> {
-        self.note_access();
         self.table(cx, t)
             .map(|tb| tb.values().cloned().collect())
             .unwrap_or_default()
-    }
-
-    /// How many reads and writes reached the store so far ([`MemStore::accesses`] field).
-    pub fn accesses(&self) -> u64 {
-        self.accesses.get()
-    }
-
-    fn note_access(&self) {
-        self.accesses.set(self.accesses.get() + 1);
     }
 
     /// The provider of table `t`, if its rows are computed.
@@ -982,7 +969,6 @@ impl MemStore {
 
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
-        self.note_access();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Insert"));
         }
@@ -998,7 +984,6 @@ impl Store for MemStore {
     }
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
-        self.note_access();
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
         }
@@ -1006,7 +991,6 @@ impl Store for MemStore {
     }
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
-        self.note_access();
         if let Some(v) = self.virtual_of(t) {
             let writable = v.writable_columns(t);
             if !writable.is_empty() {
@@ -1055,7 +1039,6 @@ impl Store for MemStore {
     }
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
-        self.note_access();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Delete"));
         }
@@ -1076,7 +1059,6 @@ impl Store for MemStore {
         old: &[Value],
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
-        self.note_access();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
@@ -1096,7 +1078,6 @@ impl Store for MemStore {
     }
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
-        self.note_access();
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
@@ -1221,7 +1202,6 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
-        self.note_access();
         if let Some(v) = self.virtual_of(t) {
             return v.count(self, cx, t, f);
         }
@@ -1233,7 +1213,6 @@ impl Store for MemStore {
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
-        self.note_access();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
@@ -1262,7 +1241,6 @@ impl Store for MemStore {
     }
 
     fn commit(&mut self) {
-        self.note_access();
         self.virtual_write_pending = false;
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
@@ -1270,7 +1248,6 @@ impl Store for MemStore {
     }
 
     fn rollback(&mut self) {
-        self.note_access();
         self.virtual_write_pending = false;
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();

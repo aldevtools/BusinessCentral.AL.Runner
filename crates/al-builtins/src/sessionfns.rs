@@ -43,8 +43,6 @@ pub const REGISTRY: &[(&str, NativeFn)] = via_session![
     "System.Encrypt#1",
     "System.Decrypt#1",
     "SessionInformation.Callstack#1",
-    "SessionInformation.SqlStatementsExecuted#1",
-    "SessionInformation.SqlRowsRead#1",
     "Database.RegisterTableConnection#1",
     "Database.UnregisterTableConnection#1",
     "Database.HasTableConnection#1",

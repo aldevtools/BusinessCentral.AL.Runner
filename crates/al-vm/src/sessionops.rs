@@ -192,12 +192,6 @@ impl Session {
                 ),
             };
         }
-        if id == ids::SESSIONINFORMATION_SQLSTATEMENTSEXECUTED_1 {
-            return self.sql_counter(true);
-        }
-        if id == ids::SESSIONINFORMATION_SQLROWSREAD_1 {
-            return self.sql_counter(false);
-        }
         if id == ids::DATABASE_ISINWRITETRANSACTION_1 {
             // An uncommitted write opens one, a Commit and the test boundary close it
             // (codeunit/TestWriteTxTestBoundary.al:93,103,142). Writes to temporary tables are

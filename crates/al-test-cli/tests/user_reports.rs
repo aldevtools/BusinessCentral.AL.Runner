@@ -104,16 +104,20 @@ codeunit 69521 T { Subtype = Test;
     all_pass(run_with_deps(&[], main));
 }
 
-/// Issue 293 (AL Runner 5580): `SessionInformation.SqlStatementsExecuted()` is not negative (session/lt-bl-sql-counters/
-/// SqlCounters.al:74, session/TestMiscTypes.al:96-114).
+/// Issue 293: `SessionInformation.SqlStatementsExecuted()` stays refused. The corpus pins only that the value is not negative
+/// (session/TestMiscTypes.al:96-114), not the value itself; corpus issue #673 item 2 probes it.
 #[test]
-fn issue_293_sql_statements_executed_is_not_negative() {
+fn issue_293_sql_statements_executed_stays_refused() {
     let main = "
 codeunit 69522 T { Subtype = Test;
   [Test] procedure P() begin
     if SessionInformation.SqlStatementsExecuted() < 0 then Error('The SQL statement count must not be negative.');
   end; }";
-    all_pass(run_with_deps(&[], main));
+    let results = run_with_deps(&[], main);
+    assert!(
+        matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("SqlStatementsExecuted")),
+        "{results:?}"
+    );
 }
 
 /// Issue 297: a page extension adds to the `Creation` action area of a page that declares no actions, and a TestPage of

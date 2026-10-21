@@ -842,8 +842,6 @@
 60127 Notification_HasData_ReturnsFalseForMissing
 60127 Notification_HasData_ReturnsTrueAfterSet
 60127 Notification_SetData_GetData_Roundtrips
-60127 SessionInformation_SqlRowsRead_NonNegative
-60127 SessionInformation_SqlStatementsExecuted_NonNegative
 60127 Time_Hour_ReturnsHour
 60127 Time_Millisecond_ReturnsMillisecond
 60127 Time_Minute_ReturnsMinute
@@ -13455,11 +13453,6 @@
 81450 C_TrapsAnErrorForTheNextCodeunit
 81451 FirstTest_LastErrorIsEmpty
 81666 RequestPage_DrillDownPageId
-81861 Counters_NotNegative
-81861 Counters_NothingBetween
-81861 Counters_TableOperations
-81861 Counters_TemporaryOperations
-81861 Counters_Type
 81865 Repro_SemicolonList_Decimal
 81865 ResultNotUsed_Errors
 81865 Separators_BigInteger
