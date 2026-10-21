@@ -109,3 +109,52 @@ ALRUNNER_DEBUG_PARITY_APP=corpus/tests/al-language \
 ALRUNNER_DEBUG_PARITY_ARGS="--bc-version 29.0 --dep corpus/tests/al-language-internals-fixture --codeunit ID" \
 cargo test --release -p alrunner-cli --test debug -- --ignored outcomes_of_a_given_app
 ```
+
+## Using the debugger from ALchemist
+
+ALchemist (the VS Code extension) starts the runner as a debug adapter and speaks DAP with it over stdin and stdout.
+For AL Runner it starts `al-runner debug --stdio` in place of v2's `al-runner --dap stdio`. The DAP messages stay
+the same, so the rest of ALchemist's debugger code does not change.
+
+### The command line
+
+ALchemist creates the adapter with `new vscode.DebugAdapterExecutable(path, args)`. The arguments for AL Runner:
+
+```
+al-runner debug --stdio APP... [--dep PATH]... [--package-cache DIR]... [--test TEXT | --test-exact NAME]... [--codeunit ID]...
+```
+
+1. `debug --stdio` comes first, in place of `--dap stdio`.
+2. `APP...` is the launch configuration's `sourcePaths` (or its `bundleDir`): each an app folder with an `app.json`, a
+   `*.Source.zip` or an `.app` with source. v2 took one folder; AL Runner takes several, for example the app and its
+   test app.
+3. A dependency whose breakpoints the user wants to hit goes in as `--dep PATH`: an app folder or a source package. Microsoft's apps need nothing extra: AL Runner compiles them from source and shows their files from
+   `<cache>/debug-sources/`.
+4. `testFilter` of the launch configuration can now go to the runner: `--test TEXT` (names that contain TEXT),
+   `--test-exact NAME` or `--codeunit ID` (both repeatable). v2 ran every test of the app.
+5. Options of `al-runner test` work the same: `--package-cache`, `--bc-version`, `--no-test-data`, `--country`.
+
+The exit code of the run (as `al-runner test` would return it) is in the `exited` event. Then the process ends.
+
+### What differs from v2's `--dap`
+
+| | v2 `--dap stdio` | AL Runner `debug --stdio` |
+|---|---|---|
+| Start | `al-runner --dap stdio DIR` | `al-runner debug --stdio APP...` |
+| Tests that run | all tests of the app | the selection (`--test`, `--codeunit`), else all |
+| `pause` | continues | stops at the next statement (`stopped`, reason `pause`) |
+| `setExceptionBreakpoints` | `unsupported command` | success, no filters |
+| Frame names | BC's generated scope class name | `Object.Routine` |
+| A value it cannot write | `<unreadable: ...>` | `<not rendered: KIND>` |
+| Breakpoints in dependency source | folders | folders and source packages, Microsoft's apps included |
+| Per-test lines | `[dap] Codeunit.Method: Outcome` on the console (stderr with stdio), no DAP event | `[debug] Codeunit.Method: Outcome` on stderr and as an `output` event (category `console`) |
+| Same outcomes as a test run | not checked | checked by a repository test ("What does not change") |
+
+The rest is the same: `initialize` capabilities, `launch` waiting for the compile, breakpoints before `launch`, the
+reasons of unverified breakpoints, `stopped` with the extra `line` field, one thread, the `Locals` scope, and
+`unsupported command: NAME` for `evaluate`, `setVariable` and `source`.
+
+### Checking a client
+
+`crates/alrunner-cli/tests/debug.rs` holds scripted DAP sessions in the shapes ALchemist sends. To try a session by
+hand, start `al-runner debug --port 0 APP` and connect a client to the port it prints on stderr.
