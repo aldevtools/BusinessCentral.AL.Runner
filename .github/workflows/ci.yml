@@ -305,6 +305,14 @@ jobs:
             -p al-test-cli --test corpus_harness \
             -p al-test-cli --test dev_tooling
 
+      # ADR-050 decision 12: edits of the corpus app; per edit the --affected selection plus the stored outcomes of the
+      # skipped codeunits must equal a full run (about 5 s per run, two runs per narrowed edit).
+      - name: Affected selection differential
+        run: |
+          cargo test --release --no-fail-fast \
+            -p al-test-cli --test affected_differential \
+            -- --ignored --nocapture
+
       # The only tests that use the network: Microsoft's artifact feed, read by range. They use
       # fresh cache directories, so they check the protocol and the real archives, not a cache.
       - name: Artifact feed (network)

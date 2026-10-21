@@ -224,3 +224,11 @@ generator. It needs no other ADR of this set.
 
 `al-testrun/src/affected.rs` unit tests (change set and rule on hand-made stored results),
 `crates/alrunner-cli/tests/affected.rs` (CLI and serve, test plan above) and the differential test of decision 12.
+The differential test is `crates/al-test-cli/tests/affected_differential.rs`: a deterministic sample of routine edits
+(an `Error` call at the start of the body, a changed integer literal, a statement that changes nothing when it runs, a
+blank line above the object; `AL_AFFECTED_DIFF_EDITS`, default 8) and a blank line above the first object of each
+kind, over the corpus app without dependency apps, in CI's release tests. Per edit it runs the narrowed run and the
+full run, and compares the selected codeunits with the narrowed run and the skipped ones with their stored outcomes.
+Tests whose outcome differs between two runs of the unedited app are not compared and are counted. A small app test
+checks that the harness reports a miss for a rule that runs nothing. The Microsoft test app with the Base Application
+is not part of it yet.
