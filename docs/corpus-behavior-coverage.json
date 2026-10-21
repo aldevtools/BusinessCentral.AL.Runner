@@ -15107,7 +15107,7 @@
           "ms_uses": 15938,
           "name": "CaseBranch",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
@@ -16333,7 +16333,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1289,
+        "line": 1297,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
