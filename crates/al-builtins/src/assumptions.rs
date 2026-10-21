@@ -259,6 +259,24 @@ registry! {
         tests: "Library - ERM GetDiscountPaymentTerm (PaymentTerms.SetFilter(Due Date Calculation, not-equal and the empty text)): about 170 Tests-ERM tests.",
         probe: "Payment Terms rows with and without Due Date Calculation; SetFilter on it with the empty text, not-equal and the empty text, then Count. Asked in corpus #644.",
     },
+    BgTaskIdSetBeforeCompletion => {
+        id: "bg-task-id-set-before-completion",
+        assumed: "Under a TestPage, CurrPage.EnqueueBackgroundTask stores the new task id in its var TaskId argument before the task runs, so OnPageBackgroundTaskCompleted already sees the page variable set to the id it receives.",
+        tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue). Refusing the path instead blocks 1340 Microsoft tests (measured 2026-10-21 on the oldest supported BC major: 1099 Tests-ERM, 241 Tests-SCM).",
+        probe: "A card whose OnOpenPage enqueues a task into a page global TaskId and whose OnPageBackgroundTaskCompleted logs that global and its own TaskId parameter.",
+    },
+    ReportLinkFlowFilterWithoutFilter => {
+        id: "report-link-flowfilter-without-filter",
+        assumed: "A report DataItemLink whose parent field is a FlowFilter with no filter on it puts no filter on the child's field (a FlowFilter with a filter is refused).",
+        tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected). Refusing the path instead blocks 166 Microsoft tests (measured 2026-10-21 on the oldest supported BC major: 4 Tests-ERM, 162 Tests-SCM, mostly physical inventory and Item Age Composition reports).",
+        probe: "A parent item with a FlowFilter field and a child linked to it: child rows with an empty and a non-empty value; run with no filter on the FlowFilter, with SetRange to one value, and with SetFilter to a range; log the child rows and the child's GetFilters in OnPreDataItem.",
+    },
+    RequestPageOnInitAtFirstUse => {
+        id: "request-page-oninit-at-first-use",
+        assumed: "A report variable whose procedure runs before its run has its request page's OnInit run at that first use, right after OnInitReport and before the procedure's body; the run then does not run the OnInit again, whether the page is shown or not.",
+        tests: "Tests-SCM 137402 SCM Costing Batch CapacityCostPostedToGLForTwoItemsInOneProductionOrder (Library - Manufacturing RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false); the request page OnInit sets CalcLines := true). Refusing the path instead blocks 2031 Tests-SCM tests (measured 2026-10-21 on the oldest supported BC major).",
+        probe: "A report with a request page whose OnInit sets a global and logs it, and a procedure that sets the same global: call the procedure, then Run with UseRequestPage(false) and with a request page handler; log the global in OnPreReport and in the handler.",
+    },
     UpdateRefreshOnFindRecord => {
         id: "update-refresh-onfindrecord",
         assumed: "CurrPage.Update on a page with OnFindRecord and OnAfterGetCurrRecord asks OnFindRecord for the current row with Which `=`, then reads the row as after a move: OnAfterGetRecord, OnAfterGetCurrRecord and the parts' reads.",

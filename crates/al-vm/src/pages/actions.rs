@@ -699,6 +699,7 @@ impl Session {
         }
         if was_dirty && !self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !dirty_reread_only {
             st.borrow_mut().refresh = true;
+            st.borrow_mut().refresh_by_update = false;
             self.run_refresh(st)?;
             st.borrow_mut().refresh = false;
         }
@@ -980,6 +981,7 @@ impl Session {
                 self.read_page_again(st)?;
                 let pinned = !refresh_asked && !self.declares(st, "onaftergetcurrrecord");
                 st.borrow_mut().refresh = true;
+                st.borrow_mut().refresh_by_update = false;
                 st.borrow_mut().refresh_pinned = pinned;
                 let r = self.run_refresh(st);
                 st.borrow_mut().refresh_pinned = false;
@@ -1003,12 +1005,14 @@ impl Session {
                     st.borrow_mut().refresh_without_curr = true;
                 }
                 st.borrow_mut().refresh = true;
+                st.borrow_mut().refresh_by_update = false;
             } else if read_after_goto && reads_rows && self.is_list(st) && !self.declares(st, "onaftergetcurrrecord") {
                 // After such a GoToKey an action without CurrPage.Update on a list with OnFindRecord and OnNextRecord is followed by
                 // the same refresh as one with it (pages/lt-ai-list-order/QgGoToKeyNextCall.al:566 Nav_GoToKey_ThenActionWithoutUpdate_Twice
                 // `R:R1003;R:R1003;A:act=R1003;R:R1003;F:=>=Yes;R:R1003;N:1=1;...` against :607 Nav_GoToKey_ThenValueRead_ThenUpdateAction).
                 // Without that GoToKey it is not pinned and stays as it was.
                 st.borrow_mut().refresh = true;
+                st.borrow_mut().refresh_by_update = false;
             }
             if !find_pinned {
                 self.run_refresh(st)?;
@@ -1571,8 +1575,27 @@ impl Session {
         let without_curr = std::mem::take(&mut st.borrow_mut().refresh_without_curr);
         let without_parts = std::mem::take(&mut st.borrow_mut().refresh_without_parts);
         let read_done = std::mem::take(&mut st.borrow_mut().refresh_read_done);
+        let by_update = std::mem::take(&mut st.borrow_mut().refresh_by_update);
         if !std::mem::take(&mut st.borrow_mut().refresh) || read_done {
             return Ok(());
+        }
+        // A page that shows no stored row (an empty view, or a list on its new line) whose view now has rows, for example
+        // after the page changed its filters: which row the client lands on and which row triggers run is not pinned
+        // (pageupdate/TestPageUpdateNewRow.al pins only a card's unsaved new row). Tests-ERM 134022
+        // PurchasePaymentAppliedWithToleranceAmount reaches it when General Journal (page 39), opened for view on an empty
+        // batch, switches to the batch that holds the test's line.
+        if by_update
+            && st.borrow().open
+            && st.borrow().cursor != Cursor::Row
+            && !st.borrow().dirty
+            && self.has_source(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && self.view_row_count(st)? > 0
+        {
+            return unsupported(
+                "CurrPage.Update on a page that shows no row (empty view or new line) while its view has rows (which row it shows then is not pinned)",
+            );
         }
         if !st.borrow().open || !self.has_source(st) || st.borrow().cursor != Cursor::Row || st.borrow().draft {
             return Ok(());
@@ -1630,6 +1653,23 @@ impl Session {
         let rec = self.page_rec(st);
         if self.stored_row(&rec)?.is_none() {
             return Ok(());
+        }
+        // A list whose filters no longer hold the row it stands on, when CurrPage.Update asked for the refresh: which row it
+        // settles on, and what a move reads then, is pinned only after an action (`read_list_again_from_row`,
+        // pages/lt-ai-list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain). Tests-SCM 137831
+        // BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord reaches it: Bin Contents (page 7374) filters to a location
+        // without rows in a control's OnValidate.
+        if by_update && self.is_list(st) && !st.borrow().dirty {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if !matches!(
+                self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+                Value::Boolean(true)
+            ) {
+                return unsupported(
+                    "CurrPage.Update on a list whose filters left the row it stands on, outside an action (which row it shows then is not pinned)",
+                );
+            }
         }
         if !st.borrow().dirty {
             self.ret_used = true;
