@@ -19,6 +19,23 @@ pub struct TddSite {
     pub ret: TddRet,
 }
 
+impl TddSite {
+    /// The call as the refusal reasons name it: `Target.Missing`, or `Missing` for a bare call.
+    pub fn shown(&self) -> String {
+        if self.receiver.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}.{}", self.receiver, self.name)
+        }
+    }
+}
+
+/// Whether `node` is the callee of a call with parentheses.
+fn is_callee(node: &SyntaxNode) -> bool {
+    node.parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::CallExpr && p.children().next().as_ref() == Some(node))
+}
+
 /// The return type of a stub site.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TddRet {
@@ -164,8 +181,17 @@ impl<'a> Checker<'a> {
         (sc.file, r.start().into(), r.end().into())
     }
 
-    /// `Target.Missing` on a codeunit variable whose codeunit declares no `Missing`, as the callee of a call in a
-    /// test app: noted as a stub site on the member node (the call completes it, [`Self::tdd_call`]).
+    /// Whether call sites in the code of object `oi` may become stubs: `--tdd` is on and the object is code of a
+    /// test app (decision 2).
+    fn tdd_in_test_app(&self, oi: usize) -> bool {
+        let Some(apps) = &self.tdd_apps else { return false };
+        apps.get(self.ws.objects[oi].app).copied().unwrap_or(false) && !self.ws.is_dependency(oi)
+    }
+
+    /// `Target.Missing` on a codeunit, record, page or report variable (also `Rec`, `CurrPage` and `this`) whose
+    /// object declares no `Missing`, as the callee of a call in a test app: noted as a stub site on the member node
+    /// (the call completes it, [`Self::tdd_call`]). A TestPage, an interface and a built-in type get no stub: the
+    /// call stays an error.
     pub(crate) fn tdd_member(
         &mut self,
         sc: &Scope,
@@ -174,20 +200,18 @@ impl<'a> Checker<'a> {
         base: &Ty,
         name: &str,
     ) -> bool {
-        let Some(apps) = &self.tdd_apps else { return false };
-        if !apps.get(self.ws.objects[sc.oi].app).copied().unwrap_or(false) || self.ws.is_dependency(sc.oi) {
+        if !self.tdd_in_test_app(sc.oi) {
             return false;
         }
-        let Ty::Object(ObjKind::Codeunit, cu) = base else {
+        let (kind, obj) = match base {
+            Ty::Object(k @ (ObjKind::Codeunit | ObjKind::Page | ObjKind::Report), o) => (*k, o),
+            Ty::Record { table, .. } => (ObjKind::Table, table),
+            _ => return false,
+        };
+        let Some(object) = self.resolve(sc, kind, obj) else {
             return false;
         };
-        let Some(object) = self.resolve(sc, ObjKind::Codeunit, cu) else {
-            return false;
-        };
-        let is_callee = node
-            .parent()
-            .is_some_and(|p| p.kind() == SyntaxKind::CallExpr && p.children().next().as_ref() == Some(node));
-        if !is_callee {
+        if !is_callee(node) {
             return false;
         }
         let site = TddSite {
@@ -199,6 +223,83 @@ impl<'a> Checker<'a> {
         };
         self.record(sc, node, Res::TddStub(Box::new(site)));
         true
+    }
+
+    /// `Missing(...)`, a bare call in a test app of a name nothing supplies, where the AL compiler reports AL0118
+    /// ([`Self::al_unresolved_name`]): a stub site of the object whose code holds the call. Only in a codeunit
+    /// without an implicit record, a table, a page or a report, and only when no method of the catalog has the
+    /// name (an implicit member AL Runner does not model is never hidden by a stub).
+    pub(crate) fn tdd_bare(&mut self, sc: &Scope, node: &SyntaxNode) -> bool {
+        if !self.tdd_in_test_app(sc.oi) || !is_callee(node) {
+            return false;
+        }
+        let name = name_of(node);
+        let judged = match self.ws.objects[sc.oi].kind {
+            ObjKind::Codeunit => {
+                sc.rec.is_none()
+                    && self.catalog.overloads("Codeunit", &name).is_empty()
+                    && self.catalog.hidden("Codeunit", &name).is_empty()
+                    && !self.catalog.knows_name(&name)
+            }
+            ObjKind::Table | ObjKind::Page | ObjKind::Report => !self.catalog.knows_name(&name),
+            _ => false,
+        };
+        if !judged {
+            return false;
+        }
+        let site = TddSite {
+            object: sc.oi,
+            name,
+            receiver: String::new(),
+            args: Vec::new(),
+            ret: TddRet::Pending,
+        };
+        self.record(sc, node, Res::TddStub(Box::new(site)));
+        true
+    }
+
+    /// The call `node` of `cands`, the procedures of one object named so, none of which takes the call's number of
+    /// arguments (AL0126 without `--tdd`): in a test app, a stub site of a new overload. A procedure that takes as
+    /// many arguments of other types stays an error.
+    pub(crate) fn tdd_overload(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        callee: &SyntaxNode,
+        cands: &[Cand],
+        arg_tys: &[Ty],
+    ) -> bool {
+        if !self.tdd_in_test_app(sc.oi) || cands.is_empty() {
+            return false;
+        }
+        let argc = arg_tys.len();
+        let mut object = None;
+        for c in cands {
+            let Res::Proc { object: o, .. } = c.target else {
+                return false;
+            };
+            if object.is_some_and(|x| x != o) || (c.min <= argc && argc <= c.max) {
+                return false;
+            }
+            object = Some(o);
+        }
+        let Some(object) = object else { return false };
+        let receiver = match callee.kind() {
+            SyntaxKind::MemberExpr => callee
+                .children()
+                .next()
+                .map(|r| r.text().to_string().trim().to_string()),
+            _ => None,
+        };
+        let site = TddSite {
+            object,
+            name: member_name(callee),
+            receiver: receiver.unwrap_or_default(),
+            args: Vec::new(),
+            ret: TddRet::Pending,
+        };
+        self.record(sc, callee, Res::TddStub(Box::new(site)));
+        self.tdd_call(sc, node, callee, arg_tys)
     }
 
     /// The call `node` whose callee [`Self::tdd_member`] noted: the stub site, recorded on the call with its
@@ -218,8 +319,8 @@ impl<'a> Checker<'a> {
         let k = Self::tdd_key(sc, node);
         if receiver_use {
             site.ret = TddRet::Refused(format!(
-                "--tdd: cannot infer the return type of {}.{} (its result is used as a receiver)",
-                site.receiver, site.name
+                "--tdd: cannot infer the return type of {} (its result is used as a receiver)",
+                site.shown()
             ));
         } else {
             self.tdd_pending.push(k);
@@ -266,8 +367,8 @@ impl<'a> Checker<'a> {
         if let Some((k, site)) = self.tdd_site(sc, node) {
             if site.ret == TddRet::Pending {
                 let why = format!(
-                    "--tdd: cannot infer the return type of {}.{} (both sides are unknown)",
-                    site.receiver, site.name
+                    "--tdd: cannot infer the return type of {} (both sides are unknown)",
+                    site.shown()
                 );
                 self.tdd_set(k, site, TddRet::Refused(why));
             }
@@ -410,8 +511,8 @@ impl<'a> Checker<'a> {
                         _ => {
                             if let Some((k, site)) = self.tdd_site(sc, a) {
                                 let why = format!(
-                                    "--tdd: cannot infer the return type of {}.{} (the other Variant arguments have different types)",
-                                    site.receiver, site.name
+                                    "--tdd: cannot infer the return type of {} (the other Variant arguments have different types)",
+                                    site.shown()
                                 );
                                 self.tdd_set(k, site, TddRet::Refused(why));
                             }
@@ -440,10 +541,7 @@ impl<'a> Checker<'a> {
         for k in std::mem::take(&mut self.tdd_pending) {
             if let Some(Res::TddStub(site)) = self.resolutions.get(&k).cloned() {
                 if site.ret == TddRet::Pending {
-                    let why = format!(
-                        "--tdd: cannot infer the return type of {}.{} from its use",
-                        site.receiver, site.name
-                    );
+                    let why = format!("--tdd: cannot infer the return type of {} from its use", site.shown());
                     self.tdd_set(k, *site, TddRet::Refused(why));
                 }
             }
@@ -561,7 +659,11 @@ interface "Ifc"
 
     fn full_reasons(objects: &str, vars: &str, body: &str) -> Vec<String> {
         let (ws, l) = compile_full(objects, vars, body, RET, true);
-        let oi = ws.objects.iter().position(|o| o.id == Some(50110)).expect("test codeunit");
+        let oi = ws
+            .objects
+            .iter()
+            .position(|o| o.id == Some(50110))
+            .expect("test codeunit");
         l.unsupported[oi].iter().flatten().cloned().collect()
     }
 
@@ -584,7 +686,11 @@ interface "Ifc"
         .collect();
         want.sort();
         assert_eq!(full_stubs(RECEIVERS, vars, body), want);
-        assert!(full_reasons(RECEIVERS, vars, body).is_empty(), "{:?}", full_reasons(RECEIVERS, vars, body));
+        assert!(
+            full_reasons(RECEIVERS, vars, body).is_empty(),
+            "{:?}",
+            full_reasons(RECEIVERS, vars, body)
+        );
     }
 
     #[test]
@@ -599,14 +705,17 @@ interface "Ifc"
         );
         // A local procedure called with another count, too.
         let got = full_stubs("", "", "I := R(1);");
-        assert!(got.contains(&r#"T: procedure "R"(Arg1: Integer): Integer"#.to_string()), "{got:?}");
+        assert!(
+            got.contains(&r#"T: procedure "R"(Arg1: Integer): Integer"#.to_string()),
+            "{got:?}"
+        );
     }
 
     #[test]
     fn a_testpage_an_interface_or_a_builtin_type_gets_no_stub_and_stays_refused() {
         let cases: &[(&str, &str)] = &[
             ("TP: TestPage \"Card\";", "TP.Missing();"),
-            ("If: Interface \"Ifc\";", "If.Missing();"),
+            ("Ic: Interface \"Ifc\";", "Ic.Missing();"),
             ("", "I := T.Missing();"),
             ("L: List of [Integer];", "I := L.Missing();"),
         ];

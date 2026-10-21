@@ -48,7 +48,7 @@ If you maintain a tool that calls AL Runner, read
 | `--output-junit PATH` | `--junit FILE` |
 | `--output-json` | `--output-json [FILE]`, same shape. With no FILE it is the only thing on stdout. |
 | `--coverage` | Same, plus `--coverage-out FILE` and `--coverage-json FILE`. |
-| `--tdd` | Same flag. Only procedure calls on codeunit variables are stubbed so far. |
+| `--tdd` | Same flag. Missing procedures and overloads are stubbed so far; missing fields, enum values and objects are not yet. |
 | `--server` | `al-runner serve`, same protocol. |
 | `--define`, `--preprocessor-symbols` | Same. |
 | `--country` | Same. |
