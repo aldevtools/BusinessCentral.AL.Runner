@@ -178,15 +178,6 @@ impl Session {
     }
 
     pub(super) fn test_page_op(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        let gotokey = method.method() == PageMethod::GoToKey && st.borrow().host.is_none();
-        let was = self.host_gotokey_running;
-        self.host_gotokey_running = gotokey || was;
-        let r = self.test_page_op_body(method, st, args);
-        self.host_gotokey_running = was;
-        r
-    }
-
-    fn test_page_op_body(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let name = method.method();
         if name != PageMethod::Close || st.borrow().unpinned_close {
             self.refuse_unpinned_state(st)?;
@@ -1063,7 +1054,16 @@ impl Session {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;
                 let a = self.close_action(st, "Close");
-                self.close_with(st, &a, false, false)
+                let restored = st.borrow().close_restored_row;
+                let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
+                let r = self.close_with(st, &a, false, false)?;
+                // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
+                // LookupCancel (misc/lt-probes-needed-7/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
+                // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
+                if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
+                    st.borrow_mut().selection = Some(fields);
+                }
+                Ok(r)
             }
             PageMethod::New => {
                 self.require_open(st)?;

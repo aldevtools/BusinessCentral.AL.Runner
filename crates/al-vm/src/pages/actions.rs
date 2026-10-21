@@ -1831,6 +1831,13 @@ impl Session {
     /// read back into Rec, with OnAfterGetRecord (misc/lt-probes-needed-7/PnGRefresh.al:608 QL_RecAssign_OtherChanged_CloseInAction
     /// `P.AGR(A,orig A);ACT.end(A,orig A x=A,orig A)`: the action's code after the call sees the shown row). Rec still on the shown
     /// row is left as it is.
+    ///
+    /// With OnQueryClosePage or OnClosePage the read back comes before them, so both see the shown row as Rec and xRec; a change
+    /// the action made to its own row is dropped without a read (no OnModifyRecord, nothing stored), and the client reads the row
+    /// once more after the action, also when Rec was not touched (PnGRefresh.al:865 QN_CloseQ_Sheet_OtherChanged_CloseInAction
+    /// `P.AGR(A,orig A);P.AGR(A,orig A);P.QCP(A,orig A x=A,orig A a=OK);P.CP(A,orig A x=A,orig A);ACT.end(A,orig A x=A,orig A);
+    /// P.AGR(A,orig A)`, :887 _OtherUnchanged, :909 _TempChanged from a temporary record, :931 _OwnRowChanged and :953 _NoChange
+    /// `P.AGR(A,orig A);P.QCP(...)...;P.AGR(A,orig A)`, :996 under Page.RunModal `a=LookupCancel`; the List page :1026-1113).
     pub(super) fn restore_shown_row_on_close(&mut self, st: &St) -> Result<(), Signal> {
         let Some(shown) = st.borrow().action_shown_row.clone() else {
             return Ok(());
@@ -1841,15 +1848,19 @@ impl Session {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let mut key = table.primary_key(&shown);
-        if Self::same_key(&table.primary_key(&rec.borrow().fields), &key) {
-            return Ok(());
-        }
-        let pinned = self.declares(st, "onaftergetrecord")
+        let shape = self.declares(st, "onaftergetrecord")
             && self.declares(st, "onaftergetcurrrecord")
             && !self.declares(st, "onfindrecord")
-            && !self.declares(st, "onnextrecord")
-            && !self.declares(st, "onclosepage")
-            && !self.declares(st, "onqueryclosepage");
+            && !self.declares(st, "onnextrecord");
+        let close_triggers = self.declares(st, "onclosepage") || self.declares(st, "onqueryclosepage");
+        if Self::same_key(&table.primary_key(&rec.borrow().fields), &key) {
+            if shape && close_triggers && self.stored_row(&rec)?.is_some() {
+                rec.borrow_mut().fields = shown;
+                st.borrow_mut().close_restored_row = true;
+            }
+            return Ok(());
+        }
+        let pinned = shape;
         if !pinned {
             return unsupported(
                 "CurrPage.Close() in an action that left another row in Rec, on this page (not pinned)",

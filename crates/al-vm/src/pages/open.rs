@@ -1799,19 +1799,16 @@ impl Session {
             self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
             return Err(error_code(e.message.clone(), "TestWrapped"));
         }
-        // OnNewRecord sees the xRec the part held before its first and third run, a blank one before the second
-        // (pages/lt-qj-part-propagation/QjPartPropagation.al:1346 QL_PartLastNew_NoLines `log-open` after GoToKey onto a host row
-        // without lines: `S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000)`); the
-        // part's Last() and New() see it again (`PageState::empty_part_xrec`).
-        // Pinned after a GoToKey of the host. After another host move the third run sees the blank xRec as before: not pinned,
-        // kept for baseline cases 60358 New_OnEmptyLinkedPart_RunsOnNewRecordOncePlusTheOpenCost, DraftLine_*, TwoRowsWritten*;
-        // 60868 OpenNew_*; 60996 EmptyLinkedPart_*; 67582 QH_EmptyPart_OpenEdit_HostNext (refusing it loses them).
+        // OnNewRecord sees the xRec the part held before its first and third run, a blank one before the second, after any move
+        // of the host: GoToKey (pages/lt-qj-part-propagation/QjPartPropagation.al QL_PartLastNew_NoLines `log-open`: `S.NEW(x=3
+        // x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000)`), Next (:2468 QN_EmptyPart_HostNext),
+        // Previous (:2499), First (:2530), Last (:2561); a part that held no row before (OpenNew :2591 QN_EmptyPart_HostOpenNew,
+        // OpenEdit onto an empty first host :2441) sees a blank xRec all three times. The part's Last() and New() see it again
+        // (`PageState::empty_part_xrec`).
         let held = self.page_xrec_fields(st);
-        let blank = Self::same_values(&held, &self.initial_fields(table));
-        let keep_held = self.host_gotokey_running || blank;
-        st.borrow_mut().empty_part_xrec = keep_held.then(|| held.clone());
+        st.borrow_mut().empty_part_xrec = Some(held.clone());
         for validate in [true, false, true] {
-            if validate && keep_held {
+            if validate {
                 self.set_xrec_fields(st, held.clone());
             }
             if validate {
