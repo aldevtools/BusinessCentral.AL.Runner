@@ -25,7 +25,7 @@ built on the language, not on BC's internals".
 | 3 | `al-runner serve` (`runTests`, `cancel`, `shutdown`) | done (section 4b; ADR-028, Proposed) |
 | 4 | `execute`, `cancel`, `coverage`, `perTestCoverage` in `serve` | done (section 4b; ADR-028) |
 | 5 | `captureValues`, `iterationTracking` | done (section 4b; ADR-030, Proposed) |
-| 6 | `al-runner debug --stdio` (DAP) | done for the apps given on the command line (`docs/debugging.md`; ADR-048) |
+| 6 | `al-runner debug --stdio` (DAP) | done, also in dependency apps compiled from source (`docs/debugging.md`; ADR-048) |
 
 ## 1. The command
 
