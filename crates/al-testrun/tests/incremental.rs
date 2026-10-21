@@ -205,6 +205,7 @@ fn opts(dir: &std::path::Path) -> RunOptions {
             country: String::new(),
         }),
         only: SELECTION.with(|s| s.borrow().clone()),
+        tdd: TDD.with(|t| *t.borrow()),
         ..Default::default()
     }
 }
@@ -212,6 +213,8 @@ fn opts(dir: &std::path::Path) -> RunOptions {
 thread_local! {
     /// The selection the helpers run with (the tests run on their own threads).
     static SELECTION: std::cell::RefCell<Option<Vec<(usize, u32)>>> = const { std::cell::RefCell::new(None) };
+    /// Whether the helpers compile with `--tdd` (ADR-051).
+    static TDD: std::cell::RefCell<bool> = const { std::cell::RefCell::new(false) };
 }
 
 fn changes<'a>(fs: &'a [(String, String)]) -> Vec<FileChange<'a>> {
@@ -451,5 +454,59 @@ fn a_test_codeunit_the_selection_leaves_out_is_left_out_or_not_by_its_own_text()
         &[LIB, TESTS, OTHER, TABLES],
         dir.path(),
         "a left-out test codeunit that goes",
+    );
+}
+
+/// The stubs of the program the warm compile holds (`--tdd`, ADR-051).
+fn stubs(warm: &Warm) -> Vec<String> {
+    warm.compiled().unwrap().lowered().program.tdd_stubs.clone()
+}
+
+#[test]
+fn with_tdd_the_stubs_follow_the_objects_compiled_again_and_the_real_procedure_ends_one() {
+    TDD.with(|t| *t.borrow_mut() = true);
+    let thrice = r#"Lib: procedure "Thrice"(Arg1: Integer): Integer"#;
+    let ready = r#"Lib: procedure "Ready"(): Boolean"#;
+    let dir = tempfile::tempdir().unwrap();
+    let mut warm = Warm::new();
+    let tests = TESTS.replace(
+        "if L.Label() <> 'lib' then",
+        "if L.Thrice(2) <> 0 then\n            Error('thrice');\n        if L.Label() <> 'lib' then",
+    );
+    let mut cur: [String; 4] = [LIB.into(), tests, OTHER.into(), TABLES.into()];
+    let texts = |c: &[String; 4]| [c[0].clone(), c[1].clone(), c[2].clone(), c[3].clone()];
+    let run = |warm: &mut Warm, c: &[String; 4]| {
+        let t = texts(c);
+        let t: Vec<&str> = t.iter().map(String::as_str).collect();
+        let (used, got) = warm_run(warm, &t, dir.path());
+        assert_same(warm, &t, dir.path(), "tdd");
+        let (_, want) = complete(&t, dir.path());
+        assert_eq!(got, want, "outcomes");
+        (used, got)
+    };
+    let (used, got) = run(&mut warm, &cur);
+    assert_eq!(used, WarmUse::Compiled);
+    assert!(got.iter().any(|l| l.contains("Greets Pass")), "{got:?}");
+    assert_eq!(stubs(&warm), vec![thrice.to_string()]);
+    // A stub more in the tests: only they are compiled again, and both stubs are in the list.
+    cur[1] = cur[1].replacen("Error('thrice');", "Error('thrice');\n        if L.Ready() then;", 1);
+    assert_eq!(run(&mut warm, &cur).0, WarmUse::Updated);
+    assert_eq!(stubs(&warm), vec![ready.to_string(), thrice.to_string()]);
+    // A change in another object keeps the stubs of the tests.
+    cur[2] = cur[2].replacen("Error('always');", "// nothing\n        Error('always');", 1);
+    assert_eq!(run(&mut warm, &cur).0, WarmUse::Updated);
+    assert_eq!(stubs(&warm), vec![ready.to_string(), thrice.to_string()]);
+    // The real procedure is added: a declaration change, and its stub is gone.
+    cur[0] = cur[0].replacen(
+        "    procedure Label(): Text",
+        "    procedure Thrice(N: Integer): Integer\n    begin\n        exit(N * 3);\n    end;\n\n    procedure Label(): Text",
+        1,
+    );
+    let (used, got) = run(&mut warm, &cur);
+    assert_eq!(used, WarmUse::Updated);
+    assert_eq!(stubs(&warm), vec![ready.to_string()]);
+    assert!(
+        got.iter().any(|l| l.contains("Greets Fail")),
+        "the real Thrice returns 6: {got:?}"
     );
 }

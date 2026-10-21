@@ -644,6 +644,20 @@ impl<'a> Compiler<'a> {
                 let a = self.expr_any(query)?;
                 self.aux(AuxSite::QueryColumn { column: *column }, d, a);
             }
+            E::TddStub { stub, args, ty } => {
+                // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
+                for a in args {
+                    self.expr_any(a)?;
+                }
+                self.aux(
+                    AuxSite::TddStub {
+                        stub: stub.clone(),
+                        ty: ty.clone(),
+                    },
+                    d,
+                    d,
+                );
+            }
             E::Refused(why) => self.fault(FaultKind::Unsupported(why.clone())),
             E::Fail { message, code } => self.fault(FaultKind::Error {
                 message: message.clone(),

@@ -25,6 +25,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "iterationTracking",
     "announceStart",
     "serverUrl",
+    "tdd",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -40,7 +41,7 @@ const EXECUTE_FIELDS: &[&str] = &[
     "announceStart",
 ];
 /// Fields v2 knows and v3 defers (ADR-016).
-const DEFERRED: &[&str] = &["affectedOnly", "includeFailing", "strictEnvironment", "tdd"];
+const DEFERRED: &[&str] = &["affectedOnly", "includeFailing", "strictEnvironment"];
 /// Fields v2 reads for another command only: accepted, with a warning.
 const OTHER_COMMAND: &[&str] = &["code"];
 
@@ -114,6 +115,7 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
         on_test: Some(Arc::new(|e: al_testrun::events::TestEvent, captured: Option<Value>| {
             let mut row =
                 crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
+            crate::output::add_stubs(&mut row, &e.stubs);
             let mut line = test_line(&mut row);
             // What the test's code did (`captureValues`, `iterationTracking`): the values and loops are part of the line.
             if let Some(Value::Object(c)) = captured {
@@ -252,6 +254,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     {
         a.server_url = Some(al_host::check_server_url(u).map_err(|e| format!("`serverUrl`: {e}"))?);
     }
+    // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
+    if !matches!(fields.get("tdd"), None | Some(Value::Null)) {
+        a.tdd = flag(fields, "tdd")?;
+    }
     a.quiet = true;
     Ok((a, warnings))
 }
@@ -314,6 +320,12 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
             }
             if cancelled {
                 summary["cancelled"] = json!(true);
+            }
+            // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`.
+            for key in ["stubbed", "generatedStubs"] {
+                if let Some(v) = doc.get(key) {
+                    summary[key] = v.clone();
+                }
             }
             if !warnings.is_empty() {
                 summary["warnings"] = json!(warnings);
@@ -471,6 +483,8 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
     };
     a.quiet = true;
     a.execute = true;
+    // `execute` runs no tests, so `tdd` (of the request, with a warning above, or of the server) does nothing here.
+    a.tdd = false;
     flags.cancel.store(false, Ordering::SeqCst);
     flags
         .announce
@@ -557,7 +571,16 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
 fn test_line(row: &mut Map<String, Value>) -> Map<String, Value> {
     let mut line = Map::new();
     line.insert("type".into(), json!("test"));
-    for key in ["name", "status", "durationMs", "message", "stackTrace", "notRun"] {
+    for key in [
+        "name",
+        "status",
+        "durationMs",
+        "message",
+        "stackTrace",
+        "notRun",
+        "stubbed",
+        "generatedStubs",
+    ] {
         if let Some(v) = row.remove(key) {
             line.insert(key.into(), v);
         }
@@ -645,10 +668,12 @@ mod tests {
         let run = |v: Value| request_args(&base(), &fields(v));
         assert!(run(json!({"command": "runTests"})).unwrap_err().contains("sourcePaths"));
         assert!(
-            run(json!({"sourcePaths": ["/a"], "tdd": true}))
+            run(json!({"sourcePaths": ["/a"], "includeFailing": true}))
                 .unwrap_err()
                 .contains("deferred")
         );
+        assert!(run(json!({"sourcePaths": ["/a"], "tdd": true})).unwrap().0.tdd);
+        assert!(run(json!({"sourcePaths": ["/a"], "tdd": 1})).is_err());
         assert!(
             run(json!({"sourcePaths": ["/a"], "frobnicate": 1}))
                 .unwrap_err()

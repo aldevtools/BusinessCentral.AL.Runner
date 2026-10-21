@@ -51,6 +51,8 @@ pub struct CheckResult {
     /// `alcodes::check_workspace` raised; `diagnostics` is both, sorted.
     pub from_checker: Vec<Diagnostic>,
     pub from_codes: Vec<Diagnostic>,
+    /// The check ran with `--tdd` (`Roots::tdd`).
+    pub tdd: bool,
 }
 
 /// Why a routine of an object a lean compile left out (`Roots::lean`) does not run. A run that meets it was compiled for
@@ -130,6 +132,8 @@ pub enum Res {
     },
     /// A member of a `DotNet` value: only its name is known at compile time (ADR-014).
     DotNetMember(String),
+    /// `--tdd` (ADR-051): a call of a procedure the target object does not declare, in a test app. It runs as a stub.
+    TddStub(Box<tdd::TddSite>),
     /// A bare name that the record of a `with` statement supplied (corpus events/lt-with-statement-scopes/
     /// WithStatementAmbiguous.al, WithStatementNested.al): `with` is the offset of the `WithStmt` node in its
     /// file, `inner` what the name resolved to as a member of that record. Lowering reads `inner` through
@@ -203,6 +207,9 @@ pub struct Roots {
     /// With `only_objects`: `CheckResult::skipped` of the check before the change. Of the objects that
     /// are not checked again it is still right (a test codeunit is left out or not by its own text).
     pub skipped_before: Option<Vec<bool>>,
+    /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist becomes a stub site
+    /// ([`Res::TddStub`]) instead of an error. Off, nothing changes.
+    pub tdd: bool,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -273,6 +280,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let provided = |oi: usize| roots.provided.get(oi).copied().unwrap_or(false);
     let mut timings = CheckTimings::default();
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), demand_mode);
+    c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
     // The files of the dependency objects the checker reaches are parsed ahead on other
     // threads; parsing is a third of the cost and the checker only waits for what is not ready.
     let demand = if demand_mode {
@@ -389,6 +397,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
         panicked: c.panicked,
         from_checker,
         from_codes,
+        tdd: c.tdd_apps.is_some(),
     }
 }
 
@@ -695,6 +704,11 @@ pub(crate) struct Checker<'a> {
     panicked: HashMap<(usize, usize), String>,
     /// The result type of the routine being checked (`None`: a trigger or a procedure without a result).
     cur_ret: Option<Ty>,
+    /// `--tdd` (ADR-051): per app, whether its call sites may become stubs (a workspace app that declares a test
+    /// codeunit). `None`: `--tdd` is off.
+    tdd_apps: Option<std::sync::Arc<Vec<bool>>>,
+    /// The stub sites of the routine being checked whose return type is not known yet.
+    tdd_pending: Vec<posmap::PosKey>,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].
@@ -961,6 +975,7 @@ mod infer;
 mod member;
 mod object;
 pub(crate) mod posmap;
+pub mod tdd;
 #[cfg(test)]
 mod tests;
 

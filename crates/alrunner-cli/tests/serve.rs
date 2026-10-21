@@ -591,7 +591,7 @@ fn execute_checks_its_request_and_says_what_it_does_not_do_yet() {
             .contains("bogus")
     );
     assert!(
-        ask(json!({"command": "execute", "code": "x", "tdd": true}))["error"]
+        ask(json!({"command": "execute", "code": "x", "includeFailing": true}))["error"]
             .as_str()
             .unwrap()
             .contains("deferred")
@@ -847,6 +847,189 @@ fn execute_with_announce_start_writes_the_started_line_and_no_warning() {
     let r = s.line();
     assert_eq!(r["tests"][0]["messages"], json!(["hi"]), "{r}");
     assert!(r.get("warnings").is_none(), "{r}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+// `--tdd` on the server (ADR-051 decision 1 and 9, test plan 12 and 13).
+
+const TDD_TARGET: &str = r#"
+codeunit 50110 "Serve Target"
+{
+    procedure Existing(): Integer
+    begin
+        exit(1);
+    end;
+}
+"#;
+
+const TDD_TESTS: &str = r#"
+codeunit 50111 "Serve Tdd Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure CallsMissing()
+    var
+        Target: Codeunit "Serve Target";
+        Result: Integer;
+    begin
+        Result := Target.DoubleIt(2);
+        if Result <> 4 then
+            Error('expected 4, got %1', Result);
+    end;
+
+    [Test]
+    procedure Plain()
+    begin
+    end;
+}
+"#;
+
+/// An app of two files: the codeunit under test and the tests that call a procedure it does not have yet.
+fn tdd_app(root: &Path) -> PathBuf {
+    let dir = root.join("tdd");
+    write(
+        &dir,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-0000000000aa","name":"tdd","publisher":"Test","version":"1.0.0.0","idRanges":[{"from":50110,"to":50149}],"dependencies":[]}"#,
+    );
+    write(&dir, "src/Target.al", TDD_TARGET);
+    write(&dir, "src/Tests.al", TDD_TESTS);
+    dir
+}
+
+fn line_of<'a>(lines: &'a [Value], test: &str) -> &'a Value {
+    lines
+        .iter()
+        .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.ends_with(&format!(".{test}"))))
+        .unwrap_or_else(|| panic!("no line for {test}: {lines:?}"))
+}
+
+const DOUBLE_IT: &str = r#"Serve Target: procedure "DoubleIt"(Arg1: Integer): Integer"#;
+
+#[test]
+fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true}));
+    let lines = s.until_summary();
+    let t = line_of(&lines, "CallsMissing");
+    assert_eq!(t["status"], "fail", "{lines:?}");
+    assert_eq!(t["stubbed"], true, "{t}");
+    assert_eq!(t["generatedStubs"], json!([DOUBLE_IT]), "{t}");
+    let p = line_of(&lines, "Plain");
+    assert_eq!(p["status"], "pass");
+    assert!(p.get("stubbed").is_none() && p.get("generatedStubs").is_none(), "{p}");
+    let summary = lines.last().unwrap();
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 1, "error": 0}),
+        "{summary}"
+    );
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
+    assert_eq!(summary["exitCode"], 1, "{summary}");
+    // Without `tdd` the same sources do not compile as before: `tdd` is part of the kept compile's key.
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["cached"], false, "{summary}");
+    let t = line_of(&lines, "CallsMissing");
+    assert_eq!(t["notRun"], true, "{t}");
+    assert!(t.get("stubbed").is_none(), "{t}");
+    assert!(
+        summary.get("stubbed").is_none() && summary.get("generatedStubs").is_none(),
+        "{summary}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+#[test]
+fn a_server_started_with_tdd_stubs_by_default_and_tdd_false_turns_it_off_for_one_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--tdd"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    assert_eq!(line_of(&lines, "CallsMissing")["stubbed"], true, "{lines:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": false}));
+    let lines = s.until_summary();
+    assert_eq!(line_of(&lines, "CallsMissing")["notRun"], true, "{lines:?}");
+    assert!(lines.last().unwrap().get("generatedStubs").is_none(), "{lines:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": "yes"}));
+    assert!(s.line()["error"].as_str().unwrap().contains("`tdd`"));
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+#[test]
+fn execute_ignores_tdd_with_a_warning() {
+    let mut s = started();
+    s.send(json!({"command": "execute", "code": "Message('hi');", "tdd": true}));
+    let r = s.line();
+    assert_eq!(r["tests"][0]["messages"], json!(["hi"]), "{r}");
+    assert!(
+        r["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w.as_str().unwrap().contains("`tdd`")),
+        "{r}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+#[test]
+fn a_kept_tdd_compile_follows_the_sources_and_the_real_procedure_ends_the_stub() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let run = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true}));
+        s.until_summary()
+    };
+    run(&mut s);
+    // A change of code only in the tests: the new stub is in the list. (Without dependency apps the server compiles
+    // everything again; `al-testrun/tests/incremental.rs` checks the incremental compile of stubs.)
+    write(
+        &a,
+        "src/Tests.al",
+        &TDD_TESTS.replace(
+            "    procedure Plain()\n    begin\n",
+            "    procedure Plain()\n    var\n        Target: Codeunit \"Serve Target\";\n    begin\n        if Target.IsReady() then;\n",
+        ),
+    );
+    let lines = run(&mut s);
+    let summary = lines.last().unwrap();
+    let ready = r#"Serve Target: procedure "IsReady"(): Boolean"#;
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT, ready]), "{summary}");
+    assert_eq!(line_of(&lines, "Plain")["generatedStubs"], json!([ready]), "{lines:?}");
+    // The real procedures are added: the next request is no longer stubbed.
+    write(
+        &a,
+        "src/Target.al",
+        &TDD_TARGET.replace(
+            "    procedure Existing",
+            "    procedure DoubleIt(N: Integer): Integer\n    begin\n        exit(N * 2);\n    end;\n\n    procedure IsReady(): Boolean\n    begin\n    end;\n\n    procedure Existing",
+        ),
+    );
+    let lines = run(&mut s);
+    let t = line_of(&lines, "CallsMissing");
+    assert_eq!(t["status"], "pass", "{lines:?}");
+    assert!(t.get("stubbed").is_none(), "{t}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["generatedStubs"], json!([]), "{summary}");
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 0, "error": 0}),
+        "{summary}"
+    );
     s.send(json!({"command": "shutdown"}));
     s.line();
 }

@@ -803,6 +803,11 @@ pub(crate) fn lower_core(
     } = build_shared(ws, members, checked, &catalog, positions, src, &flags, export);
     let check = cfg!(test) || std::env::var_os("AL_CHECK_LINK").is_some();
     shared.early_relations = export || check;
+    let tdd_sites = if checked.tdd {
+        crate::check::tdd::sites_by_object(ws, &checked.resolutions)
+    } else {
+        Vec::new()
+    };
     let mut program = ir::Program {
         objects: Vec::new(),
         apps: ws
@@ -835,6 +840,7 @@ pub(crate) fn lower_core(
             })
             .collect(),
         uncompiled_subscribers,
+        tdd_stubs: crate::check::tdd::stub_list(&tdd_sites),
         ..Default::default()
     };
     let mut out = Lowered {
@@ -856,6 +862,7 @@ pub(crate) fn lower_core(
         checker_diags: checked.from_checker.clone(),
         skipped: checked.skipped.clone(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
+        tdd_sites,
     };
     if positions {
         program.sources = ws
@@ -2100,6 +2107,16 @@ pub fn relower_objects(
     }
     al_link::relink(program, &mut old.pos_ranges, &keys, &routines_of, replace).map_err(|e| format!("link: {e}"))?;
     program.uncompiled_subscribers = uncompiled_subscribers;
+    // `--tdd` (ADR-051 decision 9): the stubs of the objects checked again replace theirs; the others stay.
+    if checked.tdd {
+        old.tdd_sites.retain(|(oi, _)| !dirty.contains(oi));
+        old.tdd_sites.extend(
+            crate::check::tdd::sites_by_object(ws, &checked.resolutions)
+                .into_iter()
+                .filter(|(oi, _)| dirty.contains(oi)),
+        );
+        program.tdd_stubs = crate::check::tdd::stub_list(&old.tdd_sites);
+    }
     old.driven = Some(shared.driven.clone());
     // The diagnostics: what the checker found in the files that did not change stays.
     let dirty_files: std::collections::HashSet<&str> = dirty

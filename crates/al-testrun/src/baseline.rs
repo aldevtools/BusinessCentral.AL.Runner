@@ -308,6 +308,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
         fn expr(&mut self, e: &Expr) {
             match e {
                 Expr::Const(_) | Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
+                Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
                 Expr::Load(p) => self.place(p),
                 Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                     self.expr(a)

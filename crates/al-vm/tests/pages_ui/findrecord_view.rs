@@ -112,11 +112,8 @@ fn run(body: &str) -> String {
     let src = format!("{OBJECTS}\ncodeunit 69989 T\n{{\n{body}\n}}\n");
     al_builtins::assumptions::clear_hits();
     let got = text(al_testkit::run_in(&src, "T", "F"));
-    // Pinned by corpus bump 33: no path here runs under an assumption (a new line of the list part is stamped under
-    // new-line-stamps-all-before-validating, which is not this file's subject).
-    let mut hits = al_builtins::assumptions::take_hits();
-    hits.retain(|a| *a != al_builtins::assumptions::Assumption::NewLineStampsAllBeforeValidating);
-    assert_eq!(hits, vec![]);
+    // Pinned by corpus bump 33: no path here runs under an assumption.
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
     got
 }
 

@@ -1,0 +1,8 @@
+{
+  "id": "7d0c1a52-6e3b-4f0a-9b8e-2c4d5e6f7a03",
+  "name": "Tdd App Target",
+  "publisher": "AL Runner Tests",
+  "version": "1.0.0.0",
+  "idRanges": [{ "from": 50200, "to": 50209 }],
+  "dependencies": []
+}
