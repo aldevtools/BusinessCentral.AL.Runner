@@ -531,6 +531,9 @@ pub(crate) struct Chunk {
     pub temps: u16,
 }
 
+/// One lazily built chunk per routine, per object.
+type ChunkTable = Vec<Vec<OnceLock<Option<Box<Chunk>>>>>;
+
 /// The chunks of a program, compiled the first time a routine is called (every routine runs as bytecode).
 pub(crate) struct ExecProgram {
     chunks: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
@@ -538,7 +541,7 @@ pub(crate) struct ExecProgram {
     captured: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
     /// The debug form of a routine (ADR-048), built on first use by a session with a debugger. The table itself is
     /// built on first use too, so a run without a debugger does not allocate it.
-    debug: OnceLock<Vec<Vec<OnceLock<Option<Box<Chunk>>>>>>,
+    debug: OnceLock<ChunkTable>,
 }
 
 impl ExecProgram {
