@@ -10,8 +10,9 @@ pub enum Command {
     /// `al-runner --list-assumptions`: the registry of unprobed assumptions with the counts of the last run.
     ListAssumptions(Option<PathBuf>),
     Test(Box<TestArgs>),
-    /// `al-runner test-microsoft [OPTIONS]` (ADR-052 section 2): every Microsoft test app of the build, run by Microsoft's
-    /// recipe, without collecting their paths.
+    /// `al-runner test-microsoft [OPTIONS] [APP...]` (ADR-052 section 2): every Microsoft test app of the build, run by
+    /// Microsoft's recipe, without collecting their paths; with APPs, the ones that reach the extension (`--affected-from
+    /// microsoft`).
     TestMicrosoft(Box<TestArgs>),
     /// `al-runner debug [--stdio | --port [N]] APP... [test options]` (ADR-048): the tests under a Debug Adapter
     /// Protocol client.
@@ -162,6 +163,13 @@ pub struct TestArgs {
     /// `--microsoft-app NAME` (`--app NAME` in `test-microsoft`): the Microsoft test apps to run, by their name in the
     /// artifact (`Tests-ERM`), without case. Repeatable. Empty: all of them.
     pub microsoft_apps: Vec<String>,
+    /// `--affected-from SOURCE` (ADR-052): further test sources whose tests that reach the extension among the APPs
+    /// run with and without it. Only `microsoft` (every Microsoft test app of the build) is built. Repeatable. In
+    /// `impact-index build` it is `--from SOURCE`.
+    pub affected_from: Vec<String>,
+    /// Not a command line option: the command that builds the impact index of this run, when it is one run of a test
+    /// source (ADR-052 1.8); the no-index warning prints it instead of the run's own command line.
+    pub index_command: Option<String>,
 }
 
 impl TestArgs {
@@ -195,10 +203,11 @@ al-runner: run AL tests without a service tier (AL Runner, alpha)
 
 USAGE
     al-runner test [OPTIONS] APP...
-    al-runner test-microsoft [OPTIONS]
+    al-runner test-microsoft [OPTIONS] [APP...]
     al-runner serve [--protocol 2] [OPTIONS]
     al-runner debug [--stdio | --port [N]] [OPTIONS] APP...
     al-runner impact-index build|check-static [OPTIONS] APP...
+    al-runner impact-index build --from microsoft [--microsoft-app NAME ...] [OPTIONS]
     al-runner cache clear|prune|info [--cache-dir DIR]
     al-runner warm [PATH.bak] [OPTIONS]
     al-runner --list-assumptions [--cache-dir DIR]
@@ -397,6 +406,31 @@ IMPACT (ADR-043)
                          Check that static reach covers everything each test recorded in the cached
                          index of the same APPs and options (exit 1 on a miss), and how much more
                          static reach selects.
+    al-runner impact-index build --from microsoft [--microsoft-app NAME ...] [OPTIONS]
+                         Build the index of every Microsoft test app of the build (or those
+                         --microsoft-app names), one per lane of Microsoft's recipe, as
+                         --affected-from microsoft looks them up. Give the --bc-version, --country,
+                         --dep and --define of the runs that read it.
+
+TEST SOURCES (ADR-052)
+    --affected-from microsoft
+                         Also run the Microsoft tests your extension can affect: the APPs without a
+                         test codeunit are the extension, the APPs with one are your own tests (an
+                         app with both is both). Your own tests run as a normal run. Then every
+                         Microsoft test app of the build (--microsoft-app NAME narrows, repeatable)
+                         runs lane by lane with Microsoft's recipe as an impact run of the extension
+                         (--impact-of): only the tests that reach the extension, with and without it.
+                         Tests that do not reach it are counted as not selected, never as passed.
+                         The report ends with a table (own tests, microsoft: tests run, ran your
+                         code, newly failing, fails differently, newly refused, not verified, exit)
+                         and one Result line. --junit FILE writes one file: your own tests, then the
+                         source's tests with the impact properties and the suite property
+                         test_source; the source's first suite has not_selected (its count).
+                         --filter, --codeunit, --test-exact and --exclude-test apply to your own
+                         tests only. Exit code: the worst part (2, then 1, 8, 7; a source that
+                         selects nothing gives 0). Refused with it: --recipe, --impact-of,
+                         --no-compile-cache, --explain, --coverage*, --tdd, and (not built yet)
+                         --output-json, --impact-json, --impact-accept and an ISV test app as SOURCE.
 
 ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
@@ -507,7 +541,7 @@ TEST DATA
                          replaces the GitHub address the fetch uses.
 
 TEST-MICROSOFT
-    al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS]
+    al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS] [APP...]
                          Run Microsoft's test apps of a BC build the way Microsoft's CI does, without
                          collecting their paths: the list comes from the build's artifact (the
                          Test/*.Source.zip entries and the country's own), each app is fetched when it
@@ -520,13 +554,16 @@ TEST-MICROSOFT
                          app could not be loaded or compiled, else 1, 8, 7; 6 only when nothing ran).
                          The recipe decides the company and the disabled tests: --recipe,
                          --disabled-tests, --parity, --company-data, --package, --test-data*,
-                         --no-test-data and --explain are refused. An APP (your extension) is refused
-                         until the next step of ADR-052.
+                         --no-test-data and --explain are refused.
+                         With APPs (your extensions, no test codeunits): `al-runner test APP...
+                         --affected-from microsoft` without own tests (see TEST SOURCES); --impact
+                         applies. An APP with test codeunits is refused.
     --app NAME           (also --microsoft-app NAME) Run only this test app, by its name in the
                          artifact (`Tests-ERM`), without case. Repeatable. An unknown name exits 2
                          and lists the names.
-    --junit FILE         One file per test app and lane: FILE.<app>.<lane>.xml.
-    --output-json FILE   One document per test app and lane (FILE is required here).
+    --junit FILE         Without an APP: one file per test app and lane, FILE.<app>.<lane>.xml.
+                         With APPs: one file, as for --affected-from.
+    --output-json FILE   Without an APP: one document per test app and lane (FILE is required here).
 
 OTHER
     --server-url URL     The base address of the web client that GetUrl(ClientType::Web) answers with
@@ -664,6 +701,15 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
                 }
             },
             _ => daemon.push(a),
+        }
+    }
+    // ADR-052 section 4 (owner answer 5): test sources are another kind of run, refused before the probe parse (which
+    // would refuse `--microsoft-app` alone with a message about `test`).
+    for flag in ["--affected-from", "--microsoft-app"] {
+        if daemon.iter().any(|d| d == flag) {
+            return Err(format!(
+                "al-runner serve cannot be combined with {flag}: a request runs the tests once, the plain way; use `al-runner test {flag} ...`"
+            ));
         }
     }
     // A throw-away parse tells a good option from a bad one, and keeps out what only a request decides.
@@ -957,6 +1003,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--bcapps" => a.bcapps_dir = Some(text()?.into()),
             "--microsoft-app" => a.microsoft_apps.push(text()?),
+            "--affected-from" if !index_build => a.affected_from.push(text()?),
+            "--from" if index_build => a.affected_from.push(text()?),
             "--app" if test_microsoft => a.microsoft_apps.push(text()?),
             "--test-data-normalize-company" => {
                 return Err(format!(
@@ -976,10 +1024,23 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if test_microsoft {
         return test_microsoft_args(a);
     }
-    if !a.microsoft_apps.is_empty() {
-        return Err("--microsoft-app works with `al-runner test-microsoft` only".into());
+    source_names(&mut a, if index_build { "--from" } else { "--affected-from" })?;
+    if !a.microsoft_apps.is_empty() && a.affected_from.is_empty() {
+        return Err(if index_build {
+            "--microsoft-app needs --from microsoft: it names the Microsoft test apps the index is built for".into()
+        } else {
+            "--microsoft-app needs --affected-from microsoft: it names the Microsoft test apps of that source (al-runner test-microsoft takes it too)".into()
+        });
     }
-    if a.apps.is_empty() {
+    let from_microsoft = index_build && !a.affected_from.is_empty();
+    if from_microsoft {
+        if check_static {
+            return Err("al-runner impact-index check-static --from is not built yet: check the index of one test app with `impact-index check-static APP`".into());
+        }
+        if !a.apps.is_empty() {
+            return Err("al-runner impact-index build --from microsoft takes the test apps from the artifact of the build: give no APP (narrow with --microsoft-app NAME)".into());
+        }
+    } else if a.apps.is_empty() {
         return Err("al-runner test needs at least one APP (an app folder or a *.Source.zip)".into());
     }
     if a.rebuild_compile_cache && a.no_compile_cache {
@@ -1006,8 +1067,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
     }
-    if a.bcapps_dir.is_some() && !a.recipe {
-        return Err("--bcapps needs --recipe microsoft".into());
+    if a.bcapps_dir.is_some() && !a.recipe && a.affected_from.is_empty() {
+        return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
     if a.recipe {
         for (given, flag) in [
@@ -1060,6 +1121,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         for (set, flag) in [
             (a.output_json.is_some(), "--output-json"),
             (!a.impact_of.is_empty(), "--impact-of"),
+            (!a.affected_from.is_empty(), "--affected-from"),
             (a.recipe, "--recipe microsoft"),
             (a.explain.is_some(), "--explain"),
         ] {
@@ -1072,16 +1134,94 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         return Ok(Command::Debug(Box::new(a), transport));
     }
     impact_args(&a)?;
+    if !a.affected_from.is_empty() {
+        affected_args(&a, "--affected-from")?;
+    }
     Ok(Command::Test(Box::new(a)))
+}
+
+/// The names of the test sources (ADR-052 1.1): `microsoft`, without case. A path (an ISV test app) is build step 3.
+fn source_names(a: &mut TestArgs, flag: &str) -> Result<(), String> {
+    let mut seen: Vec<String> = Vec::new();
+    for s in &a.affected_from {
+        if !s.eq_ignore_ascii_case("microsoft") {
+            return Err(format!(
+                "{flag} {s}: an ISV test app as a test source is not built yet (ADR-052 build step 3); only `{flag} microsoft` works today"
+            ));
+        }
+        let name = s.to_ascii_lowercase();
+        if seen.contains(&name) {
+            return Err(format!("{flag} {name} is given twice"));
+        }
+        seen.push(name);
+    }
+    a.affected_from = seen;
+    Ok(())
+}
+
+/// The checks of a run with test sources (ADR-052 1.5). `what` names the option in the messages.
+fn affected_args(a: &TestArgs, what: &str) -> Result<(), String> {
+    for (set, flag, why) in [
+        (
+            a.recipe,
+            "--recipe microsoft",
+            "the recipe applies to the microsoft source by itself; your own tests run with the normal defaults",
+        ),
+        (
+            a.no_compile_cache,
+            "--no-compile-cache",
+            "both sides of every source must compile the dependency apps completely from the compile cache (ADR-043 section 2.2)",
+        ),
+        (
+            a.explain.is_some(),
+            "--explain",
+            "explain one test with a plain run of its app",
+        ),
+        (
+            a.coverage,
+            "--coverage, --coverage-out and --coverage-json",
+            "each source counts the extension's statements for its own report",
+        ),
+        (
+            !a.impact_of.is_empty(),
+            "--impact-of",
+            "the extension is measured against the sources' tests already",
+        ),
+        (a.execute, "a scratch run", "a scratch run has no extension to measure"),
+        (
+            a.tdd,
+            "--tdd",
+            "a source's tests run with and without the extension and have nothing to stub",
+        ),
+        (
+            a.output_json.is_some(),
+            "--output-json",
+            "its document with a `sources` part is not built yet (ADR-052 build step 3); --junit FILE holds every part",
+        ),
+        (
+            a.impact_json.is_some(),
+            "--impact-json",
+            "its format 2 with one entry per source is not built yet (ADR-052 build step 3); --junit FILE holds the change class of each test",
+        ),
+        (
+            a.impact_accept.is_some(),
+            "--impact-accept",
+            "an accept file across sources (format 2, entries per source) is not built yet (ADR-052 build step 3)",
+        ),
+    ] {
+        if set {
+            return Err(format!("{what} cannot be combined with {flag}: {why}"));
+        }
+    }
+    Ok(())
 }
 
 /// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are
 /// refused, as `--recipe microsoft` refuses them.
 fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
-    if !a.apps.is_empty() {
-        return Err("al-runner test-microsoft with an APP (the Microsoft tests your extension can affect) is not built yet (ADR-052 build step 2); without an APP it runs all of Microsoft's test apps of the build, or those --app names".into());
-    }
+    let extension = !a.apps.is_empty();
     for (given, flag) in [
+        (!a.affected_from.is_empty(), "--affected-from"),
         (a.recipe, "--recipe"),
         (a.company_package, "--company-data package / --package"),
         (a.test_data_asked_for(), "--test-data"),
@@ -1091,12 +1231,18 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (a.test_data_company.is_some(), "--test-data-company"),
         (a.explain.is_some(), "--explain"),
         (!a.impact_of.is_empty(), "--impact-of"),
-        (a.impact.is_some(), "--impact"),
-        (a.impact_accept.is_some(), "--impact-accept"),
-        (a.impact_json.is_some(), "--impact-json"),
+        (a.impact.is_some() && !extension, "--impact (it needs an extension APP)"),
+        (
+            a.impact_accept.is_some() && !extension,
+            "--impact-accept (it needs an extension APP)",
+        ),
+        (a.impact_json.is_some() && !extension, "--impact-json"),
         (a.execute, "a scratch run"),
         (a.tdd, "--tdd"),
-        (a.coverage, "--coverage, --coverage-out and --coverage-json"),
+        (
+            a.coverage && !extension,
+            "--coverage, --coverage-out and --coverage-json",
+        ),
     ] {
         if given {
             return Err(format!(
@@ -1110,8 +1256,24 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
     if a.verbose && a.quiet {
         return Err("--verbose and --quiet cannot be combined".into());
     }
-    a.recipe = true;
+    if extension {
+        // With APPs: `al-runner test APP... --affected-from microsoft` without own tests (ADR-052 section 2). An APP
+        // with test codeunits is refused when the APPs are read.
+        a.affected_from = vec!["microsoft".into()];
+        impact_value(&a)?;
+        affected_args(&a, "al-runner test-microsoft APP")?;
+    } else {
+        a.recipe = true;
+    }
     Ok(Command::TestMicrosoft(Box::new(a)))
+}
+
+/// `--impact MODE` names a mode.
+fn impact_value(a: &TestArgs) -> Result<(), String> {
+    match a.impact.as_deref() {
+        None | Some("all" | "dynamic" | "static") => Ok(()),
+        Some(other) => Err(format!("--impact needs all, dynamic or static, got `{other}`")),
+    }
 }
 
 /// The checks of an impact run's options (ADR-043).
@@ -1120,7 +1282,8 @@ fn impact_args(a: &TestArgs) -> Result<(), String> {
     if a.tdd && !a.impact_of.is_empty() {
         return Err("--tdd cannot be combined with --impact-of: an impact run compares the tests with and without an extension, and has nothing to stub".into());
     }
-    if a.impact_of.is_empty() {
+    impact_value(a)?;
+    if a.impact_of.is_empty() && a.affected_from.is_empty() {
         for (set, flag) in [
             (a.impact.is_some(), "--impact"),
             (a.impact_accept.is_some(), "--impact-accept"),
@@ -1134,9 +1297,8 @@ fn impact_args(a: &TestArgs) -> Result<(), String> {
         }
         return Ok(());
     }
-    match a.impact.as_deref() {
-        None | Some("all" | "dynamic" | "static") => {}
-        Some(other) => return Err(format!("--impact needs all, dynamic or static, got `{other}`")),
+    if a.impact_of.is_empty() {
+        return Ok(());
     }
     if a.no_compile_cache {
         return Err("--impact-of cannot be combined with --no-compile-cache: both sides must compile the dependency apps completely from the compile cache, never only what the tests reach (ADR-043 section 2.2)".into());
@@ -1186,7 +1348,7 @@ mod tests {
     }
 
     #[test]
-    fn test_microsoft_refuses_what_the_recipe_decides_and_an_app_until_step_2() {
+    fn test_microsoft_refuses_what_the_recipe_decides() {
         for flag in [
             "--recipe microsoft",
             "--disabled-tests d",
@@ -1203,7 +1365,26 @@ mod tests {
                 "{flag}: {e}"
             );
         }
-        assert!(p("test-microsoft MyApp").unwrap_err().contains("step 2"));
+        match p("test-microsoft MyApp --impact static").unwrap() {
+            Command::TestMicrosoft(a) => {
+                assert_eq!(a.apps, vec![PathBuf::from("MyApp")]);
+                assert_eq!(a.affected_from, vec!["microsoft"]);
+                assert!(!a.recipe, "the recipe is the source's business, not the extension's");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Without an extension there is nothing to measure.
+        assert!(p("test-microsoft --impact static").unwrap_err().contains("--impact"));
+        for flag in [
+            "--output-json r.json",
+            "--impact-json d.json",
+            "--impact-accept a.json",
+            "--no-compile-cache",
+            "--coverage",
+        ] {
+            let e = p(&format!("test-microsoft MyApp {flag}")).unwrap_err();
+            assert!(e.contains(flag.split(' ').next().unwrap()), "{flag}: {e}");
+        }
         assert!(p("test-microsoft --affected-from microsoft").is_err());
         assert!(p("test-microsoft --output-json").unwrap_err().contains("FILE"));
         assert!(p("test-microsoft --output-json r.json").is_ok());
@@ -1214,6 +1395,58 @@ mod tests {
                 .unwrap_err()
                 .contains("test-microsoft")
         );
+    }
+
+    #[test]
+    fn affected_from_microsoft_parses_and_refuses_what_it_cannot_be_combined_with() {
+        let a = test_args("test Ext --affected-from microsoft --microsoft-app Tests-ERM --impact static");
+        assert_eq!(a.affected_from, vec!["microsoft"]);
+        assert_eq!(a.microsoft_apps, vec!["Tests-ERM"]);
+        assert_eq!(
+            test_args("test Ext --affected-from Microsoft").affected_from,
+            vec!["microsoft"]
+        );
+        assert!(p("test Ext --affected-from microsoft --impact all --junit r.xml").is_ok());
+        // An ISV test app as a source is a later step.
+        let e = p("test Ext --affected-from ./vendor-tests").unwrap_err();
+        assert!(e.contains("./vendor-tests") && e.contains("step 3"), "{e}");
+        let e = p("test Ext --affected-from microsoft --affected-from MICROSOFT").unwrap_err();
+        assert!(e.contains("microsoft") && e.contains("twice"), "{e}");
+        for flag in [
+            "--recipe microsoft",
+            "--no-compile-cache",
+            "--explain T",
+            "--coverage",
+            "--impact-of E",
+            "--output-json r.json",
+            "--impact-json d.json",
+            "--impact-accept a.json",
+            "--tdd",
+        ] {
+            let e = p(&format!("test Ext --affected-from microsoft {flag}")).unwrap_err();
+            assert!(
+                e.contains("--affected-from") && e.contains(flag.split(' ').next().unwrap()),
+                "{flag}: {e}"
+            );
+        }
+        let e = p("test Ext --microsoft-app Tests-ERM").unwrap_err();
+        assert!(e.contains("--affected-from microsoft"), "{e}");
+    }
+
+    #[test]
+    fn impact_index_build_from_microsoft_takes_no_app() {
+        match p("impact-index build --from microsoft --microsoft-app Tests-ERM --bc-version 29.0").unwrap() {
+            Command::ImpactIndexBuild(a) => {
+                assert!(a.apps.is_empty());
+                assert_eq!(a.affected_from, vec!["microsoft"]);
+                assert_eq!(a.microsoft_apps, vec!["Tests-ERM"]);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(p("impact-index build --from microsoft A").unwrap_err().contains("APP"));
+        assert!(p("impact-index build --from ./x").unwrap_err().contains("microsoft"));
+        assert!(p("impact-index check-static --from microsoft").is_err());
+        assert!(p("impact-index build A --microsoft-app Tests-ERM").is_err());
     }
 
     #[test]
@@ -1416,6 +1649,14 @@ mod tests {
         assert!(e.contains("--recipe microsoft") && e.contains("serve"), "{e}");
         let e = p("serve --impact-of ext").unwrap_err();
         assert!(e.contains("--impact-of") && e.contains("serve"), "{e}");
+        // ADR-052 section 4 (owner answer 5): serve keeps refusing test sources.
+        for flag in ["--affected-from microsoft", "--microsoft-app Tests-ERM"] {
+            let e = p(&format!("serve {flag}")).unwrap_err();
+            assert!(
+                e.contains(flag.split(' ').next().unwrap()) && e.contains("serve"),
+                "{flag}: {e}"
+            );
+        }
     }
 
     #[test]
