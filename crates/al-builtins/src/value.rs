@@ -383,6 +383,11 @@ pub struct PageState {
     pub window_read_up: bool,
     /// The page is landing on its first row as it opens (the reads of a view that ends inside the window differ there).
     pub landing_first: bool,
+    /// The page opens on the row its OnOpenPage left Rec on, not the first of the view: a list's open read also reads the
+    /// rows above it (see `read_rows_above_the_moved_rec`).
+    pub open_reads_above: bool,
+    /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
+    pub opened_on_moved_rec: bool,
     /// The page opened for edit over an empty view and ran its new-record triggers on a blank record; it shows no row and its
     /// field controls are not editable.
     pub blank_on_open: bool,
@@ -669,6 +674,8 @@ impl PageState {
             view_read_to_end: false,
             window_read_up: false,
             landing_first: false,
+            open_reads_above: false,
+            opened_on_moved_rec: false,
             blank_on_open: false,
             read_backwards: None,
             selection_on_rec: false,

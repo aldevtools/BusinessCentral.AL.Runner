@@ -551,6 +551,7 @@ impl Session {
         st.borrow_mut().window_whole = false;
         st.borrow_mut().view_read_to_end = false;
         st.borrow_mut().window_read_up = false;
+        st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
         let start = self.row_key(&rec)?;
         let mut keys = Vec::new();
@@ -695,6 +696,9 @@ impl Session {
         if (walked > 0 || st.borrow().host.is_some()) && !single && !one_row_read_once {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
+        if std::mem::take(&mut st.borrow_mut().open_reads_above) {
+            self.read_rows_above_the_moved_rec(st, start.clone(), end_reached)?;
+        }
         // A part with OnAfterGetCurrRecord whose view ends inside the window reads its first row twice more, as a list does
         // (pages/lt-an-testpage-640/AnTestPageTests.al:168, :210 An02_Part_ConstLink_FiveRows, _FieldLink_FiveRows:
         // `P.R10;...;P.R50;P.R10;P.R10;P.C10`); with one row once (:147, :189 `P.R10;P.R10;P.C10`).
@@ -712,6 +716,60 @@ impl Session {
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
+        Ok(())
+    }
+
+    /// The open read of a plain list (no OnFindRecord or OnNextRecord) that opens on the row its OnOpenPage left Rec on, after the
+    /// rows from it on are read: the client steps back from that row and reads each row above it up to the first of the view,
+    /// then reads the row again; the rows it holds then start at the first row of the view (corpus
+    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:292 QR_List_OpenView_Get `O:C;R:C;R:D;R:C;R:B;R:A;R:C;R:C;C:C;`, :305
+    /// _FindLast `O:D;R:D;R:C;R:B;R:A;R:D;R:D;C:D;`, :318 _FindFirstNext `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`, :331
+    /// _SetRangeFindLast `O:D;R:D;R:C;R:B;R:D;R:D;C:D;`, :370 _GetThenFilterExcludes `O:C;R:B;R:A;R:B;R:B;C:B;`): the row is read
+    /// again before the step back only when rows followed it. Pinned for a view that ends inside the window, with rows above
+    /// the row, on a page of its own; more rows than a window holds are refused.
+    fn read_rows_above_the_moved_rec(&mut self, st: &St, start: Vec<Value>, end_reached: bool) -> Result<(), Signal> {
+        if !end_reached || st.borrow().host.is_some() {
+            return unsupported(
+                "the open read of a list on the row its OnOpenPage left Rec on, with more rows after it than a window holds (not pinned)",
+            );
+        }
+        let rec = self.page_rec(st);
+        let mut above = Vec::new();
+        while self.nav_next(st, -1)? {
+            if above.len() + st.borrow().window.len() >= Self::WINDOW {
+                return unsupported(
+                    "the open read of a list on the row its OnOpenPage left Rec on, with more rows than a window holds (not pinned)",
+                );
+            }
+            let key = self.row_key(&rec)?;
+            let stored = rec.borrow().fields.clone();
+            self.populate_current(st)?;
+            above.push(al_builtins::value::WindowRow {
+                key,
+                stored,
+                shown: rec.borrow().fields.clone(),
+            });
+        }
+        if above.is_empty() {
+            return unsupported(
+                "the open read of a list on the row its OnOpenPage left Rec on, which is the first of the view (not pinned)",
+            );
+        }
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
+        let stored = rec.borrow().fields.clone();
+        self.populate_current(st)?;
+        let shown = rec.borrow().fields.clone();
+        above.reverse();
+        let mut s = st.borrow_mut();
+        if let Some(row) = s.window.first_mut() {
+            row.stored = stored;
+            row.shown = shown;
+        }
+        let forward = std::mem::take(&mut s.window);
+        above.extend(forward);
+        s.window = above;
+        drop(s);
         Ok(())
     }
 
@@ -1817,7 +1875,28 @@ impl Session {
                 _ => false,
             },
             PageMethod::Previous => match cursor {
-                Cursor::NewLine => self.nav_find(st, "+")?,
+                Cursor::NewLine => {
+                    let found = self.nav_find(st, "+")?;
+                    // A list opened on the row its OnOpenPage left Rec on goes back from the new line to the last row it holds as a
+                    // move between its rows does: the row read twice, then OnAfterGetCurrRecord (corpus
+                    // pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:585 QR_TempList_PageRun_NoMove `previous log` =
+                    // `R:D;R:D;C:D;`, :615 QR_List_RunModal_FindLast). Other lists keep the earlier move.
+                    if found && st.borrow().opened_on_moved_rec && st.borrow().host.is_none() {
+                        let key = self.row_key(&self.page_rec(st))?;
+                        let last = st.borrow().window.len().checked_sub(1);
+                        if let Some(at) = last.filter(|&at| Self::same_key(&st.borrow().window[at].key, &key)) {
+                            {
+                                let mut s = st.borrow_mut();
+                                s.cursor = Cursor::Row;
+                                s.draft = false;
+                                s.stale = false;
+                            }
+                            self.read_client_row(st, at)?;
+                            return Ok(true);
+                        }
+                    }
+                    found
+                }
                 Cursor::Row => self.nav_next(st, -1)?,
                 Cursor::None => false,
             },
