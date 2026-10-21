@@ -721,10 +721,17 @@ it only declares the lowest server it can run on.
   and a runtime below 16.0 silently ran as 16.0.
 - A call of a catalog overload tagged newer than the app's runtime is the AL compiler's AL0666, with its text
   (must-not-compile 0576, 0620, 0364, ...); it replaces the runtime's own AR1005. Lowering refuses the routine.
-- Below the runtime floor (16.0) the catalog's tags decide nothing. Microsoft's docs give each overload the runtime
-  it was "available or changed" with (`catalog/docs-runtimes.txt`, generated from `corpus/scripts/al-surface.json`).
-  A docs runtime at or below the app's runtime clears the call (the overload existed then). A later one, or none
-  (a line only `overrides.txt` has), is undecidable ("or changed"): the call is AR1007 and the routine is refused.
-  The compiler's AL0666 text is not reported there: no corpus case pins it below 16.0.
+- Below the runtime floor (16.0) the catalog's tags decide nothing. The real AL compiler decides instead
+  (owner-approved lane, 2026-10-21): `tools/alc-runtimes/alc_runtimes.py` writes one probe per catalog overload and
+  argument count, compiles them with the latest AL compiler at every runtime it accepts (1.0 to 18.0), and records
+  where each call compiles and alc's AL0666 text elsewhere in the generated `catalog/alc-runtimes.txt` (it replaces
+  the docs-based `catalog/docs-runtimes.txt`, whose "available or changed" runtime could not decide a call below it).
+  A call the table says compiles at the app's runtime runs. One that does not is AL0666 with the compiler's text:
+  the sentence is the one the corpus pins at 16.0 and 16.1 (must-not-compile 0576, 0620), the supported versions
+  part is alc's own. Where alc reports something else (AL0296 below runtime 4.0, where an app cannot target
+  OnPrem), where no probe expresses the call (an `Any` parameter alc finds ambiguous, a DotNet parameter), or where
+  the table has no row, the call is AR1007 and the routine is refused.
+- A method removed in an older runtime (`TestPage.Prev`, alc: "'3.0' until, but not including '13.0'") is AL0666 at
+  every later runtime, also at and above the floor (must-not-compile 0561, 0562).
 - Not covered: language features, properties and object types newer than the app's runtime. They are as ungated as
   before, at every runtime.

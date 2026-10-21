@@ -7,7 +7,115 @@ use std::collections::{BTreeMap, HashMap};
 /// The checked-in catalog, compiled into the binary (no file access at runtime, ADR-006).
 const SIGNATURES: &str = include_str!("../catalog/signatures.txt");
 const OVERRIDES: &str = include_str!("../catalog/overrides.txt");
-const DOCS_RUNTIMES: &str = include_str!("../catalog/docs-runtimes.txt");
+/// What the AL compiler reports for each overload at each runtime it accepts (`tools/alc-runtimes/alc_runtimes.py`).
+const ALC_RUNTIMES: &str = include_str!("../catalog/alc-runtimes.txt");
+
+/// What the AL compiler reports for a call of one overload with one number of arguments, measured by compiling a
+/// probe of the call at every runtime it accepts (`catalog/alc-runtimes.txt`, al-runner issue 5573).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AlcRuntime {
+    /// The call compiles at the runtimes of `ranges` (`from`, and `to`: the first runtime it fails at again, `None`
+    /// when it compiles up to the newest runtime measured). `fails`: what alc reports at the other runtimes, in runs
+    /// `(from, to, outcome)` of the same outcome.
+    Measured {
+        ranges: Vec<(Runtime, Option<Runtime>)>,
+        fails: Vec<(Runtime, Option<Runtime>, AlcOutcome)>,
+    },
+    /// No probe of the call compiles at any runtime (an `Any` parameter alc finds ambiguous, a DotNet parameter):
+    /// the generator's reason.
+    NotExpressible(String),
+}
+
+/// What alc reports for a measured call at a runtime it does not compile at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AlcOutcome {
+    /// AL0666 on the call, with this text after "The supported runtime versions are: " (without the final period):
+    /// `'14.0' or greater`, `'3.0' until, but not including '13.0'`.
+    Al0666(String),
+    /// Another code on the call (AL0296 below runtime 4.0, where an app cannot target OnPrem), or `declaration`: only
+    /// a variable of the probe fails there (a type that runtime lacks), so alc says nothing about the call.
+    Other(String),
+}
+
+fn within(r: Runtime, from: Runtime, to: Option<Runtime>) -> bool {
+    from <= r && to.is_none_or(|to| r < to)
+}
+
+impl AlcRuntime {
+    /// Whether the call compiles at `r`; `None` when no probe expresses it.
+    pub fn compiles_at(&self, r: Runtime) -> Option<bool> {
+        match self {
+            AlcRuntime::Measured { ranges, .. } => Some(ranges.iter().any(|(f, t)| within(r, *f, *t))),
+            AlcRuntime::NotExpressible(_) => None,
+        }
+    }
+
+    /// What alc reports for the call at `r` when it does not compile there; `None` when it compiles, when no probe
+    /// expresses it, or when `r` is outside the runtimes measured.
+    pub fn outcome_at(&self, r: Runtime) -> Option<&AlcOutcome> {
+        match self {
+            AlcRuntime::Measured { fails, .. } => fails.iter().find(|(f, t, _)| within(r, *f, *t)).map(|(_, _, o)| o),
+            AlcRuntime::NotExpressible(_) => None,
+        }
+    }
+
+    fn parse(ranges: &str, rest: &str) -> Result<AlcRuntime, String> {
+        if ranges == "-" {
+            return Ok(AlcRuntime::NotExpressible(rest.to_string()));
+        }
+        let rt = |s: &str| Runtime::parse(s).map_err(|e| format!("bad runtime `{s}`: {e}"));
+        let range = |r: &str| -> Result<(Runtime, Option<Runtime>), String> {
+            let (from, to) = r.split_once("..").ok_or_else(|| format!("bad range `{r}`"))?;
+            Ok((rt(from)?, if to.is_empty() { None } else { Some(rt(to)?) }))
+        };
+        let ranges = ranges.split(',').map(range).collect::<Result<Vec<_>, String>>()?;
+        let fails = rest
+            .split("; ")
+            .filter(|f| !f.is_empty())
+            .map(|f| {
+                let (r, o) = f.split_once(' ').ok_or_else(|| format!("bad run `{f}`"))?;
+                let (from, to) = range(r)?;
+                let o = match o.strip_prefix("AL0666 ") {
+                    Some(text) => AlcOutcome::Al0666(text.to_string()),
+                    None => AlcOutcome::Other(o.to_string()),
+                };
+                Ok((from, to, o))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(AlcRuntime::Measured { ranges, fails })
+    }
+}
+
+/// `catalog/alc-runtimes.txt` parsed: catalog line -> argument count -> what alc reports.
+fn alc_table() -> Result<HashMap<&'static str, HashMap<usize, AlcRuntime>>, String> {
+    let mut out: HashMap<&str, HashMap<usize, AlcRuntime>> = HashMap::new();
+    for (n, l) in ALC_RUNTIMES.lines().enumerate() {
+        if l.starts_with('#') || l.trim().is_empty() {
+            continue;
+        }
+        let bad = |e: String| format!("alc-runtimes.txt:{}: {e}", n + 1);
+        let mut cols = l.splitn(4, '\t');
+        let (Some(line), Some(argc), Some(ranges)) = (cols.next(), cols.next(), cols.next()) else {
+            return Err(bad(
+                "expected `<line>\\t<argument count>\\t<runtimes>\\t<other runtimes>`".into(),
+            ));
+        };
+        let argc: usize = argc.parse().map_err(|_| bad(format!("bad argument count `{argc}`")))?;
+        let entry = AlcRuntime::parse(ranges, cols.next().unwrap_or("")).map_err(bad)?;
+        out.entry(line).or_default().insert(argc, entry);
+    }
+    Ok(out)
+}
+
+/// The AL compiler version that measured `catalog/alc-runtimes.txt` (its first line names it).
+pub fn alc_runtimes_compiler() -> &'static str {
+    ALC_RUNTIMES
+        .lines()
+        .next()
+        .and_then(|l| l.split("AL compiler ").nth(1))
+        .and_then(|v| v.split(". ").next())
+        .unwrap_or("unknown")
+}
 
 /// Applies `overrides` to the generated `lines`. Every change must follow a
 /// `#` evidence comment, and every removed line must exist.
@@ -60,9 +168,9 @@ pub struct Catalog {
     globals: HashMap<String, Vec<usize>>,
     /// The app runtime this catalog serves; `None` shows every overload (the newest).
     runtime: Option<Runtime>,
-    /// Per signature (same index): the runtime Microsoft's docs give for the overload ("Available or changed with
-    /// runtime version X", `catalog/docs-runtimes.txt`), `None` for a line `overrides.txt` added (no docs page).
-    docs: Vec<Option<Runtime>>,
+    /// Per signature (same index): what the AL compiler reports for a call with each argument count
+    /// (`catalog/alc-runtimes.txt`); empty when the table has no row for the line.
+    alc: Vec<HashMap<usize, AlcRuntime>>,
     /// `Target::app_runtimes`: the declared runtime of an app under test below `runtime`, by app id in lower case.
     app_runtimes: HashMap<String, Runtime>,
 }
@@ -107,24 +215,10 @@ impl Catalog {
             .map(|l| Signature::from_line(l).unwrap_or_else(|e| panic!("bad catalog line `{l}`: {e}")))
             .collect();
         number_order(&mut signatures);
-        // The docs runtime of a generated line; a line only `overrides.txt` has gets none.
-        let documented: std::collections::HashSet<&str> = base.iter().copied().collect();
-        let listed: HashMap<&str, Option<Runtime>> = DOCS_RUNTIMES
-            .lines()
-            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
-            .filter_map(|l| l.split_once('\t'))
-            .map(|(line, r)| (line, Runtime::parse(r).ok()))
-            .collect();
-        let one = Runtime { major: 1, minor: 0 };
-        let docs = signatures
+        let mut table = alc_table().unwrap_or_else(|e| panic!("{e}"));
+        let alc = signatures
             .iter()
-            .map(|s| {
-                let line = s.to_line();
-                if !documented.contains(line.as_str()) {
-                    return None;
-                }
-                listed.get(line.as_str()).copied().unwrap_or(Some(one))
-            })
+            .map(|s| table.remove(s.to_line().as_str()).unwrap_or_default())
             .collect();
         let mut by_method: HashMap<(String, String), Vec<usize>> = HashMap::new();
         let mut globals: HashMap<String, Vec<usize>> = HashMap::new();
@@ -142,16 +236,15 @@ impl Catalog {
             by_method,
             globals,
             runtime,
-            docs,
+            alc,
             app_runtimes: HashMap::new(),
         }
     }
 
-    /// The runtime Microsoft's docs give for the overload with id `id` ("Available or changed with runtime
-    /// version X"; `corpus/scripts/al-surface.json`, field `runtime_version`). "Or changed": the overload may be
-    /// older than X, so the value clears a call at runtime X and later and decides nothing below it. `None`: the
-    /// docs do not list the overload (a line of `overrides.txt`).
-    pub fn docs_runtime(&self, id: &str) -> Option<Runtime> {
+    /// What the AL compiler reports for a call of the overload `id` with `argc` arguments (`catalog/alc-runtimes.txt`).
+    /// A `T*` list is measured with one value: a call that passes more gets the entry of the most arguments.
+    /// `None`: the table has no row for it.
+    pub fn alc_runtime(&self, id: &str, argc: usize) -> Option<&AlcRuntime> {
         let (qual, n) = id.rsplit_once('#')?;
         let (recv, name) = qual.rsplit_once('.')?;
         let n: usize = n.parse().ok()?;
@@ -159,7 +252,25 @@ impl Catalog {
             .by_method
             .get(&(recv.to_lowercase(), name.to_lowercase()))?
             .get(n.checked_sub(1)?)?;
-        self.docs[i]
+        let rows = &self.alc[i];
+        rows.get(&argc).or_else(|| {
+            let rest = self.signatures[i].params.last().is_some_and(|p| p.variadic);
+            let most = rows.keys().max()?;
+            (rest && argc > *most).then(|| &rows[most])
+        })
+    }
+
+    /// Every catalog line with the argument counts it accepts, for the coverage test of `catalog/alc-runtimes.txt`:
+    /// (line, argument count, whether the table has a row).
+    pub fn alc_coverage(&self) -> Vec<(String, usize, bool)> {
+        let mut out = Vec::new();
+        for (i, s) in self.signatures.iter().enumerate() {
+            let req = s.params.iter().filter(|p| !p.optional).count();
+            for n in req..=s.params.len() {
+                out.push((s.to_line(), n, self.alc[i].contains_key(&n)));
+            }
+        }
+        out
     }
 
     /// The runtime an app under test declares when it is below this catalog's runtime (`Target::app_runtimes`).
@@ -285,36 +396,6 @@ const NUMBERED_IN_PLACE_UP_TO: Runtime = Runtime { major: 17, minor: 0 };
 /// inside one tag the order stays the sorted line order.
 fn number_order(signatures: &mut [Signature]) {
     signatures.sort_by_key(|s| s.since.filter(|r| *r > NUMBERED_IN_PLACE_UP_TO));
-}
-
-/// `catalog/docs-runtimes.txt`: `<catalog line>\t<runtime>` for every overload of `al-surface.json` whose docs
-/// runtime is above 1.0 (`?` when the docs give none), sorted. A line of two entries gets the higher runtime.
-pub fn generate_docs_runtimes(surface_json: &str) -> Result<Vec<String>, String> {
-    let surface: BTreeMap<String, BTreeMap<String, Vec<DocEntry>>> =
-        serde_json::from_str(surface_json).map_err(|e| e.to_string())?;
-    let mut by_line: BTreeMap<String, Option<Runtime>> = BTreeMap::new();
-    for methods in surface.values() {
-        for overloads in methods.values() {
-            for o in overloads {
-                let line = Signature::from_doc(o)?.to_line();
-                let r = o
-                    .runtime_version
-                    .as_deref()
-                    .and_then(|v| Runtime::parse(v.trim().trim_end_matches('.')).ok());
-                let e = by_line.entry(line).or_insert(r);
-                *e = match (*e, r) {
-                    (Some(a), Some(b)) => Some(a.max(b)),
-                    _ => None,
-                };
-            }
-        }
-    }
-    let one = Runtime { major: 1, minor: 0 };
-    Ok(by_line
-        .into_iter()
-        .filter(|(_, r)| r.is_none_or(|r| r > one))
-        .map(|(l, r)| format!("{l}\t{}", r.map_or_else(|| "?".to_string(), |r| r.to_string())))
-        .collect())
 }
 
 /// All overloads in `al-surface.json`, one catalog line each, sorted. Entries
@@ -470,22 +551,8 @@ mod tests {
     }
 
     #[test]
-    fn docs_runtimes_list_the_overloads_above_1_0() {
-        assert_eq!(
-            generate_docs_runtimes(SURFACE).unwrap(),
-            vec![
-                "Record.Floor static ()\t16.0",
-                "Record.New static () @17.0\t17.0",
-                "Record.Newer static () @18.0\t18.0",
-                "Record.Untagged static ()\t?",
-            ]
-        );
-    }
-
-    #[test]
-    fn the_docs_runtime_of_an_overload_comes_from_the_scrape_and_an_override_has_none() {
+    fn the_alc_table_gives_what_the_compiler_reports_per_argument_count() {
         let c = Catalog::load();
-        let rt = |id: &str| c.docs_runtime(id);
         let of = |recv: &str, name: &str, params: usize| {
             let s = c
                 .overloads(recv, name)
@@ -494,14 +561,60 @@ mod tests {
                 .unwrap();
             c.id(s)
         };
-        // NavApp.GetResourceAsText(ResourceName: Text [, Encoding: TextEncoding]): "14.0." in the scrape.
+        let rt = |s: &str| Runtime::parse(s).unwrap();
+        let al0666 = |t: &str| AlcOutcome::Al0666(t.to_string());
+        // NavApp.GetResourceAsText(ResourceName: Text [, Encoding: TextEncoding]) (al-runner issue 5573).
+        let get = c.alc_runtime(&of("NavApp", "GetResourceAsText", 2), 2).unwrap();
+        assert_eq!(get.compiles_at(rt("13.0")), Some(false));
+        assert_eq!(get.compiles_at(rt("14.0")), Some(true));
+        assert_eq!(get.outcome_at(rt("13.0")), Some(&al0666("'14.0' or greater")));
+        assert_eq!(get.outcome_at(rt("14.0")), None);
+        // TestPage.Prev was removed: corpus must-not-compile/cases/0561-testpage-prev.al.
+        let prev = c.alc_runtime(&of("TestPage", "Prev", 0), 0).unwrap();
+        assert_eq!(prev.compiles_at(rt("18.0")), Some(false));
+        let removed = al0666("'3.0' until, but not including '13.0'");
+        assert_eq!(prev.outcome_at(rt("16.0")), Some(&removed));
+        // Message(Text, Any*) with more values than the probe passed gets the entry of the most arguments.
+        let msg = of("Dialog", "Message", 2);
+        assert_eq!(c.alc_runtime(&msg, 5), c.alc_runtime(&msg, 2));
+        assert!(c.alc_runtime(&msg, 2).is_some());
+    }
+
+    #[test]
+    fn an_alc_row_parses_ranges_and_what_fails() {
+        let r = |s: &str| Runtime::parse(s).unwrap();
+        let a = AlcRuntime::parse(
+            "3.0..13.0",
+            "1.0..3.0 declaration; 13.0.. AL0666 '3.0' until, but not including '13.0'",
+        )
+        .unwrap();
+        assert_eq!(a.compiles_at(r("2.4")), Some(false));
+        assert_eq!(a.compiles_at(r("3.0")), Some(true));
+        assert_eq!(a.compiles_at(r("13.0")), Some(false));
+        assert_eq!(a.outcome_at(r("2.0")), Some(&AlcOutcome::Other("declaration".into())));
         assert_eq!(
-            rt(&of("NavApp", "GetResourceAsText", 2)),
-            Some(Runtime { major: 14, minor: 0 })
+            a.outcome_at(r("18.0")),
+            Some(&AlcOutcome::Al0666("'3.0' until, but not including '13.0'".into()))
         );
-        assert_eq!(rt(&of("Dialog", "Message", 2)), Some(Runtime { major: 1, minor: 0 }));
-        // TestPage.Filter is a line of overrides.txt only.
-        assert_eq!(rt(&of("TestPage", "Filter", 0)), None);
+        let b = AlcRuntime::parse("1.0..", "").unwrap();
+        assert_eq!(
+            b,
+            AlcRuntime::Measured {
+                ranges: vec![(r("1.0"), None)],
+                fails: vec![]
+            }
+        );
+        assert_eq!(
+            AlcRuntime::parse("-", "AL0196: ambiguous")
+                .unwrap()
+                .compiles_at(r("9.0")),
+            None
+        );
+        assert!(
+            alc_runtimes_compiler().starts_with("18."),
+            "{}",
+            alc_runtimes_compiler()
+        );
     }
 
     #[test]

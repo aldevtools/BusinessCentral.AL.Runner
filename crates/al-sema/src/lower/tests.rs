@@ -940,9 +940,9 @@ fn a_builtin_newer_than_the_target_runtime_makes_the_routine_unsupported() {
 }
 
 #[test]
-fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_docs_clear() {
-    // al-runner issue 5573: an app that declares runtime 13.0 calls NavApp.GetResourceAsText (docs: 14.0). The AL
-    // compiler rejects it (AL0666); AL Runner refuses that routine and runs the others.
+fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_compiler_accepts() {
+    // al-runner issue 5573: an app that declares runtime 13.0 calls NavApp.GetResourceAsText (alc: 14.0 or greater).
+    // The AL compiler rejects it (AL0666, catalog/alc-runtimes.txt); the routine is refused, the others run.
     let src = "codeunit 50100 \"Resource Reader\" { procedure Value(): Text begin exit(NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8)); end; procedure Ok(): Text begin exit(UpperCase('x')); end; }";
     let apps = || {
         vec![AppSource {
@@ -962,7 +962,7 @@ fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_docs
     let (oi, _) = routine(&l, "Ok");
     assert_eq!(l.unsupported[0][vi].len(), 1, "{:?}", l.unsupported[0][vi]);
     assert!(
-        l.unsupported[0][vi][0].starts_with("AR1007 `GetResourceAsText`"),
+        l.unsupported[0][vi][0].starts_with("AL0666 'GetResourceAsText' is not available in runtime version '13.0'"),
         "{:?}",
         l.unsupported[0][vi]
     );
