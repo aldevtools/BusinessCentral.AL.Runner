@@ -93,6 +93,7 @@ pub fn junit_with(
         .map(|(cu, cases)| al_testrun::junit::Suite {
             name: format!("Codeunit {cu}"),
             codeunit: *cu,
+            properties: Vec::new(),
             cases: cases
                 .iter()
                 .map(|(id, o, marks)| al_testrun::junit::Case {

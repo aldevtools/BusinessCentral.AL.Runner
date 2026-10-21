@@ -416,6 +416,7 @@ pub fn junit_with(
         suites.push(al_testrun::junit::Suite {
             name: first.codeunit_name.clone(),
             codeunit: first.codeunit,
+            properties: Vec::new(),
             cases: results[i..j]
                 .iter()
                 .map(|r| al_testrun::junit::Case {

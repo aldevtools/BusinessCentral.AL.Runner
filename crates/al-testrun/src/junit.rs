@@ -46,6 +46,8 @@ pub struct Suite<'a> {
     /// The codeunit id (the `codeunit` property of the Runner dialect).
     pub codeunit: u32,
     pub cases: Vec<Case<'a>>,
+    /// Further suite properties after `codeunit` (Runner dialect only): ADR-052 `test_source`, `not_selected`.
+    pub properties: Vec<(String, String)>,
 }
 
 /// The document. `bc_build` is the Microsoft build the dependency apps came from, recorded as a property so a build
@@ -111,8 +113,13 @@ pub fn write_with_baseline(
                     .iter()
                     .filter(|c| matches!(c.outcome, Outcome::NotRun(_)))
                     .count();
+                let more: String = suite
+                    .properties
+                    .iter()
+                    .map(|(k, v)| format!("<property name=\"{}\" value=\"{}\" />", esc(k), esc(v)))
+                    .collect();
                 s.push_str(&format!(
-                    "  <testsuite name=\"{}\" tests=\"{}\" failures=\"{fail}\" errors=\"0\" skipped=\"{not_run}\" time=\"{time:.3}\">\n    <properties><property name=\"codeunit\" value=\"{}\" /></properties>\n",
+                    "  <testsuite name=\"{}\" tests=\"{}\" failures=\"{fail}\" errors=\"0\" skipped=\"{not_run}\" time=\"{time:.3}\">\n    <properties><property name=\"codeunit\" value=\"{}\" />{more}</properties>\n",
                     esc(&suite.name),
                     suite.cases.len(),
                     suite.codeunit
@@ -427,11 +434,38 @@ mod tests {
             name: "C".into(),
             codeunit: 1,
             cases: vec![case("P", &pass), case("N", &not_run)],
+            properties: Vec::new(),
         }];
         let x = write(&suites, Dialect::Runner, None, 0.0);
         let props = "<properties><property name=\"disabled_by_microsoft\" value=\"1\" /><property name=\"impact_class\" value=\"newly &lt;refused&gt;\" /></properties>";
         assert_eq!(x.matches(props).count(), 2, "{x}");
         assert!(!write(&suites, Dialect::Oracle, None, 0.0).contains("impact_class"));
+    }
+
+    #[test]
+    fn suite_properties_follow_the_codeunit_in_the_runner_dialect_only() {
+        let pass = Outcome::Pass;
+        let suites = [Suite {
+            name: "C".into(),
+            codeunit: 7,
+            cases: vec![Case {
+                class: "C".into(),
+                name: "P",
+                time: 0.0,
+                outcome: &pass,
+                assumptions: &[],
+                stack: String::new(),
+                disabled: false,
+                properties: Vec::new(),
+            }],
+            properties: vec![("test_source".into(), "microsoft".into()), ("not_selected".into(), "3".into())],
+        }];
+        let x = write(&suites, Dialect::Runner, None, 0.0);
+        assert!(
+            x.contains("<properties><property name=\"codeunit\" value=\"7\" /><property name=\"test_source\" value=\"microsoft\" /><property name=\"not_selected\" value=\"3\" /></properties>"),
+            "{x}"
+        );
+        assert!(!write(&suites, Dialect::Oracle, None, 0.0).contains("test_source"));
     }
 
     #[test]
@@ -459,6 +493,7 @@ mod tests {
             suites.push(Suite {
                 name: format!("Suite {k} {}", texts[k % texts.len()]),
                 codeunit: 50000 + k as u32,
+                properties: Vec::new(),
                 cases: chunk
                     .iter()
                     .enumerate()
