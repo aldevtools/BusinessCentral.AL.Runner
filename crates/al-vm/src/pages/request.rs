@@ -151,7 +151,7 @@ impl Session {
             s.parameters_wanted = want_parameters;
         }
         // The OnInit ran at the procedure that used the variable first (request-page-oninit-at-first-use).
-        if self.request_page_init_done(&inst) {
+        if self.request_page_init_done(inst) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
             st.borrow_mut().inited = true;
         }

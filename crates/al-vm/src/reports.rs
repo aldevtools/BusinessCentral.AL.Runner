@@ -767,7 +767,10 @@ impl Session {
 
     /// Whether the request page's OnInit of `inst` already ran at a procedure's first use.
     pub(crate) fn request_page_init_done(&self, inst: &Inst) -> bool {
-        self.report.rp_init_done.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        self.report
+            .rp_init_done
+            .iter()
+            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
     /// Makes the globals of `inst` and, for a report that had none, runs `OnInitReport`. Returns
