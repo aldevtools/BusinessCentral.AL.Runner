@@ -97,7 +97,8 @@ struct Shared {
     state: Mutex<State>,
     wake: Condvar,
     paused: Arc<al_testrun::events::PauseClock>,
-    apps: Vec<PathBuf>,
+    /// The sources of the run's apps, which the run fills in once it has read them.
+    sources: Arc<Mutex<Option<breakpoints::Sources>>>,
 }
 
 impl Shared {
@@ -158,7 +159,7 @@ impl Shared {
                 if let Some(c) = r.column.filter(|_| r.verified) {
                     b.insert("column".into(), json!(Shared::column_out(st, c)));
                 }
-                if let Some(m) = r.message {
+                if let Some(m) = &r.message {
                     b.insert("message".into(), json!(m));
                 }
                 Value::Object(b)
@@ -196,8 +197,8 @@ impl al_vm::DebugHook for Hook {
             return al_vm::Resume::Continue;
         }
         let breakpoint = st.armed.contains(&pos);
-        // Steps and pauses stop only in code with a file on disk (decision 7).
-        let here = || self.index.on_disk(pos);
+        // Steps and pauses stop only in code with a source (decision 7): an app folder or a source package.
+        let here = || self.index.has_source(pos);
         let step = match st.step {
             Step::None => false,
             Step::In => here(),
@@ -228,10 +229,7 @@ impl al_vm::DebugHook for Hook {
                     .routines
                     .get(f.routine)
                     .map_or_else(|| o.name.clone(), |r| format!("{}.{}", o.name, r.name));
-                let at = self
-                    .index
-                    .location(f.pos)
-                    .map(|(p, line, col)| (p.to_path_buf(), line, col));
+                let at = self.index.location(f.pos);
                 let locals = f.locals.iter().map(|(n, v)| (n.clone(), wire_value(v))).collect();
                 Frame { name, at, locals }
             })
@@ -253,6 +251,83 @@ impl al_vm::DebugHook for Hook {
         }
         self.shared.paused.resume();
         al_vm::Resume::Continue
+    }
+}
+
+/// Where the sources of a run's apps come from: the APPs of the command line, then the dependency apps (the caller's
+/// app order of `al-runner test`). Every app read from a folder or a source package has a source the debugger shows.
+pub fn sources_of(
+    inputs: &[crate::apps::AppInput],
+    deps: &al_testrun::deps::Dependencies,
+    written: PathBuf,
+) -> breakpoints::Sources {
+    use breakpoints::{Origin, PackageText};
+    let label = |publisher: &str, name: &str, version: &str| format!("{publisher}_{name}_{version}");
+    let by_path = |files: &[(String, String)]| -> HashMap<String, usize> {
+        files
+            .iter()
+            .enumerate()
+            .map(|(i, (p, _))| (p.replace('\\', "/"), i))
+            .collect()
+    };
+    let eager = |app: &al_sema::workspace::AppSource| -> PackageText {
+        let texts: HashMap<String, String> = app
+            .files
+            .iter()
+            .map(|(p, t)| (p.replace('\\', "/"), t.clone()))
+            .collect();
+        Arc::new(move |p: &str| texts.get(p).cloned())
+    };
+    let mut origins = Vec::with_capacity(inputs.len() + deps.apps.len());
+    for i in inputs {
+        origins.push(Some(if i.path.is_dir() {
+            Origin::Folder {
+                dir: i.path.clone(),
+                prefix: String::new(),
+            }
+        } else {
+            Origin::Package {
+                label: label(&i.manifest.publisher, &i.source.name, &i.manifest.version),
+                prefix: String::new(),
+                text: eager(&i.source),
+            }
+        }));
+    }
+    for (j, app) in deps.apps.iter().enumerate() {
+        let path = deps.paths.get(j);
+        let manifest = deps.manifests.get(j);
+        // The program names a file of a dependency `<app name>/<path in the app>` (`al_deps::load`).
+        let prefix = format!("{}/", app.name);
+        let origin = if path.is_some_and(|p| p.is_dir()) {
+            Origin::Folder {
+                dir: path.cloned().unwrap_or_default(),
+                prefix,
+            }
+        } else {
+            let text = match deps.lazy.get(j).and_then(Option::as_ref) {
+                Some(lazy) => {
+                    let index = by_path(&app.files);
+                    let loader = lazy.loader.clone();
+                    Arc::new(move |p: &str| index.get(p).map(|&i| loader.text(i))) as PackageText
+                }
+                None => eager(app),
+            };
+            Origin::Package {
+                label: label(
+                    manifest.map_or("", |m| m.publisher.as_str()),
+                    &app.name,
+                    manifest.map_or("", |m| m.version.as_str()),
+                ),
+                prefix,
+                text,
+            }
+        };
+        origins.push(Some(origin));
+    }
+    breakpoints::Sources {
+        origins,
+        given: inputs.len(),
+        written,
     }
 }
 
@@ -309,7 +384,7 @@ pub fn run(args: &TestArgs, transport: Transport) -> Result<u8, String> {
         }),
         wake: Condvar::new(),
         paused: Arc::new(Default::default()),
-        apps: args.apps.clone(),
+        sources: Arc::new(Mutex::new(None)),
     });
     start_worker(args.clone(), shared.clone())?;
     let code = serve(shared.clone(), BufReader::new(reader));
@@ -354,7 +429,13 @@ fn start_worker(args: TestArgs, shared: Arc<Shared>) -> Result<(), String> {
         st.compile = match &r.first_error {
             Some(e) => Compile::Failed(e.clone()),
             None => {
-                let ix = Arc::new(Index::build(r.program.clone(), r.order, &s.apps));
+                let sources = s
+                    .sources
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                    .unwrap_or_default();
+                let ix = Arc::new(Index::build(r.program.clone(), r.order, &sources));
                 *ready_index.lock().unwrap_or_else(|e| e.into_inner()) = Some(ix.clone());
                 Compile::Ready(ix)
             }
@@ -394,6 +475,7 @@ fn start_worker(args: TestArgs, shared: Arc<Shared>) -> Result<(), String> {
         debugger,
         paused: shared.paused.clone(),
         on_test,
+        sources: shared.sources.clone(),
     };
     std::thread::Builder::new()
         .name("al-runner debug".into())

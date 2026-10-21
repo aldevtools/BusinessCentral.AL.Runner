@@ -132,7 +132,13 @@ impl Client {
     }
 
     fn stdio(app: &str) -> Client {
-        let mut child = command(&["debug", "--stdio", app, "--no-download", "--no-test-data"])
+        Client::stdio_with(app, &[])
+    }
+
+    fn stdio_with(app: &str, extra: &[&str]) -> Client {
+        let mut args = vec!["debug", "--stdio", app, "--no-download", "--no-test-data"];
+        args.extend_from_slice(extra);
+        let mut child = command(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -584,4 +590,405 @@ fn combinations_debug_does_not_take_are_refused_with_exit_code_2() {
         let err = String::from_utf8_lossy(&o.stderr);
         assert!(err.contains("al-runner debug cannot be combined with"), "{err}");
     }
+}
+
+// A dependency given as source (ADR-048 decisions 6 and 7; v2's `DapDependencySourceBreakpointTests`): the test app
+// `depsource/main` calls `Twice` of the app `depsource/dep`, given with `--dep` as a folder or as a source package.
+const DEP_FILE: &str = "DepSubject.Codeunit.al";
+/// `Result := Value * 2;` and `exit(Result);` of `Twice`, which the test calls with 3.
+const DEP_TWICE_LINE: i64 = 7;
+const DEP_EXIT_LINE: i64 = 8;
+/// `exit(7);` of `NotCalled`, which no test reaches.
+const DEP_NOT_CALLED_LINE: i64 = 13;
+/// The codeunit's opening brace.
+const DEP_BRACE_LINE: i64 = 2;
+/// The test's `Got := Subject.Twice(3);`.
+const MAIN_CALL_LINE: i64 = 11;
+const MAIN_FILE: &str = "DepTests.Codeunit.al";
+
+fn dep_folder() -> String {
+    fixture("depsource/dep")
+}
+
+fn dep_file() -> String {
+    fixture_file("depsource/dep", DEP_FILE)
+}
+
+/// The same path after `..` and links are resolved, with `/`.
+fn same_path(p: &str) -> String {
+    std::fs::canonicalize(p)
+        .unwrap_or_else(|e| panic!("{p}: {e}"))
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// A stored (uncompressed) ZIP with CRC-32s, enough for `al-deps`.
+fn zip(entries: &[(&str, &str)]) -> Vec<u8> {
+    fn crc32(data: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+            }
+        }
+        !c
+    }
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in entries {
+        let data = data.as_bytes();
+        let crc = crc32(data);
+        let offset = out.len() as u32;
+        out.extend(0x0403_4b50u32.to_le_bytes());
+        out.extend([20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        out.extend(crc.to_le_bytes());
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend((name.len() as u16).to_le_bytes());
+        out.extend([0, 0]);
+        out.extend(name.as_bytes());
+        out.extend(data);
+        central.extend(0x0201_4b50u32.to_le_bytes());
+        central.extend([20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        central.extend(crc.to_le_bytes());
+        central.extend((data.len() as u32).to_le_bytes());
+        central.extend((data.len() as u32).to_le_bytes());
+        central.extend((name.len() as u16).to_le_bytes());
+        central.extend([0; 12]);
+        central.extend(offset.to_le_bytes());
+        central.extend(name.as_bytes());
+    }
+    let start = out.len() as u32;
+    let size = central.len() as u32;
+    out.extend(central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0, 0, 0, 0]);
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend(size.to_le_bytes());
+    out.extend(start.to_le_bytes());
+    out.extend([0, 0]);
+    out
+}
+
+/// The dependency as a source package in `dir`, with its file under `src/`.
+fn dep_package(dir: &std::path::Path) -> String {
+    let read = |f: &str| std::fs::read_to_string(PathBuf::from(dep_folder()).join(f)).unwrap();
+    let path = dir.join("Debug Dep.Source.zip");
+    std::fs::write(
+        &path,
+        zip(&[
+            ("app.json", &read("app.json")),
+            (&format!("src/{DEP_FILE}"), &read(DEP_FILE)),
+        ]),
+    )
+    .unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+#[test]
+fn a_breakpoint_in_a_dependency_folder_binds_stops_and_shows_the_dependency_file() {
+    let mut c = Client::tcp(&fixture("depsource/main"), &["--dep", &dep_folder()]);
+    c.start(json!({}));
+    let r = c.set_breakpoints(&dep_file(), &[DEP_TWICE_LINE, DEP_NOT_CALLED_LINE, DEP_BRACE_LINE]);
+    let bps = r["body"]["breakpoints"].as_array().unwrap();
+    assert_eq!(
+        (bps[0]["verified"].as_bool(), bps[0]["line"].as_i64()),
+        (Some(true), Some(DEP_TWICE_LINE)),
+        "{r}"
+    );
+    // A statement the selected tests do not reach is not compiled (ADR-013): not verified, and not called a line
+    // without a statement.
+    assert_eq!(bps[1]["verified"], false, "{r}");
+    assert_eq!(
+        bps[1]["message"], "the selected tests do not reach this statement",
+        "{r}"
+    );
+    assert_eq!(bps[2]["verified"], false, "{r}");
+    assert_eq!(
+        bps[2]["message"], "no executable AL statement on this line in this file",
+        "{r}"
+    );
+    c.request("configurationDone", json!({}));
+    let s = c.stopped();
+    assert_eq!(
+        (s["reason"].as_str(), s["line"].as_i64()),
+        (Some("breakpoint"), Some(DEP_TWICE_LINE)),
+        "{s}"
+    );
+    let r = c.request("stackTrace", json!({"threadId": 1}));
+    let frames = r["body"]["stackFrames"].as_array().unwrap().clone();
+    assert!(frames[0]["name"].as_str().unwrap().contains("Twice"), "{r}");
+    assert_eq!(
+        same_path(frames[0]["source"]["path"].as_str().unwrap()),
+        same_path(&dep_file()),
+        "{r}"
+    );
+    assert_eq!(frames[0]["source"]["name"], DEP_FILE, "{r}");
+    assert_eq!(frames[1]["line"], MAIN_CALL_LINE, "{r}");
+    assert_eq!(frames[1]["source"]["name"], MAIN_FILE, "{r}");
+    let vars = c.locals(frames[0]["id"].as_i64().unwrap());
+    assert_eq!(vars["Value"], "3", "{vars:?}");
+    c.request("continue", json!({"threadId": 1}));
+    assert_eq!(c.finish(), 0);
+}
+
+#[test]
+fn step_in_enters_a_dependency_folder() {
+    let mut c = Client::tcp(&fixture("depsource/main"), &["--dep", &dep_folder()]);
+    c.start(json!({}));
+    c.set_breakpoints(&fixture_file("depsource/main", MAIN_FILE), &[MAIN_CALL_LINE]);
+    c.request("configurationDone", json!({}));
+    assert_eq!(c.stopped()["line"], MAIN_CALL_LINE);
+    c.request("stepIn", json!({"threadId": 1}));
+    let s = c.stopped();
+    assert_eq!(
+        (s["reason"].as_str(), s["line"].as_i64()),
+        (Some("step"), Some(DEP_TWICE_LINE)),
+        "{s}"
+    );
+    let top = c.top_frame();
+    assert_eq!(
+        same_path(top["source"]["path"].as_str().unwrap()),
+        same_path(&dep_file()),
+        "{top}"
+    );
+    c.request("continue", json!({"threadId": 1}));
+    assert_eq!(c.finish(), 0);
+}
+
+/// A dependency read from a source package has no file on disk: the debugger writes the file it stops in under
+/// `<cache>/debug-sources/`, with the text that was compiled, and a breakpoint on that file binds.
+#[test]
+fn step_in_enters_a_source_package_through_a_file_written_from_the_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    let package = dep_package(tmp.path());
+    let cache = tmp.path().join("cache");
+    let mut c = Client::tcp(
+        &fixture("depsource/main"),
+        &["--dep", &package, "--cache-dir", cache.to_str().unwrap()],
+    );
+    c.start(json!({}));
+    c.set_breakpoints(&fixture_file("depsource/main", MAIN_FILE), &[MAIN_CALL_LINE]);
+    c.request("configurationDone", json!({}));
+    assert_eq!(c.stopped()["line"], MAIN_CALL_LINE);
+    c.request("stepIn", json!({"threadId": 1}));
+    let s = c.stopped();
+    assert_eq!(
+        (s["reason"].as_str(), s["line"].as_i64()),
+        (Some("step"), Some(DEP_TWICE_LINE)),
+        "{s}"
+    );
+    let top = c.top_frame();
+    let written = top["source"]["path"].as_str().unwrap().to_string();
+    assert_eq!(top["source"]["name"], DEP_FILE, "{top}");
+    assert!(
+        same_path(&written).starts_with(&same_path(cache.to_str().unwrap())),
+        "{written}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&written).unwrap(),
+        std::fs::read_to_string(dep_file()).unwrap()
+    );
+    let r = c.set_breakpoints(&written, &[DEP_EXIT_LINE]);
+    assert_eq!(r["body"]["breakpoints"][0]["verified"], true, "{r}");
+    c.request("continue", json!({"threadId": 1}));
+    let s = c.stopped();
+    assert_eq!(
+        (s["reason"].as_str(), s["line"].as_i64()),
+        (Some("breakpoint"), Some(DEP_EXIT_LINE)),
+        "{s}"
+    );
+    c.request("continue", json!({"threadId": 1}));
+    assert_eq!(c.finish(), 0);
+}
+
+/// A file on disk whose path ends with the path of a package's file and whose text is the text that was compiled is
+/// that file (a checkout of the package's source): its breakpoints bind and the stack shows it. A file with the same
+/// path ending and another text is not.
+#[test]
+fn a_breakpoint_in_a_copy_of_a_packaged_file_binds_only_when_its_text_is_the_compiled_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let package = dep_package(tmp.path());
+    let cache = tmp.path().join("cache");
+    let checkout = tmp.path().join("checkout/src");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let copy = checkout.join(DEP_FILE);
+    std::fs::copy(dep_file(), &copy).unwrap();
+    let other = tmp.path().join("other/src");
+    std::fs::create_dir_all(&other).unwrap();
+    let changed = other.join(DEP_FILE);
+    std::fs::write(
+        &changed,
+        std::fs::read_to_string(dep_file())
+            .unwrap()
+            .replace("Value * 2", "Value * 3"),
+    )
+    .unwrap();
+    let mut c = Client::tcp(
+        &fixture("depsource/main"),
+        &["--dep", &package, "--cache-dir", cache.to_str().unwrap()],
+    );
+    c.start(json!({}));
+    let r = c.set_breakpoints(changed.to_str().unwrap(), &[DEP_TWICE_LINE]);
+    assert_eq!(r["body"]["breakpoints"][0]["verified"], false, "{r}");
+    assert!(
+        r["body"]["breakpoints"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("this file's text is not the text that was compiled"),
+        "{r}"
+    );
+    let r = c.set_breakpoints(copy.to_str().unwrap(), &[DEP_TWICE_LINE]);
+    assert_eq!(r["body"]["breakpoints"][0]["verified"], true, "{r}");
+    c.request("configurationDone", json!({}));
+    let s = c.stopped();
+    assert_eq!(
+        (s["reason"].as_str(), s["line"].as_i64()),
+        (Some("breakpoint"), Some(DEP_TWICE_LINE)),
+        "{s}"
+    );
+    let top = c.top_frame();
+    assert_eq!(
+        same_path(top["source"]["path"].as_str().unwrap()),
+        same_path(copy.to_str().unwrap()),
+        "{top}"
+    );
+    c.request("continue", json!({"threadId": 1}));
+    assert_eq!(c.finish(), 0);
+}
+
+// Conformance test 9 of ADR-048 (decision 10): a test gives the same outcome with and without the debugger. The app
+// runs once through `al-runner test` and once through `al-runner debug --stdio` with a breakpoint on every line of
+// every file; at each stop the client reads the stack and the locals of every frame and resumes with the next of
+// continue, next, stepIn and stepOut. The two JUnit reports must be the same apart from times.
+
+/// The JUnit XML without the attributes that hold times.
+fn without_times(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    loop {
+        let next = [" time=\"", " timestamp=\""]
+            .iter()
+            .filter_map(|a| rest.find(a).map(|i| (i, i + a.len())))
+            .min();
+        let Some((start, value)) = next else { break };
+        out.push_str(&rest[..start]);
+        let after = &rest[value..];
+        rest = &after[after.find('"').map_or(after.len(), |e| e + 1)..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `.al` files of an app folder, with their number of lines.
+fn al_files(dir: &std::path::Path, out: &mut Vec<(PathBuf, usize)>) {
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            al_files(&p, out);
+        } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("al")) {
+            let lines = std::fs::read_to_string(&p).map_or(0, |t| t.lines().count());
+            out.push((p, lines));
+        }
+    }
+}
+
+/// Runs `app` with and without the debugger and compares the outcomes. Returns the number of stops.
+fn outcomes_match_with_and_without_the_debugger(app: &str, extra: &[&str]) -> usize {
+    let tmp = tempfile::tempdir().unwrap();
+    let plain_xml = tmp.path().join("plain.xml");
+    let debug_xml = tmp.path().join("debug.xml");
+    let mut args = vec![
+        "test",
+        app,
+        "--no-download",
+        "--no-test-data",
+        "--junit",
+        plain_xml.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+    let plain = command(&args).output().expect("run al-runner test");
+
+    let mut with_junit = extra.to_vec();
+    with_junit.extend(["--junit", debug_xml.to_str().unwrap()]);
+    let mut c = Client::stdio_with(app, &with_junit);
+    c.start(json!({}));
+    let mut files = Vec::new();
+    al_files(std::path::Path::new(app), &mut files);
+    let mut verified = 0;
+    for (file, lines) in &files {
+        let all: Vec<i64> = (1..=*lines as i64).collect();
+        let r = c.set_breakpoints(file.to_str().unwrap(), &all);
+        verified += r["body"]["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["verified"] == true)
+            .count();
+    }
+    assert!(verified > 0, "no breakpoint bound in {app}");
+    c.request("configurationDone", json!({}));
+    let resume = ["continue", "next", "stepIn", "stepOut"];
+    let mut stops = 0;
+    let code = loop {
+        let m = c.next_matching("stopped or exited", |m| {
+            m["type"] == "event" && (m["event"] == "stopped" || m["event"] == "exited")
+        });
+        if m["event"] == "exited" {
+            break m["body"]["exitCode"].as_i64().unwrap();
+        }
+        let r = c.request("stackTrace", json!({"threadId": 1}));
+        assert_eq!(r["success"], true, "{r}");
+        for f in r["body"]["stackFrames"].as_array().unwrap() {
+            c.locals(f["id"].as_i64().unwrap());
+        }
+        let r = c.request(resume[stops % resume.len()], json!({"threadId": 1}));
+        assert_eq!(r["success"], true, "{r}");
+        stops += 1;
+    };
+    let r = c.request("disconnect", json!({}));
+    assert_eq!(r["success"], true, "{r}");
+    let status = wait(&mut c.child);
+    assert_eq!(status.code().map(i64::from), Some(code), "{}", c.stderr());
+    assert_eq!(
+        plain.status.code().map(i64::from),
+        Some(code),
+        "the exit codes differ; al-runner test said: {}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    let plain = std::fs::read_to_string(&plain_xml).expect("the JUnit report of al-runner test");
+    let debugged = std::fs::read_to_string(&debug_xml).expect("the JUnit report of al-runner debug");
+    let (plain, debugged) = (without_times(&plain), without_times(&debugged));
+    if plain != debugged {
+        let first = plain
+            .lines()
+            .zip(debugged.lines())
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| format!("without the debugger: {a}\nwith the debugger:    {b}"))
+            .unwrap_or_else(|| "one report is longer".into());
+        panic!("the outcomes differ with the debugger ({stops} stops):\n{first}");
+    }
+    stops
+}
+
+#[test]
+fn every_outcome_is_the_same_with_and_without_the_debugger() {
+    let stops = outcomes_match_with_and_without_the_debugger(&fixture("outcomes"), &[]);
+    assert!(stops > 50, "{stops} stops");
+}
+
+/// The same check on any app: `ALRUNNER_DEBUG_PARITY_APP=PATH` and, separated by spaces, more options of
+/// `al-runner test` in `ALRUNNER_DEBUG_PARITY_ARGS` (for example `--dep DIR --codeunit ID`). Run with
+/// `cargo test --release -p alrunner-cli --test debug -- --ignored outcomes_of_a_given_app`.
+#[test]
+#[ignore = "needs ALRUNNER_DEBUG_PARITY_APP"]
+fn outcomes_of_a_given_app_are_the_same_with_and_without_the_debugger() {
+    let app = std::env::var("ALRUNNER_DEBUG_PARITY_APP").expect("ALRUNNER_DEBUG_PARITY_APP");
+    let args = std::env::var("ALRUNNER_DEBUG_PARITY_ARGS").unwrap_or_default();
+    let extra: Vec<&str> = args.split_whitespace().collect();
+    let stops = outcomes_match_with_and_without_the_debugger(&app, &extra);
+    eprintln!("{stops} stops, same outcomes");
 }

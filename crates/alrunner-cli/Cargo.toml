@@ -23,6 +23,7 @@ al-deps.workspace = true
 al-host.workspace = true
 al-ir.workspace = true
 al-sema.workspace = true
+al-syntax.workspace = true
 al-testrun.workspace = true
 al-version.workspace = true
 al-vm.workspace = true

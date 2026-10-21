@@ -614,6 +614,8 @@ pub struct DebugSetup {
     pub paused: Arc<al_testrun::events::PauseClock>,
     /// Called for each selected test as it finishes.
     pub on_test: Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>,
+    /// Filled with the sources of the run's apps before the compile (where breakpoints bind, ADR-048 decision 6).
+    pub sources: Arc<std::sync::Mutex<Option<crate::debug::breakpoints::Sources>>>,
 }
 
 /// `al-runner debug`: the run of `al-runner test` with a debugger. The report goes to stderr.
@@ -849,6 +851,11 @@ fn test_inner(
         true,
         lazy_sources,
     )?;
+    if let Some(d) = &debug {
+        let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
+        *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(crate::debug::sources_of(&inputs, &dependencies, written));
+    }
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
