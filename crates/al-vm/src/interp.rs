@@ -202,6 +202,7 @@ impl Session {
                 return Err(Signal::Unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
             }
         };
+        self.alias_any(f)?;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
@@ -577,12 +578,23 @@ impl Session {
         } else if facts.publisher {
             self.events.publisher_var_lens = self.var_lens_of(object, routine, args, f);
         }
+        // A scalar global of the caller passed by `var` is watched while the call runs (`alias_access`). Not for an event
+        // publisher: there the subscribers alias the variable, which is pinned (above).
+        let watched = if facts.publisher {
+            0
+        } else {
+            self.watch_var_globals(object, routine, args, &values, f)
+        };
         if try_call {
             self.enter_used_try();
         }
         let result = self.call(object, routine, inst, values);
         if try_call {
             self.leave_used_try();
+        }
+        if watched > 0 {
+            let n = self.var_alias_watch.len() - watched;
+            self.var_alias_watch.truncate(n);
         }
         if var_lens {
             self.events.next_var_lens.clear();
@@ -622,6 +634,76 @@ impl Session {
         }
         self.return_vec(finals);
         Ok(ret)
+    }
+
+    /// Starts watching the scalar globals of the caller's instance that `args` pass by `var`; returns how many were added.
+    fn watch_var_globals(
+        &mut self,
+        object: usize,
+        routine: usize,
+        args: &[ir::Arg],
+        values: &[Value],
+        f: &Frame,
+    ) -> usize {
+        let mut added = 0;
+        for (i, a) in args.iter().enumerate() {
+            let ir::Arg::Ref(ir::Place::Global(g)) = a else {
+                continue;
+            };
+            let by_var = self.engine.program.objects[object].routines[routine]
+                .by_var
+                .get(i)
+                .copied()
+                .unwrap_or(false);
+            if by_var && values.get(i).is_some_and(is_alias_scalar) {
+                self.var_alias_watch.push((f.instance.clone(), *g));
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// Refuses a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
+    /// global by `var` runs. BC passes the argument by reference, so the parameter and the global would be one variable; the
+    /// runtime copies it in and back, and the two only differ when the global is reached this way. Pinned for an event's
+    /// subscribers (events/lt-event-var-through-sender/EventVarThroughSender.al), not for a plain procedure call
+    /// (docs/probes-needed.md, "var parameter that is a global of the caller").
+    #[inline]
+    pub(crate) fn alias_access(&self, i: usize, f: &Frame) -> Result<(), Signal> {
+        if self.var_alias_watch.is_empty() {
+            return Ok(());
+        }
+        self.alias_access_slow(i, f)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn alias_access_slow(&self, i: usize, f: &Frame) -> Result<(), Signal> {
+        if self
+            .var_alias_watch
+            .iter()
+            .any(|(inst, g)| *g == i && Rc::ptr_eq(inst, &f.instance))
+        {
+            let name = &self.engine.program.objects[f.instance.borrow().object as usize].globals[i].name;
+            return Err(Signal::Unsupported(format!(
+                "the global variable {name} is read or changed by its name while a procedure it was passed to by var runs \
+                 (whether the parameter and the global are one variable is not pinned)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Whether any global of the frame's instance is watched (for ClearAll, which resets them all).
+    pub(crate) fn alias_any(&self, f: &Frame) -> Result<(), Signal> {
+        let watched = self
+            .var_alias_watch
+            .iter()
+            .find(|(inst, _)| Rc::ptr_eq(inst, &f.instance))
+            .map(|(_, g)| *g);
+        match watched {
+            Some(g) => self.alias_access_slow(g, f),
+            None => Ok(()),
+        }
     }
 
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
@@ -819,7 +901,10 @@ impl Session {
     pub(crate) fn read(&mut self, p: &ir::Place, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
-            ir::Place::Global(i) => Ok(f.instance.borrow().globals[*i].clone()),
+            ir::Place::Global(i) => {
+                self.alias_access(*i, f)?;
+                Ok(f.instance.borrow().globals[*i].clone())
+            }
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let v = base.borrow().globals.get(*i).cloned();
@@ -1026,7 +1111,10 @@ impl Session {
         };
         match p {
             ir::Place::Local(i) => f.locals[*i] = v,
-            ir::Place::Global(i) => f.instance.borrow_mut().globals[*i] = v,
+            ir::Place::Global(i) => {
+                self.alias_access(*i, f)?;
+                f.instance.borrow_mut().globals[*i] = v
+            }
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let mut b = base.borrow_mut();
@@ -1357,4 +1445,28 @@ impl ForKind {
             is_integer: matches!(ty, RtType::Integer),
         }
     }
+}
+
+/// The values whose `var` passing is a copy in the runtime: a record, codeunit, list and the other handle kinds are shared
+/// objects, so their parameter already is the caller's variable.
+fn is_alias_scalar(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Boolean(_)
+            | Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Byte(_)
+            | Value::Char(_)
+            | Value::Text(_)
+            | Value::Code(_)
+            | Value::Date(..)
+            | Value::Time(_)
+            | Value::DateTime(_)
+            | Value::Duration(_)
+            | Value::Guid(_)
+            | Value::DateFormula(_)
+            | Value::Option(..)
+            | Value::Enum(..)
+    )
 }

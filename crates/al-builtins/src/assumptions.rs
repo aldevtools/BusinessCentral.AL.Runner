@@ -133,6 +133,12 @@ registry! {
         tests: "Temp Blob Impl.FromFieldRef (FieldRef.CalcField on each Blob it reads); 14 Tests-SCM-Manufacturing tests (Demand Forecast Card).",
         probe: "A FieldRef on a Blob field of a stored row read without CalcFields: CalcField() then Value and HasValue; the same on a Code field (the error text) and on a FlowField. Asked in corpus #644.",
     },
+    FieldRefValueOfUnloadedBlobIsEmpty => {
+        id: "fieldref-value-of-unloaded-blob-is-empty",
+        assumed: "FieldRef.Value of a Blob field of a stored row read without CalcFields hands out an empty Blob: HasValue false, a stream on it reads nothing (the record's own field answers HasValue true: streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue).",
+        tests: "Temp Blob Impl.FromFieldRef (Temp Blob.FromRecord), which asks HasValue and then CalcField: 561 Tests-ERM tests reach it, for example Test Sales Header Work Descr. TestMultipleLinesText (134112).",
+        probe: "Insert a row with a Blob holding 'Hello', Get it without CalcFields, RecordRef.GetTable, X := FieldRef.Value() into a Blob of a temporary record: X.HasValue, X.Length and a ReadText of X; then FieldRef.CalcField and the same again.",
+    },
     EvaluateRecordIdCompositeKey => {
         id: "evaluate-recordid-composite-key",
         assumed: "Evaluate into a RecordId reads a Code key value that has blanks around it as the trimmed value (the length check counts the trimmed text).",
