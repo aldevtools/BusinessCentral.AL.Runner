@@ -58,6 +58,9 @@ pub struct Lowered {
     /// `--tdd` (ADR-051): the stub sites by the object that holds them (object, signature), for the incremental
     /// compile to renew `Program::tdd_stubs` (`check::tdd::sites_by_object`). Empty without `--tdd`.
     pub(crate) tdd_sites: Vec<(usize, String)>,
+    /// `--tdd` (ADR-051 decision 10): the declarations the program needs that it does not have, for the compile
+    /// that follows (`check::tdd_decl`). Empty without `--tdd` or without any.
+    pub tdd_needs: Vec<crate::check::tdd_decl::TddNeed>,
 }
 
 /// The routines a variable of a page, report or xmlport type can run besides the ones the code
@@ -242,6 +245,9 @@ pub(crate) struct Lowerer<'a> {
     routine_idx: usize,
     /// The assumptions the lowering of each statement being lowered rests on (innermost last).
     assumed: Vec<Vec<al_builtins::assumptions::Assumption>>,
+    /// `--tdd` (ADR-051 decision 10): the stub declarations each statement being lowered uses (innermost last); `res`
+    /// notes them, so a `Stmt::TddMark` goes before the statement.
+    tdd_marked: std::cell::RefCell<Vec<Vec<String>>>,
     /// The types of the expressions of the routine being lowered, one record per node (see `tys.rs`).
     tys: Vec<tys::TyRec>,
     /// Records are made (inside a routine only).

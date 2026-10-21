@@ -64,6 +64,8 @@ pub struct Manifest {
     pub symbols: Vec<String>,
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     pub layout_files: Vec<(String, Vec<u8>)>,
+    /// `idRanges` of the app's own app.json (`from`, `to`): the ids `--tdd` gives stub declarations (ADR-051 decision 10).
+    pub id_ranges: Vec<(u32, u32)>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -168,6 +170,12 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .as_bool()
             .unwrap_or(false),
         layout_files: load_layout_files(dir),
+        id_ranges: manifest["idRanges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| Some((r["from"].as_u64()? as u32, r["to"].as_u64()? as u32)))
+            .collect(),
         target: manifest["target"].as_str().unwrap_or("Cloud").to_string(),
         symbols: manifest["preprocessorSymbols"]
             .as_array()

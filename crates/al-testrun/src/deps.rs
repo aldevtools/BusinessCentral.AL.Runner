@@ -213,6 +213,7 @@ pub fn load_project_with(
             // Not read from the package.
             target: String::new(),
             layout_files: Vec::new(),
+            id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
         });
         summary.push(format!("{} {}", d.app.name, d.version));

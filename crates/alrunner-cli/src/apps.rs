@@ -40,6 +40,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         // Not read here: a RecordRef.Open that depends on the target refuses.
         target: String::new(),
         layout_files: Vec::new(),
+        id_ranges: Vec::new(),
         symbols: Vec::new(),
     };
     let mut versions = AppVersions::parse(

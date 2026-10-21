@@ -840,7 +840,7 @@ pub(crate) fn lower_core(
             })
             .collect(),
         uncompiled_subscribers,
-        tdd_stubs: crate::check::tdd::stub_list(&tdd_sites),
+        tdd_stubs: tdd_stub_list(checked, &tdd_sites),
         ..Default::default()
     };
     let mut out = Lowered {
@@ -863,6 +863,11 @@ pub(crate) fn lower_core(
         skipped: checked.skipped.clone(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
         tdd_sites,
+        tdd_needs: if checked.tdd {
+            crate::check::tdd_decl::needs(ws, checked)
+        } else {
+            Vec::new()
+        },
     };
     if positions {
         program.sources = ws
@@ -2115,7 +2120,8 @@ pub fn relower_objects(
                 .into_iter()
                 .filter(|(oi, _)| dirty.contains(oi)),
         );
-        program.tdd_stubs = crate::check::tdd::stub_list(&old.tdd_sites);
+        program.tdd_stubs = tdd_stub_list(&checked, &old.tdd_sites);
+        old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
     // The diagnostics: what the checker found in the files that did not change stays.
@@ -2202,3 +2208,15 @@ pub(crate) const PARALLEL_OBJECTS_PER_WORKER: usize = 16;
 pub(crate) const LOWER_CHUNK: usize = 4;
 /// Stack of a lowering worker: lowering recurses on the nesting of the code.
 pub(crate) const LOWER_STACK: usize = 64 << 20;
+
+/// `--tdd`: every stub of the program, sorted, each once: the stub procedures and the stub declarations
+/// (`ir::Program::tdd_stubs`).
+fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String> {
+    let mut all = crate::check::tdd::stub_list(sites);
+    if let Some(d) = &checked.tdd_decls {
+        all.extend(d.all.iter().cloned());
+        all.sort();
+        all.dedup();
+    }
+    all
+}
