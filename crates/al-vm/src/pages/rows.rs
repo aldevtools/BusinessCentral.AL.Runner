@@ -239,6 +239,7 @@ impl Session {
             return unsupported(why);
         }
         let pinned = self.caption_expressions_pinned(st);
+        let first = std::mem::take(&mut st.borrow_mut().field_captions_fill_first);
         if !st.borrow().field_captions_opened {
             st.borrow_mut().field_captions_opened = true;
             if !pinned {
@@ -261,8 +262,16 @@ impl Session {
             // The other rows the open reads and a Next() run no expression, and Caption() keeps the open's value
             // (QdCaptionClassAreas.al:591-630 QF_List_OpenView `rest=20@3;23@3;24@3;`, `next_calls = id0>0=No fields0= rest=`,
             // `next_exprId = Id 3` on row 5; QF_List_OpenEdit, QF_ListPart_OnCard, QF_Card_Next).
-            let quiet = !st.borrow().field_captions_settled || st.borrow().moving_next;
-            if !pinned || !quiet {
+            // A refill after a SetValue of the host's link field that finds no row (a new line only) runs nothing
+            // (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue = empty>0=No ... rest=`, `no_exprA = Line 0`). After a
+            // CurrPage.Update of the host the part's captions follow (Microsoft's ERM Purchase Order
+            // PurchaseOrderChangePricesInclVATRefreshesPage, on a document without lines): that fill runs them.
+            let empty_refill = first && {
+                let s = st.borrow();
+                s.field_captions_link_refill && (s.cursor != Cursor::Row || s.draft)
+            };
+            let quiet = empty_refill || (!first && (!st.borrow().field_captions_settled || st.borrow().moving_next));
+            if !pinned || !(quiet || first) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
             }
             if quiet {
@@ -294,6 +303,35 @@ impl Session {
         Ok(())
     }
 
+    /// A move that saved the changed row runs the CaptionClass expressions once for each control with the saved row, before it
+    /// moves on, and `Caption()` then reads those (QdCaptionClassAreas.al:986-1020 QO_Doc_OpenEdit_PartSteps `part_next =
+    /// rest=70@1;71@1;`, :1110-1137 QO_Card_OpenEdit `next = rest=20@3;...`, corpus bump 45: a SetValue, then Next()). Another
+    /// move after a change is not pinned.
+    fn caption_expressions_after_save(&mut self, st: &St, next: bool) -> Result<(), Signal> {
+        if !st.borrow().field_captions_opened {
+            return Ok(());
+        }
+        // Pinned for a Card and a ListPart (on a Document page); a Document page's own Next() after a change is not.
+        let shape = {
+            use al_ir::PageType;
+            let facts = &self.engine.object_facts;
+            let s = st.borrow();
+            match (facts[s.object as usize].page_type.as_ref(), s.host.is_some()) {
+                (Some(PageType::Card), false) => true,
+                (Some(PageType::Other(t)), true) => t == "listpart",
+                _ => false,
+            }
+        };
+        if !next || !shape {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
+            return Ok(());
+        }
+        st.borrow_mut().field_captions_fill_first = true;
+        let r = self.fill_field_caption_expressions(st);
+        st.borrow_mut().field_captions_fill_first = false;
+        r
+    }
+
     /// The page shapes whose CaptionClass expression runs are pinned (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al): a
     /// Card opened with OpenView (Page_ControlCaptions, QF_Card_Next), a List opened with OpenView, OpenEdit or by Page.Run
     /// (QF_List_OpenView, QF_List_OpenEdit, QF_List_PageRun) and a ListPart on a Card opened with OpenView (QF_ListPart_OnCard).
@@ -304,12 +342,18 @@ impl Session {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         let mode = st.borrow().mode;
         match (page_type(st), host) {
-            (Some(PageType::Card), None) => mode == PageMode::View,
+            // A Card opened with OpenEdit too (QdCaptionClassAreas.al:1110-1137 QO_Card_OpenEdit, corpus bump 45).
+            (Some(PageType::Card), None) => matches!(mode, PageMode::View | PageMode::Edit),
+            // A Document page and its ListPart opened with OpenEdit or OpenNew (QdCaptionClassAreas.al:958-1110, corpus bump 45).
+            (Some(PageType::Document), None) => matches!(mode, PageMode::Edit | PageMode::New),
             (Some(PageType::List), None) => matches!(mode, PageMode::View | PageMode::Edit) && !st.borrow().modal,
             (Some(PageType::Other(t)), Some(h)) if t == "listpart" => {
-                matches!(page_type(&h), Some(PageType::Card))
-                    && h.borrow().host.is_none()
-                    && h.borrow().mode == PageMode::View
+                h.borrow().host.is_none()
+                    && match page_type(&h) {
+                        Some(PageType::Card) => h.borrow().mode == PageMode::View,
+                        Some(PageType::Document) => matches!(h.borrow().mode, PageMode::Edit | PageMode::New),
+                        _ => false,
+                    }
             }
             _ => false,
         }
@@ -988,6 +1032,10 @@ impl Session {
             }
         }
         // Leaving a row saves it.
+        let saves_row = {
+            let s = st.borrow();
+            s.cursor == Cursor::Row && s.dirty && !s.draft
+        } && !Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st));
         let anchor = st.borrow_mut().after_new.take();
         let writes = self.write_mark();
         let (left, origin) = self.traced(st, |s| s.leave_row(st, how));
@@ -1008,6 +1056,9 @@ impl Session {
             }
             (left, _) => left?,
         };
+        if saves_row {
+            self.caption_expressions_after_save(st, how == PageMethod::Next)?;
+        }
         if let Left::Stay = left {
             return Ok(Value::Boolean(false));
         }

@@ -3179,17 +3179,15 @@ impl Session {
                 let new_value = match args.get(1) {
                     // Validate of an Option field with a BigInteger beyond Integer raises Overflow, where an assignment raises
                     // ConversionCast (types/lt-implicit-conversions/P79BigOption.al:284-302 Field_ValidateBigToOption). An Enum
-                    // field is not pinned.
+                    // field takes a BigInteger only through FieldRef.Validate (a Variant parameter), and raises the same
+                    // (types/lt-bigint-enum-option/BigIntToEnumOption.al:449-463 QO_Variant_ToEnumFieldRef_Validate).
                     Some(Value::BigInteger(n))
-                        if i32::try_from(*n).is_err() && matches!(field.ty, RtType::Option(_)) =>
+                        if i32::try_from(*n).is_err() && matches!(field.ty, RtType::Option(_) | RtType::Enum(_)) =>
                     {
                         return al_builtins::native::raise(
                             "Arithmetic operation resulted in an overflow.",
                             "AL:Overflow",
                         );
-                    }
-                    Some(Value::BigInteger(n)) if i32::try_from(*n).is_err() && matches!(field.ty, RtType::Enum(_)) => {
-                        return unsupported("Validate of an Enum field with a BigInteger beyond Integer (not pinned)");
                     }
                     Some(v) => Some(ops::convert(v.clone(), &field.ty)?),
                     None => None,

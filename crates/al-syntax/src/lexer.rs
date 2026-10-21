@@ -296,6 +296,7 @@ impl Lexer<'_> {
             '>' => Gt,
             '?' => Question,
             '|' => Pipe,
+            '&' => Amp,
             _ => Error,
         };
         self.pos += ch.len_utf8();
@@ -550,6 +551,25 @@ mod tests {
         assert_eq!(
             significant("'ä — ü' x // ✓"),
             vec![(StringLit, "'ä — ü'"), (Ident, "x")]
+        );
+    }
+
+    /// `&` joins terms in a TableRelation filter (record/lt-table-relation-quotes/TableRelationQuotes.al:65,
+    /// `filter(<> A & <> "B C")`).
+    #[test]
+    fn filter_ampersand() {
+        assert_eq!(
+            significant("filter(<> A & <> \"B C\")"),
+            vec![
+                (Ident, "filter"),
+                (LParen, "("),
+                (Neq, "<>"),
+                (Ident, "A"),
+                (Amp, "&"),
+                (Neq, "<>"),
+                (QuotedIdent, "\"B C\""),
+                (RParen, ")"),
+            ]
         );
     }
 

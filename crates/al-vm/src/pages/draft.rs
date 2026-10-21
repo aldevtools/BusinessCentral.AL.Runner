@@ -755,8 +755,18 @@ impl Session {
         }
         // The parts of a new host row link to it once it is stored, with the number its OnInsert
         // gave it (corpus handlers/TestPageOpenNewPartLink.al).
+        // That refill is a link change: a part that then has no row runs no CaptionClass expression (QdCaptionClassAreas.al:
+        // 1068-1100 QO_Doc_OpenNew `close = empty>0=No ... rest=`).
         if !st.borrow().parts.is_empty() {
-            self.sync_parts(st)?;
+            let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = true;
+            }
+            let r = self.sync_parts(st);
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = false;
+            }
+            r?;
         }
         Ok(())
     }
