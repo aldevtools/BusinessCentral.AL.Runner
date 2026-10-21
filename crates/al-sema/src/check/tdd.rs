@@ -483,6 +483,17 @@ codeunit 50101 "Helper"
     const RET: &str = "local procedure R(): Decimal begin exit(Target.Ret()); end;";
 
     fn compile_with(vars: &str, body: &str, extra: &str, tdd: bool) -> (crate::Workspace, crate::lower::Lowered) {
+        compile_full("", vars, body, extra, tdd)
+    }
+
+    /// As [`compile_with`], with `objects` as one more file of the app.
+    fn compile_full(
+        objects: &str,
+        vars: &str,
+        body: &str,
+        extra: &str,
+        tdd: bool,
+    ) -> (crate::Workspace, crate::lower::Lowered) {
         let test = format!(
             "codeunit 50110 \"T\"\n{{\n    Subtype = Test;\n    var\n        Target: Codeunit \"Target\";\n        Helper: Codeunit \"Helper\";\n    [Test]\n    procedure P()\n    var\n        I: Integer;\n        T: Text;\n        B: Boolean;\n{vars}\n    begin\n{body}\n    end;\n    {extra}\n}}\n"
         );
@@ -491,7 +502,11 @@ codeunit 50101 "Helper"
                 id: "a".into(),
                 name: "a".into(),
                 dependencies: vec![],
-                files: vec![("t.al".into(), TARGET.into()), ("test.al".into(), test)],
+                files: vec![
+                    ("t.al".into(), TARGET.into()),
+                    ("o.al".into(), objects.into()),
+                    ("test.al".into(), test),
+                ],
             }],
             vec![AppKind::Workspace],
             &Default::default(),
@@ -501,6 +516,116 @@ codeunit 50101 "Helper"
                 ..Default::default()
             },
         )
+    }
+
+    /// Objects whose procedures a test calls through each kind of receiver.
+    const RECEIVERS: &str = r#"
+table 50120 "Item"
+{
+    fields { field(1; "No."; Code[20]) { } }
+    procedure Existing(): Integer
+    begin
+        exit(1);
+    end;
+    procedure UsesRec(): Integer
+    begin
+        exit(Rec.ViaRec());
+    end;
+}
+page 50121 "Card"
+{
+    SourceTable = "Item";
+    procedure Existing()
+    begin
+    end;
+    procedure UsesCurrPage(): Integer
+    begin
+        exit(CurrPage.ViaCurrPage());
+    end;
+}
+report 50122 "Rep"
+{
+    procedure Existing()
+    begin
+    end;
+}
+interface "Ifc"
+{
+    procedure Existing();
+}
+"#;
+
+    fn full_stubs(objects: &str, vars: &str, body: &str) -> Vec<String> {
+        compile_full(objects, vars, body, RET, true).1.program.tdd_stubs.clone()
+    }
+
+    fn full_reasons(objects: &str, vars: &str, body: &str) -> Vec<String> {
+        let (ws, l) = compile_full(objects, vars, body, RET, true);
+        let oi = ws.objects.iter().position(|o| o.id == Some(50110)).expect("test codeunit");
+        l.unsupported[oi].iter().flatten().cloned().collect()
+    }
+
+    #[test]
+    fn a_missing_procedure_on_a_record_page_report_rec_currpage_this_or_the_object_itself_is_a_stub() {
+        let vars = "Item: Record \"Item\"; Pg: Page \"Card\"; Rp: Report \"Rep\";";
+        let body = "I := Item.OnRecord(); I := Pg.OnPage(); Rp.OnReport(I); I := Local1(2); B := this.OnThis();";
+        let mut want: Vec<String> = [
+            r#"Item: procedure "OnRecord"(): Integer"#,
+            r#"Item: procedure "ViaRec"(): Integer"#,
+            r#"Card: procedure "OnPage"(): Integer"#,
+            r#"Card: procedure "ViaCurrPage"(): Integer"#,
+            r#"Rep: procedure "OnReport"(Arg1: Integer)"#,
+            r#"T: procedure "Local1"(Arg1: Integer): Integer"#,
+            r#"T: procedure "OnThis"(): Boolean"#,
+            r#"Target: procedure "Ret"(): Decimal"#,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        want.sort();
+        assert_eq!(full_stubs(RECEIVERS, vars, body), want);
+        assert!(full_reasons(RECEIVERS, vars, body).is_empty(), "{:?}", full_reasons(RECEIVERS, vars, body));
+    }
+
+    #[test]
+    fn no_overload_with_the_call_s_argument_count_gives_a_stub_overload() {
+        let got = stubs("", "I := Target.Existing(5); I := Target.Existing();");
+        assert_eq!(
+            got,
+            vec![
+                r#"Target: procedure "Existing"(Arg1: Integer): Integer"#.to_string(),
+                r#"Target: procedure "Ret"(): Decimal"#.to_string()
+            ]
+        );
+        // A local procedure called with another count, too.
+        let got = full_stubs("", "", "I := R(1);");
+        assert!(got.contains(&r#"T: procedure "R"(Arg1: Integer): Integer"#.to_string()), "{got:?}");
+    }
+
+    #[test]
+    fn a_testpage_an_interface_or_a_builtin_type_gets_no_stub_and_stays_refused() {
+        let cases: &[(&str, &str)] = &[
+            ("TP: TestPage \"Card\";", "TP.Missing();"),
+            ("If: Interface \"Ifc\";", "If.Missing();"),
+            ("", "I := T.Missing();"),
+            ("L: List of [Integer];", "I := L.Missing();"),
+        ];
+        for (vars, body) in cases {
+            let got = full_stubs(RECEIVERS, vars, body);
+            assert!(!got.iter().any(|s| s.contains("Missing")), "{body}: {got:?}");
+            assert!(!full_reasons(RECEIVERS, vars, body).is_empty(), "{body}");
+        }
+    }
+
+    #[test]
+    fn without_tdd_the_new_receivers_stay_errors() {
+        let vars = "Item: Record \"Item\";";
+        for body in ["I := Item.OnRecord();", "I := Local1(2);", "I := Target.Existing(5);"] {
+            let (ws, l) = compile_full(RECEIVERS, vars, body, "", false);
+            let oi = ws.objects.iter().position(|o| o.id == Some(50110)).unwrap();
+            assert!(l.unsupported[oi].iter().flatten().next().is_some(), "{body}");
+            assert!(l.program.tdd_stubs.is_empty());
+        }
     }
 
     fn stubs(vars: &str, body: &str) -> Vec<String> {
