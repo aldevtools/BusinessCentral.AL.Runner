@@ -7,6 +7,51 @@ const FIXTURES: &str = r#"
 // UseLax (YXmlPortProps.al:67, :87).
 xmlport 60091 "ALT Lax" { Format = Xml; UseLax = true; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
 xmlport 60092 "ALT Strict" { Format = Xml; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
+// MinOccurs and MaxOccurs on container text elements (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122).
+table 60093 "ALT Occ Head" { fields { field(1; "No."; Code[10]) { } field(2; Name; Text[30]) { } } keys { key(PK; "No.") { } } }
+table 60094 "ALT Occ Line" { fields { field(1; "Head No."; Code[10]) { } field(2; "Line No."; Integer) { } field(3; Qty; Integer) { } } keys { key(PK; "Head No.", "Line No.") { } } }
+xmlport 60095 "ALT Occ"
+{
+    Direction = Both; Format = Xml; Encoding = UTF8; UseRequestPage = false;
+    schema
+    {
+        textelement(envelope)
+        {
+            MaxOccurs = Once;
+            textelement(request)
+            {
+                MinOccurs = Once; MaxOccurs = Once;
+                tableelement(head; "ALT Occ Head")
+                {
+                    UseTemporary = true; MinOccurs = Zero; MaxOccurs = Unbounded;
+                    fieldattribute(no; head."No.") { }
+                    fieldelement(name; head.Name) { MinOccurs = Zero; MaxOccurs = Once; }
+                    textelement(lines)
+                    {
+                        MinOccurs = Zero; MaxOccurs = Once;
+                        tableelement(line; "ALT Occ Line")
+                        {
+                            UseTemporary = true; MinOccurs = Zero; MaxOccurs = Unbounded;
+                            LinkTable = head; LinkFields = "Head No." = field("No.");
+                            fieldattribute(n; line."Line No.") { }
+                            fieldelement(qty; line.Qty) { }
+                        }
+                    }
+                }
+            }
+            textelement(status) { MinOccurs = Zero; MaxOccurs = Once; }
+        }
+    }
+    procedure AddHead(No: Code[10]; NewName: Text[30]) begin head.Init(); head."No." := No; head.Name := NewName; head.Insert(); end;
+    procedure AddLine(HeadNo: Code[10]; LineNo: Integer; NewQty: Integer) begin line.Init(); line."Head No." := HeadNo; line."Line No." := LineNo; line.Qty := NewQty; line.Insert(); end;
+    procedure Rows() Result: Text
+    begin
+        head.Reset(); if head.FindSet() then repeat Result += head."No." + ':' + head.Name + ';'; until head.Next() = 0;
+        Result += ' ';
+        line.Reset(); if line.FindSet() then repeat Result += line."Head No." + '/' + Format(line."Line No.") + '=' + Format(line.Qty) + ';'; until line.Next() = 0;
+        Result += ' status=' + status;
+    end;
+}
 
 table 60000 "ALT Universal"
 {
@@ -1576,5 +1621,102 @@ fn an_xml_import_into_an_enum_takes_an_undeclared_ordinal_and_names_the_captions
     assert_eq!(
         imp("Two"),
         "No|'Two' is not an option. The existing options are: Zero cap,One cap|InvalidOptionString|0|0"
+    );
+}
+
+const OCC_VARS: &str = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; OutStr: OutStream; P: XmlPort \"ALT Occ\";";
+
+fn occ_export(setup: &str) -> String {
+    text(
+        OCC_VARS,
+        &format!(
+            "{setup} B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); P.SetDestination(OutStr); P.Export(); B.Modify();
+             exit(H.ReadAll(B));"
+        ),
+    )
+}
+
+fn occ_import(body: &str) -> String {
+    text(
+        OCC_VARS,
+        &format!(
+            "H.Stage(B, InStr, '<?xml version=\"1.0\" encoding=\"UTF-8\"?>{body}'); P.SetSource(InStr); P.Import(); exit(P.Rows());"
+        ),
+    )
+}
+
+fn occ_import_error(body: &str) -> String {
+    match run(
+        OCC_VARS,
+        &format!(
+            "H.Stage(B, InStr, '<?xml version=\"1.0\" encoding=\"UTF-8\"?>{body}'); P.SetSource(InStr); P.Import(); exit('');"
+        ),
+    ) {
+        Err(Signal::Error(e)) => format!("{}|{}", e.message, e.code),
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+// QrXpContainerOccurs.al:QR_Export_NoRows, QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond: every container is
+// written once, also when empty.
+#[test]
+fn an_export_writes_every_container_once_also_when_empty() {
+    assert_eq!(
+        occ_export(""),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><envelope>  <request />  <status /></envelope>"
+    );
+    assert_eq!(
+        occ_export("P.AddHead('H1', ''); P.AddHead('H2', 'two'); P.AddLine('H2', 10, 1); P.AddLine('H9', 10, 9);"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><envelope>  <request>    <head no=\"H1\">      <name />      <lines />    </head>    <head no=\"H2\">      <name>two</name>      <lines>        <line n=\"10\">          <qty>1</qty>        </line>      </lines>    </head>  </request>  <status /></envelope>"
+    );
+}
+
+// QrXpContainerOccurs.al:QR_Import_Present: containers absent or once as their MinOccurs allows; every line of a lines
+// container is linked to its head.
+#[test]
+fn an_import_takes_each_container_absent_or_once() {
+    assert_eq!(occ_import("<envelope><request/></envelope>"), "  status=");
+    assert_eq!(
+        occ_import("<envelope><request></request><status>s</status></envelope>"),
+        "  status=s"
+    );
+    assert_eq!(
+        occ_import("<envelope><request><head no=\"H1\"/></request></envelope>"),
+        "H1:;  status="
+    );
+    assert_eq!(
+        occ_import(
+            "<envelope><request><head no=\"H1\"><name>one</name><lines><line n=\"10\"><qty>5</qty></line><line n=\"20\"><qty>7</qty></line></lines></head><head no=\"H2\"><lines><line n=\"10\"><qty>1</qty></line></lines></head></request></envelope>"
+        ),
+        "H1:one;H2:; H1/10=5;H1/20=7;H2/10=1; status="
+    );
+}
+
+// QrXpContainerOccurs.al:QR_Import_MissingOrTwoRequests, QR_Import_Repeated: a missing required container or a second one fails
+// the schema check.
+#[test]
+fn an_import_of_a_missing_or_repeated_container_fails_the_schema_check() {
+    let pre = "Imported XML cannot validate with the schema: ";
+    assert_eq!(
+        occ_import_error("<envelope></envelope>"),
+        format!(
+            "{pre}The element 'envelope' has incomplete content. List of possible elements expected: 'request'.|XmlPortInvalidXml"
+        )
+    );
+    assert_eq!(
+        occ_import_error("<envelope><request/><request/></envelope>"),
+        format!(
+            "{pre}The element 'envelope' has invalid child element 'request'. List of possible elements expected: 'status'.|XmlPortInvalidXml"
+        )
+    );
+    assert_eq!(
+        occ_import_error("<envelope><request><head no=\"H1\"><lines/><lines/></head></request></envelope>"),
+        format!("{pre}The element 'head' has invalid child element 'lines'.|XmlPortInvalidXml")
+    );
+    assert_eq!(
+        occ_import_error("<envelope><request><head no=\"H1\"><name>a</name><name>b</name></head></request></envelope>"),
+        format!(
+            "{pre}The element 'head' has invalid child element 'name'. List of possible elements expected: 'lines'.|XmlPortInvalidXml"
+        )
     );
 }

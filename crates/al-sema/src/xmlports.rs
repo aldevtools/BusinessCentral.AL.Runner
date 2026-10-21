@@ -106,12 +106,15 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "autoupdate",
             "autoreplace",
             "usetemporary",
+            "minoccurs",
+            "maxoccurs",
         ],
         // `Unbound = true` on a field or text node changes neither the import nor the export of a field or text attribute
         // (xmlport/lt-y-xmlport-props/YXmlPortProps.al:682-722); the export of an unbound field element is refused when it runs.
         ir::XmlNodeKind::Field => &[
             "xmlname",
             "minoccurs",
+            "maxoccurs",
             "width",
             "namespaceprefix",
             "autocalcfield",
@@ -119,7 +122,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
         ],
         ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound"],
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound"],
-        _ => &["xmlname"],
+        ir::XmlNodeKind::Text => &["xmlname", "minoccurs", "maxoccurs"],
     }
 }
 
@@ -266,6 +269,11 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .push(format!("xmlport section {other} is not supported yet")),
         }
     }
+    for i in 0..out.nodes.len() {
+        if let Some(why) = occurs_refusal(&out, i) {
+            out.run_reasons.push(why);
+        }
+    }
     out
 }
 
@@ -397,6 +405,52 @@ fn table_object(cx: &Context, name: &str) -> Option<usize> {
 
 /// The IR of xmlport `cx.oi`. `reasons` are what the schema walk and the lowering of the
 /// element variables already found.
+/// The `MinOccurs` and `MaxOccurs` values the corpus pins, per kind of node; any other value, or either property on another kind of node,
+/// refuses running the port (not declaring it). Pinned:
+/// - a leaf text element: MinOccurs Zero or Once, MaxOccurs Once or Unbounded (xmlport/W7XmlPortTests.al:111-149,
+///   misc/lt-probes-needed-3/PnC19XmlPort.al:526-540);
+/// - a container text element below the root: MinOccurs Zero or Once, MaxOccurs Once; the root: MaxOccurs Once
+///   (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122, QR_Export_*, QR_Import_*);
+/// - a table element below a text element: MinOccurs Zero, MaxOccurs Unbounded; a field element: MaxOccurs Once (the same file,
+///   :78-88, :97-99).
+fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
+    use ir::XmlNodeKind as K;
+    let raw = &layout.nodes[i];
+    let leaf = !layout.has_children(i);
+    let root = raw.parent.is_none();
+    let (min_ok, max_ok): (&[&str], &[&str]) = match raw.kind {
+        K::Text if root => (&[], &["once"]),
+        K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
+        K::Text => (&["zero", "once"], &["once"]),
+        // Below a table element (a nested table element) neither is pinned: its trigger order is not yet what BC does
+        // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, Import_TriggerOrder_NewRows).
+        K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => (&[], &[]),
+        K::Table => (&["zero"], &["unbounded"]),
+        // MinOccurs of a field element was already read before these pins (any value).
+        K::Field => (&["zero", "once"], &["once"]),
+        _ => return None,
+    };
+    let kind = match raw.kind {
+        K::Text if leaf => "textelement",
+        K::Text => "container textelement",
+        K::Table => "tableelement",
+        _ => "fieldelement",
+    };
+    for (prop, ok) in [("MinOccurs", min_ok), ("MaxOccurs", max_ok)] {
+        if let Some(v) = layout.property(i, prop) {
+            let v = v.trim().to_ascii_lowercase();
+            if !ok.contains(&v.as_str()) {
+                return Some(format!(
+                    "property {} = {v} of {kind} {} is not supported (not pinned)",
+                    prop.to_ascii_lowercase(),
+                    raw.name
+                ));
+            }
+        }
+    }
+    None
+}
+
 pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     let layout = cx.layout;
     let mut run_reasons = layout.run_reasons.clone();
@@ -435,6 +489,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             min_zero: layout
                 .property(i, "MinOccurs")
                 .is_some_and(|v| v.trim().eq_ignore_ascii_case("zero")),
+            max_unbounded: layout
+                .property(i, "MaxOccurs")
+                .map(|v| v.trim().eq_ignore_ascii_case("unbounded")),
             width: layout.property(i, "Width").and_then(|v| v.trim().parse().ok()),
             ns_prefix: layout
                 .property(i, "NamespacePrefix")
@@ -642,6 +699,42 @@ mod tests {
             names,
             vec![("Docs", None), ("T", Some(0)), ("A", Some(1)), ("B", Some(1))]
         );
+    }
+
+    // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
+    // a nested table element's MinOccurs (XmlPortTriggerFlow.al:93) and a container's MaxOccurs = Unbounded are not pinned.
+    #[test]
+    fn only_the_pinned_occurs_values_run() {
+        let ok = layout_of(
+            "xmlport 1 X { schema { textelement(R) { MaxOccurs = Once; textelement(Q) { MinOccurs = Once; MaxOccurs = Once; tableelement(H; Cust) { MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; H.X) { MinOccurs = Zero; MaxOccurs = Once; } } } textelement(S) { MinOccurs = Zero; MaxOccurs = Unbounded; } } } }",
+        );
+        assert!(ok.run_reasons.is_empty(), "{:?}", ok.run_reasons);
+        for (src, want) in [
+            (
+                "textelement(R) { textelement(Q) { MaxOccurs = Unbounded; textelement(L) { } } }",
+                "maxoccurs = unbounded of container textelement Q",
+            ),
+            (
+                "textelement(R) { MinOccurs = Zero; textelement(L) { } }",
+                "minoccurs = zero of container textelement R",
+            ),
+            (
+                "textelement(R) { tableelement(H; Cust) { MinOccurs = Once; } }",
+                "minoccurs = once of tableelement H",
+            ),
+            (
+                "textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } }",
+                "minoccurs = zero of tableelement C",
+            ),
+            (
+                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MaxOccurs = Unbounded; } } }",
+                "maxoccurs = unbounded of fieldelement N",
+            ),
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));
+            let all = l.run_reasons.join("; ");
+            assert!(all.contains(want), "{src}: {all}");
+        }
     }
 
     #[test]
