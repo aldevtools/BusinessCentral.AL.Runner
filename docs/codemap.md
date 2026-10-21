@@ -223,6 +223,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 
 ### al-testrun
 
+- `affected.rs` (490): `--affected` (ADR-050): the stored result of the last run (`Stored`, `Header`, per workspace object its `ObjectFacts` with the symbolic IR hash, per test codeunit its trace keys, entered objects and outcomes; JSON, `FORMAT`), the rule that picks the test codeunits a change can affect or forces a full run with a reason (`Stored::select`), and the update after a run (`Stored::merge`). Pure; the file is the command line's. Entry: `Stored`, `select`, `merge`, `header_mismatch`.
 - `baseline.rs` (440): The install baseline (ADR-013 decision 5, ADR-046): the dependency apps' install code (`install::plan`), Company-Initialize, then the apps under test (`install::run_apps_under_test`), captured once. Entry: `BaselineRun` 23, `run` 99, `tables_written` 238.
 - `compile_cache.rs` (220): The OS side of the compile cache (ADR-022): the key of a run (hash of the executable and of each app's source), reading, writing (temporary file, rename) and building the entry file. Entry: `CompileCache` 14, `key_for` 83, `read_entry` 108, `write_entry` 128, `open_or_build` 170.
 - `cache_gc.rs` (412): Cleanup of the compile cache folder (ADR-022 amendment): other-build entries after 7 days, any entry after 30, old temp files after 1 day; automatic once a day within 200 ms (`al-runner test`), by hand with `al-runner cache prune|info`. Stat only, never reads an entry. Entry: `prune`, `auto_prune`, `info`.
