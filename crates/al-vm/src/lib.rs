@@ -531,11 +531,12 @@ pub struct Session {
     /// The parameters of the routine that just failed with an error, as it left them:
     /// the caller writes its `var` arguments back before it handles the error.
     pub(crate) error_finals: Option<Vec<Value>>,
-    /// The scalar globals passed by `var` to a procedure call that is still running: (instance, global slot). BC passes the
-    /// argument by reference, the runtime copies it in and back; the two differ only when code reaches the global by its own
-    /// name while the call runs, and only the event form of that is pinned (events/lt-event-var-through-sender). Such an
-    /// access is refused (`interp::alias_access`). Empty almost always, so the check on a global access is one length test.
-    pub(crate) var_alias_watch: Vec<(Rc<RefCell<Instance>>, usize)>,
+    /// The scalar globals passed by `var` to a procedure call that is still running. BC passes the argument by reference,
+    /// the runtime copies it in and back; the two differ only when code reaches the global by its own name while the call
+    /// runs. To a procedure of the same instance the callee's parameter aliases the global (`interp::alias_access`,
+    /// codeunit/lt-var-global-alias/VarGlobalAlias.al); to another instance such an access is refused. Empty almost always,
+    /// so the check on a global access is one length test.
+    pub(crate) var_alias_watch: Vec<AliasWatch>,
     /// The transaction model of the running test method (set by the test runner).
     pub tx_model: TxModel,
     /// Whether a test codeunit is executing (a test codeunit cannot be run from one).
@@ -1697,13 +1698,22 @@ pub(crate) struct CallFrame {
     pub(crate) pos: u32,
 }
 
+/// A global passed by `var` to a running procedure call (`Session::var_alias_watch`).
+pub(crate) struct AliasWatch {
+    pub(crate) instance: Rc<RefCell<Instance>>,
+    pub(crate) global: usize,
+    /// `None`: the callee is of another instance, and reaching the global by its name is refused. `Some(true)`: the
+    /// callee's parameter aliases it and holds the value; `Some(false)`: a call the callee made runs, and the global holds it.
+    pub(crate) live: Option<bool>,
+}
+
 struct Frame {
     object: usize,
     routine: usize,
     instance: Rc<RefCell<Instance>>,
     locals: Vec<Value>,
-    /// `var` parameters of an event subscriber that are the publisher's global variables: (parameter slot, instance, global
-    /// slot). Kept in step with the global around every call the frame makes (`finish_call`), so a change the sender makes to
+    /// `var` parameters of an event subscriber that are the publisher's global variables, or of a procedure that got a global
+    /// of its own instance by `var`: (parameter slot, instance, global slot). Kept in step with the global around every call the frame makes (`finish_call`), so a change the sender makes to
     /// the global shows in the parameter and the other way round (corpus events/lt-event-var-through-sender).
     aliases: Vec<(usize, Rc<RefCell<Instance>>, usize)>,
     /// Per parameter: what `MaxStrLen` of a `var` Text or Code parameter answers, the declared length of the variable or
