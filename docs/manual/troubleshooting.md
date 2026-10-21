@@ -60,7 +60,8 @@ used, and the message names it.
 ## `-v: no such file or folder`
 
 The short flags `-v` and `-q` appear in `--help` but are read as app paths in
-`3.0.0-alpha.3`. Use `--verbose` and `--quiet`.
+`3.0.0-alpha.3`
+([issue 5618](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5618)). Use `--verbose` and `--quiet`.
 
 ## Two versions of `al-runner`
 
