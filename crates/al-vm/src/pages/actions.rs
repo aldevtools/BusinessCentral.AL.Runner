@@ -610,7 +610,9 @@ impl Session {
         // One that was pending before the action is not pinned and keeps its code.
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
-        match self.action_invoke_body(st, idx) {
+        let r = self.action_invoke_body(st, idx);
+        self.action_save_captions_done(st);
+        match r {
             Err(Signal::Error(mut e))
                 if !pending_before && self.tx.deferred_raised > raised_before && e.code == "DB:RecordExists" =>
             {
@@ -698,9 +700,21 @@ impl Session {
             self.save_row(st)?;
         }
         if was_dirty && !self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !dirty_reread_only {
+            // On a Document page this save runs the host's CaptionClass expressions and not the part's
+            // (`fill_field_caption_expressions`, QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps).
+            let doc = st.borrow().host.is_none()
+                && st.borrow().field_captions_opened
+                && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Document);
+            if doc {
+                st.borrow_mut().field_captions_action_save = 1;
+            }
             st.borrow_mut().refresh = true;
             st.borrow_mut().refresh_by_update = false;
-            self.run_refresh(st)?;
+            let r = self.run_refresh(st);
+            if doc {
+                st.borrow_mut().field_captions_action_save = 2;
+            }
+            r?;
             st.borrow_mut().refresh = false;
         }
         // The client reads the row it stands on before an action runs (corpus
@@ -1631,6 +1645,15 @@ impl Session {
     /// row nobody has saved has nothing to re-read (corpus pageupdate/TestPageUpdateNewRow.al:1-30,
     /// TestPageUpdateGoneRow.al StoredRow_OnValidateUpdateFalse_Trace). The row is read from the
     /// table unless the client holds edits of it that are not saved yet.
+    /// The end of an action that saved a SetValue of a Document page before its trigger: without a CurrPage.Update in the
+    /// trigger the part's CaptionClass expressions did not run again, and whether BC runs them then is not pinned
+    /// (page-open-caption-class-expressions).
+    fn action_save_captions_done(&mut self, st: &St) {
+        if std::mem::take(&mut st.borrow_mut().field_captions_action_save) == 2 {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
+        }
+    }
+
     pub(super) fn run_refresh(&mut self, st: &St) -> Result<(), Signal> {
         let without_curr = std::mem::take(&mut st.borrow_mut().refresh_without_curr);
         let without_parts = std::mem::take(&mut st.borrow_mut().refresh_without_parts);

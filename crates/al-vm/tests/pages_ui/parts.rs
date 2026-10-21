@@ -1232,3 +1232,33 @@ fn a_host_new_over_an_empty_part_with_on_after_get_curr_record_is_refused() {
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
+
+/// pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:534-597 QO_HostB_OpenNew_DelayedPart_NoThenType and
+/// QO_HostB_OpenNew_PartB_NoThenType (corpus bump 45): a Card with a SourceTableView, opened with OpenNew, whose parts link on its
+/// key. Typing the key stores a header with a blank key (`after_no.headers = 1 [|A]`), and the card and the lines keep the blank
+/// key. That rule is not understood: the key SetValue is refused.
+#[test]
+fn a_key_typed_on_a_new_card_with_a_source_table_view_and_linked_parts_is_refused() {
+    let src = r#"
+table 51900 "VH Header" { fields { field(1; "No."; Code[10]) { } field(2; Type; Option) { OptionMembers = A,B; } } keys { key(PK; "No.") { } } }
+table 51901 "VH Line" { fields { field(1; "Doc No."; Code[10]) { } field(2; "Line No."; Integer) { } field(3; Descr; Text[20]) { } } keys { key(PK; "Doc No.", "Line No.") { } } }
+page 51902 "VH Lines" { PageType = ListPart; SourceTable = "VH Line"; AutoSplitKey = true;
+    layout { area(Content) { repeater(R) { field(Descr; Rec.Descr) { } } } } }
+page 51903 "VH Host" { PageType = Card; SourceTable = "VH Header"; SourceTableView = where(Type = const(B));
+    layout { area(Content) { field("No."; Rec."No.") { } field(Type; Rec.Type) { } part(Lines; "VH Lines") { SubPageLink = "Doc No." = field("No."); } } } }
+codeunit 51904 T {
+    procedure F(): Text
+    var H: TestPage "VH Host";
+    begin
+        H.OpenNew();
+        H."No.".SetValue('HN');
+        exit('ran');
+    end;
+}
+"#;
+    let r = al_testkit::run_in(src, "T", "F");
+    match r {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("SourceTableView"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}

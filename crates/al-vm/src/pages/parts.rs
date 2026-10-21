@@ -987,6 +987,14 @@ impl Session {
         // Only the shape of that file: one of the parts links a field whose TableRelation names another table than the
         // host's (its "Group Code"). A Card whose two parts both relate to the host (pages/lt-new-line-stamps-filters/
         // NewLineStampsFilters.al:289 PartB_OpenNewHeader_NoThenType) carries on as before.
+        // A Card with a SourceTableView: typing the key stores a header with a blank key, and the card and its parts' lines keep
+        // the blank key (NewLineStampsFilters.al:534-597 QO_HostB_OpenNew_DelayedPart_NoThenType, QO_HostB_OpenNew_PartB_NoThenType:
+        // `after_no.headers = 1 [|A]`, `typed = |A|A`, corpus bump 45). The rule is not understood: refused.
+        if new_card && linked_on_key >= 1 && self.engine.object_facts[st.borrow().object as usize].has_source_table_view {
+            return unsupported(
+                "a key field typed on a new Card row of a page with a SourceTableView, with parts linked on it (BC stores a row with a blank key; not modelled)",
+            );
+        }
         let foreign_relation = new_card && linked_on_key >= 2 && self.part_link_relates_elsewhere(st, pos)?;
         if foreign_relation {
             st.borrow_mut().dirty = true;
