@@ -226,6 +226,14 @@ impl ReachIndex {
                 }
             }
         }
+        // `events.subscribers` is a hash map: sort, so the walk visits subscribers in the same order on every run and
+        // names the same unknown part ("part of its reach is not known (X)") each time.
+        for subs in subscribers.values_mut() {
+            subs.sort_unstable();
+            subs.dedup();
+        }
+        global_triggers.sort_unstable();
+        global_triggers.dedup();
         ReachIndex {
             by_id,
             extensions,
