@@ -1583,3 +1583,29 @@ fn a_quoted_test_name_is_selected_by_its_al_name() {
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(text(&o).contains("Space Step"), "{}", text(&o));
 }
+
+/// Issues 5609 and 5607: the two isolation refusals say why (no corpus test pins BC's behavior) and what to use
+/// instead.
+#[test]
+fn isolation_refusals_say_why_and_what_to_use_instead() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("commit");
+    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005607", "Commit", &[]));
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50660 \"Commit Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure CommitCall()\n    begin\n        Commit();\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let message = |isolation: &str| -> String {
+        let o = alrunner(&["test", a, "--no-download", "--output-json", "--isolation", isolation]);
+        assert_eq!(code(&o), 7, "{}", text(&o));
+        json_of(&o)["tests"][0]["message"].as_str().unwrap().to_string()
+    };
+    let m = message("disabled");
+    assert!(m.contains("no corpus test pins") && m.contains("--isolation codeunit"), "{m}");
+    let m = message("test");
+    assert!(m.contains("no corpus test pins") && m.contains("--isolation codeunit"), "{m}");
+    let o = alrunner(&["test", a, "--no-download", "--isolation", "codeunit"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+}

@@ -206,7 +206,10 @@ pub(crate) fn run_codeunit_core(
     // for the next one (docs/probes-needed.md), so it is refused (hard rule 4).
     if isolation == TestIsolation::Disabled {
         return all(Outcome::NotRun(
-            "TestIsolation = Disabled: what the runner leaves between tests and test codeunits is not pinned".into(),
+            "TestIsolation = Disabled is not supported yet: no corpus test pins what BC keeps between tests and test \
+             codeunits in this mode (corpus issue 645). Run with TestIsolation = Codeunit (al-runner: --isolation codeunit, \
+             the default) or Function (--isolation test)"
+                .into(),
         ));
     }
     // A [TransactionModel] other than AutoCommit, AutoRollback or None is refused.
@@ -598,7 +601,10 @@ pub(crate) fn run_codeunit_core(
         // pinned (docs/probes-needed.md): a test that passed through one is not reported as run.
         let outcome = match outcome {
             Outcome::Pass if committed && checkpoint.is_some() => Outcome::NotRun(
-                "Commit inside a test under TestIsolation = Function: what the runner keeps is not pinned".into(),
+                "Commit inside a test under TestIsolation = Function is not supported yet: no corpus test pins whether \
+                 BC keeps the committed rows for the next test (corpus issue 645). Run this codeunit with TestIsolation = \
+                 Codeunit (al-runner: --isolation codeunit, the default)"
+                    .into(),
             ),
             o => o,
         };

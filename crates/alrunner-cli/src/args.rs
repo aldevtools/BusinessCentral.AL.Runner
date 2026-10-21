@@ -384,8 +384,10 @@ ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
-                         TestIsolation = Function does. `disabled`: not pinned, so every test is
-                         reported as not run.
+                         TestIsolation = Function does. A test that calls Commit() under `test`
+                         is reported as not run: whether BC keeps the committed rows for the next
+                         test is not pinned yet; run that codeunit with `codeunit`. `disabled`:
+                         not pinned yet, so every test is reported as not run.
 
 EXIT CODES
     0  every selected test passed
