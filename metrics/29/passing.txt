@@ -14197,3 +14197,8 @@
 87203 QQ_Invoke_VisibleTrueProc
 87203 QQ_ProcBound_EditMode
 87203 QQ_ProcBound_VisibleEnabled
+87266 QR_Card_OpenView_SetRangeFindFirst
+87266 QR_List_OpenView_SetRangeFindFirst
+87289 QR_Subscriber_OnAfterInsertEvent
+87289 QR_TableExt_OnAfterInsert
+87289 QR_TableExt_Triggers_InsertFalse
