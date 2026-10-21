@@ -7043,6 +7043,9 @@
 70177 QL_RecAssign_TempChanged_StaysOpen_Next
 70177 QL_RecAssign_TempChanged_ThenClose
 70177 QL_RecAssign_WarmUp
+70177 QN_CloseQ_List_OtherChanged_ThenTestPageClose
+70177 QN_CloseQ_Sheet_OtherChanged_ThenTestPageClose
+70177 QN_CloseQ_WarmUp
 70177 UpdateKeepsUnsavedEditOfTheRow
 70177 UpdateWithSaveKeepsEditOfTheRow
 70178 DefaultAndComparisons
@@ -14028,3 +14031,17 @@
 86889 QL_PartNew_WithoutLast
 86889 QL_SubPart_NewPartRow_PartModifiesHost
 86889 QL_SubPart_PartUpdate_HostRowUnchanged
+86889 QN_Default_HostEdited_PartUpdate_HostRowUnchanged
+86889 QN_PartAGR_LastNew
+86889 QN_PartAGR_Last_TwoLines
+86889 QN_PartAGR_NextNew
+86889 QN_PartDelayedOnly_LastNew
+86889 QN_PartDelayedOnly_NextNew
+86889 QN_PartNewOnly_Last_NoLines
+86889 QN_PartNoAGCR_Last_NoLines
+86889 QN_PartNoAGCR_NextNew
+86889 QN_PartPlain_LastNew
+86889 QN_PartPlain_NextNew
+86889 QN_PartSplitOnly_LastNew
+86889 QN_PartSplitOnly_NextNew
+86889 QN_SubPart_HostEdited_PartUpdate_HostRowUnchanged
