@@ -309,6 +309,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
             match e {
                 Expr::Const(_) | Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
                 Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
+                Expr::TddFit { inner, .. } => self.expr(inner),
                 Expr::Load(p) => self.place(p),
                 Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                     self.expr(a)
@@ -421,7 +422,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
                     }
                     Stmt::Exit(e) => e.iter().for_each(|e| self.expr(e)),
                     Stmt::AssertError(b) => self.stmts(b),
-                    Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) => {}
+                    Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => {}
                 }
             }
         }

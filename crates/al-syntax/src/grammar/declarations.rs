@@ -37,7 +37,7 @@ fn at_attributed_var_decl(p: &Parser) -> bool {
             }
         }
     }
-    n > 0 && at_name(p, n) && matches!(p.nth(n + 1), Colon | Comma)
+    n > 0 && at_var_decl_name(p, n) && matches!(p.nth(n + 1), Colon | Comma)
 }
 
 fn at_name(p: &Parser, n: usize) -> bool {
@@ -48,8 +48,50 @@ fn at_name(p: &Parser, n: usize) -> bool {
     }
 }
 
+/// The reserved words the latest AL compiler (30.0.42.60748, measured 2026-10-21) accepts as the name of a variable in
+/// a var section: `If: Integer;` compiles, and the variable is then used quoted (`"If" := 1;`). `begin`, `end`, `of`,
+/// `var`, `procedure`, `trigger` and `local` it rejects there.
+const VAR_NAME_KEYWORDS: &[&str] = &[
+    "if",
+    "then",
+    "else",
+    "case",
+    "while",
+    "do",
+    "repeat",
+    "until",
+    "for",
+    "to",
+    "downto",
+    "foreach",
+    "in",
+    "exit",
+    "and",
+    "or",
+    "xor",
+    "not",
+    "div",
+    "mod",
+    "with",
+    "asserterror",
+];
+
+/// Whether `word` (an `Ident`) can name a variable in a var section.
+fn at_var_name(word: &str) -> bool {
+    !is_reserved(word) || VAR_NAME_KEYWORDS.iter().any(|k| k.eq_ignore_ascii_case(word))
+}
+
+/// [`at_name`] for the name of a variable in a var section.
+fn at_var_decl_name(p: &Parser, n: usize) -> bool {
+    match p.nth(n) {
+        QuotedIdent => true,
+        Ident => at_var_name(p.nth_text(n)),
+        _ => false,
+    }
+}
+
 fn at_var_decl_start(p: &Parser) -> bool {
-    at_name(p, 0) && matches!(p.nth(1), Colon | Comma)
+    at_var_decl_name(p, 0) && matches!(p.nth(1), Colon | Comma)
 }
 
 fn var_decl(p: &mut Parser) {
@@ -393,6 +435,25 @@ mod tests {
             dump("protected var x: Boolean;", var_section),
             "(VarSection protected var (VarDecl x : (TypeRef Boolean) ;))"
         );
+    }
+
+    /// The latest AL compiler (30.0.42.60748, 2026-10-21) accepts these keywords as unquoted variable names (`If:
+    /// Integer;` in a var section compiles; using the variable unquoted, `If := 1;`, is AL0224 "Expression expected").
+    #[test]
+    fn keywords_the_compiler_accepts_as_variable_names() {
+        for w in VAR_NAME_KEYWORDS {
+            assert_eq!(
+                dump(&format!("var {w}: Integer; x: Integer;"), var_section),
+                format!("(VarSection var (VarDecl {w} : (TypeRef Integer) ;) (VarDecl x : (TypeRef Integer) ;))"),
+                "{w}"
+            );
+        }
+        // Used unquoted, the name is the keyword again: `If := 1;` is AL0224 there, a parse error here.
+        assert!(errors("begin If := 1; end", block) > 0);
+        // These it rejects as names; the section ends before them.
+        for w in ["begin", "end", "of", "var", "procedure", "trigger", "local"] {
+            assert!(!at_var_name(w), "{w}");
+        }
     }
 
     #[test]

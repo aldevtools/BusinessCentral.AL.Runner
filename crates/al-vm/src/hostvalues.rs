@@ -76,6 +76,13 @@ impl Session {
                 // A negative wait is not pinned.
                 Some(Value::Integer(n)) if *n >= 0 => {
                     self.waited_ms += i64::from(*n);
+                    // The time asked for counts toward the test's time limit (al-runner issue 5605): past it, the test
+                    // is stopped the way the CPU limit stops it, so a retry loop around Sleep whose exit never comes ends.
+                    self.slept_in_test = self.slept_in_test.saturating_add(i64::from(*n));
+                    if self.sleep_budget_passed() {
+                        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                        return Some(Err(Signal::Unsupported(crate::STOPPED.into())));
+                    }
                     Ok(Value::Null)
                 }
                 other => unsupported(format!(

@@ -618,6 +618,14 @@ impl Lowerer<'_> {
                         ir::Arg::Value(self.expr(a)?)
                     });
                 }
+                // `--tdd` (ADR-051 decision 10): `Validate(StubField, Value)` checks the stub length as an assignment does.
+                if id.starts_with("Record.Validate#") && args.len() == 2 && out.len() == 2 {
+                    let ty = self.ty_of(&args[0]);
+                    if let ir::Arg::Value(v) = out.pop().expect("two arguments") {
+                        let v = self.tdd_fit(&args[0], &ty, v);
+                        out.push(ir::Arg::Value(v));
+                    }
+                }
                 // The OptionCaption of an Option field goes along as a fourth argument.
                 if let (true, Some(captions)) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
                     while out.len() < 3 {

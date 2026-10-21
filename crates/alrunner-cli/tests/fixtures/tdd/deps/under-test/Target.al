@@ -17,3 +17,18 @@ codeunit 50201 "Tdd Uses Missing"
         Target.NotYet();
     end;
 }
+
+table 50202 "Tdd App Item"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+}
+
+enum 50203 "Tdd App Kind"
+{
+    Extensible = true;
+    value(0; Small) { }
+    value(3; Large) { }
+}

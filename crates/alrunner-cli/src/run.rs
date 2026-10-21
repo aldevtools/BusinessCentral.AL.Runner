@@ -44,7 +44,7 @@ struct Found {
 }
 
 /// The newest BC major this runtime is verified against (the fallback when nothing names one).
-const NEWEST_VERIFIED: u16 = 29;
+pub(crate) const NEWEST_VERIFIED: u16 = 29;
 
 /// Which tests a run is about.
 #[derive(Default, Clone)]

@@ -3240,7 +3240,10 @@ impl Session {
                             "AL:Overflow",
                         );
                     }
-                    Some(v) => Some(ops::convert(v.clone(), &field.ty)?),
+                    Some(v) => {
+                        crate::recmeta::tdd_fits(field, v)?;
+                        Some(ops::convert(v.clone(), &field.ty)?)
+                    }
                     None => None,
                 };
                 // The relation is checked before the value goes in and before OnValidate runs; a
