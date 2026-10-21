@@ -160,6 +160,20 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
     assert_eq!(u[0].1, Outcome::Fail("real failure".into()));
 }
 
+/// al-runner issue 5610: a test refused at an HttpClient call can change only what an HTTP server received, which a later
+/// test sees only by sending a request itself. A later failure that sends none is trusted.
+#[test]
+fn a_failure_after_a_test_refused_at_an_http_call_is_trusted_when_it_sends_no_request() {
+    let src = "codeunit 60105 T { Subtype = Test;
+                [Test] procedure HttpGet() var C: HttpClient; R: HttpResponseMessage; begin C.Get('http://localhost:1/x', R); end;
+                [Test] procedure UserIdRead() begin if UserId() = '' then Error('empty user'); end;
+                [Test] procedure CompanyNameRead() begin Error('company=%1', CompanyName()); end; }";
+    let o = outcomes_of(src, "T");
+    let by = |n: &str| o.iter().find(|(x, _)| x == n).map(|(_, x)| x.clone()).unwrap();
+    assert!(matches!(by("HttpGet"), Outcome::NotRun(_)), "{:?}", by("HttpGet"));
+    assert!(matches!(by("CompanyNameRead"), Outcome::Fail(m) if m.starts_with("company=")), "{:?}", by("CompanyNameRead"));
+}
+
 // record/TestTransactionModelAutoRollback.al:Test01-Test03: an AutoRollback test's write is
 // rolled back when it finishes; the next default-model test's write survives.
 #[test]

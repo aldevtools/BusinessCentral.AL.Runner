@@ -13,6 +13,7 @@ mod filterpage;
 mod findrecord_view;
 mod flowfield_drilldown;
 mod gone_row;
+mod list_caption_filter;
 mod gone_row_key_filter;
 mod goto_next_call;
 mod gotokey_walk_parts;

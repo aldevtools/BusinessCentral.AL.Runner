@@ -34,6 +34,9 @@ pub(crate) mod state {
     pub const FILES: u16 = 1 << 6;
     /// What the analysis does not follow: a .NET object, a background task, a builtin that is not classified.
     pub const OTHER: u16 = 1 << 7;
+    /// What an HTTP server outside the session received (`HttpClient`). Only a test that sends a request itself can see
+    /// it (al-runner issue 5610: a refused HttpClient.Get made every later failure of the codeunit not trusted).
+    pub const HTTP: u16 = 1 << 8;
     /// State every test is taken to read: what AL code reads without naming it (the posting date defaults to
     /// `WorkDate`, `Format` follows the language, any event can reach a bound subscriber).
     pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | OTHER;
@@ -47,6 +50,7 @@ pub(crate) mod state {
             ISOLATED_STORAGE => "isolated storage",
             BINDING => "the bound event subscribers",
             FILES => "files",
+            HTTP => "what an HTTP server received",
             _ => "session state the analysis does not follow",
         }
     }
@@ -763,7 +767,11 @@ impl Walk<'_> {
                     self.out.state_writes |= OTHER;
                 }
             }
-            "TaskScheduler" | "HttpClient" => self.out.state_writes |= OTHER,
+            "TaskScheduler" => self.out.state_writes |= OTHER,
+            "HttpClient" => {
+                self.out.state_reads |= HTTP;
+                self.out.state_writes |= HTTP;
+            }
             _ => {}
         }
     }
