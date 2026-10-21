@@ -176,11 +176,17 @@ impl Lowerer<'_> {
                 (Some(ws), None) if ws.is_empty() => Some(Vec::new()),
                 _ => None,
             };
-            // A filter text with an AL-quoted identifier read as a filter text: only the CalcFormula and
-            // DataItemTableView forms are pinned.
+            // A filter text with an AL-quoted identifier read as a filter text. Pinned for an Enum or Option field of the
+            // related table when the text is members joined by `|`, a quoted one alone, or `<>` and a quoted one
+            // (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46, :126-207; misc/lt-probes-needed-6/
+            // PnF03RelationQuotedFilter.al:40-48; query/lt-query-links-relations-httpstream/RelQuotedOption.al:27,
+            // RelQuotedEnum.al:36, :235). A range, `&` or any other form stays under the assumption.
             let quoted = a.wheres.iter().flatten().any(|w| {
-                matches!(w, crate::relation::ParsedWhere::Value { text, .. }
-                    if !text.starts_with('\'') && !text.contains("::") && text.contains('"'))
+                matches!(w, crate::relation::ParsedWhere::Value { related, text }
+                    if !text.starts_with('\'') && !text.contains("::") && text.contains('"')
+                        && !table
+                            .and_then(|t| field_pos(&self.members[t], related).map(|p| &self.members[t].fields[p].ty))
+                            .is_some_and(|ty| quoted_relation_text_pinned(text, ty)))
             }) || a
                 .condition_raw
                 .iter()
@@ -749,4 +755,19 @@ impl Lowerer<'_> {
     pub(crate) fn calc_const(&self, file: usize, raw: &str, ty: &Ty) -> Result<ir::Const, String> {
         calc_const(self.ws, self.members, file, raw, ty)
     }
+}
+
+/// Whether a `filter(...)` or `const(...)` text of a TableRelation with a `"`-quoted member has a pinned form: on an Enum
+/// or Option field, terms joined by `|`, each a plain member name or a quoted one, or `<>` and one quoted member
+/// (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46).
+fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
+    if !matches!(ty, Ty::Enum(_) | Ty::Option(_)) {
+        return false;
+    }
+    let quoted = |t: &str| t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"');
+    let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if let Some(rest) = text.trim().strip_prefix("<>") {
+        return quoted(rest.trim());
+    }
+    text.split('|').map(str::trim).all(|t| quoted(t) || plain(t))
 }

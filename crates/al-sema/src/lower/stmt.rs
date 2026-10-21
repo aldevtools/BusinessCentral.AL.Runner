@@ -1110,7 +1110,7 @@ impl Lowerer<'_> {
         let variant_into_text_variable = matches!(
             place,
             ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)
-        ) && matches!(target_ty, Ty::Text(_))
+        ) && matches!(target_ty, Ty::Text(_) | Ty::Code(_))
             && matches!(self.ty_ref(&kids[1]), Ty::Variant)
             && matches!(op_kind, Some(SyntaxKind::Assign) | None)
             && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)));
@@ -1126,21 +1126,30 @@ impl Lowerer<'_> {
                     ret_used: true,
                 })
             };
-            let cond = ir::Expr::Binary(
-                ir::BinOp::Or,
-                Box::new(ir::Expr::Binary(
+            // Into a Code variable only a Date is settled: it raises with the Code text (the Date: QO observations of
+            // P147DateToText.al on BC 27-29; the NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al).
+            let (cond, kind) = if matches!(target_ty, Ty::Code(_)) {
+                (is("Variant.IsDate#1")?, "NavCode")
+            } else {
+                let cond = ir::Expr::Binary(
                     ir::BinOp::Or,
-                    Box::new(is("Variant.IsInteger#1")?),
-                    Box::new(is("Variant.IsDate#1")?),
-                )),
-                // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`).
-                Box::new(is("Variant.IsOption#1")?),
-            );
+                    Box::new(ir::Expr::Binary(
+                        ir::BinOp::Or,
+                        Box::new(is("Variant.IsInteger#1")?),
+                        Box::new(is("Variant.IsDate#1")?),
+                    )),
+                    // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`).
+                    Box::new(is("Variant.IsOption#1")?),
+                );
+                (cond, "NavText")
+            };
             let converted = self.convert_to(&target_ty, self.ty_ref(&kids[1]), value)?;
             let guarded = ir::Expr::Ternary(
                 Box::new(cond),
                 Box::new(ir::Expr::Fail {
-                    message: "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavText value.".into(),
+                    message: format!(
+                        "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.{kind} value."
+                    ),
                     code: "TypeConversion".into(),
                 }),
                 Box::new(converted),
@@ -1152,7 +1161,9 @@ impl Lowerer<'_> {
         // _BigInteger_, _Decimal_, CodeField_FromVariantNumbers_Result, TextField_FromVariantNumber_TooLong); a call result such as
         // `FieldRef.Value()` converts to its Format text (VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers).
         // Other contents of the Variant keep the unconverted path.
-        if variant_into_text_field
+        if matches!(place, ir::Place::Field(..))
+            && matches!(target_ty, Ty::Text(_) | Ty::Code(_))
+            && matches!(op_kind, Some(SyntaxKind::Assign) | None)
             && matches!(self.ty_ref(&kids[1]), Ty::Variant)
             && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)))
         {
@@ -1174,7 +1185,8 @@ impl Lowerer<'_> {
                     is("Variant.IsDecimal#1")?,
                 ),
                 // An Enum or Option in a Variant raises too (types/lt-variant-to-text-fields/VariantEnumOptionToText.al: `text field`, `code field`).
-                is("Variant.IsOption#1")?,
+                // A Date as well, as into a Text parameter (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:89-105).
+                or(is("Variant.IsOption#1")?, is("Variant.IsDate#1")?),
             );
             let kind = if matches!(target_ty, Ty::Code(_)) {
                 "NavCode"
