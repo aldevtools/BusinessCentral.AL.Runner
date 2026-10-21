@@ -1021,6 +1021,11 @@ pub struct Field {
     /// extension's. Empty when the field has at most one. Only the Field platform table reads them.
     #[serde(default)]
     pub relation_texts: Vec<String>,
+    /// `--tdd` (ADR-051 decision 10): the field is a stub Text or Code field whose real length is not known yet; a
+    /// write longer than its declared length raises `Signal::Unsupported` with this reason (FieldRef, TransferFields;
+    /// assignment and Validate use `Expr::TddFit`). `None` without `--tdd`.
+    #[serde(default)]
+    pub tdd_length_unknown: Option<String>,
     /// `FieldClass = FlowFilter`: holds the caller's filter, never a value.
     pub flow_filter: bool,
     /// A FlowField's `CalcFormula`, when lowered. A FlowField with neither
@@ -1242,7 +1247,13 @@ pub(crate) fn shift_stmts(stmts: &mut [Stmt], by: u32) {
                 }
                 shift_stmts(otherwise, by);
             }
-            Stmt::Assign(..) | Stmt::Expr(_) | Stmt::Exit(_) | Stmt::Break | Stmt::Continue | Stmt::Assume(_) => {}
+            Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Exit(_)
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_) => {}
         }
     }
 }
@@ -1474,6 +1485,13 @@ pub enum Expr {
         args: Vec<Expr>,
         ty: Option<RtType>,
     },
+    /// `--tdd` (ADR-051 decision 10): the value of `inner`, written to a stub Text or Code field whose real length is
+    /// not known. A text longer than `max` raises `Signal::Unsupported` with `why` instead of a length error.
+    TddFit {
+        max: u32,
+        why: String,
+        inner: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1515,6 +1533,10 @@ pub enum Stmt {
     /// The statement that follows runs code that rests on an unprobed assumption of the lowering
     /// (`al_builtins::assumptions`): the VM marks the assumption when this runs and does nothing else.
     Assume(al_builtins::assumptions::Assumption),
+    /// `--tdd` (ADR-051 decision 10): the statement that follows reads or writes a stub field, uses a stub enum value or
+    /// declares a variable of a stub object (the signature names it, as in `Program::tdd_stubs`). The VM notes the
+    /// stub as reached when this runs and does nothing else.
+    TddMark(String),
     /// `continue`: skip the rest of the loop body and go on with the next round.
     Continue,
 }

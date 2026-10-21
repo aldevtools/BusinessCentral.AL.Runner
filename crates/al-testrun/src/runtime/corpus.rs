@@ -164,6 +164,45 @@ impl CorpusRuntime {
         opts: &RunOptions,
         lean: bool,
     ) -> Result<Compiled, String> {
+        use al_sema::check::tdd_decl;
+        let ranges: std::collections::BTreeMap<String, Vec<(u32, u32)>> = if opts.tdd {
+            apps.iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let r = manifests.get(i).map(|m| m.id_ranges.clone()).unwrap_or_default();
+                    (a.id.clone(), r)
+                })
+                .collect()
+        } else {
+            Default::default()
+        };
+        let mut compiled = Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
+        // `--tdd` (ADR-051 decision 10): the fields, enum values and objects the test apps need are declared in a stub
+        // file of each, and the apps are compiled again (a stub table's fields are found only once it exists).
+        let mut seen = Vec::new();
+        for _ in 0..tdd_decl::MAX_RECOMPILES {
+            if !opts.tdd || !tdd_decl::take_new(&mut seen, &compiled.lowered.tdd_needs) {
+                break;
+            }
+            let files = tdd_decl::stub_files(&compiled.ws, &seen, &ranges);
+            let (mut apps, kinds) = compiled.into_apps();
+            tdd_decl::set_stub_files(&mut apps, files);
+            compiled = Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
+        }
+        Ok(compiled)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compile_suites_once(
+        apps: Vec<al_sema::workspace::AppSource>,
+        kinds: Vec<al_sema::AppKind>,
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+        lean: bool,
+    ) -> Result<Compiled, String> {
         // AL_NO_BASELINE=1 leaves the install baseline out (to measure what it costs).
         let baseline_wanted =
             kinds.contains(&al_sema::AppKind::Dependency) && std::env::var_os("AL_NO_BASELINE").is_none();
@@ -862,6 +901,8 @@ impl CorpusRuntime {
                                 captured: None,
                                 impact: Vec::new(),
                                 stubs: Vec::new(),
+                                entered: Vec::new(),
+                                dotnet: false,
                             });
                         }
                     }
@@ -998,6 +1039,8 @@ impl CorpusRuntime {
                     captured,
                     impact,
                     stubs: Vec::new(),
+                    entered: Vec::new(),
+                    dotnet: false,
                 })
             };
             match r.result {
@@ -1050,6 +1093,12 @@ impl CorpusRuntime {
                         if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
                             if let Some(last) = list.last_mut() {
                                 last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
+                            }
+                        }
+                        if let Some(i) = scratch.entered.iter().position(|(n, _, _)| *n == name) {
+                            if let Some(last) = list.last_mut() {
+                                last.entered = std::mem::take(&mut scratch.entered[i].1);
+                                last.dotnet = scratch.entered[i].2;
                             }
                         }
                         times_by_case.insert((r.si, r.id, name.to_lowercase()), time);

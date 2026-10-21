@@ -513,6 +513,8 @@ impl Session {
             (other, _) => return unsupported(format!("builtin {other} with this receiver")),
         };
         let object = inst.borrow().object as usize;
+        // A codeunit with no OnRun still runs (and its properties count): `--affected` notes it as entered.
+        self.note_entered(object);
         let engine = self.engine.clone();
         let obj = &engine.program.objects[object];
         let has_property = |name: &str| obj.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));

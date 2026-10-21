@@ -132,7 +132,13 @@ impl Client {
     }
 
     fn stdio(app: &str) -> Client {
-        let mut child = command(&["debug", "--stdio", app, "--no-download", "--no-test-data"])
+        Client::stdio_with(app, &[])
+    }
+
+    fn stdio_with(app: &str, extra: &[&str]) -> Client {
+        let mut args = vec!["debug", "--stdio", app, "--no-download", "--no-test-data"];
+        args.extend_from_slice(extra);
+        let mut child = command(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -851,4 +857,138 @@ fn a_breakpoint_in_a_copy_of_a_packaged_file_binds_only_when_its_text_is_the_com
     );
     c.request("continue", json!({"threadId": 1}));
     assert_eq!(c.finish(), 0);
+}
+
+// Conformance test 9 of ADR-048 (decision 10): a test gives the same outcome with and without the debugger. The app
+// runs once through `al-runner test` and once through `al-runner debug --stdio` with a breakpoint on every line of
+// every file; at each stop the client reads the stack and the locals of every frame and resumes with the next of
+// continue, next, stepIn and stepOut. The two JUnit reports must be the same apart from times.
+
+/// The JUnit XML without the attributes that hold times.
+fn without_times(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    loop {
+        let next = [" time=\"", " timestamp=\""]
+            .iter()
+            .filter_map(|a| rest.find(a).map(|i| (i, i + a.len())))
+            .min();
+        let Some((start, value)) = next else { break };
+        out.push_str(&rest[..start]);
+        let after = &rest[value..];
+        rest = &after[after.find('"').map_or(after.len(), |e| e + 1)..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `.al` files of an app folder, with their number of lines.
+fn al_files(dir: &std::path::Path, out: &mut Vec<(PathBuf, usize)>) {
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            al_files(&p, out);
+        } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("al")) {
+            let lines = std::fs::read_to_string(&p).map_or(0, |t| t.lines().count());
+            out.push((p, lines));
+        }
+    }
+}
+
+/// Runs `app` with and without the debugger and compares the outcomes. Returns the number of stops.
+fn outcomes_match_with_and_without_the_debugger(app: &str, extra: &[&str]) -> usize {
+    let tmp = tempfile::tempdir().unwrap();
+    let plain_xml = tmp.path().join("plain.xml");
+    let debug_xml = tmp.path().join("debug.xml");
+    let mut args = vec![
+        "test",
+        app,
+        "--no-download",
+        "--no-test-data",
+        "--junit",
+        plain_xml.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+    let plain = command(&args).output().expect("run al-runner test");
+
+    let mut with_junit = extra.to_vec();
+    with_junit.extend(["--junit", debug_xml.to_str().unwrap()]);
+    let mut c = Client::stdio_with(app, &with_junit);
+    c.start(json!({}));
+    let mut files = Vec::new();
+    al_files(std::path::Path::new(app), &mut files);
+    let mut verified = 0;
+    for (file, lines) in &files {
+        let all: Vec<i64> = (1..=*lines as i64).collect();
+        let r = c.set_breakpoints(file.to_str().unwrap(), &all);
+        verified += r["body"]["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["verified"] == true)
+            .count();
+    }
+    assert!(verified > 0, "no breakpoint bound in {app}");
+    c.request("configurationDone", json!({}));
+    let resume = ["continue", "next", "stepIn", "stepOut"];
+    let mut stops = 0;
+    let code = loop {
+        let m = c.next_matching("stopped or exited", |m| {
+            m["type"] == "event" && (m["event"] == "stopped" || m["event"] == "exited")
+        });
+        if m["event"] == "exited" {
+            break m["body"]["exitCode"].as_i64().unwrap();
+        }
+        let r = c.request("stackTrace", json!({"threadId": 1}));
+        assert_eq!(r["success"], true, "{r}");
+        for f in r["body"]["stackFrames"].as_array().unwrap() {
+            c.locals(f["id"].as_i64().unwrap());
+        }
+        let r = c.request(resume[stops % resume.len()], json!({"threadId": 1}));
+        assert_eq!(r["success"], true, "{r}");
+        stops += 1;
+    };
+    let r = c.request("disconnect", json!({}));
+    assert_eq!(r["success"], true, "{r}");
+    let status = wait(&mut c.child);
+    assert_eq!(status.code().map(i64::from), Some(code), "{}", c.stderr());
+    assert_eq!(
+        plain.status.code().map(i64::from),
+        Some(code),
+        "the exit codes differ; al-runner test said: {}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    let plain = std::fs::read_to_string(&plain_xml).expect("the JUnit report of al-runner test");
+    let debugged = std::fs::read_to_string(&debug_xml).expect("the JUnit report of al-runner debug");
+    let (plain, debugged) = (without_times(&plain), without_times(&debugged));
+    if plain != debugged {
+        let first = plain
+            .lines()
+            .zip(debugged.lines())
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| format!("without the debugger: {a}\nwith the debugger:    {b}"))
+            .unwrap_or_else(|| "one report is longer".into());
+        panic!("the outcomes differ with the debugger ({stops} stops):\n{first}");
+    }
+    stops
+}
+
+#[test]
+fn every_outcome_is_the_same_with_and_without_the_debugger() {
+    let stops = outcomes_match_with_and_without_the_debugger(&fixture("outcomes"), &[]);
+    assert!(stops > 50, "{stops} stops");
+}
+
+/// The same check on any app: `ALRUNNER_DEBUG_PARITY_APP=PATH` and, separated by spaces, more options of
+/// `al-runner test` in `ALRUNNER_DEBUG_PARITY_ARGS` (for example `--dep DIR --codeunit ID`). Run with
+/// `cargo test --release -p alrunner-cli --test debug -- --ignored outcomes_of_a_given_app`.
+#[test]
+#[ignore = "needs ALRUNNER_DEBUG_PARITY_APP"]
+fn outcomes_of_a_given_app_are_the_same_with_and_without_the_debugger() {
+    let app = std::env::var("ALRUNNER_DEBUG_PARITY_APP").expect("ALRUNNER_DEBUG_PARITY_APP");
+    let args = std::env::var("ALRUNNER_DEBUG_PARITY_ARGS").unwrap_or_default();
+    let extra: Vec<&str> = args.split_whitespace().collect();
+    let stops = outcomes_match_with_and_without_the_debugger(&app, &extra);
+    eprintln!("{stops} stops, same outcomes");
 }

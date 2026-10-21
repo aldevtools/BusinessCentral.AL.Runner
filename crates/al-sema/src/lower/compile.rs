@@ -275,9 +275,23 @@ pub(crate) fn compile_with_roots(
     roots: crate::check::Roots,
 ) -> (Workspace, Lowered) {
     let started = std::time::Instant::now();
-    let ws = Workspace::load_apps(apps, kinds, symbols);
+    let ws = Workspace::load_apps(apps, kinds.clone(), symbols);
     let load = started.elapsed();
-    compile_loaded(ws, load, catalog, roots)
+    let (mut ws, mut lowered) = compile_loaded(ws, load, catalog, roots.clone());
+    // `--tdd` (ADR-051 decision 10): the declarations the code needs are added to the apps, which are compiled again.
+    let mut seen = Vec::new();
+    for _ in 0..crate::check::tdd_decl::MAX_RECOMPILES {
+        if !roots.tdd || !crate::check::tdd_decl::take_new(&mut seen, &lowered.tdd_needs) {
+            break;
+        }
+        let files = crate::check::tdd_decl::stub_files(&ws, &seen, &roots.tdd_id_ranges);
+        let mut apps = std::mem::take(&mut ws.apps);
+        crate::check::tdd_decl::set_stub_files(&mut apps, files);
+        let started = std::time::Instant::now();
+        let again = Workspace::load_apps(apps, kinds.clone(), symbols);
+        (ws, lowered) = compile_loaded(again, started.elapsed(), catalog, roots.clone());
+    }
+    (ws, lowered)
 }
 
 /// The compile of a workspace that is loaded (`load` is how long that took, for the timings).

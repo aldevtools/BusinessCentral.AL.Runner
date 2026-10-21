@@ -123,6 +123,7 @@ pub fn kind_of(e: &Expr) -> u8 {
         Expr::DotNetOperand(..) => 21,
         Expr::Builtin { .. } => 22,
         Expr::TddStub { .. } => 23,
+        Expr::TddFit { .. } => 24,
     }
 }
 
@@ -198,7 +199,7 @@ pub fn stmt_roots_nested(s: &Stmt, f: &mut dyn FnMut(&Expr, bool)) {
             }
         }
         Stmt::AssertError(b) => list(b, f),
-        Stmt::Break | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::Continue => {}
+        Stmt::Break | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) | Stmt::Continue => {}
     }
 }
 
@@ -327,6 +328,7 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(a);
             }
         }
+        Expr::TddFit { inner, .. } => f(inner),
     }
 }
 
