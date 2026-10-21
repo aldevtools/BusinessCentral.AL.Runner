@@ -405,6 +405,24 @@ pub fn junit_with(
     baseline_assumptions: &[String],
     properties: &dyn Fn(&TestResult) -> Vec<(String, String)>,
 ) -> String {
+    let suites = suites_of(results, &|i| disabled(results[i].codeunit, &results[i].test), &|i| {
+        properties(results[i])
+    });
+    al_testrun::junit::write_with_baseline(
+        &suites,
+        al_testrun::junit::Dialect::Runner,
+        bc_build,
+        wall_s,
+        baseline_assumptions,
+    )
+}
+
+/// One suite per run of results of the same app and codeunit. `disabled` and `properties` take the result's index.
+fn suites_of<'a>(
+    results: &[&'a TestResult],
+    disabled: &dyn Fn(usize) -> bool,
+    properties: &dyn Fn(usize) -> Vec<(String, String)>,
+) -> Vec<al_testrun::junit::Suite<'a>> {
     let mut suites: Vec<al_testrun::junit::Suite> = Vec::new();
     let mut i = 0;
     while i < results.len() {
@@ -417,39 +435,93 @@ pub fn junit_with(
             name: first.codeunit_name.clone(),
             codeunit: first.codeunit,
             properties: Vec::new(),
-            cases: results[i..j]
-                .iter()
-                .map(|r| al_testrun::junit::Case {
-                    class: r.codeunit_name.clone(),
-                    name: &r.test,
-                    time: r.time.as_secs_f64(),
-                    outcome: &r.outcome,
-                    assumptions: &r.assumptions,
-                    stack: if r.call_stack.is_empty() {
-                        String::new()
-                    } else {
-                        stack_lines(&r.call_stack).join("\n")
-                    },
-                    disabled: disabled(r.codeunit, &r.test),
-                    properties: {
-                        let mut p = properties(r);
-                        // `--tdd` (ADR-051 decision 8): the stubs a test ran.
-                        if !r.stubs.is_empty() {
-                            p.push(("stubbed".into(), r.stubs.join(", ")));
-                        }
-                        p
-                    },
+            cases: (i..j)
+                .map(|k| {
+                    let r = results[k];
+                    al_testrun::junit::Case {
+                        class: r.codeunit_name.clone(),
+                        name: &r.test,
+                        time: r.time.as_secs_f64(),
+                        outcome: &r.outcome,
+                        assumptions: &r.assumptions,
+                        stack: if r.call_stack.is_empty() {
+                            String::new()
+                        } else {
+                            stack_lines(&r.call_stack).join("\n")
+                        },
+                        disabled: disabled(k),
+                        properties: {
+                            let mut p = properties(k);
+                            // `--tdd` (ADR-051 decision 8): the stubs a test ran.
+                            if !r.stubs.is_empty() {
+                                p.push(("stubbed".into(), r.stubs.join(", ")));
+                            }
+                            p
+                        },
+                    }
                 })
                 .collect(),
         });
         i = j;
     }
+    suites
+}
+
+/// One part of a JUnit file that several runs fill (ADR-052 1.6: the own tests, then each run of each source).
+#[derive(Debug, Clone, Default)]
+pub struct JunitPart {
+    pub results: Vec<TestResult>,
+    /// Per result: its further properties (an impact run's change class).
+    pub properties: Vec<Vec<(String, String)>>,
+    /// Per result: Microsoft turns the test off.
+    pub disabled: Vec<bool>,
+    pub bc_build: Option<String>,
+    pub baseline_assumptions: Vec<String>,
+    /// Properties of every suite of the part (`test_source`).
+    pub suite_properties: Vec<(String, String)>,
+}
+
+/// One JUnit document of several parts, in their order. `first_suite[i]`: further properties of the first suite of
+/// part `i` (`not_selected`); a part with no result and such properties gets an empty suite named `empty_name[i]`, so
+/// that the count is still in the file.
+pub fn junit_parts(parts: &[(&JunitPart, Vec<(String, String)>, String)], wall_s: f64) -> String {
+    let mut suites: Vec<al_testrun::junit::Suite> = Vec::new();
+    let mut baseline: Vec<String> = Vec::new();
+    for (part, first, empty_name) in parts {
+        let refs: Vec<&TestResult> = part.results.iter().collect();
+        let mut own = suites_of(
+            &refs,
+            &|i| part.disabled.get(i).copied().unwrap_or(false),
+            &|i| part.properties.get(i).cloned().unwrap_or_default(),
+        );
+        if own.is_empty() && !first.is_empty() {
+            own.push(al_testrun::junit::Suite {
+                name: empty_name.clone(),
+                codeunit: 0,
+                cases: Vec::new(),
+                properties: Vec::new(),
+            });
+        }
+        for (k, suite) in own.iter_mut().enumerate() {
+            suite.properties.extend(part.suite_properties.iter().cloned());
+            if k == 0 {
+                suite.properties.extend(first.iter().cloned());
+            }
+        }
+        suites.extend(own);
+        for b in &part.baseline_assumptions {
+            if !baseline.contains(b) {
+                baseline.push(b.clone());
+            }
+        }
+    }
+    let bc_build = parts.iter().find_map(|(p, _, _)| p.bc_build.as_deref());
     al_testrun::junit::write_with_baseline(
         &suites,
         al_testrun::junit::Dialect::Runner,
         bc_build,
         wall_s,
-        baseline_assumptions,
+        &baseline,
     )
 }
 
@@ -526,6 +598,50 @@ mod tests {
             entered: Vec::new(),
             dotnet: false,
         }
+    }
+
+    #[test]
+    fn junit_parts_put_every_run_in_one_file_with_its_source_properties() {
+        let own = JunitPart {
+            results: vec![r(1, "Own", "O", Outcome::Pass)],
+            ..Default::default()
+        };
+        let source = JunitPart {
+            results: vec![r(5, "Ms", "M1", Outcome::Pass), r(6, "Ms2", "M2", Outcome::Fail("x".into()))],
+            properties: vec![vec![("impact_class".into(), "same, reached".into())], Vec::new()],
+            disabled: vec![false, true],
+            bc_build: Some("29.0.1.2".into()),
+            suite_properties: vec![("test_source".into(), "microsoft".into())],
+            ..Default::default()
+        };
+        let nothing = JunitPart {
+            suite_properties: vec![("test_source".into(), "microsoft".into())],
+            ..Default::default()
+        };
+        let not_selected = vec![("not_selected".to_string(), "40".to_string())];
+        let x = junit_parts(
+            &[
+                (&own, Vec::new(), String::new()),
+                (&source, not_selected.clone(), "microsoft".into()),
+                (&nothing, not_selected, "microsoft Tests-B".into()),
+            ],
+            1.0,
+        );
+        assert!(x.contains("<testsuites tests=\"3\" failures=\"1\""), "{x}");
+        assert_eq!(x.matches("<testsuite ").count(), 4, "{x}");
+        assert!(
+            x.contains("<property name=\"codeunit\" value=\"5\" /><property name=\"test_source\" value=\"microsoft\" /><property name=\"not_selected\" value=\"40\" />"),
+            "{x}"
+        );
+        assert!(
+            x.contains("<property name=\"codeunit\" value=\"6\" /><property name=\"test_source\" value=\"microsoft\" /></properties>"),
+            "{x}"
+        );
+        assert!(x.contains("<property name=\"codeunit\" value=\"1\" /></properties>"), "{x}");
+        // A source run that selected nothing still says how many it left out.
+        assert!(x.contains("<testsuite name=\"microsoft Tests-B\" tests=\"0\""), "{x}");
+        assert!(x.contains("impact_class") && x.contains("disabled_by_microsoft"), "{x}");
+        assert!(x.contains("29.0.1.2"), "{x}");
     }
 
     #[test]

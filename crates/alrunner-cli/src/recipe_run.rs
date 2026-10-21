@@ -168,8 +168,24 @@ pub fn test(a: &TestArgs) -> Result<u8, String> {
     Ok(exit_code(&run.results))
 }
 
-/// Runs every lane of the recipe and returns what each came to; prints the lanes' own reports.
-pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
+/// One lane of the recipe as planned: its company, the arguments of its run, and why it cannot run, if it cannot.
+pub struct PlannedLane {
+    pub lane: Lane,
+    pub company: String,
+    pub args: TestArgs,
+    pub refusal: Option<String>,
+}
+
+/// The lanes of the recipe for the APPs of `a`, and how many codeunits no lane runs.
+pub struct Planned {
+    pub lanes: Vec<PlannedLane>,
+    pub unrun: usize,
+    /// Where the BCApps files came from (one line).
+    pub how: String,
+}
+
+/// Plans the recipe's lanes for the APPs of `a`: lanes without a codeunit are left out.
+pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
     let inputs = a
         .apps
         .iter()
@@ -201,22 +217,47 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
         });
     }
     let plan = recipe::plan(&recipe, &units);
-    eprintln!("{}", source.how);
-    let mut results: Vec<LaneResult> = Vec::new();
+    let mut lanes = Vec::new();
     for (lane, ids) in &plan.lanes {
         let company = recipe.company_name(*lane).unwrap_or("").to_string();
-        let la = lane_args(a, *lane, &company, ids, &recipe);
-        if la.codeunits.is_empty() {
+        let args = lane_args(a, *lane, &company, ids, &recipe);
+        if args.codeunits.is_empty() {
             continue;
         }
+        lanes.push(PlannedLane {
+            lane: *lane,
+            refusal: company_refusal(*lane),
+            company,
+            args,
+        });
+    }
+    Ok(Planned {
+        lanes,
+        unrun: plan.unrun.len(),
+        how: source.how,
+    })
+}
+
+/// Runs every lane of the recipe and returns what each came to; prints the lanes' own reports.
+pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
+    let planned = plan_lanes(a)?;
+    eprintln!("{}", planned.how);
+    let mut results: Vec<LaneResult> = Vec::new();
+    for PlannedLane {
+        lane,
+        company,
+        args: la,
+        refusal,
+    } in planned.lanes
+    {
         let n = la.codeunits.len();
-        if let Some(why) = company_refusal(*lane) {
+        if let Some(why) = refusal {
             eprintln!(
                 "== lane {}: {n} codeunits, company '{company}': {why}",
                 lane.test_type()
             );
             results.push(LaneResult {
-                lane: *lane,
+                lane,
                 company,
                 codeunits: n,
                 outcome: LaneOutcome::Refused(why),
@@ -234,7 +275,7 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
                 .unwrap_or(0)
         };
         results.push(LaneResult {
-            lane: *lane,
+            lane,
             company,
             codeunits: n,
             outcome: LaneOutcome::Ran {
@@ -248,7 +289,7 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
     }
     Ok(RecipeRun {
         results,
-        unrun: plan.unrun.len(),
+        unrun: planned.unrun,
     })
 }
 

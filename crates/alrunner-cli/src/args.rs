@@ -166,6 +166,9 @@ pub struct TestArgs {
     /// run with and without it. Only `microsoft` (every Microsoft test app of the build) is built. Repeatable. In
     /// `impact-index build` it is `--from SOURCE`.
     pub affected_from: Vec<String>,
+    /// Not a command line option: the command that builds the impact index of this run, when it is one run of a test
+    /// source (ADR-052 1.8); the no-index warning prints it instead of the run's own command line.
+    pub index_command: Option<String>,
 }
 
 impl TestArgs {
@@ -1034,8 +1037,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
     }
-    if a.bcapps_dir.is_some() && !a.recipe {
-        return Err("--bcapps needs --recipe microsoft".into());
+    if a.bcapps_dir.is_some() && !a.recipe && a.affected_from.is_empty() {
+        return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
     if a.recipe {
         for (given, flag) in [
@@ -1169,6 +1172,11 @@ fn affected_args(a: &TestArgs, what: &str) -> Result<(), String> {
             a.impact_json.is_some(),
             "--impact-json",
             "its format 2 with one entry per source is not built yet (ADR-052 build step 3); --junit FILE holds the change class of each test",
+        ),
+        (
+            a.impact_accept.is_some(),
+            "--impact-accept",
+            "an accept file across sources (format 2, entries per source) is not built yet (ADR-052 build step 3)",
         ),
     ] {
         if set {
@@ -1337,7 +1345,13 @@ mod tests {
         }
         // Without an extension there is nothing to measure.
         assert!(p("test-microsoft --impact static").unwrap_err().contains("--impact"));
-        for flag in ["--output-json r.json", "--impact-json d.json", "--no-compile-cache", "--coverage"] {
+        for flag in [
+            "--output-json r.json",
+            "--impact-json d.json",
+            "--impact-accept a.json",
+            "--no-compile-cache",
+            "--coverage",
+        ] {
             let e = p(&format!("test-microsoft MyApp {flag}")).unwrap_err();
             assert!(e.contains(flag.split(' ').next().unwrap()), "{flag}: {e}");
         }
@@ -1359,7 +1373,7 @@ mod tests {
         assert_eq!(a.affected_from, vec!["microsoft"]);
         assert_eq!(a.microsoft_apps, vec!["Tests-ERM"]);
         assert_eq!(test_args("test Ext --affected-from Microsoft").affected_from, vec!["microsoft"]);
-        assert!(p("test Ext --affected-from microsoft --impact-accept a.json --junit r.xml").is_ok());
+        assert!(p("test Ext --affected-from microsoft --impact all --junit r.xml").is_ok());
         // An ISV test app as a source is a later step.
         let e = p("test Ext --affected-from ./vendor-tests").unwrap_err();
         assert!(e.contains("./vendor-tests") && e.contains("step 3"), "{e}");
@@ -1373,6 +1387,7 @@ mod tests {
             "--impact-of E",
             "--output-json r.json",
             "--impact-json d.json",
+            "--impact-accept a.json",
             "--tdd",
         ] {
             let e = p(&format!("test Ext --affected-from microsoft {flag}")).unwrap_err();

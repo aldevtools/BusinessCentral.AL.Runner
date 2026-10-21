@@ -790,7 +790,7 @@ fn no_index_warning(a: &TestArgs, cannot_rule_out: Option<usize>) -> String {
     format!(
         "warning: no impact index for these test apps and options (country {}, this runtime build): tests were selected by static reach, which misses {STATIC_MISSES}; {marked}. Build the index once with: {}",
         a.country(),
-        build_command(&args)
+        a.index_command.clone().unwrap_or_else(|| build_command(&args))
     )
 }
 
@@ -1238,7 +1238,9 @@ fn run_dynamic(
         let w = format!(
             "warning: the impact index {} was recorded on other Microsoft apps ({why}); rebuild it with: {}",
             path.display(),
-            build_command(&std::env::args().collect::<Vec<_>>())
+            a.index_command
+                .clone()
+                .unwrap_or_else(|| build_command(&std::env::args().collect::<Vec<_>>()))
         );
         println!("{}", style::yellow(&w));
         return run_static(a, false, accepts, keep, started);
