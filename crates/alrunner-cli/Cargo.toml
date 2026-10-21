@@ -21,6 +21,7 @@ al-rapidstart = { path = "../al-rapidstart" }
 al-builtins.workspace = true
 al-deps.workspace = true
 al-host.workspace = true
+al-ir.workspace = true
 al-sema.workspace = true
 al-testrun.workspace = true
 al-version.workspace = true
@@ -28,8 +29,12 @@ al-vm.workspace = true
 serde_json.workspace = true
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 mimalloc = { version = "0.1", optional = true }
 
 [dev-dependencies]
+al-testkit.workspace = true
 tempfile = "3"

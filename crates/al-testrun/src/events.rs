@@ -5,7 +5,7 @@
 use crate::Outcome;
 use std::cell::RefCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Where a statement is: the position the capture names a statement by.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +55,65 @@ pub struct Hooks {
     pub on_start: Option<OnStart>,
     /// Set from outside: no test starts after it is set; the running one finishes.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// `al-runner debug` (ADR-048): the debugger of each test codeunit's session, attached after the install code ran.
+    pub debugger: Option<MakeDebugger>,
+    /// With `debugger`: the wall time the tests have spent stopped by it. The per-test time limit does not count it
+    /// (ADR-048 decision 9).
+    pub paused: Option<Arc<PauseClock>>,
 }
+
+/// The wall time a debugger kept the tests stopped: the debugger calls `stop` when it stops a test and `resume` when it
+/// lets it go on; the watchdog of the time limit reads `total`, which counts a stop still going on.
+#[derive(Debug)]
+pub struct PauseClock {
+    base: std::time::Instant,
+    /// Nanoseconds stopped, of the stops that ended.
+    total: AtomicU64,
+    /// When the stop going on began, in nanoseconds after `base`, plus one; 0 while nothing is stopped.
+    since: AtomicU64,
+}
+
+impl Default for PauseClock {
+    fn default() -> Self {
+        PauseClock {
+            base: std::time::Instant::now(),
+            total: AtomicU64::new(0),
+            since: AtomicU64::new(0),
+        }
+    }
+}
+
+impl PauseClock {
+    fn now(&self) -> u64 {
+        u64::try_from(self.base.elapsed().as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    pub fn stop(&self) {
+        self.since.store(self.now().saturating_add(1), Ordering::SeqCst);
+    }
+
+    pub fn resume(&self) {
+        let since = self.since.swap(0, Ordering::SeqCst);
+        if since > 0 {
+            self.total
+                .fetch_add(self.now().saturating_sub(since - 1), Ordering::SeqCst);
+        }
+    }
+
+    /// The time stopped so far, the stop going on included.
+    pub fn total(&self) -> std::time::Duration {
+        let since = self.since.load(Ordering::SeqCst);
+        let ongoing = if since > 0 {
+            self.now().saturating_sub(since - 1)
+        } else {
+            0
+        };
+        std::time::Duration::from_nanos(self.total.load(Ordering::SeqCst).saturating_add(ongoing))
+    }
+}
+
+/// Makes the debugger of a session (`Hooks::debugger`).
+pub type MakeDebugger = Arc<dyn Fn() -> Box<dyn al_vm::DebugHook> + Send + Sync>;
 
 impl std::fmt::Debug for Hooks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -63,6 +121,7 @@ impl std::fmt::Debug for Hooks {
             .field("on_test", &self.on_test.is_some())
             .field("on_start", &self.on_start.is_some())
             .field("cancel", &self.cancel.is_some())
+            .field("debugger", &self.debugger.is_some())
             .finish()
     }
 }
@@ -91,6 +150,15 @@ pub(crate) fn cancelled() -> bool {
 /// The flag that stops the run (for a scratch run, whose one routine is stopped while it runs).
 pub(crate) fn cancel_flag() -> Option<Arc<AtomicBool>> {
     CURRENT.with(|c| c.borrow().0.cancel.clone())
+}
+
+/// A debugger for a test codeunit's session (`Hooks::debugger`), and the clock of the time its tests are stopped.
+pub(crate) fn debugger() -> Option<(Box<dyn al_vm::DebugHook>, Option<Arc<PauseClock>>)> {
+    let (make, paused) = CURRENT.with(|c| {
+        let c = c.borrow();
+        (c.0.debugger.clone(), c.0.paused.clone())
+    });
+    make.map(|f| (f(), paused))
 }
 
 /// Tells the run's hook that a test is about to run.

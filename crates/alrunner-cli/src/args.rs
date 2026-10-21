@@ -10,6 +10,9 @@ pub enum Command {
     /// `al-runner --list-assumptions`: the registry of unprobed assumptions with the counts of the last run.
     ListAssumptions(Option<PathBuf>),
     Test(Box<TestArgs>),
+    /// `al-runner debug [--stdio | --port [N]] APP... [test options]` (ADR-048): the tests under a Debug Adapter
+    /// Protocol client.
+    Debug(Box<TestArgs>, crate::debug::Transport),
     /// `al-runner serve`: the options every request's `al-runner test` run gets (ADR-028).
     Serve(Vec<String>),
     /// `al-runner warm`: find (or download) the demo backup and build its index.
@@ -641,6 +644,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     };
     let mut index_build = false;
     let mut check_static = false;
+    let mut debug: Option<crate::debug::Transport> = None;
     match first.as_str() {
         "--help" | "-h" | "help" => return Ok(Command::Help),
         "--version" | "-V" | "version" => return Ok(Command::Version),
@@ -672,7 +676,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         "cache" => return parse_cache(it),
         "warm" => return parse_warm(it),
         "serve" => return parse_serve(it.collect()),
-        "run" | "debug" | "deps" | "package" | "helper" | "doctor" | "migrate" | "guide" => {
+        "debug" => debug = Some(crate::debug::Transport::Tcp(crate::debug::DEFAULT_PORT)),
+        "run" | "deps" | "package" | "helper" | "doctor" | "migrate" | "guide" => {
             return Err(format!(
                 "`al-runner {first}` is not implemented yet (ADR-016 lists it for a later step); see --help for the commands that exist"
             ));
@@ -702,6 +707,23 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
         if flag == "--list-assumptions" {
             return Ok(Command::ListAssumptions(a.cache_dir.clone()));
+        }
+        if debug.is_some() && flag == "--stdio" {
+            debug = Some(crate::debug::Transport::Stdio);
+            continue;
+        }
+        if debug.is_some() && flag == "--port" {
+            // The number is optional: `--port` alone is v2's default port.
+            let port = match it.peek() {
+                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+                    let v = it.next().unwrap_or_default();
+                    v.parse::<u16>()
+                        .map_err(|_| format!("--port needs a port number from 0 to 65535, got `{v}`"))?
+                }
+                _ => crate::debug::DEFAULT_PORT,
+            };
+            debug = Some(crate::debug::Transport::Tcp(port));
+            continue;
         }
         if flag == "--top-assumptions" {
             let n = match it.peek() {
@@ -955,6 +977,22 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         } else {
             Command::ImpactIndexBuild(Box::new(a))
         });
+    }
+    if let Some(transport) = debug {
+        // One plain run of the selected tests under the client (ADR-048, "What is refused").
+        for (set, flag) in [
+            (a.output_json.is_some(), "--output-json"),
+            (!a.impact_of.is_empty(), "--impact-of"),
+            (a.recipe, "--recipe microsoft"),
+            (a.explain.is_some(), "--explain"),
+        ] {
+            if set {
+                return Err(format!(
+                    "al-runner debug cannot be combined with {flag}: a debug session runs the selected tests once, the plain way, under its client"
+                ));
+            }
+        }
+        return Ok(Command::Debug(Box::new(a), transport));
     }
     impact_args(&a)?;
     Ok(Command::Test(Box::new(a)))

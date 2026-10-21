@@ -567,7 +567,12 @@ impl CorpusRuntime {
             .map(|o| o.iter().map(|r| r.first().cloned()).collect())
             .collect();
         let limit = opts.test_time_limit;
-        let workers = if opts.trace { 1 } else { test_workers() };
+        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3).
+        let workers = if opts.trace || opts.hooks.debugger.is_some() {
+            1
+        } else {
+            test_workers()
+        };
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         let make_engine = || {
@@ -722,6 +727,17 @@ impl CorpusRuntime {
             if let Some(only) = (narrow.0)(&input) {
                 opts_only = Some(in_program_order(&only));
             }
+        }
+        // A debugger is told the program (to place its breakpoints) and starts the tests when its client says so.
+        if let Some(ready) = &opts.debug_ready {
+            (ready.0)(&DebugReady {
+                program: &lowered.program,
+                order,
+                first_error: lowered
+                    .al_diagnostics
+                    .first()
+                    .map(|d| format!("error {} {}: {}", d.code, d.file, d.message)),
+            });
         }
         let tests_started = std::time::Instant::now();
         let mut outcomes = std::collections::HashMap::new();

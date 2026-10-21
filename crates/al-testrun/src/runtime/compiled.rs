@@ -55,6 +55,29 @@ pub struct RunOptions {
     pub narrow: Option<Narrow>,
     /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
     pub tdd: bool,
+    /// `al-runner debug` (ADR-048): called once the compile is done and the install baseline has run, before any test
+    /// runs; it returns when the tests may start. The tests then run on one thread, one after the other, with the
+    /// debugger of `hooks.debugger`.
+    pub debug_ready: Option<DebugReadyHook>,
+}
+
+/// What [`RunOptions::debug_ready`] sees of the compile.
+pub struct DebugReady<'a> {
+    pub program: &'a Arc<al_ir::Program>,
+    /// Per app of the program: its index as the caller gave it.
+    pub order: &'a [usize],
+    /// The first error the AL compiler would give for the workspace's code (code, file and message), if any.
+    pub first_error: Option<String>,
+}
+
+/// See [`RunOptions::debug_ready`].
+#[derive(Clone)]
+pub struct DebugReadyHook(pub Arc<dyn Fn(&DebugReady) + Send + Sync>);
+
+impl std::fmt::Debug for DebugReadyHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DebugReadyHook(..)")
+    }
 }
 
 /// What [`RunOptions::narrow`] sees of the compile.
