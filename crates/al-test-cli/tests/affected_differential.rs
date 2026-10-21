@@ -24,6 +24,8 @@ type Key = (String, u32);
 type Outcomes = BTreeMap<Key, Vec<(String, Outcome)>>;
 /// The rule under test: the stored result and the current compile's facts and codeunits to a selection.
 type Rule = dyn Fn(&Stored, &Current) -> Selection + Send + Sync;
+/// What a narrow callback saw, for the test to read after the run.
+type Seen<T> = Arc<Mutex<Option<T>>>;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -266,7 +268,7 @@ struct Found {
 
 fn differential(a: &Apps, edits: &[Edit], rule: Arc<Rule>) -> Found {
     let ids: Vec<String> = a.apps.iter().map(|s| s.id.to_lowercase()).collect();
-    let seen: Arc<Mutex<Option<Vec<al_testrun::affected::ObjectFacts>>>> = Arc::default();
+    let seen: Seen<Vec<al_testrun::affected::ObjectFacts>> = Arc::default();
     let out = seen.clone();
     let record = Narrow(Arc::new(move |input: &NarrowInput| {
         *out.lock().unwrap() = Some(facts(input.lowered));
@@ -297,7 +299,7 @@ fn differential(a: &Apps, edits: &[Edit], rule: Arc<Rule>) -> Found {
     for e in edits {
         let mut apps = a.apps.clone();
         apps[a.tested].files[e.file].1 = e.text.clone();
-        let decided: Arc<Mutex<Option<(Selection, Vec<Key>)>>> = Arc::default();
+        let decided: Seen<(Selection, Vec<Key>)> = Arc::default();
         let (d, s, r) = (decided.clone(), stored.clone(), rule.clone());
         let narrow = Narrow(Arc::new(move |input: &NarrowInput| {
             let tc = TestCodeunits::of(input, workspace);
