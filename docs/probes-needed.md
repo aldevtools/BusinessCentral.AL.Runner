@@ -636,6 +636,17 @@ pages/lt-ah-pages/PwCloseRevalidate.al (86157).
 | Previous on the top row of a descending OnFindRecord list that holds more than one row | REFUSED | PnF06 MovesDesc with 2 rows: First, then Previous |
 | Moves other than Next() on a list row whose OnValidate refused an entry, and what Next() answers there | REFUSED | PwCloseRevalidate list: `B := P.Next()`, and Previous/First/Last/New after the refusal; read where the cursor stands and what is stored |
 
+## User issues (lane-user-trust, 2026-10-21)
+
+From AL Runner issues filed by users (al-runner issues 5603, 5606, 5576, 5575).
+
+| What is not pinned | Today | Probe wanted |
+|---|---|---|
+| A test whose last statement is a statement-form `Rec.Insert()` on a primary key that already exists (BC defers the insert; whether the test fails with the 'already exists' error at its end) | REFUSED when the test otherwise passes (al-runner issue 5603) | A test that inserts the same key twice as a statement and ends; a second test that commits after it. Read the test results and the stored rows |
+| What a test sees of rows that an `OnCompanyOpenCompleted` subscriber (Company Triggers) writes before the tests run | REFUSED for the tests and OnRun triggers that reach a written table, or whose reach is unknown (al-runner issue 5606) | A subscriber that inserts one row; a test that counts the table and one that does not touch it |
+| A CalcFormula filter written as one quoted literal with filter operators in it (`Category = filter('10|200..299|400..499')`): BC 29 sums the entries that match it as a filter (al-runner issue 5575) | REFUSED (the FlowField) | A FlowField with that filter on a Code field and entries 10, 250, 300, 450; CalcFields; also `filter('<>A')` and `filter('D1|D2')` |
+| An extension that names its target by object id (`pageextension 50101 E extends 50100`, the same for a table extension) | ACCEPTED: alc 18.0.39.10160-beta compiles it, the oracle for compile acceptance (al-runner issue 5576) | A compile-acceptance case in the corpus with a page and a table extension by id, and a test that reads the added field |
+
 ## Assumptions in force (generated from the registry)
 
 Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test needs may be implemented before its probe, and every test that passes through such behavior is reported as a FLAGGED pass. The registry is `crates/al-builtins/src/assumptions.rs`; each code path marks its entry when it runs. This table is generated from it (do not edit it by hand: `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions` rewrites it). `alrunner test --top-assumptions` ranks the entries by flagged passes, `--list-assumptions` prints them with the hit counts of the last run. When a probe pins an entry, delete it from the registry; the compiler names every place that still marks it.
@@ -948,9 +959,8 @@ corpus writer on branch `al-runtime-rs-staging-bc` probes them. Until the corpus
 
 | Area | Refused until pinned | Probe wanted | Code |
 |---|---|---|---|
-| Pages | `addfirst`/`addlast(FactBoxes)` in a page extension when the base page declares no FactBoxes area (issue 252) | open a TestPage of a card whose extension adds a `systempart` and a `part` to FactBoxes when the base has only `area(Content)`; also `addlast`, and `area(FactBoxes)` added by the extension itself | `al-sema/src/pages.rs` (implicit areas) |
-| Reports | a dataset column that holds a Blob (also Media and MediaSet) in `Report.SaveAs` XML, Excel and the RDLC dataset (issue 253) | the text of a Blob column with and without `CalcFields`, empty and with bytes, in `SaveAs(..., ReportFormat::Xml, ...)` | `al-vm/src/reports.rs` (column text) |
-| Math | `Round` of a Duration (issue 254) | `Round(D)`, `Round(D, 1)`, `Round(D, 1000, '<' / '>' / '=')` for 0, 1, 1499, 1500 and negative durations; the result type (Decimal or Duration) | `al-builtins/src/mathfns.rs` |
+| Pages | `addfirst`/`addlast(Content)` or `(FactBoxes)` in a page extension when the base page declares no such area, on a page that is not a Card (a Card is pinned: pageext/lt-bc-implicit-areas/BcImplicitAreas.al) | the same extensions on a List, Document and ListPart page | `al-sema/src/pages.rs` (`IMPLICIT_CARD_AREAS`) |
+| Reports | a Media or MediaSet column with content (the dataset holds a re-encoded picture), a Blob a stream wrote after it was read, an uncalculated Blob that is not a field of the data item, and a Blob column in the Excel or RDLC dataset (the XML text of a Blob is pinned: report/lt-bc-xml-blob/BcXmlBlob.al) | the column text for each | `al-vm/src/reports.rs` (`blob_column_text`) |
 | Dates | `Date.Day/Month/Year()` of 0001-01-01: BC raises "The date is not valid." outside the TryFunction that takes the part (P93Date.al:59-60), so the place of the raise is not pinned | `D := 00010101D;` alone, passing `00010101D` as a Date argument, then `D.Year()` | `al-builtins/src/datefns.rs` (`date_part`) |
 
 ## Outside user reports (issues 292 to 297, 2026-10-19)
@@ -960,10 +970,10 @@ Issues 292 and 297 are pinned by corpus tests that already existed and are imple
 
 | Area | Refused until pinned | Probe wanted | Code |
 |---|---|---|---|
-| Evaluate | `Evaluate` of a text with `;` into a Decimal (issue 294: `1;5;10`); other separators and symbols than letters, `%`, `_`, `-`, `.`, `,`, `+`, `$` | return value and the variable afterwards for `1;5;10`, `1;5`, `;`, `1:5`, `1/5`, `1 5` with format number 0 and 9 | `al-builtins/src/evaluate.rs` `decimal` |
-| Filters | `GetFilter` / `GetFilters` of a filter with `<>` before a wildcard (issue 295: `<>*` on a Code field), and which rows `<>*`, `<>A*` and `<>?` keep | `SetFilter(F, '<>*')`, `'<>A*'`, `'<>?'` on Code and Text fields: the GetFilter text and the rows found (blank, `A`, `AB`, `B`) | `al-vm/src/views.rs` `filter_value_with`, `al-builtins/src/filter.rs` |
-| Filters | `SetFilter` on a Decimal field with a text that is no number and not only letters (issue 296: `NOT-A-NUMBER`); only letters (`abc`) is pinned | the error text and code of `SetFilter(Amount, 'NOT-A-NUMBER')`, `'1-2'`, `'1,2,3'`, `'1;2'`, `'abc1'` on a Decimal field | `al-builtins/src/filter.rs` `Decimal` arm |
-| Session | `SessionInformation.SqlStatementsExecuted` and `SqlRowsRead` (issue 293): only "not negative" is pinned (session/TestMiscTypes.al:96-114), not the value, so both stay refused | the value on the first read of a test, two reads with nothing between, and the difference after `Get`, `FindSet`, `Insert`, `Modify` on one table (corpus #673 item 2) | `al-vm/src/sessionops.rs` |
+| Evaluate | `Evaluate` of a list of numbers with more than three pieces or mixed separators, and with a format number other than 0 (lists of two or three pieces are pinned: types/lt-bl-evaluate-lists/EvaluateLists.al) | `1;2;3;4`, `1;5|6`, `Evaluate(D, '1;5', 9)` | `al-builtins/src/evaluate.rs` `number_list` |
+| Filters | `<>` before a quoted pattern (`<>'A*'`), `<>%1` with a wildcard text other than `*`, `<>@` before a text without a wildcard, and a placeholder right before a wildcard outside `<>` (`%1*`); the rest is pinned by record/lt-bl-wildcard-getfilter/WildcardGetFilter.al | GetFilter and the rows kept for each | `al-builtins/src/filter.rs` `not_pattern` |
+| Filters | `SetFilter` on a Decimal field with a text none of the forms of record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:92-126 covers (`1,50`, `1e10`, `1;5;6`, `?`, `1*`) | the error text or GetFilters for each | `al-builtins/src/filter.rs` `decimal_filter_text` |
+| Session | `SessionInformation.SqlStatementsExecuted` and `SqlRowsRead` (issue 293): session/lt-bl-sql-counters/SqlCounters.al:74-202 pins only that both are BigIntegers that are not negative and the sign of their change after Get, FindSet, Next, Count, Insert, Modify and Delete, not the values. Any value the runtime returns would be its own choice, which a test asserting a number could observe, so both stay refused | the exact values are not deterministic on BC; a static check that allows a read only where its value is compared (sign of a difference, `>= 0`) would need dataflow through variables, procedures and Variants | `al-vm/src/sessionops.rs` |
 | Pages | `CurrPage.Update()`, `CurrPage.Update(true)` and `CurrPage.Close()` in a procedure of a Page variable that ran and closed after `Run` or `RunModal` (only the never-run case and `Update(false)` are implemented; ClosedPageVariableCurrPage*.al pins the modal close but the runtime does not yet record how a page ran) | `Update()`, `Update(true)` on a never-run page variable; all three after `Page.Run` closed | `al-vm/src/pages/pageops.rs` |
 
 ## Fields of a part behind an Editable or Enabled expression (page-part-editable, 2026-10-19)

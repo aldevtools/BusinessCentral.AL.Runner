@@ -345,7 +345,11 @@ impl Object {
             let mut names = Vec::new();
             loop {
                 let mut parts = Vec::new();
-                while i < toks.len() && is_name(&toks[i]) && !is_clause(&toks[i]) {
+                // A target by its id (`extends 50100`) is one part.
+                while i < toks.len()
+                    && (is_name(&toks[i]) || toks[i].kind() == SyntaxKind::Integer)
+                    && !is_clause(&toks[i])
+                {
                     if toks[i].kind() != SyntaxKind::Dot {
                         parts.push(ident_text(&toks[i]));
                     }
@@ -405,7 +409,10 @@ impl Object {
             let mut names = Vec::new();
             loop {
                 let s = i;
-                while i < toks.len() && is_name(&toks[i]) && !is_clause(&toks[i]) {
+                while i < toks.len()
+                    && (is_name(&toks[i]) || toks[i].kind() == SyntaxKind::Integer)
+                    && !is_clause(&toks[i])
+                {
                     i += 1;
                 }
                 names.push(qualified(&toks[s..i]));

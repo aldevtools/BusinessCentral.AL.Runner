@@ -140,6 +140,8 @@ impl Session {
                 let t = self.filter_value_with(v, iso)?;
                 format!("{t}..{t}")
             }
+            // `<>%1` with the text `*` reads back quoted (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:196, :199).
+            FilterExpr::Ne(Value::Text(s) | Value::Code(s)) if &**s == "*" => "<>'*'".to_string(),
             FilterExpr::Ne(v) => format!("<>{}", self.filter_value_with(v, iso)?),
             FilterExpr::Lt(v) => format!("<{}", self.filter_value_with(v, iso)?),
             FilterExpr::Le(v) => format!("<={}", self.filter_value_with(v, iso)?),
@@ -149,6 +151,8 @@ impl Session {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
+            // record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
+            FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             FilterExpr::Or(xs) => xs
                 .iter()
                 .map(|x| self.filter_text_with(x, iso))
@@ -575,6 +579,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Or(xs) => FilterExpr::Or(xs.iter().map(ordinals).collect()),
         FilterExpr::And(xs) => FilterExpr::And(xs.iter().map(ordinals).collect()),
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
+        FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
     }
 }
 

@@ -722,7 +722,21 @@ impl Lowerer<'_> {
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
             let value = match &c.value {
                 CondValue::Const(raw) => ir::CalcValue::Const(self.calc_const(decl, raw, &src_fields[pos].ty)?),
-                CondValue::Filter(raw) => ir::CalcValue::Filter(rewrite_quotes(raw)),
+                CondValue::Filter(raw) => {
+                    // One quoted literal with filter operators in it (`filter('10|200..299')`): BC 29 reads the text as a
+                    // filter (al-runner issue 5575 sums the entries of 250), the filter grammar here as one value. No
+                    // corpus test pins the quoted form in a CalcFormula, so it is refused (docs/probes-needed.md "User
+                    // issues (lane-user-trust)"). Without an operator both readings are the same value.
+                    if crate::queries::whole_literal(raw)
+                        .is_some_and(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')']))
+                    {
+                        return Err(format!(
+                            "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",
+                            raw.trim()
+                        ));
+                    }
+                    ir::CalcValue::Filter(rewrite_quotes(raw))
+                }
                 CondValue::Field(n) => ir::CalcValue::Field(own_pos(n)?),
                 CondValue::UpperLimit(n) => ir::CalcValue::UpperLimit(own_pos(n)?),
                 CondValue::FieldFilter(n) => ir::CalcValue::FieldFilter(own_pos(n)?),

@@ -30,9 +30,18 @@ fn dec(v: &Value) -> Option<Decimal> {
 /// types/TestDateRoundFormatStringContracts.al:Round_DefaultPrecision_Directions_AndPrecisions). The
 /// default precision is 0.01 (same test). A precision of 0 or -1 raises (types/TestProbeScalarContracts.al:477-528),
 /// a smaller one is refused.
+///
+/// A Duration rounds its milliseconds the same way and gives a Decimal (types/lt-bc-round-duration/BcRoundDuration.al:51-143: zero,
+/// positive and negative durations by 1, 1000 with each direction, 0.5 and 60000; no precision; the result type). Its errors are
+/// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109).
 fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let Some(number) = dec(&a[0]) else {
-        return unsupported(format!("Round of {}", a[0].describe()));
+    let duration = matches!(a[0], Value::Duration(_));
+    let number = match &a[0] {
+        Value::Duration(ms) => Decimal::from(*ms),
+        v => match dec(v) {
+            Some(n) => n,
+            None => return unsupported(format!("Round of {}", a[0].describe())),
+        },
     };
     let precision = match a.get(1) {
         None => Decimal::new(1, 2),
@@ -46,8 +55,10 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if precision <= Decimal::ZERO {
         let shown = if precision.is_zero() {
             "0"
-        } else if precision == Decimal::NEGATIVE_ONE {
+        } else if precision == Decimal::NEGATIVE_ONE && !duration {
             "1"
+        } else if precision == Decimal::from(-1000) && duration {
+            "1,000"
         } else {
             return unsupported("Round with a Precision below -1 (not pinned)");
         };
@@ -66,6 +77,7 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         "=" => RoundingStrategy::MidpointAwayFromZero,
         ">" => RoundingStrategy::AwayFromZero,
         "<" => RoundingStrategy::ToZero,
+        "x" if duration => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
         other => return unsupported(format!("Round with direction `{other}` (not pinned)")),
     };
     let Some(steps) = number.checked_div(precision) else {

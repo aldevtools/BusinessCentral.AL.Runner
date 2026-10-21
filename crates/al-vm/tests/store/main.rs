@@ -40,6 +40,7 @@ mod tableext_relation_modify;
 mod temp_sums_by_ref;
 mod temp_tables;
 mod transactions;
+mod user_gaps_filters;
 mod userpersonalization;
 mod usertable;
 mod xrec;

@@ -27,6 +27,7 @@ impl<'a> Checker<'a> {
             cur_ret: None,
             tdd_apps: None,
             tdd_pending: Vec::new(),
+            all_routines: false,
         }
     }
 
@@ -42,6 +43,7 @@ impl<'a> Checker<'a> {
     pub(crate) fn diag(&mut self, sc: &Scope, node: &SyntaxNode, code: &'static str, message: String) {
         self.diags.push(Diagnostic {
             file: self.ws.files[sc.file].path.clone(),
+            app: self.ws.files[sc.file].app,
             offset: node.text_range().start().into(),
             code,
             message,
@@ -456,6 +458,7 @@ impl<'a> Checker<'a> {
             let table_name = self.ws.objects[ti].name.clone();
             self.diags.push(Diagnostic {
                 file: self.ws.files[file].path.clone(),
+                app: self.ws.files[file].app,
                 offset: usize::from(sec.syntax().text_range().start()),
                 code: "AL0132",
                 message: format!("'Record \"{table_name}\"' does not contain a definition for '{name}'"),
@@ -469,7 +472,7 @@ impl<'a> Checker<'a> {
         self.al_page_field_sources(oi, &obj);
         for r in ast::routines_in(obj.syntax()) {
             let offset = usize::from(r.syntax().text_range().start());
-            if self.ws.routine_unreached(oi, offset) {
+            if !self.all_routines && self.ws.routine_unreached(oi, offset) {
                 continue;
             }
             self.guard((oi, offset), |c| c.check_routine_in(&ctx, &r));

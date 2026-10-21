@@ -327,7 +327,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 summary["cancelled"] = json!(true);
             }
             // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`.
-            for key in ["stubbed", "generatedStubs"] {
+            for key in ["stubbed", "generatedStubs", "compilationErrors"] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();
                 }

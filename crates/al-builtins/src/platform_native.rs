@@ -218,7 +218,7 @@ fn decode_bytes(b: &[u8], enc: Enc) -> Result<String, Signal> {
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-pub(crate) fn b64_encode(bytes: &[u8], line_breaks: bool) -> String {
+pub fn b64_encode(bytes: &[u8], line_breaks: bool) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4 + 8);
     for chunk in bytes.chunks(3) {
         let n = (u32::from(chunk[0]) << 16)
