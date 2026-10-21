@@ -133,6 +133,9 @@ impl Session {
     }
 
     /// `Op::DbgHit`: the statement at position `p` is about to run, in a frame whose named locals are `locals`.
+    /// Cold and never inlined: the op loop's other arms must not pay for this arm (no debugger: never reached).
+    #[cold]
+    #[inline(never)]
     pub(crate) fn debug_hit(&mut self, p: u32, locals: &[Value]) {
         let Some(mut d) = self.debug.take() else { return };
         let depth = self.call_stack.len();

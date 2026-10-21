@@ -187,6 +187,7 @@ al-runner: run AL tests without a service tier (AL Runner, alpha)
 USAGE
     al-runner test [OPTIONS] APP...
     al-runner serve [--protocol 2] [OPTIONS]
+    al-runner debug [--stdio | --port [N]] [OPTIONS] APP...
     al-runner impact-index build|check-static [OPTIONS] APP...
     al-runner cache clear|prune|info [--cache-dir DIR]
     al-runner warm [PATH.bak] [OPTIONS]
@@ -414,6 +415,16 @@ SERVE
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
+
+DEBUG
+    al-runner debug      A Debug Adapter Protocol server (AL Runner v2's `--dap`): compiles the apps,
+                         waits for one client, runs the selected tests once with breakpoints, stepping,
+                         the call stack and the locals, then exits with the exit code of `test`.
+    --stdio              Speak DAP on stdin and stdout (stdout carries only DAP frames).
+    --port [N]           Listen on 127.0.0.1:N (default 4711, also without --port; 0 picks a free port).
+                         The port is printed on stderr.
+                         The other options are those of `test`; --output-json, --impact-of, --recipe and
+                         --explain are refused. Tests run one after the other. See docs/debugging.md.
 
 WARM
     al-runner warm [PATH.bak] [--bc-version BUILD] [--country CODE] [--cache-dir DIR] [--no-download]

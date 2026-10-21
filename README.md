@@ -466,7 +466,8 @@ load it.
   helper sources and builds the helper into the cache on first use. Without the
   SDK these tests are not run, with a reason.
 - Many features are missing. See `docs/status.md` and `docs/al-runner-v2-parity.md`.
-- No watch mode and no debugger. `al-runner serve` and `--coverage` (Cobertura XML,
+- No watch mode. `al-runner debug` is a Debug Adapter Protocol server for breakpoints, stepping and
+  locals (`docs/debugging.md`). `al-runner serve` and `--coverage` (Cobertura XML,
   `--coverage-json`) exist. `serve` speaks AL Runner v2's JSON-lines protocol (`runTests`,
   `execute`, `cancel`, `shutdown`). All requests run in the one server process, which keeps the
   compile of the last request, so a repeated request with the same sources takes 0.2 to 2 s
@@ -499,7 +500,7 @@ says which.
 | Background jobs, `StartSession` | Tasks are created and never run. A second session is not started | Call the code the task would run |
 | Licensing, permission enforcement | Everything is granted. Denial paths cannot be tested | Use a real service tier |
 | Apps that ship without AL source | Not run. The message names the app | Provide an `.app` with source |
-| Watch mode, debugger | Not available | Not available yet |
+| Watch mode | Not available | Not available yet |
 
 The full list, with reasons and open questions, is
 [ADR-027](docs/adr/027-scope.md) (Proposed).
@@ -524,6 +525,7 @@ al-runner test ./MyApp                                       # an app folder wit
 al-runner test ./MyApp --filter Posting --verbose            # selected tests, one line per test
 al-runner test Tests-ERM.Source.zip                          # Microsoft's tests: apps, System.app and CRONUS data fetched
 al-runner test ./MyApp --no-test-data                        # without the CRONUS company
+al-runner debug --stdio ./MyApp ./MyApp.Test                 # debug the tests from an editor (DAP)
 ```
 
 Exit codes are in "Getting started with your own project" above. `al-runner test --help`
@@ -583,6 +585,7 @@ many more of these tests run.
 
 ## Documentation
 
+- `docs/debugging.md`: `al-runner debug`, the Debug Adapter Protocol server.
 - `docs/releasing.md`: how an edge build, a numbered alpha and a hotfix are released.
 - `docs/architecture.md`: pipeline, crates, runtime model, budgets.
 - `docs/codemap.md`: which module owns what, and where the entry points are.

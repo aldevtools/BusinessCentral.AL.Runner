@@ -152,8 +152,11 @@ pub(crate) fn cancel_flag() -> Option<Arc<AtomicBool>> {
     CURRENT.with(|c| c.borrow().0.cancel.clone())
 }
 
+/// A debugger for a session and the clock of the time its tests are stopped.
+pub(crate) type SessionDebugger = (Box<dyn al_vm::DebugHook>, Option<Arc<PauseClock>>);
+
 /// A debugger for a test codeunit's session (`Hooks::debugger`), and the clock of the time its tests are stopped.
-pub(crate) fn debugger() -> Option<(Box<dyn al_vm::DebugHook>, Option<Arc<PauseClock>>)> {
+pub(crate) fn debugger() -> Option<SessionDebugger> {
     let (make, paused) = CURRENT.with(|c| {
         let c = c.borrow();
         (c.0.debugger.clone(), c.0.paused.clone())

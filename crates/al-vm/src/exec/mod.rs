@@ -536,8 +536,9 @@ pub(crate) struct ExecProgram {
     chunks: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
     /// The captured form of a routine (value capture and iteration tracking), built on first use by a capture.
     captured: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
-    /// The debug form of a routine (ADR-048), built on first use by a session with a debugger.
-    debug: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
+    /// The debug form of a routine (ADR-048), built on first use by a session with a debugger. The table itself is
+    /// built on first use too, so a run without a debugger does not allocate it.
+    debug: OnceLock<Vec<Vec<OnceLock<Option<Box<Chunk>>>>>>,
 }
 
 impl ExecProgram {
@@ -553,11 +554,7 @@ impl ExecProgram {
                 .iter()
                 .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
                 .collect(),
-            debug: program
-                .objects
-                .iter()
-                .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
-                .collect(),
+            debug: OnceLock::new(),
         }
     }
 
@@ -570,7 +567,14 @@ impl ExecProgram {
 
     /// The debug form of routine `routine` of object `object` (ADR-048).
     pub(crate) fn debug_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
-        self.debug[object][routine]
+        let table = self.debug.get_or_init(|| {
+            program
+                .objects
+                .iter()
+                .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
+                .collect()
+        });
+        table[object][routine]
             .get_or_init(|| compile::compile_debug(&program.objects[object].routines[routine]).map(Box::new))
             .as_deref()
     }
