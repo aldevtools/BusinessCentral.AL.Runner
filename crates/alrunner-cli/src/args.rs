@@ -760,7 +760,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             a.test_data_path = Some(PathBuf::from(path));
             continue;
         }
-        if !flag.starts_with("--") {
+        // The short flags of `--verbose` and `--quiet` come before the app-path fallback (issue 5618).
+        if !flag.starts_with("--") && !matches!(flag.as_str(), "-v" | "-q") {
             a.apps.push(PathBuf::from(flag));
             continue;
         }
@@ -1061,6 +1062,18 @@ mod tests {
         assert!(p("cache info --dry-run").is_err(), "--dry-run belongs to prune");
         assert!(p("cache wipe").unwrap_err().contains("wipe"));
         assert!(p("cache clear --all").unwrap_err().contains("--all"));
+    }
+
+    /// Issue 5618: `-v` and `-q` are listed in `--help` and must not be read as app paths.
+    #[test]
+    fn short_verbose_and_quiet_flags_are_flags_not_apps() {
+        let a = test_args("test -v App Tests");
+        assert!(a.verbose);
+        assert_eq!(a.apps, vec![PathBuf::from("App"), PathBuf::from("Tests")]);
+        let a = test_args("test App -q Tests");
+        assert!(a.quiet);
+        assert_eq!(a.apps, vec![PathBuf::from("App"), PathBuf::from("Tests")]);
+        assert!(p("test -v -q App").unwrap_err().contains("cannot be combined"));
     }
 
     #[test]
