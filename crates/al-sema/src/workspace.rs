@@ -77,6 +77,8 @@ pub enum AppKind {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Diagnostic {
     pub file: String,
+    /// The app of `file` (index into `Workspace::apps`): two apps can hold files of the same path.
+    pub app: usize,
     pub offset: usize,
     pub code: &'static str,
     pub message: String,
@@ -334,6 +336,7 @@ impl Workspace {
             for e in &file.errors {
                 ws.diagnostics.push(Diagnostic {
                     file: path.to_string(),
+                    app: ai,
                     offset: e.offset,
                     code: "AR0000",
                     message: e.message.clone(),
@@ -478,7 +481,7 @@ impl Workspace {
             .iter()
             .flat_map(|&i| self.unresolved_references_of(&self.objects[i]))
             .collect();
-        self.diagnostics.retain(|d| d.file != path);
+        self.diagnostics.retain(|d| d.file != path || d.app != ai);
         self.diagnostics.extend(renewed);
         let positions: HashMap<&str, usize> = self
             .files
@@ -882,6 +885,7 @@ impl Workspace {
             if !ids.is_empty() && report {
                 self.diagnostics.push(Diagnostic {
                     file: file.clone(),
+                    app: o.app,
                     offset: o.offset,
                     code: "AR0001",
                     message: format!("duplicate {} id {id}", o.kind.label()),
@@ -898,6 +902,7 @@ impl Workspace {
         if clash && report {
             self.diagnostics.push(Diagnostic {
                 file,
+                app: o.app,
                 offset: o.offset,
                 code: "AR0001",
                 message: format!("duplicate {} name `{}`", o.kind.label(), o.name),
@@ -1172,6 +1177,7 @@ impl Workspace {
             };
             diags.push(Diagnostic {
                 file: file.path.clone(),
+                app: file.app,
                 offset,
                 code,
                 message,

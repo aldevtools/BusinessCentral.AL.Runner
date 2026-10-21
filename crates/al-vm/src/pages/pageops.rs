@@ -178,15 +178,6 @@ impl Session {
     }
 
     pub(super) fn test_page_op(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        let gotokey = method.method() == PageMethod::GoToKey && st.borrow().host.is_none();
-        let was = self.host_gotokey_running;
-        self.host_gotokey_running = gotokey || was;
-        let r = self.test_page_op_body(method, st, args);
-        self.host_gotokey_running = was;
-        r
-    }
-
-    fn test_page_op_body(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let name = method.method();
         if name != PageMethod::Close || st.borrow().unpinned_close {
             self.refuse_unpinned_state(st)?;
@@ -363,8 +354,11 @@ impl Session {
             r => r?,
         };
         // The client runs the page's background tasks before the call returns (corpus
-        // handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns).
-        self.bg_drain(st)?;
+        // handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns). The tasks an
+        // `EnqueueBackgroundTask` call queued run once it wrote its task id back (`Session::bg_drain_after_call`).
+        if name != PageMethod::EnqueueBackgroundTask {
+            self.bg_drain(st)?;
+        }
         // A move of the host re-points its parts; a move of a part re-points the parts that take
         // their link from it (corpus testpart/TestPartProviderMove.al).
         let moved = match name {
@@ -1060,7 +1054,16 @@ impl Session {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;
                 let a = self.close_action(st, "Close");
-                self.close_with(st, &a, false, false)
+                let restored = st.borrow().close_restored_row;
+                let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
+                let r = self.close_with(st, &a, false, false)?;
+                // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
+                // LookupCancel (misc/lt-probes-needed-7/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
+                // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
+                if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
+                    st.borrow_mut().selection = Some(fields);
+                }
+                Ok(r)
             }
             PageMethod::New => {
                 self.require_open(st)?;
@@ -1125,6 +1128,7 @@ impl Session {
                     // The refresh lands after the trigger that asked for it returns (corpus
                     // pageupdate/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
                     st.borrow_mut().refresh = true;
+                    st.borrow_mut().refresh_by_update = true;
                     self.note_view_left(st)?;
                 }
                 if !save {

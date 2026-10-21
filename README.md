@@ -477,7 +477,7 @@ load it.
   yet runs against a stub that returns the default value (0, '', false, an empty record)
   instead of failing to compile. Each such test is reported as stubbed, pass or fail, and the
   summary counts stubbed tests apart. So far only procedure calls on codeunit variables become
-  stubs (ADR-051).
+  stubs (ADR-051). `serve` takes it as the `tdd` field of `runTests`, or `serve --tdd`.
 - Only three targets are built: Linux x64, Windows x64 and macOS arm64.
 
 **Report problems** as a GitHub issue, using the "Alpha feedback" template.

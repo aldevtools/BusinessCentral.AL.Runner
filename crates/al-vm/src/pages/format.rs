@@ -1007,7 +1007,44 @@ impl Session {
         }
         // A caption the page assigned still gets the record's values behind it (pages/lt-page-runtime/P82CurrPage.al:
         // Caption_ReadAndAssign: `Changed caption - A`); on no row it stands alone (handlers/TestPageCaption_Tests.al).
-        if !self.has_source(st) || self.is_list(st) {
+        if !self.has_source(st) {
+            return Ok(base);
+        }
+        if self.is_list(st) {
+            // BC adds the filter on a data caption field to a list's caption (al-runner issue 5593: `Probe Bin List -
+            // Z1` on BC 29 for a filter Zone Code = Z1, the bare caption for a filter on another field). No corpus test
+            // pins it yet (docs/probes-needed.md "User issues (lane-user-trust)"), so such a caption is refused.
+            let rec = self.page_rec(st);
+            let table = self.table(&rec)?;
+            // The fields the page's or the table's DataCaptionFields name, else the primary key.
+            let names: Vec<String> = [object, table.object as usize]
+                .iter()
+                .filter_map(|&o| {
+                    engine.program.objects[o]
+                        .properties
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("DataCaptionFields"))
+                        .map(|(_, v)| v.clone())
+                })
+                .filter(|v| !v.trim().is_empty())
+                .collect();
+            let caption_fields: Vec<usize> = if names.is_empty() {
+                table.keys.first().cloned().unwrap_or_default()
+            } else {
+                names
+                    .iter()
+                    .flat_map(|v| v.split(','))
+                    .filter_map(|n| {
+                        let n = n.trim().trim_matches('"');
+                        table.fields.iter().position(|f| f.name.eq_ignore_ascii_case(n))
+                    })
+                    .collect()
+            };
+            if rec.borrow().filters.iter().any(|f| caption_fields.contains(&f.field)) {
+                return unsupported(
+                    "the caption of a list whose record has a filter on a data caption field (not pinned, al-runner issue 5593)",
+                );
+            }
             return Ok(base);
         }
         let (cursor, draft) = {

@@ -72,18 +72,38 @@ pub fn signature(ws: &Workspace, site: &TddSite) -> Option<String> {
     ))
 }
 
-/// Every stub of a checked program, sorted, each once (`ir::Program::tdd_stubs`).
-pub fn signatures(ws: &Workspace, resolutions: &PosMap<Res>) -> Vec<String> {
-    let mut out: Vec<String> = resolutions
+/// The stubs of a checked program by the object whose code holds the site: (object, signature). The incremental
+/// compile keeps those of the objects it does not check again ([`stub_list`]).
+pub fn sites_by_object(ws: &Workspace, resolutions: &PosMap<Res>) -> Vec<(usize, String)> {
+    resolutions
         .iter()
-        .filter_map(|(_, r)| match r.inner() {
-            Res::TddStub(site) => signature(ws, site),
+        .filter_map(|(&(file, start, _), r)| match r.inner() {
+            Res::TddStub(site) => {
+                let sig = signature(ws, site)?;
+                let holder = (0..ws.objects.len()).find(|&oi| {
+                    ws.objects[oi].file == file && {
+                        let range = ws.object_ast(oi).syntax().text_range();
+                        u32::from(range.start()) as usize <= start && start <= u32::from(range.end()) as usize
+                    }
+                })?;
+                Some((holder, sig))
+            }
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+/// Every stub of the program, sorted, each once (`ir::Program::tdd_stubs`).
+pub fn stub_list(sites: &[(usize, String)]) -> Vec<String> {
+    let mut out: Vec<String> = sites.iter().map(|(_, s)| s.clone()).collect();
     out.sort();
     out.dedup();
     out
+}
+
+/// Every stub of a checked program, sorted, each once (`ir::Program::tdd_stubs`).
+pub fn signatures(ws: &Workspace, resolutions: &PosMap<Res>) -> Vec<String> {
+    stub_list(&sites_by_object(ws, resolutions))
 }
 
 fn shown(t: &Ty) -> String {

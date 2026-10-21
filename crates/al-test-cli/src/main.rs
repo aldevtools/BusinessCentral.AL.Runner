@@ -588,6 +588,9 @@ fn run_version(
         narrow: None,
         tdd: false,
         debug_ready: None,
+        // The corpus compiles on real BC: an error found here is the front end's, printed, never a reason not to run.
+        stop_on_compile_errors: false,
+        run_only: None,
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(

@@ -149,7 +149,7 @@ fn arm_with(
 ) -> String {
     format!(
         "[Test] procedure A{code}{row_currency}() var G: Record \"General Ledger Setup\"; C: Record Currency; R: Record \"AF Cur Row\"; P: TestPage \"AF Cur Card\"; begin
-           G.\"Amount Decimal Places\" := '{setup_amount}'; G.\"Unit-Amount Decimal Places\" := '{setup_unit}'; G.Insert();
+           G.\"Amount Decimal Places\" := '{setup_amount}'; G.\"Unit-Amount Decimal Places\" := '{setup_unit}'; if not G.Insert() then G.Modify();
            C.Code := '{code}'; C.\"Amount Decimal Places\" := '{amount_places}'; C.\"Unit-Amount Decimal Places\" := '{unit_places}'; C.Insert();
            R.\"No.\" := 'X{code}'; R.Amount := {v}; R.\"Currency Code\" := '{row_currency}'; R.Insert(); P.OpenView(); P.GoToRecord(R);
            if P.T1.Value() <> '{}' then Error('t1 %1', P.T1.Value());

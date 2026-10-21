@@ -50,9 +50,22 @@ impl Session {
         // Under a TestPage the task runs at once: its completion trigger has run when this call returns, so a
         // cancel right after it cannot stop it (corpus handlers/TestPageCancelBackgroundTaskContracts.al:
         // Cancel_RightAfterEnqueue_ReturnsTrue_ButTheTaskHasCompleted: `completed` is logged before the
-        // cancel's answer).
-        self.bg_drain(st)?;
+        // cancel's answer; bgtasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove: `done` before `enqueued`).
+        // The task runs after the call has stored the id in its `var TaskId` argument, so the completion trigger
+        // sees the page variable already set. Assumed (bg-task-id-set-before-completion): Microsoft's test
+        // Tests-ERM 134385 "ERM Sales Document" CustomerStatisticsYearToDate needs it (page 9082 compares the
+        // trigger's TaskId with the variable it passed to the enqueue); no corpus test reads the variable there.
+        self.pages.bg_drain_after_call = Some(st.clone());
         Ok(Value::Null)
+    }
+
+    /// Runs the tasks an `EnqueueBackgroundTask` call queued, after the call wrote its arguments back.
+    pub(crate) fn bg_drain_after_call(&mut self) -> Result<(), Signal> {
+        let Some(st) = self.pages.bg_drain_after_call.take() else {
+            return Ok(());
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskIdSetBeforeCompletion);
+        self.bg_drain(&st)
     }
 
     /// `CurrPage.CancelBackgroundTask(TaskId)`: true for the id of a task this page enqueued, also after it

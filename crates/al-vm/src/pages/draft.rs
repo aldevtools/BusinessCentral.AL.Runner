@@ -660,7 +660,22 @@ impl Session {
         // handlers/TestPageRuntimeContracts.al:197-211 TestPage_New_AtTheEnd_PassesBelowxRecTrueToOnInsertRecord).
         // A row added in the middle is not pinned; it is given the same Yes as OnNewRecord gets.
         let anchor = st.borrow().after_new.clone();
-        if let Some(anchor) = anchor.filter(|_| self.is_list(st) && st.borrow().host.is_none()) {
+        // In a part whose whole view the client holds, a line started below a row other than the last one (pages/
+        // lt-qj-part-propagation/QjPartPropagation.al:3000 QN_PartDelayedOnly_NewTyped_ThenNew `D.INSR(0 a=7 x=3 x.ln=30000)` after
+        // New() from row 30000 of two; :3106, :3212, :3318, :3424). From the last row the insert keeps the blank xRec (:925
+        // QJ_SubformSaveRecord_NewRow `S.INSR(20000 r=5 x=0 x.ln=0)`).
+        let table = self.table(&rec)?;
+        let part_middle = |s: &Self, a: &Vec<Value>| {
+            s.part_view_held(st)
+                && st
+                    .borrow()
+                    .window
+                    .last()
+                    .is_some_and(|w| !Self::same_key(&w.key, &table.primary_key(a)))
+        };
+        if let Some(anchor) =
+            anchor.filter(|a| self.is_list(st) && (st.borrow().host.is_none() || part_middle(self, a)))
+        {
             // The insert sees the row the line was started below as xRec (misc/W2BelowXRec.al:NewInTheMiddle_*).
             self.set_xrec_fields(st, anchor);
         }

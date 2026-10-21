@@ -66,7 +66,7 @@ const HARMLESS_QUERY_PROPERTIES: &[&str] = &[
 ];
 
 /// The text inside `raw` when `raw` is exactly one single-quoted AL string.
-fn whole_literal(raw: &str) -> Option<String> {
+pub(crate) fn whole_literal(raw: &str) -> Option<String> {
     let t = raw.trim();
     let inner = t.strip_prefix('\'')?.strip_suffix('\'')?;
     // A quote inside must be doubled, or the literal ended early.

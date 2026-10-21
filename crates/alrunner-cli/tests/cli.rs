@@ -146,7 +146,10 @@ fn help_and_version_exit_0_and_say_what_the_command_does() {
     assert_eq!(code(&o), 0);
     let t = text(&o);
     assert!(t.contains("al-runner test [OPTIONS] APP..."), "{t}");
-    assert!(t.contains("al-runner debug [--stdio | --port [N]] [OPTIONS] APP..."), "{t}");
+    assert!(
+        t.contains("al-runner debug [--stdio | --port [N]] [OPTIONS] APP..."),
+        "{t}"
+    );
     assert!(t.contains("--dep PATH") && t.contains("--package-cache DIR"), "{t}");
     assert!(t.contains("7  some tests were not run"), "{t}");
     assert_eq!(code(&alrunner(&["--version"])), 0);
@@ -1520,4 +1523,299 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
         // Only the cache part of the help, not the whole of it.
         assert!(!out.contains("SELECTION"), "{args:?}: {out}");
     }
+}
+
+/// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a
+/// test codeunit the selection leaves out each stop the run with exit 3, the
+/// errors on stderr in the AL compiler's form, and `compilationErrors` in the JSON document. Before, the selected test
+/// passed with exit 0.
+#[test]
+fn code_that_does_not_compile_runs_no_test_and_exits_3() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005602", "Logic", &[]),
+    );
+    let logic = "codeunit 50600 \"Probe Logic\" {\n    procedure Add(A: Integer; B: Integer): Integer begin exit(A + B); end;\n    procedure Other(): Integer var I: Integer; begin I := NoSuchProc(); exit(I); end;\n}\n";
+    write(&app, "src/Logic.al", logic);
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        &app_json(
+            "11111111-0000-0000-0000-000000005603",
+            "Logic Tests",
+            &[("11111111-0000-0000-0000-000000005602", "Logic")],
+        ),
+    );
+    write(
+        &tests,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\" { Subtype = Test; [Test] procedure Passes() var L: Codeunit \"Probe Logic\"; begin if L.Add(2, 3) <> 5 then Error('bad'); end; }",
+    );
+    let json = d.path().join("out.json");
+    let run = |extra: &[&str]| {
+        let mut args = vec!["test", app.to_str().unwrap(), tests.to_str().unwrap(), "--no-download"];
+        args.extend_from_slice(extra);
+        alrunner(&args)
+    };
+    let o = run(&[
+        "--test-exact",
+        "Codeunit50650.Passes",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o)
+            .contains("src/Logic.al(3,59): error AL0118: The name 'NoSuchProc' does not exist in the current context."),
+        "{}",
+        text(&o)
+    );
+    assert!(text(&o).contains("Result: COMPILE ERRORS (exit 3)"), "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(doc["exitCode"], 3);
+    assert_eq!(doc["total"], 0);
+    let groups = doc["compilationErrors"].as_array().expect("compilationErrors");
+    assert_eq!(groups.len(), 1, "{doc}");
+    assert!(
+        groups[0]["file"].as_str().unwrap().ends_with("app/src/Logic.al"),
+        "{doc}"
+    );
+    assert_eq!(groups[0]["errors"].as_array().unwrap().len(), 1, "{doc}");
+
+    // Fixed, the test runs and passes.
+    write(&app, "src/Logic.al", &logic.replace("NoSuchProc()", "1"));
+    let o = run(&["--test-exact", "Codeunit50650.Passes"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+
+    // An error in a test codeunit the selection does not pick.
+    write(
+        &tests,
+        "src/Other.al",
+        "codeunit 50651 \"Other Tests\" { Subtype = Test; [Test] procedure Q() begin NoSuchProc(); end; }",
+    );
+    let o = run(&["--codeunit", "50650"]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(text(&o).contains("src/Other.al(1,75): error AL0118"), "{}", text(&o));
+    std::fs::remove_file(tests.join("src/Other.al")).unwrap();
+
+    // Source our parser does not accept is not a compile error: the parser can reject valid AL (al-runner issue 5576).
+    // A test that does not need the file runs; one that needs it is not run (exit 7), with the parse error as the reason.
+    write(
+        &app,
+        "src/Broken.al",
+        "codeunit 50601 \"Broken\" {\n    procedure Ok(): Integer begin exit(1); end;\n    procedure Spin(: Integer\n    begin\n    end;\n}\n",
+    );
+    let o = run(&["--test-exact", "Codeunit50650.Passes"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("src/Broken.al(3,20): "), "{}", text(&o));
+    write(
+        &tests,
+        "src/NeedsBroken.al",
+        "codeunit 50652 \"Needs Broken\" { Subtype = Test; [Test] procedure UsesIt() var B: Codeunit \"Broken\"; begin if B.Ok() <> 1 then Error('bad'); end; }",
+    );
+    let o = run(&["--codeunit", "50652"]);
+    assert_eq!(code(&o), 7, "{}", text(&o));
+    assert!(text(&o).contains("the parser did not accept"), "{}", text(&o));
+}
+
+/// Issue 5613: with `--output-json`, a selection that matches no test still writes the document (exit 6, no rows,
+/// the reason in `warnings`), on stdout and to a file.
+#[test]
+fn output_json_writes_the_document_when_the_selection_matches_no_test() {
+    let d = tempfile::tempdir().unwrap();
+    let app = mixed_app(d.path());
+    let a = app.to_str().unwrap();
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--output-json",
+        "--test",
+        "Codeunit0.NoSuchTest",
+    ]);
+    assert_eq!(code(&o), 6, "{}", text(&o));
+    let doc = json_of(&o);
+    assert_eq!(doc["exitCode"], 6, "{doc}");
+    assert_eq!(doc["total"], 0, "{doc}");
+    assert_eq!(doc["tests"].as_array().map(Vec::len), Some(0), "{doc}");
+    assert!(
+        doc["warnings"][0].as_str().unwrap().contains("matches no test"),
+        "{doc}"
+    );
+    let file = d.path().join("out.json");
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--output-json",
+        file.to_str().unwrap(),
+        "--test",
+        "NoSuchTest",
+    ]);
+    assert_eq!(code(&o), 6, "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(doc["exitCode"], 6, "{doc}");
+}
+
+/// Issue 5572: a test whose AL name is a quoted identifier is selected by that name, with --test-exact, --test
+/// and --explain; issue 5612: --test with --test-exact selects only the tests both match.
+#[test]
+fn a_quoted_test_name_is_selected_by_its_al_name() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("quoted");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000072", "Quoted", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure \"Space Step\"()\n    begin\n    end;\n\n    [Test]\n    procedure \"Dot.Name\"()\n    begin\n    end;\n\n    [Test]\n    procedure Passes()\n    begin\n    end;\n\n    [Test]\n    procedure PassesToo()\n    begin\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let names = |args: &[&str]| -> Vec<String> {
+        let mut all = vec!["test", a, "--no-download", "--output-json"];
+        all.extend_from_slice(args);
+        let o = alrunner(&all);
+        assert_eq!(code(&o), 0, "{args:?}: {}", text(&o));
+        let doc = json_of(&o);
+        let mut n: Vec<String> = doc["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        n.sort();
+        n
+    };
+    let space = vec!["Codeunit50650.Space Step".to_string()];
+    assert_eq!(names(&["--test-exact", "Codeunit50650.Space Step"]), space);
+    assert_eq!(names(&["--test-exact", "space step"]), space);
+    assert_eq!(names(&["--test", "Space Step"]), space);
+    assert_eq!(
+        names(&["--test-exact", "Codeunit50650.Dot.Name"]),
+        vec!["Codeunit50650.Dot.Name".to_string()]
+    );
+    assert_eq!(names(&["--test", "Dot"]), vec!["Codeunit50650.Dot.Name".to_string()]);
+    assert_eq!(
+        names(&["--test", "Codeunit50650.Passes", "--test-exact", "Codeunit50650.Passes"]),
+        vec!["Codeunit50650.Passes".to_string()]
+    );
+    let o = alrunner(&["test", a, "--no-download", "--explain", "Space Step"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("Space Step"), "{}", text(&o));
+}
+
+/// Issues 5609 and 5607: the two isolation refusals say why (no corpus test pins BC's behavior) and what to use
+/// instead.
+#[test]
+fn isolation_refusals_say_why_and_what_to_use_instead() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("commit");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005607", "Commit", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50660 \"Commit Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure CommitCall()\n    begin\n        Commit();\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let message = |isolation: &str| -> String {
+        let o = alrunner(&["test", a, "--no-download", "--output-json", "--isolation", isolation]);
+        assert_eq!(code(&o), 7, "{}", text(&o));
+        json_of(&o)["tests"][0]["message"].as_str().unwrap().to_string()
+    };
+    let m = message("disabled");
+    assert!(
+        m.contains("no corpus test pins") && m.contains("--isolation codeunit"),
+        "{m}"
+    );
+    let m = message("test");
+    assert!(
+        m.contains("no corpus test pins") && m.contains("--isolation codeunit"),
+        "{m}"
+    );
+    let o = alrunner(&["test", a, "--no-download", "--isolation", "codeunit"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+}
+
+/// Issue 5608: an outbound request no handler answers fails with BC's pinned error where BC fails it without a
+/// connection (an internal address: PyHttpPolicy.al:82-90) and under BlockOutboundRequests (AyHttpHandler.al:121); a
+/// request BC sends for real is refused with a reason that says why and what to do instead.
+#[test]
+fn an_unhandled_outbound_request_fails_as_bc_does_or_says_why_it_is_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("http");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005608", "Http", &[]),
+    );
+    let unit = |id: u32, policy: &str| {
+        format!(
+            "codeunit {id} \"Http Tests {id}\"\n{{\n    Subtype = Test;\n{policy}\n    [Test]\n    procedure Local()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://localhost:1/x', Response);\n    end;\n\n    [Test]\n    procedure Public()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://example.com/x', Response);\n    end;\n}}\n"
+        )
+    };
+    write(&dir, "src/Default.al", &unit(50670, ""));
+    write(
+        &dir,
+        "src/Block.al",
+        &unit(50671, "    TestHttpRequestPolicy = BlockOutboundRequests;"),
+    );
+    let o = alrunner(&["test", dir.to_str().unwrap(), "--no-download", "--output-json"]);
+    let doc = json_of(&o);
+    let message = |name: &str| row(&doc, name)["message"].as_str().unwrap().to_string();
+    assert!(
+        message("Codeunit50670.Local").contains("violates security requirements"),
+        "{doc}"
+    );
+    assert!(
+        message("Codeunit50671.Public").starts_with("Unhandled outbound HTTP requests are not permitted"),
+        "{doc}"
+    );
+    let m = message("Codeunit50670.Public");
+    assert!(
+        m.contains("[HttpClientHandler]") && m.contains("BlockOutboundRequests"),
+        "{m}"
+    );
+}
+
+/// Issue 5611: --run-selected-only runs only the selected tests of a codeunit, as BC's test tool runs only the test
+/// methods that are enabled: a sibling that is not selected does not run, so its global does not carry over.
+#[test]
+fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("persist");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005611", "Persist", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50680 \"Persist Tests\"\n{\n    Subtype = Test;\n\n    var\n        Counter: Integer;\n\n    [Test]\n    procedure PersistA()\n    begin\n        Counter += 1;\n    end;\n\n    [Test]\n    procedure PersistB()\n    begin\n        if Counter <> 0 then\n            Error('counter=%1', Counter);\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--test-exact", "Codeunit50680.PersistB"]);
+    assert_eq!(code(&o), 1, "the whole codeunit runs by default: {}", text(&o));
+    assert!(text(&o).contains("counter=1"), "{}", text(&o));
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--test-exact",
+        "Codeunit50680.PersistB",
+        "--run-selected-only",
+    ]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("Tests: 1 total, 1 passed"), "{}", text(&o));
 }

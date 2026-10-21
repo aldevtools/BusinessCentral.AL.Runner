@@ -790,8 +790,55 @@ impl Session {
             if !self.declares(st, "onfindrecord") && !self.pages.lenient_bind {
                 return self.page_first_row_from(st, "=><", true);
             }
+        } else if st.borrow().host.is_none()
+            && self.declares(st, "onopenpage")
+            && !self.declares(st, "onfindrecord")
+            && !self.is_request_page(st)
+        {
+            self.refuse_rec_moved_by_onopenpage(st)?;
         }
         self.page_first_row(st)
+    }
+
+    /// A page without OnFindRecord opened without a record, whose OnOpenPage left Rec on a key that is neither blank nor the
+    /// first row of the view: whether it opens on that row or on the first one is not pinned (the corpus pins Rec as OnOpenPage
+    /// left it only for pages with OnFindRecord, pages/lt-ai-list-order/AiListOrderTests.al:825
+    /// OpenOnRow_SetPositionInOnOpenPage_LastRow). Tests-ERM 134710 EmptySetup reaches it (Payment Registration Setup inserts the
+    /// user's row in OnOpenPage while another user's row sorts first).
+    fn refuse_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        // A temporary source that OnOpenPage fills is kept as it was (kept, not pinned): refusing it would lose the baseline
+        // cases handlers/TestTempIntegerListPart.al:92 TempIntegerPart_SelfLoaded_FirstRowIsNumberOne,
+        // handlers/TestPageVariableControlCaption_Tests.al:120 PrecompiledPage_PageVariableControl_NoCaption_IsTheControlName
+        // and testpart/BnrBlankPart.al:596 NoRow_TempListInsertingInOnOpenPage_ShowsARow, none of which tells the first row
+        // from the one OnOpenPage left Rec on.
+        if rec.borrow().temporary {
+            return Ok(());
+        }
+        let key = self.row_key(&rec)?;
+        let table = self.table(&rec)?;
+        let blank: Vec<Value> = table.keys[0]
+            .iter()
+            .map(|&f| table.fields[f].ty.clone())
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|ty| self.default_value(ty))
+            .collect();
+        if Self::same_key(&key, &blank) {
+            return Ok(());
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        let first = match self.record_op(RecordOp::FindFirst, &probe, &mut [])? {
+            Value::Boolean(true) => Some(self.row_key(&probe)?),
+            _ => None,
+        };
+        if first.is_some_and(|f| Self::same_key(&f, &key)) {
+            return Ok(());
+        }
+        unsupported(
+            "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",
+        )
     }
 
     pub(super) fn save_values(&self, st: &St) -> bool {
@@ -1752,19 +1799,16 @@ impl Session {
             self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
             return Err(error_code(e.message.clone(), "TestWrapped"));
         }
-        // OnNewRecord sees the xRec the part held before its first and third run, a blank one before the second
-        // (pages/lt-qj-part-propagation/QjPartPropagation.al:1346 QL_PartLastNew_NoLines `log-open` after GoToKey onto a host row
-        // without lines: `S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000)`); the
-        // part's Last() and New() see it again (`PageState::empty_part_xrec`).
-        // Pinned after a GoToKey of the host. After another host move the third run sees the blank xRec as before: not pinned,
-        // kept for baseline cases 60358 New_OnEmptyLinkedPart_RunsOnNewRecordOncePlusTheOpenCost, DraftLine_*, TwoRowsWritten*;
-        // 60868 OpenNew_*; 60996 EmptyLinkedPart_*; 67582 QH_EmptyPart_OpenEdit_HostNext (refusing it loses them).
+        // OnNewRecord sees the xRec the part held before its first and third run, a blank one before the second, after any move
+        // of the host: GoToKey (pages/lt-qj-part-propagation/QjPartPropagation.al QL_PartLastNew_NoLines `log-open`: `S.NEW(x=3
+        // x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000)`), Next (:2468 QN_EmptyPart_HostNext),
+        // Previous (:2499), First (:2530), Last (:2561); a part that held no row before (OpenNew :2591 QN_EmptyPart_HostOpenNew,
+        // OpenEdit onto an empty first host :2441) sees a blank xRec all three times. The part's Last() and New() see it again
+        // (`PageState::empty_part_xrec`).
         let held = self.page_xrec_fields(st);
-        let blank = Self::same_values(&held, &self.initial_fields(table));
-        let keep_held = self.host_gotokey_running || blank;
-        st.borrow_mut().empty_part_xrec = keep_held.then(|| held.clone());
+        st.borrow_mut().empty_part_xrec = Some(held.clone());
         for validate in [true, false, true] {
-            if validate && keep_held {
+            if validate {
                 self.set_xrec_fields(st, held.clone());
             }
             if validate {
