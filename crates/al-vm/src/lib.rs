@@ -529,6 +529,11 @@ pub struct Session {
     /// The parameters of the routine that just failed with an error, as it left them:
     /// the caller writes its `var` arguments back before it handles the error.
     pub(crate) error_finals: Option<Vec<Value>>,
+    /// The scalar globals passed by `var` to a procedure call that is still running: (instance, global slot). BC passes the
+    /// argument by reference, the runtime copies it in and back; the two differ only when code reaches the global by its own
+    /// name while the call runs, and only the event form of that is pinned (events/lt-event-var-through-sender). Such an
+    /// access is refused (`interp::alias_access`). Empty almost always, so the check on a global access is one length test.
+    pub(crate) var_alias_watch: Vec<(Rc<RefCell<Instance>>, usize)>,
     /// The transaction model of the running test method (set by the test runner).
     pub tx_model: TxModel,
     /// Whether a test codeunit is executing (a test codeunit cannot be run from one).
@@ -742,6 +747,7 @@ impl Session {
             baseline_rows: Default::default(),
             ret_used: true,
             error_finals: None,
+            var_alias_watch: Vec::new(),
             frames: Vec::new(),
             call_stack: Vec::new(),
             runner_frames: String::new(),
