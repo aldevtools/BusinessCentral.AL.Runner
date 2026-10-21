@@ -295,8 +295,8 @@ ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capt
 5. Debugger: start `al-runner debug --stdio APP...` instead of `al-runner --dap stdio DIR` (step 6). Requests, capabilities,
    events and breakpoint answers are v2's. Differences: `pause` stops at the next statement (v2 continued);
    `setExceptionBreakpoints` succeeds with no filters; frame names are `Object.Routine`; a value that is not rendered yet
-   shows `<not rendered: KIND>`; `--test` and `--codeunit` select tests (v2 ran all); breakpoints in a dependency are not
-   supported yet.
+   shows `<not rendered: KIND>`; `--test` and `--codeunit` select tests (v2 ran all); a file of a dependency read from a
+   source package is shown from `<cache>/debug-sources/` (`docs/debugging.md`).
 
 ## 10. What does not change for a tool
 
