@@ -269,7 +269,7 @@ fn a_stub_that_runs_in_an_event_subscriber_flags_the_test_that_raised_the_event(
 #[test]
 fn a_stub_may_stand_for_a_procedure_of_another_app_but_the_app_under_test_keeps_its_errors() {
     let tests = fixture("deps/tests");
-    let target = fixture("deps/target");
+    let target = fixture("deps/under-test");
     for (label, args) in [
         (
             "the target app as a dependency",
