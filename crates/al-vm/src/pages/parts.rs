@@ -1567,17 +1567,6 @@ impl Session {
         Ok(())
     }
 
-    /// The part `LT QJ Save Lines` of QjPartPropagation.al pins the xRec of New(): AutoSplitKey and DelayedInsert, no
-    /// OnAfterGetRecord.
-    fn pinned_new_xrec_part(&self, st: &St) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let on = |name: &str| -> Result<bool, Signal> {
-            Ok(effective_prop(&engine, object, name)?.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")))
-        };
-        Ok(on("AutoSplitKey")? && on("DelayedInsert")? && !self.declares(st, "onaftergetrecord"))
-    }
-
     fn observes_new_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
@@ -1608,7 +1597,7 @@ impl Session {
             let Some(x) = st.borrow().empty_part_xrec.clone() else {
                 if self.observes_new_record(st) {
                     return unsupported(
-                        "Last() on a part that shows no row after a host move other than GoToKey (the xRec OnNewRecord sees is not pinned)",
+                        "Last() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
                     );
                 }
                 return Ok(None);
@@ -1693,20 +1682,17 @@ impl Session {
         }
         let last = st.borrow().window.last().map(|w| w.stored.clone());
         if let Some(last) = last {
-            // Pinned for a part with AutoSplitKey and DelayedInsert and without OnAfterGetRecord (the `LT QJ Save Lines` part).
-            let current = self.page_rec(st).borrow().fields.clone();
-            // Kept, not pinned: such a part keeps the earlier xRec (refusing it loses baseline case 60358
-            // New_OnDraftLineReachedByNext_RunsOnNewRecordOnceMore).
-            if !self.pinned_new_xrec_part(st)? && !Self::same_values(&current, &last) {
-                return Ok(None);
-            }
+            // Every part shape: AutoSplitKey and DelayedInsert (the `LT QJ Save Lines` part), DelayedInsert only, AutoSplitKey
+            // only, neither, with OnAfterGetRecord, without OnAfterGetCurrRecord (QjPartPropagation.al:2921
+            // QN_PartDelayedOnly_New_FromFirstRow `D.NEW(x=4 x.ln=40000 b=Yes)` from row 30000, :3027 QN_PartSplitOnly_*, :3133
+            // QN_PartPlain_*, :3239 QN_PartAGR_*, :3345 QN_PartNoAGCR_*; each also after Next, Last and a typed New).
             return Ok(Some(last));
         }
         // Only OnNewRecord's xRec comes from here; the link value is stamped and validated as for any New() (`start_draft`).
         let x = st.borrow().empty_part_xrec.clone().filter(|_| on_blank);
         if x.is_none() && on_blank && self.observes_new_record(st) {
             return unsupported(
-                "New() on a part that shows no row after a host move other than GoToKey (the xRec OnNewRecord sees is not pinned)",
+                "New() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
             );
         }
         Ok(x)

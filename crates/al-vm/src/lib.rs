@@ -584,9 +584,6 @@ pub struct Session {
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
     pub(crate) host_new_running: bool,
-    /// Set while a host page's `TestPage.GoToKey` runs, with the reads of its parts (pages/lt-qj-part-propagation/
-    /// QjPartPropagation.al:1346 pins the xRec of an empty part's blank line there).
-    pub(crate) host_gotokey_running: bool,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
     /// The session's application areas as `ApplicationArea()` reads them: `#Basic,#Suite`, or the
@@ -783,7 +780,6 @@ impl Session {
             get_table_from_variant: false,
             set_value_from_variant: false,
             host_new_running: false,
-            host_gotokey_running: false,
             dotnet: Default::default(),
             application_areas: String::new(),
             tx: TxState {
