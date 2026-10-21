@@ -288,6 +288,13 @@ impl Compiled {
         }
         let src = incr.layers.stack().map_err(|why| format!("compile cache: {why}"))?;
         al_sema::lower::relower_objects(ws, &incr.catalog, incr.roots.clone(), &src, lowered, &dirty)?;
+        // `--tdd` (ADR-051 decision 10): stub declarations are made by a complete compile, and one that has them makes
+        // them again from the new texts (a declaration the code no longer needs goes).
+        if incr.roots.tdd
+            && (!lowered.tdd_needs.is_empty() || ws.files.iter().any(|f| f.path == al_sema::check::tdd_decl::TDD_FILE))
+        {
+            return Err("--tdd: the stub declarations are made again by a complete compile".into());
+        }
         if incr.try_skip {
             let selected = selected_tests(lowered, suites, opts_only);
             *baseline_note = crate::observe::may_observe_baseline(lowered, &selected);

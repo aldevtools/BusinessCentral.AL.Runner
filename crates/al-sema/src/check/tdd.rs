@@ -17,9 +17,32 @@ pub struct TddSite {
     /// The types of the arguments, for the signature.
     pub args: Vec<Ty>,
     pub ret: TddRet,
+    /// What the site stands for: a procedure, or a declaration the next compile adds (decision 10).
+    pub kind: TddKind,
+}
+
+/// What a stub site stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TddKind {
+    /// A procedure call: lowered as `ir::Expr::TddStub`.
+    Proc,
+    /// `Rec.F`, a field table `object` does not have: `ret` is the field's type. A stub field is declared for the
+    /// next compile (`tdd_decl`).
+    Field,
+    /// `E::V`, a value enum `object` does not have (`ret` is `NoValue`). A stub value is declared for the next compile.
+    EnumValue,
 }
 
 impl TddSite {
+    /// What a refusal says cannot be inferred: `the return type of Target.Missing`, `the type of the stub field
+    /// Item.F`.
+    pub fn what(&self) -> String {
+        match self.kind {
+            TddKind::Field => format!("the type of the stub field {}", self.shown()),
+            _ => format!("the return type of {}", self.shown()),
+        }
+    }
+
     /// The call as the refusal reasons name it: `Target.Missing`, or `Missing` for a bare call.
     pub fn shown(&self) -> String {
         if self.receiver.is_empty() {
@@ -68,8 +91,12 @@ pub(crate) fn test_apps(ws: &Workspace) -> Vec<bool> {
 }
 
 /// The signature a site is reported under (decision 6): `<Object>: procedure "<Name>"(Arg1: <Type>, ...): <Type>`.
-/// `None` for a site that is refused or whose type is not known.
+/// `None` for a site that is refused or whose type is not known, and for a declaration site (its signature is the
+/// declaration's, `tdd_decl`).
 pub fn signature(ws: &Workspace, site: &TddSite) -> Option<String> {
+    if site.kind != TddKind::Proc {
+        return None;
+    }
     let ret = match &site.ret {
         TddRet::NoValue => String::new(),
         TddRet::Value(t) => format!(": {}", shown(t)),
@@ -220,6 +247,60 @@ impl<'a> Checker<'a> {
             receiver: receiver.text().to_string().trim().to_string(),
             args: Vec::new(),
             ret: TddRet::Pending,
+            kind: TddKind::Proc,
+        };
+        self.record(sc, node, Res::TddStub(Box::new(site)));
+        true
+    }
+
+    /// `Rec.Missing`, not called, on a record variable whose table (with its extensions) has no field, procedure or
+    /// method `Missing`, in a test app (decision 10): a stub field site on the member node. Its type comes from the use,
+    /// as a stub procedure's return type does; the next compile declares the field (`tdd_decl`).
+    pub(crate) fn tdd_field(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        receiver: &SyntaxNode,
+        base: &Ty,
+        name: &str,
+    ) -> bool {
+        if !self.tdd_in_test_app(sc.oi) || is_callee(node) {
+            return false;
+        }
+        let Ty::Record { table, .. } = base else { return false };
+        let Some(object) = self.resolve(sc, ObjKind::Table, table) else {
+            return false;
+        };
+        if !self.catalog.overloads("Record", name).is_empty() || !self.catalog.hidden("Record", name).is_empty() {
+            return false;
+        }
+        let site = TddSite {
+            object,
+            name: name.to_string(),
+            receiver: receiver.text().to_string().trim().to_string(),
+            args: Vec::new(),
+            ret: TddRet::Pending,
+            kind: TddKind::Field,
+        };
+        let k = Self::tdd_key(sc, node);
+        self.resolutions.insert(k, Res::TddStub(Box::new(site)));
+        self.tdd_pending.push(k);
+        true
+    }
+
+    /// `E::Missing`, a value enum `ei` (with its extensions) does not have, in a test app (decision 10): a stub value
+    /// site. The next compile declares the value (`tdd_decl`).
+    pub(crate) fn tdd_enum_value(&mut self, sc: &Scope, node: &SyntaxNode, ei: usize, name: &str) -> bool {
+        if !self.tdd_in_test_app(sc.oi) {
+            return false;
+        }
+        let site = TddSite {
+            object: ei,
+            name: name.to_string(),
+            receiver: crate::types::display_name(&self.ws.objects[ei].name).to_string(),
+            args: Vec::new(),
+            ret: TddRet::NoValue,
+            kind: TddKind::EnumValue,
         };
         self.record(sc, node, Res::TddStub(Box::new(site)));
         true
@@ -253,6 +334,7 @@ impl<'a> Checker<'a> {
             receiver: String::new(),
             args: Vec::new(),
             ret: TddRet::Pending,
+            kind: TddKind::Proc,
         };
         self.record(sc, node, Res::TddStub(Box::new(site)));
         true
@@ -297,6 +379,7 @@ impl<'a> Checker<'a> {
             receiver: receiver.unwrap_or_default(),
             args: Vec::new(),
             ret: TddRet::Pending,
+            kind: TddKind::Proc,
         };
         self.record(sc, callee, Res::TddStub(Box::new(site)));
         self.tdd_call(sc, node, callee, arg_tys)
@@ -344,6 +427,17 @@ impl<'a> Checker<'a> {
     }
 
     fn tdd_set(&mut self, k: posmap::PosKey, mut site: TddSite, ret: TddRet) {
+        // A stub field takes only a type a table field can have.
+        let ret = match ret {
+            TddRet::Value(t) if site.kind == TddKind::Field && super::tdd_decl::field_type(&t).is_none() => {
+                TddRet::Refused(format!(
+                    "--tdd: cannot declare the stub field {} with the type {}",
+                    site.shown(),
+                    shown(&t)
+                ))
+            }
+            r => r,
+        };
         if let TddRet::Value(t) = &ret {
             self.types.insert(k, t.clone());
         }
@@ -366,10 +460,7 @@ impl<'a> Checker<'a> {
     fn tdd_refuse_both(&mut self, sc: &Scope, node: &SyntaxNode) {
         if let Some((k, site)) = self.tdd_site(sc, node) {
             if site.ret == TddRet::Pending {
-                let why = format!(
-                    "--tdd: cannot infer the return type of {} (both sides are unknown)",
-                    site.shown()
-                );
+                let why = format!("--tdd: cannot infer {} (both sides are unknown)", site.what());
                 self.tdd_set(k, site, TddRet::Refused(why));
             }
         }
@@ -511,8 +602,8 @@ impl<'a> Checker<'a> {
                         _ => {
                             if let Some((k, site)) = self.tdd_site(sc, a) {
                                 let why = format!(
-                                    "--tdd: cannot infer the return type of {} (the other Variant arguments have different types)",
-                                    site.shown()
+                                    "--tdd: cannot infer {} (the other Variant arguments have different types)",
+                                    site.what()
                                 );
                                 self.tdd_set(k, site, TddRet::Refused(why));
                             }
@@ -541,7 +632,7 @@ impl<'a> Checker<'a> {
         for k in std::mem::take(&mut self.tdd_pending) {
             if let Some(Res::TddStub(site)) = self.resolutions.get(&k).cloned() {
                 if site.ret == TddRet::Pending {
-                    let why = format!("--tdd: cannot infer the return type of {} from its use", site.shown());
+                    let why = format!("--tdd: cannot infer {} from its use", site.what());
                     self.tdd_set(k, *site, TddRet::Refused(why));
                 }
             }

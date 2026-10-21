@@ -294,8 +294,20 @@ fn a_stub_may_stand_for_a_procedure_of_another_app_but_the_app_under_test_keeps_
             r["message"].as_str().unwrap().contains("Target.NotYet()"),
             "{label}: {r:#}"
         );
+        // A stub field and a stub enum value on objects of the other app (ADR-051 decision 10).
+        for (method, want) in [
+            (
+                "StubFieldOnATableOfTheOtherApp",
+                r#"Tdd App Item: field "Weight": Integer"#,
+            ),
+            ("StubValueOnAnEnumOfTheOtherApp", r#"Tdd App Kind: value "Medium""#),
+        ] {
+            let r = row(&doc, method);
+            assert_eq!(r["status"], "pass", "{label} {method}: {r:#}\n{}", text(&o));
+            assert_eq!(stubs(r), vec![want], "{label} {method}: {r:#}");
+        }
         let all = doc["generatedStubs"].as_array().unwrap();
-        assert_eq!(all.len(), 1, "{label}: {all:?}");
+        assert_eq!(all.len(), 3, "{label}: {all:?}");
     }
 }
 
@@ -332,4 +344,81 @@ fn stubs_stand_for_procedures_of_records_rec_pages_reports_bare_calls_and_new_ov
         assert!(errors.contains(want), "{want}: {errors}");
     }
     assert!(doc.get("generatedStubs").is_none(), "{doc:#}");
+}
+
+#[test]
+fn stub_fields_enum_values_and_objects_are_declared_and_flag_the_tests_that_touch_them() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "FieldWrittenStoredAndReadBack",
+            &[r#"Tdd Decl Item: field "Weight": Integer"#],
+        ),
+        (
+            "TextFieldTypeFromTheAssignment",
+            &[r#"Tdd Decl Item: field "Note": Text"#],
+        ),
+        ("FieldOnlyRead", &[r#"Tdd Decl Item: field "Flag": Boolean"#]),
+        ("EnumValueOnAWorkspaceEnum", &[r#"Tdd Decl Color: value "Blue""#]),
+        (
+            "NewCodeunit",
+            &[
+                r#"Tdd New Calc: procedure "Compute"(): Integer"#,
+                r#"codeunit "Tdd New Calc" (id 50220)"#,
+            ],
+        ),
+        (
+            "NewTable",
+            &[
+                r#"Tdd New Entry: field "Amount": Integer"#,
+                r#"table "Tdd New Entry" (id 50221)"#,
+            ],
+        ),
+        (
+            "NewEnum",
+            &[r#"Tdd New Kind: value "First""#, r#"enum "Tdd New Kind" (id 50220)"#],
+        ),
+    ];
+    let (doc, o) = json_run(&fixture("decls"), &["--tdd"]);
+    for (method, want) in cases {
+        let r = row(&doc, method);
+        assert_eq!(r["status"], "pass", "{method}: {r:#}\n{}", text(&o));
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert_eq!(stubs(r), want.to_vec(), "{method}: {r:#}");
+    }
+    let r = row(&doc, "Untouched");
+    assert_eq!(r["status"], "pass", "{r:#}");
+    assert!(r.get("stubbed").is_none(), "{r:#}");
+    // A write longer than any length a Text field takes is refused: the real length is not known yet.
+    for method in ["TextFieldLongerThanTheStubLength", "ValidateLongerThanTheStubLength"] {
+        let r = row(&doc, method);
+        assert_ne!(r["status"], "pass", "{method}: {r:#}");
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert!(
+            r["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("--tdd: the length of the stub field Note is unknown"),
+            "{method}: {r:#}"
+        );
+    }
+    // The summary lists every stub of the program, declarations too.
+    let all: Vec<&str> = doc["generatedStubs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    for (_, want) in cases {
+        for w in *want {
+            assert!(all.contains(w), "{w}: {all:?}");
+        }
+    }
+    // Without --tdd none of it compiles, and nothing is declared.
+    let (doc, o) = json_run(&fixture("decls"), &[]);
+    assert!(doc.get("generatedStubs").is_none(), "{doc:#}");
+    let passed = doc["tests"]
+        .as_array()
+        .map(|t| t.iter().filter(|r| r["status"] == "pass").count())
+        .unwrap_or(0);
+    assert!(passed <= 1, "{}", text(&o));
 }

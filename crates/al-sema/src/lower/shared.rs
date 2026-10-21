@@ -225,6 +225,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         emit_pos: false,
         routine_idx: 0,
         assumed: Vec::new(),
+        tdd_marked: Default::default(),
         tys: Vec::new(),
         tys_on: false,
         roots: Vec::new(),

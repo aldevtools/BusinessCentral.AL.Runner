@@ -532,7 +532,13 @@ impl Walk<'_> {
                     }
                     self.places(o, otherwise);
                 }
-                Stmt::Expr(_) | Stmt::Exit(_) | Stmt::Break | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::Continue => {}
+                Stmt::Expr(_)
+                | Stmt::Exit(_)
+                | Stmt::Break
+                | Stmt::Pos(_)
+                | Stmt::Assume(_)
+                | Stmt::TddMark(_)
+                | Stmt::Continue => {}
             }
         }
     }

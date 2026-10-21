@@ -705,7 +705,7 @@ impl<'a> Checker<'a> {
                     self.walk(sc, &child);
                 }
             }
-            if let [(target, _), (source, rhs)] = tys.as_slice() {
+            if let [(target, lhs), (source, rhs)] = tys.as_slice() {
                 let plain = node.children_with_tokens().any(|t| t.kind() == SyntaxKind::Assign);
                 if plain {
                     self.al_enum_assignment(sc, rhs, target, source);
@@ -717,6 +717,9 @@ impl<'a> Checker<'a> {
                 // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).
                 let (target, rhs) = (target.clone(), rhs.clone());
                 self.tdd_settle(sc, &rhs, &target);
+                // `Rec.Missing := 5`: a stub field takes the type of the source (decision 10).
+                let (source, lhs) = (source.clone(), lhs.clone());
+                self.tdd_settle(sc, &lhs, &source);
             }
             return;
         }

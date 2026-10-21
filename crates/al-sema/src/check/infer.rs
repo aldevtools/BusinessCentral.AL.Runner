@@ -972,6 +972,7 @@ impl<'a> Checker<'a> {
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
+                    None if self.tdd_field(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
                         self.diag(sc, node, "AR1002", self.no_member(&mname, &base_ty));
                         self.al_unknown_record_member(sc, node, &base_ty, &mname);
@@ -1114,6 +1115,8 @@ impl<'a> Checker<'a> {
                     {
                         let value = *v as i32;
                         self.record(sc, node, Res::EnumValue { object: ei, value });
+                    } else if self.tdd_enum_value(sc, node, ei, rhs) {
+                        // `--tdd` (ADR-051 decision 10): the next compile declares the value.
                     } else if !self.ws.is_dependency(sc.oi) && !self.ws.is_dependency(ei) {
                         // AL0132 (corpus must-not-compile 0204): a value the enum, with the values of its
                         // extensions, does not have. Only an enum of the workspace is judged.
