@@ -12,9 +12,9 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `913185e` (same tree as the pin) | 39630456170 | `junit-test-results-27.5` | 12361780322 | 17182 |
-| 28 | 28.5 | `913185e` (same tree as the pin) | 39630456170 | `junit-test-results-28.5` | 12361077965 | 17278 (+26 `OnRun`) |
-| 29 | 29.0 | `913185e` (same tree as the pin) | 39630456170 | `junit-test-results-29.0` | 12362405123 | 17372 (+26 `OnRun`) |
+| 27 | 27.5 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-27.5` | 12361780322 | 17182 |
+| 28 | 28.5 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-28.5` | 12361077965 | 17278 (+26 `OnRun`) |
+| 29 | 29.0 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-29.0` | 12362405123 | 17372 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 703 ("Test selection: full run"), whose head `913185e` has the same tree
 (`51117f40`) as the pin `c4d4ce2`.
