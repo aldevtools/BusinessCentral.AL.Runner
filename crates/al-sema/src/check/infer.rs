@@ -1164,6 +1164,7 @@ impl<'a> Checker<'a> {
         match self.lookup_name(sc, node) {
             Some(e) => e,
             None if self.tdd_bare(sc, node) => E::Val(Ty::Unknown),
+            None if self.tdd_bare_field(sc, node) => E::Val(Ty::Unknown),
             None => {
                 self.diag(sc, node, "AR1000", format!("unresolved name `{}`", name_of(node)));
                 self.al_unresolved_name(sc, node);

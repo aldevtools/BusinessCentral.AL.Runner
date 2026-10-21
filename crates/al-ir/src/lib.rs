@@ -1021,6 +1021,11 @@ pub struct Field {
     /// extension's. Empty when the field has at most one. Only the Field platform table reads them.
     #[serde(default)]
     pub relation_texts: Vec<String>,
+    /// `--tdd` (ADR-051 decision 10): the field is a stub Text or Code field whose real length is not known yet; a
+    /// write longer than its declared length raises `Signal::Unsupported` with this reason (FieldRef, TransferFields;
+    /// assignment and Validate use `Expr::TddFit`). `None` without `--tdd`.
+    #[serde(default)]
+    pub tdd_length_unknown: Option<String>,
     /// `FieldClass = FlowFilter`: holds the caller's filter, never a value.
     pub flow_filter: bool,
     /// A FlowField's `CalcFormula`, when lowered. A FlowField with neither
