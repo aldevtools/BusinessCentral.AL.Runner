@@ -120,7 +120,8 @@ pub struct TestArgs {
     pub dotnet_assembly_dirs: Vec<PathBuf>,
     pub dotnet_allow_roll_forward: bool,
     pub dotnet_timeout_secs: Option<u64>,
-    /// `--test-timeout-secs N`: a test that uses more CPU time is stopped and not run (default 20; 0: no limit).
+    /// `--test-timeout-secs N`: a test that uses more CPU time, or whose `Sleep` calls ask for more time in total, is
+    /// stopped and not run (default 20; 0: no limit).
     pub test_timeout_secs: Option<u64>,
     pub require_dotnet: bool,
     pub files_dir: Option<PathBuf>,
@@ -549,6 +550,9 @@ OTHER
                          computing is stopped at 10 times N of wall time) is stopped at its
                          next loop iteration and reported as not run, with the limit as the
                          reason; the codeunit's later failures are then not trusted. 0: no limit.
+                         Sleep does not wait, but the time it asks for, summed over the test,
+                         counts toward N: a test whose Sleep calls go past N is stopped and
+                         reported the same way.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
 
