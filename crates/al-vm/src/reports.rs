@@ -949,6 +949,18 @@ impl Session {
         // (corpus errors/lt-ms-refusals-136/P136Report.al:P136_Report_ViewOverTableWithoutDataItem and
         // P136_Report_ViewWithTwoDataItemsOverTheTable: `A:a;A:b;B:a;B:b;B:c;`).
         let Some(&item) = items.first() else {
+            // A data item a reportextension adds over the table: what the view does there is not pinned (Microsoft's Get
+            // Source Documents, whose Serv. Get Source Documents extension adds the Service Header item).
+            let engine = self.engine.clone();
+            let added = schema.report().extensions.iter().any(|&e| {
+                engine.program.objects[e]
+                    .report_ext
+                    .as_ref()
+                    .is_some_and(|x| x.added.iter().any(|a| a.item.table == Some(table as usize)))
+            });
+            if added {
+                return unsupported("SetTableView on a data item a reportextension adds (not pinned)");
+            }
             let (id, name) = {
                 let o = &self.engine.program.objects[table as usize];
                 (o.id.unwrap_or(0), o.name.clone())
