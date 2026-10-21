@@ -14,6 +14,10 @@ pub struct Counts {
     pub not_run: usize,
     /// Of the not run: the tests a missing or unusable .NET helper stopped (the reason starts with `dotnet-unavailable`).
     pub dotnet_unavailable: usize,
+    /// `--tdd` (ADR-051): of the passes, failures and tests not run, those that ran a stub.
+    pub stubbed_pass: usize,
+    pub stubbed_fail: usize,
+    pub stubbed_not_run: usize,
 }
 
 impl Counts {
@@ -21,14 +25,20 @@ impl Counts {
         let mut c = Counts::default();
         for r in results {
             c.total += 1;
+            let stubbed = usize::from(!r.stubs.is_empty());
             match r.outcome {
                 Outcome::Pass => {
                     c.pass += 1;
                     c.flagged += usize::from(!r.assumptions.is_empty());
+                    c.stubbed_pass += stubbed;
                 }
-                Outcome::Fail(_) => c.fail += 1,
+                Outcome::Fail(_) => {
+                    c.fail += 1;
+                    c.stubbed_fail += stubbed;
+                }
                 Outcome::NotRun(ref why) => {
                     c.not_run += 1;
+                    c.stubbed_not_run += stubbed;
                     if why.starts_with(al_vm::dotnet::UNAVAILABLE) {
                         c.dotnet_unavailable += 1;
                     }
@@ -106,17 +116,33 @@ pub fn first_line(s: &str, max: usize) -> String {
 /// `Tests: 12 total, 5 passed, 1 failed, 6 not run`, and the warning that goes with a run that
 /// has no test data.
 pub fn summary_line(c: &Counts, test_data: bool) -> String {
-    let flagged = if c.flagged > 0 {
-        format!(" ({} flagged: rely on unprobed assumptions)", c.flagged)
-    } else {
+    let mut pass_notes = Vec::new();
+    if c.stubbed_pass > 0 {
+        pass_notes.push(format!("{} stubbed", c.stubbed_pass));
+    }
+    if c.flagged > 0 {
+        pass_notes.push(format!("{} flagged: rely on unprobed assumptions", c.flagged));
+    }
+    let flagged = if pass_notes.is_empty() {
         String::new()
+    } else {
+        format!(" ({})", pass_notes.join(", "))
+    };
+    let stubbed = |n: usize| {
+        if n > 0 {
+            format!(" ({n} stubbed)")
+        } else {
+            String::new()
+        }
     };
     format!(
-        "Tests: {} total, {} passed{flagged}, {} failed, {} not run{}",
+        "Tests: {} total, {} passed{flagged}, {} failed{}, {} not run{}{}",
         c.total,
         c.pass,
         c.fail,
+        stubbed(c.stubbed_fail),
         c.not_run,
+        stubbed(c.stubbed_not_run),
         if test_data {
             ""
         } else {
@@ -195,22 +221,24 @@ pub fn stack_lines(stack: &str) -> Vec<String> {
 ///   tests not run, and `skipped` is 0.
 /// - `codeunit`, `codeunitName` and `method` are v3's additions.
 pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
+    json_tdd(results, exit_code, wall_s, None)
+}
+
+/// [`json`] of a run with `--tdd` (ADR-051 decision 8) when `tdd_stubs` (every stub of the program) is given: the
+/// summary adds `stubbed` (`passed`, `failed`, `error`) and `generatedStubs`. A stubbed test's row has `stubbed: true`
+/// and `generatedStubs` with or without it.
+pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: Option<&[String]>) -> String {
     use serde_json::{Value, json};
     let c = Counts::of(results.iter().copied());
     let tests: Vec<Value> = results
         .iter()
         .map(|r| {
-            Value::Object(json_row(
-                r.codeunit,
-                &r.codeunit_name,
-                &r.test,
-                &r.outcome,
-                &r.call_stack,
-                r.time,
-            ))
+            let mut row = json_row(r.codeunit, &r.codeunit_name, &r.test, &r.outcome, &r.call_stack, r.time);
+            add_stubs(&mut row, &r.stubs);
+            Value::Object(row)
         })
         .collect();
-    let doc = json!({
+    let mut doc = json!({
         "tests": tests,
         "passed": c.pass,
         "failed": c.fail,
@@ -221,7 +249,48 @@ pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
         "exitCode": exit_code,
         "wallSeconds": (wall_s * 1000.0).round() / 1000.0,
     });
+    if let Some(all) = tdd_stubs {
+        doc["stubbed"] = json!({"passed": c.stubbed_pass, "failed": c.stubbed_fail, "error": c.stubbed_not_run});
+        doc["generatedStubs"] = json!(all);
+    }
     serde_json::to_string_pretty(&doc).expect("a JSON value serializes")
+}
+
+/// `stubbed: true` and `generatedStubs` on the JSON row of a test that ran stubs (ADR-051); nothing otherwise.
+pub fn add_stubs(row: &mut serde_json::Map<String, serde_json::Value>, stubs: &[String]) {
+    if !stubs.is_empty() {
+        row.insert("stubbed".into(), serde_json::json!(true));
+        row.insert("generatedStubs".into(), serde_json::json!(stubs));
+    }
+}
+
+/// The closing block of a `--tdd` run on stderr, as v2 printed it: the stubs of the program, then the tests that ran
+/// one with their outcome and stubs. Empty when the program has no stub.
+pub fn tdd_block(results: &[&TestResult], all: &[String]) -> Vec<String> {
+    if all.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![format!("--tdd: generated {} member(s) this run:", all.len())];
+    out.extend(all.iter().map(|s| format!("  {s}")));
+    let reached: Vec<&&TestResult> = results.iter().filter(|r| !r.stubs.is_empty()).collect();
+    out.push(format!(
+        "--tdd: {} test(s) reach generated stubs this run:",
+        reached.len()
+    ));
+    for r in reached {
+        let outcome = match r.outcome {
+            Outcome::Pass => "pass",
+            Outcome::Fail(_) => "fail",
+            Outcome::NotRun(_) => "not run",
+        };
+        out.push(format!(
+            "  {}.{} ({outcome}): {}",
+            r.codeunit_name,
+            r.test,
+            r.stubs.join(", ")
+        ));
+    }
+    out
 }
 
 /// One row of `tests[]` of the `--output-json` document, also the body of a `test` line of `al-runner serve`.
@@ -322,7 +391,14 @@ pub fn junit_with(
                         stack_lines(&r.call_stack).join("\n")
                     },
                     disabled: disabled(r.codeunit, &r.test),
-                    properties: properties(r),
+                    properties: {
+                        let mut p = properties(r);
+                        // `--tdd` (ADR-051 decision 8): the stubs a test ran.
+                        if !r.stubs.is_empty() {
+                            p.push(("stubbed".into(), r.stubs.join(", ")));
+                        }
+                        p
+                    },
                 })
                 .collect(),
         });
@@ -357,6 +433,7 @@ mod tests {
             not_run: 2,
             flagged: 0,
             dotnet_unavailable: 0,
+            ..Default::default()
         };
         assert_eq!(
             summary_table(&c),
@@ -405,6 +482,7 @@ mod tests {
             messages: Vec::new(),
             captured: None,
             impact: Vec::new(),
+            stubs: Vec::new(),
         }
     }
 
@@ -472,6 +550,7 @@ mod tests {
             fail,
             not_run,
             dotnet_unavailable: 0,
+            ..Default::default()
         };
         assert_eq!(exit_code(&c(3, 0, 0), false), 0);
         assert_eq!(exit_code(&c(2, 1, 0), false), 1);

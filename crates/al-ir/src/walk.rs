@@ -563,6 +563,14 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
+        Expr::TddStub { stub: _, args, ty } => {
+            if let Some(t) = ty {
+                walk_rt(t, v);
+            }
+            for a in args {
+                walk_expr(a, v);
+            }
+        }
         Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
     }
 }

@@ -328,6 +328,7 @@ pub(crate) fn run_codeunit_core(
         let mut runner_refused: Option<String> = None;
         session.clear_fault_site();
         al_builtins::assumptions::clear_hits();
+        session.take_tdd_reached();
         let mut began = false;
         let outcome = if let Err(reason) = &handlers {
             Outcome::NotRun(reason.clone())
@@ -623,6 +624,11 @@ pub(crate) fn run_codeunit_core(
         let marks = al_builtins::assumptions::take_hits();
         if !marks.is_empty() {
             hits.push((routine.name.clone(), marks));
+        }
+        // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
+        let reached = session.take_tdd_reached();
+        if !reached.is_empty() {
+            scratch.stubbed.push((routine.name.clone(), reached));
         }
         let took = test_started.elapsed();
         if execute {

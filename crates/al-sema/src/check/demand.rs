@@ -1030,6 +1030,7 @@ impl Checker<'_> {
         } else {
             let (ws, members, catalog) = (self.ws, self.members, self.catalog);
             let enums = self.system_enums.clone();
+            let tdd_shared = self.tdd_apps.clone();
             let outs = std::thread::scope(|scope| {
                 let mut pool = Pool::default();
                 let mut handles = Vec::new();
@@ -1037,9 +1038,12 @@ impl Checker<'_> {
                     let (batch_tx, batch_rx) = std::sync::mpsc::channel::<std::sync::Arc<RoundWork>>();
                     let (delta_tx, delta_rx) = std::sync::mpsc::channel::<Delta>();
                     let enums = enums.clone();
+                    let tdd_apps = tdd_shared.clone();
                     let handle = std::thread::Builder::new()
                         .stack_size(WORKER_STACK)
-                        .spawn_scoped(scope, move || worker(ws, members, catalog, enums, batch_rx, delta_tx))
+                        .spawn_scoped(scope, move || {
+                            worker(ws, members, catalog, enums, tdd_apps, batch_rx, delta_tx)
+                        })
                         .expect("spawn a check worker");
                     pool.senders.push(batch_tx);
                     pool.receivers.push(delta_rx);
@@ -1079,6 +1083,7 @@ impl Checker<'_> {
     pub(super) fn check_objects_parallel(&mut self, workers: usize, objects: &[usize]) {
         let (ws, members, catalog) = (self.ws, self.members, self.catalog);
         let enums = self.system_enums.clone();
+        let tdd_apps = &self.tdd_apps;
         let next = std::sync::atomic::AtomicUsize::new(0);
         let outs: Vec<WorkerOut> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..workers)
@@ -1089,6 +1094,7 @@ impl Checker<'_> {
                         .stack_size(WORKER_STACK)
                         .spawn_scoped(scope, move || {
                             let mut c = Checker::new(ws, members, catalog, enums, false);
+                            c.tdd_apps = tdd_apps.clone();
                             loop {
                                 let k = next.fetch_add(OBJECT_CHUNK, std::sync::atomic::Ordering::Relaxed);
                                 if k >= objects.len() {
@@ -1361,10 +1367,12 @@ fn worker(
     members: &crate::members::MemberTable<'_>,
     catalog: &al_builtins::catalog::Catalog,
     enums: HashSet<String>,
+    tdd_apps: Option<std::sync::Arc<Vec<bool>>>,
     batches: std::sync::mpsc::Receiver<std::sync::Arc<RoundWork>>,
     deltas: std::sync::mpsc::Sender<Delta>,
 ) -> WorkerOut {
     let mut c = Checker::new(ws, members, catalog, enums, true);
+    c.tdd_apps = tdd_apps;
     while let Ok(work) = batches.recv() {
         loop {
             let k = work.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

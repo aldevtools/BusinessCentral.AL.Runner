@@ -646,6 +646,11 @@ impl<'a> Checker<'a> {
             PrefixExpr => {
                 let t = kids.first().map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 let op = first_token(node).to_ascii_lowercase();
+                if op == "not" {
+                    if let Some(k) = kids.first() {
+                        self.tdd_settle(sc, k, &Ty::Boolean);
+                    }
+                }
                 E::Val(if op == "not" {
                     Ty::Boolean
                 } else if matches!(t, Ty::DotNet(_)) {
@@ -674,6 +679,9 @@ impl<'a> Checker<'a> {
                 let r = kids.get(1).map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
                 let op = op_token(node);
+                if let [a, b] = kids.as_slice() {
+                    self.tdd_settle_operands(sc, &op, a, b, &l, &r);
+                }
                 if char_and_one_char_literal(&op, kids.as_slice(), &l, &r) {
                     return E::Val(Ty::Integer);
                 }
@@ -800,8 +808,17 @@ impl<'a> Checker<'a> {
                     }
                     arg_tys.push(self.ty(sc, a));
                 }
+                if unknown_callee && self.tdd_call(sc, node, callee, &arg_tys) {
+                    return E::Val(Ty::Unknown);
+                }
                 match target {
-                    E::Callable(c) => E::Val(self.pick(sc, node, &c, &arg_tys, &member_name(callee))),
+                    E::Callable(c) => {
+                        let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
+                        if self.tdd_apps.is_some() {
+                            self.tdd_settle_args(sc, node, callee, &c, &args, &arg_tys);
+                        }
+                        E::Val(ret)
+                    }
                     E::Val(Ty::Unknown) => E::Val(Ty::Unknown),
                     E::Val(t) => {
                         self.diag(
@@ -951,6 +968,7 @@ impl<'a> Checker<'a> {
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
                     Some(e) => e,
+                    None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
                         self.diag(sc, node, "AR1002", self.no_member(&mname, &base_ty));
                         self.al_unknown_record_member(sc, node, &base_ty, &mname);

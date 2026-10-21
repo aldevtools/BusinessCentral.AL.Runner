@@ -428,6 +428,11 @@ pub(crate) enum AuxSite {
     QueryColumn {
         column: usize,
     },
+    /// `--tdd` (ADR-051 decision 4): the initial value of `ty` (`Null` for a statement), noting that the stub ran.
+    TddStub {
+        stub: String,
+        ty: Option<al_builtins::value::RtType>,
+    },
 }
 
 /// What a `Fault` raises.

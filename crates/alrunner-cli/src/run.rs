@@ -1056,6 +1056,7 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         quiet_baseline: !a.verbose,
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
+        tdd: a.tdd,
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
@@ -1324,6 +1325,12 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
                 }
                 _ => continue,
             };
+            // `--tdd` (ADR-051): the stubs the test ran, as v2 named them.
+            let line = if r.stubs.is_empty() {
+                line
+            } else {
+                format!("{line}\n          reaches generated stub(s): {}", r.stubs.join(", "))
+            };
             say!("{line}");
         }
         if hidden_failures > 0 {
@@ -1515,6 +1522,13 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
             peak_memory_mb().map_or(String::new(), |m| format!(", peak memory {m} MB"))
         );
     }
+    // `--tdd` (ADR-051 decision 8): v2's closing block on stderr, the stubs and the tests that ran one.
+    let tdd_stubs: Option<&[String]> = a.tdd.then(|| rt.tdd_stubs());
+    if let Some(all) = tdd_stubs {
+        for line in output::tdd_block(&results, all) {
+            eprintln!("{line}");
+        }
+    }
     let code = output::exit_code(&counts, a.allow_not_run);
     let verdict = match code {
         0 => "PASSED",
@@ -1550,7 +1564,8 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
     );
     if let Some(w) = warm {
         w.report = Some(Report {
-            doc: serde_json::from_str(&output::json(&results, code, total_time.as_secs_f64())).unwrap_or_default(),
+            doc: serde_json::from_str(&output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs))
+                .unwrap_or_default(),
             coverage: coverage_doc.as_deref().and_then(|d| serde_json::from_str(d).ok()),
             messages: results.iter().map(|r| r.messages.clone()).collect(),
             object_names: results.iter().map(|r| r.codeunit_name.clone()).collect(),
@@ -1574,7 +1589,7 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         });
     }
     if let Some(target) = &a.output_json {
-        let doc = output::json(&results, code, total_time.as_secs_f64());
+        let doc = output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs);
         match target {
             Some(path) => write_file(path, &doc)?,
             None => println!("{doc}"),

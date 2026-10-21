@@ -472,6 +472,11 @@ load it.
   compile of the last request, so a repeated request with the same sources takes 0.2 to 2 s
   (more with Microsoft's apps when many tests run). Each request starts from the same database. Fields and answers are in
   `docs/integrations/migrating-tools-to-v3.md`, section 4b.
+- `--tdd` (test-first work): a test that calls a procedure of a codeunit that does not exist
+  yet runs against a stub that returns the default value (0, '', false, an empty record)
+  instead of failing to compile. Each such test is reported as stubbed, pass or fail, and the
+  summary counts stubbed tests apart. So far only procedure calls on codeunit variables become
+  stubs (ADR-051).
 - Only three targets are built: Linux x64, Windows x64 and macOS arm64.
 
 **Report problems** as a GitHub issue, using the "Alpha feedback" template.

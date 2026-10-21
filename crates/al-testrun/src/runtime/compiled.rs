@@ -53,6 +53,8 @@ pub struct RunOptions {
     /// baseline then runs with the trace on (`NarrowInput::baseline`) instead of being read from the compile cache.
     /// `None`: the selection stays.
     pub narrow: Option<Narrow>,
+    /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
+    pub tdd: bool,
 }
 
 /// What [`RunOptions::narrow`] sees of the compile.

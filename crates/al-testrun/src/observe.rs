@@ -573,6 +573,13 @@ impl Walk<'_> {
                 }
                 args.iter().try_for_each(|a| self.arg(a))
             }
+            // A stub (ADR-051) touches nothing; the value it yields is a slot of its type.
+            Expr::TddStub { args, ty, .. } => {
+                if let Some(t) = ty {
+                    self.slot(t)?;
+                }
+                args.iter().try_for_each(|a| self.expr(a))
+            }
             Expr::ThisInstance => Ok(()),
             Expr::Refused(_) => Err("refuses when it runs".into()),
             Expr::Fail { .. } => Ok(()),

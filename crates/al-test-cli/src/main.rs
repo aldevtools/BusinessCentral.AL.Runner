@@ -586,6 +586,7 @@ fn run_version(
         quiet_baseline: false,
         impact_trace: false,
         narrow: None,
+        tdd: false,
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(

@@ -69,7 +69,8 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 | `--coverage` | Counts the statements of the APPs (not of dependency apps) per test. Writes Cobertura XML to `coverage.cobertura.xml` in the working directory unless `--coverage-out` names a file. |
 | `--coverage-out FILE` | Cobertura XML to FILE; implies `--coverage`. Section 4a. |
 | `--coverage-json FILE` | New in v3: the statements and what each test ran, as JSON; implies `--coverage`. Section 4a. |
-| `--affected`, `--tdd`, `--include-failing`, `--strict-environment`, `--per-suite`, `--watch` | Refused with exit 2 and the reason (deferred). Do not send them. |
+| `--tdd` | A test that calls a procedure that does not exist yet runs against a stub (ADR-051). Differences from v2: v3 stubs only calls on a codeunit variable so far (no fields, enum values, overloads or objects yet); Text and Code return types are allowed (the stub returns `''`); a bare-statement call is allowed; a test is stubbed only when a stub **ran** while it ran (v2 decided it from the call graph, so a stub in a branch that did not run flagged the test in v2 and does not in v3); a site whose return type its use does not tell is refused (its test is not run with a `--tdd: cannot infer ...` reason) instead of failing the test codeunit's compile. Without `--tdd` nothing changes. Not in `serve` yet. |
+| `--affected`, `--include-failing`, `--strict-environment`, `--per-suite`, `--watch` | Refused with exit 2 and the reason (deferred). Do not send them. |
 | any other v2 flag | `unknown option`, exit 2. `al-runner test --help` is the list. |
 
 Selection runs whole codeunits: tests of one codeunit share state, so `al-runner` runs the codeunit
@@ -113,6 +114,8 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `exitCode` | present | present | See section 5. |
 | `compilationErrors`, `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | v3 has no compile stage: what it cannot compile becomes `notRun` rows. A tool that treats "compile failed" as exit 3 must treat all-rows-`notRun` instead (see LethAL, below). |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
+| `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`. `status` is the test's own outcome; a stubbed pass is `pass`. |
+| `stubbed`, `generatedStubs` (summary) | absent | with `--tdd` only: `stubbed: {"passed", "failed", "error"}` counts the stubbed tests per outcome, `generatedStubs` lists every stub of the program | New. The exit code follows the outcomes, as in v2: a stubbed pass counts as a pass. |
 
 When the run cannot start (a bad flag, an unreadable app, a missing dependency that stops the
 load), no document is written, the message is on stderr and the exit code is 2.

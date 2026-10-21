@@ -204,6 +204,8 @@ pub struct CorpusRuntime {
     impact_baseline: Option<Vec<u32>>,
     /// The apps of the compiled program: (id, name, version), in program order.
     program_apps: Vec<(String, String, String)>,
+    /// `--tdd`: every stub of the compiled program (`Program::tdd_stubs`).
+    tdd_stubs: Vec<String>,
 }
 
 /// One test as the run left it, in the order the test codeunits were scheduled.
@@ -235,6 +237,9 @@ pub struct TestResult {
     /// With `RunOptions::impact_trace`: what the test raised and touched, as numbers of
     /// `CorpusRuntime::impact_keys`, sorted. The first test of a codeunit also holds what ran before it.
     pub impact: Vec<u32>,
+    /// `--tdd` (ADR-051): the signatures of the stubs that ran while the test ran, sorted. A test with any is stubbed,
+    /// whatever its outcome. Empty without `--tdd`.
+    pub stubs: Vec<String>,
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -379,6 +384,8 @@ pub(crate) struct Scratch {
     trace: bool,
     /// What each test raised and touched, as keys (`impact_trace::keys`).
     traces: Vec<(String, Vec<String>)>,
+    /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
+    stubbed: Vec<(String, Vec<String>)>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long

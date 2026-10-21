@@ -1652,6 +1652,7 @@ mod tests {
             messages: Vec::new(),
             captured: None,
             impact: Vec::new(),
+            stubs: Vec::new(),
         }
     }
 

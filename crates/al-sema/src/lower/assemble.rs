@@ -835,6 +835,11 @@ pub(crate) fn lower_core(
             })
             .collect(),
         uncompiled_subscribers,
+        tdd_stubs: if checked.tdd {
+            crate::check::tdd::signatures(ws, &checked.resolutions)
+        } else {
+            Vec::new()
+        },
         ..Default::default()
     };
     let mut out = Lowered {

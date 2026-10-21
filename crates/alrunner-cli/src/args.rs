@@ -74,6 +74,8 @@ pub struct TestArgs {
     pub defines: Vec<String>,
     /// `--coverage`: count the statements of the APPs each test runs.
     pub coverage: bool,
+    /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
+    pub tdd: bool,
     /// `--coverage-out FILE`: write Cobertura XML there (implies `--coverage`; default `coverage.cobertura.xml`).
     pub coverage_out: Option<PathBuf>,
     /// `--coverage-json FILE`: write the statements and the statements of each test as JSON (implies `--coverage`).
@@ -305,6 +307,18 @@ OUTPUT
                          FILE the document is the only thing on stdout and the report goes to
                          stderr. `--output-json=FILE` also works. See docs/integrations/migrating-tools-to-v3.md.
     --timings            Compile phases and the slowest test codeunits.
+
+TEST-FIRST
+    --tdd                A test that calls a procedure that does not exist yet runs against a stub
+                         instead of failing to compile. Only calls in test apps (apps that declare a
+                         test codeunit) on a codeunit variable become stubs. A stub returns the
+                         default value of the type its use asks for (0, '', false, an empty record),
+                         writes nothing and never raises; `var` arguments stay unchanged. A site
+                         whose type its use does not tell is refused (its test is not run). Every
+                         test that ran a stub is stubbed, pass or fail: the text names the stubs,
+                         `Tests:` counts stubbed passes and failures apart, --output-json adds
+                         `stubbed` and `generatedStubs` per test and in the summary, --junit a
+                         `stubbed` property. A stubbed pass counts as a pass for the exit code.
 
 COVERAGE
     --coverage           Count how often each statement of the APPs runs, per test. Writes Cobertura XML to
@@ -857,7 +871,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     "{flag} is not available: AL Runner v2's company normalization rules are not ported (ADR-020)"
                 ));
             }
-            "--watch" | "--affected" | "--tdd" | "--per-suite" | "--include-failing" | "--strict-environment" => {
+            "--tdd" => a.tdd = true,
+            "--watch" | "--affected" | "--per-suite" | "--include-failing" | "--strict-environment" => {
                 return Err(format!(
                     "{flag} is deferred in v3 (ADR-016, owner direction 2026-10-13): features that only hide start-up or run cost wait until they are measured to matter"
                 ));
@@ -929,6 +944,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             (a.coverage, "--coverage, --coverage-out and --coverage-json"),
             (a.execute, "a scratch run"),
             (a.recipe, "--recipe microsoft"),
+            (a.tdd, "--tdd"),
         ] {
             if set {
                 return Err(format!("al-runner impact-index build cannot be combined with {flag}"));
@@ -946,6 +962,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
 
 /// The checks of an impact run's options (ADR-043).
 fn impact_args(a: &TestArgs) -> Result<(), String> {
+    // An impact run compares Microsoft's tests with and without an extension: nothing to stub (ADR-051).
+    if a.tdd && !a.impact_of.is_empty() {
+        return Err("--tdd cannot be combined with --impact-of: an impact run compares the tests with and without an extension, and has nothing to stub".into());
+    }
     if a.impact_of.is_empty() {
         for (set, flag) in [
             (a.impact.is_some(), "--impact"),
