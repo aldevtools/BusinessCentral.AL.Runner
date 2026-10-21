@@ -164,8 +164,9 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
 /// test sees only by sending a request itself. A later failure that sends none is trusted.
 #[test]
 fn a_failure_after_a_test_refused_at_an_http_call_is_trusted_when_it_sends_no_request() {
+    // A request no test handler answers is refused (ADR-027): the runtime never opens a connection.
     let src = "codeunit 60105 T { Subtype = Test;
-                [Test] procedure HttpGet() var C: HttpClient; R: HttpResponseMessage; begin C.Get('http://localhost:1/x', R); end;
+                [Test] procedure HttpGet() var C: HttpClient; R: HttpResponseMessage; begin C.Get('https://example.com/x', R); end;
                 [Test] procedure UserIdRead() begin if UserId() = '' then Error('empty user'); end;
                 [Test] procedure CompanyNameRead() begin Error('company=%1', CompanyName()); end; }";
     let o = outcomes_of(src, "T");
