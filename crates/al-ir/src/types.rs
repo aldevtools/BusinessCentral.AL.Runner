@@ -122,6 +122,7 @@ pub fn kind_of(e: &Expr) -> u8 {
         Expr::DotNetCoerce(..) => 20,
         Expr::DotNetOperand(..) => 21,
         Expr::Builtin { .. } => 22,
+        Expr::TddStub { .. } => 23,
     }
 }
 
@@ -320,6 +321,11 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 arg_children(r, f);
             }
             args_children(args, f);
+        }
+        Expr::TddStub { args, .. } => {
+            for a in args {
+                f(a);
+            }
         }
     }
 }

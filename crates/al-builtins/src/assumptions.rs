@@ -189,9 +189,9 @@ registry! {
     },
     TableRelationQuotes => {
         id: "table-relation-quotes",
-        assumed: "A filter(...) text of a TableRelation where() clause quotes an identifier with \" and is read like a SetFilter text after the quotes are rewritten to '.",
-        tests: "Item where(Type = filter(Inventory | \"Non-Inventory\")) (Sales Line No.); tests in Tests-ERM.",
-        probe: "TableRelation ... where(F = filter(A | \"B C\")) and Validate with a value of each kind. Asked in corpus #644.",
+        assumed: "A filter(...) text of a TableRelation where() clause or arm condition that quotes an identifier with \" is read like a SetFilter text after the quotes are rewritten to '. (Pinned, no mark: on an Enum or Option field, members joined by |, one quoted member alone and <> one quoted member, record/lt-table-relation-quotes/TableRelationQuotes.al:41-46.) Assumed: ranges such as A..\"B C\", & and the other filter operators, a field of another type, and the if (...) condition of an arm.",
+        tests: "Microsoft relations with a quoted member in another form than the pinned ones.",
+        probe: "TableRelation ... where(F = filter(A..\"B C\")), filter(\"B C\"..D), filter(\"B C\"..), filter(<>A & <>\"B C\") and an arm if (F = filter(\"B C\")), Validate with a value of each kind.",
     },
     TextDigitsToInteger => {
         id: "text-digits-to-integer",
@@ -219,9 +219,9 @@ registry! {
     },
     DateToTextIsFormat => {
         id: "date-to-text-is-format",
-        assumed: "A Date converted to a Text or Code (a Variant from FieldRef.Value into a Text parameter) is its default Format text, so an Evaluate of it reads the same date back.",
+        assumed: "A Date that FieldRef.Value gives, handed straight (no Variant variable in between) to a Text or Code parameter or variable, is its default Format text, so an Evaluate of it reads the same date back. (TextBuilder.Append(FieldRef.Value()) of a Date is pinned: text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al. A Variant holding a Date into a Text parameter, a Text or Code variable or field raises TypeConversion: report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:89-105, no mark.)",
         tests: "Incoming Document.FindByDocumentNoAndPostingDate(.., PostingDateFieldRef.Value) behind the Incoming Doc. Attach. FactBox: about 470 Tests-ERM tests.",
-        probe: "T := V where V is a Variant holding a Date: compare T with Format(D); Evaluate(D2, T); the same for a blank Date. Asked in corpus #649.",
+        probe: "TakeText(FieldRef.Value), TakeText30, TakeCode20 and T := FieldRef.Value for a Date field (set, blank, closing date), then Evaluate the text back. Written by corpus writer QO (QO_DateFieldRef_EachConversion in P147DateToText.al), not yet on master.",
     },
     GuidAsTextArgument => {
         id: "guid-as-text-argument",
@@ -385,12 +385,6 @@ registry! {
         tests: "The Data Exchange tests' GetNodeID (`<Integer,4><Filler Char,0>`, about 30 tests).",
         probe: "Format(5, 0, '<Integer,4><Filler Char,0>') next to '<Integer,4><Filler Character,0>', for an Integer, a Decimal and a Text. Asked in corpus #649.",
     },
-    EnumOptionIntegerOrdinal => {
-        id: "enum-option-integer-ordinal",
-        assumed: "A BigInteger converts into an Option or an Enum by ordinal; an ordinal beyond the members is kept. (An Enum value into an Option, an Integer or a Decimal, and an Integer into an Enum, are pinned: types/lt-filter-enum-relation-duration-guid/B_EnumOptionVariant.al, types/PROptionInteger.al, types/PEOptionEnumBigText.al.)",
-        tests: "Code that assigns a BigInteger to an Option or an Enum variable.",
-        probe: "Opt := BigIntegerValue and E := BigIntegerValue for an ordinal the Option or Enum lacks and for one beyond Integer. Asked in corpus #645.",
-    },
     DateTimeDateTimeMethods => {
         id: "datetime-date-time-methods",
         assumed: "The instance methods DateTime.Date() and DateTime.Time() give what DT2Date and DT2Time give, the undefined DateTime included. (DT2Date and DT2Time are pinned by text/TestProbeTextDateFormatContracts.al:Dates_DateTime_DT2DateTime.)",
@@ -435,9 +429,9 @@ registry! {
     },
     NewLineStampsAllBeforeValidating => {
         id: "new-line-stamps-all-before-validating",
-        assumed: "The blank line of a part (or list) takes every single-valued filter value (key fields, Document Type from SourceTableView and the SubPageLink fields) onto the record first, and only then runs the OnValidate and table relation of each, in field order; a link field declared before Document Type is validated with the Document Type already set.",
-        tests: "Library - Service.CreateServiceOrderHeaderUsingPage (TestPage Service Order OpenNew, Customer No. Activate, OK): the part Service Order Subform links on \"Document No.\" (field 1), its table relation of Document No. filters on \"Document Type\" (field 43); about 9 Tests-SCM-Service tests.",
-        probe: "A part page with SourceTableView where(Type = const(B)) and SubPageLink on a field declared before Type whose table relation filters on Type, and an OnValidate on the first field that reads Type: open the host, read the draft line and what the OnValidate saw. Asked in corpus #641.",
+        assumed: "The blank line of a part (or list) that takes two or more single filter values of its key fields (a key field from SourceTableView and the SubPageLink fields) puts them all on the record first, and only then validates each, in field order, when a validation can see the others (an OnValidate, a table relation, a validate trigger of a table extension or a subscriber). (One validated value is pinned, and a SourceTableView field outside the key is not stamped: pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:214-312. Without anything that can see the order, no mark.)",
+        tests: "Library - Service.CreateServiceOrderHeaderUsingPage (Service Order Subform: key Document Type, Document No., Line No.; the relation of Document No. filters on Document Type). Kept because refusing it costs 7 corpus baseline cases (handlers/TestPageActionRunPageView.al 67007, misc/lt-probes-needed-7/PnGRefresh.al 70177).",
+        probe: "A part whose source table's key is (Type, Document No., Line No.), SourceTableView where(Type = const(B)), SubPageLink Document No. = field(No.), the relation of Document No. filtering on Type and an OnValidate of Document No. that reads Type: open the host on a header of Type B and A, New(), read the draft line and what the OnValidate saw.",
     },
     DeleteAllMarkedOnly => {
         id: "delete-all-marked-only",

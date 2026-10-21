@@ -83,6 +83,7 @@ impl Index {
             messages: Vec::new(),
             captured: None,
             impact: t.keys.clone(),
+            stubs: Vec::new(),
         }
     }
 

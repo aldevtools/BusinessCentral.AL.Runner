@@ -29,6 +29,17 @@ pub fn convert_plain(v: Value, t: &RtType) -> Result<Value, Signal> {
     }
 }
 
+/// The ordinal a BigInteger gives an Option or an Enum: one beyond Integer raises ConversionCast
+/// (types/lt-bigint-enum-option/BigIntToEnumOption.al:123-145, P79BigOption.al `v2147483648`).
+fn bigint_ordinal(n: i64) -> Result<i32, Signal> {
+    i32::try_from(n).or_else(|_| {
+        raise(
+            format!("Overflow under conversion of System.Int64 value {n} to System.Int32."),
+            "ConversionCast",
+        )
+    })
+}
+
 /// Converts `v` for storing in a slot of type `t`.
 pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     use RtType as T;
@@ -155,14 +166,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Enum(_, o), T::Option(m)) => Value::Option(o, m.clone().into()),
         (Value::Enum(_, o), T::Integer) => Value::Integer(o),
         (Value::Enum(_, o), T::Decimal) => Value::Decimal(Decimal::from(o)),
-        // A BigInteger into an Option likewise (not pinned: assumption enum-option-integer-ordinal).
-        (Value::BigInteger(n), T::Option(m)) => match i32::try_from(n) {
-            Ok(o) => {
-                crate::assumptions::assume(crate::assumptions::Assumption::EnumOptionIntegerOrdinal);
-                Value::Option(o, m.clone().into())
-            }
-            Err(_) => return unsupported(format!("{n} as an Option ordinal (beyond Integer)")),
-        },
+        // A BigInteger into an Option likewise: an ordinal the Option lacks and a negative one are kept, one beyond
+        // Integer raises ConversionCast (types/lt-bigint-enum-option/BigIntToEnumOption.al:95-145; argument, field and
+        // Validate: types/lt-implicit-conversions/P79BigOption.al:194-218).
+        (Value::BigInteger(n), T::Option(m)) => Value::Option(bigint_ordinal(n)?, m.clone().into()),
         (Value::Option(o, _), T::Integer) => Value::Integer(o),
         (Value::Integer(n), T::Duration) => Value::Duration(i64::from(n)),
         (Value::BigInteger(n), T::Duration) => Value::Duration(n),
@@ -249,9 +256,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         // The untracked call stack marker moves between Text slots unread (see `native::text_of`).
         (Value::Text(s), T::Text(_)) if s.has_marker() => Value::Text(s),
-        // A Date handed to a Text (a Variant from `FieldRef.Value` into a Text parameter: Incoming Document
+        // A Date handed to a Text (`FieldRef.Value` straight into a Text parameter: Incoming Document
         // `FindByDocumentNoAndPostingDate(.., PostingDateFieldRef.Value)` and `Evaluate` of it, 474 Tests-ERM tests) is its
-        // default `Format` text. Not pinned: assumption date-to-text-is-format.
+        // default `Format` text. Not pinned: assumption date-to-text-is-format. A Variant variable holding a Date raises before it
+        // gets here (the parameter binding in al-vm, the assignment guards in al-sema lower/stmt.rs; P147DateToText.al:89-105).
         (v @ Value::Date(..), T::Text(_) | T::Code(_)) => {
             struct NoEnums;
             impl crate::format::FormatCtx for NoEnums {
@@ -304,14 +312,9 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // ordinal the enum lacks is kept. The same in a field, a Get key and a SetRange value (corpus
         // types/PXEnumRecordRef.al:11-12, :137-196, probed on BC 27.5).
         (Value::Integer(n), T::Enum(id)) => Value::Enum(*id, n),
-        // A BigInteger goes by ordinal as an Integer does (not probed; registry entry enum-option-integer-ordinal).
-        (Value::BigInteger(n), T::Enum(id)) => match i32::try_from(n) {
-            Ok(o) => {
-                crate::assumptions::assume(crate::assumptions::Assumption::EnumOptionIntegerOrdinal);
-                Value::Enum(*id, o)
-            }
-            Err(_) => return unsupported(format!("{n} as an Enum ordinal (beyond Integer)")),
-        },
+        // A BigInteger goes by ordinal as an Integer does, beyond Integer it raises ConversionCast
+        // (types/lt-bigint-enum-option/BigIntToEnumOption.al:148-195; the assignment compiles from BC 29 on).
+        (Value::BigInteger(n), T::Enum(id)) => Value::Enum(*id, bigint_ordinal(n)?),
         // A Guid assigns into a Text or Code as its text form `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}`, as
         // Format gives it (corpus types/lt-filter-enum-relation-duration-guid/E_Guid.al: Guid_To_Text40_Text_Code40).
         (Value::Guid(g), T::Text(max)) => Value::Text(fit(crate::format::format_guid(&g), *max)?.into()),
@@ -1760,20 +1763,21 @@ mod tests {
             convert(Value::Integer(5), &RtType::Enum(5056)),
             Ok(Value::Enum(5056, 5))
         ));
-        // A BigInteger is not probed; Microsoft's tests assign one (Transfer Order posting, `Enum := BigIntegerField`),
-        // so it goes by ordinal as an Integer does (registry entry enum-option-integer-ordinal).
+        // A BigInteger goes by ordinal as an Integer does; beyond Integer it raises ConversionCast
+        // (types/lt-bigint-enum-option/BigIntToEnumOption.al:148-195).
         assert!(matches!(
             convert(Value::BigInteger(5), &RtType::Enum(5056)),
             Ok(Value::Enum(5056, 5))
         ));
         assert!(matches!(
             convert(Value::BigInteger(i64::MAX), &RtType::Enum(5056)),
-            Err(Signal::Unsupported(_))
+            Err(Signal::Error(e)) if e.code == "ConversionCast"
+                && e.message == "Overflow under conversion of System.Int64 value 9223372036854775807 to System.Int32."
         ));
     }
 
-    // An Enum value into an Option or an Integer, and a BigInteger into an Option, go by ordinal. Nothing in the corpus
-    // pins them (docs/probes-needed.md); Microsoft's tests need them: the FlowField filter
+    // An Enum value into an Option or an Integer, and a BigInteger into an Option, go by ordinal (B_EnumOptionVariant.al,
+    // BigIntToEnumOption.al). Microsoft's tests need them: the FlowField filter
     // `"Source Subtype" = field("Document Type")` of Sales Line "Reserved Quantity" (Option column, Enum field),
     // `DequeueInteger` of an enqueued enum in Library - Variable Storage, and the loop
     // `for FromSalesLineDisc."Sales Type" := ...::Customer to ...::Campaign` in Sales Price Calc. Mgt.
@@ -1799,7 +1803,7 @@ mod tests {
         ));
         assert!(matches!(
             convert(Value::BigInteger(i64::MAX), &members()),
-            Err(Signal::Unsupported(_))
+            Err(Signal::Error(e)) if e.code == "ConversionCast"
         ));
     }
 

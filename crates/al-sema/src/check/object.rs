@@ -25,6 +25,8 @@ impl<'a> Checker<'a> {
             resolved: Default::default(),
             panicked: HashMap::default(),
             cur_ret: None,
+            tdd_apps: None,
+            tdd_pending: Vec::new(),
         }
     }
 
@@ -637,6 +639,7 @@ impl<'a> Checker<'a> {
             if let Some(body) = r.body() {
                 self.walk(&mut sc, &body);
             }
+            self.tdd_finish_routine();
             // Property expressions of controls were never checked before the test
             // client needed them (ADR-012); an unresolved name there stays a refusal at
             // lowering, not a compile diagnostic (check::tests::builtin_test_page_methods_win_over_controls_when_called).
@@ -708,6 +711,49 @@ impl<'a> Checker<'a> {
                     self.al_no_result_assignment(sc, rhs, target, source);
                     self.al_interface_assignment(sc, rhs, target, source);
                 }
+                // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).
+                let (target, rhs) = (target.clone(), rhs.clone());
+                self.tdd_settle(sc, &rhs, &target);
+            }
+            return;
+        }
+        // `Target.Missing();` as a statement: nothing reads a result (ADR-051 decision 3).
+        if node.kind() == SyntaxKind::ExprStmt {
+            for child in node.children() {
+                if is_expr(child.kind()) {
+                    self.ty(sc, &child);
+                    self.tdd_settle_statement(sc, &child);
+                } else {
+                    self.walk(sc, &child);
+                }
+            }
+            return;
+        }
+        // `repeat ... until Target.Missing()`: a Boolean.
+        if node.kind() == SyntaxKind::RepeatStmt {
+            for child in node.children() {
+                if is_expr(child.kind()) {
+                    self.ty(sc, &child);
+                    self.tdd_settle(sc, &child, &Ty::Boolean);
+                } else {
+                    self.walk(sc, &child);
+                }
+            }
+            return;
+        }
+        // `case Target.Missing() of`: the type of the case labels.
+        if node.kind() == SyntaxKind::CaseStmt {
+            let mut selector: Option<SyntaxNode> = None;
+            for child in node.children() {
+                if selector.is_none() && is_expr(child.kind()) {
+                    self.ty(sc, &child);
+                    selector = Some(child);
+                } else {
+                    self.walk(sc, &child);
+                }
+            }
+            if let Some(sel) = selector {
+                self.tdd_settle_case(sc, node, &sel);
             }
             return;
         }
@@ -719,6 +765,7 @@ impl<'a> Checker<'a> {
                     first = false;
                     let t = self.ty(sc, &child);
                     self.al_condition(sc, &child, &t);
+                    self.tdd_settle(sc, &child, &Ty::Boolean);
                 } else {
                     self.walk(sc, &child);
                 }
@@ -735,6 +782,8 @@ impl<'a> Checker<'a> {
                         self.al_enum_assignment(sc, &child, &ret, &t);
                         self.al_integer_text_assignment(sc, &child, &ret, &t);
                         self.al_scalar_assignment(sc, &child, &ret, &t);
+                        // `exit(Target.Missing())`: the result type of the routine (ADR-051 decision 3).
+                        self.tdd_settle(sc, &child, &ret);
                     }
                 } else {
                     self.walk(sc, &child);

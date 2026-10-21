@@ -38,6 +38,10 @@ pub struct Program {
     /// raising such an event is refused instead of running without them.
     #[serde(default)]
     pub uncompiled_subscribers: Vec<UncompiledSubscriber>,
+    /// `--tdd` (ADR-051): the signature of every stub the program holds (`Expr::TddStub::stub`), sorted, each once.
+    /// Empty without `--tdd`.
+    #[serde(default)]
+    pub tdd_stubs: Vec<String>,
 }
 
 /// An event subscriber that is declared but not compiled (see [`Program::uncompiled_subscribers`]).
@@ -1457,6 +1461,15 @@ pub enum Expr {
         args: Vec<Arg>,
         ret_used: bool,
     },
+    /// `--tdd` (ADR-051 decision 4): a call of a procedure that does not exist yet, in a test app. The arguments are
+    /// evaluated left to right, as for a call, and the result is the initial value of `ty` (`None`: the call is a
+    /// statement and yields nothing). It writes nothing, raises nothing and runs no trigger or event. `stub` is the
+    /// signature the report names (`Program::tdd_stubs` lists them all).
+    TddStub {
+        stub: String,
+        args: Vec<Expr>,
+        ty: Option<RtType>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1585,6 +1598,7 @@ mod tests {
                 type_name: "System.Convert".into(),
             }],
             apps: vec![],
+            tdd_stubs: vec!["C: procedure \"P\"()".into()],
             sources: vec![],
             positions: vec![],
             uncompiled_subscribers: vec![UncompiledSubscriber {

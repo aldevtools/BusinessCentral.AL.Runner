@@ -28,6 +28,11 @@ pub trait FormatCtx {
         let _ = table;
         None
     }
+    /// Whether the target BC version has the behavior of `gate` (false where the context knows no target).
+    fn format_gate(&self, gate: al_version::Gate) -> bool {
+        let _ = gate;
+        false
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -43,6 +48,9 @@ impl FormatCtx for WithoutRegion<'_> {
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         self.0.record_id_table(table)
     }
+    fn format_gate(&self, gate: al_version::Gate) -> bool {
+        self.0.format_gate(gate)
+    }
 }
 
 /// The format regions whose texts the corpus pins (exact spelling; any other region is refused).
@@ -53,7 +61,7 @@ pub enum Region {
     FrFR,
     JaJP,
     DaDK,
-    /// `zz-ZZ`, a region no culture has: en-US texts, but a 24-hour clock in a dataset column
+    /// `zz-ZZ`, a region no culture has: en-US texts, but `MM/dd/yyyy` dates and a 24-hour clock in a dataset column
     /// (report/lt-y-report-props/YReportPropsTests.al:FormatRegion_UnknownRegion_XmlOrError).
     ZzZZ,
 }
@@ -72,11 +80,13 @@ impl Region {
         })
     }
 
-    /// The group separator and the decimal separator of an amount. fr-FR groups with U+202F
-    /// (PnH4CurrReport.al:247 `1 234,5`, bytes E2 80 AF; YReportPropsTests.al:84 shows the same bytes read back through code page 437).
-    fn separators(self) -> (char, char) {
+    /// The group separator and the decimal separator of an amount. fr-FR groups with U+202F on BC 27 and 28
+    /// (PnH4CurrReport.al:252 `1 234,5`, bytes E2 80 AF; YReportPropsTests.al:80 shows the same bytes read back through code page 437)
+    /// and with U+00A0 from BC 29 (PnH4CurrReport.al:250, YReportPropsTests.al:78; `no_break_space`).
+    fn separators(self, no_break_space: bool) -> (char, char) {
         match self {
             Region::DeDE | Region::DaDK => ('.', ','),
+            Region::FrFR if no_break_space => ('\u{A0}', ','),
             Region::FrFR => ('\u{202F}', ','),
             Region::EnGB | Region::JaJP | Region::ZzZZ => (',', '.'),
         }
@@ -86,7 +96,9 @@ impl Region {
     /// shape is not pinned. Day and month are padded where a test measured it: month 01 in every region
     /// (YReportPropsTests.al:34-148), day 05 in de-DE, fr-FR and da-DK `Format` (PnH4CurrReport.al:241-249).
     fn date(self, y: i32, m: u32, d: u32, column: bool) -> Option<String> {
-        let day_padding_pinned = !column && matches!(self, Region::DeDE | Region::FrFR | Region::DaDK);
+        // Day 05 in a zz-ZZ dataset column: BdRegionTests.al:213,220 `03/05/2024`.
+        let day_padding_pinned =
+            (!column && matches!(self, Region::DeDE | Region::FrFR | Region::DaDK)) || (column && self == Region::ZzZZ);
         if d < 10 && !day_padding_pinned {
             return None;
         }
@@ -104,8 +116,9 @@ impl Region {
             Region::JaJP => format!("{year}/{m:02}/{d:02}"),
             // da-DK is measured through `Format` only (PnH4CurrReport.al:248 `05-03-24`).
             Region::DaDK if !column => format!("{d:02}-{m:02}-{year}"),
-            // A dataset column of zz-ZZ is en-US's `M/d/yyyy` (YReportPropsTests.al:136 `1/31/2025`).
-            Region::ZzZZ if column => format!("{m}/{d}/{year}"),
+            // A dataset column of zz-ZZ is `MM/dd/yyyy` on BC 27, 28 and 29 (YReportPropsTests.al:128 `01/31/2025`,
+            // BdRegionTests.al:213,220 `03/05/2024`; corpus bump 43, the older Linux image gave `1/31/2025`).
+            Region::ZzZZ if column => format!("{m:02}/{d:02}/{year}"),
             Region::DaDK | Region::ZzZZ => return None,
         })
     }
@@ -192,7 +205,8 @@ fn format_in_region(
             if en.starts_with('-') && r != Region::DeDE {
                 return Err(refuse());
             }
-            let (group, decimal) = r.separators();
+            let (group, decimal) =
+                r.separators(ctx.format_gate(al_version::Gate::FrFrGroupSeparatorNoBreakSpaceFrom29));
             en.chars()
                 .map(|c| match c {
                     ',' => group,
@@ -272,7 +286,8 @@ pub fn region_column(r: Region, v: &Value) -> Option<String> {
             Some(format!("{} {h:02}:{mi:02}:{s:02}", r.date(y, m, d, true)?))
         }
         Value::Decimal(d) if !d.is_sign_negative() => {
-            let (_, decimal) = r.separators();
+            // The decimal separator does not depend on the version.
+            let (_, decimal) = r.separators(false);
             Some(d.to_string().replace('.', &decimal.to_string()))
         }
         _ => None,
@@ -1390,6 +1405,41 @@ mod tests {
         assert!(refused(&Value::Time(5), 0, "fr-FR"));
         assert!(refused(&dec("-1.5"), 0, "fr-FR"));
         assert!(refused(&stamp, 0, "da-DK"));
+    }
+
+    #[test]
+    fn a_zz_zz_dataset_column_pads_month_and_day() {
+        // report/lt-y-report-props/YReportPropsTests.al:128 (`01/31/2025`, `01/31/2025 14:30:15`, BC 27, 28, 29) and
+        // report/lt-bd-format-region/BdRegionTests.al:213,220 (`03/05/2024`).
+        let day = Value::Date(day_from_civil(2025, 1, 31), false);
+        let stamp = Value::DateTime((i64::from(day_from_civil(2025, 1, 31)) - 1) * 86_400_000 + 52_215_000 + 1);
+        let march = Value::Date(day_from_civil(2024, 3, 5), false);
+        assert_eq!(region_column(Region::ZzZZ, &day).as_deref(), Some("01/31/2025"));
+        assert_eq!(
+            region_column(Region::ZzZZ, &stamp).as_deref(),
+            Some("01/31/2025 14:30:15")
+        );
+        assert_eq!(region_column(Region::ZzZZ, &march).as_deref(), Some("03/05/2024"));
+    }
+
+    #[test]
+    fn on_bc_29_fr_fr_groups_with_a_no_break_space() {
+        // misc/lt-probes-needed-8/PnH4CurrReport.al:247 and :311 (#if BC29PLUS: U+00A0; BC 27 and 28 keep U+202F) and
+        // report/lt-y-report-props/YReportPropsTests.al:74 (BC 29 AmtText).
+        struct R(bool);
+        impl FormatCtx for R {
+            fn enum_name(&self, _: u32, o: i32) -> String {
+                o.to_string()
+            }
+            fn region(&self) -> Option<String> {
+                Some("fr-FR".into())
+            }
+            fn format_gate(&self, gate: al_version::Gate) -> bool {
+                gate == al_version::Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 && self.0
+            }
+        }
+        assert_eq!(format(&dec("1234567.891"), 0, 0, &R(true)), "1\u{A0}234\u{A0}567,891");
+        assert_eq!(format(&dec("1234.5"), 0, 0, &R(false)), "1\u{202F}234,5");
     }
 
     #[test]

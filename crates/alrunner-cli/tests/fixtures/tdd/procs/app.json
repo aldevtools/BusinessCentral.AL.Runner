@@ -1,0 +1,8 @@
+{
+  "id": "7d0c1a52-6e3b-4f0a-9b8e-2c4d5e6f7a01",
+  "name": "Tdd Procedures",
+  "publisher": "AL Runner Tests",
+  "version": "1.0.0.0",
+  "idRanges": [{ "from": 50100, "to": 50149 }],
+  "dependencies": []
+}

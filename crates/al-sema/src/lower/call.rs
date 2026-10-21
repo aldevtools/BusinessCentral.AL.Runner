@@ -35,8 +35,31 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// `--tdd` (ADR-051 decision 4): a stub site becomes `ir::Expr::TddStub`; one whose return type is not known is
+    /// refused with the reason the checker gave.
+    fn tdd_stub(&mut self, site: &crate::check::tdd::TddSite, args: &[SyntaxNode]) -> L<ir::Expr> {
+        use crate::check::tdd::TddRet;
+        let ty = match &site.ret {
+            TddRet::Refused(why) => return Err(why.clone()),
+            TddRet::Pending => {
+                return Err(format!(
+                    "--tdd: cannot infer the return type of {}.{} from its use",
+                    site.receiver, site.name
+                ));
+            }
+            TddRet::NoValue => None,
+            TddRet::Value(t) => Some(self.rt(t)?),
+        };
+        let stub = crate::check::tdd::signature(self.ws, site).ok_or("--tdd: a stub without a signature")?;
+        let args = args.iter().map(|a| self.expr(a)).collect::<L<Vec<_>>>()?;
+        Ok(ir::Expr::TddStub { stub, args, ty })
+    }
+
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
     pub(crate) fn call(&mut self, node: &SyntaxNode, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<ir::Expr> {
+        if let Some(Res::TddStub(site)) = self.res(node).cloned() {
+            return self.tdd_stub(&site, args);
+        }
         if let Some(Res::DotNetMember(name)) = self.res(node).cloned() {
             let args = args.iter().map(|a| self.dotnet_arg(a)).collect::<L<Vec<_>>>()?;
             let op = if node.kind() == SyntaxKind::CallExpr {
@@ -648,6 +671,19 @@ impl Lowerer<'_> {
                     .and_then(|b| self.control_add_in(&b))
                     .unwrap_or_default();
                 Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())))
+            }
+            // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused.
+            None if receiver_node.as_ref().is_some_and(|r| {
+                matches!(self.res(r), Some(Res::TddStub(s)) if matches!(s.ret, crate::check::tdd::TddRet::Refused(_)))
+            }) =>
+            {
+                match receiver_node.as_ref().and_then(|r| self.res(r)) {
+                    Some(Res::TddStub(site)) => match &site.ret {
+                        crate::check::tdd::TddRet::Refused(why) => Err(why.clone()),
+                        _ => unreachable!("checked"),
+                    },
+                    _ => unreachable!("checked"),
+                }
             }
             None => Err(format!("call `{}` has no callee the checker resolved", node.text())),
             Some(r) => Err(format!(

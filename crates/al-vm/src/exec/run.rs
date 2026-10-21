@@ -712,6 +712,16 @@ impl Session {
             // lt-record-conversion-assumptions/RecordResultField.al).
             AuxSite::FieldOf { pos } => self.read_record_field(v, *pos)?,
             AuxSite::QueryColumn { column } => self.query_column(v, *column)?,
+            AuxSite::TddStub { stub, ty } => {
+                drop(v);
+                if !self.tdd_reached.contains(stub) {
+                    self.tdd_reached.insert(stub.clone());
+                }
+                match ty {
+                    Some(t) => self.default_value(t),
+                    None => Value::Null,
+                }
+            }
         };
         set(&mut f.locals[d as usize], r);
         Ok(())

@@ -549,6 +549,8 @@ pub struct Session {
     /// A scratch run (`al-runner serve`'s `execute`): the text of every `Message` raised outside a test
     /// method, in order. `None`: such a call is refused, as BC's behaviour then is not pinned.
     pub(crate) scratch_messages: Option<Vec<String>>,
+    /// `--tdd` (ADR-051 decision 5): the stubs that ran since the last [`Session::take_tdd_reached`].
+    pub(crate) tdd_reached: std::collections::BTreeSet<String>,
     /// Value capture and loop tracking (`capture.rs`); `None`: off, and the statements run as they always did.
     pub(crate) capture: Option<Box<capture::Capture>>,
     /// A capture is on and the routine running is one of the run's apps: the only thing the statements test (one byte).
@@ -769,6 +771,7 @@ impl Session {
             test_object: None,
             http_policy: None,
             scratch_messages: None,
+            tdd_reached: Default::default(),
             capture: None,
             capturing: false,
             constants: Default::default(),
@@ -957,6 +960,11 @@ impl Session {
             self.autoinc.insert(slot, value);
         }
         self.end_write_phase();
+    }
+
+    /// The signatures of the `--tdd` stubs that ran since the last call, sorted (ADR-051 decision 5).
+    pub fn take_tdd_reached(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.tdd_reached).into_iter().collect()
     }
 
     /// The session's database, for runners that manage transactions around tests.

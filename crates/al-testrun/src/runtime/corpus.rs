@@ -261,6 +261,7 @@ impl CorpusRuntime {
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
             only_tests: only.clone(),
+            tdd: opts.tdd,
             ..Default::default()
         };
         // Whether the install baseline runs, and why it does when it was weighed.
@@ -803,6 +804,7 @@ impl CorpusRuntime {
                                 messages: Vec::new(),
                                 captured: None,
                                 impact: Vec::new(),
+                                stubs: Vec::new(),
                             });
                         }
                     }
@@ -938,6 +940,7 @@ impl CorpusRuntime {
                     messages,
                     captured,
                     impact,
+                    stubs: Vec::new(),
                 })
             };
             match r.result {
@@ -987,6 +990,11 @@ impl CorpusRuntime {
                             seen,
                             touched,
                         );
+                        if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
+                            if let Some(last) = list.last_mut() {
+                                last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
+                            }
+                        }
                         times_by_case.insert((r.si, r.id, name.to_lowercase()), time);
                         outcomes.insert((r.si, r.id, name.to_lowercase()), outcome);
                     }
@@ -1078,6 +1086,7 @@ impl CorpusRuntime {
             impact_keys: impact_keys.keys,
             impact_baseline,
             program_apps,
+            tdd_stubs: lowered.program.tdd_stubs.clone(),
         }
     }
 }
@@ -1105,6 +1114,11 @@ impl CorpusRuntime {
     /// The apps of the compiled program: (id, name, version), in program order.
     pub fn program_apps(&self) -> &[(String, String, String)] {
         &self.program_apps
+    }
+
+    /// `--tdd` (ADR-051): the signature of every stub of the compiled program, sorted; empty without `--tdd`.
+    pub fn tdd_stubs(&self) -> &[String] {
+        &self.tdd_stubs
     }
 
     /// Every test the run decided, with its codeunit's name and app, codeunit by codeunit.
