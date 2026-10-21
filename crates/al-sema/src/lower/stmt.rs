@@ -733,8 +733,24 @@ impl Lowerer<'_> {
     pub(crate) fn stmt_plain(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {
         use SyntaxKind::*;
         let kids: Vec<SyntaxNode> = n.children().collect();
+        // A statement the parser recovered from an error can lack its parts (an `if` with no condition). The file's
+        // tests are not run (the parse error is their reason), but its routines are still lowered: refuse, never index
+        // past the parts.
+        let (parts, what) = match n.kind() {
+            ExprStmt => (1, "a call statement"),
+            IfStmt => (1, "an if statement"),
+            WhileStmt => (1, "a while statement"),
+            RepeatStmt => (1, "a repeat statement"),
+            CaseStmt => (1, "a case statement"),
+            WithStmt => (1, "a with statement"),
+            AssignStmt => (2, "an assignment"),
+            ForeachStmt => (2, "a foreach statement"),
+            ForStmt => (3, "a for statement"),
+            _ => (0, ""),
+        };
         let r = match n.kind() {
             Block => return self.stmts_of(n),
+            _ if kids.len() < parts => Err(format!("{what} without its parts (the parser did not accept it)")),
             ExprStmt => {
                 // A call that passes `CurrFieldNo` to a `var` parameter: the callee works on a local that holds its value, and
                 // what the local holds afterwards becomes the record's CurrFieldNo (record/lt-curr-field-no/CurrFieldNoVarParam.al:

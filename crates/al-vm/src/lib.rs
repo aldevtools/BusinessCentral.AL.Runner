@@ -602,6 +602,10 @@ pub struct Session {
     pub(crate) host: al_host::Host,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
+    /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
+    /// the time they have asked for since the test started. `None` outside a test with a limit.
+    pub(crate) sleep_budget: Option<i64>,
+    pub(crate) slept_in_test: i64,
     /// Text this session encrypted: ciphertext to plain text (`Encrypt`, `Decrypt`).
     pub(crate) encrypted: std::collections::HashMap<String, String>,
     /// Where the session's encryption key stands: a key exists at the start (misc: session/lt-encryption-key-delete/EncryptionKeyDelete.al
@@ -714,6 +718,8 @@ impl Session {
             get_load: false,
             host,
             waited_ms: 0,
+            sleep_budget: None,
+            slept_in_test: 0,
             encrypted: Default::default(),
             encryption_key: EncryptionKey::Present,
             temp_files: 0,
@@ -1645,6 +1651,29 @@ impl Session {
             .collect();
         out.sort_unstable();
         out
+    }
+
+    /// Starts the count of the time `Sleep` asks for in one test (al-runner issue 5605): `Sleep` does not wait, but when
+    /// the sum of what it asked for in the test goes past `limit`, the test is stopped as the CPU limit stops it. `None`:
+    /// no limit; the count still runs, for [`Session::slept_in_test_ms`].
+    pub fn start_sleep_budget(&mut self, limit: Option<std::time::Duration>) {
+        self.sleep_budget = limit.map(|l| i64::try_from(l.as_millis()).unwrap_or(i64::MAX));
+        self.slept_in_test = 0;
+    }
+
+    /// The time `Sleep` has asked for since [`Session::start_sleep_budget`], in milliseconds.
+    pub fn slept_in_test_ms(&self) -> i64 {
+        self.slept_in_test
+    }
+
+    /// Whether the `Sleep` calls of the test went past its limit (the test was stopped for it).
+    pub fn sleep_budget_passed(&self) -> bool {
+        self.sleep_budget.is_some_and(|l| self.slept_in_test > l)
+    }
+
+    /// Ends the count of [`Session::start_sleep_budget`]: `Sleep` outside a test counts toward no limit.
+    pub fn end_sleep_budget(&mut self) {
+        self.sleep_budget = None;
     }
 
     /// Rearms the stop flag for the next test.
