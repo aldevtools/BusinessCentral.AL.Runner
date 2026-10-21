@@ -614,23 +614,33 @@ impl Lowerer<'_> {
             .filter_map(|p| p.type_ref())
             .chain(r.local_var_decls().filter_map(|v| v.type_ref()))
             .map(|t| Ty::from_type_ref(&t));
+        if d.objects.is_empty() {
+            return Vec::new();
+        }
         let mut out: Vec<String> = Vec::new();
         for t in tys {
-            let (kind, name) = match t {
-                Ty::Record { table, .. } => (ObjKind::Table, table),
-                Ty::Object(k, n) => (k, n),
-                Ty::Enum(n) => (ObjKind::Enum, n),
-                _ => continue,
-            };
-            if let Resolution::Found(oi) = self.ws.resolve_ref(self.file, kind, &[name.to_string()]) {
-                if let Some(sig) = d.objects.get(&oi) {
-                    if !out.contains(sig) {
-                        out.push(sig.clone());
-                    }
+            if let Some(sig) = self.tdd_object_sig(&t) {
+                if !out.contains(&sig) {
+                    out.push(sig);
                 }
             }
         }
         out.into_iter().map(ir::Stmt::TddMark).collect()
+    }
+
+    /// `--tdd`: the signature of the stub object a variable of type `t` is an instance of, if it is one.
+    pub(crate) fn tdd_object_sig(&self, t: &Ty) -> Option<String> {
+        let d = self.checked.tdd_decls.as_ref().filter(|d| !d.objects.is_empty())?;
+        let (kind, name) = match t {
+            Ty::Record { table, .. } => (ObjKind::Table, table),
+            Ty::Object(k, n) => (*k, n),
+            Ty::Enum(n) => (ObjKind::Enum, n),
+            _ => return None,
+        };
+        match self.ws.resolve_ref(self.file, kind, &[name.to_string()]) {
+            Resolution::Found(oi) => d.objects.get(&oi).cloned(),
+            _ => None,
+        }
     }
 
     pub(crate) fn stmt(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {

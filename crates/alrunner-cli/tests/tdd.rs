@@ -422,3 +422,46 @@ fn stub_fields_enum_values_and_objects_are_declared_and_flag_the_tests_that_touc
         .unwrap_or(0);
     assert!(passed <= 1, "{}", text(&o));
 }
+
+#[test]
+fn globals_of_stub_objects_bare_fields_and_dynamic_writes_flag_or_refuse() {
+    let (doc, o) = json_run(&fixture("decls"), &["--tdd"]);
+    // A global of a stub object flags every test that touches it; such a test is never a clean pass.
+    let cases: &[(&str, &[&str])] = &[
+        ("GlobalOfAStubTable", &[r#"table "Tdd New Global Entry" (id 50222)"#]),
+        (
+            "GlobalOfAStubCodeunit",
+            &[r#"codeunit "Tdd New Global Calc" (id 50221)"#],
+        ),
+        // A bare field name in the table's own code (and in its extension's) is a stub site.
+        (
+            "BareFieldInTheTablesOwnCode",
+            &[r#"Tdd Decl Item: field "Size": Integer"#],
+        ),
+        (
+            "BareFieldInATableExtension",
+            &[r#"Tdd Decl Item: field "Depth": Decimal"#],
+        ),
+    ];
+    for (method, want) in cases {
+        let r = row(&doc, method);
+        assert_eq!(r["status"], "pass", "{method}: {r:#}\n{}", text(&o));
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert_eq!(stubs(r), want.to_vec(), "{method}: {r:#}");
+    }
+    // A FieldRef or TransferFields write longer than the stub length is refused, as assignment and Validate are.
+    for (method, field) in [
+        ("FieldRefWriteLongerThanTheStubLength", "Note"),
+        ("FieldRefValidateLongerThanTheStubLength", "Note"),
+        ("TransferFieldsLongerThanTheStubLength", "Memo"),
+    ] {
+        let r = row(&doc, method);
+        assert_ne!(r["status"], "pass", "{method}: {r:#}");
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        let want = format!("--tdd: the length of the stub field {field} is unknown");
+        assert!(
+            r["message"].as_str().unwrap_or_default().contains(&want),
+            "{method}: {r:#}"
+        );
+    }
+}

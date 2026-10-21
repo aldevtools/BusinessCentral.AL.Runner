@@ -13,11 +13,13 @@ impl<'a> Lowerer<'a> {
         r
     }
 
-    /// `--tdd` (ADR-051 decision 10): a use of a stub field or enum value marks the statement being lowered.
+    /// `--tdd` (ADR-051 decision 10): a use of a stub field or enum value, or of a global whose type is a stub object,
+    /// marks the statement being lowered.
     fn tdd_note(&self, d: &crate::check::tdd_decl::TddDecls, r: &Res) {
         let sig = match r {
             Res::Field { table, id } => d.fields.get(&(*table, *id)),
             Res::EnumValue { object, value } => d.values.get(&(*object, *value)),
+            Res::Global(n) => self.tdd_globals.get(n),
             _ => None,
         };
         if let Some(sig) = sig {

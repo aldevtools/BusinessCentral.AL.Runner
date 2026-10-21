@@ -340,6 +340,48 @@ impl<'a> Checker<'a> {
         true
     }
 
+    /// `Missing`, a bare name that is not called, in a trigger or procedure of a table or table extension of a test
+    /// app, that nothing supplies (no variable, field, system variable, platform function or named section): a stub
+    /// field site of the implicit record's table (decision 10), as `Rec.Missing` is ([`Self::tdd_field`]).
+    pub(crate) fn tdd_bare_field(&mut self, sc: &Scope, node: &SyntaxNode) -> bool {
+        if !self.tdd_in_test_app(sc.oi) || is_callee(node) {
+            return false;
+        }
+        let object = match self.ws.objects[sc.oi].kind {
+            ObjKind::Table => sc.oi,
+            ObjKind::TableExtension => match self.ws.extension_target(sc.oi) {
+                Some(b) if self.ws.objects[b].kind == ObjKind::Table => b,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        // Code of a field trigger or a procedure of the object itself, as AL0118 judges a bare value
+        // (`al_unresolved_name`); the name must be one no platform type has.
+        if node.ancestors().any(|a| a.kind() == SyntaxKind::Section) {
+            return false;
+        }
+        let name = name_of(node);
+        if super::SYSTEM_VARIABLES.iter().any(|s| s.eq_ignore_ascii_case(&name))
+            || self.catalog.knows_name(&name)
+            || self.has_named_section(sc.oi, &name)
+            || self.sibling_extension_declares(sc.oi, &name)
+        {
+            return false;
+        }
+        let site = TddSite {
+            object,
+            name,
+            receiver: "Rec".to_string(),
+            args: Vec::new(),
+            ret: TddRet::Pending,
+            kind: TddKind::Field,
+        };
+        let k = Self::tdd_key(sc, node);
+        self.resolutions.insert(k, Res::TddStub(Box::new(site)));
+        self.tdd_pending.push(k);
+        true
+    }
+
     /// The call `node` of `cands`, the procedures of one object named so, none of which takes the call's number of
     /// arguments (AL0126 without `--tdd`): in a test app, a stub site of a new overload. A procedure that takes as
     /// many arguments of other types stays an error.
