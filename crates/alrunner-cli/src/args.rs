@@ -484,7 +484,9 @@ OTHER
                          are an unprobed assumption (docs/probes-needed.md).
     --files-dir DIR      Let the File data type read and write real files under DIR.
     --define SYMBOL      A preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable.
-                         `--preprocessor-symbols A,B` names several.
+                         `--preprocessor-symbols A,B` names several. Like the AL compiler,
+                         al-runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`):
+                         the APPs' `preprocessorSymbols` and these are all there is.
     --auto-provision     Accepted and ignored (v2 downloaded platform apps with it; v3 always does,
                          unless --no-download).
     --test-timeout-secs N  (`--test-timeout N` is the same) A test that uses more than N seconds of CPU time (default 20; the
