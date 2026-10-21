@@ -724,6 +724,12 @@ impl Session {
         if self.report_init(inst)? {
             return unsupported("CurrReport.Quit in OnInitReport while a procedure first uses the report (not pinned)");
         }
+        // The request page's OnInit runs here, after OnInitReport and before the procedure's body, so what the procedure sets
+        // survives the run. Assumed (request-page-oninit-at-first-use) for Microsoft's tests: Library - Manufacturing
+        // RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false), whose request page OnInit sets
+        // CalcLines := true (Tests-SCM 137402 CapacityCostPostedToGLForTwoItemsInOneProductionOrder). A page variable's procedure
+        // before its open runs OnInit first in the same way (handlers/TestPageOnInit_Tests.al:188).
+        self.request_page_init_at_first_use(inst)?;
         // A procedure the caller runs on the variable before the run (`SetParameters`) may set what the request page
         // shows (`restore_page_values`).
         if self.report.report_trigger.is_none()
@@ -736,6 +742,34 @@ impl Session {
         Ok(())
     }
 
+    /// The request page's OnInit of a report that a procedure uses first (see `first_use`). An OnInit a reportextension adds is
+    /// left to the run, which refuses it.
+    fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        let object = inst.borrow().object as usize;
+        let engine = self.engine.clone();
+        let o = &engine.program.objects[object];
+        if o.report.is_none() {
+            return Ok(());
+        }
+        let Some(page) = o.page.as_ref() else {
+            return Ok(());
+        };
+        if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
+            return Ok(());
+        }
+        let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
+            return Ok(());
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
+        self.report.rp_init_done.push(Rc::downgrade(inst));
+        self.call(object, r, inst.clone(), Vec::new()).map(|_| ())
+    }
+
+    /// Whether the request page's OnInit of `inst` already ran at a procedure's first use.
+    pub(crate) fn request_page_init_done(&self, inst: &Inst) -> bool {
+        self.report.rp_init_done.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+    }
+
     /// Makes the globals of `inst` and, for a report that had none, runs `OnInitReport`. Returns
     /// whether the trigger quit the report.
     fn report_init(&mut self, inst: &Inst) -> Result<bool, Signal> {
@@ -743,6 +777,9 @@ impl Session {
         if first {
             self.report
                 .prepared
+                .retain(|w| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
+            self.report
+                .rp_init_done
                 .retain(|w| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
         }
         self.ensure_initialized(inst);
@@ -1358,6 +1395,11 @@ impl Session {
         let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
             return Ok(());
         };
+        // It ran at the procedure that used the variable first (request-page-oninit-at-first-use).
+        if self.request_page_init_done(inst) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
+            return Ok(());
+        }
         if with_parameters {
             return unsupported(format!(
                 "a parameters string for report \"{}\", whose request page has an OnInit (whether the values land before or after it is not pinned)",

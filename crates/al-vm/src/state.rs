@@ -176,6 +176,9 @@ pub(crate) struct ReportState {
     pub(crate) report_save_tried: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// Report variables a procedure of the caller initialized before their run (`SetParameters` and the like).
     pub(crate) prepared: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose request page OnInit ran at a procedure's first use (`Session::first_use`): the run does not
+    /// run it again.
+    pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: whether `CurrReport.Preview()` is pinned to be
     /// false for it (it was started by `Run` or `RunModal`).
     pub(crate) report_preview_pinned: Vec<bool>,

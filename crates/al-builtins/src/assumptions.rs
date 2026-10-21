@@ -277,6 +277,12 @@ registry! {
         tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected). Refusing the path instead blocks 166 Microsoft tests (measured 2026-10-21, BC 27.5: 4 Tests-ERM, 162 Tests-SCM, mostly physical inventory and Item Age Composition reports).",
         probe: "A parent item with a FlowFilter field and a child linked to it: child rows with an empty and a non-empty value; run with no filter on the FlowFilter, with SetRange to one value, and with SetFilter to a range; log the child rows and the child's GetFilters in OnPreDataItem.",
     },
+    RequestPageOnInitAtFirstUse => {
+        id: "request-page-oninit-at-first-use",
+        assumed: "A report variable whose procedure runs before its run has its request page's OnInit run at that first use, right after OnInitReport and before the procedure's body; the run then does not run the OnInit again, whether the page is shown or not.",
+        tests: "Tests-SCM 137402 SCM Costing Batch CapacityCostPostedToGLForTwoItemsInOneProductionOrder (Library - Manufacturing RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false); the request page OnInit sets CalcLines := true). Refusing the path instead blocks 2031 Tests-SCM tests (measured 2026-10-21, BC 27.5).",
+        probe: "A report with a request page whose OnInit sets a global and logs it, and a procedure that sets the same global: call the procedure, then Run with UseRequestPage(false) and with a request page handler; log the global in OnPreReport and in the handler.",
+    },
     UpdateRefreshOnFindRecord => {
         id: "update-refresh-onfindrecord",
         assumed: "CurrPage.Update on a page with OnFindRecord and OnAfterGetCurrRecord asks OnFindRecord for the current row with Which `=`, then reads the row as after a move: OnAfterGetRecord, OnAfterGetCurrRecord and the parts' reads.",

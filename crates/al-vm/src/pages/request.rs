@@ -150,6 +150,11 @@ impl Session {
             s.modal = true;
             s.parameters_wanted = want_parameters;
         }
+        // The OnInit ran at the procedure that used the variable first (request-page-oninit-at-first-use).
+        if self.request_page_init_done(&inst) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
+            st.borrow_mut().inited = true;
+        }
         inst.borrow_mut().globals[page.curr_page_slot] = Value::TestPage(st.clone());
         // Each reportextension that extends the request page runs on an instance of its own: the
         // one the run uses when it is the extension that changes the run, so that what a handler
