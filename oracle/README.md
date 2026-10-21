@@ -8,16 +8,16 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `53c818bfce4abdd7b410a0d434746543882af4da` (the `corpus` submodule, master merge of corpus PR 702; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `c4d4ce2f443986044434b1f617ea7d16041bee48` (the `corpus` submodule, master merge of corpus PR 703; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `53c818b` (the pin) | 39609715396 | `junit-test-results-27.5` | 12353202313 | 17145 |
-| 28 | 28.5 | `53c818b` (the pin) | 39609715396 | `junit-test-results-28.5` | 12351474400 | 17241 (+26 `OnRun`) |
-| 29 | 29.0 | `53c818b` (the pin) | 39609715396 | `junit-test-results-29.0` | 12351963699 | 17335 (+26 `OnRun`) |
+| 27 | 27.5 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-27.5` | 12361780322 | 17182 |
+| 28 | 28.5 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-28.5` | 12361077965 | 17278 (+26 `OnRun`) |
+| 29 | 29.0 | `c4d4ce2` (the pin) | 39630456170 | `junit-test-results-29.0` | 12362405123 | 17372 (+26 `OnRun`) |
 
-The files come from the green pull request run of PR 701, whose head `47dc20a` has the same tree as the pin `cdc5ff9`.
-The master push run of the pin (39609249068) was still running when the pin was set.
+The files come from the green full run of corpus PR 703 ("Test selection: full run"), whose head `913185e` has the same tree
+(`51117f40`) as the pin `c4d4ce2`.
 Every file has 0 failures. Each run published two artifacts with the same name; the
 oracle is the large one (the main suite, `junit-al-language.xml`). The small one is
 the OnPrem suite (`junit-al-language-onprem.xml`, 72 cases): it is the oracle of the

@@ -1807,11 +1807,23 @@ impl Session {
         // (`PageState::empty_part_xrec`).
         let held = self.page_xrec_fields(st);
         st.borrow_mut().empty_part_xrec = Some(held.clone());
+        // A value typed on this blank line without New() is stored with the first AutoSplitKey number, 10000
+        // (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
+        // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
+        // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
+        st.borrow_mut().split_starts_low = true;
         for validate in [true, false, true] {
             if validate {
                 self.set_xrec_fields(st, held.clone());
             }
             if validate {
+                // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
+                // one entry, not two (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine
+                // `draft = Order|H1|type:no=[H1];no:type=[Order];` after the host's GoToKey).
+                let rec = self.page_rec(st);
+                let table = rec.borrow().table as usize;
+                let fresh = self.initial_fields(table);
+                rec.borrow_mut().fields = fresh;
                 self.stamp_from_filters(st, true)?;
             }
             self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
@@ -1933,22 +1945,42 @@ impl Session {
         // OnValidate, a table relation, a table extension's validate trigger or a subscriber to the validate events of a
         // stamped field) that runs under Assumption::NewLineStampsAllBeforeValidating (kept, not pinned: refusing it costs
         // 7 baseline cases, handlers/TestPageActionRunPageView.al and misc/lt-probes-needed-7/PnGRefresh.al).
+        //
+        // Pinned since: two primary key fields linked by a part, each with an OnValidate (one with a TableRelation whose
+        // where() names the other): both are on the record before either validates, and they validate in field order,
+        // which is the key order there, whatever order the SubPageLink names them in (NewLineStampsFilters.al:
+        // QP_TwoKeyLink_TypeFirst_NewLine, _TypeFirst_BlankLine, _NoFirst_NewLine, _WithRelation_NewLine, tables 87149 and
+        // 87150). More values, PopulateAllFields, a value from SourceTableView, a key order that differs from the field
+        // order, a table extension's validate trigger or a validate event subscriber keep the mark.
         if validate && stamped.len() > 1 {
             let mut seen = false;
+            let mut beyond_pin = stamped.len() > 2 || populate_all;
+            if let [(a, _), (b, _)] = stamped.as_slice() {
+                let key = &table.keys[0];
+                let (ia, ib) = (key.iter().position(|k| k == a), key.iter().position(|k| k == b));
+                beyond_pin |= !matches!((ia, ib), (Some(x), Some(y)) if x < y);
+            }
             let schema = engine.program.objects[table.object as usize]
                 .table
                 .as_ref()
                 .expect("table");
             for (pos, _) in &stamped {
                 let f = &schema.fields[*pos];
-                seen |= f.on_validate.is_some()
-                    || f.relation
-                    || !f.ext_before_validate.is_empty()
+                let extra = !f.ext_before_validate.is_empty()
                     || !f.ext_after_validate.is_empty()
                     || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
                     || self.listened(&table, "onaftervalidateevent", Some(&f.name))?;
+                // Pinned for values the SubPageLink gives (the link filter group), not for a SourceTableView value.
+                let linked = rec
+                    .borrow()
+                    .filters
+                    .iter()
+                    .filter(|x| x.field == *pos)
+                    .all(|x| x.group == super::parts::LINK_GROUP);
+                beyond_pin |= extra || !linked;
+                seen |= f.on_validate.is_some() || f.relation || extra;
             }
-            if seen {
+            if seen && beyond_pin {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::NewLineStampsAllBeforeValidating,
                 );
@@ -2049,10 +2081,14 @@ impl Session {
         use rust_decimal::Decimal as D;
         let step = D::from(10000);
         let is_decimal = matches!(ty, RtType::Decimal);
-        let starts_low = st.borrow().split_starts_low;
+        let starts_low = {
+            let s = st.borrow();
+            s.split_starts_low && (s.host.is_none() || s.placeholder_line)
+        };
         let number = match (lower, upper) {
             // The blank line of a top-level list that took key filter values, typed without New(), starts at 10000
-            // (misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow).
+            // (misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow),
+            // and so does the placeholder line of an empty part (NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine).
             (None, _) if starts_low && !burned => step,
             // An empty grid burns one interval on the blank placeholder row.
             (None, _) => D::from(20000),

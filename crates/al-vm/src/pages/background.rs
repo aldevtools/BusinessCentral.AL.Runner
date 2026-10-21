@@ -52,9 +52,8 @@ impl Session {
         // Cancel_RightAfterEnqueue_ReturnsTrue_ButTheTaskHasCompleted: `completed` is logged before the
         // cancel's answer; bgtasks/W2BackgroundTasks.al:CancelPreviousTask_OnRowMove: `done` before `enqueued`).
         // The task runs after the call has stored the id in its `var TaskId` argument, so the completion trigger
-        // sees the page variable already set. Assumed (bg-task-id-set-before-completion): Microsoft's test
-        // Tests-ERM 134385 "ERM Sales Document" CustomerStatisticsYearToDate needs it (page 9082 compares the
-        // trigger's TaskId with the variable it passed to the enqueue); no corpus test reads the variable there.
+        // sees the page variable already set: its TaskId equals the variable the enqueue filled
+        // (bgtasks/W2BackgroundTasks.al:QP_CompletedTaskId_AgainstPageVariable_OpenView, page 87144 at :283-332).
         self.pages.bg_drain_after_call = Some(st.clone());
         Ok(Value::Null)
     }
@@ -64,7 +63,6 @@ impl Session {
         let Some(st) = self.pages.bg_drain_after_call.take() else {
             return Ok(());
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskIdSetBeforeCompletion);
         self.bg_drain(&st)
     }
 

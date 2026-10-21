@@ -17,6 +17,7 @@ mod codeunit_run_variant_recordref;
 mod continue_stmt;
 mod corpus_failures_1;
 mod dataformats;
+mod debugger;
 mod duration_date_arith;
 mod enum_in_set;
 mod enum_list_dictionary_list;

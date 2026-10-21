@@ -417,15 +417,14 @@ fn caption_class_expressions_on_a_document_page_and_its_part_are_pinned() {
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     // CurrPage.Update after a SetValue on the host: BC runs the host's expression three times, then the part's once
-    // (`update = rest=60@1;60@1;60@1;70@1;71@1;`); the runtime does not match that and keeps the mark. The host's Next after it
-    // refills the part with its first row only.
+    // (QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update = rest=60@1;60@1;60@1;70@1;71@1;`). The host's Next
+    // after it refills the part with its first row only.
     let (got, hits) = run_doc("HostSteps");
-    assert!(got.starts_with("No:|"), "{got}");
-    assert!(
-        got.ends_with("|Line 1|No:|YesNo:70@3;71@3;|Head 1,3,Line 3|No:|No:|"),
-        "{got}"
+    assert_eq!(
+        got,
+        "No:|No:60@1;60@1;60@1;70@1;71@1;|Line 1|No:|YesNo:70@3;71@3;|Head 1,3,Line 3|No:|No:|"
     );
-    assert!(hits.contains(&"page-open-caption-class-expressions"), "{hits:?}");
+    assert!(!hits.contains(&"page-open-caption-class-expressions"), "{hits:?}");
 }
 
 /// QdCaptionClassAreas.al:1110-1137 QO_Card_OpenEdit (corpus bump 45): a Card opened with OpenEdit runs the expressions as

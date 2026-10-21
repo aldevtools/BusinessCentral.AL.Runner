@@ -361,6 +361,10 @@ pub struct PageState {
     /// The refill comes from a SetValue of the host's link field: when it finds no row it runs nothing
     /// (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue`).
     pub field_captions_link_refill: bool,
+    /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
+    /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
+    /// (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
+    pub field_captions_action_save: u8,
     /// Primary keys of the rows a repeater page has populated (its window).
     pub window: Vec<WindowRow>,
     /// The window holds the rows from the first row of the view on, with none missing: the page
@@ -617,6 +621,8 @@ pub struct PageState {
     pub refresh_pinned: bool,
     /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
     pub refresh_by_update: bool,
+    /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
+    pub refresh_update_false: bool,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value)>,
@@ -655,6 +661,7 @@ impl PageState {
             moving_next: false,
             field_captions_fill_first: false,
             field_captions_link_refill: false,
+            field_captions_action_save: 0,
             window: Vec::new(),
             window_from_start: false,
             window_eof: false,
@@ -751,6 +758,7 @@ impl PageState {
             statement_run: false,
             refresh_pinned: false,
             refresh_by_update: false,
+            refresh_update_false: false,
             bg_tasks: Default::default(),
             bg_next_id: 1,
         }

@@ -1,8 +1,8 @@
 //! `FieldRef.Value` of a Blob field of a stored row read without CalcFields, assigned to another Blob. Temp Blob Impl.
-//! FromFieldRef does this and then asks HasValue to decide whether to CalcField. The runtime's copy said HasValue true and its
-//! stream read nothing, which no BC run can give: Microsoft's Tests-ERM 134112 TestMultipleLinesText (Test Sales Header Work
-//! Descr.) passes on BC and failed here. What the copy holds is not pinned; Temp Blob Impl. needs it to be empty, which is the
-//! registered assumption fieldref-value-of-unloaded-blob-is-empty (561 Tests-ERM tests reach it).
+//! FromFieldRef does this and then asks HasValue to decide whether to CalcField. BC hands out an empty Blob: HasValue No,
+//! Length 0, an empty text; after FieldRef.CalcField the content (recordref/lt-refs/RfTValues.al QP_Blob_* tests). The
+//! runtime's copy said HasValue true and its stream read nothing: Microsoft's Tests-ERM 134112 TestMultipleLinesText (Test
+//! Sales Header Work Descr.) failed here.
 
 use al_testkit::{run, text};
 

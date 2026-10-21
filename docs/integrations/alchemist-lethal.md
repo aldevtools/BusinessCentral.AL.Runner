@@ -5,8 +5,9 @@ LethAL run unchanged). State: research, written 2026-10-15. No runtime code chan
 
 ## Summary
 
-- Both tools drive AL Runner v2 through its command line and a JSON-lines server. v3 has
-  `al-runner test` only. `al-runner serve` and `al-runner debug` print "not implemented".
+- Both tools drive AL Runner v2 through its command line and a JSON-lines server. v3 had
+  `al-runner test` only when this was written; `al-runner serve` and `al-runner debug` exist now
+  (`migrating-tools-to-v3.md`).
 - LethAL can run on v3 earliest, with one-shot mode only. It needs a v2-shaped
   `--output-json`, `--isolation test`, `--exclude-test`, qualified test names and a few
   accepted-and-ignored flags. No server needed. No conflict with the "server deferred" direction.
@@ -116,7 +117,7 @@ Needs AL Runner >= 2.11.0 (`src/runner/alRunnerManager.ts:11`).
 | A15 | Crash handling: if the process dies before any `test` line, respawn and resend once. After a `test` line, fail the request. | `serverProcess.ts:234-266` | n/a | Client logic. v3 must exit non-zero on a crash. |
 | A16 | Source path format in responses: absolute, forward slashes. Older relative forms are still matched. | `decorations.ts:595-610`; `serverProcess.ts:15-26` | n/a | v3 must emit absolute forward-slash paths in `coverage[].file` and `loops[].file`. |
 | A17 | Ignores stderr (does not read it) | `serverProcess.ts:138` (stdout only) | n/a | None. The `[server] request n done` marker is not needed. |
-| A18 | Debugger: `DebugAdapterExecutable(path, ['--dap','stdio', ...sourcePaths])`. Debug type `alchemist`. Launch config fields `bundleDir`, `sourcePaths`, `testFilter` are ALchemist's own. They are not sent to the runner. | `debugAdapterFactory.ts:56-98`; `debugLaunch.ts:31-47`; `package.json:162-212` | No (ED-9) | `al-runner debug --stdio`. See 1.3 for the DAP surface. |
+| A18 | Debugger: `DebugAdapterExecutable(path, ['--dap','stdio', ...sourcePaths])`. Debug type `alchemist`. Launch config fields `bundleDir`, `sourcePaths`, `testFilter` are ALchemist's own. They are not sent to the runner. | `debugAdapterFactory.ts:56-98`; `debugLaunch.ts:31-47`; `package.json:162-212` | Partial (ED-9) | `al-runner debug --stdio APP...` (`docs/debugging.md`). See 1.3 for the DAP surface. |
 | A19 | Says "stepping acts as continue" | `debugLaunch.ts:61-62` | n/a | Out of date: v2 now implements step. v3 should implement step. Tool text is the tool owner's to fix. |
 | A20 | Environment: `ALCHEMIST_RUNNER_PATH` (its own). Sends no `AL_RUNNER_*` variable. | `alRunnerManager.ts:49` | n/a | None. |
 
