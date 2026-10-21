@@ -1337,6 +1337,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         self.events.next_is_subscriber = false;
+        self.note_entered(object);
         self.first_use(&instance)?;
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];

@@ -16,6 +16,7 @@ al-link.workspace = true
 al-version.workspace = true
 rust_decimal = "1"
 rayon = "1"
+postcard = { version = "1", features = ["use-std"] }
+sha2 = "0.10"
 
 [dev-dependencies]
-postcard = { version = "1", features = ["use-std"] }

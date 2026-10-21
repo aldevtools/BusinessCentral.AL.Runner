@@ -135,6 +135,7 @@ impl Session {
         op: &ir::DotNetOp,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        self.note_dotnet();
         self.dotnet.null_string = false;
         let decl = ty.map(|i| {
             let d = &self.engine.program.dotnet_types[i];

@@ -311,6 +311,11 @@ pub struct TestResult {
     /// `--tdd` (ADR-051): the signatures of the stubs that ran while the test ran, sorted. A test with any is stubbed,
     /// whatever its outcome. Empty without `--tdd`.
     pub stubs: Vec<String>,
+    /// With `RunOptions::impact_trace`, for `--affected` (ADR-050): the workspace objects whose code the test ran
+    /// (`affected::object_key`), sorted. The first test of a codeunit also holds what ran before it.
+    pub entered: Vec<String>,
+    /// With `RunOptions::impact_trace`: a DotNet operation ran in the test.
+    pub dotnet: bool,
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -459,6 +464,8 @@ pub(crate) struct Scratch {
     traces: Vec<(String, Vec<String>)>,
     /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
     stubbed: Vec<(String, Vec<String>)>,
+    /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
+    entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
     run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
 }
