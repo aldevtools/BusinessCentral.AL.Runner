@@ -92,7 +92,9 @@ fn hash_tree(path: &Path, rel: &str, h: &mut Sha256) -> Result<(), String> {
     } else {
         h.update(rel.as_bytes());
         h.update([0]);
-        h.update(std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?);
+        // Streamed: a backup is about 1 GB.
+        let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::io::copy(&mut file, h).map_err(|e| format!("{}: {e}", path.display()))?;
         h.update([0]);
     }
     Ok(())
@@ -107,7 +109,10 @@ fn workspace_apps(inputs: &[AppInput]) -> Vec<(String, String)> {
 }
 
 /// The hash of the run options that change outcomes (the set the impact index hashes, ADR-043, with `--tdd`). Paths
-/// count by their file name only, so the hash does not depend on where a checkout is (decision 10).
+/// count by their file name only, so the hash does not depend on where a checkout is (decision 10). The files they
+/// name count by their content: a backup, package or disabled-tests folder that keeps its name but changes its
+/// content is a full run (decision 7). A backup of about 1 GB costs about half a second to hash; the backup that
+/// comes from the artifact cache is not named here and counts through the BC build of the environment.
 fn options_hash(a: &TestArgs) -> Result<String, String> {
     let name = |p: &Option<PathBuf>| {
         p.as_ref()
@@ -137,8 +142,16 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     );
     let mut h = Sha256::new();
     h.update(text.as_bytes());
-    if let Some(dir) = &a.disabled_tests_dir {
-        hash_tree(dir, "", &mut h).map_err(|e| format!("--disabled-tests {e}"))?;
+    for (path, flag) in [
+        (&a.test_data_path, "--test-data"),
+        (&a.package_path, "--package"),
+        (&a.disabled_tests_dir, "--disabled-tests"),
+    ] {
+        if let Some(p) = path {
+            h.update(flag.as_bytes());
+            h.update([0]);
+            hash_tree(p, "", &mut h).map_err(|e| format!("{flag} {e}"))?;
+        }
     }
     Ok(hex(&h.finalize()))
 }
@@ -532,6 +545,37 @@ mod tests {
         assert_eq!(report(&[Outcome::Pass]).exit_code(6), 0);
         assert_eq!(report(&[]).exit_code(6), 6);
         assert_eq!(report(&[Outcome::Pass]).exit_code(7), 7);
+    }
+
+    fn options_of(line: &str) -> String {
+        match crate::args::parse(line.split_whitespace().map(String::from)).unwrap() {
+            crate::args::Command::Test(a) => options_hash(&a).unwrap(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_test_data_or_package_file_with_new_content_under_the_same_name_changes_the_options() {
+        // Decision 7: any environment change is a full run. A backup or package that keeps its file name but changes
+        // its content changes the company data the tests see. Its folder does not count (decision 10).
+        let root = std::env::temp_dir().join(format!("alrunner-affected-options-{}", std::process::id()));
+        for (name, flag) in [("Company.bak", "--test-data"), ("Data.rapidstart", "--package")] {
+            let (one, two) = (root.join("one"), root.join("two"));
+            for d in [&one, &two] {
+                std::fs::create_dir_all(d).unwrap();
+                std::fs::write(d.join(name), b"first content").unwrap();
+            }
+            let line = |d: &Path| format!("test app {flag} {}", d.join(name).display());
+            let before = options_of(&line(&one));
+            assert_eq!(
+                before,
+                options_of(&line(&two)),
+                "{flag}: same content in another folder"
+            );
+            std::fs::write(one.join(name), b"other content").unwrap();
+            assert_ne!(before, options_of(&line(&one)), "{flag}: new content, same name");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

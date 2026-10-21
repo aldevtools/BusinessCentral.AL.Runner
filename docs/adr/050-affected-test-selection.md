@@ -136,7 +136,8 @@ from v2, where the command line needs `--watch`.
       one repository on two machines share a file.
     - **What it holds** (`format: 1`): the runtime build; the run options that change outcomes (the set ADR-043
       hashes: `--country`, `--bc-version`, company and test-data options, isolation, `--define`, environment options,
-      disabled-test files, `--tdd`); the environment (each dependency app's id, version and content hash, and the BC
+      disabled-test files, `--tdd`; a named backup, package or disabled-tests folder counts by its file name and
+      its content, never its folder); the environment (each dependency app's id, version and content hash, and the BC
       build); per workspace object its key and symbolic IR hash, positions relative to the app root; per test
       codeunit its trace keys and the objects its tests entered (delta coded, as the ADR-043 index); per test its
       outcome and message.
