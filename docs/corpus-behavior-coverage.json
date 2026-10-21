@@ -16306,7 +16306,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1110,
+        "line": 1120,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16315,16 +16315,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1371,
-        "pinned": true,
-        "site": "collections/lt-array-rows/ArrayRows.al:185",
-        "template": "Index out of bounds."
-      },
-      {
-        "code": "IndexOutOfBounds",
-        "file": "crates/al-vm/src/interp.rs",
-        "generic": false,
-        "line": 1448,
+        "line": 1381,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16334,6 +16325,15 @@
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
         "line": 1458,
+        "pinned": true,
+        "site": "collections/lt-array-rows/ArrayRows.al:185",
+        "template": "Index out of bounds."
+      },
+      {
+        "code": "IndexOutOfBounds",
+        "file": "crates/al-vm/src/interp.rs",
+        "generic": false,
+        "line": 1468,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16495,7 +16495,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1234,
+        "line": 1246,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16504,7 +16504,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2026,
+        "line": 2044,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
