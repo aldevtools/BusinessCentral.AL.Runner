@@ -7,6 +7,7 @@ mod query_outer_link;
 mod report_calcfields;
 mod report_custom_layout;
 mod report_link_filter;
+mod report_link_flowfilter;
 mod report_no_output;
 mod report_obsolete_properties;
 mod report_option_caption_ml;

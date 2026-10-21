@@ -1498,7 +1498,30 @@ impl Session {
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (handlers/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
+            let engine = self.engine.clone();
+            let parent_def = engine.program.objects[parent.borrow().table as usize].table.as_ref();
             for &(own, other) in &item.link {
+                // A link from a FlowFilter of the parent: with no filter on it the child gets no filter from this link. Assumed
+                // (report-link-flowfilter-without-filter) for Tests-ERM 134404 and 134429 TestDirectDebitCollectionEntryIsNotCreatedTwice
+                // (report 1200 links "Currency Code" = field("Currency Filter") of a Customer without one, and real BC collects a
+                // EUR invoice). What a filter on the FlowFilter gives the child is not pinned: refused.
+                if parent_def
+                    .and_then(|d| d.fields.get(other))
+                    .is_some_and(|f| f.flow_filter)
+                {
+                    if parent.borrow().filters.iter().any(|f| f.field == other) {
+                        return Err(Signal::Unsupported(
+                            "DataItemLink from a FlowFilter of the parent item that has a filter (not pinned)".into(),
+                        ));
+                    }
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::ReportLinkFlowFilterWithoutFilter,
+                    );
+                    rec.borrow_mut()
+                        .filters
+                        .retain(|f| !(f.group == LINK_GROUP && f.field == own));
+                    continue;
+                }
                 let ty = table.fields[own].ty.clone();
                 let v = ops::convert(parent.borrow().fields[other].clone(), &ty)?;
                 let mut t = rec.borrow_mut();

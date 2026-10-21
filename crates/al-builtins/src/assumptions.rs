@@ -271,6 +271,12 @@ registry! {
         tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue).",
         probe: "A card whose OnOpenPage enqueues a task into a page global TaskId and whose OnPageBackgroundTaskCompleted logs that global and its own TaskId parameter.",
     },
+    ReportLinkFlowFilterWithoutFilter => {
+        id: "report-link-flowfilter-without-filter",
+        assumed: "A report DataItemLink whose parent field is a FlowFilter with no filter on it puts no filter on the child's field (a FlowFilter with a filter is refused).",
+        tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected).",
+        probe: "A parent item with a FlowFilter field and a child linked to it: child rows with an empty and a non-empty value; run with no filter on the FlowFilter, with SetRange to one value, and with SetFilter to a range; log the child rows and the child's GetFilters in OnPreDataItem.",
+    },
     UpdateRefreshOnFindRecord => {
         id: "update-refresh-onfindrecord",
         assumed: "CurrPage.Update on a page with OnFindRecord and OnAfterGetCurrRecord asks OnFindRecord for the current row with Which `=`, then reads the row as after a move: OnAfterGetRecord, OnAfterGetCurrRecord and the parts' reads.",
