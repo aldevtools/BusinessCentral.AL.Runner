@@ -3,6 +3,7 @@
 //! compiles, runs each test codeunit on a session of its own, and keeps one outcome per test.
 //! The oracle, the pass-rate report and the ratchet stay in `al-test-cli`.
 
+pub mod affected;
 pub mod baseline;
 pub mod baseline_cache;
 pub mod cache_gc;

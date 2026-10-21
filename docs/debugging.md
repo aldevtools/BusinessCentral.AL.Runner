@@ -95,3 +95,17 @@ Microsoft's install code (the install baseline) is not debugged.
 A test gives the same outcome with and without the debugger: the debug run executes the same operations
 between two statements, and the test clock steps per read (ADR-045). The per-test time limit does not count the
 time a test is stopped. Without `al-runner debug`, a test run pays nothing for the debugger.
+
+A repository test checks this: `every_outcome_is_the_same_with_and_without_the_debugger` in
+`crates/alrunner-cli/tests/debug.rs` runs the fixture app `tests/fixtures/debug/outcomes` (passes, failures, a
+runtime error, `asserterror`, a TryFunction, records and events, `Codeunit.Run`, handlers, a refused test) once with
+`al-runner test` and once with `al-runner debug --stdio`, with a breakpoint on every line of every file. At each stop
+the client reads the stack and the locals of every frame and resumes with the next of `continue`, `next`, `stepIn`
+and `stepOut`. The two JUnit reports must be the same apart from times, and so must the exit codes. The same check
+runs on any app:
+
+```
+ALRUNNER_DEBUG_PARITY_APP=corpus/tests/al-language \
+ALRUNNER_DEBUG_PARITY_ARGS="--bc-version 29.0 --dep corpus/tests/al-language-internals-fixture --codeunit ID" \
+cargo test --release -p alrunner-cli --test debug -- --ignored outcomes_of_a_given_app
+```
