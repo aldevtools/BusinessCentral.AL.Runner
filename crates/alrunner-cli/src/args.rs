@@ -505,6 +505,28 @@ TEST DATA
     --bcapps DIR         With --recipe: use this BCApps checkout instead of the cache. $ALRUNNER_BCAPPS_URL
                          replaces the GitHub address the fetch uses.
 
+TEST-MICROSOFT
+    al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS]
+                         Run Microsoft's test apps of a BC build the way Microsoft's CI does, without
+                         collecting their paths: the list comes from the build's artifact (the
+                         Test/*.Source.zip entries and the country's own), each app is fetched when it
+                         runs, and each runs with --recipe microsoft. Default build: the newest of the
+                         newest BC major (a cached build first, as for `test`); default country w1.
+                         Apps without a test codeunit (test libraries) are dependencies, not run; apps
+                         named _Exclude_... in the artifact run only when --app names them. One run per
+                         test app; then one row per app (passed, failed, not run, total, codeunits of a
+                         lane not run yet, exit code) and a total. Exit code: the worst app's (2 if an
+                         app could not be loaded or compiled, else 1, 8, 7; 6 only when nothing ran).
+                         The recipe decides the company and the disabled tests: --recipe,
+                         --disabled-tests, --parity, --company-data, --package, --test-data*,
+                         --no-test-data and --explain are refused. An APP (your extension) is refused
+                         until the next step of ADR-052.
+    --app NAME           (also --microsoft-app NAME) Run only this test app, by its name in the
+                         artifact (`Tests-ERM`), without case. Repeatable. An unknown name exits 2
+                         and lists the names.
+    --junit FILE         One file per test app and lane: FILE.<app>.<lane>.xml.
+    --output-json FILE   One document per test app and lane (FILE is required here).
+
 OTHER
     --server-url URL     The base address of the web client that GetUrl(ClientType::Web) answers with
                          (default http://localhost:8080/BC, else $ALRUNNER_SERVER_URL). Absolute http or
@@ -1172,7 +1194,10 @@ mod tests {
             "--explain T",
         ] {
             let e = p(&format!("test-microsoft {flag}")).unwrap_err();
-            assert!(e.contains("test-microsoft") && e.contains("cannot be combined"), "{flag}: {e}");
+            assert!(
+                e.contains("test-microsoft") && e.contains("cannot be combined"),
+                "{flag}: {e}"
+            );
         }
         assert!(p("test-microsoft MyApp").unwrap_err().contains("step 2"));
         assert!(p("test-microsoft --affected-from microsoft").is_err());
@@ -1180,7 +1205,11 @@ mod tests {
         assert!(p("test-microsoft --output-json r.json").is_ok());
         // `--app` is the short form in this command only; `--microsoft-app` needs the command too.
         assert!(p("test A --app Tests-ERM").unwrap_err().contains("unknown option"));
-        assert!(p("test A --microsoft-app Tests-ERM").unwrap_err().contains("test-microsoft"));
+        assert!(
+            p("test A --microsoft-app Tests-ERM")
+                .unwrap_err()
+                .contains("test-microsoft")
+        );
     }
 
     #[test]

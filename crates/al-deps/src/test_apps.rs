@@ -168,7 +168,9 @@ impl<S: RangeSource> Listing<S> {
         let e: &Entry = zip
             .find(&c.entry)
             .ok_or_else(|| format!("{url}: no entry `{}`", c.entry))?;
-        let bytes = zip.read(e).map_err(|err| format!("{url}: entry `{}`: {err}", c.entry))?;
+        let bytes = zip
+            .read(e)
+            .map_err(|err| format!("{url}: entry `{}`: {err}", c.entry))?;
         dir.put_entry(&c.entry, url, &bytes)
     }
 }
@@ -339,7 +341,9 @@ mod tests {
     #[test]
     fn test_apps_are_the_source_archives_whose_path_names_a_test() {
         assert!(is_candidate("Applications/BaseApp/Test/Tests-ERM.Source.zip"));
-        assert!(is_candidate("Applications/EU3PartyTradePurchase/test/EU 3-Party Trade Purchase Tests.Source.zip"));
+        assert!(is_candidate(
+            "Applications/EU3PartyTradePurchase/test/EU 3-Party Trade Purchase Tests.Source.zip"
+        ));
         assert!(is_candidate("Applications.US/Tests-ERM.Source.zip"));
         assert!(is_candidate(
             "Applications/TestFramework/TestLibraries/Any/Any.Source.zip"
@@ -363,7 +367,10 @@ mod tests {
             "Applications/BaseApp/Test/Tests-Bank.Source.zip",
             "Applications/BaseApp/Source/Base Application.Source.zip",
         ];
-        let country = ["Applications.US/Tests-ERM.Source.zip", "Applications.US/Base Application.Source.zip"];
+        let country = [
+            "Applications.US/Tests-ERM.Source.zip",
+            "Applications.US/Base Application.Source.zip",
+        ];
         assert_eq!(
             candidates(&platform, &country),
             vec![
@@ -375,11 +382,23 @@ mod tests {
 
     fn artifact() -> Vec<u8> {
         Builder::new()
-            .add("Applications/BaseApp/Source/Base Application.Source.zip", b"base", false)
+            .add(
+                "Applications/BaseApp/Source/Base Application.Source.zip",
+                b"base",
+                false,
+            )
             .add("Applications/BaseApp/Test/Tests-A.Source.zip", b"tests a", false)
             .add("Applications/BaseApp/Test/Tests-B.Source.zip", b"tests b", true)
-            .add("Applications/BaseApp/Test/Tests-TestLibraries.Source.zip", b"lib", false)
-            .add("ConfigurationPackages/NAV29.0.W1.ENU.EXTENDED.rapidstart", b"package", true)
+            .add(
+                "Applications/BaseApp/Test/Tests-TestLibraries.Source.zip",
+                b"lib",
+                false,
+            )
+            .add(
+                "ConfigurationPackages/NAV29.0.W1.ENU.EXTENDED.rapidstart",
+                b"package",
+                true,
+            )
             .finish()
     }
 
@@ -398,7 +417,10 @@ mod tests {
         }
         fn platform(&self, build: &BuildId) -> (String, FileSource) {
             self.reads.set(self.reads.get() + 1);
-            (format!("https://cdn.test/{build}/platform"), FileSource(self.platform.clone()))
+            (
+                format!("https://cdn.test/{build}/platform"),
+                FileSource(self.platform.clone()),
+            )
         }
         fn country(&self, build: &BuildId, country: &str) -> (String, FileSource) {
             (
@@ -435,10 +457,16 @@ mod tests {
         assert_eq!(std::fs::read(&b).unwrap(), b"tests b");
         let apps = cache.join("artifacts/29.0.1.3/apps");
         assert!(apps.join("Tests-B.Source.zip").is_file());
-        assert!(!apps.join("Tests-A.Source.zip").exists(), "nothing is fetched that was not asked for");
+        assert!(
+            !apps.join("Tests-A.Source.zip").exists(),
+            "nothing is fetched that was not asked for"
+        );
         assert!(l.get("Tests-Z").unwrap_err().contains("no test app named `Tests-Z`"));
         let pkg = l.rapidstart_package().unwrap().unwrap();
-        assert_eq!(pkg, cache.join("artifacts/29.0.1.3/packages/NAV29.0.W1.ENU.EXTENDED.rapidstart"));
+        assert_eq!(
+            pkg,
+            cache.join("artifacts/29.0.1.3/packages/NAV29.0.W1.ENU.EXTENDED.rapidstart")
+        );
         assert_eq!(std::fs::read(&pkg).unwrap(), b"package");
         // Offline, the cached build and its saved central directory answer; the cached copy is used.
         let l = list(&fetch(&cache, false, None), &feed).unwrap();

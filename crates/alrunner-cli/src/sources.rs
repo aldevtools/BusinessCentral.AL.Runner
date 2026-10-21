@@ -35,9 +35,12 @@ pub struct MicrosoftApps {
     pub left_out: Vec<(String, String)>,
 }
 
+/// The names a run takes, and the candidates it leaves out with the reason.
+pub type Choice = (Vec<String>, Vec<(String, String)>);
+
 /// Which candidates the run takes before anything is read: the names `--app` gives (an unknown name is an error that
 /// lists the names that exist), else every candidate but the `_Exclude_` ones.
-pub fn choose(names: &[&str], wanted: &[String]) -> Result<(Vec<String>, Vec<(String, String)>), String> {
+pub fn choose(names: &[&str], wanted: &[String]) -> Result<Choice, String> {
     if wanted.is_empty() {
         let (excluded, take): (Vec<&str>, Vec<&str>) = names
             .iter()
@@ -95,7 +98,10 @@ pub fn test_apps_of<S: RangeSource>(listing: &Listing<S>, wanted: &[String]) -> 
                 "--app {name}: it holds no test codeunit (it is a test library or part of the test framework); the run loads it as a dependency of the test apps that need it"
             ));
         } else {
-            left_out.push((name, "no test codeunit: a test library, loaded where a test app needs it".into()));
+            left_out.push((
+                name,
+                "no test codeunit: a test library, loaded where a test app needs it".into(),
+            ));
         }
     }
     out.left_out = left_out;
@@ -106,7 +112,13 @@ pub fn test_apps_of<S: RangeSource>(listing: &Listing<S>, wanted: &[String]) -> 
 pub fn app_file(path: &Path, app: &str) -> PathBuf {
     let safe: String = app
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let stem = path
         .file_stem()
@@ -211,7 +223,10 @@ mod tests {
         assert_eq!(take, vec!["Tests-B", "_Exclude_X"]);
         assert!(left.is_empty());
         let e = choose(&names, &["Tests-Z".into()]).unwrap_err();
-        assert!(e.contains("Tests-Z") && e.contains("Tests-A, _Exclude_X, Tests-B"), "{e}");
+        assert!(
+            e.contains("Tests-Z") && e.contains("Tests-A, _Exclude_X, Tests-B"),
+            "{e}"
+        );
     }
 
     #[test]

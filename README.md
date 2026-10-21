@@ -155,6 +155,9 @@ summary and JUnit file. The BCApps files (MIT) are fetched sparsely with `git` i
 `--bcapps DIR` names a checkout, `--no-download` uses the cache only. The two Contoso lanes
 (IntegrationTest and the codeunits with no TestType) are not run yet: the runner does not build the
 Contoso company, and says so.
+`al-runner test-microsoft` runs all of Microsoft's test apps of a BC build this way, with nothing to
+download or collect by hand: it reads the list of test apps from the build's artifact, fetches the
+ones it runs, and runs each by the recipe (see "Microsoft's test buckets" below).
 `--server-url URL` (default `http://localhost:8080/BC`) sets the address `GetUrl(ClientType::Web)` answers with; a company built from the package needs it for Company-Initialize.
 
 **6. .NET is optional.** Nothing in the core needs .NET. AL code that uses the `DotNet` type
@@ -525,6 +528,7 @@ Main flags by purpose (`--help` lists all of them):
 al-runner test ./MyApp                                       # an app folder with app.json
 al-runner test ./MyApp --filter Posting --verbose            # selected tests, one line per test
 al-runner test Tests-ERM.Source.zip                          # Microsoft's tests: apps, System.app and CRONUS data fetched
+al-runner test-microsoft --app Tests-ERM                     # the same app, found in the artifact, run by Microsoft's recipe
 al-runner test ./MyApp --no-test-data                        # without the CRONUS company
 al-runner debug --stdio ./MyApp ./MyApp.Test                 # debug the tests from an editor (DAP)
 ```
@@ -576,6 +580,18 @@ other `DotNet` call are not run, with the reason stated, and the exit code is 8.
 `--require-dotnet` turns that into an error, for CI.
 
 ## Microsoft's test buckets
+
+`al-runner test-microsoft` runs every Microsoft test app of a BC build as Microsoft's CI does, without
+paths: the newest build of the newest BC major by default (`--bc-version`, `--country` choose another),
+each test app with Microsoft's recipe (`--recipe microsoft`: the company of each codeunit, Microsoft's
+disabled tests skipped). `--app NAME` (repeatable) runs only the named test apps, by their name in the
+artifact (`Tests-ERM`, `Data Search Tests`). Apps without a test codeunit (test libraries) are loaded as
+dependencies, not run; apps whose artifact name starts with `_Exclude_` run only when `--app` names
+them. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
+not run, total, codeunits of a lane the runner cannot build yet, exit code) and a total. `--junit FILE`
+writes one file per test app and lane (`FILE.Tests-ERM.legacy.xml`). The exit code is the worst test
+app's. `al-runner test-microsoft APP` (the Microsoft tests your extension can affect) is the next step
+of ADR-052 and is refused for now.
 
 `al-runner` can run Microsoft's own Base Application test buckets. Most of these tests are
 still refused, not run. The full run of 2026-10-16 (main `fae0c8df`, BC 27.5, all buckets

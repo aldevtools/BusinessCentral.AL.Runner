@@ -133,9 +133,10 @@ pub fn summary_lines(header: &str, results: &[AppResult]) -> Vec<String> {
         ));
     }
     if sum.left_out > 0 {
-        out.push(format!(
+        out.push(
             "  codeunits left: of a lane the runner cannot build yet, or of a TestType no lane runs (the lines per app say which); their tests are not run"
-        ));
+                .to_string(),
+        );
     }
     out
 }

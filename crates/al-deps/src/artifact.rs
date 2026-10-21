@@ -334,7 +334,12 @@ fn source_names(entries: &[Entry]) -> HashSet<String> {
 /// Opens the country artifact of `build`: the central directory from the saved copy in `cbd`, else
 /// by range from the feed (and saved). Fails when the feed does not have the artifact, or when
 /// downloading is off and nothing is saved: the apps of a country are never replaced by the platform's.
-pub(crate) fn open_country<C: Cdn>(cdn: &C, fetch: &Fetch, cbd: &BuildDir, build: &BuildId) -> Result<CountryZip<C::Src>, String> {
+pub(crate) fn open_country<C: Cdn>(
+    cdn: &C,
+    fetch: &Fetch,
+    cbd: &BuildDir,
+    build: &BuildId,
+) -> Result<CountryZip<C::Src>, String> {
     let (url, src) = cdn.country(build, &fetch.country);
     let zip = match cbd.load_tail() {
         Some((total, tail)) => RemoteZip::from_tail(src, total, tail).map_err(|e| format!("{url}: {e}"))?,

@@ -11,7 +11,11 @@ fn crc32(data: &[u8]) -> u32 {
     for &b in data {
         crc ^= u32::from(b);
         for _ in 0..8 {
-            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc
@@ -69,14 +73,18 @@ fn test_codeunit(id: u32, name: &str, tests: &[(&str, bool)]) -> String {
     let mut body = String::new();
     for (t, pass) in tests {
         let stmt = if *pass { "" } else { "Error('boom');" };
-        body.push_str(&format!("    [Test]\n    procedure {t}()\n    begin\n        {stmt}\n    end;\n\n"));
+        body.push_str(&format!(
+            "    [Test]\n    procedure {t}()\n    begin\n        {stmt}\n    end;\n\n"
+        ));
     }
     format!("codeunit {id} \"{name}\"\n{{\n    Subtype = Test;\n    TestType = UnitTest;\n\n{body}}}\n")
 }
 
 /// The fake artifact under `home/.bcartifacts.cache/sandbox/<BUILD>/platform` and a fake BCApps checkout.
 fn fixture(root: &Path, fail_b: bool) {
-    let test = root.join(format!("home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"));
+    let test = root.join(format!(
+        "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
+    ));
     std::fs::create_dir_all(&test).unwrap();
     let write = |file: &str, bytes: Vec<u8>| std::fs::write(test.join(file), bytes).unwrap();
     write(
@@ -128,7 +136,11 @@ fn fixture(root: &Path, fail_b: bool) {
     .unwrap();
     let scripts = bcapps.join("build/scripts");
     std::fs::create_dir_all(&scripts).unwrap();
-    std::fs::write(scripts.join("TestConfiguration.json"), r#"{"LegacyTests-Bucket1":["Tests-Other"]}"#).unwrap();
+    std::fs::write(
+        scripts.join("TestConfiguration.json"),
+        r#"{"LegacyTests-Bucket1":["Tests-Other"]}"#,
+    )
+    .unwrap();
     let disabled = bcapps.join("src/DisabledTests");
     std::fs::create_dir_all(&disabled).unwrap();
     std::fs::write(
@@ -177,7 +189,10 @@ fn row(out: &str, name: &str) -> String {
         .lines()
         .find(|l| l.trim_start().starts_with(&format!("{name} ")))
         .unwrap_or_else(|| panic!("no row {name} in:\n{out}"));
-    line.trim_start()[name.len()..].split_whitespace().collect::<Vec<_>>().join(" ")
+    line.trim_start()[name.len()..]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]
@@ -186,7 +201,10 @@ fn every_test_app_of_the_build_runs_by_the_recipe_and_libraries_are_left_out() {
     fixture(dir.path(), false);
     let o = run(dir.path(), &[]);
     let out = text(&o);
-    assert!(out.contains(&format!("Microsoft tests: BC {BUILD} w1, 2 test app(s)")), "{out}");
+    assert!(
+        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 2 test app(s)")),
+        "{out}"
+    );
     assert!(out.contains("left out: Fake Test Library: no test codeunit"), "{out}");
     assert!(out.contains("left out: _Exclude_Fake Tests"), "{out}");
     assert!(!out.contains("== test app Fake Test Library"), "{out}");
@@ -221,7 +239,10 @@ fn an_unknown_app_name_or_a_library_exits_2_before_any_test_runs() {
     let o = run(dir.path(), &["--app", "Tests-Nope"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(2), "{out}");
-    assert!(out.contains("Tests-Nope") && out.contains("Tests-Fake-A, Tests-Fake-B"), "{out}");
+    assert!(
+        out.contains("Tests-Nope") && out.contains("Tests-Fake-A, Tests-Fake-B"),
+        "{out}"
+    );
     let o = run(dir.path(), &["--app", "Fake Test Library"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(2), "{out}");
