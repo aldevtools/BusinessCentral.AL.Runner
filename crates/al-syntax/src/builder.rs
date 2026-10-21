@@ -34,7 +34,7 @@ impl Default for TreeCache {
 impl TreeCache {
     fn token(&mut self, kind: SyntaxKind, text: &str) -> GreenToken {
         let raw: rowan::SyntaxKind = kind.into();
-        if kind >= SyntaxKind::LParen && kind <= SyntaxKind::Pipe {
+        if kind >= SyntaxKind::LParen && kind <= SyntaxKind::Amp {
             // The lexer gives each of these kinds one spelling (`:=` is Assign and nothing else is), so the text is
             // the kind's; the length is checked as a guard.
             let slot = &mut self.fixed[kind as usize - SyntaxKind::LParen as usize];

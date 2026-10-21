@@ -1427,13 +1427,16 @@ impl Session {
                 // A Variant holding a number, a Boolean, a Date, an Enum or an Option handed to a by-value Text or Code parameter
                 // raises TypeConversion (types/lt-variant-to-text-fields/VariantNumberToTextParam.al:TextParam_ByValue_VariantNumbers,
                 // CodeParam_ByValue_VariantNumbers, TextParam_ByValue_VariantTextAndBoolean; report/lt-requestpage-savevalues-date-text-setvalue/
-                // P147DateToText.al:P147_DateVariant_DefaultLanguage for a Date).
+                // P147DateToText.al:P147_DateVariant_DefaultLanguage for a Date; QO_TimeVariant_EachConversion and
+                // QO_DateTimeVariant_EachConversion for a Time and a DateTime).
                 (
                     Value::Integer(_)
                     | Value::BigInteger(_)
                     | Value::Decimal(_)
                     | Value::Boolean(_)
                     | Value::Date(..)
+                    | Value::Time(_)
+                    | Value::DateTime(_)
                     | Value::Enum(..)
                     | Value::Option(..),
                     false,

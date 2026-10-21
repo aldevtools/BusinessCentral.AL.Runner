@@ -189,9 +189,9 @@ registry! {
     },
     TableRelationQuotes => {
         id: "table-relation-quotes",
-        assumed: "A filter(...) text of a TableRelation where() clause or arm condition that quotes an identifier with \" is read like a SetFilter text after the quotes are rewritten to '. (Pinned, no mark: on an Enum or Option field, members joined by |, one quoted member alone and <> one quoted member, record/lt-table-relation-quotes/TableRelationQuotes.al:41-46.) Assumed: ranges such as A..\"B C\", & and the other filter operators, a field of another type, and the if (...) condition of an arm.",
+        assumed: "A filter(...) text of a TableRelation where() clause or arm condition that quotes an identifier with \" is read like a SetFilter text after the quotes are rewritten to '. (Pinned, no mark, on an Enum or Option field: members joined by |, one quoted member alone and <> one quoted member, record/lt-table-relation-quotes/TableRelationQuotes.al:41-46; a range with one quoted and one plain bound, A..\"B C\" and \"B C\"..D, two <> terms joined by & with one quoted, and on an Enum field \"B C\".., TableRelationQuotes.al:279-397.) Assumed: other ranges and filter operators (..\"B C\", two quoted bounds, more & terms), a quoted blank member, a field of another type, and the if (...) condition of an arm.",
         tests: "Microsoft relations with a quoted member in another form than the pinned ones.",
-        probe: "TableRelation ... where(F = filter(A..\"B C\")), filter(\"B C\"..D), filter(\"B C\"..), filter(<>A & <>\"B C\") and an arm if (F = filter(\"B C\")), Validate with a value of each kind.",
+        probe: "TableRelation ... where(F = filter(..\"B C\")), filter(\" \" | A) and an arm if (F = filter(\"B C\")), Validate with a value of each kind.",
     },
     TextDigitsToInteger => {
         id: "text-digits-to-integer",
@@ -216,12 +216,6 @@ registry! {
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",
         tests: "Purchase and Sales Order Statistics (`InvDiscountAmount_General`): ConfirmationOnInvDiscUpdateInPurchOrderWithInvoicedLine and about 55 more Tests-ERM tests.",
         probe: "A page field(Ctl; Arr[1].Amount) with an OnValidate; TestPage.Ctl.SetValue(5) then the global and the OnValidate effect; SetValue('x') on it. Asked in corpus #641.",
-    },
-    DateToTextIsFormat => {
-        id: "date-to-text-is-format",
-        assumed: "A Date that FieldRef.Value gives, handed straight (no Variant variable in between) to a Text or Code parameter or variable, is its default Format text, so an Evaluate of it reads the same date back. (TextBuilder.Append(FieldRef.Value()) of a Date is pinned: text/lt-textbuilder-field-direct/TextBuilderAppendFieldDirect.al. A Variant holding a Date into a Text parameter, a Text or Code variable or field raises TypeConversion: report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:89-105, no mark.)",
-        tests: "Incoming Document.FindByDocumentNoAndPostingDate(.., PostingDateFieldRef.Value) behind the Incoming Doc. Attach. FactBox: about 470 Tests-ERM tests.",
-        probe: "TakeText(FieldRef.Value), TakeText30, TakeCode20 and T := FieldRef.Value for a Date field (set, blank, closing date), then Evaluate the text back. Written by corpus writer QO (QO_DateFieldRef_EachConversion in P147DateToText.al), not yet on master.",
     },
     GuidAsTextArgument => {
         id: "guid-as-text-argument",
@@ -477,9 +471,9 @@ registry! {
     },
     PageOpenCaptionClassExpressions => {
         id: "page-open-caption-class-expressions",
-        assumed: "A page whose source table has fields with a CaptionClass expression runs every one of them 20 times with an empty record when it opens, then once for each control over such a field with the first row; the other rows the open reads and a Next() run none, and Caption() of the control reads what the open gave. A fill after the open other than Next() (a part refilled after its host moved, a refresh, a SetValue) runs them once per control with that row again. Pinned (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al Page_ControlCaptions, QF_List_OpenView, QF_List_OpenEdit, QF_List_PageRun, QF_ListPart_OnCard, QF_Card_Next) for a Card opened with OpenView, a List opened with OpenView, OpenEdit or Page.Run and a ListPart on such a Card, except the number of empty-record runs, which differs between BC runs; assumed for other page types and open modes, and for the fills after the open other than Next().",
+        assumed: "A page whose source table has fields with a CaptionClass expression runs every one of them with an empty record when it opens, then once for each control over such a field with the first row; the other rows the open reads and a Next() run none, and Caption() of the control reads what the open gave. Pinned (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al Page_ControlCaptions, QF_*, and corpus bump 45: QO_Doc_OpenEdit_Open, QO_Doc_OpenEdit_PartSteps, QO_Doc_OpenNew, QO_Card_OpenEdit, :958-1137) for a Card opened with OpenView or OpenEdit, a List opened with OpenView, OpenEdit or Page.Run, a Document page opened with OpenEdit or OpenNew, a ListPart on such a Card or Document page, a SetValue (runs nothing), a part refilled after its host moved (its first row only, nothing when it has no row), and Next() after a change on a Card or a ListPart (once with the saved row). Assumed: other page types and open modes, other fills after the open, and a refresh after an action: after CurrPage.Update on a Document page BC runs the host's expressions three times and then the part's once (QO_Doc_OpenEdit_HostSteps `update`); the runtime runs host and part twice, one after the other.",
         tests: "Microsoft tests that open sales and purchase documents and their subforms (Sales Line, Purchase Line \"No.\" and amount fields have CaptionClass = GetCaptionClass(..)), for example ERM Sales Order and ERM Purchase Order tests in Tests-ERM; they pass in Microsoft's CI.",
-        probe: "The QD card's log on a Document page and its ListPart subform opened with OpenEdit and OpenNew, on a Card opened with OpenEdit, and after a SetValue, a CurrPage.Update and a host move that refills the part: whether the expressions run, and with which row.",
+        probe: "CurrPage.Update on a Document page with and without a SetValue before it, and an action without CurrPage.Update: how many times the host's and the part's expressions run, and in which order.",
     },
     PageOpenCaptionClassEmptyRecordCount => {
         id: "page-open-caption-class-empty-record-count",

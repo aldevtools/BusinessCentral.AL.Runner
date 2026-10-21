@@ -735,6 +735,21 @@ const REGISTRY: &[(&str, NativeFn)] = &[
         }
         crate::ops::convert(v, &crate::value::RtType::Integer)
     }),
+    // A Variant assigned to an Option variable or field: a BigInteger beyond the Integer range raises TypeConversion:Overflow
+    // (types/lt-bigint-enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable, QO_Variant_ToOptionField_Assign).
+    // The value is handed back unchanged; the assignment converts it.
+    ("Variant.IntoOption#1", |_, _, a| {
+        let v = a.first().cloned().unwrap_or(Value::Null);
+        if let Value::BigInteger(n) = v {
+            if i32::try_from(n).is_err() {
+                return raise(
+                    "The expression Variant cannot be type-converted to a Integer value.",
+                    "TypeConversion:Overflow",
+                );
+            }
+        }
+        Ok(v)
+    }),
     ("Variant.IsDateFormula#1", |_, r, _| is(r, "DateFormula")),
     ("Variant.IsOption#1", |_, r, _| is(r, "Option")),
     ("Variant.IsList#1", |_, r, _| is(r, "List")),
@@ -840,6 +855,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "TextBuilder.AppendFieldValue#1",
     "Interface.AssertAssigned#1",
     "Variant.IntoInteger#1",
+    "Variant.IntoOption#1",
     "Text.MaxStrLenOfVarParameter#1",
 ];
 
@@ -2479,6 +2495,7 @@ pub(crate) mod tests {
             "Media.ToVariant#1",
             "Interface.AssertAssigned#1",
             "Variant.IntoInteger#1",
+            "Variant.IntoOption#1",
         ];
         for id in registered_ids().into_iter().filter(|id| !derived.contains(id)) {
             assert!(ids.iter().any(|i| i == id), "{id} is not a catalog overload id");
