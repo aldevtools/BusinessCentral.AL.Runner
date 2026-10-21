@@ -152,7 +152,10 @@ pub fn letters_or_hyphens(text: &str) -> bool {
 /// Whether `text` is `n` groups of ASCII digits joined by `sep`, each group not empty.
 fn digit_groups(text: &str, sep: char, n: usize) -> bool {
     let parts: Vec<&str> = text.split(sep).collect();
-    parts.len() == n && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+    parts.len() == n
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// How a Decimal filter value reads: `Some(Ok)` the value, `Some(Err)` the evaluate error, `None` a text no corpus test pins.

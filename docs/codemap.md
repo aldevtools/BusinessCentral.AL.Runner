@@ -337,6 +337,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
 - `reports.rs` (1209): Report objects at run time: dataset walk, triggers, request page, `Report.SaveAs` and the dataset rows. Entry: `report_builtin` 80, `first_use` 314, `report_save_as` 936, `dataset_begin` 1109.
 - `sessionops.rs` (422): Builtins that act on session state. Entry: `Sequence` 11.
+- `sqlcounters.rs` (100): `SessionInformation.SqlStatementsExecuted` and `SqlRowsRead`: the changes the corpus pins per record method, a refusal after any other database access. Entry: `pinned_change`, `Session::sql_counter`.
 - `testdata.rs` (420): Test data (ADR-020): `TestBacking` maps a provider's columns onto the compiled table's fields, rebuilds the values and builds the table once per thread. Entry: `TestBacking`, `convert`, `sql_name`.
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.

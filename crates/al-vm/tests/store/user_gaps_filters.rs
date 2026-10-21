@@ -251,7 +251,11 @@ codeunit 50411 C
 "#;
 
 fn lines(v: Result<Value, Signal>) -> Vec<String> {
-    text(v).split('\\').filter(|s| !s.is_empty()).map(str::to_string).collect()
+    text(v)
+        .split('\\')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:92 (Repro_NotWildcard_RoundTrips): `<>*` reads back as written.

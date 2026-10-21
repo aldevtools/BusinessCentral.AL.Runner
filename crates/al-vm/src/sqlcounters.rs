@@ -74,11 +74,19 @@ impl Session {
         if now != self.sql.seen && self.sql.read_in_test {
             return Err(Signal::Unsupported(format!(
                 "SessionInformation.{} after a database operation whose change of the counter is not pinned (session/lt-bl-sql-counters/SqlCounters.al pins Get, FindSet, Next, Count, Insert, Modify and Delete on a table, without triggers)",
-                if statements { "SqlStatementsExecuted" } else { "SqlRowsRead" }
+                if statements {
+                    "SqlStatementsExecuted"
+                } else {
+                    "SqlRowsRead"
+                }
             )));
         }
         self.sql.seen = now;
         self.sql.read_in_test = true;
-        Ok(Value::BigInteger(if statements { self.sql.statements } else { self.sql.rows }))
+        Ok(Value::BigInteger(if statements {
+            self.sql.statements
+        } else {
+            self.sql.rows
+        }))
     }
 }

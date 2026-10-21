@@ -18,7 +18,10 @@ const INPUTS: [&str; 14] = [
 #[test]
 fn a_semicolon_list_is_no_decimal() {
     assert_eq!(
-        text("N: Decimal;", "if Evaluate(N, '1;5;10') then exit('true ' + Format(N, 0, 9)); exit('false ' + Format(N, 0, 9));"),
+        text(
+            "N: Decimal;",
+            "if Evaluate(N, '1;5;10') then exit('true ' + Format(N, 0, 9)); exit('false ' + Format(N, 0, 9));"
+        ),
         "false 0"
     );
 }
