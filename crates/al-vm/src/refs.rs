@@ -1217,6 +1217,13 @@ impl Session {
                             );
                         }
                     }
+                    if let Some(f) = self.engine.program.objects[t.object as usize]
+                        .table
+                        .as_ref()
+                        .and_then(|s| s.fields.get(pos))
+                    {
+                        crate::recmeta::tdd_fits(f, v)?;
+                    }
                     let converted = ops::number_into_text_field(v, &field.ty, &*self);
                     let v = match converted {
                         Some(r) => r?,

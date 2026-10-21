@@ -10,6 +10,51 @@ table 50220 "Tdd Decl Item"
     {
         key(PK; "No.") { Clustered = true; }
     }
+
+    // A bare field name in the table's own code is a stub site too.
+    procedure SetSize(NewSize: Integer)
+    begin
+        Size := NewSize;
+    end;
+
+    procedure GetSize(): Integer
+    begin
+        exit(Size);
+    end;
+}
+
+tableextension 50222 "Tdd Decl Item Ext" extends "Tdd Decl Item"
+{
+    procedure SetDepth(NewDepth: Decimal)
+    begin
+        Depth := NewDepth;
+    end;
+}
+
+// TransferFields into a stub Text field: the source's field has the id the stub field gets (the first free one).
+table 50223 "Tdd Tf Source"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(50220; Memo; Text[4000]) { }
+    }
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+table 50224 "Tdd Tf Target"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }
 
 enum 50221 "Tdd Decl Color"
@@ -120,5 +165,85 @@ codeunit 50230 "Tdd Decl Tests"
     begin
         Item."No." := 'B';
         Item.Insert();
+    end;
+
+    [Test]
+    procedure BareFieldInTheTablesOwnCode()
+    var
+        Item: Record "Tdd Decl Item";
+    begin
+        Item.SetSize(4);
+        if Item.GetSize() <> 4 then
+            Error('Size is %1', Item.GetSize());
+    end;
+
+    [Test]
+    procedure BareFieldInATableExtension()
+    var
+        Item: Record "Tdd Decl Item";
+    begin
+        Item.SetDepth(2.5);
+    end;
+
+    [Test]
+    procedure FieldRefWriteLongerThanTheStubLength()
+    var
+        Item: Record "Tdd Decl Item";
+        RecRef: RecordRef;
+        FRef: FieldRef;
+    begin
+        Item.Note := 'short';
+        RecRef.GetTable(Item);
+        FRef := RecRef.Field(Item.FieldNo(Note));
+        FRef.Value := PadStr('', 2049, 'z');
+    end;
+
+    [Test]
+    procedure FieldRefValidateLongerThanTheStubLength()
+    var
+        Item: Record "Tdd Decl Item";
+        RecRef: RecordRef;
+        FRef: FieldRef;
+    begin
+        Item.Note := 'short';
+        RecRef.GetTable(Item);
+        FRef := RecRef.Field(Item.FieldNo(Note));
+        FRef.Validate(PadStr('', 2049, 'v'));
+    end;
+
+    [Test]
+    procedure TransferFieldsLongerThanTheStubLength()
+    var
+        Source: Record "Tdd Tf Source";
+        Target: Record "Tdd Tf Target";
+    begin
+        Target.Memo := 'short';
+        Source."No." := 'S';
+        Source.Memo := PadStr('', 2049, 't');
+        Target.TransferFields(Source);
+    end;
+}
+
+// Globals of stub objects (a new table, a new codeunit): every test that touches one is stubbed.
+codeunit 50231 "Tdd Decl Global Tests"
+{
+    Subtype = Test;
+
+    var
+        GlobalEntry: Record "Tdd New Global Entry";
+        GlobalCalc: Codeunit "Tdd New Global Calc";
+
+    [Test]
+    procedure GlobalOfAStubTable()
+    begin
+        GlobalEntry.DeleteAll();
+        if not GlobalEntry.IsEmpty() then
+            Error('the stub table is not empty');
+    end;
+
+    [Test]
+    procedure GlobalOfAStubCodeunit()
+    begin
+        Clear(GlobalCalc);
     end;
 }

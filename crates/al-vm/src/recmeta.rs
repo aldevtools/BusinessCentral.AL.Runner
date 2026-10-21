@@ -1328,6 +1328,7 @@ impl Session {
                 updates.push((dp, src_fields[sp].clone()));
                 continue;
             }
+            tdd_fits(&schema.fields[dp], &src_fields[sp])?;
             updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
         // From a row of the same table with the primary key (the default), the buffer takes the source's row version: a Modify of a
@@ -1819,5 +1820,20 @@ pub(crate) fn expression_class(field: &str, class: &str) -> Result<ExprCaption, 
         _ => unsupported(format!(
             "the caption of field {field} whose CaptionClass expression gives `{class}` (an area that is not a number, or no comma, is not pinned)"
         )),
+    }
+}
+
+/// `--tdd` (ADR-051 decision 10): a text longer than the declared length of stub field `f` is refused, as the real
+/// length is not known yet (`al_ir::Field::tdd_length_unknown`); the made-up overflow error would be a guess.
+pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
+    let Some(why) = &f.tdd_length_unknown else {
+        return Ok(());
+    };
+    let (RtType::Text(Some(max)) | RtType::Code(Some(max))) = f.ty else {
+        return Ok(());
+    };
+    match v {
+        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::Unsupported(why.clone())),
+        _ => Ok(()),
     }
 }

@@ -226,6 +226,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         routine_idx: 0,
         assumed: Vec::new(),
         tdd_marked: Default::default(),
+        tdd_globals: HashMap::default(),
         tys: Vec::new(),
         tys_on: false,
         roots: Vec::new(),
@@ -471,6 +472,9 @@ pub(crate) fn lower_object<'a>(
             }
             if let Some(why) = refusal {
                 global_reasons.push(format!("global `{n}`: {why}"));
+            }
+            if let Some(sig) = lw.tdd_object_sig(&ty) {
+                lw.tdd_globals.insert(n.to_lowercase(), sig);
             }
             match lw.rt(&ty) {
                 Ok(rt) => {

@@ -248,6 +248,9 @@ pub(crate) struct Lowerer<'a> {
     /// `--tdd` (ADR-051 decision 10): the stub declarations each statement being lowered uses (innermost last); `res`
     /// notes them, so a `Stmt::TddMark` goes before the statement.
     tdd_marked: std::cell::RefCell<Vec<Vec<String>>>,
+    /// `--tdd`: the globals of the object whose type is a stub object, by lowercase name, with the object's signature.
+    /// A statement that names one is marked, as a routine with such a parameter or local is.
+    tdd_globals: HashMap<String, String>,
     /// The types of the expressions of the routine being lowered, one record per node (see `tys.rs`).
     tys: Vec<tys::TyRec>,
     /// Records are made (inside a routine only).
