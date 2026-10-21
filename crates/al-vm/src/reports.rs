@@ -1546,25 +1546,34 @@ impl Session {
             let engine = self.engine.clone();
             let parent_def = engine.program.objects[parent.borrow().table as usize].table.as_ref();
             for &(own, other) in &item.link {
-                // A link from a FlowFilter of the parent: with no filter on it the child gets no filter from this link. Assumed
-                // (report-link-flowfilter-without-filter) for Tests-ERM 134404 and 134429 TestDirectDebitCollectionEntryIsNotCreatedTwice
-                // (report 1200 links "Currency Code" = field("Currency Filter") of a Customer without one, and real BC collects a
-                // EUR invoice). What a filter on the FlowFilter gives the child is not pinned: refused.
-                if parent_def
-                    .and_then(|d| d.fields.get(other))
-                    .is_some_and(|f| f.flow_filter)
-                {
-                    if parent.borrow().filters.iter().any(|f| f.field == other) {
+                // A link from a FlowFilter of the parent: the child's field gets the parent's filter on the FlowFilter, hidden from
+                // the child's GetFilter like any link filter; with no filter on it, no filter (report/lt-report-requestpage/
+                // RptFilters.al QP_DataItemLink_FlowFilter_NoFilter, _SingleValue, _Range, _OrFilter, _ReportRunPlain). Pinned for
+                // one filter on a field of the same type (Code[10]); several filter groups or another type are refused.
+                // Tests-ERM 134404 and 134429 reach it (report 1200 links "Currency Code" = field("Currency Filter")).
+                if let Some(parent_field) = parent_def.and_then(|d| d.fields.get(other)).filter(|f| f.flow_filter) {
+                    let given: Vec<al_builtins::filter::FieldFilter> =
+                        parent.borrow().filters.iter().filter(|f| f.field == other).cloned().collect();
+                    if given.len() > 1 {
                         return Err(Signal::Unsupported(
-                            "DataItemLink from a FlowFilter of the parent item that has a filter (not pinned)".into(),
+                            "DataItemLink from a FlowFilter of the parent item that has filters in several filter groups (not pinned)"
+                                .into(),
                         ));
                     }
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::ReportLinkFlowFilterWithoutFilter,
-                    );
-                    rec.borrow_mut()
-                        .filters
-                        .retain(|f| !(f.group == LINK_GROUP && f.field == own));
+                    if !given.is_empty() && parent_field.ty != table.fields[own].ty {
+                        return Err(Signal::Unsupported(
+                            "DataItemLink from a FlowFilter of the parent item to a field of another type (not pinned)".into(),
+                        ));
+                    }
+                    let mut t = rec.borrow_mut();
+                    t.filters.retain(|f| !(f.group == LINK_GROUP && f.field == own));
+                    if let Some(f) = given.into_iter().next() {
+                        t.filters.push(al_builtins::filter::FieldFilter {
+                            field: own,
+                            expr: f.expr,
+                            group: LINK_GROUP,
+                        });
+                    }
                     continue;
                 }
                 let ty = table.fields[own].ty.clone();

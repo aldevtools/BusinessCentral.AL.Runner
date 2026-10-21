@@ -133,12 +133,6 @@ registry! {
         tests: "Temp Blob Impl.FromFieldRef (FieldRef.CalcField on each Blob it reads); 14 Tests-SCM-Manufacturing tests (Demand Forecast Card).",
         probe: "A FieldRef on a Blob field of a stored row read without CalcFields: CalcField() then Value and HasValue; the same on a Code field (the error text) and on a FlowField. Asked in corpus #644.",
     },
-    FieldRefValueOfUnloadedBlobIsEmpty => {
-        id: "fieldref-value-of-unloaded-blob-is-empty",
-        assumed: "FieldRef.Value of a Blob field of a stored row read without CalcFields hands out an empty Blob: HasValue false, a stream on it reads nothing (the record's own field answers HasValue true: streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue).",
-        tests: "Temp Blob Impl.FromFieldRef (Temp Blob.FromRecord), which asks HasValue and then CalcField: 561 Tests-ERM tests reach it, for example Test Sales Header Work Descr. TestMultipleLinesText (134112).",
-        probe: "Insert a row with a Blob holding 'Hello', Get it without CalcFields, RecordRef.GetTable, X := FieldRef.Value() into a Blob of a temporary record: X.HasValue, X.Length and a ReadText of X; then FieldRef.CalcField and the same again.",
-    },
     EvaluateRecordIdCompositeKey => {
         id: "evaluate-recordid-composite-key",
         assumed: "Evaluate into a RecordId reads a Code key value that has blanks around it as the trimmed value (the length check counts the trimmed text).",
@@ -264,18 +258,6 @@ registry! {
         assumed: "In a filter on a DateFormula field the empty text is the empty formula, so a filter of not-equal and the empty text selects the rows that have a formula.",
         tests: "Library - ERM GetDiscountPaymentTerm (PaymentTerms.SetFilter(Due Date Calculation, not-equal and the empty text)): about 170 Tests-ERM tests.",
         probe: "Payment Terms rows with and without Due Date Calculation; SetFilter on it with the empty text, not-equal and the empty text, then Count. Asked in corpus #644.",
-    },
-    BgTaskIdSetBeforeCompletion => {
-        id: "bg-task-id-set-before-completion",
-        assumed: "Under a TestPage, CurrPage.EnqueueBackgroundTask stores the new task id in its var TaskId argument before the task runs, so OnPageBackgroundTaskCompleted already sees the page variable set to the id it receives.",
-        tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue). Refusing the path instead blocks 1340 Microsoft tests (measured 2026-10-21 on the oldest supported BC major: 1099 Tests-ERM, 241 Tests-SCM).",
-        probe: "A card whose OnOpenPage enqueues a task into a page global TaskId and whose OnPageBackgroundTaskCompleted logs that global and its own TaskId parameter.",
-    },
-    ReportLinkFlowFilterWithoutFilter => {
-        id: "report-link-flowfilter-without-filter",
-        assumed: "A report DataItemLink whose parent field is a FlowFilter with no filter on it puts no filter on the child's field (a FlowFilter with a filter is refused).",
-        tests: "Tests-ERM 134404 ERM Test SEPA Direct Debit and 134429 ERM Test SEPA DD 08 TestDirectDebitCollectionEntryIsNotCreatedTwice (report 1200 Create Direct Debit Collection links Currency Code = field(Currency Filter) of a Customer with no Currency Filter; a EUR invoice is collected). Refusing the path instead blocks 166 Microsoft tests (measured 2026-10-21 on the oldest supported BC major: 4 Tests-ERM, 162 Tests-SCM, mostly physical inventory and Item Age Composition reports).",
-        probe: "A parent item with a FlowFilter field and a child linked to it: child rows with an empty and a non-empty value; run with no filter on the FlowFilter, with SetRange to one value, and with SetFilter to a range; log the child rows and the child's GetFilters in OnPreDataItem.",
     },
     RequestPageOnInitAtFirstUse => {
         id: "request-page-oninit-at-first-use",
@@ -429,7 +411,7 @@ registry! {
     },
     NewLineStampsAllBeforeValidating => {
         id: "new-line-stamps-all-before-validating",
-        assumed: "The blank line of a part (or list) that takes two or more single filter values of its key fields (a key field from SourceTableView and the SubPageLink fields) puts them all on the record first, and only then validates each, in field order, when a validation can see the others (an OnValidate, a table relation, a validate trigger of a table extension or a subscriber). (One validated value is pinned, and a SourceTableView field outside the key is not stamped: pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:214-312. Without anything that can see the order, no mark.)",
+        assumed: "The blank line of a part (or list) that takes two or more single filter values of its key fields (a key field from SourceTableView and the SubPageLink fields) puts them all on the record first, and only then validates each, in field order, when a validation can see the others (an OnValidate, a table relation, a validate trigger of a table extension or a subscriber). (One validated value is pinned, and a SourceTableView field outside the key is not stamped: pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:214-312. Two key fields that the SubPageLink gives, validated by OnValidate and a table relation, in key order, are pinned and not marked: NewLineStampsFilters.al QP_TwoKeyLink_*. Without anything that can see the order, no mark.)",
         tests: "Library - Service.CreateServiceOrderHeaderUsingPage (Service Order Subform: key Document Type, Document No., Line No.; the relation of Document No. filters on Document Type). Kept because refusing it costs 7 corpus baseline cases (handlers/TestPageActionRunPageView.al 67007, misc/lt-probes-needed-7/PnGRefresh.al 70177).",
         probe: "A part whose source table's key is (Type, Document No., Line No.), SourceTableView where(Type = const(B)), SubPageLink Document No. = field(No.), the relation of Document No. filtering on Type and an OnValidate of Document No. that reads Type: open the host on a header of Type B and A, New(), read the draft line and what the OnValidate saw.",
     },
