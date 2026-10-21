@@ -191,7 +191,11 @@ fn real_main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Command::ImpactIndexBuild(a) => match impact_index::build(&a) {
+        Command::ImpactIndexBuild(a) => match if a.affected_from.is_empty() {
+            impact_index::build(&a)
+        } else {
+            sources::build_index(&a)
+        } {
             Ok(code) => ExitCode::from(code),
             Err(e) => {
                 eprintln!("error: {e}");
@@ -212,7 +216,13 @@ fn real_main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Command::Test(a) => match if a.recipe { recipe_run::test(&a) } else { run::test(&a) } {
+        Command::Test(a) => match if !a.affected_from.is_empty() {
+            sources::affected(&a, false)
+        } else if a.recipe {
+            recipe_run::test(&a)
+        } else {
+            run::test(&a)
+        } {
             Ok(code) => ExitCode::from(code),
             Err(e) => {
                 eprintln!("error: {e}");

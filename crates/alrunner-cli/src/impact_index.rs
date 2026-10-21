@@ -325,6 +325,12 @@ pub fn build(a: &TestArgs) -> Result<u8, String> {
     if !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty() {
         return Err("al-runner impact-index build runs every test of the APPs: --codeunit, --test, --exact and --exclude do not apply (an impact run selects from the whole index)".into());
     }
+    build_run(a)
+}
+
+/// Builds the index of the run `a` as given: one lane of a test app of the `microsoft` source names its own
+/// codeunits (ADR-052 1.4, `crate::sources::build_index`).
+pub fn build_run(a: &TestArgs) -> Result<u8, String> {
     let started = Instant::now();
     let path = path(a)?;
     let mut side = a.clone();

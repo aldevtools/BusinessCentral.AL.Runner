@@ -596,8 +596,18 @@ dependencies, not run; apps whose artifact name starts with `_Exclude_` run only
 them. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
 not run, total, codeunits of a lane the runner cannot build yet, exit code) and a total. `--junit FILE`
 writes one file per test app and lane (`FILE.Tests-ERM.legacy.xml`). The exit code is the worst test
-app's. `al-runner test-microsoft APP` (the Microsoft tests your extension can affect) is the next step
-of ADR-052 and is refused for now.
+app's.
+
+`al-runner test-microsoft MYEXT` runs only the Microsoft tests your extension can affect: each Microsoft
+test app, lane by lane with the recipe, as an impact run of `MYEXT` (with and without it; see
+`--impact-of`). Tests that do not reach the extension are counted as not selected, never as passed.
+`al-runner test MYEXT MYTESTS --affected-from microsoft` does the same next to your own tests, in one
+report with one summary table and one `--junit` file (each source suite has the property
+`test_source`, the first one `not_selected`). Without a cached impact index the tests are selected by
+static reach, with a warning that prints the command that builds the index:
+`al-runner impact-index build --from microsoft --microsoft-app Tests-ERM --bc-version ...`. An ISV test
+app as a source (`--affected-from PATH`), `--output-json`, `--impact-json` and `--impact-accept` with
+sources are later steps of ADR-052 and are refused for now; `al-runner serve` refuses test sources.
 
 `al-runner` can run Microsoft's own Base Application test buckets. Most of these tests are
 still refused, not run. The full run of 2026-10-16 (main `fae0c8df`, BC 27.5, all buckets

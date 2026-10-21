@@ -790,7 +790,7 @@ fn no_index_warning(a: &TestArgs, cannot_rule_out: Option<usize>) -> String {
     format!(
         "warning: no impact index for these test apps and options (country {}, this runtime build): tests were selected by static reach, which misses {STATIC_MISSES}; {marked}. Build the index once with: {}",
         a.country(),
-        build_command(&args)
+        a.index_command.clone().unwrap_or_else(|| build_command(&args))
     )
 }
 
@@ -798,6 +798,50 @@ fn no_index_warning(a: &TestArgs, cannot_rule_out: Option<usize>) -> String {
 /// index, selects by static reach; else dynamic selection with the index. Exit 1 when a test newly fails, fails
 /// differently, is newly not run or is a selection miss; a run that selected nothing or stopped exits as that run did.
 pub fn run(a: &TestArgs) -> Result<u8, String> {
+    run_kept(a, &Keep::default())
+}
+
+/// What one impact run came to, for a caller that puts several together (ADR-052: a test source, per test app and
+/// lane).
+#[derive(Default)]
+pub struct Part {
+    pub code: u8,
+    /// `all`, `static` or `dynamic`; empty when the run stopped before its report.
+    pub mode: &'static str,
+    /// The tests of the report, per change class.
+    pub counts: BTreeMap<Class, usize>,
+    /// The tests that ran their code with the extension.
+    pub reached: usize,
+    /// The tests the selection left out, when it selected.
+    pub not_selected: Option<usize>,
+    /// The "with" run's results with their impact properties, for one JUnit file of all parts.
+    pub junit: Option<output::JunitPart>,
+}
+
+impl Part {
+    /// The tests of the report.
+    pub fn tests(&self) -> usize {
+        self.counts.values().sum()
+    }
+
+    pub fn count(&self, c: Class) -> usize {
+        self.counts.get(&c).copied().unwrap_or(0)
+    }
+}
+
+/// Where a run leaves its [`Part`].
+type Keep = std::cell::RefCell<Option<Part>>;
+
+/// [`run`], and what it came to. A run that stopped before its report gives its exit code only.
+pub fn run_part(a: &TestArgs) -> Result<Part, String> {
+    let keep = Keep::default();
+    let code = run_kept(a, &keep)?;
+    let mut part = keep.into_inner().unwrap_or_default();
+    part.code = code;
+    Ok(part)
+}
+
+fn run_kept(a: &TestArgs, keep: &Keep) -> Result<u8, String> {
     let started = std::time::Instant::now();
     // A wrong accept file or an unwritable output path stops the run before the long part.
     let accepts = a.impact_accept.as_deref().map(Accepts::load).transpose()?;
@@ -809,13 +853,13 @@ pub fn run(a: &TestArgs) -> Result<u8, String> {
     }
     let accepts = accepts.as_ref();
     match a.impact.as_deref() {
-        Some("all") => return run_all(a, None, accepts, started),
-        Some("static") => return run_static(a, false, accepts, started),
+        Some("all") => return run_all(a, None, accepts, keep, started),
+        Some("static") => return run_static(a, false, accepts, keep, started),
         _ => {}
     }
     match crate::impact_index::lookup(&side_args(a))? {
-        Some((index, path)) => run_dynamic(a, index, &path, accepts, started),
-        None => run_static(a, true, accepts, started),
+        Some((index, path)) => run_dynamic(a, index, &path, accepts, keep, started),
+        None => run_static(a, true, accepts, keep, started),
     }
 }
 
@@ -824,6 +868,7 @@ fn run_all(
     a: &TestArgs,
     warning: Option<String>,
     accepts: Option<&Accepts>,
+    keep: &Keep,
     started: std::time::Instant,
 ) -> Result<u8, String> {
     let side = side_args(a);
@@ -865,6 +910,7 @@ fn run_all(
         not_selected_why: "",
         after: Vec::new(),
         accepts,
+        keep,
         started,
     }
     .run(&mut rows, &routines, &with)
@@ -899,8 +945,8 @@ fn verdict(rows: &[Row]) -> u8 {
 /// How an impact run ends, whatever its mode: the report, the verdict and the files asked for.
 struct Finish<'a> {
     a: &'a TestArgs,
-    /// `all` or `dynamic`, for the JSON diff.
-    mode: &'a str,
+    /// `all`, `static` or `dynamic`, for the JSON diff.
+    mode: &'static str,
     warning: Option<&'a str>,
     not_selected: Option<(usize, usize)>,
     /// Why the tests not selected cannot change, for the report's `not selected:` line.
@@ -909,6 +955,7 @@ struct Finish<'a> {
     /// verdict).
     after: Vec<String>,
     accepts: Option<&'a Accepts>,
+    keep: &'a Keep,
     started: std::time::Instant,
 }
 
@@ -953,9 +1000,41 @@ impl Finish<'_> {
         }
         let wall = self.started.elapsed().as_secs_f64();
         let results: Vec<&TestResult> = with.results.iter().collect();
+        let key = |r: &TestResult| (r.app, r.codeunit, r.test.clone());
+        let by: HashMap<_, &Row> = rows.iter().filter_map(|r| Some((key(r.with?), r))).collect();
+        let properties = |r: &TestResult| -> Vec<(String, String)> {
+            let Some(row) = by.get(&key(r)) else {
+                return Vec::new();
+            };
+            let mut p = vec![
+                ("impact_class".to_string(), row.class.heading().to_string()),
+                ("impact_without".to_string(), outcome_word(row.without)),
+            ];
+            if row.accepted {
+                p.push(("impact_accepted".into(), "1".into()));
+            }
+            p
+        };
+        let mut counts: BTreeMap<Class, usize> = BTreeMap::new();
+        for r in rows.iter() {
+            *counts.entry(r.class).or_default() += 1;
+        }
+        *self.keep.borrow_mut() = Some(Part {
+            code,
+            mode: self.mode,
+            counts,
+            reached: rows.iter().filter(|r| !r.entered.is_empty()).count(),
+            not_selected: self.not_selected.map(|(t, _)| t),
+            junit: Some(output::JunitPart {
+                results: with.results.clone(),
+                properties: with.results.iter().map(properties).collect(),
+                disabled: with.disabled.clone(),
+                bc_build: with.bc_build.clone(),
+                baseline_assumptions: with.baseline_assumptions.clone(),
+                ..Default::default()
+            }),
+        });
         if let Some(path) = &a.junit {
-            let key = |r: &TestResult| (r.app, r.codeunit, r.test.clone());
-            let by: HashMap<_, &Row> = rows.iter().filter_map(|r| Some((key(r.with?), r))).collect();
             let disabled: std::collections::HashSet<(u32, &str)> = with
                 .results
                 .iter()
@@ -963,19 +1042,6 @@ impl Finish<'_> {
                 .filter(|(_, d)| **d)
                 .map(|(r, _)| (r.codeunit, r.test.as_str()))
                 .collect();
-            let properties = |r: &TestResult| -> Vec<(String, String)> {
-                let Some(row) = by.get(&key(r)) else {
-                    return Vec::new();
-                };
-                let mut p = vec![
-                    ("impact_class".to_string(), row.class.heading().to_string()),
-                    ("impact_without".to_string(), outcome_word(row.without)),
-                ];
-                if row.accepted {
-                    p.push(("impact_accepted".into(), "1".into()));
-                }
-                p
-            };
             run::write_file(
                 path,
                 &output::junit_with(
@@ -1112,6 +1178,7 @@ fn run_dynamic(
     index: crate::impact_index::Index,
     path: &std::path::Path,
     accepts: Option<&Accepts>,
+    keep: &Keep,
     started: std::time::Instant,
 ) -> Result<u8, String> {
     use std::sync::{Arc, Mutex};
@@ -1171,10 +1238,12 @@ fn run_dynamic(
         let w = format!(
             "warning: the impact index {} was recorded on other Microsoft apps ({why}); rebuild it with: {}",
             path.display(),
-            build_command(&std::env::args().collect::<Vec<_>>())
+            a.index_command
+                .clone()
+                .unwrap_or_else(|| build_command(&std::env::args().collect::<Vec<_>>()))
         );
         println!("{}", style::yellow(&w));
-        return run_static(a, false, accepts, started);
+        return run_static(a, false, accepts, keep, started);
     }
     if !matches!(code, 0 | 1 | 6 | 7 | 8) {
         return Ok(code);
@@ -1220,6 +1289,7 @@ fn run_dynamic(
         not_selected_why: NOT_SELECTED_DYNAMIC,
         after: std::mem::take(&mut *refused.lock().expect("the refused tests")),
         accepts,
+        keep,
         started,
     }
     .run(&mut rows, &routines, &with)
@@ -1469,6 +1539,7 @@ fn run_static(
     a: &TestArgs,
     no_index: bool,
     accepts: Option<&Accepts>,
+    keep: &Keep,
     started: std::time::Instant,
 ) -> Result<u8, String> {
     use std::sync::{Arc, Mutex};
@@ -1570,6 +1641,7 @@ fn run_static(
         not_selected_why: NOT_SELECTED_STATIC,
         after: Vec::new(),
         accepts,
+        keep,
         started,
     }
     .run(&mut rows, &routines, &with)

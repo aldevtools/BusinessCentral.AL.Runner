@@ -141,9 +141,209 @@ pub fn summary_lines(header: &str, results: &[AppResult]) -> Vec<String> {
     out
 }
 
+/// One part of a run with test sources (ADR-052 1.6): the own tests or one source, as a row of the summary table.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PartRow {
+    pub name: String,
+    /// The own tests: failed and not run count, the change classes do not.
+    pub own: bool,
+    pub tests: usize,
+    pub failed: usize,
+    pub not_run: usize,
+    pub reached: usize,
+    pub newly_failing: usize,
+    pub fails_differently: usize,
+    pub newly_refused: usize,
+    pub selection_miss: usize,
+    pub not_verified: usize,
+    pub not_selected: usize,
+    pub code: u8,
+    /// Why the part could not run (its first line).
+    pub error: Option<String>,
+}
+
+impl PartRow {
+    pub fn own(tests: usize, failed: usize, not_run: usize, code: u8) -> PartRow {
+        PartRow {
+            name: "own tests".into(),
+            own: true,
+            tests,
+            failed,
+            not_run,
+            code,
+            ..Default::default()
+        }
+    }
+
+    pub fn source(name: &str) -> PartRow {
+        PartRow {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A part that could not run: exit 2.
+    pub fn error(name: &str, e: &str) -> PartRow {
+        PartRow {
+            name: name.into(),
+            own: name == "own tests",
+            code: 2,
+            error: Some(e.lines().next().unwrap_or_default().to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Adds one impact run of the source. ADR-052 1.7: a run that selected nothing gives 0, not 6, and tests that
+    /// are not verified never give 7 or 8.
+    pub fn add(&mut self, part: &crate::impact::Part) {
+        use crate::impact::Class;
+        self.tests += part.tests();
+        self.reached += part.reached;
+        self.newly_failing += part.count(Class::NewlyFailing);
+        self.fails_differently += part.count(Class::FailsDifferently);
+        self.newly_refused += part.count(Class::NewlyRefused);
+        self.selection_miss += part.count(Class::SelectionMiss);
+        self.not_verified += part.count(Class::NotVerified);
+        let code = if matches!(part.code, 6..=8) { 0 } else { part.code };
+        self.code = worst([self.code, code]);
+    }
+
+    /// What makes the part fail, for the `Result:` line.
+    fn why(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(e) = &self.error {
+            out.push(format!("not run: {e}"));
+        }
+        let counts: [(usize, &str); 5] = if self.own {
+            [
+                (self.failed, "failed"),
+                (if self.code == 7 { self.not_run } else { 0 }, "not run"),
+                (0, ""),
+                (0, ""),
+                (0, ""),
+            ]
+        } else {
+            [
+                (self.newly_failing, "newly failing"),
+                (self.fails_differently, "fails differently"),
+                (self.newly_refused, "newly refused"),
+                (self.selection_miss, "selection miss"),
+                (0, ""),
+            ]
+        };
+        out.extend(counts.iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")));
+        out
+    }
+}
+
+/// The summary table of a run with test sources and its `Result:` line (ADR-052 1.6, exit code by [`worst`]).
+pub fn table_lines(rows: &[PartRow]) -> Vec<String> {
+    let dash = |own: bool, n: usize| if own { "-".to_string() } else { n.to_string() };
+    let mut table = vec![[
+        "part".to_string(),
+        "tests run".into(),
+        "ran your code".into(),
+        "newly failing".into(),
+        "fails differently".into(),
+        "newly refused".into(),
+        "not verified".into(),
+        "exit".into(),
+    ]];
+    for r in rows {
+        table.push([
+            r.name.clone(),
+            r.tests.to_string(),
+            dash(r.own, r.reached),
+            dash(r.own, r.newly_failing + r.selection_miss),
+            dash(r.own, r.fails_differently),
+            dash(r.own, r.newly_refused),
+            if r.own {
+                format!("{} not run", r.not_run)
+            } else {
+                r.not_verified.to_string()
+            },
+            r.code.to_string(),
+        ]);
+    }
+    let widths: Vec<usize> = (0..8)
+        .map(|c| table.iter().map(|row| row[c].len()).max().unwrap_or(0))
+        .collect();
+    let mut out = vec![String::new(), "Sources".to_string()];
+    for row in &table {
+        let cells: Vec<String> = row
+            .iter()
+            .enumerate()
+            .map(|(c, v)| format!("{v:<w$}", w = widths[c]))
+            .collect();
+        out.push(format!("  {}", cells.join("  ").trim_end()));
+    }
+    let code = worst(rows.iter().map(|r| r.code));
+    let verdict = match code {
+        0 => "PASS",
+        1 => "FAIL",
+        6 => "NOTHING SELECTED",
+        7 => "TESTS NOT RUN",
+        8 => "DOTNET UNAVAILABLE",
+        _ => "ERROR",
+    };
+    let why: Vec<String> = rows
+        .iter()
+        .filter_map(|r| {
+            let w = r.why();
+            (!w.is_empty()).then(|| format!("{}: {}", r.name, w.join(", ")))
+        })
+        .collect();
+    out.push(if why.is_empty() {
+        format!("Result: {verdict} (exit {code})")
+    } else {
+        format!("Result: {verdict} ({}) (exit {code})", why.join("; "))
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sources_table_has_a_row_per_part_and_the_result_names_what_failed() {
+        let own = PartRow::own(212, 2, 10, 1);
+        let mut ms = PartRow::source("microsoft");
+        ms.tests = 1840;
+        ms.reached = 412;
+        ms.newly_failing = 1;
+        ms.newly_refused = 3;
+        ms.not_verified = 220;
+        ms.code = 1;
+        let lines = table_lines(&[own, ms]);
+        assert_eq!(lines[1], "Sources");
+        assert!(
+            lines[2].starts_with("  part       tests run  ran your code  newly failing"),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines[3].split_whitespace().collect::<Vec<_>>(),
+            ["own", "tests", "212", "-", "-", "-", "-", "10", "not", "run", "1"]
+        );
+        assert_eq!(
+            lines[4].split_whitespace().collect::<Vec<_>>(),
+            ["microsoft", "1840", "412", "1", "0", "3", "220", "1"]
+        );
+        assert_eq!(
+            lines[5],
+            "Result: FAIL (own tests: 2 failed; microsoft: 1 newly failing, 3 newly refused) (exit 1)"
+        );
+        // A source that could not load is exit 2 and says why; nothing failing is a pass.
+        let lines = table_lines(&[PartRow::error("microsoft", "no artifact\nmore")]);
+        assert_eq!(
+            lines.last().unwrap(),
+            "Result: ERROR (microsoft: not run: no artifact) (exit 2)"
+        );
+        assert_eq!(
+            table_lines(&[PartRow::source("microsoft")]).last().unwrap(),
+            "Result: PASS (exit 0)"
+        );
+    }
     use crate::recipe::Lane;
 
     #[test]
