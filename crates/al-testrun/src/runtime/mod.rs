@@ -428,6 +428,8 @@ pub(crate) struct Unit {
     clock_start: Option<i64>,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
+    /// See `RunOptions::run_only`.
+    run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -449,6 +451,8 @@ pub(crate) struct Scratch {
     traces: Vec<(String, Vec<String>)>,
     /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
     stubbed: Vec<(String, Vec<String>)>,
+    /// See `RunOptions::run_only`.
+    run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -524,6 +528,7 @@ fn run_unit(
             order: u.order.clone(),
             clock_start,
             trace: u.impact,
+            run_only: u.run_only.clone(),
             ..Default::default()
         };
         if u.coverage {

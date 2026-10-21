@@ -1141,6 +1141,7 @@ impl Session {
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = !both;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1158,6 +1159,7 @@ impl Session {
         st.borrow_mut().refresh = false;
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = true;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1230,6 +1232,7 @@ impl Session {
         }
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = false;
         h.read_keeps_xrec = true;
         drop(h);
@@ -1299,6 +1302,7 @@ impl Session {
         }
         let mut h = host.borrow_mut();
         h.refresh = true;
+        h.refresh_by_update = false;
         h.refresh_without_parts = true;
         h.read_keeps_xrec = true;
         drop(h);

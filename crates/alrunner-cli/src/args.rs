@@ -76,6 +76,8 @@ pub struct TestArgs {
     pub coverage: bool,
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
     pub tdd: bool,
+    /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
+    pub run_selected_only: bool,
     /// `--coverage-out FILE`: write Cobertura XML there (implies `--coverage`; default `coverage.cobertura.xml`).
     pub coverage_out: Option<PathBuf>,
     /// `--coverage-json FILE`: write the statements and the statements of each test as JSON (implies `--coverage`).
@@ -254,14 +256,17 @@ COMPILE CACHE
                          Remove every entry of the compile cache (<cache dir>/compile/): use it
                          when a cached result is in doubt. The next run builds what it needs.
 
-SELECTION (a test is selected when any option matches it)
+SELECTION (a test is selected when any option matches it; --filter with --test-exact
+selects only the tests both match)
     --codeunit ID        A test codeunit by object id. Repeatable.
     --filter TEXT        (`--test TEXT` is the same) Tests whose name contains TEXT, any case.
                          TEXT with a dot (`Codeunit50100.Foo`) is matched against
                          `Codeunit<ID>.<Method>`, TEXT without a dot against the method name.
                          Repeatable.
     --test-exact NAME    The test whose method name or `Codeunit<ID>.<Method>` is exactly NAME
-                         (any case). Repeatable.
+                         (any case). Repeatable. Given with --filter, it narrows the filter's
+                         tests to these, as AL Runner v2 did. A test name is its AL name as
+                         written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
     --explain TEST       Run one test (its name, or a part of it that only one test has) and print
@@ -269,6 +274,10 @@ SELECTION (a test is selected when any option matches it)
                          lines it left from. Selects that test like --filter.
     A selected test's codeunit runs whole (tests of a codeunit share state); only the selected
     tests are reported. Only the selected codeunits are compiled.
+    --run-selected-only  Run only the selected tests of each codeunit, as BC's test tool runs only
+                         the test methods that are enabled: the other tests do not run, so their
+                         globals, rows, time and refusals do not reach the selected ones. The
+                         codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
 
 OUTPUT
     Default: the version line, one line per failing test with the AL call stack of its error
@@ -303,7 +312,9 @@ OUTPUT
                          `durationMs`, `message`, `stackTrace`, and `passed`, `failed`, `errors`,
                          `skipped`, `total`, `notRun`, `exitCode`, `wallSeconds`. A test that did not
                          run is `error` with the message `NotRun: out-of-scope: <reason>`; one the
-                         time limit stopped is `error` with `Test exceeded <N>s timeout.`. Without
+                         time limit stopped is `error` with `Test exceeded <N>s timeout.`. When the
+                         selection matches no test (exit 6) the document has no rows and
+                         `warnings` says why. Without
                          FILE the document is the only thing on stdout and the report goes to
                          stderr. `--output-json=FILE` also works. See docs/integrations/migrating-tools-to-v3.md.
     --timings            Compile phases and the slowest test codeunits.
@@ -379,8 +390,10 @@ ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
-                         TestIsolation = Function does. `disabled`: not pinned, so every test is
-                         reported as not run.
+                         TestIsolation = Function does. A test that calls Commit() under `test`
+                         is reported as not run: whether BC keeps the committed rows for the next
+                         test is not pinned yet; run that codeunit with `codeunit`. `disabled`:
+                         not pinned yet, so every test is reported as not run.
 
 EXIT CODES
     0  every selected test passed
@@ -482,7 +495,9 @@ OTHER
                          are an unprobed assumption (docs/probes-needed.md).
     --files-dir DIR      Let the File data type read and write real files under DIR.
     --define SYMBOL      A preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable.
-                         `--preprocessor-symbols A,B` names several.
+                         `--preprocessor-symbols A,B` names several. Like the AL compiler,
+                         al-runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`):
+                         the APPs' `preprocessorSymbols` and these are all there is.
     --auto-provision     Accepted and ignored (v2 downloaded platform apps with it; v3 always does,
                          unless --no-download).
     --test-timeout-secs N  (`--test-timeout N` is the same) A test that uses more than N seconds of CPU time (default 20; the
@@ -765,7 +780,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             a.test_data_path = Some(PathBuf::from(path));
             continue;
         }
-        if !flag.starts_with("--") {
+        // The short flags of `--verbose` and `--quiet` come before the app-path fallback (issue 5618).
+        if !flag.starts_with("--") && !matches!(flag.as_str(), "-v" | "-q") {
             a.apps.push(PathBuf::from(flag));
             continue;
         }
@@ -878,6 +894,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 ));
             }
             "--tdd" => a.tdd = true,
+            "--run-selected-only" => a.run_selected_only = true,
             "--watch" | "--affected" | "--per-suite" | "--include-failing" | "--strict-environment" => {
                 return Err(format!(
                     "{flag} is deferred in v3 (ADR-016, owner direction 2026-10-13): features that only hide start-up or run cost wait until they are measured to matter"
@@ -1066,6 +1083,18 @@ mod tests {
         assert!(p("cache info --dry-run").is_err(), "--dry-run belongs to prune");
         assert!(p("cache wipe").unwrap_err().contains("wipe"));
         assert!(p("cache clear --all").unwrap_err().contains("--all"));
+    }
+
+    /// Issue 5618: `-v` and `-q` are listed in `--help` and must not be read as app paths.
+    #[test]
+    fn short_verbose_and_quiet_flags_are_flags_not_apps() {
+        let a = test_args("test -v App Tests");
+        assert!(a.verbose);
+        assert_eq!(a.apps, vec![PathBuf::from("App"), PathBuf::from("Tests")]);
+        let a = test_args("test App -q Tests");
+        assert!(a.quiet);
+        assert_eq!(a.apps, vec![PathBuf::from("App"), PathBuf::from("Tests")]);
+        assert!(p("test -v -q App").unwrap_err().contains("cannot be combined"));
     }
 
     #[test]

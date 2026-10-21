@@ -26,6 +26,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "announceStart",
     "serverUrl",
     "tdd",
+    "runSelectedOnly",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -257,6 +258,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
     if !matches!(fields.get("tdd"), None | Some(Value::Null)) {
         a.tdd = flag(fields, "tdd")?;
+    }
+    // Issue 5611: only the selected tests of a codeunit run, as `--run-selected-only`.
+    if !matches!(fields.get("runSelectedOnly"), None | Some(Value::Null)) {
+        a.run_selected_only = flag(fields, "runSelectedOnly")?;
     }
     a.quiet = true;
     Ok((a, warnings))
@@ -674,6 +679,15 @@ mod tests {
         );
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": true})).unwrap().0.tdd);
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": 1})).is_err());
+        // Issue 5611: `runSelectedOnly` is `--run-selected-only` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "runSelectedOnly": true}))
+                .unwrap()
+                .0
+                .run_selected_only
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.run_selected_only);
+        assert!(run(json!({"sourcePaths": ["/a"], "runSelectedOnly": "yes"})).is_err());
         assert!(
             run(json!({"sourcePaths": ["/a"], "frobnicate": 1}))
                 .unwrap_err()
