@@ -28,6 +28,8 @@ pub struct Dependencies {
     /// Per app of `apps`: set when the package was read lazily (`load_project_with`), in which case
     /// the app's files hold no text yet.
     pub lazy: Vec<Option<al_sema::LazySource>>,
+    /// Per app of `apps`: the package file or the app folder it was read from.
+    pub paths: Vec<PathBuf>,
 }
 
 impl Dependencies {
@@ -196,6 +198,7 @@ pub fn load_project_with(
     let mut summary = Vec::new();
     let mut manifests = Vec::new();
     let mut lazy = Vec::new();
+    let mut paths = Vec::new();
     let application_aggregate = loaded.application_aggregate.clone();
     for mut d in loaded.apps {
         let files = d.app.files.len();
@@ -218,6 +221,7 @@ pub fn load_project_with(
         });
         summary.push(format!("{} {}", d.app.name, d.version));
         lazy.push(d.lazy);
+        paths.push(d.path);
         apps.push(d.app);
     }
     Ok(Dependencies {
@@ -228,6 +232,7 @@ pub fn load_project_with(
         build,
         application_aggregate,
         lazy,
+        paths,
     })
 }
 

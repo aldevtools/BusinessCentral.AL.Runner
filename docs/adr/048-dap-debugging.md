@@ -185,6 +185,13 @@ the VS Code debugger contribution; one session runs the selected tests and exits
 5. Slice 1 covers the apps given on the command line. Breakpoints in a dependency given as source come in a later
    slice; until then they are unverified (`no executable AL statement on this line in this file`).
 
+6. (lane-dap-2) Breakpoints and steps work in every app compiled from source. A file of a source package has no file
+   on disk: at a stop the debugger writes it, with the compiled text, to `<cache>/debug-sources/` and shows that
+   file. A file elsewhere whose path ends with the package's path binds only when its text is the compiled text
+   (else unverified: `this file's text is not the text that was compiled for PATH`). A dependency statement that no
+   selected test reaches is not compiled (ADR-013); its breakpoint is unverified with `the selected tests do not
+   reach this statement` (v2 compiled the whole dependency and had no such case). This replaces item 5.
+
 ## Open questions (answered above)
 
 1. Variables: `Locals` only as v2 (recommended for 3.0) or also a `Globals` scope and expandable record fields

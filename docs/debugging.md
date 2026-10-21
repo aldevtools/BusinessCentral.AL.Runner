@@ -50,17 +50,35 @@ success with no filters. `disconnect` and `terminate` end the session. Every oth
 - A `column` narrows this to the statement that starts at the column, else the statement that holds it, else
   the whole line. The answer reports the column it bound.
 - A line with no statement is not moved to another line. It comes back `verified: false` with a `message`:
-  `the app did not compile`, `no executable AL statement on this line in this file` or
-  `no source file for this app`.
+  `the app did not compile`, `no executable AL statement on this line in this file`,
+  `the selected tests do not reach this statement` (see dependencies below) or `no source file for this app`.
 - A new `setBreakpoints` for a file replaces that file's breakpoints. The old `lines` field works too.
-- Breakpoints work in the apps given on the command line. Breakpoints in a dependency are not supported yet:
-  they come back unverified.
 - No conditions, hit counts or log points (as v2).
 
+### Breakpoints in dependencies
+
+Breakpoints and steps work in every app whose source AL Runner compiles: the apps on the command line and the
+dependency apps, among them Microsoft's apps, which AL Runner compiles from their source packages.
+
+- **A dependency given as a folder** (`--dep ./MyLib`): its breakpoints are set on its files, as for the apps on the
+  command line, and the stack shows those files.
+- **A dependency read from a source package** (`*.Source.zip`, or an `.app` that holds its source, for example
+  Microsoft's apps from the artifact cache): the package has no file on disk. When the debugger stops in one of its
+  files, it writes the file, with the text that was compiled, to
+  `<cache>/debug-sources/<publisher>_<name>_<version>/<path in the package>` (the cache folder of `--cache-dir`),
+  and the stack shows that file. A breakpoint on that file binds, also in a later session.
+- **A checkout of a package's source** (for example a clone of Microsoft's BCApps repository): a breakpoint on a file
+  whose path ends with the path of a file in the package binds when the file's text is the text that was compiled.
+  The stack then shows the checkout's file. When the text differs, the breakpoint comes back unverified with
+  `this file's text is not the text that was compiled for PATH`, because its lines may not match.
+- AL Runner compiles a dependency only where the selected tests reach it (ADR-013). A statement no selected test
+  reaches cannot stop; its breakpoint comes back unverified with `the selected tests do not reach this statement`.
+- `stepIn` enters dependency code. A dependency read from an `.app` without source has no statements to stop at.
 ## Stepping
 
 `next`, `stepIn` and `stepOut` work on the AL call stack: `next` stops at the next statement of the same
-routine or a caller, `stepIn` at the next statement anywhere, `stepOut` at the next statement of a caller.
+routine or a caller, `stepIn` at the next statement anywhere (dependency code included), `stepOut` at the next
+statement of a caller.
 Microsoft's install code (the install baseline) is not debugged.
 
 ## Stack and variables

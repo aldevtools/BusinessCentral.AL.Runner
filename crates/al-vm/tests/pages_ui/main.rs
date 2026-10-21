@@ -27,6 +27,7 @@ mod pages;
 mod part_host_move;
 mod part_update_propagation;
 mod parts;
+mod procedure_bound_action;
 mod qh_new_host_part_access;
 mod qi_host_save_parts;
 mod qi_row_page_var;

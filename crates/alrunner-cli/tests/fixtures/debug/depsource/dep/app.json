@@ -1,0 +1,8 @@
+{
+  "id": "4b7e2a10-91c3-4d55-8e0f-1a2b3c4d5e05",
+  "name": "Debug Dep",
+  "publisher": "AL Runner Tests",
+  "version": "1.0.0.0",
+  "idRanges": [{ "from": 50250, "to": 50259 }],
+  "dependencies": []
+}
