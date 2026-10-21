@@ -73,6 +73,19 @@ pub enum ClientExpr {
     BigIntegerLiteral(String),
 }
 
+/// The name of the procedure when `value` is a call with no arguments and nothing else (`IsAllowed()`, `"Is Allowed"()`).
+pub fn bare_call_name(value: &str) -> Option<String> {
+    let v = value.trim();
+    let head = v.strip_suffix(')')?.trim_end().strip_suffix('(')?.trim_end();
+    let ok = if let Some(q) = head.strip_prefix('"') {
+        q.strip_suffix('"').is_some_and(|n| !n.is_empty() && !n.contains('"'))
+    } else {
+        head.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+            && head.chars().all(|c| c.is_alphanumeric() || c == '_')
+    };
+    ok.then(|| head.trim_matches('"').to_string())
+}
+
 /// What the client compile of Boolean control expression `value` does that the runtime cannot follow, or `None`.
 ///
 /// Pinned failures (pages/lt-cc-page-leads/CcPageLeads.al): a member of a procedure's result (`GetRow().Flag`, :764,

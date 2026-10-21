@@ -812,6 +812,9 @@ impl<'a> Checker<'a> {
                     return E::Val(Ty::Unknown);
                 }
                 match target {
+                    E::Callable(c) if self.tdd_apps.is_some() && self.tdd_overload(sc, node, callee, &c, &arg_tys) => {
+                        E::Val(Ty::Unknown)
+                    }
                     E::Callable(c) => {
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
                         if self.tdd_apps.is_some() {
@@ -1157,6 +1160,7 @@ impl<'a> Checker<'a> {
     pub(crate) fn name(&mut self, sc: &mut Scope, node: &SyntaxNode) -> E {
         match self.lookup_name(sc, node) {
             Some(e) => e,
+            None if self.tdd_bare(sc, node) => E::Val(Ty::Unknown),
             None => {
                 self.diag(sc, node, "AR1000", format!("unresolved name `{}`", name_of(node)));
                 self.al_unresolved_name(sc, node);
