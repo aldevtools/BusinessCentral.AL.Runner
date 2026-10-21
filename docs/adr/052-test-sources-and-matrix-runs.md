@@ -18,8 +18,8 @@
    names the cells. One child process per cell, sequential by default, `--matrix-parallel N` within a memory limit.
    The report has a table of cells and the list of tests whose outcome differs between cells. Exit code: the worst
    cell.
-4. **Serve** keeps refusing `--recipe`, `--impact-of`, `--affected-from` and matrix options (recommendation; owner
-   question 5).
+4. **Serve** keeps refusing `--recipe`, `--impact-of`, `--affected-from` and matrix options, with a clear message
+   (owner answer 5).
 
 The trust rule binds every part: no test is ever reported as passed unless it ran and passed in this run. A test that
 was not selected, not run or not reached is counted and named as such, never as a pass.
@@ -37,7 +37,8 @@ The owner's requirements (2026-10-21), in short:
   ISV test apps use normal test defaults; their dependencies resolve as today. A test app must carry AL source.
   Per-source settings later, if ISVs need them.
 - Matrix runs: a list of BC versions times a list of countries, or explicit cells. Each cell has its own artifact and
-  compile cache. The runner sets preprocessor symbols per version, as the corpus CI does. Report: a table per cell,
+  compile cache. Preprocessor symbols per version (the owner's first note said the runner sets them, as the corpus
+  CI does; revised by owner answer 4 below). Report: a table per cell,
   the tests whose outcome differs across cells, JUnit per cell, `--output-json` with all cells, exit code of the
   worst cell. Combines with `--affected-from`.
 - Ordering: this ADR first, then the one-liner, then `--affected-from`, then matrix runs.
@@ -204,7 +205,7 @@ al-runner test-microsoft [APP...] [--bc-version V] [--country CC] [--microsoft-a
                          [--impact dynamic|static|all] [existing test flags]
 ```
 
-- **Name.** `test-microsoft` (recommended; owner question 1). It sorts next to `test` in the help, and reads as what
+- **Name.** `test-microsoft` (owner answer 1). It sorts next to `test` in the help, and reads as what
   it does. `--app NAME` is accepted as a short form of `--microsoft-app NAME` in this command only, as the owner's
   note writes it.
 - **Without an APP:** run Microsoft's test apps (1.3) with `--recipe microsoft`. This is `al-runner test
@@ -229,7 +230,7 @@ al-runner test-microsoft [APP...] [--bc-version V] [--country CC] [--microsoft-a
 ```
 al-runner test APP... --bc-version 27.5,28.5,29.0 [--country w1,us,de]   # every combination
 al-runner test APP... --matrix "27.5:w1,29.0:us"                         # the named cells only
-              [--matrix-parallel N] [--matrix-memory GB] [--version-symbols off]
+              [--matrix-parallel N] [--matrix-memory GB]
 ```
 
 - A list in `--bc-version` or `--country` makes a matrix. A single value in both is a normal run, as today.
@@ -243,7 +244,7 @@ al-runner test APP... --matrix "27.5:w1,29.0:us"                         # the n
 Before any cell runs, every cell is resolved: its exact build, the country artifact, and the checks that a single
 run makes before it starts (`app.json` `application` and `platform` floors, `--company-data package` only on w1).
 Any cell that fails these checks stops the whole run with exit 2 and one line per bad cell. This costs seconds; it
-avoids learning after 20 minutes that the last cell could not start. (Owner question 3.)
+avoids learning after 20 minutes that the last cell could not start. (Owner answer 3.)
 
 #### 3.3 One cell
 
@@ -260,16 +261,18 @@ avoids learning after 20 minutes that the last cell could not start. (Owner ques
   `FILE.27.5-w1`).
 - **Threads:** each cell gets `threads / N` worker threads (at least 1) when `N` cells run at once.
 
-#### 3.4 Preprocessor symbols per version
+#### 3.4 Preprocessor symbols per cell
 
-- In a matrix, each cell defines the cumulative version symbols `BC<n>PLUS` for every major from 27 up to the cell's
-  major (`al_version::corpus_symbols`), for the workspace APPs only. Microsoft's apps and other dependencies keep
-  their own symbols (hard rule 6: a project's symbols never change a dependency; the compile cache key already has
-  the symbols per layer).
-- The app's own `preprocessorSymbols` and `--define` are added as today.
-- `--version-symbols off` turns the version symbols off. The report header prints each cell's symbols.
-- A plain single-version run does not define them, as today, so its compile matches the AL compiler with the same
-  `app.json`. (Owner question 4: also in single runs.)
+- AL Runner defines no preprocessor symbols of its own, in a matrix or anywhere else. Symbol names are the app
+  author's choice; the runner never invents names such as `BC<n>PLUS` (owner, 2026-10-21).
+- Every cell compiles with the app's own `preprocessorSymbols` from `app.json` and `--define`, exactly as a single run
+  does today. So a cell gives the same compile as a single run of the same version and country.
+- Microsoft's apps and other dependencies keep their own symbols (hard rule 6; the compile cache key already has the
+  symbols per layer).
+- **Optional later step (step 6 of the build order, sized apart):** per-cell symbols from configuration. A matrix
+  file (`--matrix-file FILE`) lists the cells and, for each version or cell, the symbols to add, for example
+  `{"cells": [{"bcVersion": "27.5", "country": "w1", "define": ["MYAPP_BC27"]}, ...]}`. The file only adds the
+  names the author writes. The report header prints each cell's symbols. Built only if users ask for it.
 
 #### 3.5 Parallel cells and memory
 
@@ -329,7 +332,7 @@ Result: FAIL (worst cell 27.5 w1: exit 1)
 - The cell runs `run::test`, `recipe_run::test` or the sources run unchanged.
 - The parent reads the cells' JSON documents. The "differs" list compares `(codeunit, test)` ids from those
   documents, the same id `al-testrun` `CaseId` uses.
-- `al_version::corpus_symbols` gives the version symbols. `al_version::choose_target` resolves each cell's build.
+- `al_version::choose_target` resolves each cell's build.
 - New: `crates/alrunner-cli/src/matrix.rs` (cells, pre-flight, child processes, scheduling, report).
 
 ### 4. Serve
@@ -337,7 +340,7 @@ Result: FAIL (worst cell 27.5 w1: exit 1)
 Today serve refuses `--recipe microsoft` and `--impact-of` at start, because each `runTests` request is one plain
 run on one warm workspace.
 
-**Recommendation: keep refusing**, and add `--affected-from`, `--microsoft-app`, `--matrix`, lists in `--bc-version`
+**Decision (owner answer 5): keep refusing**, and add `--affected-from`, `--microsoft-app`, `--matrix`, lists in `--bc-version`
 and `--country`, and `--matrix-parallel` to the refused set with the same message. Reasons:
 
 - Serve holds one warm workspace for one target. A matrix needs several targets and several processes; it would make
@@ -388,9 +391,9 @@ user extension. Nothing of Microsoft's is committed (hard rule 7).
 18. `--bc-version 27.5,28.5` exits 2 today (one version only): red.
 19. Two versions times two countries make four cells; `--matrix "27.5:w1,29.0:us"` makes two; the mixed form exits 2.
 20. Pre-flight: a cell below the app's `application` floor stops the run before any cell starts.
-21. A fixture app with `#if BC28PLUS`: the 27 cell and the 28 cell give different outcomes; the test is listed under
-    "differs"; `--version-symbols off` removes the difference. Base Application's compile cache entry is the same
-    with and without the symbols.
+21. A fixture app with `#if` on a symbol it does not define: every cell compiles it the same way as a single run
+    (no symbol is added by the runner). A fixture whose test outcome differs between two cells by version-specific
+    behavior is listed under "differs".
 22. A test present only in one cell shows `absent`; pass versus not run is counted, not listed.
 23. Exit code is the worst cell; a cell killed (simulated by a child that exits by signal) is exit 2 and the others
     finish.
@@ -412,10 +415,11 @@ Derived from the pieces above, at the pace of ADR-043's steps and ADR-050's esti
 |---|---|---|
 | One-liner | artifact test-app listing in `al-deps` (0.5), `sources.rs` for the `microsoft` source without an extension (0.5), `test-microsoft` command, help, refusals (0.5), fixture artifact and tests 1-6 (0.5) | 2 |
 | Test sources | ISV source loading and refusals (0.75), "without" side generalized in `impact.rs` (1), per-lane impact runs and index key (1), grouped report, JSON, JUnit, accept file format 2 (1.5), exit helper (0.25), `impact-index build --from microsoft` (0.25), tests 7-17 (1.25) | 6 |
-| Matrix | parsing and pre-flight (0.5), child process cells and cell JSON (1), "differs" and the matrix report in text, JSON, JUnit (1), parallel cells with the memory rule (0.75), version symbols and per-cell stored result (0.25), tests 18-27 (0.75) | 4.25 |
+| Matrix | parsing and pre-flight (0.5), child process cells and cell JSON (1), "differs" and the matrix report in text, JSON, JUnit (1), parallel cells with the memory rule (0.75), per-cell stored result (0.15), tests 18-27 (0.75) | 4.15 |
+| Per-cell symbols from a matrix file (optional, later) | file format and parsing (0.5), cells and symbols from the file, report header (0.25), tests (0.25) | 1 |
 | Serve | refusal list and test 28 | 0.1 |
 
-About 12 agent-days in all. The matrix part is above the backlog's first guess of 2 to 3 days. The pre-flight, the
+About 12 agent-days for the first four parts, plus 1 day for the optional matrix file. The matrix part is above the backlog's first guess of 2 to 3 days. The pre-flight, the
 memory rule for parallel cells and the "differs" report are what add to it; a matrix without them is about 2.5 days
 but either fails late or risks an out-of-memory kill.
 
@@ -427,6 +431,7 @@ but either fails late or risks an out-of-memory kill.
 3. ISV sources, own tests next to sources, the grouped report, format-2 JSON.
 4. Matrix runs.
 5. Serve refusals: with step 2 (one line each).
+6. Optional, only if users ask: per-cell symbols from a matrix file (3.4).
 
 This is the owner's order; step 1 and 2 split the one-liner so its first half ships before impact work.
 
@@ -437,8 +442,8 @@ This is the owner's order; step 1 and 2 split the one-liner so its first half sh
 - **Matrix cells in one process.** Saves process start (milliseconds) and lets cells share loaded dependency layers.
   But memory is not returned between cells, a panic or out-of-memory kill takes every cell, and the cell result is not
   reproducible by one command line. Rejected.
-- **Version symbols in every run.** Makes a single run and a matrix cell of the same version compile the same. But a
-  single run would then differ from the AL compiler for the same `app.json`. Left to the owner (question 4).
+- **Runner-defined version symbols (`BC<n>PLUS` per cell).** The first draft. Rejected by the owner: symbol names are
+  free for the app author, so the runner must not invent them. Per-cell symbols come from configuration (3.4).
 - **Unselected source tests as JUnit `<skipped>`.** Honest, but about 40000 entries per run for the `microsoft`
   source. A count property says the same.
 
@@ -452,17 +457,17 @@ This is the owner's order; step 1 and 2 split the one-liner so its first half sh
 - The recipe's lane exit code and the new shared helper differ only when one lane selects nothing and another passes
   (the recipe gives 6, the helper 0). Step 1 moves the recipe to the helper.
 
-## Owner questions
+## Owner answers (2026-10-21)
 
-1. Command name: `test-microsoft` (recommended), or `microsoft-tests`, or only `test --affected-from microsoft`.
-2. Unselected source tests in JUnit: a count property only (recommended), or one `<skipped>` entry each.
-3. A matrix cell that cannot start: stop the whole run in pre-flight (recommended), or skip that cell and run the rest.
-4. Version symbols `BC<n>PLUS`: matrix cells only, on by default (recommended), or also in single-version runs, or
-   off unless asked for.
-5. Serve: keep refusing sources, recipe, impact and matrix (recommended), or add an `affectedFrom` field for ISV
-   sources now.
-6. Pass versus not run across cells: counted, listed with `--verbose` (recommended), or listed by default under
-   "differs".
+1. Command name: `test-microsoft`.
+2. Source tests that were not selected: one count property in JUnit (`not_selected`), no `<skipped>` entry each.
+3. A matrix cell that cannot start: a pre-flight check of all cells; any bad cell stops the whole run before tests
+   start.
+4. Preprocessor symbols: AL Runner sets none of its own and never invents names. Without configuration, `app.json`
+   `preprocessorSymbols` apply in every cell as today. Per-cell symbols from a configuration file are an optional
+   later step with its own size (3.4).
+5. Serve: keep refusing sources, recipe, impact and matrix options, with a clear message.
+6. Pass in one cell and not run in another: counted; listed with `--verbose`.
 
 ## Conformance
 
