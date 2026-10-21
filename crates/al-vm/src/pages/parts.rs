@@ -5,6 +5,7 @@
 use super::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
+use al_builtins::record_op::RecordOp;
 
 /// The filter group `SubPageLink` filters live in
 /// (corpus handlers/TestPagePartLinkFilterGroup.al: `FilterGroup(4)` answers the link).
@@ -1119,24 +1120,14 @@ impl Session {
         let prec = self.page_rec(st);
         let part_stored = !st.borrow().draft && st.borrow().cursor == Cursor::Row && self.stored_row(&prec)?.is_some();
         if !part_stored && !both {
-            return self.new_part_row_update_without_both(st, &host);
+            return self.new_part_row_update_without_both(st, &host, false, true);
         }
         // A new part row with Both: the part keeps its typed row (no read of the part, the row is inserted at Close) and the host
         // reads its row again, its triggers seeing the row read before as xRec (pages/lt-qj-part-propagation/QjPartPropagation.al:997
         // QL_Both_NewPartRow_PartModifiesHost `log-part-edit` = `L.Qty.V(5 x=0) L.Qty.V.end H.AGR(t=6 ... x.t=1) H.AGCR(t=6 ... x.t=1)`,
         // `part-qty-after-part` 5.00, `lines-after-close` with 20000:q=5).
         if !part_stored {
-            st.borrow_mut().refresh = false;
-            let mut h = host.borrow_mut();
-            h.refresh = true;
-            h.refresh_without_parts = true;
-            h.read_keeps_xrec = true;
-            drop(h);
-            let r = self.run_refresh(&host);
-            host.borrow_mut().read_keeps_xrec = false;
-            r?;
-            self.set_xrec(&host);
-            return Ok(true);
+            return self.new_part_row_update_both(st, &host);
         }
         {
             let mut p = st.borrow_mut();
@@ -1160,6 +1151,23 @@ impl Session {
         Ok(true)
     }
 
+    /// A new part row with Both: the part keeps its typed row (no read of the part, the row is inserted at Close) and the host
+    /// reads its row again, its triggers seeing the row read before as xRec (QjPartPropagation.al QL_Both_NewPartRow_PartModifiesHost,
+    /// QN_Both_NewPartRow_PartUpdate_HostRowUnchanged).
+    fn new_part_row_update_both(&mut self, st: &St, host: &St) -> Result<bool, Signal> {
+        st.borrow_mut().refresh = false;
+        let mut h = host.borrow_mut();
+        h.refresh = true;
+        h.refresh_without_parts = true;
+        h.read_keeps_xrec = true;
+        drop(h);
+        let r = self.run_refresh(host);
+        host.borrow_mut().read_keeps_xrec = false;
+        r?;
+        self.set_xrec(host);
+        Ok(true)
+    }
+
     /// A part ran `CurrPage.Update(false)` in a trigger of a SetValue on a stored part row, and its code left the host's stored row
     /// as the host read it. On a Document host the part reads its rows again and drops the typed value; with Both the host reads its
     /// row first (and its parts after it), with SubPart or none the host is not read again (pages/lt-qj-part-propagation/
@@ -1167,17 +1175,47 @@ impl Session {
     /// H.AGCR(t=1 x.t=1) N.AGR(10000 a=1 x.a=1) N.AGR(10000 a=1 x.a=1) N.AGCR(10000 a=1 x.a=5)`, :1134 _SubPart_ and :1162
     /// _Default_ `N.Amt.V(5 x=1) N.Amt.V.end N.AGR(10000 a=1 x.a=1) N.AGR(10000 a=1 x.a=1) N.AGCR(10000 a=1 x.a=5)`, `lines-after-
     /// close = 10000:q=1,a=1`). Another host type, a new part row and a host with an unsaved edit are refused.
+    ///
+    /// Card and ListPlus hosts behave as the Document host on a stored part row (QjPartPropagation.al:2123
+    /// QN_Card_PartUpdate_HostRowUnchanged, :2151 QN_CardBoth_, :2179 QN_ListPlus_, :2207 QN_ListPlusBoth_). On a new part row the
+    /// part does what it does when its code changed the host row: with Both on a Document or ListPlus host the host reads its row
+    /// again and the part keeps the typed row (:2030 QN_Both_NewPartRow_PartUpdate_HostRowUnchanged `log-part-edit = N.Amt.V(5 x=0)
+    /// N.Amt.V.end H.AGR(t=1 x.t=1) H.AGCR(t=1 x.t=1)`, `lines-after-close` with 20000:q=0,a=5; :2266 QN_ListPlusBoth_); with
+    /// SubPart or not set on a Document host, or not set on a Card host, the part drops the typed row (:2061 QN_SubPart_, :2092
+    /// QN_Default_, :2235 QN_Card_NewPartRow_). A new row of a Card host with Both, or of a ListPlus host without it, is not pinned.
     fn part_update_host_unchanged(&mut self, st: &St, host: &St, c: usize, both: bool) -> Result<bool, Signal> {
         let o = host.borrow().object as usize;
         let prec = self.page_rec(st);
         let part_stored = !st.borrow().draft && st.borrow().cursor == Cursor::Row && self.stored_row(&prec)?.is_some();
-        if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document)
-            || !part_stored
-            || host.borrow().dirty
-            || self.is_list(host)
-        {
+        let page_type = self.engine.object_facts[o].page_type.clone();
+        let host_type_pinned = matches!(
+            page_type,
+            Some(al_ir::PageType::Document | al_ir::PageType::Card | al_ir::PageType::ListPlus)
+        );
+        if !host_type_pinned || host.borrow().dirty || self.is_list(host) {
             return unsupported(
-                "a part's CurrPage.Update when the host row did not change, other than on a stored part row of a Document host without an unsaved edit (not pinned)",
+                "a part's CurrPage.Update when the host row did not change, other than on a Document, Card or ListPlus host without an unsaved edit (not pinned)",
+            );
+        }
+        // On a stored part row Card and ListPlus hosts are pinned (QjPartPropagation.al:2123-2207), but the reads of such a host as
+        // the test opens it are not built yet (`log-open` there ends with `H.AGR(t=1 x.t=1) H.AGCR(t=1 x.t=1)`; the runtime reads the
+        // part again after it), so they stay refused.
+        if part_stored && page_type != Some(al_ir::PageType::Document) {
+            return unsupported(
+                "a part's CurrPage.Update on a stored part row when the host row did not change, on a Card or ListPlus host (the host's reads at open are not built)",
+            );
+        }
+        if !part_stored {
+            let card = page_type == Some(al_ir::PageType::Card);
+            let list_plus = page_type == Some(al_ir::PageType::ListPlus);
+            if both && !card {
+                return self.new_part_row_update_both(st, host);
+            }
+            if !both && !list_plus {
+                return self.new_part_row_update_without_both(st, host, card, false);
+            }
+            return unsupported(
+                "a part's CurrPage.Update on a new part row when the host row did not change, on a Card host with UpdatePropagation Both or a ListPlus host without it (not pinned)",
             );
         }
         {
@@ -1210,12 +1248,22 @@ impl Session {
     /// x.q=0) H.AGR(t=6 ... x.t=1) H.AGCR(t=6 ... x.t=1)`, `part-qty-after-part = 0.00`, `lines-after-close = 10000:q=1,a=1`).
     /// The pinned part declares no OnNewRecord: whether it runs on the way back to the blank line is not pinned, so a part that
     /// can observe it is refused, and so is a part whose whole view the client does not hold or that shows more than one row (one row is pinned).
-    fn new_part_row_update_without_both(&mut self, st: &St, host: &St) -> Result<bool, Signal> {
+    /// `card_ok`: a Card host is pinned too; `read_host`: the host reads its row again after the part (not when the host row did
+    /// not change: QjPartPropagation.al:2061 QN_SubPart_NewPartRow_PartUpdate_HostRowUnchanged, :2092, :2235 end their `log-part-edit`
+    /// with the part's `N.AGCR(0 a=0 x.a=0)`).
+    fn new_part_row_update_without_both(
+        &mut self,
+        st: &St,
+        host: &St,
+        card_ok: bool,
+        read_host: bool,
+    ) -> Result<bool, Signal> {
         let o = host.borrow().object as usize;
         let part_object = st.borrow().object as usize;
         let observes_new =
             self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(part_object, "onnewrecordevent");
-        if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document)
+        let page_type = self.engine.object_facts[o].page_type.clone();
+        if !(page_type == Some(al_ir::PageType::Document) || card_ok && page_type == Some(al_ir::PageType::Card))
             || self.is_list(host)
             || observes_new
             || !self.part_view_held(st)
@@ -1246,6 +1294,9 @@ impl Session {
         }
         self.current_record_trigger(st, None)?;
         self.land_on_new_line(st)?;
+        if !read_host {
+            return Ok(true);
+        }
         let mut h = host.borrow_mut();
         h.refresh = true;
         h.refresh_without_parts = true;
@@ -1280,7 +1331,13 @@ impl Session {
         if hrec.borrow().temporary || self.stored_row(&hrec)?.is_none() {
             return Ok(());
         }
-        self.save_row(&host)
+        self.save_row(&host)?;
+        // The host's next read sees the saved row as xRec (QjPartPropagation.al:2297 QN_Both_HostEdited_PartUpdate_HostRowUnchanged
+        // `H.MODR(t=9 x.t=1) ... H.AGR(t=9 x.t=9)`; :1332 QJ_Both_HostEdited_PartModifiesHost_ThenHostSave `H.AGR(t=5 ... x.t=1)`
+        // after saving t=1): the saved row counts as the host's last read.
+        let saved = hrec.borrow().fields.clone();
+        host.borrow_mut().agr_xrec = Some(saved);
+        Ok(())
     }
 
     /// A host control is about to take a value: the open parts that hold a typed row that is not saved save it first
@@ -1530,7 +1587,7 @@ impl Session {
     /// The client's whole view of a part that offers the blank line, held from its first row and asked of no page trigger: the
     /// shape the Last, First and New counts of pages/lt-qj-part-propagation/QjPartPropagation.al pin (a ListPart with
     /// AutoSplitKey and DelayedInsert in a Document host opened for edit, without OnFindRecord and OnNextRecord).
-    fn part_view_held(&self, st: &St) -> bool {
+    pub(super) fn part_view_held(&self, st: &St) -> bool {
         let s = st.borrow();
         s.host.is_some()
             && s.open
@@ -1567,17 +1624,6 @@ impl Session {
         Ok(())
     }
 
-    /// The part `LT QJ Save Lines` of QjPartPropagation.al pins the xRec of New(): AutoSplitKey and DelayedInsert, no
-    /// OnAfterGetRecord.
-    fn pinned_new_xrec_part(&self, st: &St) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let on = |name: &str| -> Result<bool, Signal> {
-            Ok(effective_prop(&engine, object, name)?.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")))
-        };
-        Ok(on("AutoSplitKey")? && on("DelayedInsert")? && !self.declares(st, "onaftergetrecord"))
-    }
-
     fn observes_new_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
@@ -1597,6 +1643,49 @@ impl Session {
     ///   `PageState::empty_part_xrec`, and answers No (:1346 QL_PartLastNew_NoLines `log-1-last = S.NEW(x=3 x.ln=30000)
     ///   S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0)`, `last-result = No`).
     pub(super) fn part_last_first(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        if how == PageMethod::Last
+            && !self.part_view_held(st)
+            && st.borrow().host.is_some()
+            && self.observes_new_record(st)
+        {
+            let empty_line = {
+                let s = st.borrow();
+                s.cursor == Cursor::NewLine && s.draft && !s.dirty && s.window.is_empty()
+            };
+            // Last() on a part whose view holds no row runs its blank line again and answers No: twice on a stored host
+            // (QjPartPropagation.al:2441 QN_EmptyPart_OpenEdit_FirstHostEmpty `log-last = S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0)` two
+            // times), five times on a new host (:2591 QN_EmptyPart_HostOpenNew), OnNewRecord seeing the xRec the part held as it
+            // landed on the blank line (`PageState::empty_part_xrec`, blank in both probes).
+            let view_empty = empty_line && {
+                let rec = self.page_rec(st);
+                let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+                self.ret_used = true;
+                !matches!(
+                    self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+                    Value::Boolean(true)
+                )
+            };
+            if view_empty {
+                let x = st.borrow().empty_part_xrec.clone();
+                let host_new = st
+                    .borrow()
+                    .host
+                    .as_ref()
+                    .and_then(|(h, _)| h.upgrade())
+                    .is_some_and(|h| h.borrow().draft);
+                let Some(x) = x else {
+                    return unsupported(
+                        "Last() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
+                    );
+                };
+                self.empty_part_new_line_pinned(st)?;
+                for _ in 0..if host_new { 5 } else { 2 } {
+                    self.set_xrec_fields(st, x.clone());
+                    self.land_on_new_line(st)?;
+                }
+                return Ok(Some(false));
+            }
+        }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);
         }
@@ -1608,7 +1697,7 @@ impl Session {
             let Some(x) = st.borrow().empty_part_xrec.clone() else {
                 if self.observes_new_record(st) {
                     return unsupported(
-                        "Last() on a part that shows no row after a host move other than GoToKey (the xRec OnNewRecord sees is not pinned)",
+                        "Last() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
                     );
                 }
                 return Ok(None);
@@ -1633,22 +1722,13 @@ impl Session {
             if at != 0 {
                 return Ok(None);
             }
-            // Kept, not pinned: a part with OnAfterGetRecord reads the row again as before (refusing it loses baseline cases
-            // 70174 PartGetFieldById; 70180 DisabledPartControlEnabled, HiddenPartExpression; 70181 EditablePartNewAndNext,
-            // ReadOnlyPartSetValue, PendingPartRowSavedWhenHostMoves, SubPageViewOnTheLinkedField).
-            if self.declares(st, "onaftergetrecord") {
-                return Ok(None);
-            }
+            // Also with OnAfterGetRecord or without OnAfterGetCurrRecord (QjPartPropagation.al:2824 QN_PartAGR_First_OnFirstRow
+            // `log-first` empty, :2860 QN_PartNoAGCR_First_OnFirstRow).
             return Ok(Some(true));
         }
-        // Both pinned parts declare OnAfterGetCurrRecord. Kept, not pinned: without it Last() reads as before (refusing it loses
-        // baseline cases 68129 TestPage_New_AppendAfterASingleLine_NegativeZeroAndPositive, TestPage_New_DecimalKey_SplitsTheGap
-        // IncludingFractions; 60757 ModalHostPart_Last_LandsOnTheLastDataRow; 60346 TestPart_Last_LandsOnTheHighestKeyedRow,
-        // TestPart_Previous_WalksBackwardOneRowAtATime, TestPart_Next_StepsOntoTheTrailingNewRowLineAtTheEnd,
-        // TestPart_FindPreviousField_MovesBackToTheEarlierMatchingRow).
-        if !self.declares(st, "onaftergetcurrrecord") {
-            return Ok(None);
-        }
+        // Without OnAfterGetCurrRecord too: OnNewRecord runs once with the last row as xRec and the part lands on the last row
+        // (QjPartPropagation.al:2644 QN_PartNoAGCR_Last_TwoLines `log-last = A.NEW(x=4 x.ln=40000 b=Yes)`, :2674 _OneLine, :2734
+        // QN_PartNewOnly_Last_TwoLines, :2764 _OneLine).
         let before = self.page_xrec_fields(st);
         let last = window.len() - 1;
         self.set_xrec_fields(st, window[last].stored.clone());
@@ -1660,6 +1740,17 @@ impl Session {
         }
         // The last row is read twice; the first OnAfterGetRecord sees the blank line as xRec, the row fetched before it
         // (`L.AGR(10000 q=1 x.q=0) L.AGR(10000 q=1 x.q=1)`), and OnAfterGetCurrRecord the row the move came from.
+        // Without OnAfterGetCurrRecord the client reads nothing on its way back to the last row: no OnAfterGetRecord
+        // (QjPartPropagation.al:2644 QN_PartNoAGCR_Last_TwoLines on a part that declares OnAfterGetRecord).
+        if !self.declares(st, "onaftergetcurrrecord") {
+            self.reread_held_row(st, last)?;
+            self.set_xrec(st);
+            let shown = self.page_rec(st).borrow().fields.clone();
+            if let Some(w) = st.borrow_mut().window.get_mut(last) {
+                w.shown = shown;
+            }
+            return Ok(Some(true));
+        }
         let landed_xrec = self.page_xrec_fields(st);
         st.borrow_mut().agr_xrec = Some(landed_xrec);
         self.reread_held_row(st, last)?;
@@ -1693,20 +1784,17 @@ impl Session {
         }
         let last = st.borrow().window.last().map(|w| w.stored.clone());
         if let Some(last) = last {
-            // Pinned for a part with AutoSplitKey and DelayedInsert and without OnAfterGetRecord (the `LT QJ Save Lines` part).
-            let current = self.page_rec(st).borrow().fields.clone();
-            // Kept, not pinned: such a part keeps the earlier xRec (refusing it loses baseline case 60358
-            // New_OnDraftLineReachedByNext_RunsOnNewRecordOnceMore).
-            if !self.pinned_new_xrec_part(st)? && !Self::same_values(&current, &last) {
-                return Ok(None);
-            }
+            // Every part shape: AutoSplitKey and DelayedInsert (the `LT QJ Save Lines` part), DelayedInsert only, AutoSplitKey
+            // only, neither, with OnAfterGetRecord, without OnAfterGetCurrRecord (QjPartPropagation.al:2921
+            // QN_PartDelayedOnly_New_FromFirstRow `D.NEW(x=4 x.ln=40000 b=Yes)` from row 30000, :3027 QN_PartSplitOnly_*, :3133
+            // QN_PartPlain_*, :3239 QN_PartAGR_*, :3345 QN_PartNoAGCR_*; each also after Next, Last and a typed New).
             return Ok(Some(last));
         }
         // Only OnNewRecord's xRec comes from here; the link value is stamped and validated as for any New() (`start_draft`).
         let x = st.borrow().empty_part_xrec.clone().filter(|_| on_blank);
         if x.is_none() && on_blank && self.observes_new_record(st) {
             return unsupported(
-                "New() on a part that shows no row after a host move other than GoToKey (the xRec OnNewRecord sees is not pinned)",
+                "New() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
             );
         }
         Ok(x)

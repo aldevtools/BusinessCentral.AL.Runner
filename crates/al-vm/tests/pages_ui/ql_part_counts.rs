@@ -984,6 +984,43 @@ codeunit 86989 "LT QL Count Tests"
         R += '|lines-after-close=' + StoredLinesOf('H1');
         exit(R);
     end;
+    procedure QN_EmptyPart_HostNext(): Text
+    var
+        R: Text;
+        TP: TestPage "LT QJ Save Host";
+    begin
+        SeedQl();
+        TP.OpenEdit();
+        TP.Next();
+        Log.Take();
+        R += '|next-result=' + Format(TP.Next());
+        R += '|host-no=' + TP.NoF.Value();
+        R += '|log-move=' + Log.Take();
+        R += '|last-result=' + Format(TP.Lines.Last());
+        R += '|log-last=' + Log.Take();
+        TP.Lines.New();
+        R += '|log-new=' + Log.Take();
+        TP.Close();
+        R += '|log-close=' + Log.Take();
+        exit(R);
+    end;
+
+    procedure QN_EmptyPart_HostLast(): Text
+    var
+        R: Text;
+        TP: TestPage "LT QJ Save Host";
+    begin
+        SeedQl();
+        TP.OpenEdit();
+        Log.Take();
+        R += '|last-host-result=' + Format(TP.Last());
+        R += '|log-move=' + Log.Take();
+        R += '|last-result=' + Format(TP.Lines.Last());
+        R += '|log-last=' + Log.Take();
+        TP.Lines.New();
+        R += '|log-new=' + Log.Take();
+        exit(R);
+    end;
 }
 "#;
 
@@ -1288,4 +1325,43 @@ fn ql_part_last_new_new() {
         ("lines-after-close", "10000:q=1,a=1"),
     ]);
     assert_eq!(run("QL_PartLastNewNew"), want);
+}
+
+/// QjPartPropagation.al:2468 QN_EmptyPart_HostNext (corpus bump 44): an empty part after a host Next runs OnNewRecord three
+/// times, the first and third with the part row shown before as xRec.
+#[test]
+fn qn_empty_part_host_next() {
+    let three = "S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0)";
+    let want = expected(&[
+        ("next-result", "Yes"),
+        ("host-no", "H3"),
+        ("log-move", three),
+        ("last-result", "No"),
+        (
+            "log-last",
+            "S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0)",
+        ),
+        ("log-new", "S.NEW(x=3 x.ln=30000) S.AGCR(0 r=0 x=0)"),
+        ("log-close", ""),
+    ]);
+    assert_eq!(run("QN_EmptyPart_HostNext"), want);
+}
+
+/// QjPartPropagation.al:2561 QN_EmptyPart_HostLast.
+#[test]
+fn qn_empty_part_host_last() {
+    let want = expected(&[
+        ("last-host-result", "Yes"),
+        (
+            "log-move",
+            "S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0)",
+        ),
+        ("last-result", "No"),
+        (
+            "log-last",
+            "S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0) S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0)",
+        ),
+        ("log-new", "S.NEW(x=1 x.ln=10000) S.AGCR(0 r=0 x=0)"),
+    ]);
+    assert_eq!(run("QN_EmptyPart_HostLast"), want);
 }
