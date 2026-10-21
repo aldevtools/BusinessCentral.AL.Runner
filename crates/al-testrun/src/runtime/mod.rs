@@ -206,6 +206,69 @@ pub struct CorpusRuntime {
     program_apps: Vec<(String, String, String)>,
     /// `--tdd`: every stub of the compiled program (`Program::tdd_stubs`).
     tdd_stubs: Vec<String>,
+    /// The compile errors of the apps under test (`compile_errors`).
+    compile_errors: Vec<CompileError>,
+}
+
+/// An error in the code of an app under test: one the AL compiler gives (an `AL` code from `al_sema::alcodes` or the
+/// checker, pinned by the must-not-compile corpus), which stops it from compiling, or source our parser does not accept
+/// (`code` is empty). A parse error is not a compile error, as the parser can reject valid AL (al-runner issue 5576):
+/// the objects of the file refuse their routines instead (`al_sema::lower`). Dependency apps are not judged: the AL
+/// compiler has already vetted them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompileError {
+    /// The app, as the caller numbered the apps of the run.
+    pub app: usize,
+    /// The file, relative to its app.
+    pub file: String,
+    /// 1-based line and column of the error.
+    pub line: usize,
+    pub column: usize,
+    /// The AL compiler's code (`AL0118`); empty for a parse error.
+    pub code: String,
+    pub message: String,
+}
+
+/// The compile errors of the workspace apps of a compiled program, in file order; `order[i]` is the caller's number of
+/// program app `i`.
+pub(crate) fn compile_errors(ws: &al_sema::Workspace, lowered: &Lowered, order: &[usize]) -> Vec<CompileError> {
+    let parse: Vec<&al_sema::Diagnostic> = ws.diagnostics.iter().filter(|d| d.code == "AR0000").collect();
+    // An AL diagnostic in a file the parser did not accept may come from the parser's recovery: the parse error stands
+    // for the file.
+    let unparsed = |d: &al_sema::Diagnostic| parse.iter().any(|p| p.app == d.app && p.file == d.file);
+    let mut out: Vec<CompileError> = lowered
+        .al_diagnostics
+        .iter()
+        .filter(|d| !unparsed(d))
+        .chain(parse.iter().copied())
+        .filter(|d| ws.kinds.get(d.app).is_some_and(|k| *k != al_sema::AppKind::Dependency))
+        .map(|d| {
+            let text = ws
+                .files
+                .iter()
+                .find(|f| f.app == d.app && f.path == d.file)
+                .and_then(|f| ws.apps.get(f.app).and_then(|a| a.files.get(f.file_in_app)))
+                .map_or("", |(_, t)| t.as_str());
+            let before = &text[..d.offset.min(text.len())];
+            let line = before.matches('\n').count() + 1;
+            let column = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+            CompileError {
+                app: order.get(d.app).copied().unwrap_or(d.app),
+                file: d.file.clone(),
+                line,
+                column,
+                code: if d.code == "AR0000" {
+                    String::new()
+                } else {
+                    d.code.to_string()
+                },
+                message: d.message.clone(),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| (a.app, &a.file, a.line, a.column).cmp(&(b.app, &b.file, b.line, b.column)));
+    out.dedup();
+    out
 }
 
 /// One test as the run left it, in the order the test codeunits were scheduled.
@@ -365,6 +428,8 @@ pub(crate) struct Unit {
     clock_start: Option<i64>,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
+    /// See `RunOptions::run_only`.
+    run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -386,6 +451,8 @@ pub(crate) struct Scratch {
     traces: Vec<(String, Vec<String>)>,
     /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
     stubbed: Vec<(String, Vec<String>)>,
+    /// See `RunOptions::run_only`.
+    run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -461,6 +528,7 @@ fn run_unit(
             order: u.order.clone(),
             clock_start,
             trace: u.impact,
+            run_only: u.run_only.clone(),
             ..Default::default()
         };
         if u.coverage {

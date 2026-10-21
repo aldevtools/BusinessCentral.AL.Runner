@@ -2688,7 +2688,7 @@ impl Session {
         let table = rec.borrow().table as usize;
         let mut columns = Vec::new();
         for c in &item.columns {
-            columns.push(self.dataset_column(c, &owner, object, table)?);
+            columns.push(self.dataset_column(c, &owner, object, table, rec)?);
         }
         if let ItemRef::Base(i) = r {
             for k in 0..run.exts.len() {
@@ -2696,7 +2696,7 @@ impl Session {
                 let Some(x) = run.ext_ir(k) else { continue };
                 for add in x.adds.iter().filter(|a| a.item == i) {
                     for c in &add.columns {
-                        columns.push(self.dataset_column(c, ext_inst, *e, table)?);
+                        columns.push(self.dataset_column(c, ext_inst, *e, table, rec)?);
                     }
                 }
             }
@@ -2834,6 +2834,7 @@ impl Session {
         owner: &Inst,
         object: usize,
         table: usize,
+        rec: &Rec,
     ) -> Result<Column, Signal> {
         let name = dataset::dataset_name(&c.name)?;
         if let Some(why) = &c.unsupported {
@@ -2937,6 +2938,18 @@ impl Session {
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
                 dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?)?
             }
+            Value::Blob(b) => self.blob_column_text(c, rec, b)?,
+            // An empty Media or MediaSet field is an empty element (report/lt-bc-xml-blob/BcXmlBlob.al:102); one with content holds a
+            // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
+            Value::Guid(g) if Self::media_field(&t, c) => {
+                if g.iter().any(|b| *b != 0) {
+                    return unsupported(format!(
+                        "report column {} holds a Media or MediaSet with content (the dataset writes a re-encoded picture)",
+                        c.name
+                    ));
+                }
+                String::new()
+            }
             Value::Guid(_) => {
                 let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?;
                 // Lower case, braces dropped (handlers/TestReportSaveAsColumnDetailsContracts.al:
@@ -2958,6 +2971,72 @@ impl Session {
             text,
             schema_type,
         })
+    }
+
+    /// Whether column `c` is a Media or MediaSet field of the data item's table.
+    fn media_field(t: &Option<Arc<al_data::TableDef>>, c: &ir::ReportColumn) -> bool {
+        use al_builtins::library_kind::LibraryKind as L;
+        match (t, c.field.or(c.item_field)) {
+            (Some(t), Some(pos)) => t
+                .fields
+                .get(pos)
+                .is_some_and(|f| matches!(f.ty, al_builtins::value::RtType::Library(L::Media | L::MediaSet))),
+            _ => false,
+        }
+    }
+
+    /// The text of a Blob column: the Base64 text of the content, an empty element when there is none (report/lt-bc-xml-blob/
+    /// BcXmlBlob.al:93-154, `Hello BC` is `SGVsbG8gQkM=`, the bytes 0, 255, 65 are `AP9B`). A field of the data item that the report
+    /// did not calculate shows what the row stores (:102, report 80976 has no CalcFields). A Blob a stream wrote after it was read,
+    /// and one that was not calculated and is not a field of the data item, are not pinned.
+    fn blob_column_text(
+        &mut self,
+        c: &ir::ReportColumn,
+        rec: &Rec,
+        b: &al_builtins::stream::BlobRef,
+    ) -> Result<String, Signal> {
+        {
+            let buf = b.borrow();
+            if buf.render_pending.is_some() {
+                return unsupported(format!(
+                    "report column {} holds a Blob a report was saved to in a rendered format (ADR-040)",
+                    c.name
+                ));
+            }
+            if buf.written {
+                return unsupported(format!(
+                    "report column {} holds a Blob a stream wrote after it was read (not pinned)",
+                    c.name
+                ));
+            }
+            if buf.loaded {
+                return Ok(al_builtins::platform_native::b64_encode(&buf.bytes, false));
+            }
+        }
+        let pos = c
+            .field
+            .or(c.item_field)
+            .filter(|&pos| matches!(rec.borrow().fields.get(pos), Some(Value::Blob(x)) if !x.borrow().loaded && !x.borrow().written));
+        let Some(pos) = pos else {
+            return unsupported(format!(
+                "report column {} holds a Blob that was not calculated and is not a field of the data item (not pinned)",
+                c.name
+            ));
+        };
+        let t = self.table(rec)?;
+        let cx = self.cx_for(rec, &t)?;
+        let pk = t.primary_key(&rec.borrow().fields);
+        let stored =
+            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::Unsupported(format!("{e}")))?;
+        match stored.map(|row| row[pos].clone()) {
+            Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
+                Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))
+            }
+            _ => unsupported(format!(
+                "report column {}: the Blob of a row the store does not hold as written (not pinned)",
+                c.name
+            )),
+        }
     }
 
     /// The header of the dataset: what the report, its app, the session and the clock say.

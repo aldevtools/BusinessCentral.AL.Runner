@@ -61,7 +61,7 @@ fn round_expr(e: &FilterExpr) -> FilterExpr {
         F::Ge(v) => F::Ge(rounded(v)),
         F::Or(es) => F::Or(es.iter().map(round_expr).collect()),
         F::And(es) => F::And(es.iter().map(round_expr).collect()),
-        F::Like(..) => e.clone(),
+        F::Like(..) | F::NotLike(..) => e.clone(),
     }
 }
 

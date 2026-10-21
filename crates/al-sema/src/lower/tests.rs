@@ -1927,3 +1927,51 @@ fn a_number_variable_into_text_is_refused_but_a_variant_into_text_lowers() {
         assert!(reasons(ok).is_empty(), "{ok}: {:?}", reasons(ok));
     }
 }
+
+/// A selection compiles less of the workspace (`only_tests`, `reach_only`, `lean`), but the AL compiler rejects an app
+/// for an error anywhere in it: the errors of what the selection leaves out are still found (al-runner issue 5602, an
+/// AL0118 in a procedure no selected test names gave a clean pass).
+#[test]
+fn a_selection_still_finds_the_compile_errors_of_what_it_leaves_out() {
+    const SRC: &str = "codeunit 50100 \"Helper\" {
+            procedure Used(): Integer begin exit(1); end;
+            procedure Unused(): Integer var I: Integer; begin I := NoSuchProcA(); exit(I); end; }
+        codeunit 50101 \"Apart\" { procedure Two(): Integer begin exit(NoSuchProcB()); end; }
+        codeunit 50102 \"T\" { Subtype = Test; var H: Codeunit \"Helper\";
+            [Test] procedure P() begin if H.Used() <> 1 then Error('x'); end; }
+        codeunit 50103 \"Other Test\" { Subtype = Test; [Test] procedure Q() begin NoSuchProcC(); end; }";
+    for (reach_only, lean) in [(false, false), (true, false), (true, true)] {
+        let (_, l) = compile_apps_with(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".to_string(), SRC.to_string())],
+            }],
+            vec![crate::workspace::AppKind::Workspace],
+            &Default::default(),
+            None,
+            crate::check::Roots {
+                baseline: false,
+                only_tests: Some(vec![(0, 50102)]),
+                reach_only,
+                lean,
+                ..Default::default()
+            },
+        );
+        let got: Vec<String> = l
+            .al_diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code, d.message))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                "AL0118 The name 'NoSuchProcA' does not exist in the current context.".to_string(),
+                "AL0118 The name 'NoSuchProcB' does not exist in the current context.".to_string(),
+                "AL0118 The name 'NoSuchProcC' does not exist in the current context.".to_string(),
+            ],
+            "reach_only {reach_only}, lean {lean}"
+        );
+    }
+}

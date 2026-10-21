@@ -338,6 +338,7 @@ pub const REMOVED_PLATFORM_TABLES_27: &[(&str, &str)] = &[
 fn push(out: &mut Vec<Diagnostic>, ws: &Workspace, file: usize, offset: usize, code: &'static str, message: String) {
     out.push(Diagnostic {
         file: ws.files[file].path.clone(),
+        app: ws.files[file].app,
         offset,
         code,
         message,
