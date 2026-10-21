@@ -1,554 +1,554 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="348" failures="0" errors="0" skipped="0" time="89.781" timestamp="2026-10-21T12:49:34Z"><testsuite name="Codeunit 61200" tests="10" failures="0" errors="0" skipped="0" time="5.146" timestamp="2026-10-21T12:48:11Z">
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ApplicationDatabaseTableId_ReturnsARow" time="0.370" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_VirtualTableId_ReturnsNoRow" time="0.218" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ApplicationTableId_ReturnsNoRow" time="0.415" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Count_EveryRow_CarriesObjectTypeTable" time="0.954" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Count_IsMicrosoftsApplicationDatabaseTableListCount" time="0.618" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ObsoletePendingId_ReturnsARow" time="0.434" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ObsoleteRemovedId_ReturnsARow" time="0.419" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_FindLast_ObjectTypeTable_LandsOnHighestListedId" time="0.775" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_EmitVersion_EveryRow_CarriesTheBuildsEmitVersion" time="0.073" />
-    <testcase classname="Codeunit 61200" name="ObjectMetadata_CalcFields_Metadata_HasAPayload" time="0.870" />
-  </testsuite>
-  <testsuite name="Codeunit 61201" tests="13" failures="0" errors="0" skipped="0" time="6.204" timestamp="2026-10-21T12:48:11Z">
-    <testcase classname="Codeunit 61201" name="PublishedApplication_Find_ThisAppsId_ReturnsItsManifestIdentity" time="0.037" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_Find_UnknownAppId_ReturnsNoRow" time="0.680" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_Get_UnknownRuntimePackageId_RaisesRecordNotFound" time="0.118" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_Get_ThisAppsRuntimePackageId_ReturnsThisAppsRow" time="0.951" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_TwoApps_DoNotShareEitherPackageId" time="0.159" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_ThisApp_BothPackageColumnsAreNonBlank" time="0.788" />
-    <testcase classname="Codeunit 61201" name="AllObj_AppRuntimePackageId_ThisAppsObject_IdentifiesThisApp" time="0.857" />
-    <testcase classname="Codeunit 61201" name="AllObj_AppRuntimePackageId_AnotherAppsTable_IdentifiesThatApp" time="0.074" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_Installed_IsTrueForThisApp" time="0.413" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_TenantVisible_IsTrueForThisApp" time="0.691" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_PerTenantOrInstalled_IsTrueForThisApp" time="0.785" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_BothFlowFields_AlsoTrueForTheOtherApp" time="0.022" />
-    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_UnpublishedRuntimePackageId_HasNoRowToLookUp" time="0.629" />
-  </testsuite>
-  <testsuite name="Codeunit 61202" tests="7" failures="0" errors="0" skipped="0" time="3.540" timestamp="2026-10-21T12:48:11Z">
-    <testcase classname="Codeunit 61202" name="Object_Get_UnknownKey_RaisesRecordNotFound" time="0.310" />
-    <testcase classname="Codeunit 61202" name="Object_HoldsNoRows_WhileObjectMetadataDoes" time="0.815" />
-    <testcase classname="Codeunit 61202" name="Object_HasNoRowForAnyObjectThisRepositoryPublishes" time="0.118" />
-    <testcase classname="Codeunit 61202" name="ObjectMetadata_ObjectIdRelation_ResolvesToNoObjectRow" time="0.812" />
-    <testcase classname="Codeunit 61202" name="Object_Type_OptionOrdinals_MatchMicrosoftsDeclaredPositions" time="0.164" />
-    <testcase classname="Codeunit 61202" name="Object_Type_SharesItsOrdinalsWithObjectMetadataObjectType" time="0.613" />
-    <testcase classname="Codeunit 61202" name="Object_FilterOnOemTextName" time="0.708" />
-  </testsuite>
-  <testsuite name="Codeunit 61203" tests="2" failures="0" errors="0" skipped="0" time="1.077" timestamp="2026-10-21T12:48:12Z">
-    <testcase classname="Codeunit 61203" name="UserProperty_SessionUser_HasACompanionRowKeyedByItsSecurityId" time="0.405" />
-    <testcase classname="Codeunit 61203" name="UserProperty_Get_IdBelongingToNoUser_FindsNothing" time="0.672" />
-  </testsuite>
-  <testsuite name="Codeunit 61204" tests="2" failures="0" errors="0" skipped="0" time="0.517" timestamp="2026-10-21T12:48:12Z">
-    <testcase classname="Codeunit 61204" name="UserProperty_UserInsertedThroughPage_HasCompanionRow" time="0.026" />
-    <testcase classname="Codeunit 61204" name="UserProperty_UserInsertedThroughRecord_HasCompanionRow" time="0.491" />
-  </testsuite>
-  <testsuite name="Codeunit 61206" tests="17" failures="0" errors="0" skipped="0" time="8.131" timestamp="2026-10-21T12:48:14Z">
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_TrimsSurroundingWhitespace" time="0.162" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_DisplayNameFormReducesToTheAddress" time="0.504" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_PlainAddressIsStoredUnchanged" time="0.410" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Validate_DoesNotNormalise" time="0.637" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_ReducesAListToItsLastAddress" time="0.642" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_WhitespaceOnlyBecomesEmpty" time="0.083" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_InvalidAddressIsRefused" time="0.285" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_EmailOfAnotherEnabledUserIsRefused" time="0.098" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_EmailOfADisabledUserIsAccepted" time="0.928" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_EmailOfAnotherEnabledUserIsRefused" time="0.051" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_KeepingItsOwnEmailIsAccepted" time="0.933" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_ChangingTheEmailClearsTheAuthenticationObjectId" time="0.853" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_KeepingTheEmailKeepsTheAuthenticationObjectId" time="0.007" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_DisabledUserWithAnEnabledUsersEmailIsAccepted" time="0.226" />
-    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_DisabledUserToAnEnabledUsersEmailIsAccepted" time="0.892" />
-    <testcase classname="Codeunit 61206" name="UserName_Modify_ToAnotherUsersNameIsRefused" time="0.639" />
-    <testcase classname="Codeunit 61206" name="UserName_Modify_ToAFreshNameIsAccepted" time="0.781" />
-  </testsuite>
-  <testsuite name="Codeunit 61207" tests="2" failures="0" errors="0" skipped="0" time="1.172" timestamp="2026-10-21T12:48:14Z">
-    <testcase classname="Codeunit 61207" name="AllProfileRename_TenantProfile_CarriesUserPersonalizationWithIt" time="0.258" />
-    <testcase classname="Codeunit 61207" name="AllProfileRename_TenantProfile_CarriesTenantProfilePageMetadataWithIt" time="0.914" />
-  </testsuite>
-  <testsuite name="Codeunit 61208" tests="6" failures="0" errors="0" skipped="0" time="3.495" timestamp="2026-10-21T12:48:21Z">
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_OnBeforeInsertSubscriberSeesTheRawEmail" time="0.181" />
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_OnBeforeModifySubscriberSeesTheRawEmail" time="0.204" />
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeInsertSubscriberIsNormalised" time="0.959" />
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeModifySubscriberIsNormalised" time="0.509" />
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeInsertSubscriberIsCheckedForUniqueness" time="0.646" />
-    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeModifySubscriberIsCheckedForUniqueness" time="0.996" />
-  </testsuite>
-  <testsuite name="Codeunit 61210" tests="3" failures="0" errors="0" skipped="0" time="0.939" timestamp="2026-10-21T12:48:21Z">
-    <testcase classname="Codeunit 61210" name="UserDeleteOrder_OnBeforeDeleteSubscriberStillSeesUserProperty" time="0.740" />
-    <testcase classname="Codeunit 61210" name="UserDeleteOrder_OnAfterDeleteSubscriberNoLongerSeesUserProperty" time="0.169" />
-    <testcase classname="Codeunit 61210" name="UserDeleteOrder_DeleteAllOnBeforeDeleteSubscriberStillSeesUserProperty" time="0.030" />
-  </testsuite>
-  <testsuite name="Codeunit 61212" tests="1" failures="0" errors="0" skipped="0" time="0.350" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61212" name="P111_Attach_NoDebugger" time="0.350" />
-  </testsuite>
-  <testsuite name="Codeunit 61213" tests="1" failures="0" errors="0" skipped="0" time="0.897" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61213" name="P111_Break_NoDebugger" time="0.897" />
-  </testsuite>
-  <testsuite name="Codeunit 61214" tests="1" failures="0" errors="0" skipped="0" time="0.510" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61214" name="P111_BreakOnError_NoDebugger" time="0.510" />
-  </testsuite>
-  <testsuite name="Codeunit 61215" tests="1" failures="0" errors="0" skipped="0" time="0.519" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61215" name="P111_BreakOnRecordChanges_NoDebugger" time="0.519" />
-  </testsuite>
-  <testsuite name="Codeunit 61216" tests="1" failures="0" errors="0" skipped="0" time="0.899" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61216" name="P111_Continue_NoDebugger" time="0.899" />
-  </testsuite>
-  <testsuite name="Codeunit 61217" tests="1" failures="0" errors="0" skipped="0" time="0.497" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61217" name="P111_Deactivate_NoDebugger" time="0.497" />
-  </testsuite>
-  <testsuite name="Codeunit 61218" tests="1" failures="0" errors="0" skipped="0" time="0.754" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61218" name="P111_SessionIds_NoDebugger" time="0.754" />
-  </testsuite>
-  <testsuite name="Codeunit 61219" tests="1" failures="0" errors="0" skipped="0" time="0.863" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61219" name="P111_EnableSqlTrace_NoDebugger" time="0.863" />
+<testsuites name="hybrid" tests="348" failures="0" errors="0" skipped="0" time="92.741" timestamp="2026-10-21T13:47:11Z"><testsuite name="Codeunit 61200" tests="10" failures="0" errors="0" skipped="0" time="4.237" timestamp="2026-10-21T13:45:45Z">
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ApplicationDatabaseTableId_ReturnsARow" time="0.070" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_VirtualTableId_ReturnsNoRow" time="0.248" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ApplicationTableId_ReturnsNoRow" time="0.405" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Count_EveryRow_CarriesObjectTypeTable" time="0.119" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Count_IsMicrosoftsApplicationDatabaseTableListCount" time="0.614" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ObsoletePendingId_ReturnsARow" time="0.400" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_Find_ObsoleteRemovedId_ReturnsARow" time="0.401" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_FindLast_ObjectTypeTable_LandsOnHighestListedId" time="0.842" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_EmitVersion_EveryRow_CarriesTheBuildsEmitVersion" time="0.154" />
+    <testcase classname="Codeunit 61200" name="ObjectMetadata_CalcFields_Metadata_HasAPayload" time="0.984" />
+  </testsuite>
+  <testsuite name="Codeunit 61201" tests="13" failures="0" errors="0" skipped="0" time="6.438" timestamp="2026-10-21T13:45:45Z">
+    <testcase classname="Codeunit 61201" name="PublishedApplication_Find_ThisAppsId_ReturnsItsManifestIdentity" time="0.098" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_Find_UnknownAppId_ReturnsNoRow" time="0.681" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_Get_UnknownRuntimePackageId_RaisesRecordNotFound" time="0.096" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_Get_ThisAppsRuntimePackageId_ReturnsThisAppsRow" time="0.957" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_TwoApps_DoNotShareEitherPackageId" time="0.236" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_ThisApp_BothPackageColumnsAreNonBlank" time="0.802" />
+    <testcase classname="Codeunit 61201" name="AllObj_AppRuntimePackageId_ThisAppsObject_IdentifiesThisApp" time="0.967" />
+    <testcase classname="Codeunit 61201" name="AllObj_AppRuntimePackageId_AnotherAppsTable_IdentifiesThatApp" time="0.146" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_Installed_IsTrueForThisApp" time="0.380" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_TenantVisible_IsTrueForThisApp" time="0.702" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_PerTenantOrInstalled_IsTrueForThisApp" time="0.686" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_BothFlowFields_AlsoTrueForTheOtherApp" time="0.061" />
+    <testcase classname="Codeunit 61201" name="PublishedApplication_CalcFields_UnpublishedRuntimePackageId_HasNoRowToLookUp" time="0.626" />
+  </testsuite>
+  <testsuite name="Codeunit 61202" tests="7" failures="0" errors="0" skipped="0" time="3.056" timestamp="2026-10-21T13:45:46Z">
+    <testcase classname="Codeunit 61202" name="Object_Get_UnknownKey_RaisesRecordNotFound" time="0.156" />
+    <testcase classname="Codeunit 61202" name="Object_HoldsNoRows_WhileObjectMetadataDoes" time="0.861" />
+    <testcase classname="Codeunit 61202" name="Object_HasNoRowForAnyObjectThisRepositoryPublishes" time="0.125" />
+    <testcase classname="Codeunit 61202" name="ObjectMetadata_ObjectIdRelation_ResolvesToNoObjectRow" time="0.819" />
+    <testcase classname="Codeunit 61202" name="Object_Type_OptionOrdinals_MatchMicrosoftsDeclaredPositions" time="0.302" />
+    <testcase classname="Codeunit 61202" name="Object_Type_SharesItsOrdinalsWithObjectMetadataObjectType" time="0.690" />
+    <testcase classname="Codeunit 61202" name="Object_FilterOnOemTextName" time="0.103" />
+  </testsuite>
+  <testsuite name="Codeunit 61203" tests="2" failures="0" errors="0" skipped="0" time="1.066" timestamp="2026-10-21T13:45:46Z">
+    <testcase classname="Codeunit 61203" name="UserProperty_SessionUser_HasACompanionRowKeyedByItsSecurityId" time="0.415" />
+    <testcase classname="Codeunit 61203" name="UserProperty_Get_IdBelongingToNoUser_FindsNothing" time="0.651" />
+  </testsuite>
+  <testsuite name="Codeunit 61204" tests="2" failures="0" errors="0" skipped="0" time="0.899" timestamp="2026-10-21T13:45:46Z">
+    <testcase classname="Codeunit 61204" name="UserProperty_UserInsertedThroughPage_HasCompanionRow" time="0.411" />
+    <testcase classname="Codeunit 61204" name="UserProperty_UserInsertedThroughRecord_HasCompanionRow" time="0.488" />
+  </testsuite>
+  <testsuite name="Codeunit 61206" tests="17" failures="0" errors="0" skipped="0" time="8.640" timestamp="2026-10-21T13:45:48Z">
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_TrimsSurroundingWhitespace" time="0.306" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_DisplayNameFormReducesToTheAddress" time="0.404" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_PlainAddressIsStoredUnchanged" time="0.375" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Validate_DoesNotNormalise" time="0.685" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_ReducesAListToItsLastAddress" time="0.873" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_WhitespaceOnlyBecomesEmpty" time="0.901" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_InvalidAddressIsRefused" time="0.680" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_EmailOfAnotherEnabledUserIsRefused" time="0.227" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_EmailOfADisabledUserIsAccepted" time="0.300" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_EmailOfAnotherEnabledUserIsRefused" time="0.720" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_KeepingItsOwnEmailIsAccepted" time="0.116" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_ChangingTheEmailClearsTheAuthenticationObjectId" time="0.884" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_KeepingTheEmailKeepsTheAuthenticationObjectId" time="0.051" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Insert_DisabledUserWithAnEnabledUsersEmailIsAccepted" time="0.381" />
+    <testcase classname="Codeunit 61206" name="AuthEmail_Modify_DisabledUserToAnEnabledUsersEmailIsAccepted" time="0.101" />
+    <testcase classname="Codeunit 61206" name="UserName_Modify_ToAnotherUsersNameIsRefused" time="0.714" />
+    <testcase classname="Codeunit 61206" name="UserName_Modify_ToAFreshNameIsAccepted" time="0.922" />
+  </testsuite>
+  <testsuite name="Codeunit 61207" tests="2" failures="0" errors="0" skipped="0" time="1.009" timestamp="2026-10-21T13:45:49Z">
+    <testcase classname="Codeunit 61207" name="AllProfileRename_TenantProfile_CarriesUserPersonalizationWithIt" time="0.575" />
+    <testcase classname="Codeunit 61207" name="AllProfileRename_TenantProfile_CarriesTenantProfilePageMetadataWithIt" time="0.434" />
+  </testsuite>
+  <testsuite name="Codeunit 61208" tests="6" failures="0" errors="0" skipped="0" time="2.192" timestamp="2026-10-21T13:45:56Z">
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_OnBeforeInsertSubscriberSeesTheRawEmail" time="0.822" />
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_OnBeforeModifySubscriberSeesTheRawEmail" time="0.503" />
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeInsertSubscriberIsNormalised" time="0.165" />
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeModifySubscriberIsNormalised" time="0.071" />
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeInsertSubscriberIsCheckedForUniqueness" time="0.161" />
+    <testcase classname="Codeunit 61208" name="AuthEmailOrder_EmailSetByOnBeforeModifySubscriberIsCheckedForUniqueness" time="0.470" />
+  </testsuite>
+  <testsuite name="Codeunit 61210" tests="3" failures="0" errors="0" skipped="0" time="0.911" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61210" name="UserDeleteOrder_OnBeforeDeleteSubscriberStillSeesUserProperty" time="0.308" />
+    <testcase classname="Codeunit 61210" name="UserDeleteOrder_OnAfterDeleteSubscriberNoLongerSeesUserProperty" time="0.213" />
+    <testcase classname="Codeunit 61210" name="UserDeleteOrder_DeleteAllOnBeforeDeleteSubscriberStillSeesUserProperty" time="0.390" />
+  </testsuite>
+  <testsuite name="Codeunit 61212" tests="1" failures="0" errors="0" skipped="0" time="0.694" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61212" name="P111_Attach_NoDebugger" time="0.694" />
+  </testsuite>
+  <testsuite name="Codeunit 61213" tests="1" failures="0" errors="0" skipped="0" time="0.111" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61213" name="P111_Break_NoDebugger" time="0.111" />
+  </testsuite>
+  <testsuite name="Codeunit 61214" tests="1" failures="0" errors="0" skipped="0" time="0.874" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61214" name="P111_BreakOnError_NoDebugger" time="0.874" />
+  </testsuite>
+  <testsuite name="Codeunit 61215" tests="1" failures="0" errors="0" skipped="0" time="0.745" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61215" name="P111_BreakOnRecordChanges_NoDebugger" time="0.745" />
+  </testsuite>
+  <testsuite name="Codeunit 61216" tests="1" failures="0" errors="0" skipped="0" time="0.086" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61216" name="P111_Continue_NoDebugger" time="0.086" />
+  </testsuite>
+  <testsuite name="Codeunit 61217" tests="1" failures="0" errors="0" skipped="0" time="0.664" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61217" name="P111_Deactivate_NoDebugger" time="0.664" />
+  </testsuite>
+  <testsuite name="Codeunit 61218" tests="1" failures="0" errors="0" skipped="0" time="0.003" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61218" name="P111_SessionIds_NoDebugger" time="0.003" />
+  </testsuite>
+  <testsuite name="Codeunit 61219" tests="1" failures="0" errors="0" skipped="0" time="0.039" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61219" name="P111_EnableSqlTrace_NoDebugger" time="0.039" />
   </testsuite>
-  <testsuite name="Codeunit 61220" tests="1" failures="0" errors="0" skipped="0" time="0.055" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61220" name="P111_GetLastErrorText_NoDebugger" time="0.055" />
+  <testsuite name="Codeunit 61220" tests="1" failures="0" errors="0" skipped="0" time="0.277" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61220" name="P111_GetLastErrorText_NoDebugger" time="0.277" />
   </testsuite>
-  <testsuite name="Codeunit 61221" tests="1" failures="0" errors="0" skipped="0" time="0.056" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61221" name="P111_IsActive_NoDebugger" time="0.056" />
+  <testsuite name="Codeunit 61221" tests="1" failures="0" errors="0" skipped="0" time="0.267" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61221" name="P111_IsActive_NoDebugger" time="0.267" />
   </testsuite>
-  <testsuite name="Codeunit 61222" tests="1" failures="0" errors="0" skipped="0" time="0.048" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61222" name="P111_IsAttached_NoDebugger" time="0.048" />
+  <testsuite name="Codeunit 61222" tests="1" failures="0" errors="0" skipped="0" time="0.242" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61222" name="P111_IsAttached_NoDebugger" time="0.242" />
   </testsuite>
-  <testsuite name="Codeunit 61223" tests="1" failures="0" errors="0" skipped="0" time="0.057" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61223" name="P111_IsBreakpointHit_NoDebugger" time="0.057" />
+  <testsuite name="Codeunit 61223" tests="1" failures="0" errors="0" skipped="0" time="0.611" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61223" name="P111_IsBreakpointHit_NoDebugger" time="0.611" />
   </testsuite>
-  <testsuite name="Codeunit 61224" tests="1" failures="0" errors="0" skipped="0" time="0.490" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61224" name="P111_SkipSystemTriggers_NoDebugger" time="0.490" />
+  <testsuite name="Codeunit 61224" tests="1" failures="0" errors="0" skipped="0" time="0.426" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61224" name="P111_SkipSystemTriggers_NoDebugger" time="0.426" />
   </testsuite>
-  <testsuite name="Codeunit 61225" tests="1" failures="0" errors="0" skipped="0" time="0.872" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61225" name="P111_StepInto_NoDebugger" time="0.872" />
+  <testsuite name="Codeunit 61225" tests="1" failures="0" errors="0" skipped="0" time="0.855" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61225" name="P111_StepInto_NoDebugger" time="0.855" />
   </testsuite>
-  <testsuite name="Codeunit 61226" tests="1" failures="0" errors="0" skipped="0" time="0.834" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61226" name="P111_StepOut_NoDebugger" time="0.834" />
+  <testsuite name="Codeunit 61226" tests="1" failures="0" errors="0" skipped="0" time="0.914" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61226" name="P111_StepOut_NoDebugger" time="0.914" />
   </testsuite>
-  <testsuite name="Codeunit 61227" tests="1" failures="0" errors="0" skipped="0" time="0.860" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61227" name="P111_StepOver_NoDebugger" time="0.860" />
+  <testsuite name="Codeunit 61227" tests="1" failures="0" errors="0" skipped="0" time="0.457" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61227" name="P111_StepOver_NoDebugger" time="0.457" />
   </testsuite>
-  <testsuite name="Codeunit 61228" tests="1" failures="0" errors="0" skipped="0" time="0.869" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61228" name="P111_Stop_NoDebugger" time="0.869" />
+  <testsuite name="Codeunit 61228" tests="1" failures="0" errors="0" skipped="0" time="0.102" timestamp="2026-10-21T13:45:57Z">
+    <testcase classname="Codeunit 61228" name="P111_Stop_NoDebugger" time="0.102" />
   </testsuite>
-  <testsuite name="Codeunit 61229" tests="9" failures="0" errors="0" skipped="0" time="4.203" timestamp="2026-10-21T12:48:22Z">
-    <testcase classname="Codeunit 61229" name="WebService_InsertModifyDelete" time="0.736" />
-    <testcase classname="Codeunit 61229" name="ConfigurationPackageFile_InsertModifyDelete" time="0.281" />
-    <testcase classname="Codeunit 61229" name="DocumentServiceScenario_InsertModifyDelete" time="0.396" />
-    <testcase classname="Codeunit 61229" name="DocumentService_InsertModifyDelete" time="0.477" />
-    <testcase classname="Codeunit 61229" name="TableInformation_InsertModifyDelete" time="0.686" />
-    <testcase classname="Codeunit 61229" name="ReportSettingsOverride_InsertModifyDelete" time="0.203" />
-    <testcase classname="Codeunit 61229" name="Device_InsertModifyDelete" time="0.625" />
-    <testcase classname="Codeunit 61229" name="TenantProfile_InsertModifyDelete" time="0.457" />
-    <testcase classname="Codeunit 61229" name="TenantProfilePageMetadata_InsertModifyDelete" time="0.342" />
+  <testsuite name="Codeunit 61229" tests="9" failures="0" errors="0" skipped="0" time="5.557" timestamp="2026-10-21T13:45:58Z">
+    <testcase classname="Codeunit 61229" name="WebService_InsertModifyDelete" time="0.027" />
+    <testcase classname="Codeunit 61229" name="ConfigurationPackageFile_InsertModifyDelete" time="0.593" />
+    <testcase classname="Codeunit 61229" name="DocumentServiceScenario_InsertModifyDelete" time="0.767" />
+    <testcase classname="Codeunit 61229" name="DocumentService_InsertModifyDelete" time="0.755" />
+    <testcase classname="Codeunit 61229" name="TableInformation_InsertModifyDelete" time="0.729" />
+    <testcase classname="Codeunit 61229" name="ReportSettingsOverride_InsertModifyDelete" time="0.455" />
+    <testcase classname="Codeunit 61229" name="Device_InsertModifyDelete" time="0.743" />
+    <testcase classname="Codeunit 61229" name="TenantProfile_InsertModifyDelete" time="0.800" />
+    <testcase classname="Codeunit 61229" name="TenantProfilePageMetadata_InsertModifyDelete" time="0.688" />
   </testsuite>
-  <testsuite name="Codeunit 61230" tests="3" failures="0" errors="0" skipped="0" time="1.445" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61230" name="ServerSetting_Flags_AsConfigured" time="0.095" />
-    <testcase classname="Codeunit 61230" name="ServerSetting_ApiSubscriptionLimits_AsConfigured" time="0.387" />
-    <testcase classname="Codeunit 61230" name="EnvironmentInformation_GetEnvironmentSetting_IsEmptyForAnyName" time="0.963" />
-  </testsuite>
-  <testsuite name="Codeunit 61232" tests="8" failures="0" errors="0" skipped="0" time="3.504" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_Basic" time="0.028" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_ClientTypes" time="0.022" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_ClientTypes_Errors" time="0.523" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload2_Record" time="0.272" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload2_EmptyRecord" time="0.766" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload3_RecordRef" time="0.529" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload3_ClosedRecordRef" time="0.900" />
-    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload4_RecordRefLayout" time="0.464" />
-  </testsuite>
-  <testsuite name="Codeunit 61233" tests="1" failures="0" errors="0" skipped="0" time="0.313" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61233" name="P109_GetDocumentUrl_Unknown" time="0.313" />
-  </testsuite>
-  <testsuite name="Codeunit 61234" tests="2" failures="0" errors="0" skipped="0" time="0.992" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61234" name="InsertAndModify_SidUniqueness" time="0.127" />
-    <testcase classname="Codeunit 61234" name="Insert_SameSidDisabledUser" time="0.865" />
-  </testsuite>
-  <testsuite name="Codeunit 61235" tests="3" failures="0" errors="0" skipped="0" time="1.612" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61235" name="Format_Bytes_AroundTheAsciiBoundary" time="0.571" />
-    <testcase classname="Codeunit 61235" name="Format_Bytes_ByteOrderMark" time="0.243" />
-    <testcase classname="Codeunit 61235" name="TextFromBytes_ByteOrderMark" time="0.798" />
-  </testsuite>
-  <testsuite name="Codeunit 61236" tests="2" failures="0" errors="0" skipped="0" time="1.673" timestamp="2026-10-21T12:48:24Z">
-    <testcase classname="Codeunit 61236" name="O_Blob_ExportImport_RoundTrip" time="0.769" />
-    <testcase classname="Codeunit 61236" name="O_Blob_Export_InvalidPath_Import_MissingFile" time="0.904" />
-  </testsuite>
-  <testsuite name="Codeunit 61238" tests="1" failures="0" errors="0" skipped="0" time="0.364" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61238" name="P109_TemporaryPath_Shape" time="0.364" />
-  </testsuite>
-  <testsuite name="Codeunit 61239" tests="1" failures="0" errors="0" skipped="0" time="0.380" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61239" name="P109_ApplicationPath_Shape" time="0.380" />
-  </testsuite>
-  <testsuite name="Codeunit 61244" tests="2" failures="0" errors="0" skipped="0" time="0.838" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61244" name="P109_ExportObjects_Blank" time="0.163" />
-    <testcase classname="Codeunit 61244" name="P109_ExportObjects_NonexistentDirectory" time="0.675" />
-  </testsuite>
-  <testsuite name="Codeunit 61245" tests="2" failures="0" errors="0" skipped="0" time="1.212" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61245" name="P109_ImportObjects_Blank" time="0.268" />
-    <testcase classname="Codeunit 61245" name="P109_ImportObjects_Nonexistent" time="0.944" />
-  </testsuite>
-  <testsuite name="Codeunit 61246" tests="2" failures="0" errors="0" skipped="0" time="0.531" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61246" name="P109_Sid_NoArgument" time="0.525" />
-    <testcase classname="Codeunit 61246" name="P109_Sid_Names" time="0.006" />
-  </testsuite>
-  <testsuite name="Codeunit 61248" tests="1" failures="0" errors="0" skipped="0" time="0.968" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61248" name="P109_CheckLicenseFile_UnknownKeys" time="0.968" />
-  </testsuite>
-  <testsuite name="Codeunit 61249" tests="1" failures="0" errors="0" skipped="0" time="0.389" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61249" name="P109_DataFileInformation_NoFile" time="0.389" />
-  </testsuite>
-  <testsuite name="Codeunit 61250" tests="1" failures="0" errors="0" skipped="0" time="0.533" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61250" name="P109_EnableVerboseTelemetry_Durations" time="0.533" />
-  </testsuite>
-  <testsuite name="Codeunit 61251" tests="2" failures="0" errors="0" skipped="0" time="1.297" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61251" name="P109_LogAuditMessage_Overload1" time="0.692" />
-    <testcase classname="Codeunit 61251" name="P109_LogAuditMessage_Overload2_Dimensions" time="0.605" />
-  </testsuite>
-  <testsuite name="Codeunit 61252" tests="1" failures="0" errors="0" skipped="0" time="0.376" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61252" name="CloudRunner_RefusesOnPremTables" time="0.376" />
-  </testsuite>
-  <testsuite name="Codeunit 61253" tests="3" failures="0" errors="0" skipped="0" time="1.428" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_Verbosities" time="0.437" />
-    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_Texts" time="0.166" />
-    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_DataClassification" time="0.825" />
-  </testsuite>
-  <testsuite name="Codeunit 61254" tests="1" failures="0" errors="0" skipped="0" time="0.089" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61254" name="P109_SetDocumentServiceToken" time="0.089" />
-  </testsuite>
-  <testsuite name="Codeunit 61255" tests="1" failures="0" errors="0" skipped="0" time="0.764" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61255" name="P109_LogInternalError_Basic" time="0.764" />
-  </testsuite>
-  <testsuite name="Codeunit 61256" tests="1" failures="0" errors="0" skipped="0" time="0.505" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61256" name="P109_LogInternalError_Substitution" time="0.505" />
-  </testsuite>
-  <testsuite name="Codeunit 61257" tests="3" failures="0" errors="0" skipped="0" time="1.797" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61257" name="O_Session_LogSecurityAudit" time="0.101" />
-    <testcase classname="Codeunit 61257" name="O_SessionInformation_AITokensUsed" time="0.856" />
-    <testcase classname="Codeunit 61257" name="O_SecretText_Unwrap" time="0.840" />
-  </testsuite>
-  <testsuite name="Codeunit 61258" tests="3" failures="0" errors="0" skipped="0" time="1.687" timestamp="2026-10-21T12:48:25Z">
-    <testcase classname="Codeunit 61258" name="O_Database_AlterKey" time="0.852" />
-    <testcase classname="Codeunit 61258" name="O_Database_ChangeUserPassword_SetUserPassword_Errors" time="0.470" />
-    <testcase classname="Codeunit 61258" name="O_Database_ExportData_ImportData_Files" time="0.365" />
-  </testsuite>
-  <testsuite name="Codeunit 61259" tests="2" failures="0" errors="0" skipped="0" time="0.756" timestamp="2026-10-21T12:48:32Z">
-    <testcase classname="Codeunit 61259" name="O_EncryptionKey_Export_Import" time="0.103" />
-    <testcase classname="Codeunit 61259" name="O_ImportStreamWithUrlAccess" time="0.653" />
-  </testsuite>
-  <testsuite name="Codeunit 61260" tests="1" failures="0" errors="0" skipped="0" time="0.038" timestamp="2026-10-21T12:48:32Z">
-    <testcase classname="Codeunit 61260" name="CodeCoverageRows_OfAnAppWithSource_HoldTheSourceLines" time="0.038" />
-  </testsuite>
-  <testsuite name="Codeunit 61261" tests="15" failures="0" errors="0" skipped="0" time="9.434" timestamp="2026-10-21T12:48:32Z">
-    <testcase classname="Codeunit 61261" name="PlatformTable_ObjectOptions" time="0.830" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_TenantLicenseState" time="0.994" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_DocumentService" time="0.432" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_TenantReportLayoutSelection" time="0.570" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_MediaResources" time="0.865" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_PrivacyNotice" time="0.701" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_SignupContext" time="0.643" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_TenantProfilePageMetadata" time="0.798" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_TenantWebService" time="0.226" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_WebService" time="0.227" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_Chart" time="0.837" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_MCPConfiguration" time="0.868" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_PerformanceProfileScheduler" time="0.143" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_ReportLayoutList" time="0.891" />
-    <testcase classname="Codeunit 61261" name="PlatformTable_UserPersonalization" time="0.409" />
-  </testsuite>
-  <testsuite name="Codeunit 61262" tests="2" failures="0" errors="0" skipped="0" time="0.753" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61262" name="TenantVisible_Installed_AndDescription_OfWellKnownApps" time="0.250" />
-    <testcase classname="Codeunit 61262" name="TenantId_OfCorpusAndMicrosoftApps" time="0.503" />
-  </testsuite>
-  <testsuite name="Codeunit 61263" tests="5" failures="0" errors="0" skipped="0" time="3.205" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61263" name="P110_CreateCloseExists" time="0.207" />
-    <testcase classname="Codeunit 61263" name="P110_OpenExisting" time="0.275" />
-    <testcase classname="Codeunit 61263" name="P110_CreateOverwrites" time="0.942" />
-    <testcase classname="Codeunit 61263" name="P110_CloseTwiceAndName" time="0.925" />
-    <testcase classname="Codeunit 61263" name="P110_Closed_File_Never_Opened" time="0.856" />
-  </testsuite>
-  <testsuite name="Codeunit 61264" tests="3" failures="0" errors="0" skipped="0" time="1.601" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61264" name="P110_WriteTypes_TextMode_Results" time="0.524" />
-    <testcase classname="Codeunit 61264" name="P110_WriteTypes_BinaryMode_Results" time="0.103" />
-    <testcase classname="Codeunit 61264" name="P110_WriteTypes_TextMode_ReadBack" time="0.974" />
-  </testsuite>
-  <testsuite name="Codeunit 61265" tests="4" failures="0" errors="0" skipped="0" time="1.468" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61265" name="P110_BinaryWriteReadRoundtrip" time="0.644" />
-    <testcase classname="Codeunit 61265" name="P110_Seek" time="0.249" />
-    <testcase classname="Codeunit 61265" name="P110_Trunc" time="0.248" />
-    <testcase classname="Codeunit 61265" name="P110_TextReadLines" time="0.327" />
-  </testsuite>
-  <testsuite name="Codeunit 61266" tests="1" failures="0" errors="0" skipped="0" time="0.701" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61266" name="P110_ReadIntoSmallText" time="0.701" />
-  </testsuite>
-  <testsuite name="Codeunit 61267" tests="7" failures="0" errors="0" skipped="0" time="3.313" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61267" name="P110_MissingFile" time="0.892" />
-    <testcase classname="Codeunit 61267" name="P110_InvalidPaths" time="0.025" />
-    <testcase classname="Codeunit 61267" name="P110_ClosedFileUse" time="0.227" />
-    <testcase classname="Codeunit 61267" name="P110_NeverOpenedUse" time="0.541" />
-    <testcase classname="Codeunit 61267" name="P110_WrongMode" time="0.407" />
-    <testcase classname="Codeunit 61267" name="P110_CreateTwiceWithoutClose" time="0.458" />
-    <testcase classname="Codeunit 61267" name="P110_SameFileTwoVars" time="0.763" />
-  </testsuite>
-  <testsuite name="Codeunit 61268" tests="7" failures="0" errors="0" skipped="0" time="3.187" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61268" name="P110_Rename" time="0.903" />
-    <testcase classname="Codeunit 61268" name="P110_RenameOntoExisting" time="0.218" />
-    <testcase classname="Codeunit 61268" name="P110_Copy" time="0.318" />
-    <testcase classname="Codeunit 61268" name="P110_CopyOntoExisting" time="0.520" />
-    <testcase classname="Codeunit 61268" name="P110_EraseExistsReturnValues" time="0.943" />
-    <testcase classname="Codeunit 61268" name="P110_SetStampGetStamp" time="0.276" />
-    <testcase classname="Codeunit 61268" name="P110_SetStampEdges" time="0.009" />
-  </testsuite>
-  <testsuite name="Codeunit 61269" tests="4" failures="0" errors="0" skipped="0" time="1.722" timestamp="2026-10-21T12:48:33Z">
-    <testcase classname="Codeunit 61269" name="P110_OutStreamThenInStream" time="0.516" />
-    <testcase classname="Codeunit 61269" name="P110_StreamPositionAndLen" time="0.374" />
-    <testcase classname="Codeunit 61269" name="P110_CreateInStreamFromEmptyFile" time="0.826" />
-    <testcase classname="Codeunit 61269" name="P110_StreamErrors" time="0.006" />
-  </testsuite>
-  <testsuite name="Codeunit 61270" tests="4" failures="0" errors="0" skipped="0" time="1.523" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61270" name="P110_CreateTempFile" time="0.200" />
-    <testcase classname="Codeunit 61270" name="P110_CreateTempFile_Encoding" time="0.498" />
-    <testcase classname="Codeunit 61270" name="P110_IsPathTemporary" time="0.030" />
-    <testcase classname="Codeunit 61270" name="P110_CreateTempFile_ReuseVar" time="0.795" />
-  </testsuite>
-  <testsuite name="Codeunit 61271" tests="4" failures="0" errors="0" skipped="0" time="1.284" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61271" name="P110_TextModeWriteModeDefaults" time="0.630" />
-    <testcase classname="Codeunit 61271" name="P110_TextModeAffectsWriteBytes" time="0.032" />
-    <testcase classname="Codeunit 61271" name="P110_WriteModeOpenForWrite" time="0.027" />
-    <testcase classname="Codeunit 61271" name="P110_CreateOpenEncodingVariants" time="0.595" />
-  </testsuite>
-  <testsuite name="Codeunit 61272" tests="1" failures="0" errors="0" skipped="0" time="0.386" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61272" name="P110_Upload_NoHandler" time="0.386" />
-  </testsuite>
-  <testsuite name="Codeunit 61273" tests="1" failures="0" errors="0" skipped="0" time="0.782" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61273" name="P110_UploadIntoStream_4Args_NoHandler" time="0.782" />
-  </testsuite>
-  <testsuite name="Codeunit 61274" tests="1" failures="0" errors="0" skipped="0" time="0.420" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61274" name="P110_UploadIntoStream_2Args_NoHandler" time="0.420" />
-  </testsuite>
-  <testsuite name="Codeunit 61275" tests="2" failures="0" errors="0" skipped="0" time="0.237" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61275" name="Erase_EmptyName_FullErrorText" time="0.214" />
-    <testcase classname="Codeunit 61275" name="IsPathTemporary_Paths" time="0.023" />
-  </testsuite>
-  <testsuite name="Codeunit 61276" tests="26" failures="0" errors="0" skipped="0" time="13.825" timestamp="2026-10-21T12:48:34Z">
-    <testcase classname="Codeunit 61276" name="Download_NoClient_ReturnAndToFile" time="0.207" />
-    <testcase classname="Codeunit 61276" name="DownloadFromStream_NoClient_ReturnAndToFile" time="0.487" />
-    <testcase classname="Codeunit 61276" name="Upload_NoClient_ReturnAndToFile" time="0.694" />
-    <testcase classname="Codeunit 61276" name="UploadIntoStream_DialogForm_NoClient_ReturnAndFromFile" time="0.674" />
-    <testcase classname="Codeunit 61276" name="UploadIntoStream_FilterForm_NoClient_Return" time="0.294" />
-    <testcase classname="Codeunit 61276" name="View_NoClient_Return" time="0.549" />
-    <testcase classname="Codeunit 61276" name="ViewFromStream_NoClient_Return" time="0.744" />
-    <testcase classname="Codeunit 61276" name="Write_BigInteger_BinaryAndTextMode" time="0.371" />
-    <testcase classname="Codeunit 61276" name="Write_Boolean_BinaryAndTextMode" time="0.695" />
-    <testcase classname="Codeunit 61276" name="Write_Byte_BinaryAndTextMode" time="0.646" />
-    <testcase classname="Codeunit 61276" name="Write_Char_BinaryAndTextMode" time="0.773" />
-    <testcase classname="Codeunit 61276" name="Write_Decimal_BinaryAndTextMode" time="0.835" />
-    <testcase classname="Codeunit 61276" name="Write_Guid_BinaryAndTextMode" time="0.224" />
-    <testcase classname="Codeunit 61276" name="Write_Integer_BinaryAndTextMode" time="0.750" />
-    <testcase classname="Codeunit 61276" name="Write_Option_BinaryAndTextMode" time="0.190" />
-    <testcase classname="Codeunit 61276" name="Write_Code_BinaryAndTextMode" time="0.736" />
-    <testcase classname="Codeunit 61276" name="Write_Date_BinaryAndTextMode" time="0.731" />
-    <testcase classname="Codeunit 61276" name="Write_DateFormula_BinaryAndTextMode" time="0.227" />
-    <testcase classname="Codeunit 61276" name="Write_DateTime_BinaryAndTextMode" time="0.518" />
-    <testcase classname="Codeunit 61276" name="Write_Duration_BinaryAndTextMode" time="0.770" />
-    <testcase classname="Codeunit 61276" name="Write_Text_BinaryAndTextMode" time="0.083" />
-    <testcase classname="Codeunit 61276" name="Write_Time_BinaryAndTextMode" time="0.754" />
-    <testcase classname="Codeunit 61276" name="Write_BigText_BinaryAndTextMode" time="0.441" />
-    <testcase classname="Codeunit 61276" name="Write_Label_BinaryAndTextMode" time="0.508" />
-    <testcase classname="Codeunit 61276" name="Write_Record_RecordId_BinaryAndTextMode" time="0.770" />
-    <testcase classname="Codeunit 61276" name="Exists_Folder_And_Blank_Names" time="0.154" />
-  </testsuite>
-  <testsuite name="Codeunit 61277" tests="1" failures="0" errors="0" skipped="0" time="0.638" timestamp="2026-10-21T12:48:35Z">
-    <testcase classname="Codeunit 61277" name="P110_View_NoHandler" time="0.638" />
-  </testsuite>
-  <testsuite name="Codeunit 61278" tests="1" failures="0" errors="0" skipped="0" time="0.255" timestamp="2026-10-21T12:48:35Z">
+  <testsuite name="Codeunit 61230" tests="3" failures="0" errors="0" skipped="0" time="1.445" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61230" name="ServerSetting_Flags_AsConfigured" time="0.181" />
+    <testcase classname="Codeunit 61230" name="ServerSetting_ApiSubscriptionLimits_AsConfigured" time="0.313" />
+    <testcase classname="Codeunit 61230" name="EnvironmentInformation_GetEnvironmentSetting_IsEmptyForAnyName" time="0.951" />
+  </testsuite>
+  <testsuite name="Codeunit 61232" tests="8" failures="0" errors="0" skipped="0" time="4.040" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_Basic" time="0.298" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_ClientTypes" time="0.192" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload1_ClientTypes_Errors" time="0.077" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload2_Record" time="0.422" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload2_EmptyRecord" time="0.815" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload3_RecordRef" time="0.644" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload3_ClosedRecordRef" time="0.948" />
+    <testcase classname="Codeunit 61232" name="P109_GetUrl_Overload4_RecordRefLayout" time="0.644" />
+  </testsuite>
+  <testsuite name="Codeunit 61233" tests="1" failures="0" errors="0" skipped="0" time="0.587" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61233" name="P109_GetDocumentUrl_Unknown" time="0.587" />
+  </testsuite>
+  <testsuite name="Codeunit 61234" tests="2" failures="0" errors="0" skipped="0" time="1.174" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61234" name="InsertAndModify_SidUniqueness" time="0.728" />
+    <testcase classname="Codeunit 61234" name="Insert_SameSidDisabledUser" time="0.446" />
+  </testsuite>
+  <testsuite name="Codeunit 61235" tests="3" failures="0" errors="0" skipped="0" time="1.405" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61235" name="Format_Bytes_AroundTheAsciiBoundary" time="0.031" />
+    <testcase classname="Codeunit 61235" name="Format_Bytes_ByteOrderMark" time="0.452" />
+    <testcase classname="Codeunit 61235" name="TextFromBytes_ByteOrderMark" time="0.922" />
+  </testsuite>
+  <testsuite name="Codeunit 61236" tests="2" failures="0" errors="0" skipped="0" time="0.085" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61236" name="O_Blob_ExportImport_RoundTrip" time="0.065" />
+    <testcase classname="Codeunit 61236" name="O_Blob_Export_InvalidPath_Import_MissingFile" time="0.020" />
+  </testsuite>
+  <testsuite name="Codeunit 61238" tests="1" failures="0" errors="0" skipped="0" time="0.100" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61238" name="P109_TemporaryPath_Shape" time="0.100" />
+  </testsuite>
+  <testsuite name="Codeunit 61239" tests="1" failures="0" errors="0" skipped="0" time="0.444" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61239" name="P109_ApplicationPath_Shape" time="0.444" />
+  </testsuite>
+  <testsuite name="Codeunit 61244" tests="2" failures="0" errors="0" skipped="0" time="1.066" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61244" name="P109_ExportObjects_Blank" time="0.331" />
+    <testcase classname="Codeunit 61244" name="P109_ExportObjects_NonexistentDirectory" time="0.735" />
+  </testsuite>
+  <testsuite name="Codeunit 61245" tests="2" failures="0" errors="0" skipped="0" time="0.810" timestamp="2026-10-21T13:45:59Z">
+    <testcase classname="Codeunit 61245" name="P109_ImportObjects_Blank" time="0.610" />
+    <testcase classname="Codeunit 61245" name="P109_ImportObjects_Nonexistent" time="0.200" />
+  </testsuite>
+  <testsuite name="Codeunit 61246" tests="2" failures="0" errors="0" skipped="0" time="0.480" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61246" name="P109_Sid_NoArgument" time="0.355" />
+    <testcase classname="Codeunit 61246" name="P109_Sid_Names" time="0.125" />
+  </testsuite>
+  <testsuite name="Codeunit 61248" tests="1" failures="0" errors="0" skipped="0" time="0.089" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61248" name="P109_CheckLicenseFile_UnknownKeys" time="0.089" />
+  </testsuite>
+  <testsuite name="Codeunit 61249" tests="1" failures="0" errors="0" skipped="0" time="0.642" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61249" name="P109_DataFileInformation_NoFile" time="0.642" />
+  </testsuite>
+  <testsuite name="Codeunit 61250" tests="1" failures="0" errors="0" skipped="0" time="0.401" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61250" name="P109_EnableVerboseTelemetry_Durations" time="0.401" />
+  </testsuite>
+  <testsuite name="Codeunit 61251" tests="2" failures="0" errors="0" skipped="0" time="1.289" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61251" name="P109_LogAuditMessage_Overload1" time="0.621" />
+    <testcase classname="Codeunit 61251" name="P109_LogAuditMessage_Overload2_Dimensions" time="0.668" />
+  </testsuite>
+  <testsuite name="Codeunit 61252" tests="1" failures="0" errors="0" skipped="0" time="0.002" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61252" name="CloudRunner_RefusesOnPremTables" time="0.002" />
+  </testsuite>
+  <testsuite name="Codeunit 61253" tests="3" failures="0" errors="0" skipped="0" time="1.064" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_Verbosities" time="0.633" />
+    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_Texts" time="0.386" />
+    <testcase classname="Codeunit 61253" name="P109_SendTraceTag_DataClassification" time="0.045" />
+  </testsuite>
+  <testsuite name="Codeunit 61254" tests="1" failures="0" errors="0" skipped="0" time="0.248" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61254" name="P109_SetDocumentServiceToken" time="0.248" />
+  </testsuite>
+  <testsuite name="Codeunit 61255" tests="1" failures="0" errors="0" skipped="0" time="0.170" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61255" name="P109_LogInternalError_Basic" time="0.170" />
+  </testsuite>
+  <testsuite name="Codeunit 61256" tests="1" failures="0" errors="0" skipped="0" time="0.750" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61256" name="P109_LogInternalError_Substitution" time="0.750" />
+  </testsuite>
+  <testsuite name="Codeunit 61257" tests="3" failures="0" errors="0" skipped="0" time="2.150" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61257" name="O_Session_LogSecurityAudit" time="0.290" />
+    <testcase classname="Codeunit 61257" name="O_SessionInformation_AITokensUsed" time="0.941" />
+    <testcase classname="Codeunit 61257" name="O_SecretText_Unwrap" time="0.919" />
+  </testsuite>
+  <testsuite name="Codeunit 61258" tests="3" failures="0" errors="0" skipped="0" time="0.946" timestamp="2026-10-21T13:46:00Z">
+    <testcase classname="Codeunit 61258" name="O_Database_AlterKey" time="0.054" />
+    <testcase classname="Codeunit 61258" name="O_Database_ChangeUserPassword_SetUserPassword_Errors" time="0.638" />
+    <testcase classname="Codeunit 61258" name="O_Database_ExportData_ImportData_Files" time="0.254" />
+  </testsuite>
+  <testsuite name="Codeunit 61259" tests="2" failures="0" errors="0" skipped="0" time="0.771" timestamp="2026-10-21T13:46:08Z">
+    <testcase classname="Codeunit 61259" name="O_EncryptionKey_Export_Import" time="0.169" />
+    <testcase classname="Codeunit 61259" name="O_ImportStreamWithUrlAccess" time="0.602" />
+  </testsuite>
+  <testsuite name="Codeunit 61260" tests="1" failures="0" errors="0" skipped="0" time="0.986" timestamp="2026-10-21T13:46:08Z">
+    <testcase classname="Codeunit 61260" name="CodeCoverageRows_OfAnAppWithSource_HoldTheSourceLines" time="0.986" />
+  </testsuite>
+  <testsuite name="Codeunit 61261" tests="15" failures="0" errors="0" skipped="0" time="9.964" timestamp="2026-10-21T13:46:08Z">
+    <testcase classname="Codeunit 61261" name="PlatformTable_ObjectOptions" time="0.757" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_TenantLicenseState" time="0.866" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_DocumentService" time="0.529" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_TenantReportLayoutSelection" time="0.557" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_MediaResources" time="0.964" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_PrivacyNotice" time="0.899" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_SignupContext" time="0.761" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_TenantProfilePageMetadata" time="0.865" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_TenantWebService" time="0.445" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_WebService" time="0.389" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_Chart" time="0.902" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_MCPConfiguration" time="0.983" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_PerformanceProfileScheduler" time="0.068" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_ReportLayoutList" time="0.530" />
+    <testcase classname="Codeunit 61261" name="PlatformTable_UserPersonalization" time="0.449" />
+  </testsuite>
+  <testsuite name="Codeunit 61262" tests="2" failures="0" errors="0" skipped="0" time="0.981" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61262" name="TenantVisible_Installed_AndDescription_OfWellKnownApps" time="0.357" />
+    <testcase classname="Codeunit 61262" name="TenantId_OfCorpusAndMicrosoftApps" time="0.624" />
+  </testsuite>
+  <testsuite name="Codeunit 61263" tests="5" failures="0" errors="0" skipped="0" time="2.765" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61263" name="P110_CreateCloseExists" time="0.345" />
+    <testcase classname="Codeunit 61263" name="P110_OpenExisting" time="0.393" />
+    <testcase classname="Codeunit 61263" name="P110_CreateOverwrites" time="0.973" />
+    <testcase classname="Codeunit 61263" name="P110_CloseTwiceAndName" time="0.084" />
+    <testcase classname="Codeunit 61263" name="P110_Closed_File_Never_Opened" time="0.970" />
+  </testsuite>
+  <testsuite name="Codeunit 61264" tests="3" failures="0" errors="0" skipped="0" time="1.031" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61264" name="P110_WriteTypes_TextMode_Results" time="0.657" />
+    <testcase classname="Codeunit 61264" name="P110_WriteTypes_BinaryMode_Results" time="0.226" />
+    <testcase classname="Codeunit 61264" name="P110_WriteTypes_TextMode_ReadBack" time="0.148" />
+  </testsuite>
+  <testsuite name="Codeunit 61265" tests="4" failures="0" errors="0" skipped="0" time="1.801" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61265" name="P110_BinaryWriteReadRoundtrip" time="0.656" />
+    <testcase classname="Codeunit 61265" name="P110_Seek" time="0.295" />
+    <testcase classname="Codeunit 61265" name="P110_Trunc" time="0.409" />
+    <testcase classname="Codeunit 61265" name="P110_TextReadLines" time="0.441" />
+  </testsuite>
+  <testsuite name="Codeunit 61266" tests="1" failures="0" errors="0" skipped="0" time="0.809" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61266" name="P110_ReadIntoSmallText" time="0.809" />
+  </testsuite>
+  <testsuite name="Codeunit 61267" tests="7" failures="0" errors="0" skipped="0" time="3.869" timestamp="2026-10-21T13:46:09Z">
+    <testcase classname="Codeunit 61267" name="P110_MissingFile" time="0.811" />
+    <testcase classname="Codeunit 61267" name="P110_InvalidPaths" time="0.107" />
+    <testcase classname="Codeunit 61267" name="P110_ClosedFileUse" time="0.741" />
+    <testcase classname="Codeunit 61267" name="P110_NeverOpenedUse" time="0.609" />
+    <testcase classname="Codeunit 61267" name="P110_WrongMode" time="0.232" />
+    <testcase classname="Codeunit 61267" name="P110_CreateTwiceWithoutClose" time="0.561" />
+    <testcase classname="Codeunit 61267" name="P110_SameFileTwoVars" time="0.808" />
+  </testsuite>
+  <testsuite name="Codeunit 61268" tests="7" failures="0" errors="0" skipped="0" time="2.527" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61268" name="P110_Rename" time="0.649" />
+    <testcase classname="Codeunit 61268" name="P110_RenameOntoExisting" time="0.370" />
+    <testcase classname="Codeunit 61268" name="P110_Copy" time="0.370" />
+    <testcase classname="Codeunit 61268" name="P110_CopyOntoExisting" time="0.556" />
+    <testcase classname="Codeunit 61268" name="P110_EraseExistsReturnValues" time="0.056" />
+    <testcase classname="Codeunit 61268" name="P110_SetStampGetStamp" time="0.458" />
+    <testcase classname="Codeunit 61268" name="P110_SetStampEdges" time="0.068" />
+  </testsuite>
+  <testsuite name="Codeunit 61269" tests="4" failures="0" errors="0" skipped="0" time="2.830" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61269" name="P110_OutStreamThenInStream" time="0.613" />
+    <testcase classname="Codeunit 61269" name="P110_StreamPositionAndLen" time="0.430" />
+    <testcase classname="Codeunit 61269" name="P110_CreateInStreamFromEmptyFile" time="0.877" />
+    <testcase classname="Codeunit 61269" name="P110_StreamErrors" time="0.910" />
+  </testsuite>
+  <testsuite name="Codeunit 61270" tests="4" failures="0" errors="0" skipped="0" time="1.773" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61270" name="P110_CreateTempFile" time="0.262" />
+    <testcase classname="Codeunit 61270" name="P110_CreateTempFile_Encoding" time="0.497" />
+    <testcase classname="Codeunit 61270" name="P110_IsPathTemporary" time="0.232" />
+    <testcase classname="Codeunit 61270" name="P110_CreateTempFile_ReuseVar" time="0.782" />
+  </testsuite>
+  <testsuite name="Codeunit 61271" tests="4" failures="0" errors="0" skipped="0" time="2.403" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61271" name="P110_TextModeWriteModeDefaults" time="0.677" />
+    <testcase classname="Codeunit 61271" name="P110_TextModeAffectsWriteBytes" time="0.133" />
+    <testcase classname="Codeunit 61271" name="P110_WriteModeOpenForWrite" time="0.951" />
+    <testcase classname="Codeunit 61271" name="P110_CreateOpenEncodingVariants" time="0.642" />
+  </testsuite>
+  <testsuite name="Codeunit 61272" tests="1" failures="0" errors="0" skipped="0" time="0.428" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61272" name="P110_Upload_NoHandler" time="0.428" />
+  </testsuite>
+  <testsuite name="Codeunit 61273" tests="1" failures="0" errors="0" skipped="0" time="0.084" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61273" name="P110_UploadIntoStream_4Args_NoHandler" time="0.084" />
+  </testsuite>
+  <testsuite name="Codeunit 61274" tests="1" failures="0" errors="0" skipped="0" time="0.472" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61274" name="P110_UploadIntoStream_2Args_NoHandler" time="0.472" />
+  </testsuite>
+  <testsuite name="Codeunit 61275" tests="2" failures="0" errors="0" skipped="0" time="0.411" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61275" name="Erase_EmptyName_FullErrorText" time="0.328" />
+    <testcase classname="Codeunit 61275" name="IsPathTemporary_Paths" time="0.083" />
+  </testsuite>
+  <testsuite name="Codeunit 61276" tests="26" failures="0" errors="0" skipped="0" time="15.253" timestamp="2026-10-21T13:46:10Z">
+    <testcase classname="Codeunit 61276" name="Download_NoClient_ReturnAndToFile" time="0.303" />
+    <testcase classname="Codeunit 61276" name="DownloadFromStream_NoClient_ReturnAndToFile" time="0.719" />
+    <testcase classname="Codeunit 61276" name="Upload_NoClient_ReturnAndToFile" time="0.729" />
+    <testcase classname="Codeunit 61276" name="UploadIntoStream_DialogForm_NoClient_ReturnAndFromFile" time="0.753" />
+    <testcase classname="Codeunit 61276" name="UploadIntoStream_FilterForm_NoClient_Return" time="0.289" />
+    <testcase classname="Codeunit 61276" name="View_NoClient_Return" time="0.957" />
+    <testcase classname="Codeunit 61276" name="ViewFromStream_NoClient_Return" time="0.853" />
+    <testcase classname="Codeunit 61276" name="Write_BigInteger_BinaryAndTextMode" time="0.391" />
+    <testcase classname="Codeunit 61276" name="Write_Boolean_BinaryAndTextMode" time="0.748" />
+    <testcase classname="Codeunit 61276" name="Write_Byte_BinaryAndTextMode" time="0.063" />
+    <testcase classname="Codeunit 61276" name="Write_Char_BinaryAndTextMode" time="0.758" />
+    <testcase classname="Codeunit 61276" name="Write_Decimal_BinaryAndTextMode" time="0.818" />
+    <testcase classname="Codeunit 61276" name="Write_Guid_BinaryAndTextMode" time="0.635" />
+    <testcase classname="Codeunit 61276" name="Write_Integer_BinaryAndTextMode" time="0.795" />
+    <testcase classname="Codeunit 61276" name="Write_Option_BinaryAndTextMode" time="0.223" />
+    <testcase classname="Codeunit 61276" name="Write_Code_BinaryAndTextMode" time="0.815" />
+    <testcase classname="Codeunit 61276" name="Write_Date_BinaryAndTextMode" time="0.763" />
+    <testcase classname="Codeunit 61276" name="Write_DateFormula_BinaryAndTextMode" time="0.347" />
+    <testcase classname="Codeunit 61276" name="Write_DateTime_BinaryAndTextMode" time="0.829" />
+    <testcase classname="Codeunit 61276" name="Write_Duration_BinaryAndTextMode" time="0.787" />
+    <testcase classname="Codeunit 61276" name="Write_Text_BinaryAndTextMode" time="0.160" />
+    <testcase classname="Codeunit 61276" name="Write_Time_BinaryAndTextMode" time="0.751" />
+    <testcase classname="Codeunit 61276" name="Write_BigText_BinaryAndTextMode" time="0.518" />
+    <testcase classname="Codeunit 61276" name="Write_Label_BinaryAndTextMode" time="0.358" />
+    <testcase classname="Codeunit 61276" name="Write_Record_RecordId_BinaryAndTextMode" time="0.650" />
+    <testcase classname="Codeunit 61276" name="Exists_Folder_And_Blank_Names" time="0.241" />
+  </testsuite>
+  <testsuite name="Codeunit 61277" tests="1" failures="0" errors="0" skipped="0" time="0.547" timestamp="2026-10-21T13:46:11Z">
+    <testcase classname="Codeunit 61277" name="P110_View_NoHandler" time="0.547" />
+  </testsuite>
+  <testsuite name="Codeunit 61278" tests="1" failures="0" errors="0" skipped="0" time="0.255" timestamp="2026-10-21T13:46:11Z">
     <testcase classname="Codeunit 61278" name="P110_ViewFromStream_NoHandler" time="0.255" />
   </testsuite>
-  <testsuite name="Codeunit 61280" tests="3" failures="0" errors="0" skipped="0" time="1.038" timestamp="2026-10-21T12:48:35Z">
-    <testcase classname="Codeunit 61280" name="P110_WriteRecord_TextMode" time="0.465" />
-    <testcase classname="Codeunit 61280" name="P110_WriteRecordId_TextMode" time="0.565" />
-    <testcase classname="Codeunit 61280" name="P110_WriteRecordId_Blank" time="0.008" />
+  <testsuite name="Codeunit 61280" tests="3" failures="0" errors="0" skipped="0" time="1.120" timestamp="2026-10-21T13:46:11Z">
+    <testcase classname="Codeunit 61280" name="P110_WriteRecord_TextMode" time="0.434" />
+    <testcase classname="Codeunit 61280" name="P110_WriteRecordId_TextMode" time="0.579" />
+    <testcase classname="Codeunit 61280" name="P110_WriteRecordId_Blank" time="0.107" />
   </testsuite>
-  <testsuite name="Codeunit 61281" tests="1" failures="0" errors="0" skipped="0" time="0.315" timestamp="2026-10-21T12:48:35Z">
-    <testcase classname="Codeunit 61281" name="WebService_Content" time="0.315" />
+  <testsuite name="Codeunit 61281" tests="1" failures="0" errors="0" skipped="0" time="0.318" timestamp="2026-10-21T13:46:11Z">
+    <testcase classname="Codeunit 61281" name="WebService_Content" time="0.318" />
   </testsuite>
-  <testsuite name="Codeunit 61283" tests="2" failures="0" errors="0" skipped="0" time="1.348" timestamp="2026-10-21T12:48:35Z">
+  <testsuite name="Codeunit 61283" tests="2" failures="0" errors="0" skipped="0" time="1.530" timestamp="2026-10-21T13:46:11Z">
     <testcase classname="Codeunit 61283" name="WriteWithSecretsTo_SinglePath" time="0.617" />
-    <testcase classname="Codeunit 61283" name="WriteWithSecretsTo_Dictionary" time="0.731" />
+    <testcase classname="Codeunit 61283" name="WriteWithSecretsTo_Dictionary" time="0.913" />
   </testsuite>
-  <testsuite name="Codeunit 61284" tests="3" failures="0" errors="0" skipped="0" time="1.993" timestamp="2026-10-21T12:48:35Z">
-    <testcase classname="Codeunit 61284" name="UseDefaultNetworkWindowsAuthentication" time="0.952" />
-    <testcase classname="Codeunit 61284" name="UseWindowsAuthentication_Text" time="0.792" />
-    <testcase classname="Codeunit 61284" name="UseWindowsAuthentication_SecretText" time="0.249" />
+  <testsuite name="Codeunit 61284" tests="3" failures="0" errors="0" skipped="0" time="1.262" timestamp="2026-10-21T13:46:11Z">
+    <testcase classname="Codeunit 61284" name="UseDefaultNetworkWindowsAuthentication" time="0.045" />
+    <testcase classname="Codeunit 61284" name="UseWindowsAuthentication_Text" time="0.850" />
+    <testcase classname="Codeunit 61284" name="UseWindowsAuthentication_SecretText" time="0.367" />
   </testsuite>
-  <testsuite name="Codeunit 61286" tests="3" failures="0" errors="0" skipped="0" time="1.776" timestamp="2026-10-21T12:48:35Z">
-    <testcase classname="Codeunit 61286" name="Media_ImportFile_ExportFile" time="0.843" />
-    <testcase classname="Codeunit 61286" name="Media_ExportFile_EmptyMedia_AndBadPaths" time="0.631" />
-    <testcase classname="Codeunit 61286" name="MediaSet_ImportFile_ExportFile" time="0.302" />
+  <testsuite name="Codeunit 61286" tests="3" failures="0" errors="0" skipped="0" time="2.114" timestamp="2026-10-21T13:46:11Z">
+    <testcase classname="Codeunit 61286" name="Media_ImportFile_ExportFile" time="0.844" />
+    <testcase classname="Codeunit 61286" name="Media_ExportFile_EmptyMedia_AndBadPaths" time="0.694" />
+    <testcase classname="Codeunit 61286" name="MediaSet_ImportFile_ExportFile" time="0.576" />
   </testsuite>
-  <testsuite name="Codeunit 61287" tests="4" failures="0" errors="0" skipped="0" time="0.834" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61287" name="SaveAsCsv_File_Instance" time="0.122" />
-    <testcase classname="Codeunit 61287" name="SaveAsCsv_File_ByNumber" time="0.166" />
-    <testcase classname="Codeunit 61287" name="SaveAsXml_File_Instance_AndByNumber" time="0.294" />
-    <testcase classname="Codeunit 61287" name="SaveAs_File_BadPaths" time="0.252" />
+  <testsuite name="Codeunit 61287" tests="4" failures="0" errors="0" skipped="0" time="2.196" timestamp="2026-10-21T13:46:12Z">
+    <testcase classname="Codeunit 61287" name="SaveAsCsv_File_Instance" time="0.572" />
+    <testcase classname="Codeunit 61287" name="SaveAsCsv_File_ByNumber" time="0.291" />
+    <testcase classname="Codeunit 61287" name="SaveAsXml_File_Instance_AndByNumber" time="0.406" />
+    <testcase classname="Codeunit 61287" name="SaveAs_File_BadPaths" time="0.927" />
   </testsuite>
-  <testsuite name="Codeunit 61288" tests="1" failures="0" errors="0" skipped="0" time="0.982" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61288" name="PActivate_NoDebugger" time="0.982" />
+  <testsuite name="Codeunit 61288" tests="1" failures="0" errors="0" skipped="0" time="0.615" timestamp="2026-10-21T13:46:12Z">
+    <testcase classname="Codeunit 61288" name="PActivate_NoDebugger" time="0.615" />
   </testsuite>
-  <testsuite name="Codeunit 61289" tests="2" failures="0" errors="0" skipped="0" time="1.947" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61289" name="PSuperUser_DisableLastSuper" time="0.958" />
-    <testcase classname="Codeunit 61289" name="PSuperUser_RemoveLastSuperAssignment" time="0.989" />
+  <testsuite name="Codeunit 61289" tests="2" failures="0" errors="0" skipped="0" time="1.061" timestamp="2026-10-21T13:46:12Z">
+    <testcase classname="Codeunit 61289" name="PSuperUser_DisableLastSuper" time="0.345" />
+    <testcase classname="Codeunit 61289" name="PSuperUser_RemoveLastSuperAssignment" time="0.716" />
   </testsuite>
-  <testsuite name="Codeunit 61290" tests="1" failures="0" errors="0" skipped="0" time="0.115" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61290" name="Database_SID_Shape" time="0.115" />
+  <testsuite name="Codeunit 61290" tests="1" failures="0" errors="0" skipped="0" time="0.153" timestamp="2026-10-21T13:46:12Z">
+    <testcase classname="Codeunit 61290" name="Database_SID_Shape" time="0.153" />
   </testsuite>
-  <testsuite name="Codeunit 61291" tests="1" failures="0" errors="0" skipped="0" time="0.070" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61291" name="AzureAdGraph_Calls_WithoutDotNetVariables" time="0.070" />
+  <testsuite name="Codeunit 61291" tests="1" failures="0" errors="0" skipped="0" time="0.005" timestamp="2026-10-21T13:46:12Z">
+    <testcase classname="Codeunit 61291" name="AzureAdGraph_Calls_WithoutDotNetVariables" time="0.005" />
   </testsuite>
-  <testsuite name="Codeunit 61292" tests="1" failures="0" errors="0" skipped="0" time="0.407" timestamp="2026-10-21T12:48:36Z">
-    <testcase classname="Codeunit 61292" name="SaveAsPdf_ReportWithoutLayoutFile" time="0.407" />
+  <testsuite name="Codeunit 61292" tests="1" failures="0" errors="0" skipped="0" time="0.008" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61292" name="SaveAsPdf_ReportWithoutLayoutFile" time="0.008" />
   </testsuite>
-  <testsuite name="Codeunit 61293" tests="1" failures="0" errors="0" skipped="0" time="0.128" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 61293" name="EnvironmentInformation_SandboxAndProduction_ThroughTheTestLibrary" time="0.128" />
+  <testsuite name="Codeunit 61293" tests="1" failures="0" errors="0" skipped="0" time="0.209" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61293" name="EnvironmentInformation_SandboxAndProduction_ThroughTheTestLibrary" time="0.209" />
   </testsuite>
-  <testsuite name="Codeunit 61294" tests="1" failures="0" errors="0" skipped="0" time="0.356" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 61294" name="Media_ImportFile_MissingFile_AndMediaSet" time="0.356" />
+  <testsuite name="Codeunit 61294" tests="1" failures="0" errors="0" skipped="0" time="0.287" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61294" name="Media_ImportFile_MissingFile_AndMediaSet" time="0.287" />
   </testsuite>
-  <testsuite name="Codeunit 61295" tests="3" failures="0" errors="0" skipped="0" time="1.460" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 61295" name="DeleteUser_WithRunTrigger_RemovesItsAccessControlRows" time="0.378" />
-    <testcase classname="Codeunit 61295" name="DeleteUser_WithoutRunTrigger_AccessControlRows" time="0.512" />
-    <testcase classname="Codeunit 61295" name="DeleteAllUsers_AsTheOnlySuperUser_IsRefused" time="0.570" />
+  <testsuite name="Codeunit 61295" tests="3" failures="0" errors="0" skipped="0" time="1.805" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61295" name="DeleteUser_WithRunTrigger_RemovesItsAccessControlRows" time="0.592" />
+    <testcase classname="Codeunit 61295" name="DeleteUser_WithoutRunTrigger_AccessControlRows" time="0.501" />
+    <testcase classname="Codeunit 61295" name="DeleteAllUsers_AsTheOnlySuperUser_IsRefused" time="0.712" />
   </testsuite>
-  <testsuite name="Codeunit 61296" tests="1" failures="0" errors="0" skipped="0" time="0.402" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 61296" name="AzureAdGraphUser_WithoutDirectory_OnTheTier" time="0.402" />
+  <testsuite name="Codeunit 61296" tests="1" failures="0" errors="0" skipped="0" time="0.730" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61296" name="AzureAdGraphUser_WithoutDirectory_OnTheTier" time="0.730" />
   </testsuite>
-  <testsuite name="Codeunit 61297" tests="1" failures="0" errors="0" skipped="0" time="0.490" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 61297" name="NoHandler_UnderAllowOutboundFromHandler" time="0.490" />
+  <testsuite name="Codeunit 61297" tests="1" failures="0" errors="0" skipped="0" time="0.463" timestamp="2026-10-21T13:46:13Z">
+    <testcase classname="Codeunit 61297" name="NoHandler_UnderAllowOutboundFromHandler" time="0.463" />
   </testsuite>
-  <testsuite name="Codeunit 98102" tests="3" failures="0" errors="0" skipped="0" time="2.007" timestamp="2026-10-21T12:48:37Z">
-    <testcase classname="Codeunit 98102" name="Static_Xml" time="0.892" />
-    <testcase classname="Codeunit 98102" name="Instance_Xml" time="0.313" />
-    <testcase classname="Codeunit 98102" name="Instance_SecondUse" time="0.802" />
+  <testsuite name="Codeunit 98102" tests="3" failures="0" errors="0" skipped="0" time="1.732" timestamp="2026-10-21T13:46:14Z">
+    <testcase classname="Codeunit 98102" name="Static_Xml" time="0.231" />
+    <testcase classname="Codeunit 98102" name="Instance_Xml" time="0.897" />
+    <testcase classname="Codeunit 98102" name="Instance_SecondUse" time="0.604" />
   </testsuite>
-  <testsuite name="Codeunit 98251" tests="7" failures="0" errors="0" skipped="0" time="3.219" timestamp="2026-10-21T12:48:38Z">
-    <testcase classname="Codeunit 98251" name="TableWithOptimizedFieldInstallsAndStores" time="0.490" />
-    <testcase classname="Codeunit 98251" name="AtContainsFilterMatchesCaseInsensitively" time="0.243" />
-    <testcase classname="Codeunit 98251" name="ContainsFilterWithoutAt" time="0.657" />
-    <testcase classname="Codeunit 98251" name="PrefixAndSuffixFilters" time="0.762" />
-    <testcase classname="Codeunit 98251" name="FieldTableReportsOptimizeForTextSearch" time="0.197" />
-    <testcase classname="Codeunit 98251" name="DoubleAmpersandFilterOnOptimizedField_BQ" time="0.640" />
-    <testcase classname="Codeunit 98251" name="DoubleAmpersandFilterOnPlainField_BQ" time="0.230" />
+  <testsuite name="Codeunit 98251" tests="7" failures="0" errors="0" skipped="0" time="2.468" timestamp="2026-10-21T13:46:14Z">
+    <testcase classname="Codeunit 98251" name="TableWithOptimizedFieldInstallsAndStores" time="0.061" />
+    <testcase classname="Codeunit 98251" name="AtContainsFilterMatchesCaseInsensitively" time="0.182" />
+    <testcase classname="Codeunit 98251" name="ContainsFilterWithoutAt" time="0.621" />
+    <testcase classname="Codeunit 98251" name="PrefixAndSuffixFilters" time="0.857" />
+    <testcase classname="Codeunit 98251" name="FieldTableReportsOptimizeForTextSearch" time="0.199" />
+    <testcase classname="Codeunit 98251" name="DoubleAmpersandFilterOnOptimizedField_BQ" time="0.339" />
+    <testcase classname="Codeunit 98251" name="DoubleAmpersandFilterOnPlainField_BQ" time="0.209" />
   </testsuite>
-  <testsuite name="Codeunit 98350" tests="4" failures="0" errors="0" skipped="0" time="3.070" timestamp="2026-10-21T12:48:38Z">
-    <testcase classname="Codeunit 98350" name="File_Write_AE_Utf8" time="0.645" />
-    <testcase classname="Codeunit 98350" name="File_Write_AE_Windows" time="0.833" />
-    <testcase classname="Codeunit 98350" name="File_Write_AE_Utf16" time="0.827" />
-    <testcase classname="Codeunit 98350" name="File_Write_AE_BinaryUnboundedText" time="0.765" />
+  <testsuite name="Codeunit 98350" tests="4" failures="0" errors="0" skipped="0" time="3.084" timestamp="2026-10-21T13:46:14Z">
+    <testcase classname="Codeunit 98350" name="File_Write_AE_Utf8" time="0.609" />
+    <testcase classname="Codeunit 98350" name="File_Write_AE_Windows" time="0.858" />
+    <testcase classname="Codeunit 98350" name="File_Write_AE_Utf16" time="0.828" />
+    <testcase classname="Codeunit 98350" name="File_Write_AE_BinaryUnboundedText" time="0.789" />
   </testsuite>
-  <testsuite name="Codeunit 98400" tests="5" failures="0" errors="0" skipped="0" time="2.793" timestamp="2026-10-21T12:48:38Z">
-    <testcase classname="Codeunit 98400" name="Insert_AuthenticationEmailWithoutAt" time="0.440" />
-    <testcase classname="Codeunit 98400" name="Insert_EmailOfAnotherEnabledUser" time="0.920" />
-    <testcase classname="Codeunit 98400" name="Modify_UserNameOfAnotherUser" time="0.468" />
-    <testcase classname="Codeunit 98400" name="Insert_UserNameOfAnotherUser" time="0.637" />
-    <testcase classname="Codeunit 98400" name="InsertTrue_ThenDeleteTrue_RelatedRows" time="0.328" />
+  <testsuite name="Codeunit 98400" tests="5" failures="0" errors="0" skipped="0" time="2.814" timestamp="2026-10-21T13:46:14Z">
+    <testcase classname="Codeunit 98400" name="Insert_AuthenticationEmailWithoutAt" time="0.405" />
+    <testcase classname="Codeunit 98400" name="Insert_EmailOfAnotherEnabledUser" time="0.936" />
+    <testcase classname="Codeunit 98400" name="Modify_UserNameOfAnotherUser" time="0.410" />
+    <testcase classname="Codeunit 98400" name="Insert_UserNameOfAnotherUser" time="0.677" />
+    <testcase classname="Codeunit 98400" name="InsertTrue_ThenDeleteTrue_RelatedRows" time="0.386" />
   </testsuite>
-  <testsuite name="Codeunit 98401" tests="2" failures="0" errors="0" skipped="0" time="1.325" timestamp="2026-10-21T12:48:38Z">
-    <testcase classname="Codeunit 98401" name="DeleteTrue_RowsOfTheUser" time="0.816" />
-    <testcase classname="Codeunit 98401" name="DeleteFalse_RowsOfTheUser" time="0.509" />
+  <testsuite name="Codeunit 98401" tests="2" failures="0" errors="0" skipped="0" time="1.753" timestamp="2026-10-21T13:46:14Z">
+    <testcase classname="Codeunit 98401" name="DeleteTrue_RowsOfTheUser" time="0.954" />
+    <testcase classname="Codeunit 98401" name="DeleteFalse_RowsOfTheUser" time="0.799" />
   </testsuite>
-  <testsuite name="Codeunit 98453" tests="8" failures="0" errors="0" skipped="0" time="2.631" timestamp="2026-10-21T12:48:38Z">
-    <testcase classname="Codeunit 98453" name="ApiWebhookEntity_RowOfOwnApiPage" time="0.166" />
-    <testcase classname="Codeunit 98453" name="ApiWebhookEntity_FirstRow" time="0.582" />
-    <testcase classname="Codeunit 98453" name="PublishedApplication_TenantId" time="0.362" />
-    <testcase classname="Codeunit 98453" name="PerformanceProfileScheduler_RowsInsertDelete" time="0.041" />
-    <testcase classname="Codeunit 98453" name="McpConfiguration_Rows" time="0.255" />
-    <testcase classname="Codeunit 98453" name="McpConfiguration_InsertDelete" time="0.070" />
-    <testcase classname="Codeunit 98453" name="AgentCreationControl_Rows" time="0.481" />
-    <testcase classname="Codeunit 98453" name="MovedTable_TableInformation" time="0.674" />
+  <testsuite name="Codeunit 98453" tests="8" failures="0" errors="0" skipped="0" time="2.840" timestamp="2026-10-21T13:46:15Z">
+    <testcase classname="Codeunit 98453" name="ApiWebhookEntity_RowOfOwnApiPage" time="0.183" />
+    <testcase classname="Codeunit 98453" name="ApiWebhookEntity_FirstRow" time="0.605" />
+    <testcase classname="Codeunit 98453" name="PublishedApplication_TenantId" time="0.370" />
+    <testcase classname="Codeunit 98453" name="PerformanceProfileScheduler_RowsInsertDelete" time="0.188" />
+    <testcase classname="Codeunit 98453" name="McpConfiguration_Rows" time="0.308" />
+    <testcase classname="Codeunit 98453" name="McpConfiguration_InsertDelete" time="0.032" />
+    <testcase classname="Codeunit 98453" name="AgentCreationControl_Rows" time="0.534" />
+    <testcase classname="Codeunit 98453" name="MovedTable_TableInformation" time="0.620" />
   </testsuite>
-  <testsuite name="Codeunit 98990" tests="1" failures="0" errors="0" skipped="0" time="0.649" timestamp="2026-10-21T12:48:39Z">
-    <testcase classname="Codeunit 98990" name="BG_IsPathTemporary_OutsideTemporaryFolder" time="0.649" />
+  <testsuite name="Codeunit 98990" tests="1" failures="0" errors="0" skipped="0" time="0.346" timestamp="2026-10-21T13:46:15Z">
+    <testcase classname="Codeunit 98990" name="BG_IsPathTemporary_OutsideTemporaryFolder" time="0.346" />
   </testsuite>
-  <testsuite name="Codeunit 98991" tests="2" failures="0" errors="0" skipped="0" time="1.318" timestamp="2026-10-21T12:48:39Z">
-    <testcase classname="Codeunit 98991" name="BG_File_Download_ReturnAndToFile" time="0.488" />
-    <testcase classname="Codeunit 98991" name="BG_File_DownloadFromStream_ReturnAndToFile" time="0.830" />
+  <testsuite name="Codeunit 98991" tests="2" failures="0" errors="0" skipped="0" time="1.831" timestamp="2026-10-21T13:46:15Z">
+    <testcase classname="Codeunit 98991" name="BG_File_Download_ReturnAndToFile" time="0.926" />
+    <testcase classname="Codeunit 98991" name="BG_File_DownloadFromStream_ReturnAndToFile" time="0.905" />
   </testsuite>
-  <testsuite name="Codeunit 98992" tests="2" failures="0" errors="0" skipped="0" time="0.837" timestamp="2026-10-21T12:48:39Z">
-    <testcase classname="Codeunit 98992" name="BG_DataFileInformation_RaisesNotSupported" time="0.178" />
-    <testcase classname="Codeunit 98992" name="BG_ImportData_RaisesNotSupported" time="0.659" />
+  <testsuite name="Codeunit 98992" tests="2" failures="0" errors="0" skipped="0" time="0.817" timestamp="2026-10-21T13:46:15Z">
+    <testcase classname="Codeunit 98992" name="BG_DataFileInformation_RaisesNotSupported" time="0.040" />
+    <testcase classname="Codeunit 98992" name="BG_ImportData_RaisesNotSupported" time="0.777" />
   </testsuite>
-  <testsuite name="Codeunit 98993" tests="1" failures="0" errors="0" skipped="0" time="0.270" timestamp="2026-10-21T12:48:39Z">
-    <testcase classname="Codeunit 98993" name="BG_ExportData_ReturnFileNameAndFile" time="0.270" />
+  <testsuite name="Codeunit 98993" tests="1" failures="0" errors="0" skipped="0" time="0.826" timestamp="2026-10-21T13:46:15Z">
+    <testcase classname="Codeunit 98993" name="BG_ExportData_ReturnFileNameAndFile" time="0.826" />
   </testsuite>
-<testsuite name="Codeunit 61243" tests="5" failures="0" errors="0" skipped="0" time="0.739" timestamp="2026-10-21T12:48:51Z">
-    <testcase classname="Codeunit 61243" name="SaveAsXml_RunsTheReportOnce_AndClosesTheRequestPage" time="0.617" />
-    <testcase classname="Codeunit 61243" name="SaveAsXml_ReportDataFile_IsADataSet" time="0.044" />
-    <testcase classname="Codeunit 61243" name="SaveAsXml_ParametersFile_ListsTheUserAndTheExecutionTime" time="0.034" />
-    <testcase classname="Codeunit 61243" name="SaveAsXml_ParametersFile_RawForm" time="0.040" />
-    <testcase classname="Codeunit 61243" name="TemporaryPath_EndsWithTheTempFolderAndABackslash" time="0.004" />
+<testsuite name="Codeunit 61243" tests="5" failures="0" errors="0" skipped="0" time="0.807" timestamp="2026-10-21T13:46:27Z">
+    <testcase classname="Codeunit 61243" name="SaveAsXml_RunsTheReportOnce_AndClosesTheRequestPage" time="0.677" />
+    <testcase classname="Codeunit 61243" name="SaveAsXml_ReportDataFile_IsADataSet" time="0.043" />
+    <testcase classname="Codeunit 61243" name="SaveAsXml_ParametersFile_ListsTheUserAndTheExecutionTime" time="0.033" />
+    <testcase classname="Codeunit 61243" name="SaveAsXml_ParametersFile_RawForm" time="0.047" />
+    <testcase classname="Codeunit 61243" name="TemporaryPath_EndsWithTheTempFolderAndABackslash" time="0.007" />
   </testsuite>
-  <testsuite name="Codeunit 61298" tests="2" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-10-21T12:48:52Z">
-    <testcase classname="Codeunit 61298" name="NoHandler_UnderBlockOutboundRequests" time="0.020" />
+  <testsuite name="Codeunit 61298" tests="2" failures="0" errors="0" skipped="0" time="0.026" timestamp="2026-10-21T13:46:29Z">
+    <testcase classname="Codeunit 61298" name="NoHandler_UnderBlockOutboundRequests" time="0.016" />
     <testcase classname="Codeunit 61298" name="Handler_UnderBlockOutboundRequests_StillAnswers" time="0.010" />
   </testsuite>
-  <testsuite name="Codeunit 98306" tests="4" failures="0" errors="0" skipped="0" time="0.413" timestamp="2026-10-21T12:49:33Z">
+  <testsuite name="Codeunit 98306" tests="4" failures="0" errors="0" skipped="0" time="0.417" timestamp="2026-10-21T13:47:10Z">
     <testcase classname="Codeunit 98306" name="SaveAsXml_ColumnTypes_DataFile" time="0.200" />
     <testcase classname="Codeunit 98306" name="SaveAsXml_NestedDataItems_DataFile" time="0.100" />
     <testcase classname="Codeunit 98306" name="SaveAsXml_TwoTopLevelDataItems_DataFile" time="0.057" />
-    <testcase classname="Codeunit 98306" name="EnableExternalAssemblies_OnPrem_CompilesAndRuns" time="0.056" />
+    <testcase classname="Codeunit 98306" name="EnableExternalAssemblies_OnPrem_CompilesAndRuns" time="0.060" />
   </testsuite>
-  <testsuite name="Codeunit 98550" tests="22" failures="0" errors="0" skipped="0" time="0.389" timestamp="2026-10-21T12:48:53Z">
-    <testcase classname="Codeunit 98550" name="BaseAddress_RelativePaths_1" time="0.024" />
+  <testsuite name="Codeunit 98550" tests="22" failures="0" errors="0" skipped="0" time="0.473" timestamp="2026-10-21T13:46:30Z">
+    <testcase classname="Codeunit 98550" name="BaseAddress_RelativePaths_1" time="0.027" />
     <testcase classname="Codeunit 98550" name="BaseAddress_RelativePaths_2" time="0.013" />
-    <testcase classname="Codeunit 98550" name="NoBaseAddress_RelativePaths_1" time="0.010" />
+    <testcase classname="Codeunit 98550" name="NoBaseAddress_RelativePaths_1" time="0.013" />
     <testcase classname="Codeunit 98550" name="NoBaseAddress_RelativePaths_2" time="0.010" />
-    <testcase classname="Codeunit 98550" name="Handler_OnlyStatus404" time="0.020" />
+    <testcase classname="Codeunit 98550" name="Handler_OnlyStatus404" time="0.023" />
     <testcase classname="Codeunit 98550" name="Handler_RaisesError" time="0.010" />
-    <testcase classname="Codeunit 98550" name="Handler_FallThrough_ConnectionRefused" time="0.010" />
-    <testcase classname="Codeunit 98550" name="PY_HandlerTrue_StrMenuAllowOnce" time="0.020" />
-    <testcase classname="Codeunit 98550" name="PY_HandlerTrue_StrMenuBlockOnce" time="0.010" />
+    <testcase classname="Codeunit 98550" name="Handler_FallThrough_ConnectionRefused" time="0.013" />
+    <testcase classname="Codeunit 98550" name="PY_HandlerTrue_StrMenuAllowOnce" time="0.024" />
+    <testcase classname="Codeunit 98550" name="PY_HandlerTrue_StrMenuBlockOnce" time="0.017" />
     <testcase classname="Codeunit 98550" name="PY_HandlerTrue_StrMenuCancel" time="0.010" />
-    <testcase classname="Codeunit 98550" name="PY_UnusedResult_BlockOnce" time="0.016" />
+    <testcase classname="Codeunit 98550" name="PY_UnusedResult_BlockOnce" time="0.027" />
     <testcase classname="Codeunit 98550" name="PY_UnusedResult_AllowOnceRefused" time="0.010" />
     <testcase classname="Codeunit 98550" name="PY_UnusedResult_MockedAndErrors" time="0.017" />
-    <testcase classname="Codeunit 98550" name="PY_FailedCall_IntoFilledResponse" time="0.033" />
-    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_1" time="0.033" />
-    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_2" time="0.026" />
-    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_3" time="0.026" />
-    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_1" time="0.023" />
-    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_2" time="0.020" />
-    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_3" time="0.016" />
-    <testcase classname="Codeunit 98550" name="PY_NoBaseAddress_Paths_1" time="0.016" />
-    <testcase classname="Codeunit 98550" name="PY_NoBaseAddress_Paths_2" time="0.016" />
+    <testcase classname="Codeunit 98550" name="PY_FailedCall_IntoFilledResponse" time="0.040" />
+    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_1" time="0.040" />
+    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_2" time="0.033" />
+    <testcase classname="Codeunit 98550" name="PY_ReasonPhrase_3" time="0.033" />
+    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_1" time="0.030" />
+    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_2" time="0.023" />
+    <testcase classname="Codeunit 98550" name="PY_BaseAddress_Joins_3" time="0.020" />
+    <testcase classname="Codeunit 98550" name="PY_NoBaseAddress_Paths_1" time="0.020" />
+    <testcase classname="Codeunit 98550" name="PY_NoBaseAddress_Paths_2" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 98603" tests="12" failures="0" errors="0" skipped="0" time="39.896" timestamp="2026-10-21T12:48:53Z">
-    <testcase classname="Codeunit 98603" name="Static_SaveAsPdf" time="5.876" />
-    <testcase classname="Codeunit 98603" name="Instance_SaveAsPdf" time="2.723" />
+  <testsuite name="Codeunit 98603" tests="12" failures="0" errors="0" skipped="0" time="39.367" timestamp="2026-10-21T13:46:30Z">
+    <testcase classname="Codeunit 98603" name="Static_SaveAsPdf" time="5.673" />
+    <testcase classname="Codeunit 98603" name="Instance_SaveAsPdf" time="2.707" />
     <testcase classname="Codeunit 98603" name="Static_SaveAsHtml_IsRefused" time="0.020" />
-    <testcase classname="Codeunit 98603" name="Instance_SaveAsHtml_IsRefused" time="0.016" />
-    <testcase classname="Codeunit 98603" name="Static_SaveAsWord" time="2.850" />
-    <testcase classname="Codeunit 98603" name="Static_SaveAsExcel" time="2.790" />
-    <testcase classname="Codeunit 98603" name="Instance_SaveAsWord" time="2.687" />
-    <testcase classname="Codeunit 98603" name="Instance_SaveAsExcel" time="2.683" />
-    <testcase classname="Codeunit 98603" name="RecordFilter_RowsTheDatasetReads" time="16.124" />
-    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsPdf" time="1.397" />
-    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsExcel" time="1.370" />
-    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsWord" time="1.360" />
+    <testcase classname="Codeunit 98603" name="Instance_SaveAsHtml_IsRefused" time="0.020" />
+    <testcase classname="Codeunit 98603" name="Static_SaveAsWord" time="2.794" />
+    <testcase classname="Codeunit 98603" name="Static_SaveAsExcel" time="2.753" />
+    <testcase classname="Codeunit 98603" name="Instance_SaveAsWord" time="2.616" />
+    <testcase classname="Codeunit 98603" name="Instance_SaveAsExcel" time="2.643" />
+    <testcase classname="Codeunit 98603" name="RecordFilter_RowsTheDatasetReads" time="15.950" />
+    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsPdf" time="1.487" />
+    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsExcel" time="1.377" />
+    <testcase classname="Codeunit 98603" name="RequestPage_SaveAsWord" time="1.327" />
   </testsuite>
-  <testsuite name="Codeunit 98700" tests="7" failures="0" errors="0" skipped="0" time="0.220" timestamp="2026-10-21T12:48:52Z">
-    <testcase classname="Codeunit 98700" name="NoHandler_ConnectionRefused" time="0.104" />
-    <testcase classname="Codeunit 98700" name="NoHandler_StrMenuAllowOnce_ConnectionRefused" time="0.013" />
-    <testcase classname="Codeunit 98700" name="Handler_AnswersFalse_Mocked" time="0.040" />
+  <testsuite name="Codeunit 98700" tests="7" failures="0" errors="0" skipped="0" time="0.203" timestamp="2026-10-21T13:46:29Z">
+    <testcase classname="Codeunit 98700" name="NoHandler_ConnectionRefused" time="0.110" />
+    <testcase classname="Codeunit 98700" name="NoHandler_StrMenuAllowOnce_ConnectionRefused" time="0.014" />
+    <testcase classname="Codeunit 98700" name="Handler_AnswersFalse_Mocked" time="0.017" />
     <testcase classname="Codeunit 98700" name="Handler_AnswersTrue_NoStrMenu" time="0.010" />
     <testcase classname="Codeunit 98700" name="Handler_AnswersTrue_StrMenuAllowOnce" time="0.010" />
-    <testcase classname="Codeunit 98700" name="Handler_AnswersTrue_StrMenuBlockOnce" time="0.013" />
-    <testcase classname="Codeunit 98700" name="Handler_UnusedResult_BlockOnce" time="0.030" />
+    <testcase classname="Codeunit 98700" name="Handler_AnswersTrue_StrMenuBlockOnce" time="0.016" />
+    <testcase classname="Codeunit 98700" name="Handler_UnusedResult_BlockOnce" time="0.026" />
   </testsuite>
-  <testsuite name="Codeunit 98701" tests="7" failures="0" errors="0" skipped="0" time="0.116" timestamp="2026-10-21T12:48:52Z">
-    <testcase classname="Codeunit 98701" name="NoHandler_ConnectionRefused" time="0.030" />
-    <testcase classname="Codeunit 98701" name="NoHandler_StrMenuAllowOnce_ConnectionRefused" time="0.010" />
-    <testcase classname="Codeunit 98701" name="Handler_AnswersFalse_Mocked" time="0.020" />
-    <testcase classname="Codeunit 98701" name="Handler_AnswersTrue_NoStrMenu" time="0.010" />
+  <testsuite name="Codeunit 98701" tests="7" failures="0" errors="0" skipped="0" time="0.171" timestamp="2026-10-21T13:46:29Z">
+    <testcase classname="Codeunit 98701" name="NoHandler_ConnectionRefused" time="0.073" />
+    <testcase classname="Codeunit 98701" name="NoHandler_StrMenuAllowOnce_ConnectionRefused" time="0.014" />
+    <testcase classname="Codeunit 98701" name="Handler_AnswersFalse_Mocked" time="0.023" />
+    <testcase classname="Codeunit 98701" name="Handler_AnswersTrue_NoStrMenu" time="0.013" />
     <testcase classname="Codeunit 98701" name="Handler_AnswersTrue_StrMenuAllowOnce" time="0.010" />
-    <testcase classname="Codeunit 98701" name="Handler_AnswersTrue_StrMenuBlockOnce" time="0.013" />
-    <testcase classname="Codeunit 98701" name="Handler_UnusedResult_BlockOnce" time="0.023" />
+    <testcase classname="Codeunit 98701" name="Handler_AnswersTrue_StrMenuBlockOnce" time="0.014" />
+    <testcase classname="Codeunit 98701" name="Handler_UnusedResult_BlockOnce" time="0.024" />
   </testsuite>
 </testsuites>

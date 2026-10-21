@@ -1206,6 +1206,17 @@ impl Session {
                     // (Code in upper case): types/lt-enum-to-text-fieldref/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember,
                     // FieldRefValue_EnumToCodeField. A number goes in as its Format text; one longer than the field raises and leaves
                     // the field as it was (types/lt-number-to-text/NumberToTextIsFormat.al:239-246, FieldRefSetValue_NumberOnCodeAndText_Result).
+                    // A BigInteger beyond Integer into an Option or an Enum field raises Overflow, where an assignment to a
+                    // variable raises TypeConversion (types/lt-bigint-enum-option/BigIntToEnumOption.al:401-413
+                    // QO_Variant_ToOptionFieldRef_Value, :433-447 QO_Variant_ToEnumFieldRef_Value).
+                    if let Value::BigInteger(n) = v {
+                        if i32::try_from(*n).is_err() && matches!(field.ty, RtType::Option(_) | RtType::Enum(_)) {
+                            return al_builtins::native::raise(
+                                "Arithmetic operation resulted in an overflow.",
+                                "AL:Overflow",
+                            );
+                        }
+                    }
                     let converted = ops::number_into_text_field(v, &field.ty, &*self);
                     let v = match converted {
                         Some(r) => r?,
