@@ -542,7 +542,8 @@ impl Report {
     }
 }
 
-/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names, the dependency apps, the symbols, the target.
+/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names,
+/// the manifests (resources, layout files, `app.json`), the dependency apps, the symbols, the target.
 fn warm_key(
     inputs: &[AppInput],
     dependencies: &al_testrun::deps::Dependencies,
@@ -558,7 +559,12 @@ fn warm_key(
         for (path, _) in &i.source.files {
             path.hash(&mut h);
         }
-        i.manifest.version.hash(&mut h);
+        // What the app's manifest gives the program beside its code: a change to a resource file, a layout file or
+        // `app.json` is a new key, as the warm compile takes in only source text (issue 5604).
+        let m = &i.manifest;
+        (&m.publisher, &m.version, &m.resources, m.include_source, &m.target, &m.symbols, &m.layout_files).hash(&mut h);
+        i.symbols.hash(&mut h);
+        format!("{:?}", i.json).hash(&mut h);
     }
     for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
         app.id.hash(&mut h);
