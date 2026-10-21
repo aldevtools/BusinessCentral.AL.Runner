@@ -16234,7 +16234,7 @@
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 454,
+        "line": 455,
         "pinned": true,
         "site": "types/TestFormatEvaluateTextContracts.al:228",
         "template": "An error was expected inside an ASSERTERROR statement."
@@ -16243,7 +16243,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 605,
+        "line": 606,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16342,7 +16342,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1295,
+        "line": 1301,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
