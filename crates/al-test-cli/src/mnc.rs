@@ -208,14 +208,23 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
         &al_version::corpus_symbols(bc_major),
     );
     let members = al_sema::members::build(&ws);
-    let checked = al_sema::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    // The corpus apps' runtime on this leg (`oracle.toml` app_runtime): 16.1, 17.1, 18.0, unless `@appjson` names one.
+    let runtime = case.appjson_runtime.or_else(|| {
+        let r = al_version::Runtime::max_for_bc(bc_major);
+        Some((u32::from(r.major), u32::from(r.minor)))
+    });
+    // The builtins the app sees are those of its runtime: a newer one is AL0666.
+    let catalog = match runtime.and_then(|(ma, mi)| Some((u16::try_from(ma).ok()?, u16::try_from(mi).ok()?))) {
+        Some((major, minor)) => al_builtins::catalog::Catalog::for_target(
+            &al_version::Target::for_bc(al_version::BcVersion::new(bc_major, 0))
+                .with_runtime(al_version::Runtime { major, minor }),
+        ),
+        None => al_builtins::catalog::Catalog::load(),
+    };
+    let checked = al_sema::check::check(&ws, &members, &catalog);
     let ctx = AppContext {
         target: case.target,
-        // The corpus apps' runtime on this leg (`oracle.toml` app_runtime): 16.1, 17.1, 18.0.
-        runtime: case.appjson_runtime.or_else(|| {
-            let r = al_version::Runtime::max_for_bc(bc_major);
-            Some((u32::from(r.major), u32::from(r.minor)))
-        }),
+        runtime,
         app_json_keys: case.appjson_keys.clone(),
         bc_major: Some(major),
     };
@@ -240,7 +249,10 @@ pub fn pinned_calls(case: &Case, catalog: &al_builtins::catalog::Catalog) -> Vec
     if case.from.is_some() || case.until.is_some() {
         return Vec::new();
     }
-    let (ws, checked, diags) = compile(case, al_version::MIN_BC_MAJOR);
+    let (ws, _, diags) = compile(case, al_version::MIN_BC_MAJOR);
+    // Which overload a call means does not depend on the runtime: the newest catalog resolves a call the case's
+    // runtime refuses (AL0666), so the refused overload is the one pinned.
+    let checked = al_sema::check::check(&ws, &al_sema::members::build(&ws), catalog);
     let mut got: Vec<&str> = diags.iter().map(|d| d.code).collect();
     let mut want: Vec<&str> = case.expect.iter().map(|(c, _)| c.as_str()).collect();
     got.sort_unstable();
