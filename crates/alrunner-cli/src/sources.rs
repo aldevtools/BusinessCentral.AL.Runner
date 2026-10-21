@@ -345,7 +345,7 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
         return Err("nothing to measure: --affected-from needs an app without test codeunits. To run Microsoft's tests, use al-runner test-microsoft".into());
     }
     let mut rows: Vec<sources_report::PartRow> = Vec::new();
-    let mut junit: Vec<(crate::output::JunitPart, Vec<(String, String)>, String)> = Vec::new();
+    let mut junit: Vec<crate::output::JunitPart> = Vec::new();
 
     if !split.own_tests.is_empty() {
         println!("== own tests: {} ==", split.own_names.join(", "));
@@ -367,18 +367,14 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
                     .iter()
                     .filter(|r| matches!(r.outcome, al_testrun::Outcome::NotRun(_)))
                     .count();
-                junit.push((
-                    crate::output::JunitPart {
-                        results: std::mem::take(&mut c.results),
-                        disabled: std::mem::take(&mut c.disabled),
-                        bc_build: c.bc_build.take(),
-                        baseline_assumptions: std::mem::take(&mut c.baseline_assumptions),
-                        ..Default::default()
-                    },
-                    Vec::new(),
-                    String::new(),
-                ));
-                sources_report::PartRow::own(junit.last().map_or(0, |j| j.0.results.len()), failed, not_run, code)
+                junit.push(crate::output::JunitPart {
+                    results: std::mem::take(&mut c.results),
+                    disabled: std::mem::take(&mut c.disabled),
+                    bc_build: c.bc_build.take(),
+                    baseline_assumptions: std::mem::take(&mut c.baseline_assumptions),
+                    ..Default::default()
+                });
+                sources_report::PartRow::own(junit.last().map_or(0, |j| j.results.len()), failed, not_run, code)
             }
             Err(e) => {
                 eprintln!("error: own tests: {e}");
@@ -397,11 +393,9 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
     }
     let code = sources_report::worst(rows.iter().map(|r| r.code));
     if let Some(path) = &a.junit {
-        let refs: Vec<(&crate::output::JunitPart, Vec<(String, String)>, String)> =
-            junit.iter().map(|(p, f, n)| (p, f.clone(), n.clone())).collect();
         crate::run::write_file(
             path,
-            &crate::output::junit_parts(&refs, started.elapsed().as_secs_f64()),
+            &crate::output::junit_parts(&junit, started.elapsed().as_secs_f64()),
         )?;
     }
     Ok(code)
@@ -409,13 +403,7 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
 
 /// The `microsoft` source of a run: per test app and lane, an impact run of the extension. Returns its row of the
 /// summary and its JUnit parts (the first carries `not_selected`).
-fn microsoft_source(
-    a: &TestArgs,
-    extension: &[PathBuf],
-) -> (
-    sources_report::PartRow,
-    Vec<(crate::output::JunitPart, Vec<(String, String)>, String)>,
-) {
+fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> (sources_report::PartRow, Vec<crate::output::JunitPart>) {
     let ms = match microsoft(a) {
         Ok(ms) => ms,
         Err(e) => {
@@ -470,7 +458,11 @@ fn microsoft_source(
                 ));
                 continue;
             }
-            println!("\n-- {} lane {name}: {} codeunits --", app.name, lane.args.codeunits.len());
+            println!(
+                "\n-- {} lane {name}: {} codeunits --",
+                app.name,
+                lane.args.codeunits.len()
+            );
             let la = source_lane_args(&lane.args, extension, index_command(a, &app.name, &ms.build));
             match crate::impact::run_part(&la) {
                 Ok(part) => {
@@ -513,21 +505,15 @@ fn microsoft_source(
         println!("  {n}");
     }
     row.not_selected = not_selected;
-    let first = vec![("not_selected".to_string(), not_selected.to_string())];
-    let mut out: Vec<(crate::output::JunitPart, Vec<(String, String)>, String)> = Vec::new();
     if parts.is_empty() {
-        let empty = crate::output::JunitPart {
+        parts.push(crate::output::JunitPart {
             suite_properties: vec![("test_source".into(), "microsoft".into())],
+            empty_name: "microsoft".into(),
             ..Default::default()
-        };
-        out.push((empty, first, "microsoft".into()));
-    } else {
-        for (i, p) in parts.into_iter().enumerate() {
-            let f = if i == 0 { first.clone() } else { Vec::new() };
-            out.push((p, f, "microsoft".into()));
-        }
+        });
     }
-    (row, out)
+    parts[0].first_suite_properties = vec![("not_selected".to_string(), not_selected.to_string())];
+    (row, parts)
 }
 
 /// `al-runner impact-index build --from microsoft [--microsoft-app NAME ...]` (ADR-052 1.8): the index of every lane

@@ -293,7 +293,9 @@ fn source_fixture(root: &Path) -> (String, String, String) {
     std::fs::create_dir_all(&only).unwrap();
     std::fs::copy(ext.join("app.json"), only.join("app.json")).unwrap();
     let al = std::fs::read_to_string(ext.join("Subscriber.Codeunit.al")).unwrap();
-    let cut = al.find("// The extension's own tests").expect("the fixture's own tests");
+    let cut = al
+        .find("// The extension's own tests")
+        .expect("the fixture's own tests");
     std::fs::write(only.join("Subscriber.Codeunit.al"), &al[..cut]).unwrap();
     (
         only.to_string_lossy().into_owned(),
@@ -304,7 +306,9 @@ fn source_fixture(root: &Path) -> (String, String, String) {
 
 /// The cells of a row of the `Sources` table.
 fn source_row(out: &str, name: &str) -> String {
-    let at = out.find("\nSources\n").unwrap_or_else(|| panic!("no Sources table in:\n{out}"));
+    let at = out
+        .find("\nSources\n")
+        .unwrap_or_else(|| panic!("no Sources table in:\n{out}"));
     let line = out[at..]
         .lines()
         .find(|l| l.trim_start().starts_with(&format!("{name} ")))
@@ -342,17 +346,33 @@ fn test_microsoft_with_an_extension_runs_the_microsoft_tests_that_reach_it_with_
     // as passes (the disabled test of Tests-Fake-A is among them).
     let r = source_row(&out, "microsoft");
     assert!(r.ends_with(" 1 0 0 0 1"), "{r}\n{out}");
-    assert!(out.contains("not selected: 4 test(s) do not reach your extension"), "{out}");
+    assert!(
+        out.contains("not selected: 4 test(s) do not reach your extension"),
+        "{out}"
+    );
     assert!(
         out.contains("Result: FAIL (microsoft: 1 newly failing) (exit 1)"),
         "{out}"
     );
     assert_eq!(o.status.code(), Some(1), "{out}");
     let x = std::fs::read_to_string(&junit).unwrap();
-    assert!(x.contains("<property name=\"test_source\" value=\"microsoft\" />"), "{x}");
-    assert_eq!(x.matches("<property name=\"not_selected\" value=\"4\" />").count(), 1, "{x}");
-    assert!(x.contains("<property name=\"impact_class\" value=\"newly failing\" />"), "{x}");
-    assert!(!x.contains("APasses") && !x.contains("BRuns"), "not selected tests are not in the file: {x}");
+    assert!(
+        x.contains("<property name=\"test_source\" value=\"microsoft\" />"),
+        "{x}"
+    );
+    assert_eq!(
+        x.matches("<property name=\"not_selected\" value=\"4\" />").count(),
+        1,
+        "{x}"
+    );
+    assert!(
+        x.contains("<property name=\"impact_class\" value=\"newly failing\" />"),
+        "{x}"
+    );
+    assert!(
+        !x.contains("APasses") && !x.contains("BRuns"),
+        "not selected tests are not in the file: {x}"
+    );
 }
 
 #[test]
@@ -363,12 +383,25 @@ fn own_tests_and_the_microsoft_source_make_one_report_and_the_worst_part_sets_th
     let o = run_cmd(
         dir.path(),
         &["test"],
-        &[&ext, "--affected-from", "microsoft", "--microsoft-app", "Tests-Imp", "--dep", &lib, "--junit", junit.to_str().unwrap()],
+        &[
+            &ext,
+            "--affected-from",
+            "microsoft",
+            "--microsoft-app",
+            "Tests-Imp",
+            "--dep",
+            &lib,
+            "--junit",
+            junit.to_str().unwrap(),
+        ],
     );
     let out = text(&o);
     // The extension holds a subscriber and a test codeunit: it is the extension and an own test app.
     assert!(out.contains("== own tests: Impact Ext 1.0.0.0 =="), "{out}");
-    assert!(out.contains(&format!("== microsoft: BC {BUILD} w1, 1 test app(s)")), "{out}");
+    assert!(
+        out.contains(&format!("== microsoft: BC {BUILD} w1, 1 test app(s)")),
+        "{out}"
+    );
     assert_eq!(source_row(&out, "own tests"), "1 - - - - 0 not run 1", "{out}");
     assert!(source_row(&out, "microsoft").ends_with(" 1 0 0 0 1"), "{out}");
     assert!(
@@ -391,11 +424,17 @@ fn an_index_built_from_microsoft_turns_on_dynamic_selection() {
     );
     let out = text(&o);
     assert_eq!(o.status.code(), Some(0), "{out}");
-    assert!(out.contains("Tests-Imp lane UnitTest:") && out.contains("impact index: "), "{out}");
+    assert!(
+        out.contains("Tests-Imp lane UnitTest:") && out.contains("impact index: "),
+        "{out}"
+    );
     let o = run(dir.path(), &[&ext, "--app", "Tests-Imp", "--dep", &lib]);
     let out = text(&o);
     assert!(out.contains("dynamic selection in 1 run(s)"), "{out}");
-    assert!(!out.contains("impact-index build --from"), "no warning with an index: {out}");
+    assert!(
+        !out.contains("impact-index build --from"),
+        "no warning with an index: {out}"
+    );
     assert!(
         out.contains("50510 Imp Tests.PostKeepsALargeAmount: pass -> fail: amount 20"),
         "{out}"
@@ -410,9 +449,16 @@ fn an_app_with_tests_in_test_microsoft_or_no_extension_at_all_exits_2() {
     let o = run(dir.path(), &[&ext, "--dep", &lib]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(2), "{out}");
-    assert!(out.contains("Impact Ext 1.0.0.0 holds test codeunits") && out.contains("--affected-from microsoft"), "{out}");
+    assert!(
+        out.contains("Impact Ext 1.0.0.0 holds test codeunits") && out.contains("--affected-from microsoft"),
+        "{out}"
+    );
     let tests = impact_fixture("tests");
-    let o = run_cmd(dir.path(), &["test"], &[tests.to_str().unwrap(), "--affected-from", "microsoft", "--dep", &lib]);
+    let o = run_cmd(
+        dir.path(),
+        &["test"],
+        &[tests.to_str().unwrap(), "--affected-from", "microsoft", "--dep", &lib],
+    );
     let out = text(&o);
     assert_eq!(o.status.code(), Some(2), "{out}");
     assert!(out.contains("nothing to measure"), "{out}");
@@ -431,7 +477,15 @@ fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_re
     std::fs::write(
         test.join("Tests-Imp-Uncategorized.Source.zip"),
         zip(&[
-            ("app.json", read("app.json").replace("43000000-0000-0000-0000-000000000002", "43000000-0000-0000-0000-000000000012").replace("Impact Tests", "Impact Tests U")),
+            (
+                "app.json",
+                read("app.json")
+                    .replace(
+                        "43000000-0000-0000-0000-000000000002",
+                        "43000000-0000-0000-0000-000000000012",
+                    )
+                    .replace("Impact Tests", "Impact Tests U"),
+            ),
             ("src/Tests.Codeunit.al", read("Tests.Codeunit.al")),
         ]),
     )

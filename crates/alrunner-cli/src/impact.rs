@@ -1031,7 +1031,7 @@ impl Finish<'_> {
                 disabled: with.disabled.clone(),
                 bc_build: with.bc_build.clone(),
                 baseline_assumptions: with.baseline_assumptions.clone(),
-                suite_properties: Vec::new(),
+                ..Default::default()
             }),
         });
         if let Some(path) = &a.junit {

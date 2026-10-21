@@ -458,7 +458,10 @@ mod tests {
                 disabled: false,
                 properties: Vec::new(),
             }],
-            properties: vec![("test_source".into(), "microsoft".into()), ("not_selected".into(), "3".into())],
+            properties: vec![
+                ("test_source".into(), "microsoft".into()),
+                ("not_selected".into(), "3".into()),
+            ],
         }];
         let x = write(&suites, Dialect::Runner, None, 0.0);
         assert!(

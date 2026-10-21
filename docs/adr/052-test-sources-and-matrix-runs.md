@@ -496,3 +496,33 @@ the serve refusal test in `args.rs`.
 - **Output files.** `--junit FILE` and `--output-json FILE` get the app's name before the extension, then the lane
   (`FILE.Tests-ERM.legacy.xml`). `--output-json` without a FILE is refused: several documents cannot share stdout.
 
+
+## Decided without owner review (2026-10-22, build step 2)
+
+Step 2 as built: `al-runner test APP... --affected-from microsoft [--microsoft-app NAME ...]`,
+`al-runner test-microsoft APP...`, `al-runner impact-index build --from microsoft [--microsoft-app NAME ...]`, and the
+serve refusals of `--affected-from` and `--microsoft-app` (section 4). Code: `sources.rs` (`affected`,
+`microsoft_source`, `build_index`, `split`), `sources_report.rs` (`PartRow`, `table_lines`), `impact::run_part`,
+`recipe_run::plan_lanes`, `output::junit_parts`. Tests: `crates/alrunner-cli/tests/test_microsoft.rs` (plan items 5,
+6, 12, 13, 16 for the `microsoft` source).
+
+- **The lane in the index key.** Each lane's run differs in its company options (Legacy: the package company;
+  UnitTest: an empty company without test data), and the ADR-043 key already hashes them, so the key of each lane is
+  its own without a new field.
+- **One impact run per test app and lane.** As step 1's one run per test app: a run that does not load or compile
+  gives the source exit 2 and a line, the other runs go on.
+- **A lane the runner cannot build** (the Contoso lanes) and codeunits no lane runs are listed in codeunits
+  (`Tests-X lane IntegrationTest: 4 codeunit(s) not verified: lane not run yet: <reason>`), not per test: their tests
+  are only known after a compile, which the run does not do for them.
+- **An APP with both** test codeunits and other objects is both an own test app and part of the extension (as 1.1).
+  Objects are counted by parsing the app's source.
+- **Not selected** counts every test of a test codeunit the selection left out, the tests Microsoft disables among
+  them (they run on neither side).
+- **JUnit.** A source that selected no test still writes one empty suite named `microsoft` with `test_source` and
+  `not_selected`, so the count is in the file.
+- **Not built in step 2, refused with a message:** `--output-json` (the `sources` array), `--impact-json` (format
+  2) and `--impact-accept` with a source. A format-1 accept file given to every run would list its entries as "no
+  longer matches" in every run of another test app; step 3 builds the accept file per source.
+- **The no-index warning** of a source run prints `al-runner impact-index build --from microsoft --microsoft-app
+  <app> --bc-version <build>` plus the options that are part of the key (`--country`, `--bcapps`, `--cache-dir`,
+  `--dep`, `--package-cache`, `--define`), not the run's own command line.

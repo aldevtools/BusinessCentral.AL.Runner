@@ -317,7 +317,10 @@ mod tests {
         ms.code = 1;
         let lines = table_lines(&[own, ms]);
         assert_eq!(lines[1], "Sources");
-        assert!(lines[2].starts_with("  part       tests run  ran your code  newly failing"), "{lines:?}");
+        assert!(
+            lines[2].starts_with("  part       tests run  ran your code  newly failing"),
+            "{lines:?}"
+        );
         assert_eq!(
             lines[3].split_whitespace().collect::<Vec<_>>(),
             ["own", "tests", "212", "-", "-", "-", "-", "10", "not", "run", "1"]
@@ -332,8 +335,14 @@ mod tests {
         );
         // A source that could not load is exit 2 and says why; nothing failing is a pass.
         let lines = table_lines(&[PartRow::error("microsoft", "no artifact\nmore")]);
-        assert_eq!(lines.last().unwrap(), "Result: ERROR (microsoft: not run: no artifact) (exit 2)");
-        assert_eq!(table_lines(&[PartRow::source("microsoft")]).last().unwrap(), "Result: PASS (exit 0)");
+        assert_eq!(
+            lines.last().unwrap(),
+            "Result: ERROR (microsoft: not run: no artifact) (exit 2)"
+        );
+        assert_eq!(
+            table_lines(&[PartRow::source("microsoft")]).last().unwrap(),
+            "Result: PASS (exit 0)"
+        );
     }
     use crate::recipe::Lane;
 

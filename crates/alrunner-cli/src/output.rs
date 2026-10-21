@@ -479,24 +479,26 @@ pub struct JunitPart {
     pub baseline_assumptions: Vec<String>,
     /// Properties of every suite of the part (`test_source`).
     pub suite_properties: Vec<(String, String)>,
+    /// Further properties of the part's first suite (`not_selected`).
+    pub first_suite_properties: Vec<(String, String)>,
+    /// A part with no result and first-suite properties gets an empty suite of this name, so that they are still in
+    /// the file.
+    pub empty_name: String,
 }
 
-/// One JUnit document of several parts, in their order. `first_suite[i]`: further properties of the first suite of
-/// part `i` (`not_selected`); a part with no result and such properties gets an empty suite named `empty_name[i]`, so
-/// that the count is still in the file.
-pub fn junit_parts(parts: &[(&JunitPart, Vec<(String, String)>, String)], wall_s: f64) -> String {
+/// One JUnit document of several parts, in their order.
+pub fn junit_parts(parts: &[JunitPart], wall_s: f64) -> String {
     let mut suites: Vec<al_testrun::junit::Suite> = Vec::new();
     let mut baseline: Vec<String> = Vec::new();
-    for (part, first, empty_name) in parts {
+    for part in parts {
+        let first = &part.first_suite_properties;
         let refs: Vec<&TestResult> = part.results.iter().collect();
-        let mut own = suites_of(
-            &refs,
-            &|i| part.disabled.get(i).copied().unwrap_or(false),
-            &|i| part.properties.get(i).cloned().unwrap_or_default(),
-        );
+        let mut own = suites_of(&refs, &|i| part.disabled.get(i).copied().unwrap_or(false), &|i| {
+            part.properties.get(i).cloned().unwrap_or_default()
+        });
         if own.is_empty() && !first.is_empty() {
             own.push(al_testrun::junit::Suite {
-                name: empty_name.clone(),
+                name: part.empty_name.clone(),
                 codeunit: 0,
                 cases: Vec::new(),
                 properties: Vec::new(),
@@ -515,14 +517,8 @@ pub fn junit_parts(parts: &[(&JunitPart, Vec<(String, String)>, String)], wall_s
             }
         }
     }
-    let bc_build = parts.iter().find_map(|(p, _, _)| p.bc_build.as_deref());
-    al_testrun::junit::write_with_baseline(
-        &suites,
-        al_testrun::junit::Dialect::Runner,
-        bc_build,
-        wall_s,
-        &baseline,
-    )
+    let bc_build = parts.iter().find_map(|p| p.bc_build.as_deref());
+    al_testrun::junit::write_with_baseline(&suites, al_testrun::junit::Dialect::Runner, bc_build, wall_s, &baseline)
 }
 
 #[cfg(test)]
@@ -607,26 +603,28 @@ mod tests {
             ..Default::default()
         };
         let source = JunitPart {
-            results: vec![r(5, "Ms", "M1", Outcome::Pass), r(6, "Ms2", "M2", Outcome::Fail("x".into()))],
+            results: vec![
+                r(5, "Ms", "M1", Outcome::Pass),
+                r(6, "Ms2", "M2", Outcome::Fail("x".into())),
+            ],
             properties: vec![vec![("impact_class".into(), "same, reached".into())], Vec::new()],
             disabled: vec![false, true],
             bc_build: Some("29.0.1.2".into()),
             suite_properties: vec![("test_source".into(), "microsoft".into())],
             ..Default::default()
         };
+        let not_selected = vec![("not_selected".to_string(), "40".to_string())];
+        let source = JunitPart {
+            first_suite_properties: not_selected.clone(),
+            ..source
+        };
         let nothing = JunitPart {
             suite_properties: vec![("test_source".into(), "microsoft".into())],
+            first_suite_properties: not_selected,
+            empty_name: "microsoft Tests-B".into(),
             ..Default::default()
         };
-        let not_selected = vec![("not_selected".to_string(), "40".to_string())];
-        let x = junit_parts(
-            &[
-                (&own, Vec::new(), String::new()),
-                (&source, not_selected.clone(), "microsoft".into()),
-                (&nothing, not_selected, "microsoft Tests-B".into()),
-            ],
-            1.0,
-        );
+        let x = junit_parts(&[own, source, nothing], 1.0);
         assert!(x.contains("<testsuites tests=\"3\" failures=\"1\""), "{x}");
         assert_eq!(x.matches("<testsuite ").count(), 4, "{x}");
         assert!(
@@ -637,7 +635,10 @@ mod tests {
             x.contains("<property name=\"codeunit\" value=\"6\" /><property name=\"test_source\" value=\"microsoft\" /></properties>"),
             "{x}"
         );
-        assert!(x.contains("<property name=\"codeunit\" value=\"1\" /></properties>"), "{x}");
+        assert!(
+            x.contains("<property name=\"codeunit\" value=\"1\" /></properties>"),
+            "{x}"
+        );
         // A source run that selected nothing still says how many it left out.
         assert!(x.contains("<testsuite name=\"microsoft Tests-B\" tests=\"0\""), "{x}");
         assert!(x.contains("impact_class") && x.contains("disabled_by_microsoft"), "{x}");

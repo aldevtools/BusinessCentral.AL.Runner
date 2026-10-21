@@ -10,8 +10,9 @@ pub enum Command {
     /// `al-runner --list-assumptions`: the registry of unprobed assumptions with the counts of the last run.
     ListAssumptions(Option<PathBuf>),
     Test(Box<TestArgs>),
-    /// `al-runner test-microsoft [OPTIONS]` (ADR-052 section 2): every Microsoft test app of the build, run by Microsoft's
-    /// recipe, without collecting their paths.
+    /// `al-runner test-microsoft [OPTIONS] [APP...]` (ADR-052 section 2): every Microsoft test app of the build, run by
+    /// Microsoft's recipe, without collecting their paths; with APPs, the ones that reach the extension (`--affected-from
+    /// microsoft`).
     TestMicrosoft(Box<TestArgs>),
     /// `al-runner debug [--stdio | --port [N]] APP... [test options]` (ADR-048): the tests under a Debug Adapter
     /// Protocol client.
@@ -202,10 +203,11 @@ al-runner: run AL tests without a service tier (AL Runner, alpha)
 
 USAGE
     al-runner test [OPTIONS] APP...
-    al-runner test-microsoft [OPTIONS]
+    al-runner test-microsoft [OPTIONS] [APP...]
     al-runner serve [--protocol 2] [OPTIONS]
     al-runner debug [--stdio | --port [N]] [OPTIONS] APP...
     al-runner impact-index build|check-static [OPTIONS] APP...
+    al-runner impact-index build --from microsoft [--microsoft-app NAME ...] [OPTIONS]
     al-runner cache clear|prune|info [--cache-dir DIR]
     al-runner warm [PATH.bak] [OPTIONS]
     al-runner --list-assumptions [--cache-dir DIR]
@@ -404,6 +406,31 @@ IMPACT (ADR-043)
                          Check that static reach covers everything each test recorded in the cached
                          index of the same APPs and options (exit 1 on a miss), and how much more
                          static reach selects.
+    al-runner impact-index build --from microsoft [--microsoft-app NAME ...] [OPTIONS]
+                         Build the index of every Microsoft test app of the build (or those
+                         --microsoft-app names), one per lane of Microsoft's recipe, as
+                         --affected-from microsoft looks them up. Give the --bc-version, --country,
+                         --dep and --define of the runs that read it.
+
+TEST SOURCES (ADR-052)
+    --affected-from microsoft
+                         Also run the Microsoft tests your extension can affect: the APPs without a
+                         test codeunit are the extension, the APPs with one are your own tests (an
+                         app with both is both). Your own tests run as a normal run. Then every
+                         Microsoft test app of the build (--microsoft-app NAME narrows, repeatable)
+                         runs lane by lane with Microsoft's recipe as an impact run of the extension
+                         (--impact-of): only the tests that reach the extension, with and without it.
+                         Tests that do not reach it are counted as not selected, never as passed.
+                         The report ends with a table (own tests, microsoft: tests run, ran your
+                         code, newly failing, fails differently, newly refused, not verified, exit)
+                         and one Result line. --junit FILE writes one file: your own tests, then the
+                         source's tests with the impact properties and the suite property
+                         test_source; the source's first suite has not_selected (its count).
+                         --filter, --codeunit, --test-exact and --exclude-test apply to your own
+                         tests only. Exit code: the worst part (2, then 1, 8, 7; a source that
+                         selects nothing gives 0). Refused with it: --recipe, --impact-of,
+                         --no-compile-cache, --explain, --coverage*, --tdd, and (not built yet)
+                         --output-json, --impact-json, --impact-accept and an ISV test app as SOURCE.
 
 ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
@@ -514,7 +541,7 @@ TEST DATA
                          replaces the GitHub address the fetch uses.
 
 TEST-MICROSOFT
-    al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS]
+    al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS] [APP...]
                          Run Microsoft's test apps of a BC build the way Microsoft's CI does, without
                          collecting their paths: the list comes from the build's artifact (the
                          Test/*.Source.zip entries and the country's own), each app is fetched when it
@@ -527,13 +554,16 @@ TEST-MICROSOFT
                          app could not be loaded or compiled, else 1, 8, 7; 6 only when nothing ran).
                          The recipe decides the company and the disabled tests: --recipe,
                          --disabled-tests, --parity, --company-data, --package, --test-data*,
-                         --no-test-data and --explain are refused. An APP (your extension) is refused
-                         until the next step of ADR-052.
+                         --no-test-data and --explain are refused.
+                         With APPs (your extensions, no test codeunits): `al-runner test APP...
+                         --affected-from microsoft` without own tests (see TEST SOURCES); --impact
+                         applies. An APP with test codeunits is refused.
     --app NAME           (also --microsoft-app NAME) Run only this test app, by its name in the
                          artifact (`Tests-ERM`), without case. Repeatable. An unknown name exits 2
                          and lists the names.
-    --junit FILE         One file per test app and lane: FILE.<app>.<lane>.xml.
-    --output-json FILE   One document per test app and lane (FILE is required here).
+    --junit FILE         Without an APP: one file per test app and lane, FILE.<app>.<lane>.xml.
+                         With APPs: one file, as for --affected-from.
+    --output-json FILE   Without an APP: one document per test app and lane (FILE is required here).
 
 OTHER
     --server-url URL     The base address of the web client that GetUrl(ClientType::Web) answers with
@@ -1157,12 +1187,12 @@ fn affected_args(a: &TestArgs, what: &str) -> Result<(), String> {
             "--impact-of",
             "the extension is measured against the sources' tests already",
         ),
+        (a.execute, "a scratch run", "a scratch run has no extension to measure"),
         (
-            a.execute,
-            "a scratch run",
-            "a scratch run has no extension to measure",
+            a.tdd,
+            "--tdd",
+            "a source's tests run with and without the extension and have nothing to stub",
         ),
-        (a.tdd, "--tdd", "a source's tests run with and without the extension and have nothing to stub"),
         (
             a.output_json.is_some(),
             "--output-json",
@@ -1372,7 +1402,10 @@ mod tests {
         let a = test_args("test Ext --affected-from microsoft --microsoft-app Tests-ERM --impact static");
         assert_eq!(a.affected_from, vec!["microsoft"]);
         assert_eq!(a.microsoft_apps, vec!["Tests-ERM"]);
-        assert_eq!(test_args("test Ext --affected-from Microsoft").affected_from, vec!["microsoft"]);
+        assert_eq!(
+            test_args("test Ext --affected-from Microsoft").affected_from,
+            vec!["microsoft"]
+        );
         assert!(p("test Ext --affected-from microsoft --impact all --junit r.xml").is_ok());
         // An ISV test app as a source is a later step.
         let e = p("test Ext --affected-from ./vendor-tests").unwrap_err();
