@@ -3,6 +3,7 @@
 mod action_moved_rec;
 mod base_access;
 mod bg_task_id;
+mod update_new_line_filter;
 mod control_entry;
 mod control_properties;
 mod control_text;
