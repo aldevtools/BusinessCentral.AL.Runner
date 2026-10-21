@@ -349,3 +349,25 @@ codeunit 69879 T
     let (got, _) = run(src);
     assert_eq!(got, "Arithmetic operation resulted in an overflow.|AL:Overflow");
 }
+
+/// A quoted blank member (`filter(" " | A)`, Base Application's Warehouse Activity Line) is not among the pinned forms.
+#[test]
+fn a_quoted_blank_member_in_a_table_relation_filter_keeps_the_mark() {
+    let src = r#"
+table 69880 "AT TB Ref" { fields { field(1; "Code"; Code[10]) { } field(2; Opt; Option) { OptionMembers = " ",A,"B C"; } } keys { key(PK; "Code") { } } }
+table 69881 "AT TB Src" { fields { field(1; "No."; Code[10]) { } field(2; "By Blank"; Code[10]) { TableRelation = "AT TB Ref"."Code" where (Opt = filter(" " | A)); } } keys { key(PK; "No.") { } } }
+codeunit 69882 T
+{
+    procedure F(): Text
+    var R: Record "AT TB Ref"; S: Record "AT TB Src";
+    begin
+        R.Code := 'R1'; R.Opt := R.Opt::A; R.Insert();
+        S.Validate("By Blank", 'R1');
+        exit(S."By Blank");
+    end;
+}
+"#;
+    let (got, hits) = run(src);
+    assert_eq!(got, "R1");
+    assert!(hits.contains(&"table-relation-quotes"), "{hits:?}");
+}

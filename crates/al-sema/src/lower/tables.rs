@@ -764,7 +764,14 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
     if !matches!(ty, Ty::Enum(_) | Ty::Option(_)) {
         return false;
     }
-    let quoted = |t: &str| t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"');
+    // A quoted blank member (`" "`) is not among the pinned forms.
+    let quoted = |t: &str| {
+        t.len() >= 2
+            && t.starts_with('"')
+            && t.ends_with('"')
+            && !t[1..t.len() - 1].contains('"')
+            && !t[1..t.len() - 1].trim().is_empty()
+    };
     let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
     if let Some(rest) = text.trim().strip_prefix("<>") {
         return quoted(rest.trim());
