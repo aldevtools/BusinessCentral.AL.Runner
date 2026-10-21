@@ -355,29 +355,28 @@ be better (ADR-009).
 
 ## Status
 
-Measured on 2026-10-16 with `al-test-cli --root . --all-versions`, corpus commit `a7e4a5e`.
+Measured on 2026-10-21 with `al-test-cli --root . --all-versions`, corpus commit `f3fe6c99`.
 Each major has its own oracle and its own baseline of cases that must keep passing
 (`metrics/<major>/passing.txt`).
 
 | BC version | Passing | Failing | Not run |
 |---|---|---|---|
-| 27.5 | 9473 / 11689 (81.0%) | 320 | 1896 |
-| 28.5 | 9479 / 11705 (81.0%) | 322 | 1904 |
-| 29.0 | 9486 / 11725 (80.9%) | 330 | 1909 |
+| 27.5 | 13964 / 17050 (81.9%) | 0 | 3086 |
+| 28.5 | 14002 / 17140 (81.7%) | 0 | 3138 |
+| 29.0 | 14023 / 17234 (81.4%) | 0 | 3211 |
 
 A test counts as passing only when it passes here and passed on real BC. "Failing" is a case
-where real BC passed and the runtime gave a different result or an error. None of the failing
-cases is in the baseline, and the baseline check exits 0. "Not run" means the runtime refused
+where real BC passed and the runtime gave a different result or an error. No case fails on any version. "Not run" means the runtime refused
 the test, with a stated reason: a feature is missing, a behavior is not pinned yet, or a
-failure is not trusted. About 320 passes on each version run through an unprobed assumption
-(counted as "flagged" in the summary). See "Can I trust the results?". Per-area numbers and the roadmap are in `docs/status.md`, which is older than these
-numbers. The corpus also has a smaller OnPrem test app (66 of 189 on 27.5, 66 of 190 on 28.5,
-70 of 193 on 29.0) and two isolation probes, reported separately.
+failure is not trusted. Between 435 and 438 passes on each version run through an unprobed assumption
+(435 on 27.5, 438 on 28.5, 437 on 29.0; counted as "flagged" in the summary). See "Can I trust the results?". Per-area numbers and the roadmap are in `docs/status.md`, which is older than these
+numbers. The corpus also has a smaller OnPrem test app (121 of 342 on 27.5, 125 of 348 on 28.5,
+123 of 356 on 29.0) and two isolation probes, reported separately.
 
 On BC 27.5 the corpus compiles Microsoft's apps from the corpus's own `.alpackages`. The
 other versions take them from the artifact of the matching build.
 
-Time: the command above, for all three versions, took 27 s of wall time on the main machine.
+Time: the command above, for all three versions, took 38 s of wall time on the main machine.
 `al-test-cli` compiles Base Application, System Application and the others from source on every
 run, only what the tests reach. `al-runner test` keeps their complete compile in a compile cache
 (ADR-022, `<cache dir>/compile/`) and loads it on later runs. `--no-compile-cache` turns it off,
