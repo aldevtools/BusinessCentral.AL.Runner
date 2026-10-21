@@ -2193,8 +2193,9 @@ fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach
 
 // ADR-046 amendment 1, A4 item 10: the test session raises Company Triggers OnCompanyOpen then OnCompanyOpenCompleted to the
 // app's subscribers once, before the first test of the codeunit, and not again for the second test
-// (events/lt-bf-company-open/BfCompanyOpenTests.al:19-38, :40-50). A subscriber that writes the database refuses the codeunit:
-// what the runner does with those writes is not pinned.
+// (events/lt-bf-company-open/BfCompanyOpenTests.al:19-38, :40-50). What the runner does with the writes of a subscriber is not
+// pinned: a test whose reach can read a table one wrote is not run, the other tests run (al-runner issue 5606: the whole
+// codeunit was refused).
 #[test]
 fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
     let o = outcomes(
@@ -2216,6 +2217,29 @@ fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
             codeunit 60907 Subs {
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
                 local procedure Open() var R: Record Co; begin R.K := 'X'; if R.Insert() then; end; }
+            table 60902 Other { fields { field(1; K; Code[10]) { } } }
+            codeunit 60903 Helper { procedure Count(): Integer var R: Record Co; begin exit(R.Count()); end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure First() begin end;
+                [Test] procedure ReadsCo() var R: Record Co; begin if R.IsEmpty() then Error('empty'); end;
+                [Test] procedure ReadsCoThroughAHelper() var H: Codeunit Helper; begin if H.Count() = 0 then Error('empty'); end;
+                [Test] procedure WritesOther() var R: Record Other; begin R.K := 'Y'; R.Insert(); end; }",
+    );
+    let of = |n: &str| o.iter().find(|(t, _)| t == n).map(|(_, r)| r.clone()).unwrap();
+    assert_eq!(of("First"), Outcome::Pass, "{o:?}");
+    assert_eq!(of("WritesOther"), Outcome::Pass, "{o:?}");
+    for n in ["ReadsCo", "ReadsCoThroughAHelper"] {
+        assert!(
+            matches!(&of(n), Outcome::NotRun(r) if r.contains("OnCompanyOpen") && r.contains("Co")),
+            "{n}: {o:?}"
+        );
+    }
+    // A subscriber whose reach is not known (a codeunit run by an id known only at run time) may write any table.
+    let o = outcomes(
+        "table 60901 Co { fields { field(1; K; Code[10]) { } } }
+            codeunit 60907 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+                local procedure Open() var R: Record Co; Id: Integer; begin R.K := 'X'; if R.Insert() then; Id := R.Count(); Codeunit.Run(Id); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure First() begin end; }",
     );
