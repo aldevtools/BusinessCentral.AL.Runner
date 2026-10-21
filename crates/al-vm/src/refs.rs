@@ -1177,20 +1177,16 @@ impl Session {
                     }
                     // A Blob of a stored row read without CalcFields: a record's own field answers HasValue true and its stream reads
                     // nothing (streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue, streams/TestBlob.al
-                    // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), but what the value FieldRef.Value hands out holds is not
-                    // pinned (docs/probes-needed.md, "FieldRef.Value of a Blob read without CalcFields").
-                    // Microsoft's Temp Blob Impl.FromFieldRef needs the value to be empty there (it asks HasValue, then CalcField):
-                    // an assumption under the Microsoft-test exception (fieldref-value-of-unloaded-blob-is-empty, 561 Tests-ERM
-                    // tests, for example 134112 TestMultipleLinesText).
+                    // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), and the value FieldRef.Value hands out is an empty Blob:
+                    // HasValue No, Length 0, an empty text, after Get + RecordRef.GetTable and after RecordRef.Open + FindFirst
+                    // (recordref/lt-refs/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields, QP_Blob_OpenFind_ValueWithoutCalcFields).
+                    // Microsoft's Temp Blob Impl.FromFieldRef relies on it (it asks HasValue, then CalcField).
                     if let Value::Blob(b) = &v {
                         let unloaded = {
                             let buf = b.borrow();
                             !buf.loaded && !buf.bytes.is_empty() && !buf.temp_row
                         };
                         if unloaded {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FieldRefValueOfUnloadedBlobIsEmpty,
-                            );
                             return Ok(Value::Blob(al_builtins::stream::new_blob()));
                         }
                     }

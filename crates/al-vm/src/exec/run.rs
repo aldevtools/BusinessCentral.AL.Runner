@@ -274,6 +274,7 @@ impl Session {
                     let v = ops::convert_plain(take(f, a, nl), &chunk.types[t as usize])?;
                     set(&mut f.locals[d as usize], v);
                 }
+                Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
                 Op::CapHit { p } => self.cap_stmt_hit(p),
                 Op::CapBegin { p } => self.cap_push_stmt(p),
                 Op::CapEnd { s } => {

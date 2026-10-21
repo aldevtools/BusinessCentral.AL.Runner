@@ -551,6 +551,7 @@ impl Session {
         // makes to Rec reaches the caller's variable, in the guarded and the statement form
         // (codeunit/TestCodeunitRunErrorTextsAndModels.al:198-220). What Rec holds when no record is passed is not pinned and is refused
         // before the run (docs/probes-needed.md).
+        let mut record_ref_row = None;
         if has_property("TableNo") {
             let Some(slot) = obj.rec_slot else {
                 return unsupported(format!(
@@ -558,25 +559,37 @@ impl Session {
                     obj.name
                 ));
             };
-            // A Variant that holds anything but a record: a RecordRef compiles there (a RecordRef itself does not,
-            // must-not-compile 1786/1787) and Microsoft's Batch Processing Mgt. passes one, but what Rec holds then is not
-            // pinned (docs/probes-needed.md, "Codeunit.Run with a RecordRef in a Variant").
+            // A Variant that holds an open RecordRef: Rec is the RecordRef's row with its filters, and a change OnRun makes reaches
+            // the RecordRef (recordref/lt-recordref-variant-record/RecordRefVariantToRecord.al, QP_CodeunitRun_* tests; it
+            // compiles, a RecordRef itself does not: must-not-compile 1786/1787). Microsoft's Batch Processing Mgt. passes one.
+            // Anything else a Variant holds (an unopened RecordRef included) is not pinned.
             if let Some(v) = record_arg {
                 if !matches!(v, Value::Record(_)) {
-                    let what = match v {
-                        Value::Library(_, l)
-                            if matches!(&*l.borrow(), al_builtins::value::LibraryValue::RecordRef(_)) =>
-                        {
-                            "a RecordRef".to_string()
-                        }
-                        other => format!("a {}", crate::value_kind(other)),
+                    let rr = match v {
+                        Value::Library(_, l) => match &*l.borrow() {
+                            al_builtins::value::LibraryValue::RecordRef(rs) => Some(rs.clone()),
+                            _ => None,
+                        },
+                        _ => None,
                     };
-                    return unsupported(format!(
-                        "Codeunit.Run of {} (TableNo) with a Variant that holds {what} (what Rec holds is not pinned)",
-                        obj.name
-                    ));
+                    match rr {
+                        Some(rs) => record_ref_row = Some(Value::Record(rs)),
+                        None => {
+                            let what = match v {
+                                Value::Library(n, _) if n.eq_ignore_ascii_case("RecordRef") => {
+                                    "a RecordRef that is not open".to_string()
+                                }
+                                other => format!("a {}", crate::value_kind(other)),
+                            };
+                            return unsupported(format!(
+                                "Codeunit.Run of {} (TableNo) with a Variant that holds {what} (what Rec holds is not pinned)",
+                                obj.name
+                            ));
+                        }
+                    }
                 }
             }
+            let record_arg = record_ref_row.as_ref().or(record_arg);
             // Without a record Rec is a blank record; a temporary one is handed over by reference like any other
             // (session/TestProbeSessionMiscContracts.al:CodeunitRun_TableNo_NoRecord, CodeunitRun_TableNo_TemporaryRecord).
             self.ensure_initialized(&inst);

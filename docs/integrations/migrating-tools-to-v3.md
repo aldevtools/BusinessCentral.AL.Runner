@@ -25,7 +25,7 @@ built on the language, not on BC's internals".
 | 3 | `al-runner serve` (`runTests`, `cancel`, `shutdown`) | done (section 4b; ADR-028, Proposed) |
 | 4 | `execute`, `cancel`, `coverage`, `perTestCoverage` in `serve` | done (section 4b; ADR-028) |
 | 5 | `captureValues`, `iterationTracking` | done (section 4b; ADR-030, Proposed) |
-| 6 | `al-runner debug --stdio` (DAP) | not yet |
+| 6 | `al-runner debug --stdio` (DAP) | done for the apps given on the command line (`docs/debugging.md`; ADR-048) |
 
 ## 1. The command
 
@@ -35,7 +35,8 @@ built on the language, not on BC's internals".
 | `al-runner [FLAGS] DIR [DIR]` | `al-runner test [FLAGS] APP...` | Put the word `test` first. APP is an app folder (with `app.json`), a `*.Source.zip` or an `.app` that carries source. |
 | install: `dotnet tool install -g msdyn365bc.al.runner` | one binary | Do not run `dotnet tool`. The user sets the path. v3 needs no .NET (an optional helper exists for `DotNet` variables). |
 | `al-runner --server [--package-cache P]... [--define S]... [--test-timeout N]` | `al-runner serve [--package-cache P]... [--define S]... [--test-timeout N]` | Same options (section 4b). |
-| `al-runner --dap stdio` | `al-runner debug --stdio` | Step 6. Not available yet. |
+| `al-runner --dap stdio DIR` | `al-runner debug --stdio APP...` | Same DAP session (`docs/debugging.md`). |
+| `al-runner --dap [PORT] DIR` | `al-runner debug [--port [PORT]] APP...` | Default port 4711 as v2. The listening line is on stderr (`al-runner debug: listening on 127.0.0.1:PORT`); v2 printed `[dap] listening on ...` on stdout. |
 
 ## 2. `--version`
 
@@ -281,7 +282,7 @@ compile failure not scorable) must hold with the changes above.
 ## 9. ALchemist
 
 ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capture (step 5) and `al-runner debug`
-(step 6). Test Explorer runs can move now; scratch runs, inline values and debugging cannot.
+(step 6). All four exist; scratch runs, inline values and debugging need the changes below.
 
 1. Binary lookup (`alRunnerManager.ts:47-51, 129-139`): also `which al-runner`; spawn `al-runner serve` instead of
    `al-runner --server` (`serverProcess.ts:125-141`). The version check only warns and accepts `3.0.0` (A3).
@@ -291,7 +292,11 @@ ALchemist needs `al-runner serve` (step 3, done), `execute` (step 4), value capt
 3. `coverage` arrives in the summary in the v2 shape (section 4a). ALchemist reads `hitStatements` and `totalStatements`,
    which neither v2 nor v3 sends (a tool-side issue noted in `alchemist-lethal.md`, section 6).
 4. Test names are `Codeunit<ID>.<Method>` as in v2; the label match in `testController.ts:493` (A8) must be checked on a run.
-5. Debugger: `al-runner debug --stdio` instead of `al-runner --dap stdio` (step 6).
+5. Debugger: start `al-runner debug --stdio APP...` instead of `al-runner --dap stdio DIR` (step 6). Requests, capabilities,
+   events and breakpoint answers are v2's. Differences: `pause` stops at the next statement (v2 continued);
+   `setExceptionBreakpoints` succeeds with no filters; frame names are `Object.Routine`; a value that is not rendered yet
+   shows `<not rendered: KIND>`; `--test` and `--codeunit` select tests (v2 ran all); breakpoints in a dependency are not
+   supported yet.
 
 ## 10. What does not change for a tool
 

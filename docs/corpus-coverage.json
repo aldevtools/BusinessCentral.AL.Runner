@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "53c818bfce4abdd7b410a0d434746543882af4da",
+  "corpus_commit": "c4d4ce2f443986044434b1f617ea7d16041bee48",
   "language": {
     "bc": "27-29",
     "implemented": 1499,
@@ -336,7 +336,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, [var Table])",
-        "site": "bgtasks/W2BackgroundTasks.al:98",
+        "site": "bgtasks/W2BackgroundTasks.al:101",
         "state": "implemented",
         "type": "Codeunit"
       },
@@ -746,7 +746,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "bgtasks/W2BackgroundTasks.al:93",
+        "site": "bgtasks/W2BackgroundTasks.al:96",
         "state": "implemented",
         "type": "Database"
       },
@@ -890,7 +890,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "bgtasks/W2BackgroundTasks.al:95",
+        "site": "bgtasks/W2BackgroundTasks.al:98",
         "state": "implemented",
         "type": "Database"
       },
@@ -1834,7 +1834,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, Text)",
-        "site": "bgtasks/W2BackgroundTasks.al:72",
+        "site": "bgtasks/W2BackgroundTasks.al:75",
         "state": "implemented",
         "type": "Dictionary"
       },
@@ -1898,7 +1898,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, var Text)",
-        "site": "bgtasks/W2BackgroundTasks.al:70",
+        "site": "bgtasks/W2BackgroundTasks.al:73",
         "state": "implemented",
         "type": "Dictionary"
       },
@@ -1914,7 +1914,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "bgtasks/W2BackgroundTasks.al:643",
+        "site": "bgtasks/W2BackgroundTasks.al:698",
         "state": "implemented",
         "type": "Dictionary"
       },
@@ -11805,7 +11805,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer)",
-        "site": "bgtasks/W2BackgroundTasks.al:207",
+        "site": "bgtasks/W2BackgroundTasks.al:210",
         "state": "implemented",
         "type": "Page"
       },
@@ -11869,7 +11869,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(var Integer, Integer, [var Dictionary of [Text, Text]], [Integer], [PageBackgroundTaskErrorLevel])",
-        "site": "bgtasks/W2BackgroundTasks.al:144",
+        "site": "bgtasks/W2BackgroundTasks.al:147",
         "state": "implemented",
         "type": "Page"
       },
@@ -11885,7 +11885,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "bgtasks/W2BackgroundTasks.al:69",
+        "site": "bgtasks/W2BackgroundTasks.al:72",
         "state": "implemented",
         "type": "Page"
       },
@@ -12152,7 +12152,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Dictionary of [Text, Text])",
-        "site": "bgtasks/W2BackgroundTasks.al:112",
+        "site": "bgtasks/W2BackgroundTasks.al:115",
         "state": "implemented",
         "type": "Page"
       },
@@ -13557,7 +13557,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Joker, Joker, [Boolean])",
-        "site": "bgtasks/W2BackgroundTasks.al:91",
+        "site": "bgtasks/W2BackgroundTasks.al:94",
         "state": "implemented",
         "type": "Record"
       },
@@ -20036,7 +20036,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, [var Dictionary of [Text, Text]], [Boolean])",
-        "site": "bgtasks/W2BackgroundTasks.al:436",
+        "site": "bgtasks/W2BackgroundTasks.al:491",
         "state": "implemented",
         "type": "TestPage"
       },
@@ -28152,7 +28152,7 @@
           "id": "Codeunit.Run#3",
           "pinned": true,
           "signature": "Codeunit.Run static (Number: Integer, ?var Record: Record) -> Boolean?",
-          "site": "bgtasks/W2BackgroundTasks.al:98"
+          "site": "bgtasks/W2BackgroundTasks.al:101"
         }
       ],
       "overloads": 3,
@@ -28318,7 +28318,7 @@
           "id": "Database.Commit#1",
           "pinned": true,
           "signature": "Database.Commit static ()",
-          "site": "bgtasks/W2BackgroundTasks.al:93"
+          "site": "bgtasks/W2BackgroundTasks.al:96"
         },
         {
           "id": "Database.CompanyName#1",
@@ -28372,7 +28372,7 @@
           "id": "Database.IsInWriteTransaction#1",
           "pinned": true,
           "signature": "Database.IsInWriteTransaction static () -> Boolean",
-          "site": "bgtasks/W2BackgroundTasks.al:95"
+          "site": "bgtasks/W2BackgroundTasks.al:98"
         },
         {
           "id": "Database.LastUsedRowVersion#1",
@@ -28768,7 +28768,7 @@
           "id": "Dictionary.Add#1",
           "pinned": true,
           "signature": "Dictionary.Add inst (Key: TKey, Value: TValue) -> Boolean?",
-          "site": "bgtasks/W2BackgroundTasks.al:72"
+          "site": "bgtasks/W2BackgroundTasks.al:75"
         },
         {
           "id": "Dictionary.ContainsKey#1",
@@ -28792,13 +28792,13 @@
           "id": "Dictionary.Get#2",
           "pinned": true,
           "signature": "Dictionary.Get inst (Key: TKey, var Value: TValue) -> Boolean?",
-          "site": "bgtasks/W2BackgroundTasks.al:70"
+          "site": "bgtasks/W2BackgroundTasks.al:73"
         },
         {
           "id": "Dictionary.Keys#1",
           "pinned": true,
           "signature": "Dictionary.Keys inst () -> List of [TKey]",
-          "site": "bgtasks/W2BackgroundTasks.al:643"
+          "site": "bgtasks/W2BackgroundTasks.al:698"
         },
         {
           "id": "Dictionary.Remove#1",
@@ -32556,7 +32556,7 @@
           "id": "Page.CancelBackgroundTask#1",
           "pinned": true,
           "signature": "Page.CancelBackgroundTask inst (TaskId: Integer) -> Boolean?",
-          "site": "bgtasks/W2BackgroundTasks.al:207"
+          "site": "bgtasks/W2BackgroundTasks.al:210"
         },
         {
           "id": "Page.Caption#1",
@@ -32580,13 +32580,13 @@
           "id": "Page.EnqueueBackgroundTask#1",
           "pinned": true,
           "signature": "Page.EnqueueBackgroundTask inst (var TaskId: Integer, CodeunitId: Integer, ?var Parameters: Dictionary of [Text, Text], ?Timeout: Integer, ?ErrorLevel: PageBackgroundTaskErrorLevel) -> Boolean?",
-          "site": "bgtasks/W2BackgroundTasks.al:144"
+          "site": "bgtasks/W2BackgroundTasks.al:147"
         },
         {
           "id": "Page.GetBackgroundParameters#1",
           "pinned": true,
           "signature": "Page.GetBackgroundParameters static () -> Dictionary of [Text, Text]",
-          "site": "bgtasks/W2BackgroundTasks.al:69"
+          "site": "bgtasks/W2BackgroundTasks.al:72"
         },
         {
           "id": "Page.GetRecord#1",
@@ -32694,7 +32694,7 @@
           "id": "Page.SetBackgroundTaskResult#1",
           "pinned": true,
           "signature": "Page.SetBackgroundTaskResult static (Results: Dictionary of [Text, Text])",
-          "site": "bgtasks/W2BackgroundTasks.al:112"
+          "site": "bgtasks/W2BackgroundTasks.al:115"
         },
         {
           "id": "Page.SetRecord#1",
@@ -33243,7 +33243,7 @@
           "id": "Record.ModifyAll#1",
           "pinned": true,
           "signature": "Record.ModifyAll inst (Field: Any, NewValue: Any, ?RunTrigger: Boolean)",
-          "site": "bgtasks/W2BackgroundTasks.al:91"
+          "site": "bgtasks/W2BackgroundTasks.al:94"
         },
         {
           "id": "Record.Next#1",
@@ -35767,7 +35767,7 @@
           "id": "TestPage.RunPageBackgroundTask#1",
           "pinned": true,
           "signature": "TestPage.RunPageBackgroundTask inst (CodeunitId: Integer, ?var Parameters: Dictionary of [Text, Text], ?RunCompletionTriggers: Boolean) -> Dictionary of [Text, Text]",
-          "site": "bgtasks/W2BackgroundTasks.al:436"
+          "site": "bgtasks/W2BackgroundTasks.al:491"
         },
         {
           "id": "TestPage.Trap#1",

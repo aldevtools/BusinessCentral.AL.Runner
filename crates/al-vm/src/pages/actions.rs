@@ -610,7 +610,9 @@ impl Session {
         // One that was pending before the action is not pinned and keeps its code.
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
-        match self.action_invoke_body(st, idx) {
+        let r = self.action_invoke_body(st, idx);
+        self.action_save_captions_done(st);
+        match r {
             Err(Signal::Error(mut e))
                 if !pending_before && self.tx.deferred_raised > raised_before && e.code == "DB:RecordExists" =>
             {
@@ -698,9 +700,21 @@ impl Session {
             self.save_row(st)?;
         }
         if was_dirty && !self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !dirty_reread_only {
+            // On a Document page this save runs the host's CaptionClass expressions and not the part's
+            // (`fill_field_caption_expressions`, QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps).
+            let doc = st.borrow().host.is_none()
+                && st.borrow().field_captions_opened
+                && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Document);
+            if doc {
+                st.borrow_mut().field_captions_action_save = 1;
+            }
             st.borrow_mut().refresh = true;
             st.borrow_mut().refresh_by_update = false;
-            self.run_refresh(st)?;
+            let r = self.run_refresh(st);
+            if doc {
+                st.borrow_mut().field_captions_action_save = 2;
+            }
+            r?;
             st.borrow_mut().refresh = false;
         }
         // The client reads the row it stands on before an action runs (corpus
@@ -810,6 +824,8 @@ impl Session {
             // Management") has no row for the action to delete, so it stays open.
             let stored_before = !st.borrow().never_stored;
             st.borrow_mut().save_record_called = false;
+            st.borrow_mut().refresh_update_false = false;
+            let empty_view = self.empty_list_view(st)?;
             let empty = self.empty_page_shape(st)?;
             let held_before = (empty.is_none()
                 && self.is_list(st)
@@ -855,6 +871,9 @@ impl Session {
                 st.borrow_mut().refresh = false;
             }
             r?;
+            if empty_view && self.update_on_empty_list_view(st)? {
+                return Ok(Value::Null);
+            }
             if let Some(shape) = empty {
                 if self.empty_page_after_action(st, shape)? {
                     return Ok(Value::Null);
@@ -1100,6 +1119,67 @@ impl Session {
             }
             _ => Ok(None),
         }
+    }
+
+    /// A list opened for view that shows no row (its view was empty), with or without OnFindRecord and OnNextRecord.
+    fn empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open
+                && s.host.is_none()
+                && s.parts.is_empty()
+                && s.window.is_empty()
+                && !s.dirty
+                && s.cursor == Cursor::None
+                && s.mode == PageMode::View
+        };
+        Ok(shape && self.is_list(st) && self.has_source(st) && !self.is_request_page(st))
+    }
+
+    /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
+    /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
+    /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
+    /// (pages/lt-ai-list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
+    /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
+    /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
+    /// no Update, or Rec on a row of the view go on as before.
+    fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        {
+            let s = st.borrow();
+            if !(s.open
+                && s.refresh
+                && s.refresh_by_update
+                && s.refresh_update_false
+                && !s.dirty
+                && s.cursor == Cursor::None)
+            {
+                return Ok(false);
+            }
+        }
+        let n = self.view_row_count(st)?;
+        if n < 2 {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let on_row = self
+            .stored_row(&rec)?
+            .is_some_and(|f| rec.borrow().filters.iter().all(|x| x.expr.matches(&f[x.field])));
+        if on_row {
+            return Ok(false);
+        }
+        if n > 6 {
+            return unsupported(
+                "CurrPage.Update(false) after an action on a list opened for view that showed no row, whose new view has more than 6 rows (the fill is pinned for 4 and 6)",
+            );
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+        }
+        self.page_first_row(st)?;
+        Ok(true)
     }
 
     /// The rows of the page's view, counted on a copy of its record.
@@ -1571,6 +1651,15 @@ impl Session {
     /// row nobody has saved has nothing to re-read (corpus pageupdate/TestPageUpdateNewRow.al:1-30,
     /// TestPageUpdateGoneRow.al StoredRow_OnValidateUpdateFalse_Trace). The row is read from the
     /// table unless the client holds edits of it that are not saved yet.
+    /// The end of an action that saved a SetValue of a Document page before its trigger: without a CurrPage.Update in the
+    /// trigger the part's CaptionClass expressions did not run again, and whether BC runs them then is not pinned
+    /// (page-open-caption-class-expressions).
+    fn action_save_captions_done(&mut self, st: &St) {
+        if std::mem::take(&mut st.borrow_mut().field_captions_action_save) == 2 {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
+        }
+    }
+
     pub(super) fn run_refresh(&mut self, st: &St) -> Result<(), Signal> {
         let without_curr = std::mem::take(&mut st.borrow_mut().refresh_without_curr);
         let without_parts = std::mem::take(&mut st.borrow_mut().refresh_without_parts);

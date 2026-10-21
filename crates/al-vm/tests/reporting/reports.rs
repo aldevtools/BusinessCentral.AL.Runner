@@ -1627,3 +1627,28 @@ fn curr_report_language_zero_raises_the_invalid_language_error() {
         "Invalid language ID supplied: 0.|Argument"
     );
 }
+
+/// SetTableView with a record of a table that only a reportextension's data item uses (Microsoft's Get Source Documents and
+/// its Serv. Get Source Documents extension, SCM Warehouse Management II): no corpus test pins it, so it is refused, not
+/// answered with the error for a report without such a data item.
+#[test]
+fn set_table_view_on_a_data_item_a_reportextension_adds_is_refused() {
+    let src = r#"
+table 51960 "SV Head" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 51961 "SV Other" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+report 51962 "SV Base" { ProcessingOnly = true; dataset { dataitem(H; "SV Head") { } } }
+reportextension 51963 "SV Ext" extends "SV Base" { dataset { addlast(H) { dataitem(O; "SV Other") { } } } }
+codeunit 51964 T {
+    procedure F(): Text
+    var R: Report "SV Base"; O: Record "SV Other";
+    begin
+        R.SetTableView(O);
+        exit('ran');
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "T", "F") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("reportextension"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}

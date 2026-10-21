@@ -239,6 +239,32 @@ impl Session {
             return unsupported(why);
         }
         let pinned = self.caption_expressions_pinned(st);
+        // An action of a Document page whose host holds a SetValue, with CurrPage.Update in its trigger: BC runs the host's
+        // expressions three times, then the part's once (QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps
+        // `update = rest=60@1;60@1;60@1;70@1;71@1;`, `update_exprA = Line 1`). The save before the trigger runs the host's once and
+        // not the part's; the trigger's refresh runs the host's twice, then the part's. Without CurrPage.Update the part's
+        // captions are not run again: not pinned (`action_save_captions_done`).
+        let host_stage = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .map(|h| h.borrow().field_captions_action_save);
+        let own_stage = st.borrow().field_captions_action_save;
+        // `staged`: this fill is one of those, so it marks nothing; `runs`: how many times the host's run.
+        let (staged, runs) = match (pinned && st.borrow().field_captions_opened, own_stage, host_stage) {
+            (true, 1, _) => (true, 1),
+            (true, 2, _) => {
+                st.borrow_mut().field_captions_action_save = 3;
+                (true, 2)
+            }
+            (true, _, Some(1)) => {
+                st.borrow_mut().field_captions_fill_first = false;
+                return Ok(());
+            }
+            (true, _, Some(3)) => (true, 1),
+            _ => (false, 1),
+        };
         let first = std::mem::take(&mut st.borrow_mut().field_captions_fill_first);
         if !st.borrow().field_captions_opened {
             st.borrow_mut().field_captions_opened = true;
@@ -271,34 +297,49 @@ impl Session {
                 s.field_captions_link_refill && (s.cursor != Cursor::Row || s.draft)
             };
             let quiet = empty_refill || (!first && (!st.borrow().field_captions_settled || st.borrow().moving_next));
-            if !pinned || !(quiet || first) {
+            if !staged && (!pinned || !(quiet || first)) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
             }
             if quiet {
                 return Ok(());
             }
         }
+        self.fill_field_captions_with_row(st, &t, &exprs, runs)
+    }
+
+    /// Runs the CaptionClass expression of each control over such a field with the current row, `runs` times, and keeps the
+    /// last caption for `Caption()`.
+    fn fill_field_captions_with_row(
+        &mut self,
+        st: &St,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        runs: usize,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
         let engine = self.engine();
         let page = page_of(&engine, st);
-        for (idx, c) in page.controls.iter().enumerate() {
-            if c.prop("captionclass").is_some() {
-                continue;
+        for _ in 0..runs {
+            for (idx, c) in page.controls.iter().enumerate() {
+                if c.prop("captionclass").is_some() {
+                    continue;
+                }
+                let Some(field) = self.control_field(st, idx) else {
+                    continue;
+                };
+                let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
+                    continue;
+                };
+                let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
+                let caption = match crate::recmeta::expression_class(&t.fields[*pos].name, &class)? {
+                    crate::recmeta::ExprCaption::FieldCaption => String::new(),
+                    crate::recmeta::ExprCaption::Text(c) => c,
+                    crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
+                };
+                let mut s = st.borrow_mut();
+                s.field_captions.retain(|(i, _)| *i != idx);
+                s.field_captions.push((idx, caption));
             }
-            let Some(field) = self.control_field(st, idx) else {
-                continue;
-            };
-            let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
-                continue;
-            };
-            let class = self.field_caption_class_value(&t, *pos, Some(&rec), expr)?;
-            let caption = match crate::recmeta::expression_class(&t.fields[*pos].name, &class)? {
-                crate::recmeta::ExprCaption::FieldCaption => String::new(),
-                crate::recmeta::ExprCaption::Text(c) => c,
-                crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
-            };
-            let mut s = st.borrow_mut();
-            s.field_captions.retain(|(i, _)| *i != idx);
-            s.field_captions.push((idx, caption));
         }
         Ok(())
     }

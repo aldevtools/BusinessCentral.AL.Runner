@@ -584,6 +584,8 @@ impl Session {
         for (slot, inst, g) in &f.aliases {
             inst.borrow_mut().globals[*g] = f.locals[*slot].clone();
         }
+        // While the call runs, the global is the current value of a parameter of this frame that aliases it.
+        let own_aliases = self.set_alias_live(f, false);
         // Only a routine that reads MaxStrLen of a `var` parameter, or hands one on, gets them (known at lowering), so other
         // calls pay nothing. An event's subscribers get the lengths of the publisher's arguments (`publish`).
         let var_lens = facts.var_lens;
@@ -592,12 +594,13 @@ impl Session {
         } else if facts.publisher {
             self.events.publisher_var_lens = self.var_lens_of(object, routine, args, f);
         }
-        // A scalar global of the caller passed by `var` is watched while the call runs (`alias_access`). Not for an event
-        // publisher: there the subscribers alias the variable, which is pinned (above).
+        // A scalar global of the caller passed by `var` is watched while the call runs (`alias_access`); to a procedure of
+        // the same instance the parameter aliases it. Not for an event publisher: there the subscribers alias the variable,
+        // which is pinned (above).
         let watched = if facts.publisher {
             0
         } else {
-            self.watch_var_globals(object, routine, args, &values, f)
+            self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
             self.enter_used_try();
@@ -609,6 +612,8 @@ impl Session {
         if watched > 0 {
             let n = self.var_alias_watch.len() - watched;
             self.var_alias_watch.truncate(n);
+            // A call refused before its frame was made leaves them behind.
+            self.events.next_aliases.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
@@ -617,6 +622,9 @@ impl Session {
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
+        }
+        if own_aliases {
+            self.set_alias_live(f, true);
         }
         if let Err(Signal::Error(_)) = &result {
             if let Some(finals) = self.error_finals.take() {
@@ -651,18 +659,29 @@ impl Session {
     }
 
     /// Starts watching the scalar globals of the caller's instance that `args` pass by `var`; returns how many were added.
+    /// To a procedure of the caller's own instance the parameter and the global are one variable
+    /// (codeunit/lt-var-global-alias/VarGlobalAlias.al:12-118, tests :120-170): the callee's frame aliases the global (`Frame::aliases`),
+    /// also when the argument is a parameter of the caller that aliases it. To another instance only the copy is made, and
+    /// reaching the global by its name while the call runs is refused (not pinned).
     fn watch_var_globals(
         &mut self,
         object: usize,
         routine: usize,
+        callee: &Rc<RefCell<Instance>>,
         args: &[ir::Arg],
         values: &[Value],
         f: &Frame,
     ) -> usize {
         let mut added = 0;
+        let same = Rc::ptr_eq(callee, &f.instance);
         for (i, a) in args.iter().enumerate() {
-            let ir::Arg::Ref(ir::Place::Global(g)) = a else {
-                continue;
+            let g = match a {
+                ir::Arg::Ref(ir::Place::Global(g)) => *g,
+                ir::Arg::Ref(ir::Place::Local(slot)) => match own_alias_of_slot(f, *slot) {
+                    Some(g) => g,
+                    None => continue,
+                },
+                _ => continue,
             };
             let by_var = self.engine.program.objects[object].routines[routine]
                 .by_var
@@ -670,18 +689,55 @@ impl Session {
                 .copied()
                 .unwrap_or(false);
             if by_var && values.get(i).is_some_and(is_alias_scalar) {
-                self.var_alias_watch.push((f.instance.clone(), *g));
+                if same {
+                    self.var_alias_watch.push(crate::AliasWatch {
+                        instance: f.instance.clone(),
+                        global: g,
+                        live: Some(true),
+                    });
+                    self.events.next_aliases.push((i, f.instance.clone(), g));
+                } else {
+                    self.var_alias_watch.push(crate::AliasWatch {
+                        instance: f.instance.clone(),
+                        global: g,
+                        live: None,
+                    });
+                }
                 added += 1;
             }
         }
         added
     }
 
-    /// Refuses a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
-    /// global by `var` runs. BC passes the argument by reference, so the parameter and the global would be one variable; the
-    /// runtime copies it in and back, and the two only differ when the global is reached this way. Pinned for an event's
-    /// subscribers (events/lt-event-var-through-sender/EventVarThroughSender.al), not for a plain procedure call
-    /// (docs/probes-needed.md, "var parameter that is a global of the caller").
+    /// Marks the watch entries of the frame's own aliased globals live (the frame's parameter holds the value) or not (a call
+    /// the frame made runs, and the global holds it). Returns whether the frame has any.
+    fn set_alias_live(&mut self, f: &Frame, live: bool) -> bool {
+        if self.var_alias_watch.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for (_, inst, g) in &f.aliases {
+            if !Rc::ptr_eq(inst, &f.instance) {
+                continue;
+            }
+            if let Some(w) = self
+                .var_alias_watch
+                .iter_mut()
+                .rev()
+                .find(|w| w.global == *g && w.live.is_some() && Rc::ptr_eq(&w.instance, inst))
+            {
+                w.live = Some(live);
+                any = true;
+            }
+        }
+        any
+    }
+
+    /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
+    /// global by `var` runs. In the frame of that procedure, when it is of the same instance, the parameter and the global
+    /// are one variable (codeunit/lt-var-global-alias/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the
+    /// global first. Refused: a procedure of another instance got it (not pinned), or code that the procedure did not call
+    /// (a trigger a builtin runs) reaches it while the parameter holds the value.
     #[inline]
     pub(crate) fn alias_access(&self, i: usize, f: &Frame) -> Result<(), Signal> {
         if self.var_alias_watch.is_empty() {
@@ -693,29 +749,59 @@ impl Session {
     #[cold]
     #[inline(never)]
     fn alias_access_slow(&self, i: usize, f: &Frame) -> Result<(), Signal> {
-        if self
-            .var_alias_watch
-            .iter()
-            .any(|(inst, g)| *g == i && Rc::ptr_eq(inst, &f.instance))
-        {
-            let name = &self.engine.program.objects[f.instance.borrow().object as usize].globals[i].name;
-            return Err(Signal::Unsupported(format!(
-                "the global variable {name} is read or changed by its name while a procedure it was passed to by var runs \
-                 (whether the parameter and the global are one variable is not pinned)"
-            )));
+        for w in &self.var_alias_watch {
+            if w.global != i || !Rc::ptr_eq(&w.instance, &f.instance) {
+                continue;
+            }
+            match w.live {
+                Some(false) => {}
+                Some(true) => match own_alias_of_global(f, i) {
+                    Some(slot) => {
+                        f.instance.borrow_mut().globals[i] = f.locals[slot].clone();
+                    }
+                    None => return Err(self.alias_refusal(i, f, "from code the procedure did not call")),
+                },
+                None => {
+                    return Err(self.alias_refusal(
+                        i,
+                        f,
+                        "(whether the parameter and the global are one variable is not pinned)",
+                    ));
+                }
+            }
         }
         Ok(())
     }
 
-    /// Whether any global of the frame's instance is watched (for ClearAll, which resets them all).
+    /// After a write of global `i` by its own name: in the frame of a procedure whose parameter aliases it, the parameter
+    /// takes the value (VarGlobalAlias.al:96-102).
+    #[inline]
+    pub(crate) fn alias_wrote(&self, i: usize, f: &mut Frame) {
+        if self.var_alias_watch.is_empty() {
+            return;
+        }
+        if let Some(slot) = own_alias_of_global(f, i) {
+            let v = f.instance.borrow().globals[i].clone();
+            f.locals[slot] = v;
+        }
+    }
+
+    fn alias_refusal(&self, i: usize, f: &Frame, why: &str) -> Signal {
+        let name = &self.engine.program.objects[f.instance.borrow().object as usize].globals[i].name;
+        Signal::Unsupported(format!(
+            "the global variable {name} is read or changed by its name while a procedure it was passed to by var runs {why}"
+        ))
+    }
+
+    /// Whether any global of the frame's instance is watched (for ClearAll, which resets them all: not pinned for a
+    /// global a running procedure got by var).
     pub(crate) fn alias_any(&self, f: &Frame) -> Result<(), Signal> {
-        let watched = self
+        match self
             .var_alias_watch
             .iter()
-            .find(|(inst, _)| Rc::ptr_eq(inst, &f.instance))
-            .map(|(_, g)| *g);
-        match watched {
-            Some(g) => self.alias_access_slow(g, f),
+            .find(|w| Rc::ptr_eq(&w.instance, &f.instance))
+        {
+            Some(w) => Err(self.alias_refusal(w.global, f, "(ClearAll of it is not pinned)")),
             None => Ok(()),
         }
     }
@@ -1127,7 +1213,8 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
-                f.instance.borrow_mut().globals[*i] = v
+                f.instance.borrow_mut().globals[*i] = v;
+                self.alias_wrote(*i, f);
             }
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
@@ -1459,6 +1546,22 @@ impl ForKind {
             is_integer: matches!(ty, RtType::Integer),
         }
     }
+}
+
+/// The global of the frame's own instance that parameter `slot` aliases.
+fn own_alias_of_slot(f: &Frame, slot: usize) -> Option<usize> {
+    f.aliases
+        .iter()
+        .find(|(s, inst, _)| *s == slot && Rc::ptr_eq(inst, &f.instance))
+        .map(|(_, _, g)| *g)
+}
+
+/// The parameter of the frame that aliases global `g` of the frame's own instance.
+fn own_alias_of_global(f: &Frame, g: usize) -> Option<usize> {
+    f.aliases
+        .iter()
+        .find(|(_, inst, x)| *x == g && Rc::ptr_eq(inst, &f.instance))
+        .map(|(s, _, _)| *s)
 }
 
 /// The values whose `var` passing is a copy in the runtime: a record, codeunit, list and the other handle kinds are shared
