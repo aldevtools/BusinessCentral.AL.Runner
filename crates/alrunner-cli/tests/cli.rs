@@ -1609,3 +1609,27 @@ fn isolation_refusals_say_why_and_what_to_use_instead() {
     let o = alrunner(&["test", a, "--no-download", "--isolation", "codeunit"]);
     assert_eq!(code(&o), 0, "{}", text(&o));
 }
+
+/// Issue 5608: an outbound request no handler answers fails with BC's pinned error where BC fails it without a
+/// connection (an internal address: PyHttpPolicy.al:82-90) and under BlockOutboundRequests (AyHttpHandler.al:121); a
+/// request BC sends for real is refused with a reason that says why and what to do instead.
+#[test]
+fn an_unhandled_outbound_request_fails_as_bc_does_or_says_why_it_is_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("http");
+    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000005608", "Http", &[]));
+    let unit = |id: u32, policy: &str| {
+        format!(
+            "codeunit {id} \"Http Tests {id}\"\n{{\n    Subtype = Test;\n{policy}\n    [Test]\n    procedure Local()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://localhost:1/x', Response);\n    end;\n\n    [Test]\n    procedure Public()\n    var\n        Client: HttpClient;\n        Response: HttpResponseMessage;\n    begin\n        Client.Get('http://example.com/x', Response);\n    end;\n}}\n"
+        )
+    };
+    write(&dir, "src/Default.al", &unit(50670, ""));
+    write(&dir, "src/Block.al", &unit(50671, "    TestHttpRequestPolicy = BlockOutboundRequests;"));
+    let o = alrunner(&["test", dir.to_str().unwrap(), "--no-download", "--output-json"]);
+    let doc = json_of(&o);
+    let message = |name: &str| row(&doc, name)["message"].as_str().unwrap().to_string();
+    assert!(message("Codeunit50670.Local").contains("violates security requirements"), "{doc}");
+    assert!(message("Codeunit50671.Public").starts_with("Unhandled outbound HTTP requests are not permitted"), "{doc}");
+    let m = message("Codeunit50670.Public");
+    assert!(m.contains("[HttpClientHandler]") && m.contains("BlockOutboundRequests"), "{m}");
+}

@@ -167,7 +167,9 @@ fn real_request(url: &str) -> Result<TestHttpResponseState, Signal> {
             Ok(failed)
         }
         None => unsupported(
-            "an outbound HTTP request that a test handler does not answer: the runtime never opens a connection (ADR-027)",
+            "an outbound HTTP request that a test handler does not answer: the runtime never opens a connection (ADR-027). \
+             To run the test, bind an [HttpClientHandler] that answers the request, or set TestHttpRequestPolicy = \
+             BlockOutboundRequests on the test codeunit to get BC's error for it",
         ),
     }
 }
