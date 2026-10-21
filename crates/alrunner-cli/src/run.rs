@@ -715,6 +715,12 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         &al_version::BcVersion::new(NEWEST_VERIFIED, 0),
     )
     .map_err(|e| e.to_string())?;
+    // Each app under test sees the builtins of the runtime its own app.json declares (al-runner issue 5573): the AL
+    // compiler rejects a call newer than that runtime with AL0666.
+    chosen.target.app_runtimes = inputs
+        .iter()
+        .filter_map(|i| Some((i.source.id.clone(), i.versions.runtime?)))
+        .collect();
     for note in &chosen.notes {
         eprintln!("note: {note}");
     }

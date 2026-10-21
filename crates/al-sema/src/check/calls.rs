@@ -1,18 +1,47 @@
 //! Overload picking and the lookup of callables.
 use super::*;
 
+/// The reason of an AR1007: a call in an app whose declared runtime is below the runtime floor, where AL Runner cannot
+/// tell whether the AL compiler accepts it (al-runner issue 5573).
+fn below_floor(name: &str, at: al_version::Runtime, why: &str) -> String {
+    format!(
+        "`{name}` {why}; the app declares runtime {at}, older than the runtimes AL Runner knows the members of ({} and later), so AL Runner cannot tell whether the AL compiler accepts the call (it would report AL0666)",
+        al_version::Runtime::floor()
+    )
+}
+
 impl<'a> Checker<'a> {
+    /// The runtime the app of `file` declares, when it is an app under test below the catalog's runtime.
+    pub(crate) fn declared_runtime(&self, file: usize) -> Option<al_version::Runtime> {
+        let app = self.ws.files.get(file)?.app;
+        if self.ws.kinds.get(app) == Some(&crate::workspace::AppKind::Dependency) {
+            return None;
+        }
+        self.catalog.app_runtime(&self.ws.apps.get(app)?.id)
+    }
+
     /// Chooses an overload: by arity, then by how many argument types fit the
     /// declared parameter types (first in catalog order on a tie). Records the
     /// choice on `node`.
     pub(crate) fn pick(&mut self, sc: &Scope, node: &SyntaxNode, cands: &[Cand], args: &[Ty], name: &str) -> Ty {
         let argc = args.len();
         // The best arity match by how many arguments fit; the first wins a tie.
+        // An app under test that declares a runtime below the catalog's sees only the overloads of its own runtime
+        // (al-runner issue 5573): a tagged overload newer than it is hidden for it too.
+        let declared = self.declared_runtime(sc.file);
+        let since_of = |c: &Cand| match &c.target {
+            Res::Builtin(id) => c.hidden.or_else(|| self.catalog.by_id(id).and_then(|s| s.since)),
+            _ => c.hidden,
+        };
+        let is_hidden = |c: &Cand| match declared {
+            Some(r) => since_of(c).is_some_and(|s| s > r),
+            None => c.hidden.is_some(),
+        };
         let best_of = |hidden: bool| {
             let mut best: Option<(&Cand, usize)> = None;
             for c in cands
                 .iter()
-                .filter(|c| c.hidden.is_some() == hidden && c.min <= argc && argc <= c.max)
+                .filter(|c| is_hidden(c) == hidden && c.min <= argc && argc <= c.max)
             {
                 // How many arguments fit decides; among equals, the overload whose parameter types are the arguments'
                 // own types wins over one that only takes them as a Variant (Reservation Management has
@@ -44,15 +73,48 @@ impl<'a> Checker<'a> {
         // is what the author meant: BC's compiler refuses the call (ADR-015 3.3 point 4).
         if let Some((h, hs)) = newer {
             if best.is_none_or(|(_, s)| hs > s) {
-                let since = h.hidden.expect("a hidden candidate has its runtime");
-                let at = self.catalog.runtime().unwrap_or(since);
-                self.diag(
-                    sc,
-                    node,
-                    "AR1005",
-                    format!("`{name}` is not available in runtime {at} (introduced in {since})"),
-                );
+                let since = since_of(h).expect("a hidden candidate has its runtime");
+                let at = declared.or(self.catalog.runtime()).unwrap_or(since);
+                if at < al_version::Runtime::floor() {
+                    // Below the runtimes the corpus covers, the compiler's text is not pinned: refused, not reported.
+                    self.diag(
+                        sc,
+                        node,
+                        "AR1007",
+                        below_floor(name, at, &format!("needs runtime {since} or later")),
+                    );
+                } else {
+                    // The AL compiler's text: must-not-compile 0620-record-fullyqualifiedname-runtime-16.al:1 and
+                    // 0576-codeunit-run-by-name-runtime17.al:1 ('16.0' / '16.1'), 0364-jsonobject-selecttokens-runtime17.al:1.
+                    self.diag(
+                        sc,
+                        node,
+                        "AL0666",
+                        format!(
+                            "'{name}' is not available in runtime version '{at}'. The supported runtime versions are: '{since}' or greater."
+                        ),
+                    );
+                }
                 return Ty::Unknown;
+            }
+        }
+        // Below the runtime floor the catalog's tags say nothing: only the docs runtime of the overload can clear the
+        // call ("available or changed with runtime X": at X or later it exists). A later or unknown one is refused.
+        if let (Some(r), Some((c, _))) = (declared.filter(|r| *r < al_version::Runtime::floor()), best) {
+            if let Res::Builtin(id) = &c.target {
+                match self.catalog.docs_runtime(id) {
+                    Some(d) if d <= r => {}
+                    Some(d) => {
+                        let why = format!("is listed in Microsoft's docs as available or changed with runtime {d}");
+                        self.diag(sc, node, "AR1007", below_floor(name, r, &why));
+                        return Ty::Unknown;
+                    }
+                    None => {
+                        let why = "has no runtime in Microsoft's docs";
+                        self.diag(sc, node, "AR1007", below_floor(name, r, why));
+                        return Ty::Unknown;
+                    }
+                }
             }
         }
         match best {

@@ -297,14 +297,76 @@ fn diags_for(bc: &str, files: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn a_member_from_a_newer_runtime_is_refused_with_ar1005() {
-    // Record.FullyQualifiedName is available from runtime 17.0 (BC 28).
+fn a_member_from_a_newer_runtime_is_refused_with_al0666() {
+    // Record.FullyQualifiedName is available from runtime 17.0 (BC 28); the text is the AL compiler's
+    // (must-not-compile 0620-record-fullyqualifiedname-runtime-16.al:1).
     let src = cu("procedure P() var R: Record \"ALT Universal\"; T: Text; begin T := R.FullyQualifiedName(); end;");
     let on27 = diags_for("27.5", &[TABLE, &src]);
-    assert_eq!(on27.len(), 1, "{on27:?}");
-    assert!(on27[0].starts_with("AR1005 "), "{on27:?}");
-    assert!(on27[0].contains("FullyQualifiedName") && on27[0].contains("runtime 16.0") && on27[0].contains("17.0"));
+    assert_eq!(
+        on27,
+        vec![
+            "AL0666 'FullyQualifiedName' is not available in runtime version '16.0'. The supported runtime versions are: '17.0' or greater."
+        ]
+    );
     assert_eq!(diags_for("28", &[TABLE, &src]), Vec::<String>::new());
+}
+
+fn diags_declared(bc: &str, runtime: &str, files: &[&str]) -> Vec<String> {
+    let w = ws(files);
+    let m = crate::members::build(&w);
+    let mut target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    target.app_runtimes = vec![("a".into(), al_version::Runtime::parse(runtime).unwrap())];
+    check(&w, &m, &Catalog::for_target(&target))
+        .diagnostics
+        .iter()
+        .map(|d| format!("{} {}", d.code, d.message))
+        .collect()
+}
+
+#[test]
+fn an_app_declaring_an_older_runtime_than_the_target_gets_al0666_for_its_own_runtime() {
+    // al-runner issue 5573: on BC 28 (runtime 17.0) an app that declares runtime 16.0 cannot call Codeunit.Run by name.
+    let by_name = cu("procedure P() begin Codeunit.Run('Some Codeunit'); end;");
+    assert_eq!(diags_for("28", &[&by_name]), Vec::<String>::new());
+    assert_eq!(
+        diags_declared("28", "16.0", &[&by_name]),
+        vec![
+            "AL0666 'Run' is not available in runtime version '16.0'. The supported runtime versions are: '17.0' or greater."
+        ]
+    );
+    assert_eq!(diags_declared("28", "17.0", &[&by_name]), Vec::<String>::new());
+}
+
+#[test]
+fn below_the_runtime_floor_a_call_the_docs_do_not_clear_is_refused_with_ar1007() {
+    // al-runner issue 5573: NavApp.GetResourceAsText is "available or changed with runtime 14.0" in the docs.
+    let src =
+        cu("procedure P() var T: Text; begin T := NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8); end;");
+    let at13 = diags_declared("28", "13.0", &[&src]);
+    assert_eq!(at13.len(), 1, "{at13:?}");
+    assert!(
+        at13[0].starts_with("AR1007 `GetResourceAsText` is listed in Microsoft's docs as available or changed with runtime 14.0; the app declares runtime 13.0"),
+        "{at13:?}"
+    );
+    assert_eq!(diags_declared("28", "14.0", &[&src]), Vec::<String>::new());
+    // Message is 1.0 in the docs: cleared at any runtime.
+    let msg = cu("procedure P() begin Message('x'); end;");
+    assert_eq!(diags_declared("28", "9.2", &[&msg]), Vec::<String>::new());
+    // A builtin only overrides.txt has (no docs runtime) is refused below the floor.
+    let clear = cu("procedure P() var R: Record \"ALT Universal\"; begin Clear(R); end;");
+    let got = diags_declared("28", "13.0", &[TABLE, &clear]);
+    assert!(
+        got.iter()
+            .any(|d| d.starts_with("AR1007 `Clear` has no runtime in Microsoft's docs")),
+        "{got:?}"
+    );
+    // A builtin tagged newer than the floor is refused too (the compiler's text is not pinned below the floor).
+    let by_name = cu("procedure P() begin Codeunit.Run('Some Codeunit'); end;");
+    let got = diags_declared("28", "13.0", &[&by_name]);
+    assert!(
+        got.len() == 1 && got[0].starts_with("AR1007 `Run` needs runtime 17.0 or later"),
+        "{got:?}"
+    );
 }
 
 #[test]
@@ -313,7 +375,10 @@ fn an_overload_from_a_newer_runtime_is_refused_when_it_fits_better() {
     let by_name = cu("procedure P() begin Codeunit.Run('Some Codeunit'); end;");
     let on27 = diags_for("27", &[&by_name]);
     assert_eq!(on27.len(), 1, "{on27:?}");
-    assert!(on27[0].starts_with("AR1005 ") && on27[0].contains("Run"), "{on27:?}");
+    assert!(
+        on27[0].starts_with("AL0666 'Run' is not available in runtime version '16.0'"),
+        "{on27:?}"
+    );
     assert_eq!(diags_for("28", &[&by_name]), Vec::<String>::new());
     // An integer id fits the older overload on every target.
     let by_id = cu("procedure P() begin Codeunit.Run(50100); end;");

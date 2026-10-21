@@ -124,8 +124,7 @@ pub fn choose_target(
         }
         if runtime < Runtime::floor() {
             notes.push(format!(
-                "the app's runtime is {runtime}; {} is the oldest supported, so it runs as {}",
-                Runtime::floor(),
+                "the app's runtime is {runtime}, older than {}, the oldest AL Runner knows the members of: a call the docs do not list for runtime {runtime} is not run",
                 Runtime::floor()
             ));
             target.runtime = Runtime::floor();

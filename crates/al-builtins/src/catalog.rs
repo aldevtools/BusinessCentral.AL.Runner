@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 /// The checked-in catalog, compiled into the binary (no file access at runtime, ADR-006).
 const SIGNATURES: &str = include_str!("../catalog/signatures.txt");
 const OVERRIDES: &str = include_str!("../catalog/overrides.txt");
+const DOCS_RUNTIMES: &str = include_str!("../catalog/docs-runtimes.txt");
 
 /// Applies `overrides` to the generated `lines`. Every change must follow a
 /// `#` evidence comment, and every removed line must exist.
@@ -59,6 +60,11 @@ pub struct Catalog {
     globals: HashMap<String, Vec<usize>>,
     /// The app runtime this catalog serves; `None` shows every overload (the newest).
     runtime: Option<Runtime>,
+    /// Per signature (same index): the runtime Microsoft's docs give for the overload ("Available or changed with
+    /// runtime version X", `catalog/docs-runtimes.txt`), `None` for a line `overrides.txt` added (no docs page).
+    docs: Vec<Option<Runtime>>,
+    /// `Target::app_runtimes`: the declared runtime of an app under test below `runtime`, by app id in lower case.
+    app_runtimes: HashMap<String, Runtime>,
 }
 
 impl Catalog {
@@ -80,7 +86,14 @@ impl Catalog {
     /// leave out what is tagged newer; [`Catalog::hidden`] returns it. Ids and
     /// `by_id` do not depend on the target (ADR-015 3.3).
     pub fn for_target(target: &Target) -> Catalog {
-        Catalog::build(Some(target.runtime))
+        let mut c = Catalog::build(Some(target.runtime));
+        c.app_runtimes = target
+            .app_runtimes
+            .iter()
+            .filter(|(_, r)| *r < target.runtime)
+            .map(|(id, r)| (id.to_lowercase(), *r))
+            .collect();
+        c
     }
 
     fn build(runtime: Option<Runtime>) -> Catalog {
@@ -94,6 +107,25 @@ impl Catalog {
             .map(|l| Signature::from_line(l).unwrap_or_else(|e| panic!("bad catalog line `{l}`: {e}")))
             .collect();
         number_order(&mut signatures);
+        // The docs runtime of a generated line; a line only `overrides.txt` has gets none.
+        let documented: std::collections::HashSet<&str> = base.iter().copied().collect();
+        let listed: HashMap<&str, Option<Runtime>> = DOCS_RUNTIMES
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(line, r)| (line, Runtime::parse(r).ok()))
+            .collect();
+        let one = Runtime { major: 1, minor: 0 };
+        let docs = signatures
+            .iter()
+            .map(|s| {
+                let line = s.to_line();
+                if !documented.contains(line.as_str()) {
+                    return None;
+                }
+                listed.get(line.as_str()).copied().unwrap_or(Some(one))
+            })
+            .collect();
         let mut by_method: HashMap<(String, String), Vec<usize>> = HashMap::new();
         let mut globals: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, s) in signatures.iter().enumerate() {
@@ -110,7 +142,32 @@ impl Catalog {
             by_method,
             globals,
             runtime,
+            docs,
+            app_runtimes: HashMap::new(),
         }
+    }
+
+    /// The runtime Microsoft's docs give for the overload with id `id` ("Available or changed with runtime
+    /// version X"; `corpus/scripts/al-surface.json`, field `runtime_version`). "Or changed": the overload may be
+    /// older than X, so the value clears a call at runtime X and later and decides nothing below it. `None`: the
+    /// docs do not list the overload (a line of `overrides.txt`).
+    pub fn docs_runtime(&self, id: &str) -> Option<Runtime> {
+        let (qual, n) = id.rsplit_once('#')?;
+        let (recv, name) = qual.rsplit_once('.')?;
+        let n: usize = n.parse().ok()?;
+        let i = *self
+            .by_method
+            .get(&(recv.to_lowercase(), name.to_lowercase()))?
+            .get(n.checked_sub(1)?)?;
+        self.docs[i]
+    }
+
+    /// The runtime an app under test declares when it is below this catalog's runtime (`Target::app_runtimes`).
+    pub fn app_runtime(&self, app_id: &str) -> Option<Runtime> {
+        if self.app_runtimes.is_empty() {
+            return None;
+        }
+        self.app_runtimes.get(&app_id.to_lowercase()).copied()
     }
 
     /// The runtime this catalog serves, or `None` when it shows everything.
@@ -228,6 +285,36 @@ const NUMBERED_IN_PLACE_UP_TO: Runtime = Runtime { major: 17, minor: 0 };
 /// inside one tag the order stays the sorted line order.
 fn number_order(signatures: &mut [Signature]) {
     signatures.sort_by_key(|s| s.since.filter(|r| *r > NUMBERED_IN_PLACE_UP_TO));
+}
+
+/// `catalog/docs-runtimes.txt`: `<catalog line>\t<runtime>` for every overload of `al-surface.json` whose docs
+/// runtime is above 1.0 (`?` when the docs give none), sorted. A line of two entries gets the higher runtime.
+pub fn generate_docs_runtimes(surface_json: &str) -> Result<Vec<String>, String> {
+    let surface: BTreeMap<String, BTreeMap<String, Vec<DocEntry>>> =
+        serde_json::from_str(surface_json).map_err(|e| e.to_string())?;
+    let mut by_line: BTreeMap<String, Option<Runtime>> = BTreeMap::new();
+    for methods in surface.values() {
+        for overloads in methods.values() {
+            for o in overloads {
+                let line = Signature::from_doc(o)?.to_line();
+                let r = o
+                    .runtime_version
+                    .as_deref()
+                    .and_then(|v| Runtime::parse(v.trim().trim_end_matches('.')).ok());
+                let e = by_line.entry(line).or_insert(r);
+                *e = match (*e, r) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                };
+            }
+        }
+    }
+    let one = Runtime { major: 1, minor: 0 };
+    Ok(by_line
+        .into_iter()
+        .filter(|(_, r)| r.is_none_or(|r| r > one))
+        .map(|(l, r)| format!("{l}\t{}", r.map_or_else(|| "?".to_string(), |r| r.to_string())))
+        .collect())
 }
 
 /// All overloads in `al-surface.json`, one catalog line each, sorted. Entries
@@ -380,6 +467,54 @@ mod tests {
                 "Record.Untagged static ()",
             ]
         );
+    }
+
+    #[test]
+    fn docs_runtimes_list_the_overloads_above_1_0() {
+        assert_eq!(
+            generate_docs_runtimes(SURFACE).unwrap(),
+            vec![
+                "Record.Floor static ()\t16.0",
+                "Record.New static () @17.0\t17.0",
+                "Record.Newer static () @18.0\t18.0",
+                "Record.Untagged static ()\t?",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_docs_runtime_of_an_overload_comes_from_the_scrape_and_an_override_has_none() {
+        let c = Catalog::load();
+        let rt = |id: &str| c.docs_runtime(id);
+        let of = |recv: &str, name: &str, params: usize| {
+            let s = c
+                .overloads(recv, name)
+                .into_iter()
+                .find(|s| s.params.len() == params)
+                .unwrap();
+            c.id(s)
+        };
+        // NavApp.GetResourceAsText(ResourceName: Text [, Encoding: TextEncoding]): "14.0." in the scrape.
+        assert_eq!(
+            rt(&of("NavApp", "GetResourceAsText", 2)),
+            Some(Runtime { major: 14, minor: 0 })
+        );
+        assert_eq!(rt(&of("Dialog", "Message", 2)), Some(Runtime { major: 1, minor: 0 }));
+        // TestPage.Filter is a line of overrides.txt only.
+        assert_eq!(rt(&of("TestPage", "Filter", 0)), None);
+    }
+
+    #[test]
+    fn a_target_gives_the_declared_runtime_of_an_app_below_its_own() {
+        let mut t = target("27.5");
+        t.app_runtimes = vec![
+            ("App-A".into(), Runtime { major: 13, minor: 0 }),
+            ("b".into(), Runtime { major: 16, minor: 0 }),
+        ];
+        let c = Catalog::for_target(&t);
+        assert_eq!(c.app_runtime("app-a"), Some(Runtime { major: 13, minor: 0 }));
+        assert_eq!(c.app_runtime("b"), None, "at the target's own runtime");
+        assert_eq!(c.app_runtime("c"), None);
     }
 
     fn target(bc: &str) -> al_version::Target {
