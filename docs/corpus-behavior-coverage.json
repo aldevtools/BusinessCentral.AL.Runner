@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "f3fe6c9912ad142dbdfede47509f268084e78007",
+  "corpus_commit": "652ca071e3b1287169cfbef34f08d5e5c8459066",
   "dimensions": [
     {
       "catalog": 190,
@@ -14940,7 +14940,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 794664,
+          "corpus_uses": 794644,
           "group": "expression",
           "ms_uses": 1809637,
           "name": "NameRef",
@@ -14976,7 +14976,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 37974,
+          "corpus_uses": 37969,
           "group": "statement",
           "ms_uses": 188839,
           "name": "Block",
@@ -14985,7 +14985,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 35005,
+          "corpus_uses": 34997,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -15012,7 +15012,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 53230,
+          "corpus_uses": 53225,
           "group": "expression",
           "ms_uses": 77744,
           "name": "Literal:Integer",
@@ -15030,7 +15030,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 307360,
+          "corpus_uses": 307357,
           "group": "expression",
           "ms_uses": 54387,
           "name": "Literal:StringLit",
@@ -15111,7 +15111,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 29256,
+          "corpus_uses": 29250,
           "group": "expression",
           "ms_uses": 15888,
           "name": "BinExpr +",
@@ -15183,7 +15183,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 3336,
+          "corpus_uses": 3333,
           "group": "statement",
           "ms_uses": 3049,
           "name": "AssignStmt +=",
@@ -15664,7 +15664,7 @@
           "name": "HttpClientHandler",
           "pinned": true,
           "runtime_reads": true,
-          "site": "network/lt-ay-http-handler/AyHttpHandler.al:29"
+          "site": "network/lt-ay-http-handler/AyHttpHandler.al:34"
         },
         {
           "corpus_uses": 27,
@@ -15748,7 +15748,7 @@
           "site": "misc/lt-probes-needed-7/PnGSessionSettings.al:185"
         },
         {
-          "corpus_uses": 18,
+          "corpus_uses": 13,
           "group": "procedure",
           "ms_uses": 0,
           "name": "StrMenuHandler",
@@ -15802,7 +15802,7 @@
           "site": "events/lt-platform-triggers/PtObserve.al:610"
         },
         {
-          "corpus_uses": 1377,
+          "corpus_uses": 1369,
           "group": "procedure",
           "ms_uses": 0,
           "name": "HandlerFunctions",
@@ -15946,7 +15946,7 @@
         "code": "AL:Cookie",
         "file": "crates/al-builtins/src/http.rs",
         "generic": false,
-        "line": 2019,
+        "line": 2018,
         "pinned": true,
         "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
         "template": "The 'Name'='' part of the cookie is invalid."
@@ -16225,7 +16225,7 @@
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 453,
+        "line": 454,
         "pinned": true,
         "site": "types/TestFormatEvaluateTextContracts.al:228",
         "template": "An error was expected inside an ASSERTERROR statement."
@@ -16234,7 +16234,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 604,
+        "line": 605,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16261,7 +16261,7 @@
         "code": "AL:UriFormat",
         "file": "crates/al-vm/src/http.rs",
         "generic": false,
-        "line": 107,
+        "line": 109,
         "pinned": false,
         "site": null,
         "template": "Invalid URI: The URI is empty."
@@ -16297,7 +16297,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 935,
+        "line": 1020,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16306,7 +16306,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1192,
+        "line": 1280,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16315,7 +16315,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1269,
+        "line": 1357,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16324,7 +16324,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1279,
+        "line": 1367,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16333,7 +16333,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1283,
+        "line": 1289,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -29992,7 +29992,7 @@
         "owner": "",
         "pinned": true,
         "scope": "",
-        "site": "network/lt-ay-http-handler/AyHttpHandler.al:29",
+        "site": "network/lt-ay-http-handler/AyHttpHandler.al:34",
         "state": "implemented"
       },
       {

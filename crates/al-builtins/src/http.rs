@@ -1668,28 +1668,27 @@ fn send(c: &mut dyn Ctx, method: &str, url: (String, bool), response: Option<&Va
     let Some(Value::Library(_, cell)) = response else {
         return unsupported("HttpClient call without a response variable");
     };
-    // A request that failed (a handler answered true and BC asked whether to allow the real send) answers false, sets the
-    // last error and leaves the response as it was: a fresh one reads status 200 OK (al-language-onprem/network/lt-ay-http-handler/
-    // AyHttpHandler.al:Handler_FallThrough_ConnectionRefused, session/PZHttpHandler.al:HandlerAnsweringTrue_SendsTheRealRequest).
-    // Pinned only with the result used and a response variable nothing was written to: anything else is refused.
+    // A request that failed before any connection (`failure_without_connection`) leaves a response with status 0 and the
+    // reason `NavHttpClient Request Failed`, not successful, not blocked, an empty body and no headers, also over a response
+    // a handler filled before (network/lt-http-send-failure/LtDaSendFailure.al:48, :69; al-language-onprem/network/
+    // lt-ay-http-handler/AyHttpHandler.al:PY_FailedCall_IntoFilledResponse). With its result used the call answers false and
+    // the error is the last error; as a statement it raises the error (LtDaSendFailure.al:81-86, :98-104).
     if state.request_failed {
+        let mut failed = fresh_response();
+        failed.status = 0;
+        failed.reason = "NavHttpClient Request Failed".into();
+        *cell.borrow_mut() = LibraryValue::HttpResponse(failed);
+        let Some((message, code)) = state.failure else {
+            return unsupported("a failed HttpClient call without an error");
+        };
         if !c.ret_used() {
-            return unsupported(
-                "a failed HttpClient call whose result is not used: whether it raises is not measured (docs/probes-needed.md)",
-            );
+            return raise(message, &code);
         }
-        if !matches!(&*cell.borrow(), LibraryValue::Empty) {
-            return unsupported(
-                "a failed HttpClient call into a response variable that already holds a response: what it keeps is not measured",
-            );
-        }
-        if let Some((message, code)) = state.failure {
-            c.set_last_error(crate::native::AlError {
-                message,
-                code,
-                ..Default::default()
-            });
-        }
+        c.set_last_error(crate::native::AlError {
+            message,
+            code,
+            ..Default::default()
+        });
         return Ok(Value::Boolean(false));
     }
     // A handler that set IsSuccessfulRequest to false makes the call answer false with the response it filled; as a statement
@@ -2126,6 +2125,48 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("FileUpload", "CreateInStream") => Some(file_upload_create_in),
         _ => None,
     }
+}
+
+/// How a real request to `url` fails before any connection is made, as (error text, error code), or None when its outcome
+/// needs the network (the runtime never opens a connection, ADR-027). Two cases are pinned:
+/// - an internal address is refused: 127.x, localhost, [::1], 10.x, 192.168.x, 172.16.x and 169.254.169.254
+///   (network/lt-cz-http-leads/CzHttpOutbound.al:91-108, BC 27, 28, 29; `http://localhost:1` also in
+///   al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al:86-90 and AyHttpHandler.al:Handler_FallThrough_ConnectionRefused);
+/// - a host under the `.invalid` top-level domain, which never resolves (RFC 6761), fails with HttpRequest:Socket
+///   (network/lt-http-send-failure/LtDaSendFailure.al:45-49 `lt-da.invalid`, PyHttpPolicy.al:113-127 `example.invalid`).
+///
+/// 0.0.0.0 raises HttpRequest:Argument with a text no test pins: None.
+pub fn failure_without_connection(url: &str) -> Option<(&'static str, &'static str)> {
+    const SECURITY: &str = "There was an error while executing the HTTP request, the connecting endpoint violates security requirements. Make sure you are connecting to a valid endpoint.";
+    const SOCKET: &str =
+        "There was an error while executing the HTTP request. Make sure you are connecting to a valid endpoint.";
+    let (scheme, rest) = url.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return None;
+    }
+    let host = if authority.starts_with('[') {
+        &authority[..=authority.find(']')?]
+    } else {
+        authority.split(':').next().unwrap_or("")
+    }
+    .to_ascii_lowercase();
+    let octets: Option<Vec<u8>> = host.split('.').map(|p| p.parse::<u8>().ok()).collect();
+    let internal = match octets.as_deref() {
+        Some([127, _, _, _] | [10, _, _, _] | [192, 168, _, _] | [172, 16, _, _] | [169, 254, 169, 254]) => true,
+        Some(_) => false,
+        None => host == "localhost" || host == "[::1]",
+    };
+    if internal {
+        return Some((SECURITY, "HttpRequest:Security"));
+    }
+    if host.len() > ".invalid".len() && host.ends_with(".invalid") {
+        return Some((SOCKET, "HttpRequest:Socket"));
+    }
+    None
 }
 
 /// The request the session gives a handler: `Path` without the query, the decoded query parameters in order.

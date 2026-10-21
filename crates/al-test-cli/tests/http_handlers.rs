@@ -196,7 +196,7 @@ fn a_handler_still_answers_under_block_outbound_requests() {
     );
 }
 
-// Without TestHttpRequestPolicy a request would go out for real (network/TestHttpClient.al); the runtime refuses.
+// Without TestHttpRequestPolicy a request to a public host goes out for real (network/TestHttpClient.al); the runtime refuses.
 #[test]
 fn a_request_with_no_handler_and_no_policy_is_refused_not_sent() {
     let why = not_run(
@@ -205,7 +205,7 @@ fn a_request_with_no_handler_and_no_policy_is_refused_not_sent() {
     [Test] procedure Real()
     var Client: HttpClient; Resp: HttpResponseMessage;
     begin
-        Client.Get('http://example.invalid', Resp);
+        Client.Get('https://example.com', Resp);
     end;"#,
     );
     assert!(why.contains("connection"), "{why}");
@@ -516,37 +516,195 @@ fn a_handler_status_whose_reason_phrase_is_not_pinned_is_refused() {
     assert_eq!(got[1].1, Outcome::Pass, "{got:?}");
 }
 
-// AyHttpHandler.al:Handler_FallThrough_ConnectionRefused (BC 29): a handler that answers true makes BC ask whether to allow
-// the request (StrMenu); with no handler for it the call answers false, the last error is the unhandled StrMenu and the
-// response keeps status 200 OK. PZHttpHandler.al:HandlerAnsweringTrue_SendsTheRealRequest has the same for example.invalid.
+const SECURITY: &str = "There was an error while executing the HTTP request, the connecting endpoint violates security requirements. Make sure you are connecting to a valid endpoint.";
+const SOCKET: &str =
+    "There was an error while executing the HTTP request. Make sure you are connecting to a valid endpoint.";
+
+// AyHttpHandler.al:Handler_FallThrough_ConnectionRefused (BC 29, corpus bump 43): a handler that answers true lets the real
+// request go, with no approval prompt. A request to localhost is refused before any connection: the call answers false,
+// the response reads status 0 and `NavHttpClient Request Failed`, and the last error is HttpRequest:Security.
 #[test]
-fn on_bc_29_a_handler_answering_true_ends_in_the_unhandled_strmenu() {
-    let tests = r#"
+fn on_bc_29_a_handler_answering_true_sends_the_request_and_localhost_is_refused() {
+    let tests = format!(
+        r#"
     [Test] [HandlerFunctions('FallThroughHandler')] procedure FallThrough()
     begin
-        Check(Outcome('http://localhost:1/x'), 'ret=No status=200 reason=[OK] success=Yes blocked=No last=Unhandled UI: StrMenu Allow Always,Allow Once,Block Always,Block Once|MissingUIHandler calls=1');
-    end;"#;
-    for (name, outcome) in ay_on("29.0", tests) {
+        Check(Outcome('http://localhost:1/x'), 'ret=No status=0 reason=[NavHttpClient Request Failed] success=No blocked=No last={SECURITY}|HttpRequest:Security calls=1');
+    end;"#
+    );
+    for (name, outcome) in ay_on("29.0", &tests) {
         assert_eq!(outcome, Outcome::Pass, "{name}");
     }
 }
 
-// What a handler does under the default policy or AllowAllOutboundRequests is not measured: refused (no probe yet).
+// AyHttpHandler.al:PY_FailedCall_IntoFilledResponse (BC 29): a failed request overwrites a response that a handler filled
+// before (status 0); PY_UnusedResult_AllowOnceRefused: with the result not used the call raises the error.
 #[test]
-fn a_handler_under_an_unprobed_policy_is_refused() {
-    let body = format!(
-        r#"{AY}
-    [Test] [HandlerFunctions('NotFoundHandler')] procedure NotFound()
+fn on_bc_29_a_failed_request_overwrites_a_filled_response_and_raises_as_a_statement() {
+    let tests = format!(
+        r#"
+    var Mode: Text;
+    [HttpClientHandler]
+    procedure ModeHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
     begin
-        Check(Outcome('https://example.invalid/missing'), 'x');
+        Calls += 1;
+        if Mode = 'true' then exit(true);
+        Response.HttpStatusCode := 201;
+        exit(false);
+    end;
+    [TryFunction]
+    local procedure TryStatement(var Client: HttpClient; Url: Text; var Resp: HttpResponseMessage)
+    begin
+        Client.Get(Url, Resp);
+    end;
+    [Test] [HandlerFunctions('ModeHandler')] procedure Filled()
+    var Client: HttpClient; Resp: HttpResponseMessage; Ret: Boolean;
+    begin
+        Mode := 'status';
+        Check(Format(TryGet(Client, 'https://example.invalid/one', Resp, Ret)) + Format(Ret) + Format(Resp.HttpStatusCode), 'YesYes201');
+        Mode := 'true';
+        Check(Format(TryGet(Client, 'http://localhost:1/two', Resp, Ret)) + Format(Ret) + Format(Resp.HttpStatusCode) + Resp.ReasonPhrase, 'YesNo0NavHttpClient Request Failed');
+        ClearLastError();
+        Check(Format(TryStatement(Client, 'http://localhost:1/three', Resp)) + ' ' + GetLastErrorText() + '|' + GetLastErrorCode() + ' ' + Format(Resp.HttpStatusCode), 'No {SECURITY}|HttpRequest:Security 0');
+    end;"#
+    );
+    for (name, outcome) in ay_on("29.0", &tests) {
+        assert_eq!(outcome, Outcome::Pass, "{name}");
+    }
+}
+
+const DEFAULT_POLICY_TESTS: &str = r#"
+    var Calls: Integer; Mode: Text;
+    [HttpClientHandler]
+    procedure ModeHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        Calls += 1;
+        if Mode = 'true' then exit(true);
+        Response.HttpStatusCode := 201;
+        Response.ReasonPhrase := 'Mocked';
+        exit(false);
+    end;
+    [TryFunction]
+    local procedure TryGet(Url: Text; var Resp: HttpResponseMessage; var Ret: Boolean)
+    var Client: HttpClient;
+    begin
+        Ret := Client.Get(Url, Resp);
+    end;
+    local procedure Outcome(NewMode: Text; Url: Text): Text
+    var Resp: HttpResponseMessage; Ret: Boolean;
+    begin
+        Mode := NewMode;
+        Calls := 0;
+        ClearLastError();
+        if not TryGet(Url, Resp, Ret) then exit('error');
+        exit('ret=' + Format(Ret) + ' status=' + Format(Resp.HttpStatusCode) + ' reason=[' + Resp.ReasonPhrase + '] success=' + Format(Resp.IsSuccessStatusCode) + ' blocked=' + Format(Resp.IsBlockedByEnvironment) + ' last=' + GetLastErrorText() + '|' + GetLastErrorCode() + ' calls=' + Format(Calls));
+    end;
+    local procedure Check(Got: Text; Expected: Text)
+    begin
+        if Got <> Expected then Error('got %1', Got);
+    end;
+"#;
+
+// al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al (codeunits 98700 default policy and 98701 AllowAllOutboundRequests,
+// the same values): from BC 29 a handler answers (Handler_AnswersFalse_Mocked: 201 Mocked, calls 1); before, it is not called and
+// the request goes out for real: to example.invalid it fails with HttpRequest:Socket, to localhost with HttpRequest:Security.
+#[test]
+fn under_the_default_policy_a_handler_answers_from_bc_29_and_before_the_request_goes_out() {
+    let fail = "status=0 reason=[NavHttpClient Request Failed] success=No blocked=No";
+    for header in ["", "TestHttpRequestPolicy = AllowAllOutboundRequests;"] {
+        for (bc, mocked, through) in [
+            (
+                "29.0",
+                "ret=Yes status=201 reason=[Mocked] success=Yes blocked=No last=| calls=1".to_string(),
+                1,
+            ),
+            (
+                "28.5",
+                format!("ret=No {fail} last={SOCKET}|HttpRequest:Socket calls=0"),
+                0,
+            ),
+            (
+                "27.5",
+                format!("ret=No {fail} last={SOCKET}|HttpRequest:Socket calls=0"),
+                0,
+            ),
+        ] {
+            let body = format!(
+                r#"{DEFAULT_POLICY_TESTS}
+    [Test] [HandlerFunctions('ModeHandler')] procedure Mocked()
+    begin
+        Check(Outcome('false', 'https://example.invalid/mocked'), '{mocked}');
+    end;
+    [Test] [HandlerFunctions('ModeHandler')] procedure TrueToLocalhost()
+    begin
+        Check(Outcome('true', 'http://localhost:1/x'), 'ret=No {fail} last={SECURITY}|HttpRequest:Security calls={through}');
+    end;
+    [Test] procedure NoHandler()
+    begin
+        Check(Outcome('', 'http://localhost:1/x'), 'ret=No {fail} last={SECURITY}|HttpRequest:Security calls=0');
+    end;"#
+            );
+            for (name, outcome) in run_on(bc, header, &body) {
+                assert_eq!(outcome, Outcome::Pass, "{bc} [{header}] {name}");
+            }
+        }
+    }
+}
+
+// network/lt-http-send-failure/LtDaSendFailure.al:37-104 and network/lt-cz-http-leads/CzHttpOutbound.al:91-108: with no handler a
+// request goes out for real. A host under `.invalid` never resolves (HttpRequest:Socket) and an internal address is refused
+// before any connection (HttpRequest:Security); as a statement the call raises that error and the response reads status 0.
+// 0.0.0.0 (HttpRequest:Argument, text not pinned) and a public host stay refused: the runtime never opens a connection.
+#[test]
+fn a_request_to_an_unresolvable_or_internal_host_fails_without_a_connection() {
+    let body = format!(
+        r#"
+    local procedure Brief(Url: Text): Text
+    var Client: HttpClient; Resp: HttpResponseMessage; Ok: Boolean;
+    begin
+        ClearLastError();
+        Ok := Client.Get(Url, Resp);
+        exit(Format(Ok) + ' ' + Format(Resp.HttpStatusCode) + ' ' + Format(Resp.IsBlockedByEnvironment) + ' ' + GetLastErrorCode());
+    end;
+    [Test] procedure Hosts()
+    begin
+        if Brief('https://lt-da.invalid/get') <> 'No 0 No HttpRequest:Socket' then Error('invalid');
+        if Brief('http://127.0.0.1:1/') <> 'No 0 No HttpRequest:Security' then Error('loopback');
+        if Brief('http://127.10.20.30/') <> 'No 0 No HttpRequest:Security' then Error('loopback_other');
+        if Brief('http://[::1]:1/') <> 'No 0 No HttpRequest:Security' then Error('ipv6');
+        if Brief('http://10.255.255.1/') <> 'No 0 No HttpRequest:Security' then Error('ten');
+        if Brief('http://192.168.255.1/') <> 'No 0 No HttpRequest:Security' then Error('lan');
+        if Brief('http://172.16.255.1/') <> 'No 0 No HttpRequest:Security' then Error('lan172');
+        if Brief('http://169.254.169.254/metadata/instance') <> 'No 0 No HttpRequest:Security' then Error('imds');
+    end;
+    [Test] procedure Statement()
+    var Client: HttpClient; Resp: HttpResponseMessage; Body: Text;
+    begin
+        asserterror Client.Get('https://lt-da.invalid/statement', Resp);
+        if GetLastErrorText() + '|' + GetLastErrorCode() <> '{SOCKET}|HttpRequest:Socket' then Error('got %1', GetLastErrorText());
+        Resp.Content.ReadAs(Body);
+        if (Resp.HttpStatusCode <> 0) or (Resp.ReasonPhrase <> 'NavHttpClient Request Failed') or Resp.IsSuccessStatusCode or (Body <> '') then
+            Error('after');
     end;"#
     );
     for header in ["", "TestHttpRequestPolicy = AllowAllOutboundRequests;"] {
-        let got = run_on("29.0", header, &body);
-        assert!(
-            matches!(&got[0].1, Outcome::NotRun(w) if w.contains("policy")),
-            "{header}: {got:?}"
+        for (name, outcome) in run_with(header, &body) {
+            assert_eq!(outcome, Outcome::Pass, "[{header}] {name}");
+        }
+    }
+    for url in ["http://0.0.0.0:1/", "https://example.com/"] {
+        let why = not_run(
+            "",
+            &format!(
+                r#"
+    [Test] procedure Real()
+    var Client: HttpClient; Resp: HttpResponseMessage;
+    begin
+        if Client.Get('{url}', Resp) then;
+    end;"#
+            ),
         );
+        assert!(why.contains("connection"), "{url}: {why}");
     }
 }
 

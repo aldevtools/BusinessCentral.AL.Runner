@@ -4,6 +4,7 @@ mod autoinc_non_key;
 mod bump_36_transferfields_system_fields;
 mod companies;
 mod delete_all_cascade;
+mod fieldref_blob_unloaded;
 mod find_directions;
 mod find_other_key;
 mod fix_records;

@@ -1299,8 +1299,8 @@ pub struct TestHttpRequestState {
 /// What a `TestHttpResponseMessage` holds: what a `[HttpClientHandler]` answers.
 #[derive(Debug, Clone)]
 pub struct TestHttpResponseState {
-    /// The handler answered true and the request, which the runtime never sends, failed like one to an unresolvable
-    /// host: the call answers false and the response keeps nothing of the handler's.
+    /// The request went out for real (no handler answered it) and failed before any connection
+    /// (`http::failure_without_connection`): the response reads status 0 and keeps nothing of the handler's.
     pub request_failed: bool,
     /// The error a failed request leaves as the last error (text, code) when the call's result is used.
     pub failure: Option<(String, String)>,
