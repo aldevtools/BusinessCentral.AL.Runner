@@ -254,14 +254,17 @@ COMPILE CACHE
                          Remove every entry of the compile cache (<cache dir>/compile/): use it
                          when a cached result is in doubt. The next run builds what it needs.
 
-SELECTION (a test is selected when any option matches it)
+SELECTION (a test is selected when any option matches it; --filter with --test-exact
+selects only the tests both match)
     --codeunit ID        A test codeunit by object id. Repeatable.
     --filter TEXT        (`--test TEXT` is the same) Tests whose name contains TEXT, any case.
                          TEXT with a dot (`Codeunit50100.Foo`) is matched against
                          `Codeunit<ID>.<Method>`, TEXT without a dot against the method name.
                          Repeatable.
     --test-exact NAME    The test whose method name or `Codeunit<ID>.<Method>` is exactly NAME
-                         (any case). Repeatable.
+                         (any case). Repeatable. Given with --filter, it narrows the filter's
+                         tests to these, as AL Runner v2 did. A test name is its AL name as
+                         written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
     --explain TEST       Run one test (its name, or a part of it that only one test has) and print
@@ -303,7 +306,9 @@ OUTPUT
                          `durationMs`, `message`, `stackTrace`, and `passed`, `failed`, `errors`,
                          `skipped`, `total`, `notRun`, `exitCode`, `wallSeconds`. A test that did not
                          run is `error` with the message `NotRun: out-of-scope: <reason>`; one the
-                         time limit stopped is `error` with `Test exceeded <N>s timeout.`. Without
+                         time limit stopped is `error` with `Test exceeded <N>s timeout.`. When the
+                         selection matches no test (exit 6) the document has no rows and
+                         `warnings` says why. Without
                          FILE the document is the only thing on stdout and the report goes to
                          stderr. `--output-json=FILE` also works. See docs/integrations/migrating-tools-to-v3.md.
     --timings            Compile phases and the slowest test codeunits.

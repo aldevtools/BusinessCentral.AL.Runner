@@ -1519,3 +1519,67 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
         assert!(!out.contains("SELECTION"), "{args:?}: {out}");
     }
 }
+
+/// Issue 5613: with `--output-json`, a selection that matches no test still writes the document (exit 6, no rows,
+/// the reason in `warnings`), on stdout and to a file.
+#[test]
+fn output_json_writes_the_document_when_the_selection_matches_no_test() {
+    let d = tempfile::tempdir().unwrap();
+    let app = mixed_app(d.path());
+    let a = app.to_str().unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--output-json", "--test", "Codeunit0.NoSuchTest"]);
+    assert_eq!(code(&o), 6, "{}", text(&o));
+    let doc = json_of(&o);
+    assert_eq!(doc["exitCode"], 6, "{doc}");
+    assert_eq!(doc["total"], 0, "{doc}");
+    assert_eq!(doc["tests"].as_array().map(Vec::len), Some(0), "{doc}");
+    assert!(doc["warnings"][0].as_str().unwrap().contains("matches no test"), "{doc}");
+    let file = d.path().join("out.json");
+    let o = alrunner(&["test", a, "--no-download", "--output-json", file.to_str().unwrap(), "--test", "NoSuchTest"]);
+    assert_eq!(code(&o), 6, "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(doc["exitCode"], 6, "{doc}");
+}
+
+/// Issue 5572: a test whose AL name is a quoted identifier is selected by that name, with --test-exact, --test
+/// and --explain; issue 5612: --test with --test-exact selects only the tests both match.
+#[test]
+fn a_quoted_test_name_is_selected_by_its_al_name() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("quoted");
+    write(&dir, "app.json", &app_json("11111111-0000-0000-0000-000000000072", "Quoted", &[]));
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure \"Space Step\"()\n    begin\n    end;\n\n    [Test]\n    procedure \"Dot.Name\"()\n    begin\n    end;\n\n    [Test]\n    procedure Passes()\n    begin\n    end;\n\n    [Test]\n    procedure PassesToo()\n    begin\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let names = |args: &[&str]| -> Vec<String> {
+        let mut all = vec!["test", a, "--no-download", "--output-json"];
+        all.extend_from_slice(args);
+        let o = alrunner(&all);
+        assert_eq!(code(&o), 0, "{args:?}: {}", text(&o));
+        let doc = json_of(&o);
+        let mut n: Vec<String> = doc["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        n.sort();
+        n
+    };
+    let space = vec!["Codeunit50650.Space Step".to_string()];
+    assert_eq!(names(&["--test-exact", "Codeunit50650.Space Step"]), space);
+    assert_eq!(names(&["--test-exact", "space step"]), space);
+    assert_eq!(names(&["--test", "Space Step"]), space);
+    assert_eq!(names(&["--test-exact", "Codeunit50650.Dot.Name"]), vec!["Codeunit50650.Dot.Name".to_string()]);
+    assert_eq!(names(&["--test", "Dot"]), vec!["Codeunit50650.Dot.Name".to_string()]);
+    assert_eq!(
+        names(&["--test", "Codeunit50650.Passes", "--test-exact", "Codeunit50650.Passes"]),
+        vec!["Codeunit50650.Passes".to_string()]
+    );
+    let o = alrunner(&["test", a, "--no-download", "--explain", "Space Step"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("Space Step"), "{}", text(&o));
+}

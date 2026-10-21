@@ -60,7 +60,7 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 | `--output-json=FILE` | Same, with a FILE of any name. Without the `=`, a file name is taken only if it ends in `.json`. |
 | `--isolation codeunit\|test\|disabled` (also `--test-isolation`) | `codeunit`: the database is rolled back when a test codeunit ends (the default, as in Microsoft's test runner). `test` (aliases `function`, `method`): the database goes back to its state after `OnRun` after every test method, **the codeunit's AL variables are kept** (BC's `TestIsolation = Function`). v2's `test` also reset the codeunit's state; a tool that relied on that must not. `disabled`: not pinned, so every test is reported as not run (exit 7). |
 | `--test TEXT` (also `--filter`) | Case-insensitive substring. TEXT with a dot, such as `Codeunit50011.Foo`, is matched against the qualified name `Codeunit<ID>.<Method>`; TEXT without a dot against the method name. v2 matched the qualified name for both. A bare name that is also a part of the word `Codeunit` is not special. |
-| `--test-exact NAME` | New in v3 for the tools: the test whose method name or qualified name is exactly NAME (any case). Repeatable. |
+| `--test-exact NAME` | New in v3 for the tools: the test whose method name or qualified name is exactly NAME (any case). Repeatable. Given with `--test`, it narrows: only the tests that both match are selected, as in v2. A name is the AL name as written, without quotes: `--test-exact "Codeunit50650.Space Step"`. |
 | `--exclude-test TEXT` | Removes the tests TEXT matches (the same matching as `--test`). Wins over every selecting option. Repeatable. Use whole qualified names to exclude exactly one test. |
 | `--define SYMBOL` | Adds a preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable. `--preprocessor-symbols A,B` adds several. v3 defines its own predefined symbols (ADR-015): they are not v2's list. |
 | `--package-cache DIR` | Same. Repeatable. |
@@ -112,6 +112,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `skipped` | present | always 0 | none |
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
+| `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
 | `compilationErrors`, `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | v3 has no compile stage: what it cannot compile becomes `notRun` rows. A tool that treats "compile failed" as exit 3 must treat all-rows-`notRun` instead (see LethAL, below). |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
 | `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`. `status` is the test's own outcome; a stubbed pass is `pass`. |

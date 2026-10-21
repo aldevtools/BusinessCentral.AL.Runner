@@ -84,13 +84,18 @@ impl Selection {
     }
 
     fn picks(&self, codeunit: u32, test: &str) -> bool {
-        let included = self.includes_none()
-            || self.codeunits.contains(&codeunit)
-            || self.filters.iter().any(|f| Self::matches(f, codeunit, test))
-            || self
-                .exact
-                .iter()
-                .any(|e| e.eq_ignore_ascii_case(test) || e.eq_ignore_ascii_case(&qualified(codeunit, test)));
+        let by_filter = self.filters.iter().any(|f| Self::matches(f, codeunit, test));
+        let by_exact = self
+            .exact
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(test) || e.eq_ignore_ascii_case(&qualified(codeunit, test)));
+        // `--test` with `--test-exact` narrows to the tests both match, as AL Runner v2 did, so that a tool that
+        // sends both selects no more than either alone (issue 5612). Each alone selects what it matches.
+        let by_name = match (self.filters.is_empty(), self.exact.is_empty()) {
+            (false, false) => by_filter && by_exact,
+            _ => by_filter || by_exact,
+        };
+        let included = self.includes_none() || self.codeunits.contains(&codeunit) || by_name;
         included
             && !self.excludes.iter().any(|x| Self::matches(x, codeunit, test))
             && !self.parity.as_ref().is_some_and(|d| d.is_disabled(codeunit, test))
@@ -695,9 +700,23 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
             "no test codeunit (Subtype = Test) in the given apps"
         };
         eprintln!("error: {what}");
+        let empty = Report::empty(6, started.elapsed().as_secs_f64(), what);
+        // `--output-json` writes the document of a run with no test, with the reason in `warnings`, as `serve`
+        // answers its summary (issue 5613).
+        if let Some(target) = &a.output_json
+            && warm.is_none()
+        {
+            let mut doc = empty.doc.clone();
+            doc["warnings"] = serde_json::json!(empty.warnings);
+            let doc = serde_json::to_string_pretty(&doc).expect("a JSON value serializes");
+            match target {
+                Some(path) => write_file(path, &doc)?,
+                None => println!("{doc}"),
+            }
+        }
         // A server request answers a summary with exit code 6, as `al-runner test` exits 6 (ADR-028 item 1).
         if let Some(w) = warm.as_deref_mut() {
-            w.report = Some(Report::empty(6, started.elapsed().as_secs_f64(), what));
+            w.report = Some(empty);
         }
         return Ok(6);
     }
@@ -1743,5 +1762,34 @@ mod disabled_line_tests {
         };
         let line = disabled_line(&d, &[], &found, &sel, true);
         assert!(line.starts_with("Disabled by Microsoft: 2 tests not run"), "{line}");
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn sel(filters: &[&str], exact: &[&str]) -> Selection {
+        Selection {
+            filters: filters.iter().map(|s| s.to_string()).collect(),
+            exact: exact.iter().map(|s| s.to_string()).collect(),
+            ..Selection::default()
+        }
+    }
+
+    /// Issue 5612: `--test` with `--test-exact` narrows to the tests both match, as in AL Runner v2
+    /// (`TestExactFlagTests.TestAndTestExact_Together_AreTheIntersection` on the `v2` branch).
+    #[test]
+    fn test_and_test_exact_together_select_the_tests_both_match() {
+        let s = sel(&["Codeunit50650.Passes"], &["Codeunit50650.Passes"]);
+        assert!(s.picks(50650, "Passes"));
+        assert!(!s.picks(50650, "PassesToo"));
+        let s = sel(&["PassesToo"], &["Codeunit50650.Passes"]);
+        assert!(!s.picks(50650, "Passes") && !s.picks(50650, "PassesToo"));
+        // Each kind alone, and several of one kind, still select every test one of them matches.
+        let s = sel(&["Passes", "Other"], &[]);
+        assert!(s.picks(50650, "PassesToo") && s.picks(1, "Other"));
+        let s = sel(&[], &["Codeunit50650.Passes", "Codeunit1.Other"]);
+        assert!(s.picks(50650, "Passes") && s.picks(1, "Other") && !s.picks(50650, "PassesToo"));
     }
 }
