@@ -238,7 +238,13 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     let plain = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b',' || b == b'.');
     if number == 0 {
         if let Some(body) = t.strip_suffix('-').map(|b| b.trim_end_matches(' ')) {
-            if body.len() + 1 < t.len() && plain(body) {
+            // Pinned with one space only; more spaces are refused.
+            if body.len() + 2 < t.len() && plain(body) {
+                return unsupported(format!(
+                    "Evaluate of `{text}` into Decimal (form not pinned by the corpus)"
+                ));
+            }
+            if body.len() + 2 == t.len() && plain(body) {
                 return match decimal(body, number)? {
                     Parsed::Value(Value::Decimal(d)) => Ok(Parsed::Value(Value::Decimal(-d))),
                     other => Ok(other),
@@ -817,7 +823,16 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         .checked_sub(2)
         .and_then(|i| designated.get(i..).map(|m| (i, m)))
     {
-        Some((i, m)) if m.eq_ignore_ascii_case("AM") || m.eq_ignore_ascii_case("PM") => {
+        // Only the spellings AM, PM, am and pm are pinned; mixed case is refused.
+        Some((_, m))
+            if (m.eq_ignore_ascii_case("AM") || m.eq_ignore_ascii_case("PM"))
+                && !matches!(m, "AM" | "PM" | "am" | "pm") =>
+        {
+            return unsupported(format!(
+                "Evaluate of `{text}` into Time (form not pinned by the corpus)"
+            ));
+        }
+        Some((i, m)) if matches!(m, "AM" | "PM" | "am" | "pm") => {
             let b = &designated[..i];
             let old_form = b.ends_with(' ') && (m == "AM" || m == "PM") && designated.len() == t.len();
             let b = b.strip_suffix([' ', '\u{202F}']).unwrap_or(b);
@@ -925,7 +940,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
     };
     if let Some(pm) = meridiem {
         // `0:30:00 AM` is 00:30:00 and `13:00:00 PM` is rejected (AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace); an hour
-        // of 0 with PM and from 13 with AM are not pinned.
+        // of 0 with PM, 13 with AM and 14 to 23 are not pinned.
         if h == 0 && !pm {
             return Ok(if in_range(h, m, s) {
                 value(h, m, s, f)
@@ -933,7 +948,7 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
                 Parsed::Rejected
             });
         }
-        if (13..24).contains(&h) && pm {
+        if h == 13 && pm {
             return Ok(Parsed::Rejected);
         }
         if !(1..=12).contains(&h) {
@@ -1708,6 +1723,9 @@ mod tests {
         }
         assert_eq!(dec("\t100", 0), Ok(Some("100".into())));
         assert_eq!(dec("100\r\n", 9), Ok(Some("100".into())));
+        // Not pinned: more than one space before a trailing minus.
+        assert!(dec("100  -", 0).is_err());
+        assert!(dec("100   -", 0).is_err());
         // Not pinned: white space inside the number.
         assert!(dec("1\t000", 0).is_err());
     }
@@ -1739,6 +1757,13 @@ mod tests {
         assert_eq!(ms("12:00:00\u{202F}PM", 9), Ok(None));
         // Not pinned: hour 0 with PM.
         assert!(ms("0:30:00 PM", 0).is_err());
+        // Not pinned: mixed case, two trailing narrow no-break spaces, hours 14 to 23 with PM, 13 with AM.
+        assert!(ms("12:00:00\u{202F}Pm", 0).is_err());
+        assert!(ms("12:00:00 pM", 0).is_err());
+        assert!(ms("12:00:00\u{202F}PM\u{202F}\u{202F}", 0).is_err());
+        assert!(ms("14:00:00\u{202F}PM", 0).is_err());
+        assert!(ms("23:00:00 PM", 0).is_err());
+        assert!(ms("13:00:00 AM", 0).is_err());
         // AjScalars.al:Evaluate_Time_FromDateText.
         assert_eq!(ms("2021-12-19", 0), Ok(Some(((20 * 60 + 21) * 60 + 12) * 1000 + 190)));
         assert_eq!(ms("12/19/21", 0), Ok(Some(((12 * 60 + 19) * 60 + 21) * 1000)));
