@@ -65,6 +65,8 @@ mod text_methods;
 mod text_scans;
 mod tree_free;
 mod typed_ops;
+mod user_gaps_evaluate;
+mod user_gaps_round_duration;
 mod var_attribute_refusals;
 mod var_global_alias;
 mod version_gates;

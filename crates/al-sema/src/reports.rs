@@ -912,11 +912,26 @@ impl<'a> Owner<'a> {
                         .iter()
                         .position(|f| f.name.eq_ignore_ascii_case(&source))
                 });
+                // `Item.Field` on the item's own table (report/lt-bc-xml-blob/BcXmlBlobObjects.al: `Row.Data`).
+                let item_field = table.and_then(|t| {
+                    let item = crate::scan::unquote_double(sec.args().first()?);
+                    let source = args.get(1)?;
+                    let (qualifier, member) = source.trim().split_once('.')?;
+                    if !crate::scan::unquote_double(qualifier).eq_ignore_ascii_case(&item) {
+                        return None;
+                    }
+                    let member = crate::scan::unquote_double(member);
+                    self.members[t]
+                        .fields
+                        .iter()
+                        .position(|f| f.name.eq_ignore_ascii_case(&member))
+                });
                 ir::ReportColumn {
                     name,
                     routine,
                     unsupported,
                     field,
+                    item_field,
                     include_caption,
                     decimal_places,
                     option_caption_ml,

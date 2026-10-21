@@ -23,6 +23,9 @@ pub enum FilterExpr {
     And(Vec<FilterExpr>),
     /// `*` / `?` wildcards on text; `@` makes it case-insensitive.
     Like(String, bool),
+    /// `<>` before a wildcard pattern: the texts the pattern does not match. `<>*` keeps no row, not even the blank one
+    /// (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:106-173, Forms_CodeField and Forms_TextField).
+    NotLike(String, bool),
 }
 
 impl FilterExpr {
@@ -51,6 +54,7 @@ impl FilterExpr {
             FilterExpr::Gt(x) => cmp(x) == Some(Ordering::Greater),
             FilterExpr::Ge(x) => matches!(cmp(x), Some(Ordering::Greater | Ordering::Equal)),
             FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci)),
+            FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
             FilterExpr::And(xs) => xs.iter().all(|x| x.matches(v)),
         }
@@ -138,6 +142,42 @@ pub fn letters_only(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic())
 }
 
+/// Whether `text` is one word of ASCII letters and hyphens (`NOT-A-NUMBER`, `-`, `abc`): the texts a Decimal, BigInteger, Duration
+/// and Time filter are pinned to refuse with the evaluate error (record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:71, :96,
+/// :110, :134-137).
+pub fn letters_or_hyphens(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+}
+
+/// Whether `text` is `n` groups of ASCII digits joined by `sep`, each group not empty.
+fn digit_groups(text: &str, sep: char, n: usize) -> bool {
+    let parts: Vec<&str> = text.split(sep).collect();
+    parts.len() == n
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// How a Decimal filter value reads: `Some(Ok)` the value, `Some(Err)` the evaluate error, `None` a text no corpus test pins.
+/// record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:92-126 (Decimal_Forms): letters and hyphens (`abc`, `x`, `-`,
+/// `NOT-A-NUMBER`), `*`, `1;5` and `1.2.3` raise the error; `1,5` reads as 15 (the comma is dropped) and `1e3` as 1000.
+fn decimal_filter_text(text: &str) -> Option<Result<rust_decimal::Decimal, ()>> {
+    if let Ok(d) = text.parse() {
+        return Some(Ok(d));
+    }
+    if letters_or_hyphens(text) || text == "*" || digit_groups(text, ';', 2) || digit_groups(text, '.', 3) {
+        return Some(Err(()));
+    }
+    if digit_groups(text, ',', 2) {
+        return text.replace(',', "").parse().ok().map(Ok);
+    }
+    // One exponent digit, the pinned `1e3`; a larger exponent is not pinned.
+    if digit_groups(text, 'e', 2) && text.split('e').nth(1).is_some_and(|e| e.len() == 1) {
+        return rust_decimal::Decimal::from_scientific(text).ok().map(Ok);
+    }
+    None
+}
+
 /// `12:mm:ss`: the only Time text a filter is pinned to read (PtObserve.al:Bad_Time, `12:00:00`).
 fn is_noon_text(t: &str) -> bool {
     let b = t.as_bytes();
@@ -207,13 +247,15 @@ enum Tok {
     Quoted(String),
     /// A `%n` placeholder's typed value.
     Typed(Value),
+    /// The text of a `%n` placeholder that holds a text, put in as unquoted text (it may hold wildcards).
+    Arg(String),
     Op(&'static str),
 }
 
 impl Describe for Tok {
     fn describe(&self) -> String {
         match self {
-            Tok::Raw(s) | Tok::Quoted(s) => format!("`{s}`"),
+            Tok::Raw(s) | Tok::Quoted(s) | Tok::Arg(s) => format!("`{s}`"),
             Tok::Typed(v) => v.describe(),
             Tok::Op(o) => format!("`{o}`"),
         }
@@ -300,6 +342,17 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
         } else if c[i] == '%' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
             flush(&mut raw, &mut out);
             let n = c[i + 1].to_digit(10).expect("digit") as usize;
+            // A placeholder right before a wildcard is not put in after `<>`: `<>%1*` with `A` reads back as `<>%1*` and keeps every
+            // row (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:188, :198). Elsewhere it is not pinned.
+            if c.get(i + 2).is_some_and(|w| matches!(w, '*' | '?')) {
+                if matches!(out.last(), Some(Tok::Op("<>"))) && raw.trim().is_empty() {
+                    raw.push('%');
+                    raw.push(c[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                return Err(format!("placeholder %{n} right before a wildcard (not pinned)"));
+            }
             let arg = args
                 .get(n.wrapping_sub(1))
                 .cloned()
@@ -327,7 +380,7 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
                 if special {
                     out.push(Tok::Quoted(body.to_string()));
                 } else if !body.is_empty() {
-                    out.push(Tok::Raw(body.to_string()));
+                    out.push(Tok::Arg(body.to_string()));
                 } else {
                     out.push(Tok::Typed(arg.clone()));
                 }
@@ -426,7 +479,7 @@ impl Parser<'_> {
             // A quoted empty text is the blank date (corpus record/lt-loadfields-pagesource-validate/P81DateFilters.al:193-194,
             // :308). The unquoted empty text stays refused.
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Date) => return Ok(Value::Date(0, false)),
-            Tok::Raw(s) | Tok::Quoted(s) => s,
+            Tok::Raw(s) | Tok::Quoted(s) | Tok::Arg(s) => s,
             Tok::Op(o) => return Err(format!("operator `{o}` where a value was expected")),
         };
         Ok(match self.ty {
@@ -441,17 +494,25 @@ impl Parser<'_> {
                     not_evaluated("Integer", &text)
                 }
             })?),
-            T::BigInteger => Value::BigInteger(text.parse().map_err(|_| format!("`{text}` is not a BigInteger"))?),
-            T::Decimal => Value::Decimal(text.parse().map_err(|_| {
-                if letters_only(&text) {
-                    not_evaluated("Decimal", &text)
+            // A word of letters and hyphens raises the evaluate error (record/lt-bl-invalid-decimal-filter/InvalidDecimalFilter.al:134,
+            // Other_Types `NOT-A-NUMBER`); other texts that are no BigInteger are not pinned.
+            T::BigInteger => Value::BigInteger(text.parse().map_err(|_| {
+                if letters_or_hyphens(&text) {
+                    not_evaluated("BigInteger", &text)
                 } else {
-                    format!("`{text}` is not a Decimal")
+                    format!("`{text}` is not a BigInteger")
                 }
             })?),
-            // A Time filter of letters raises the evaluate error (PtObserve.al:262); `12:00:00` is noon (PtObserve.al:268, the text the
-            // MakeTimeFilter subscriber writes). Other times are not pinned.
-            T::Time if letters_only(text.trim()) => return Err(not_evaluated("Time", text.trim())),
+            T::Decimal => match decimal_filter_text(&text) {
+                Some(Ok(d)) => Value::Decimal(d),
+                Some(Err(())) => return Err(not_evaluated("Decimal", &text)),
+                None => return Err(format!("`{text}` is not a Decimal")),
+            },
+            // InvalidDecimalFilter.al:135 (Other_Types): `NOT-A-NUMBER` on a Duration field. Other Duration texts are not pinned.
+            T::Duration if letters_or_hyphens(text.trim()) => return Err(not_evaluated("Duration", text.trim())),
+            // A Time filter of letters raises the evaluate error (PtObserve.al:262), also with hyphens (InvalidDecimalFilter.al:137,
+            // `NOT-A-NUMBER`); `12:00:00` is noon (PtObserve.al:268, the text the MakeTimeFilter subscriber writes). Other times are not pinned.
+            T::Time if letters_or_hyphens(text.trim()) => return Err(not_evaluated("Time", text.trim())),
             T::Time if is_noon_text(text.trim()) => {
                 let t = text.trim();
                 let (m, s) = (t[3..5].parse::<i64>().unwrap_or(0), t[6..8].parse::<i64>().unwrap_or(0));
@@ -535,7 +596,7 @@ impl Parser<'_> {
                 return Ok(FilterExpr::Like(body, ci));
             }
         }
-        if let (Tok::Raw(s), T::Text(_) | T::Code(_)) = (&t, self.ty) {
+        if let (Tok::Raw(s) | Tok::Arg(s), T::Text(_) | T::Code(_)) = (&t, self.ty) {
             let s = if matches!(self.ty, T::Code(_)) {
                 filter_upper(s)?
             } else {
@@ -546,6 +607,38 @@ impl Parser<'_> {
             }
         }
         Ok(FilterExpr::Eq(self.typed(t)?))
+    }
+
+    /// `<>` before a wildcard pattern on a Text or Code field (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:106-202):
+    /// `<>A*`, `<>*`, `<>?` and `<>@a*` keep the texts the pattern does not match; a placeholder that holds exactly `*` is the
+    /// literal text (`<>%1` with `*` reads back as `<>'*'` and keeps every row). A quoted pattern, a placeholder holding another
+    /// wildcard text and `<>@` before a text without a wildcard are not pinned. `None`: not a pattern, read as before.
+    fn not_pattern(&mut self) -> Result<Option<FilterExpr>, String> {
+        use crate::value::RtType as T;
+        if !matches!(self.ty, T::Text(_) | T::Code(_)) {
+            return Ok(None);
+        }
+        let ci = self.peek_op() == Some("@");
+        let at = self.i + usize::from(ci);
+        let wild = |s: &str| s.contains(['*', '?']);
+        match self.toks.get(at) {
+            Some(Tok::Raw(s)) if wild(s) => {
+                let p = if matches!(self.ty, T::Code(_)) {
+                    filter_upper(s)?
+                } else {
+                    s.clone()
+                };
+                self.i = at + 1;
+                Ok(Some(FilterExpr::NotLike(p, ci)))
+            }
+            _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
+            Some(Tok::Arg(s)) if s == "*" => Ok(None),
+            Some(Tok::Arg(s)) if wild(s) => Err(format!("`<>%n` with the wildcard text `{s}` (not pinned)")),
+            Some(Tok::Quoted(s)) if wild(s) || s.starts_with('@') => {
+                Err(format!("`<>` before the quoted pattern `{s}` (not pinned)"))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn term(&mut self) -> Result<FilterExpr, String> {
@@ -566,6 +659,11 @@ impl Parser<'_> {
             }
             Some(op @ ("<>" | "<=" | ">=" | "<" | ">" | "=")) => {
                 self.i += 1;
+                if op == "<>" {
+                    if let Some(e) = self.not_pattern()? {
+                        return Ok(e);
+                    }
+                }
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
@@ -793,7 +891,9 @@ mod tests {
         );
         assert_eq!(err("abc", &T::Decimal), format!("{NOT_EVALUATED}Decimal\tabc"));
         assert_eq!(err("abc", &T::Time), format!("{NOT_EVALUATED}Time\tabc"));
-        assert!(!err("1,5", &T::Decimal).starts_with(NOT_EVALUATED));
+        // InvalidDecimalFilter.al:118: `1,5` reads as 15.
+        assert!(parse_filter("1,5", &[], &T::Decimal).is_ok());
+        assert!(!err("1,5,6", &T::Decimal).starts_with(NOT_EVALUATED));
         assert!(!err("13:00:00", &T::Time).starts_with(NOT_EVALUATED));
         let noon = parse_filter("12:00:00", &[], &T::Time).expect("noon");
         assert!(noon.matches(&Value::Time(12 * 3_600_000 + 1)));

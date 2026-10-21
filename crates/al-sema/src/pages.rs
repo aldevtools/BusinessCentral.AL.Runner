@@ -667,7 +667,14 @@ struct Tree {
     nodes: Vec<Node>,
     areas: Vec<Area>,
     reasons: Vec<String>,
+    /// The page is a Card: an extension may add to `Content` and `FactBoxes` although the page declares neither.
+    card: bool,
 }
+
+/// Areas of `layout` a page extension may add to on a Card page that declares none: pageext/lt-bc-implicit-areas/BcImplicitAreas.al
+/// (FactBoxes on a card with only Content, :31-67; Content and FactBoxes on a card with no layout, :69-88). Other page types are not
+/// pinned.
+const IMPLICIT_CARD_AREAS: &[&str] = &["Content", "FactBoxes"];
 
 /// Walks the `layout` and `actions` sections of page object `obj`.
 pub fn layout(obj: &ast::Object) -> Layout {
@@ -678,16 +685,24 @@ pub fn layout(obj: &ast::Object) -> Layout {
 /// (the order they apply: a later `modify` of a property wins).
 pub fn layout_with(obj: &ast::Object, exts: &[(usize, ast::Object)]) -> Layout {
     let exts: Vec<(usize, Vec<ast::Section>)> = exts.iter().map(|(e, o)| (*e, o.sections().collect())).collect();
-    layout_from(obj.sections(), &exts)
+    let card = obj
+        .properties()
+        .any(|p| p.name().eq_ignore_ascii_case("PageType") && p.value_text().trim().eq_ignore_ascii_case("Card"));
+    layout_of(obj.sections(), &exts, card)
 }
 
 /// The control tree among `sections` (the top-level sections of a page, or the sections of a
 /// report's `requestpage`) with the sections of the extensions `exts` merged in, in the order given.
 pub fn layout_from(sections: impl Iterator<Item = ast::Section>, exts: &[(usize, Vec<ast::Section>)]) -> Layout {
+    layout_of(sections, exts, false)
+}
+
+fn layout_of(sections: impl Iterator<Item = ast::Section>, exts: &[(usize, Vec<ast::Section>)], card: bool) -> Layout {
     let mut tree = Tree {
         nodes: Vec::new(),
         areas: Vec::new(),
         reasons: Vec::new(),
+        card,
     };
     for top in sections {
         let n = top.name().to_ascii_lowercase();
@@ -962,6 +977,25 @@ impl Tree {
                 });
             }
         }
+        for op in &pending {
+            let kind = op.section.name().to_ascii_lowercase();
+            let target = op.section.args().first().cloned().unwrap_or_default();
+            if self.card
+                && !op.in_actions
+                && (kind == "addfirst" || kind == "addlast")
+                && IMPLICIT_CARD_AREAS.iter().any(|a| a.eq_ignore_ascii_case(&target))
+                && !self
+                    .areas
+                    .iter()
+                    .any(|a| !a.in_actions && a.name.eq_ignore_ascii_case(&target))
+            {
+                self.areas.push(Area {
+                    name: target,
+                    in_actions: false,
+                    children: Vec::new(),
+                });
+            }
+        }
         // The promoted category groups that every page has. Only `Category_Process` is listed: it is the one
         // a corpus-reachable extension names (the test `an_extension_adds_after_the_process_category_...`).
         // The group is only an anchor: it is no control of the page.
@@ -1034,7 +1068,9 @@ impl Tree {
 
     /// The tree in source order: areas in turn, each control before its children.
     fn flatten(self) -> Layout {
-        let Tree { nodes, areas, reasons } = self;
+        let Tree {
+            nodes, areas, reasons, ..
+        } = self;
         let mut slots: Vec<Option<Node>> = nodes.into_iter().map(Some).collect();
         let mut controls = Vec::new();
         fn emit(slots: &mut [Option<Node>], idx: usize, parent: Option<usize>, out: &mut Vec<RawControl>) {
@@ -1471,6 +1507,29 @@ mod tests {
     // (handlers/TestPageModalHandler_PrecompiledPage.al:31 RunModalOnErrorMessages_HandlerInvokesOk_ReturnsActionOk
     // over "Error Messages" + `addfirst(Processing)`, RunModalOnNoSeries_HandlerInvokesOk_ReturnsActionOk over
     // "No. Series" + `addfirst(Prompting)`).
+    #[test]
+    fn an_extension_adds_to_the_factboxes_and_content_of_a_card_that_declares_neither() {
+        // pageext/lt-bc-implicit-areas/BcImplicitAreaObjects.al: pages 80965 (Content only) and 80969 (no layout).
+        let card = "page 50100 P { PageType = Card; layout { area(Content) { group(General) { field(Number; Rec.Number) { } } } } }";
+        let links =
+            "pageextension 50101 E extends P { layout { addfirst(FactBoxes) { systempart(BCLinks; Links) { } } } }";
+        let part = "pageextension 50102 F extends P { layout { addlast(FactBoxes) { part(BCPart; Q) { } } } }";
+        let after = "pageextension 50103 G extends P { layout { addafter(BCLinks) { part(BCPartAfter; Q) { } } } }";
+        let l = merged(card, &[links, part, after]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        // A systempart is no control of the layout; it is still an anchor for `addafter`.
+        assert_eq!(names(&l), ["General", "General>Number", "BCPartAfter", "BCPart"]);
+        let bare = "page 50100 P { PageType = Card; }";
+        let ext = "pageextension 50101 E extends P { layout { addfirst(Content) { field(BCNumber; Rec.Number) { } } addlast(FactBoxes) { part(BCNoLayoutPart; Q) { } } } }";
+        let l = merged(bare, &[ext]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(names(&l), ["BCNumber", "BCNoLayoutPart"]);
+        // Another page type is not pinned.
+        let list = "page 50100 P { PageType = List; layout { area(Content) { repeater(R) { field(Number; Rec.Number) { } } } } }";
+        let l = merged(list, &[part]);
+        assert_eq!(l.reasons.len(), 1, "{:?}", l.reasons);
+    }
+
     #[test]
     fn an_extension_adds_to_the_processing_area_of_a_page_that_declares_none() {
         let base = "page 50100 P { layout { area(Content) { field(A; Rec.A) { } } } }";
