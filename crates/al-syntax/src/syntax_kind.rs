@@ -64,6 +64,8 @@ pub enum SyntaxKind {
     Question,
     /// Alternative separator in `filter(A | B)` expressions.
     Pipe,
+    /// Term joiner in `filter(<> A & <> B)` expressions (record/lt-table-relation-quotes/TableRelationQuotes.al:65).
+    Amp,
 
     /// Anything the lexer cannot classify, including unterminated strings and
     /// comments. The lexer never fails; errors are tokens.

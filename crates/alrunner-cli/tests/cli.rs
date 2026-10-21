@@ -1525,6 +1525,59 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
     }
 }
 
+/// al-runner issue 5573: an app that declares runtime 13.0 calls NavApp.GetResourceAsText, which the AL compiler
+/// rejects below runtime 14.0 (AL0666). The test that reaches the call is not run; one that does not reach it runs.
+#[test]
+fn a_call_newer_than_the_apps_declared_runtime_is_not_run() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    let manifest = |id: &str, name: &str, deps: &[(&str, &str)]| {
+        app_json(id, name, deps).replacen('{', r#"{"runtime":"13.0","#, 1)
+    };
+    write(
+        &app,
+        "app.json",
+        &manifest("6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e11", "Resource Repro App", &[]),
+    );
+    write(&app, "res/value.txt", "HELLO");
+    write(
+        &app,
+        "src/Reader.Codeunit.al",
+        "codeunit 50100 \"Resource Reader\"\n{\n    procedure Value(): Text\n    begin\n        exit(NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8));\n    end;\n\n    procedure Plain(): Text\n    begin\n        exit(UpperCase('hello'));\n    end;\n}\n",
+    );
+    let test = d.path().join("test");
+    write(
+        &test,
+        "app.json",
+        &manifest(
+            "6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e12",
+            "Resource Repro Tests",
+            &[("6f1d2f8e-5b0a-4c1e-9a43-0d6b8a2c5e11", "Resource Repro App")],
+        ),
+    );
+    write(
+        &test,
+        "src/ReaderTest.Codeunit.al",
+        "codeunit 50150 \"Resource Reader Test\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsResource()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Value() <> 'HELLO' then\n            Error('expected HELLO, got %1', Reader.Value());\n    end;\n\n    [Test]\n    procedure ReadsPlain()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Plain() <> 'HELLO' then\n            Error('expected HELLO');\n    end;\n}\n",
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        test.to_str().unwrap(),
+        "--no-download",
+        "--output-json",
+    ]);
+    let doc = json_of(&o);
+    let status = |name: &str| row(&doc, name)["status"].as_str().unwrap_or_default().to_string();
+    assert_ne!(status("Codeunit50150.ReadsResource"), "pass", "{doc}");
+    let m = row(&doc, "Codeunit50150.ReadsResource")["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(m.contains("GetResourceAsText") && m.contains("runtime 13.0"), "{m}");
+    assert_eq!(status("Codeunit50150.ReadsPlain"), "pass", "{doc}");
+}
+
 /// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a
 /// test codeunit the selection leaves out each stop the run with exit 3, the
 /// errors on stderr in the AL compiler's form, and `compilationErrors` in the JSON document. Before, the selected test

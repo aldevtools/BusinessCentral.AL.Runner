@@ -59,6 +59,10 @@ pub struct Runtime {
 pub struct Target {
     pub bc: BcVersion,
     pub runtime: Runtime,
+    /// The `runtime` each app under test declares in its app.json, by app id (lower case), where it is below
+    /// `runtime`: the builtins such an app may call are those of its own runtime (the AL compiler gives AL0666 for
+    /// the others; al-runner issue 5573). Empty: every app sees `runtime`. Dependency apps are never listed.
+    pub app_runtimes: Vec<(String, Runtime)>,
 }
 
 impl BcVersion {
@@ -169,7 +173,11 @@ impl Target {
     /// The target for a BC version with the runtime that ships with it.
     pub fn for_bc(bc: BcVersion) -> Target {
         let runtime = Runtime::for_bc(bc.major);
-        Target { bc, runtime }
+        Target {
+            bc,
+            runtime,
+            app_runtimes: Vec::new(),
+        }
     }
 
     pub fn with_runtime(self, runtime: Runtime) -> Target {

@@ -20,7 +20,11 @@ Each is a folder with an `app.json`, a source archive (`*.Source.zip`), or an
 `.app` that carries its source. The test app lists your app as a dependency in
 `app.json`, as it would for the AL compiler.
 
-An app whose `runtime` is older than 16.0 runs as 16.0, and a note says so.
+Each app sees the AL methods of the `runtime` its own `app.json` declares. A call
+of a method newer than that runtime gets the AL compiler's AL0666, and the routine
+that makes it does not run. For an app whose `runtime` is older than 16.0, AL Runner
+clears a call only when Microsoft's documentation lists the method for that runtime
+or an older one; a routine with any other call does not run, and a note says so.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 

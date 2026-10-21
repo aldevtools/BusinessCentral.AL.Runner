@@ -330,6 +330,7 @@ fn the_key_changes_with_a_byte_of_source_a_symbol_or_the_target() {
     let target = al_version::Target {
         bc: al_version::BcVersion::new(27, 5),
         runtime: al_version::Runtime::for_bc(27),
+        app_runtimes: Vec::new(),
     };
     assert_ne!(
         base,

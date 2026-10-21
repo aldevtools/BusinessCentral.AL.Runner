@@ -171,7 +171,12 @@ pub fn source_hash(app: &AppSource) -> [u8; 32] {
 /// them out lets projects on one BC build whose app.json names another BC minor share a layer.
 fn target_text(t: &al_version::Target) -> String {
     // Destructured without `..`: a field added to the target must be decided here to compile.
-    let al_version::Target { bc: _, runtime } = t;
+    // `app_runtimes` lists apps under test only; the cache holds dependency apps, which it never gates.
+    let al_version::Target {
+        bc: _,
+        runtime,
+        app_runtimes: _,
+    } = t;
     let al_version::Runtime {
         major: rt_major,
         minor: rt_minor,
