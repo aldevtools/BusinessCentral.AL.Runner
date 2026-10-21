@@ -573,7 +573,13 @@ fn warm_key(
         )
             .hash(&mut h);
         i.symbols.hash(&mut h);
-        format!("{:?}", i.json).hash(&mut h);
+        let j = &i.json;
+        (&j.id, &j.name, &j.publisher, j.version.to_string()).hash(&mut h);
+        (
+            j.platform.as_ref().map(ToString::to_string),
+            j.application.as_ref().map(ToString::to_string),
+        )
+            .hash(&mut h);
     }
     for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
         app.id.hash(&mut h);
