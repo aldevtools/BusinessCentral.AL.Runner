@@ -14164,3 +14164,11 @@
 87141 VarGlobal_IntegerAndTextInsideP
 87141 VarGlobal_PChangesParam_QReadsGlobal
 87141 VarGlobal_QChangesGlobal_PReadsParam
+87203 QQ_Invoke_EnabledFalseProc
+87203 QQ_Invoke_EnabledTrueProc
+87203 QQ_Invoke_InGroupVisibleProc
+87203 QQ_Invoke_NoProperty
+87203 QQ_Invoke_VisibleFalseProc
+87203 QQ_Invoke_VisibleTrueProc
+87203 QQ_ProcBound_EditMode
+87203 QQ_ProcBound_VisibleEnabled
