@@ -363,8 +363,11 @@ impl Session {
             r => r?,
         };
         // The client runs the page's background tasks before the call returns (corpus
-        // handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns).
-        self.bg_drain(st)?;
+        // handlers/TestPageBgTask_Tests.al:EnqueueBackgroundTask_CompletesBeforeOpenViewReturns). The tasks an
+        // `EnqueueBackgroundTask` call queued run once it wrote its task id back (`Session::bg_drain_after_call`).
+        if name != PageMethod::EnqueueBackgroundTask {
+            self.bg_drain(st)?;
+        }
         // A move of the host re-points its parts; a move of a part re-points the parts that take
         // their link from it (corpus testpart/TestPartProviderMove.al).
         let moved = match name {

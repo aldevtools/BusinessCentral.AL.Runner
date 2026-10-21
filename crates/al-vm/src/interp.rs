@@ -72,6 +72,9 @@ impl Session {
         f: &mut Frame,
     ) -> Result<Value, Signal> {
         self.ret_used = ret_used;
+        // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
+        // enqueued waits for that call.
+        let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values)?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
             self.write(p, v, f)?;
@@ -87,6 +90,9 @@ impl Session {
             }
         }
         self.return_vec(values);
+        if !drain_pending && self.pages.bg_drain_after_call.is_some() {
+            self.bg_drain_after_call()?;
+        }
         Ok(ret)
     }
 

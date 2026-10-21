@@ -265,6 +265,12 @@ registry! {
         tests: "Library - ERM GetDiscountPaymentTerm (PaymentTerms.SetFilter(Due Date Calculation, not-equal and the empty text)): about 170 Tests-ERM tests.",
         probe: "Payment Terms rows with and without Due Date Calculation; SetFilter on it with the empty text, not-equal and the empty text, then Count. Asked in corpus #644.",
     },
+    BgTaskIdSetBeforeCompletion => {
+        id: "bg-task-id-set-before-completion",
+        assumed: "Under a TestPage, CurrPage.EnqueueBackgroundTask stores the new task id in its var TaskId argument before the task runs, so OnPageBackgroundTaskCompleted already sees the page variable set to the id it receives.",
+        tests: "Tests-ERM 134385 ERM Sales Document CustomerStatisticsYearToDate (page 9082 Customer Statistics FactBox compares the trigger's TaskId with the variable it passed to the enqueue).",
+        probe: "A card whose OnOpenPage enqueues a task into a page global TaskId and whose OnPageBackgroundTaskCompleted logs that global and its own TaskId parameter.",
+    },
     UpdateRefreshOnFindRecord => {
         id: "update-refresh-onfindrecord",
         assumed: "CurrPage.Update on a page with OnFindRecord and OnAfterGetCurrRecord asks OnFindRecord for the current row with Which `=`, then reads the row as after a move: OnAfterGetRecord, OnAfterGetCurrRecord and the parts' reads.",

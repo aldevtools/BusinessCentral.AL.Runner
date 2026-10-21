@@ -812,6 +812,7 @@ impl Session {
                 traps: Vec::new(),
                 scope_unpinned: Vec::new(),
                 bg_worker: None,
+                bg_drain_after_call: None,
                 page_xrec: None,
                 curr_field_no: Vec::new(),
                 lenient_bind: false,

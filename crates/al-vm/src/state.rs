@@ -66,6 +66,9 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<al_builtins::value::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
+    /// written its by-reference task id back (see `Session::bg_enqueue`).
+    pub(crate) bg_drain_after_call: Option<Rc<RefCell<al_builtins::value::PageState>>>,
     /// The xRec fields the next `Modify` hands the table's triggers instead of the stored row: a
     /// page saving a row passes its own xRec (corpus
     /// handlers/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
