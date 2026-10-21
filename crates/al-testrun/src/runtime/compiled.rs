@@ -55,6 +55,10 @@ pub struct RunOptions {
     pub narrow: Option<Narrow>,
     /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
     pub tdd: bool,
+    /// Run no test when an app under test does not compile (`CorpusRuntime::compile_errors`): the AL compiler would not
+    /// publish it (`al-runner test`, al-runner issue 5602). Off, the errors are printed and the run goes on, as the
+    /// corpus job does.
+    pub stop_on_compile_errors: bool,
 }
 
 /// What [`RunOptions::narrow`] sees of the compile.
@@ -280,15 +284,8 @@ impl Compiled {
                 }
             }
         }
-        if !lowered.al_diagnostics.is_empty() {
-            eprintln!(
-                "compile: {} error(s) the AL compiler would give for the workspace's code",
-                lowered.al_diagnostics.len()
-            );
-            for d in lowered.al_diagnostics.iter().take(100) {
-                eprintln!("compile: error {} {}: {}", d.code, d.file, d.message);
-            }
-        }
+        // The compile errors are the caller's to print (`CorpusRuntime::compile_errors`): only `al-runner serve` renews a
+        // compile.
         *compile_time = started.elapsed();
         if std::env::var_os("ALRUNNER_INCR_TIMINGS").is_some() {
             eprintln!(

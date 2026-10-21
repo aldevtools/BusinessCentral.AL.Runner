@@ -1057,6 +1057,8 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
         impact_trace: collect.as_ref().is_some_and(|c| c.impact_trace),
         narrow: collect.as_ref().and_then(|c| c.narrow.clone()),
         tdd: a.tdd,
+        // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
+        stop_on_compile_errors: true,
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
@@ -1128,6 +1130,59 @@ fn test_inner(a: &TestArgs, mut warm: Option<&mut WarmCtx>, collect: Option<&mut
     let p = &rt.phases;
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
+
+    // An app under test that does not compile runs no test (al-runner issue 5602), as the AL compiler would not
+    // publish it: the errors, exit 3, and `compilationErrors` in the JSON document.
+    if !rt.compile_errors().is_empty() {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let errors: Vec<(String, String)> = rt
+            .compile_errors()
+            .iter()
+            .map(|e| {
+                let file = inputs
+                    .get(e.app)
+                    .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
+                (file, output::compile_error_line(e))
+            })
+            .collect();
+        for (file, line) in errors.iter().take(100) {
+            eprintln!("compile: {file}{line}");
+        }
+        if errors.len() > 100 {
+            eprintln!("compile: ... {} more", errors.len() - 100);
+        }
+        let code = output::COMPILE_ERRORS;
+        let why = format!(
+            "the APPs do not compile: {} error(s); no test ran (exit {code})",
+            errors.len()
+        );
+        let total_time = started.elapsed();
+        if let Some(into) = collect {
+            into.bc_build = bc_build.clone();
+            return Ok(code);
+        }
+        say!("{why}");
+        let result = format!("Result: COMPILE ERRORS (exit {code})");
+        say!("{}", style::bold(&style::yellow(&result)));
+        let doc = output::json_compile_errors(code, total_time.as_secs_f64(), &errors);
+        if let Some(w) = warm {
+            w.report = Some(Report {
+                doc: serde_json::from_str(&doc).unwrap_or_default(),
+                coverage: None,
+                messages: Vec::new(),
+                object_names: Vec::new(),
+                captured: Vec::new(),
+                warnings: vec![why.clone()],
+            });
+        }
+        if let Some(target) = &a.output_json {
+            match target {
+                Some(path) => write_file(path, &doc)?,
+                None => println!("{doc}"),
+            }
+        }
+        return Ok(code);
+    }
 
     // The selected tests, in a stable order: app, codeunit, then declaration order.
     let mut results: Vec<&TestResult> = rt

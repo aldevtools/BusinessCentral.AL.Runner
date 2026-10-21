@@ -1519,3 +1519,91 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
         assert!(!out.contains("SELECTION"), "{args:?}: {out}");
     }
 }
+
+/// Code the AL compiler rejects is not run (al-runner issue 5602): an AL0118 in a procedure no test calls, an error in a
+/// test codeunit the selection leaves out, and source the parser does not accept each stop the run with exit 3, the
+/// errors on stderr in the AL compiler's form, and `compilationErrors` in the JSON document. Before, the selected test
+/// passed with exit 0.
+#[test]
+fn code_that_does_not_compile_runs_no_test_and_exits_3() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005602", "Logic", &[]),
+    );
+    let logic = "codeunit 50600 \"Probe Logic\" {\n    procedure Add(A: Integer; B: Integer): Integer begin exit(A + B); end;\n    procedure Other(): Integer var I: Integer; begin I := NoSuchProc(); exit(I); end;\n}\n";
+    write(&app, "src/Logic.al", logic);
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        &app_json(
+            "11111111-0000-0000-0000-000000005603",
+            "Logic Tests",
+            &[("11111111-0000-0000-0000-000000005602", "Logic")],
+        ),
+    );
+    write(
+        &tests,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\" { Subtype = Test; [Test] procedure Passes() var L: Codeunit \"Probe Logic\"; begin if L.Add(2, 3) <> 5 then Error('bad'); end; }",
+    );
+    let json = d.path().join("out.json");
+    let run = |extra: &[&str]| {
+        let mut args = vec!["test", app.to_str().unwrap(), tests.to_str().unwrap(), "--no-download"];
+        args.extend_from_slice(extra);
+        alrunner(&args)
+    };
+    let o = run(&[
+        "--test-exact",
+        "Codeunit50650.Passes",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o)
+            .contains("src/Logic.al(3,59): error AL0118: The name 'NoSuchProc' does not exist in the current context."),
+        "{}",
+        text(&o)
+    );
+    assert!(text(&o).contains("Result: COMPILE ERRORS (exit 3)"), "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(doc["exitCode"], 3);
+    assert_eq!(doc["total"], 0);
+    let groups = doc["compilationErrors"].as_array().expect("compilationErrors");
+    assert_eq!(groups.len(), 1, "{doc}");
+    assert!(
+        groups[0]["file"].as_str().unwrap().ends_with("app/src/Logic.al"),
+        "{doc}"
+    );
+    assert_eq!(groups[0]["errors"].as_array().unwrap().len(), 1, "{doc}");
+
+    // Fixed, the test runs and passes.
+    write(&app, "src/Logic.al", &logic.replace("NoSuchProc()", "1"));
+    let o = run(&["--test-exact", "Codeunit50650.Passes"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+
+    // An error in a test codeunit the selection does not pick.
+    write(
+        &tests,
+        "src/Other.al",
+        "codeunit 50651 \"Other Tests\" { Subtype = Test; [Test] procedure Q() begin NoSuchProc(); end; }",
+    );
+    let o = run(&["--codeunit", "50650"]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(text(&o).contains("src/Other.al(1,75): error AL0118"), "{}", text(&o));
+    std::fs::remove_file(tests.join("src/Other.al")).unwrap();
+
+    // Source that does not parse, in a procedure no test calls.
+    write(
+        &app,
+        "src/Broken.al",
+        "codeunit 50601 \"Broken\" {\n    procedure Spin(: Integer\n    begin\n    end;\n}\n",
+    );
+    let o = run(&["--test-exact", "Codeunit50650.Passes"]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(text(&o).contains("src/Broken.al(2,20): error: "), "{}", text(&o));
+}
