@@ -549,6 +549,25 @@ impl Session {
                     obj.name
                 ));
             };
+            // A Variant that holds anything but a record: a RecordRef compiles there (a RecordRef itself does not,
+            // must-not-compile 1786/1787) and Microsoft's Batch Processing Mgt. passes one, but what Rec holds then is not
+            // pinned (docs/probes-needed.md, "Codeunit.Run with a RecordRef in a Variant").
+            if let Some(v) = record_arg {
+                if !matches!(v, Value::Record(_)) {
+                    let what = match v {
+                        Value::Library(_, l)
+                            if matches!(&*l.borrow(), al_builtins::value::LibraryValue::RecordRef(_)) =>
+                        {
+                            "a RecordRef".to_string()
+                        }
+                        other => format!("a {}", crate::value_kind(other)),
+                    };
+                    return unsupported(format!(
+                        "Codeunit.Run of {} (TableNo) with a Variant that holds {what} (what Rec holds is not pinned)",
+                        obj.name
+                    ));
+                }
+            }
             // Without a record Rec is a blank record; a temporary one is handed over by reference like any other
             // (session/TestProbeSessionMiscContracts.al:CodeunitRun_TableNo_NoRecord, CodeunitRun_TableNo_TemporaryRecord).
             self.ensure_initialized(&inst);
