@@ -1146,7 +1146,13 @@ impl Session {
     fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
         {
             let s = st.borrow();
-            if !(s.open && s.refresh && s.refresh_by_update && s.refresh_update_false && !s.dirty && s.cursor == Cursor::None) {
+            if !(s.open
+                && s.refresh
+                && s.refresh_by_update
+                && s.refresh_update_false
+                && !s.dirty
+                && s.cursor == Cursor::None)
+            {
                 return Ok(false);
             }
         }

@@ -761,7 +761,13 @@ impl Session {
                     }
                     None => return Err(self.alias_refusal(i, f, "from code the procedure did not call")),
                 },
-                None => return Err(self.alias_refusal(i, f, "(whether the parameter and the global are one variable is not pinned)")),
+                None => {
+                    return Err(self.alias_refusal(
+                        i,
+                        f,
+                        "(whether the parameter and the global are one variable is not pinned)",
+                    ));
+                }
             }
         }
         Ok(())
@@ -790,7 +796,11 @@ impl Session {
     /// Whether any global of the frame's instance is watched (for ClearAll, which resets them all: not pinned for a
     /// global a running procedure got by var).
     pub(crate) fn alias_any(&self, f: &Frame) -> Result<(), Signal> {
-        match self.var_alias_watch.iter().find(|w| Rc::ptr_eq(&w.instance, &f.instance)) {
+        match self
+            .var_alias_watch
+            .iter()
+            .find(|w| Rc::ptr_eq(&w.instance, &f.instance))
+        {
             Some(w) => Err(self.alias_refusal(w.global, f, "(ClearAll of it is not pinned)")),
             None => Ok(()),
         }

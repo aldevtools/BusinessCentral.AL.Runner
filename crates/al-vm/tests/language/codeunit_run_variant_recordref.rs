@@ -121,10 +121,7 @@ codeunit 50102 "Rep Caller"
 /// RecordRefVariantToRecord.al QP_CodeunitRun_VariantRecordRef_Plain.
 #[test]
 fn rec_is_the_recordrefs_row_and_the_change_reaches_it() {
-    assert_eq!(
-        text(run(SRC, "Plain")),
-        "onrun k=2 d=second filters=[];changed|changed"
-    );
+    assert_eq!(text(run(SRC, "Plain")), "onrun k=2 d=second filters=[];changed|changed");
 }
 
 /// RecordRefVariantToRecord.al QP_CodeunitRun_VariantRecordRef_Filtered.

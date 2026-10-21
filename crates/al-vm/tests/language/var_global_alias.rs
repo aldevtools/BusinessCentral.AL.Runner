@@ -226,9 +226,18 @@ fn corpus_traces_match_bc() {
     let cases = [
         ("GlobalChangedByName", "p_in:1/g1;p_after_q:20/q20;after:20/q20"),
         ("ParamChanged", "p_set;q_sees:30/p30;after:30/p30"),
-        ("BothChanged", "p_after_add:120/q20+p;q_sees:120/q20+p;p_end:7/q7;after:7/q7"),
-        ("IntegerOnly", "p_after_global_inc:6;p_global_after_param_inc:16;after:16"),
-        ("TextOnly", "p_after_global_append:xG;p_global_after_param_append:xGP;after:xGP"),
+        (
+            "BothChanged",
+            "p_after_add:120/q20+p;q_sees:120/q20+p;p_end:7/q7;after:7/q7",
+        ),
+        (
+            "IntegerOnly",
+            "p_after_global_inc:6;p_global_after_param_inc:16;after:16",
+        ),
+        (
+            "TextOnly",
+            "p_after_global_append:xG;p_global_after_param_append:xGP;after:xGP",
+        ),
     ];
     for (routine, want) in cases {
         assert_eq!(text(run_in(CORPUS, "LT QP Alias Host", routine)), want, "{routine}");

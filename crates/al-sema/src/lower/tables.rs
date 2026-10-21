@@ -188,16 +188,13 @@ impl Lowerer<'_> {
                         && !table
                             .and_then(|t| field_pos(&self.members[t], related).map(|p| &self.members[t].fields[p].ty))
                             .is_some_and(|ty| quoted_relation_text_pinned(text, ty)))
-            }) || a
-                .condition_raw
-                .iter()
-                .zip(&a.filter_conditions)
-                .zip(&a.conditions)
-                .any(|((raw, filter), (name, _))| {
+            }) || a.condition_raw.iter().zip(&a.filter_conditions).zip(&a.conditions).any(
+                |((raw, filter), (name, _))| {
                     *filter
                         && raw.contains('"')
                         && !field_pos(own, name).is_some_and(|p| quoted_condition_text_pinned(raw, &own.fields[p].ty))
-                });
+                },
+            );
             arms.push(ir::RelationArm {
                 conditions,
                 table,
@@ -798,7 +795,9 @@ fn quoted_condition_text_pinned(text: &str, ty: &Ty) -> bool {
         return terms.is_some_and(|ts| {
             ts.len() == 2
                 && ts.iter().filter(|t| quoted(t)).count() == 1
-                && ts.iter().all(|t| (quoted(t) && !t[1..t.len() - 1].trim().is_empty()) || plain(t))
+                && ts
+                    .iter()
+                    .all(|t| (quoted(t) && !t[1..t.len() - 1].trim().is_empty()) || plain(t))
         });
     }
     let terms: Vec<&str> = text.split('|').map(str::trim).collect();

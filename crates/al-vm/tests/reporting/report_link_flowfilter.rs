@@ -64,7 +64,10 @@ codeunit 69979 C
 
 #[test]
 fn a_flowfilter_without_a_filter_links_nothing() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "NoFilter")), "f[];p1c10;p1c11;p1c12;p1c13;");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "NoFilter")),
+        "f[];p1c10;p1c11;p1c12;p1c13;"
+    );
 }
 
 /// RptFilters.al QP_DataItemLink_FlowFilter_SingleValue, _Range ('E..G' leaves GBP out) and _OrFilter.
@@ -75,7 +78,8 @@ fn a_flowfilter_with_a_filter_filters_the_child() {
         ("E..G", "f[];p1c11;"),
         ("EUR|USD", "f[];p1c11;p1c12;"),
     ] {
-        let r = al_testkit::run_with(SRC, "C", "WithFilter", vec![al_builtins::value::Value::Text(f.into())]).map(|(v, _)| v);
+        let r = al_testkit::run_with(SRC, "C", "WithFilter", vec![al_builtins::value::Value::Text(f.into())])
+            .map(|(v, _)| v);
         assert_eq!(text(r), want, "{f}");
     }
 }

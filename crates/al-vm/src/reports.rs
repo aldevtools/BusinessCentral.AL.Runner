@@ -1552,8 +1552,13 @@ impl Session {
                 // one filter on a field of the same type (Code[10]); several filter groups or another type are refused.
                 // Tests-ERM 134404 and 134429 reach it (report 1200 links "Currency Code" = field("Currency Filter")).
                 if let Some(parent_field) = parent_def.and_then(|d| d.fields.get(other)).filter(|f| f.flow_filter) {
-                    let given: Vec<al_builtins::filter::FieldFilter> =
-                        parent.borrow().filters.iter().filter(|f| f.field == other).cloned().collect();
+                    let given: Vec<al_builtins::filter::FieldFilter> = parent
+                        .borrow()
+                        .filters
+                        .iter()
+                        .filter(|f| f.field == other)
+                        .cloned()
+                        .collect();
                     if given.len() > 1 {
                         return Err(Signal::Unsupported(
                             "DataItemLink from a FlowFilter of the parent item that has filters in several filter groups (not pinned)"
@@ -1562,7 +1567,8 @@ impl Session {
                     }
                     if !given.is_empty() && parent_field.ty != table.fields[own].ty {
                         return Err(Signal::Unsupported(
-                            "DataItemLink from a FlowFilter of the parent item to a field of another type (not pinned)".into(),
+                            "DataItemLink from a FlowFilter of the parent item to a field of another type (not pinned)"
+                                .into(),
                         ));
                     }
                     let mut t = rec.borrow_mut();
