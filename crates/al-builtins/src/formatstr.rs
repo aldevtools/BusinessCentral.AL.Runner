@@ -183,6 +183,40 @@ pub fn format_with_string(v: &Value, length: i32, template: &str, ctx: &dyn Form
         rest = &after[close + 1..];
     }
     pieces.push((false, rest));
+    // The undefined DateTime and Date format as the empty text, their separators too (types/lt-datetime/Format.al:
+    // QR_DateTime_Format_StampStrings_Undefined `u1`-`u8`, QR_Date_Format_StampStrings `z1`-`z9`). Pinned for these codes only.
+    let undefined_codes: &[&str] = match v {
+        Value::DateTime(0) => &[
+            "Year4",
+            "Year,2",
+            "Month,2",
+            "Day,2",
+            "Hours24,2",
+            "Hours24",
+            "Minutes,2",
+            "Seconds,2",
+            "Filler Character,0",
+        ],
+        Value::Date(0, false) => &[
+            "Year4",
+            "Year,2",
+            "Month,2",
+            "Day,2",
+            "Day",
+            "Month Text",
+            "Weekday Text",
+            "Week",
+        ],
+        _ => &[],
+    };
+    if !undefined_codes.is_empty()
+        && pieces.iter().any(|(is_code, _)| *is_code)
+        && pieces
+            .iter()
+            .all(|(is_code, text)| !is_code || undefined_codes.contains(text))
+    {
+        return Ok(crate::format::pad(String::new(), length));
+    }
     let numeric = numeric_of(v, &pieces).map_err(|e| {
         if e == INVALID_FORMAT_MARK {
             format!("{INVALID_FORMAT_MARK}{template}")
@@ -191,7 +225,45 @@ pub fn format_with_string(v: &Value, length: i32, template: &str, ctx: &dyn Form
         }
     })?;
     let mut out = String::new();
-    for (is_code, text) in pieces {
+    let temporal = matches!(v, Value::Date(..) | Value::Time(_) | Value::DateTime(_));
+    // `<Filler Character,0>` right after a code: on a Time it pads `<Hours24,2>` and `<Hours12,2>` with zeros instead of
+    // blanks (types/lt-datetime/Format.al:QR_Time_Format_StampStrings `t1`, `t4`, `t5`, `z1`, `z4`, `z5`); after the other
+    // codes of a date or time it changes nothing (QR_DateTime_Format_StampStrings_Morning `m1`, `m2`, `m11`). Before a code it
+    // does not apply (types/lt-aj-probes/AjScalars.al:Format_FillerCharacter_OnTime_3 `    900007`).
+    let filler_after = |i: usize| {
+        temporal
+            && pieces.get(i + 1).is_some_and(|(c, t)| !c && t.is_empty())
+            && pieces.get(i + 2).is_some_and(|(c, t)| *c && *t == "Filler Character,0")
+    };
+    for (i, &(is_code, text)) in pieces.iter().enumerate() {
+        if is_code && temporal && text == "Filler Character,0" {
+            let at_start = i == 1 && pieces[0].1.is_empty();
+            let after_code = i >= 2 && pieces[i - 1].1.is_empty() && pieces[i - 2].0;
+            if at_start || after_code {
+                continue;
+            }
+            return Err(format!(
+                "format string `{template}`: `<Filler Character,0>` after text on {} (not pinned)",
+                v.describe()
+            ));
+        }
+        if is_code && filler_after(i) {
+            let part = code(v, text, numeric.as_ref(), ctx).map_err(|e| format!("format string `{template}`: {e}"))?;
+            match (v, text) {
+                (Value::Time(_), "Hours24,2" | "Hours12,2") => out.push_str(&part.replace(' ', "0")),
+                // The other codes of a date or time pinned before a filler pad with zeros already.
+                (_, "Hours24,2" | "Minutes,2" | "Seconds,2" | "Day,2" | "Month,2" | "Year4" | "Year,2") => {
+                    out.push_str(&part)
+                }
+                _ => {
+                    return Err(format!(
+                        "format string `{template}`: `<Filler Character,0>` after `<{text}>` on {} (not pinned)",
+                        v.describe()
+                    ));
+                }
+            }
+            continue;
+        }
         if is_code {
             out.push_str(&code(v, text, numeric.as_ref(), ctx).map_err(|e| {
                 if e == INVALID_FORMAT_MARK {
@@ -528,6 +600,21 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         Value::DateTime(t) if *t > 0 => (Some((t - 1).div_euclid(86_400_000) as i32 + 1), false),
         _ => (None, false),
     };
+    // The undefined Time formats as midnight for the codes the corpus pins (types/lt-datetime/Format.al:
+    // QR_Time_Format_StampStrings `z1`-`z5`); `<Hours24,2>` pads it with a blank (`z2` ` 0-00-00`).
+    if matches!(v, Value::Time(0)) {
+        return match code {
+            "Hours24,2" => Ok(" 0".into()),
+            "Hours24" => Ok("0".into()),
+            "Minutes,2" | "Seconds,2" => Ok("00".into()),
+            "Hours12,2" => Ok("12".into()),
+            "AM/PM" => Ok("AM".into()),
+            _ if !CODE_NAMES.contains(&code.split_once(',').map_or(code, |(n, _)| n)) => {
+                Err(INVALID_FORMAT_MARK.to_string())
+            }
+            _ => Err(format!("code `<{code}>` on {}", v.describe())),
+        };
+    }
     let clock = match v {
         Value::Time(t) if *t > 0 => Some(t - 1),
         Value::DateTime(t) if *t > 0 => Some((t - 1).rem_euclid(86_400_000)),
@@ -598,7 +685,22 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Seconds", _, Some(ms)) => format!("{}", ms / 1000 % 60),
         ("Thousands", _, Some(ms)) => format!("{}", ms % 1000),
         ("Thousands,3", _, Some(ms)) => format!("{:>3}", ms % 1000),
+        // On a DateTime with no milliseconds it is empty (types/lt-datetime/Format.al:QR_DateTime_Format_StampStrings_Afternoon
+        // `a15`, `a16`); on a Time that is not pinned.
+        ("Second dec", _, Some(ms)) if matches!(v, Value::DateTime(_)) && ms % 1000 == 0 => String::new(),
         ("Second dec", _, Some(ms)) => format!(".{:03}", ms % 1000),
+        // The ISO 8601 week of a Date: 2024-03-05 is `10` (QR_Date_Format_StampStrings `d9`). A week below 10 (padded or not)
+        // and the code on a DateTime are not pinned.
+        ("Week", Some(_), _) if matches!(v, Value::Date(..)) => {
+            let day = day_no.unwrap_or(1);
+            let thursday = day + (4 - ((day - 1).rem_euclid(7) + 1));
+            let (y, _, _) = civil_from_day(thursday);
+            let week = (thursday - crate::format::day_from_civil(y, 1, 1)) / 7 + 1;
+            if week < 10 {
+                return Err(format!("code `<Week>` for week {week} (not pinned)"));
+            }
+            week.to_string()
+        }
         ("Second dec,3", _, Some(_)) => "***".to_string(),
         ("AM/PM", _, Some(ms)) => (if ms / 3_600_000 < 12 { "AM" } else { "PM" }).to_string(),
         // A name that is no code at all is an invalid format, as for a number (types/lt-datetime/Format.al:
@@ -731,7 +833,6 @@ mod tests {
             (day.clone(), "<Hours24,2>"),
             (day.clone(), "<Day,3>"),
             (day.clone(), "<Year4"),
-            (Value::Date(0, false), "<Year4>"),
             (Value::Integer(1), "<Standard Format,x>"),
         ] {
             assert!(matches!(fmt(v, f), Err(Signal::Unsupported(_))), "{f}");
@@ -807,14 +908,73 @@ mod tests {
     }
 
     #[test]
-    fn an_undefined_datetime_or_time_has_no_parts() {
+    fn an_undefined_datetime_or_date_formats_empty_and_an_undefined_time_as_midnight() {
+        // types/lt-datetime/Format.al:QR_DateTime_Format_StampStrings_Undefined, QR_Date_Format_StampStrings `z*`,
+        // QR_Time_Format_StampStrings `z*`.
+        assert_eq!(
+            text(fmt(Value::DateTime(0), "<Year4>-<Month,2>-<Day,2>T<Hours24,2>")),
+            ""
+        );
+        assert_eq!(
+            text(fmt(Value::Date(0, false), "<DAY>. <MONTH text> <YEAR4> <Week>")),
+            ""
+        );
+        assert_eq!(
+            text(fmt(Value::Time(0), "<Hours24,2>-<Minutes,2>-<Seconds,2>")),
+            " 0-00-00"
+        );
+        assert_eq!(
+            text(fmt(
+                Value::Time(0),
+                "<Hours12,2><Filler Character,0>:<Minutes,2> <AM/PM>"
+            )),
+            "12:00 AM"
+        );
+        // Codes the corpus does not pin on an undefined value stay refused.
         for (v, f) in [
-            (Value::DateTime(0), "<Year4>"),
-            (Value::DateTime(0), "<Hours24,2>"),
-            (Value::Time(0), "<Hours24,2>"),
-            (Value::Time(0), "<Seconds,2>"),
+            (Value::DateTime(0), "<Thousands>"),
+            (Value::Time(0), "<Thousands>"),
+            (Value::Date(0, false), "<Closing>"),
         ] {
             assert!(matches!(fmt(v, f), Err(Signal::Unsupported(_))), "{f}");
         }
+    }
+
+    // types/lt-datetime/Format.al:QR_DateTime_Format_StampStrings_Morning, _Afternoon, QR_Time_Format_StampStrings,
+    // QR_Date_Format_StampStrings.
+    #[test]
+    fn stamp_strings() {
+        let day = day_from_civil(2024, 3, 5);
+        let dt = Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((9 * 60 + 7) * 60 + 2) * 1000 + 123 + 1);
+        assert_eq!(
+            text(fmt(
+                dt.clone(),
+                "<Year4><Month,2><Day,2><Hours24,2><Filler Character,0><Minutes,2><Seconds,2>"
+            )),
+            "20240305090702"
+        );
+        assert_eq!(text(fmt(dt.clone(), "<Seconds,2><Second dec>")), "02.123");
+        let even = Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((13 * 60 + 45) * 60 + 6) * 1000 + 1);
+        assert_eq!(text(fmt(even.clone(), "<Second dec>")), "");
+        assert_eq!(text(fmt(even, "<Thousands>")), "0");
+        let time = Value::Time(((9 * 60 + 7) * 60 + 2) * 1000 + 123 + 1);
+        assert_eq!(
+            text(fmt(time.clone(), "<Hours24,2>-<Minutes,2>-<Seconds,2>")),
+            " 9-07-02"
+        );
+        assert_eq!(
+            text(fmt(time.clone(), "<Hours24,2><Filler Character,0><Minutes,2>")),
+            "0907"
+        );
+        assert_eq!(
+            text(fmt(time, "<Hours12,2><Filler Character,0>:<Minutes,2> <AM/PM>")),
+            "09:07 AM"
+        );
+        assert_eq!(text(fmt(Value::Date(day, false), "<Week>")), "10");
+        // A filler after a code nothing pins it with stays refused.
+        assert!(matches!(
+            fmt(dt, "<Hours12,2><Filler Character,0>"),
+            Err(Signal::Unsupported(_))
+        ));
     }
 }

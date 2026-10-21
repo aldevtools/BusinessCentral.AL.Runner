@@ -30,6 +30,25 @@ fn number_list(t: &str) -> bool {
         })
 }
 
+/// Blanks `Evaluate` drops around a number: spaces, tab, carriage return and line feed
+/// (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9, QR_Evaluate_Integer_OddCharacters `int tab`).
+const EDGE_BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
+
+/// Characters that make a text no number wherever they stand, with format number 0 and 9: the punctuation
+/// `/ : # & = ' " ; [ ] { } * @`, the currency signs `€` and `£`, letters outside ASCII (`ä`, `Ä1`), the no-break spaces
+/// U+00A0 and U+202F, and the full-width and Arabic-Indic digits (types/lt-evaluate-decimal/EvaluateDecimal.al:
+/// QR_Evaluate_Punctuation_NoNumber, _Number0, _Number9, QR_Evaluate_WhiteSpace_Number0, _Number9,
+/// QR_Evaluate_Statement_OddCharacters). Other characters outside ASCII are not pinned.
+fn rejected_characters(text: &str) -> bool {
+    text.chars().any(|c| {
+        matches!(
+            c,
+            '/' | ':' | '#' | '&' | '=' | '\'' | '"' | ';' | '[' | ']' | '{' | '}' | '*' | '@' | '\u{20AC}' | '\u{A3}'
+                | '\u{A0}' | '\u{202F}' | '\u{FF10}'..='\u{FF19}' | '\u{0660}'..='\u{0669}'
+        ) || (!c.is_ascii() && c.is_alphabetic())
+    })
+}
+
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
@@ -49,7 +68,13 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
     // Number 0 reads the text as a Decimal and takes it when it is whole: `1,5` is 15, `1,000` is 1000, `1.0` is 1 and `1E3` is
     // 1000, while `1.5` is rejected (types/lt-scalars/ScT70055.al:EvaluateInteger_Invalid `comma`, `thousand`, `exp`,
     // `decimal0`, `decimal`, `hex`, `two_signs`, `bigval`; P86Eval.al "LT P86 Eval Integer").
-    if number == 0 && text.is_ascii() && !text.contains('$') && text.chars().all(|c| !c.is_whitespace() || c == ' ') {
+    // A tab around the number is dropped and a no-break space rejects, as for a Decimal (types/lt-evaluate-decimal/
+    // EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters `int tab`, `int nbsp`).
+    if number == 0 && text.contains(['\u{A0}', '\u{202F}']) {
+        return Ok(Parsed::Rejected);
+    }
+    let edged = text.trim_matches(EDGE_BLANKS);
+    if number == 0 && text.is_ascii() && !text.contains('$') && edged.chars().all(|c| !c.is_whitespace() || c == ' ') {
         return Ok(match decimal(text, 0)? {
             Parsed::Value(Value::Decimal(d)) if d.fract().is_zero() => {
                 match d.to_i64().and_then(|n| i32::try_from(n).ok()).ok_or(()) {
@@ -134,6 +159,19 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
             "Evaluate of `{text}` into BigInteger (form not pinned by the corpus)"
         ));
     }
+    // `100-` reads as -100 with format number 0 (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters
+    // `big trailing minus`); other trailing-sign forms are not pinned.
+    if number == 0 {
+        if let Some(digits) = t
+            .strip_suffix('-')
+            .filter(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Ok(match format!("-{digits}").parse::<i64>() {
+                Ok(n) => Parsed::Value(Value::BigInteger(n)),
+                Err(_) => Parsed::Rejected,
+            });
+        }
+    }
     let (negative, rest) = match t.strip_prefix('-') {
         Some(r) => (true, r),
         None => (false, t.strip_prefix('+').map_or(t, |r| r.trim_start_matches(' '))),
@@ -184,12 +222,30 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// the same in German), types/lt-scalars/ScT70055.al:EvaluateDecimal_Valid and EvaluateDecimal_Invalid
 /// (`+1.5`, `.5`, `5.`, `1E3`, `1.5e-2`, `1E`, `1E40`, `1.2.3`, `.`, `50%`, `$5`, `NaN`), types/lt-evaluate-text-decimal.
 fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
-    if text.chars().any(|c| c.is_whitespace() && c != ' ') {
+    if rejected_characters(text) {
+        return Ok(Parsed::Rejected);
+    }
+    // Tab, carriage return and line feed around the number are dropped like spaces, with format number 0 and 9
+    // (types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_WhiteSpace_Number0, _Number9). Inside it they are not pinned.
+    let t = text.trim_matches(EDGE_BLANKS);
+    if t.chars().any(|c| c.is_whitespace() && c != ' ') {
         return unsupported(format!(
             "Evaluate of `{text}` into Decimal with white space other than spaces (not pinned)"
         ));
     }
-    let t = text.trim_matches(' ');
+    // `100 -` reads as -100 with format number 0, and is rejected with 9 (EvaluateDecimal.al:QR_Evaluate_Signs_Number0,
+    // _Number9 `100 -`).
+    let plain = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b',' || b == b'.');
+    if number == 0 {
+        if let Some(body) = t.strip_suffix('-').map(|b| b.trim_end_matches(' ')) {
+            if body.len() + 1 < t.len() && plain(body) {
+                return match decimal(body, number)? {
+                    Parsed::Value(Value::Decimal(d)) => Ok(Parsed::Value(Value::Decimal(-d))),
+                    other => Ok(other),
+                };
+            }
+        }
+    }
     if t.contains(' ') {
         // `1 3` (types/lt-evaluate-decimal-text via the oracle, P129Evaluate.al).
         return Ok(Parsed::Rejected);
@@ -199,14 +255,24 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
     // A trailing minus sign and parentheses mark a negative number: `100-` and `(100)` read as -100
     // (types/lt-evaluate-decimal/EvaluateDecimal.al:Evaluate_SignsBlanksAndGarbage `trailing_minus`, `parentheses`).
-    // Pinned for a plain number (digits, commas, a point) with format number 0 only; other forms are refused.
-    let plain = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b',' || b == b'.');
+    // Pinned for a plain number (digits, commas, a point); format number 9 rejects both (EvaluateDecimal.al:
+    // QR_Evaluate_Signs_Number9 `100-`, `(100)`; QR_Evaluate_Statement_OddCharacters `parentheses 9`). `(-100)` is rejected
+    // (QR_Evaluate_Signs_Number0); other forms are refused.
+    if t.strip_prefix("(-")
+        .and_then(|r| r.strip_suffix(')'))
+        .is_some_and(plain)
+    {
+        return Ok(Parsed::Rejected);
+    }
     let trailing = t.strip_suffix('-').filter(|b| plain(b));
     let wrapped = t
         .strip_prefix('(')
         .and_then(|r| r.strip_suffix(')'))
         .filter(|b| plain(b));
     if let Some(body) = trailing.or(wrapped) {
+        if number == 9 {
+            return Ok(Parsed::Rejected);
+        }
         if number != 0 {
             return unsupported(format!(
                 "Evaluate of `{text}` into Decimal with a trailing minus sign or parentheses and format number {number} (not pinned)"
@@ -217,13 +283,31 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
             other => Ok(other),
         };
     }
+    // With format number 0 a `$` after a plain number is a currency sign too: `5$` is 5 (EvaluateDecimal.al:
+    // QR_Evaluate_Punctuation_Number0, _NoNumber). Format number 9 rejects every `$` form (_Number9).
+    if number == 0 {
+        if let Some(body) = t.strip_suffix('$').filter(|b| b.bytes().all(|c| c.is_ascii_digit())) {
+            if !body.is_empty() {
+                return decimal(body, number);
+            }
+        }
+    }
     let (currency, t) = match t.strip_prefix('$') {
         Some(rest) if number == 0 => (true, rest),
         _ => (false, t),
     };
-    let (negative, t) = match t.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, t.strip_prefix('+').unwrap_or(t)),
+    let (sign, t) = match t.strip_prefix('-') {
+        Some(rest) => (Some('-'), rest),
+        None => match t.strip_prefix('+') {
+            Some(rest) => (Some('+'), rest),
+            None => (None, t),
+        },
+    };
+    let negative = sign == Some('-');
+    // `$-5` and `-$5` read as -5 with format number 0 (QR_Evaluate_Punctuation_Number0 and _NoNumber).
+    let (currency, t) = match t.strip_prefix('$') {
+        Some(rest) if number == 0 && !currency && negative => (true, rest),
+        _ => (currency, t),
     };
     // Split off the exponent.
     let (mant, exp) = match t.find(['e', 'E']) {
@@ -255,9 +339,9 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
     if int.is_empty() && frac.is_empty() {
         return Ok(Parsed::Rejected);
     }
-    if currency && negative {
+    if currency && sign == Some('+') {
         return unsupported(format!(
-            "Evaluate of `{text}` into Decimal (sign and currency sign together are not pinned)"
+            "Evaluate of `{text}` into Decimal (a plus sign and a currency sign together are not pinned)"
         ));
     }
     let exp: i64 = match exp {
@@ -724,11 +808,67 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
     if !t.bytes().any(|b| b.is_ascii_digit()) {
         return Ok(Parsed::Rejected);
     }
-    let (body, meridiem) = match (t.strip_suffix(" AM"), t.strip_suffix(" PM")) {
-        (Some(b), _) => (b, Some(false)),
-        (_, Some(b)) => (b, Some(true)),
+    // AM or PM after a blank, after a narrow no-break space (U+202F; Format itself writes a blank) or right after the
+    // number, in any case, and a narrow no-break space after it (types/lt-aj-probes/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace:
+    // `12:00:00~PM`, `12:00:00~pm`, `12:00:00PM`, `12:00:00 PM`, `12:00:00~PM~`; P86Eval.al `h:m[:s] AM|PM`).
+    let designated = t.strip_suffix('\u{202F}').unwrap_or(t);
+    let (body, meridiem) = match designated
+        .len()
+        .checked_sub(2)
+        .and_then(|i| designated.get(i..).map(|m| (i, m)))
+    {
+        Some((i, m)) if m.eq_ignore_ascii_case("AM") || m.eq_ignore_ascii_case("PM") => {
+            let b = &designated[..i];
+            let old_form = b.ends_with(' ') && (m == "AM" || m == "PM") && designated.len() == t.len();
+            let b = b.strip_suffix([' ', '\u{202F}']).unwrap_or(b);
+            // The new forms are pinned after `h:m[:s]` only.
+            if old_form || b.contains(':') {
+                (b, Some(m.eq_ignore_ascii_case("PM")))
+            } else {
+                (t, None)
+            }
+        }
         _ => (t, None),
     };
+    // Two date-shaped texts read as a time with format number 0: `2021-12-19` is 20:21:12.19 (hhmm, seconds, hundredths) and
+    // `12/19/21` is 12:19:21 (types/lt-aj-probes/AjScalars.al:Evaluate_Time_FromDateText). Pinned for these exact shapes and
+    // values inside the clock only; anything else of that kind stays refused.
+    let digits_at = |s: &str, at: &[usize]| {
+        s.bytes()
+            .enumerate()
+            .all(|(i, b)| b.is_ascii_digit() == !at.contains(&i))
+    };
+    if meridiem.is_none()
+        && body.len() == 10
+        && digits_at(body, &[4, 7])
+        && body.as_bytes()[4] == b'-'
+        && body.as_bytes()[7] == b'-'
+    {
+        let (h, m, s, f) = (
+            num(&body[..2], 2),
+            num(&body[2..4], 2),
+            num(&body[5..7], 2),
+            num(&body[8..], 2),
+        );
+        if let (Some(h), Some(m), Some(s), Some(f)) = (h, m, s, f) {
+            if in_range(h, m, s) {
+                return Ok(value(h, m, s, f * 10));
+            }
+        }
+    }
+    if meridiem.is_none()
+        && body.len() == 8
+        && digits_at(body, &[2, 5])
+        && body.as_bytes()[2] == b'/'
+        && body.as_bytes()[5] == b'/'
+    {
+        let (h, m, s) = (num(&body[..2], 2), num(&body[3..5], 2), num(&body[6..], 2));
+        if let (Some(h), Some(m), Some(s)) = (h, m, s) {
+            if in_range(h, m, s) {
+                return Ok(value(h, m, s, 0));
+            }
+        }
+    }
     let nums: Option<(i64, i64, i64, i64)> = if body.contains(':') {
         let (clock, frac) = match body.split_once('.') {
             Some((c, f)) => (c, Some(f)),
@@ -784,6 +924,18 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         ));
     };
     if let Some(pm) = meridiem {
+        // `0:30:00 AM` is 00:30:00 and `13:00:00 PM` is rejected (AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace); an hour
+        // of 0 with PM and from 13 with AM are not pinned.
+        if h == 0 && !pm {
+            return Ok(if in_range(h, m, s) {
+                value(h, m, s, f)
+            } else {
+                Parsed::Rejected
+            });
+        }
+        if (13..24).contains(&h) && pm {
+            return Ok(Parsed::Rejected);
+        }
         if !(1..=12).contains(&h) {
             return unsupported(format!(
                 "Evaluate of `{text}` into Time (hour with AM or PM not pinned)"
@@ -1505,9 +1657,92 @@ mod tests {
         assert_eq!(dec("100-", 0).as_deref(), Some("-100"));
         assert_eq!(dec("(100)", 0).as_deref(), Some("-100"));
         assert_eq!(dec("  1,000.5- ", 0).as_deref(), Some("-1000.5"));
-        // Other combinations are not pinned: refused, not guessed.
-        assert!(decimal("(100)", 9).is_err());
+        // Format number 9 rejects both (EvaluateDecimal.al:QR_Evaluate_Signs_Number9); other combinations are not pinned.
+        assert!(matches!(decimal("(100)", 9), Ok(Parsed::Rejected)));
+        assert!(matches!(decimal("100-", 9), Ok(Parsed::Rejected)));
         assert!(decimal("(100", 0).is_err());
         assert!(matches!(decimal("abc-", 0), Ok(Parsed::Rejected)));
+    }
+
+    // types/lt-evaluate-decimal/EvaluateDecimal.al:QR_Evaluate_Punctuation_*, QR_Evaluate_Signs_*, QR_Evaluate_WhiteSpace_*
+    #[test]
+    fn decimals_reject_punctuation_and_no_break_spaces_and_read_the_currency_forms() {
+        let dec = |s: &str, n: i64| match decimal(s, n) {
+            Ok(Parsed::Value(Value::Decimal(d))) => Ok(Some(d.to_string())),
+            Ok(_) => Ok(None),
+            Err(_) => Err(()),
+        };
+        for s in [
+            "New/Updated",
+            "#1",
+            "1#",
+            "A&B",
+            "1=1",
+            "'1'",
+            "\"1\"",
+            "[1]",
+            "{1}",
+            "*1",
+            "1*",
+            "@1",
+            "1'000",
+            "\u{20AC}5",
+            "\u{A3}5",
+            "\u{E4}",
+            "\u{C4}1",
+            "(-100)",
+            "\u{A0}100",
+            "1\u{202F}000",
+            "\u{FF11}\u{FF12}",
+            "\u{661}",
+        ] {
+            assert_eq!(dec(s, 0), Ok(None), "{s}");
+            assert_eq!(dec(s, 9), Ok(None), "{s} 9");
+        }
+        assert_eq!(dec("5$", 0), Ok(Some("5".into())));
+        assert_eq!(dec("$-5", 0), Ok(Some("-5".into())));
+        assert_eq!(dec("-$5", 0), Ok(Some("-5".into())));
+        assert_eq!(dec("100 -", 0), Ok(Some("-100".into())));
+        for s in ["5$", "$-5", "-$5", "$5", "100 -"] {
+            assert_eq!(dec(s, 9), Ok(None), "{s} 9");
+        }
+        assert_eq!(dec("\t100", 0), Ok(Some("100".into())));
+        assert_eq!(dec("100\r\n", 9), Ok(Some("100".into())));
+        // Not pinned: white space inside the number.
+        assert!(dec("1\t000", 0).is_err());
+    }
+
+    // EvaluateDecimal.al:QR_Evaluate_Integer_OddCharacters
+    #[test]
+    fn integers_and_big_integers_read_the_pinned_odd_forms() {
+        assert!(matches!(value(integer("\t100", 0)), Some(Value::Integer(100))));
+        assert!(matches!(integer("1\u{A0}000", 0), Ok(Parsed::Rejected)));
+        assert!(matches!(integer("New/Updated", 0), Ok(Parsed::Rejected)));
+        assert!(matches!(value(big_integer("100-", 0)), Some(Value::BigInteger(-100))));
+    }
+
+    // types/lt-aj-probes/AjScalars.al:QR_Evaluate_Time_NarrowNoBreakSpace
+    #[test]
+    fn times_read_am_and_pm_after_a_narrow_no_break_space() {
+        let ms = |s: &str, n: i64| match time(s, n) {
+            Ok(Parsed::Value(Value::Time(t))) => Ok(Some(t - 1)),
+            Ok(_) => Ok(None),
+            Err(_) => Err(()),
+        };
+        assert_eq!(ms("12:00:00\u{202F}PM", 0), Ok(Some(43_200_000)));
+        assert_eq!(ms("1:05:09\u{202F}PM", 0), Ok(Some(((13 * 60 + 5) * 60 + 9) * 1000)));
+        assert_eq!(ms("12:00:00\u{202F}pm", 0), Ok(Some(43_200_000)));
+        assert_eq!(ms("12:00:00PM", 0), Ok(Some(43_200_000)));
+        assert_eq!(ms("12:00:00\u{202F}PM\u{202F}", 0), Ok(Some(43_200_000)));
+        assert_eq!(ms("0:30:00\u{202F}AM", 0), Ok(Some(30 * 60_000)));
+        assert_eq!(ms("13:00:00\u{202F}PM", 0), Ok(None));
+        assert_eq!(ms("12:00:00\u{202F}PM", 9), Ok(None));
+        // Not pinned: hour 0 with PM.
+        assert!(ms("0:30:00 PM", 0).is_err());
+        // AjScalars.al:Evaluate_Time_FromDateText.
+        assert_eq!(ms("2021-12-19", 0), Ok(Some(((20 * 60 + 21) * 60 + 12) * 1000 + 190)));
+        assert_eq!(ms("12/19/21", 0), Ok(Some(((12 * 60 + 19) * 60 + 21) * 1000)));
+        assert_eq!(ms("2021-12-19", 9), Ok(None));
+        assert!(ms("2099-12-19", 0).is_err());
     }
 }
