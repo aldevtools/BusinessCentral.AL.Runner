@@ -92,8 +92,8 @@ Windows (PowerShell):
 
 Replace `edge` with `latest-alpha` or a tag such as `v3.0.0-alpha.4` for a numbered alpha.
 The binary goes to `~/.local/bin` (Linux, macOS) or `%LOCALAPPDATA%\alrunner\bin` (Windows).
-Add that folder to your `PATH` if the script says so. More about builds and about the
-unsigned binaries is in "Try the alpha" below.
+Add that folder to your `PATH` if the script says so. More about builds and about
+signing is in "Try the alpha" below.
 
 ## Getting started with your own project
 
@@ -435,12 +435,13 @@ You can also download an archive from the releases page, check it against
 `README.txt`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.
 
-**The binaries are not signed.** Your system may warn you.
+**Signing.** The Windows binary is signed (Authenticode, Azure Trusted Signing). The macOS
+and Linux binaries are not signed.
 
 - macOS: Gatekeeper blocks the file. Run `xattr -d com.apple.quarantine ./al-runner`
   (the install script does this for you).
-- Windows: SmartScreen shows "Windows protected your PC". Click "More info", then
-  "Run anyway". Or run `Unblock-File .\al-runner.exe` in PowerShell.
+- Windows: `Get-AuthenticodeSignature .\al-runner.exe` shows the signature. If SmartScreen
+  still warns, click "More info", then "Run anyway", or run `Unblock-File .\al-runner.exe`.
 
 **Run**
 
