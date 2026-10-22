@@ -197,3 +197,71 @@ fn a_variable_text_record_of_another_length() {
     assert_eq!(al_testkit::text(run(&short_src("A;1;x;extra#"), "F")), "A:1:x,");
     assert!(matches!(run(&short_src("A;1;x;e1;e2"), "F"), Err(Signal::Unsupported(r)) if r.contains("not pinned")));
 }
+
+/// A port whose fields arrive as attributes (corpus pages/lt-report-page-properties/06-xmlport-fvat.al:7-30, :107-152).
+fn attr_src(port_props: &str, txt_props: &str) -> String {
+    format!(
+        r#"
+table 69980 "XA Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
+table 69981 "XA Row"
+{{
+    fields
+    {{
+        field(1; Id; Integer) {{ }}
+        field(2; Txt; Text[20]) {{ trigger OnValidate() var L: Codeunit "XA Log"; begin L.Add('val Txt=' + Txt + ' xRec=' + xRec.Txt); end; }}
+        field(3; Qty; Integer) {{ trigger OnValidate() var L: Codeunit "XA Log"; begin L.Add('val Qty=' + Format(Qty)); end; }}
+    }}
+    keys {{ key(PK; Id) {{ }} }}
+}}
+codeunit 69982 "XA Log" {{ SingleInstance = true; var Log: Text; procedure Add(E: Text) begin Log += E + ';'; end; procedure Take(): Text begin exit(Log); end; }}
+xmlport 69983 "XA Port"
+{{
+    Format = Xml; Direction = Import; UseRequestPage = false; {port_props}
+    schema
+    {{
+        textelement(Root)
+        {{
+            tableelement(Row; "XA Row")
+            {{
+                fieldattribute(Id; Row.Id) {{ }}
+                fieldattribute(Txt; Row.Txt) {{ {txt_props} }}
+                fieldattribute(Qty; Row.Qty) {{ FieldValidate = No; }}
+            }}
+        }}
+    }}
+}}
+codeunit 69984 C
+{{
+    procedure F(): Text
+    var B: Record "XA Blob" temporary; R: Record "XA Row"; L: Codeunit "XA Log"; OutS: OutStream; InS: InStream; T: Text;
+    begin
+        B.Code := 'X'; B.Insert();
+        B.Data.CreateOutStream(OutS);
+        OutS.WriteText('<Root><Row Id="21" Txt="t21" Qty="5"/></Root>');
+        B.Data.CreateInStream(InS);
+        Xmlport.Import(Xmlport::"XA Port", InS);
+        if R.FindSet() then repeat T += Format(R.Id) + ':' + R.Txt + ':' + Format(R.Qty) + ','; until R.Next() = 0;
+        exit(L.Take() + T);
+    end;
+}}
+"#
+    )
+}
+
+#[test]
+fn a_field_attribute_is_validated_with_field_validate_yes_and_not_with_no() {
+    // 06-xmlport-fvat.al:118-119: only Txt (FieldValidate = Yes) is validated, Qty (No) is stored as it is.
+    let r = run(&attr_src("", "FieldValidate = Yes;"), "F");
+    assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5,");
+}
+
+#[test]
+fn a_field_attribute_without_field_validate_or_under_default_fields_validation_false_stays_refused() {
+    for (port, txt) in [("", ""), ("DefaultFieldsValidation = false;", "FieldValidate = Yes;")] {
+        let r = run(&attr_src(port, txt), "F");
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("field attribute Txt")),
+            "{port} {txt}: {r:?}"
+        );
+    }
+}
