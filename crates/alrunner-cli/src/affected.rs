@@ -142,6 +142,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     );
     let mut h = Sha256::new();
     h.update(text.as_bytes());
+    // `--isolation required` (added after the other options; off, the hash is the one it was before).
+    if a.required_isolation {
+        h.update(b"required_isolation");
+    }
     // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
     if a.company_demotool {
         h.update(b"company-data demotool ");

@@ -558,6 +558,9 @@ pub struct Session {
     pub tx_model: TxModel,
     /// Whether a test codeunit is executing (a test codeunit cannot be run from one).
     pub in_test_codeunit: bool,
+    /// The test codeunit runs under its RequiredTestIsolation = Function or Disabled, as BC's TestRunnerHub runs it
+    /// (al-testrun `RunOptions::required_isolation`), not under a test runner codeunit's TestIsolation.
+    pub isolation_from_hub: bool,
     /// The test runner's step that assigns the permission sets of a test method runs (codeunit 130302 "Set State Test
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
@@ -796,6 +799,7 @@ impl Session {
             default_table_connection: Default::default(),
             tx_model: TxModel::default(),
             in_test_codeunit: false,
+            isolation_from_hub: false,
             runner_permission_step: false,
             test_object: None,
             http_policy: None,

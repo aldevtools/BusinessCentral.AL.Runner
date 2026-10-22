@@ -248,6 +248,9 @@ impl al_builtins::native::Ctx for Session {
     fn in_test_run(&self) -> bool {
         self.in_test_codeunit
     }
+    fn isolation_from_hub(&self) -> bool {
+        self.isolation_from_hub
+    }
     fn enum_members(&self, id: u32) -> Option<Vec<(i32, String)>> {
         self.note_enum(id);
         Some(self.engine.program.objects[id as usize].enum_values.clone())

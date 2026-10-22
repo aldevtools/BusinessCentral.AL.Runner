@@ -1057,6 +1057,22 @@ fn test_inner(
     for note in &data_notes {
         eprintln!("note: {note}");
     }
+    // `--isolation required` follows BC's TestRunnerHub, which takes the isolation from RequiredTestIsolation on BC 28 and
+    // later. On BC 27 the corpus CI runs every test codeunit under runner 130450 (TestIsolation = Codeunit), whatever the
+    // property says (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:36-40, the BC28PLUS guards at :443,
+    // :531 and :724); AL Runner runs it that way.
+    let hub = a.required_isolation
+        && chosen
+            .target
+            .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
+    if a.required_isolation && !hub {
+        eprintln!(
+            "note: --isolation required: Business Central {} runs every test codeunit under TestIsolation = Codeunit, \
+             whatever its RequiredTestIsolation says (that property is honored from version {}); the tests run that way",
+            chosen.target.bc.major,
+            al_version::Gate::TestRunnerHubRequiredIsolationFrom28.since_bc()
+        );
+    }
 
     if !a.quiet {
         say!("{}", style::bold(&crate::version::line()));
@@ -1095,6 +1111,9 @@ fn test_inner(
             threads("AL_TEST_THREADS")
         );
         match a.isolation {
+            None if hub => say!(
+                "isolation: each test codeunit's RequiredTestIsolation, as BC's TestRunnerHub runs it (--isolation required)"
+            ),
             None | Some(al_testrun::isolation::TestIsolation::Codeunit) => {
                 say!("isolation: TestIsolation = Codeunit (the default of Microsoft's test runner)")
             }
@@ -1271,9 +1290,10 @@ fn test_inner(
             n => Some(std::time::Duration::from_secs(n)),
         },
         isolation: a.isolation,
-        // AL Runner runs every test codeunit as Microsoft's runner 130450 does (TestIsolation = Codeunit unless
-        // --isolation says otherwise); RequiredTestIsolation on a codeunit has no effect there, as on BC.
-        required_isolation: false,
+        // By default AL Runner runs every test codeunit as Microsoft's runner 130450 does (TestIsolation = Codeunit unless
+        // --isolation says otherwise); RequiredTestIsolation on a codeunit has no effect there, as on BC. `--isolation
+        // required` runs each one under its RequiredTestIsolation, as BC 28's TestRunnerHub does (QuCommitIsolation.al:10-16).
+        required_isolation: hub,
         coverage: a.coverage,
         execute: a.execute,
         capture: a.capture,

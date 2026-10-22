@@ -249,12 +249,20 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     }
     a.excludes.extend(string_list(fields, "excludeTests")?);
     if let Some(i) = fields.get("testIsolation").and_then(Value::as_str) {
-        a.isolation = Some(match i.to_ascii_lowercase().as_str() {
-            "codeunit" => al_testrun::isolation::TestIsolation::Codeunit,
-            "test" => al_testrun::isolation::TestIsolation::Function,
-            "disabled" => al_testrun::isolation::TestIsolation::Disabled,
-            _ => return Err(format!("`testIsolation` is codeunit, test or disabled, not `{i}`")),
-        });
+        // `required`: each test codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub runs it on BC 28 and
+        // later (`al-runner test --isolation required`).
+        a.required_isolation = i.eq_ignore_ascii_case("required");
+        a.isolation = match i.to_ascii_lowercase().as_str() {
+            "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
+            "test" => Some(al_testrun::isolation::TestIsolation::Function),
+            "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
+            "required" => None,
+            _ => {
+                return Err(format!(
+                    "`testIsolation` is codeunit, test, disabled or required, not `{i}`"
+                ));
+            }
+        };
     }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
     a.capture = al_vm::CaptureConfig {
@@ -588,8 +596,10 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
         None => sources.into_iter().map(PathBuf::from).collect(),
     };
     if let Some(i) = fields.get("testIsolation").and_then(Value::as_str) {
-        if !["codeunit", "test", "disabled"].contains(&i.to_ascii_lowercase().as_str()) {
-            return error(format!("`testIsolation` is codeunit, test or disabled, not `{i}`"));
+        if !["codeunit", "test", "disabled", "required"].contains(&i.to_ascii_lowercase().as_str()) {
+            return error(format!(
+                "`testIsolation` is codeunit, test, disabled or required, not `{i}`"
+            ));
         }
         warnings.push("`testIsolation` has no effect on `execute`: one OnRun trigger runs".into());
     }
