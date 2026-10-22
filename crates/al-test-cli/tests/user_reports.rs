@@ -104,18 +104,21 @@ codeunit 69521 T { Subtype = Test;
     all_pass(run_with_deps(&[], main));
 }
 
-/// Issue 293: `SessionInformation.SqlStatementsExecuted()` stays refused. The corpus pins only that the value is not negative
-/// (session/TestMiscTypes.al:96-114), not the value itself; corpus issue #673 item 2 probes it.
+/// Issues 293 and 5580: `SessionInformation.SqlStatementsExecuted()` answers whether it is negative (no: session/TestMiscTypes.al:96-114,
+/// session/lt-bl-sql-counters/SqlCounters.al:74-84); an exact count is not pinned and refuses the test.
 #[test]
-fn issue_293_sql_statements_executed_stays_refused() {
+fn issue_293_sql_statements_executed_answers_only_the_pinned_comparisons() {
     let main = "
 codeunit 69522 T { Subtype = Test;
   [Test] procedure P() begin
     if SessionInformation.SqlStatementsExecuted() < 0 then Error('The SQL statement count must not be negative.');
+  end;
+  [Test] procedure Q() begin
+    if SessionInformation.SqlStatementsExecuted() <> 3 then Error('Three statements were expected.');
   end; }";
     let results = run_with_deps(&[], main);
     assert!(
-        matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("SqlStatementsExecuted")),
+        matches!(&results[..], [(_, Outcome::Pass), (_, Outcome::NotRun(why))] if why.contains("SQL counter")),
         "{results:?}"
     );
 }

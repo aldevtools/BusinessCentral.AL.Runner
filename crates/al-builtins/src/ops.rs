@@ -52,6 +52,13 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         }
         return Err(Signal::Unsupported(why.to_string()));
     }
+    // A counter value stays tainted in a BigInteger or a Variant; any other type would show its number (`sqlcount`).
+    if let Value::SqlCount(_) = &v {
+        return match t {
+            T::BigInteger | T::Variant => Ok(v),
+            _ => Err(crate::sqlcount::refusal("a conversion to another type")),
+        };
+    }
     // The conversions between the plain numbers that cannot fail, without the Decimal detour.
     match (&v, t) {
         // A Decimal keeps 18 significant digits when it is stored: `Dec := 123456789012345.12345` holds `123456789012345.123`, so
@@ -736,6 +743,9 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
 
 fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     use Value as V;
+    if matches!(l, V::SqlCount(_)) || matches!(r, V::SqlCount(_)) {
+        return crate::sqlcount::arith(op, l, r);
+    }
     // An Option takes part in arithmetic as its ordinal, an Integer (types/PROptionInteger.al:OptionMember_AsInteger:
     // `Opt + 1`, `Opt * 2`).
     if matches!(l, V::Option(..)) || matches!(r, V::Option(..)) {
@@ -1333,6 +1343,7 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         // untouched field); any other comparison would read it.
         (V::Unknown(a), V::Unknown(b)) if a == b => return Ok(Ordering::Equal),
         (V::Unknown(why), _) | (_, V::Unknown(why)) => return Err(Signal::Unsupported(why.to_string())),
+        (V::SqlCount(_), _) | (_, V::SqlCount(_)) => return crate::sqlcount::order(l, r),
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if !a.has_marker() && !b.has_marker() => {
             return Ok(a.cmp(b));
         }

@@ -1586,7 +1586,32 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        if self.sql.active {
+            return self.record_op_counted(method, rec, args);
+        }
         self.record_op_tracked(method, rec, args)
+    }
+
+    /// `record_op` while the SQL counters log record methods (`sqlcount.rs`).
+    #[cold]
+    #[inline(never)]
+    fn record_op_counted(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let entry = self.sql.enter(self.calls_made);
+        let r = self.record_op_tracked(method, rec, args);
+        let (temp, table) = {
+            let s = rec.borrow();
+            (s.temporary, s.table)
+        };
+        let key = if crate::sqlcount::SqlCounters::wants_key(method) {
+            self.table(rec)
+                .ok()
+                .map(|t| al_data::position(&t, 0, &rec.borrow().fields))
+        } else {
+            None
+        };
+        let calls = self.calls_made;
+        self.sql.leave(entry, calls, method, temp, table, args, key, &r);
+        r
     }
 
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {

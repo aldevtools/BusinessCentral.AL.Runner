@@ -868,6 +868,9 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        if self.sql.active {
+            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
         self.ret_used = site.ret_used;
         let result = native(self, recv.as_mut(), &mut values);
         // In the order `run_native` lets go of them: the receiver, then the operands.
@@ -941,6 +944,9 @@ impl Session {
         };
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
+        }
+        if self.sql.active {
+            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
         if site.vm_class {
             // `Report.Run` on a variable: the variable gets a new instance afterwards (see `report_fresh_instance`).

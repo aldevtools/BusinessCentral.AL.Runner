@@ -98,6 +98,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `refs.rs` (259): `RecordRef`, `FieldRef` and `KeyRef` methods.
 - `sessionfns.rs` (66): Builtins that act on session state.
 - `sessiontypes.rs` (287): `SessionSettings` and `Notification`. Entry: `native_for` 265.
+- `sqlcount.rs` (180): The taint of `Value::SqlCount` (SessionInformation SQL counters, issue 5580): which arithmetic and comparisons the pins answer, the refusal for every other use. Entry: `arith`, `compare`, `order`, `refusal`.
 - `signature.rs` (457): Parsing the `syntax` line of a documented builtin into a signature. Entry: `Param` 4, `Signature` 14, `DocEntry` 33, `DocParam` 47.
 - `stream.rs` (549): In-memory streams over Blob fields, plus the array helpers that share their corpus folder (`streams/`). Entry: `BlobBuf` 23, `BlobRef` 33, `new_blob` 35, `copy_blob` 44.
 - `sysenum.rs` (119): Platform option types whose values AL writes `FieldClass::Normal`. Entry: `members` 9, `option_members` 116.
@@ -346,6 +347,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
 - `reports.rs` (1209): Report objects at run time: dataset walk, triggers, request page, `Report.SaveAs` and the dataset rows. Entry: `report_builtin` 80, `first_use` 314, `report_save_as` 936, `dataset_begin` 1109.
 - `sessionops.rs` (422): Builtins that act on session state. Entry: `Sequence` 11.
+- `sqlcount.rs` (330): The model behind `SqlStatementsExecuted` / `SqlRowsRead`: record methods logged after the first read, segments between two reads classified against the pinned sequences (session/lt-bl-sql-counters/SqlCounters.al), a new epoch for anything else; `guard` refuses a builtin given a counter value. Entry: `SqlCounters::read`, `enter`, `leave`, `guard`.
 - `testdata.rs` (420): Test data (ADR-020): `TestBacking` maps a provider's columns onto the compiled table's fields, rebuilds the values and builds the table once per thread. Entry: `TestBacking`, `convert`, `sql_name`.
 - `transactions.rs` (446): Transactions as AL code sees them. Entry: `TxModel` 15, `CommitBehavior` 27, `codeunit_run` 193.
 - `ui.rs` (347): Dialogs raised by the code under test (`Message`, `Confirm`, `StrMenu`) and the test handler functions that answer them. Entry: `UiKind` 18, `UiHandler` 66, `dispatch_ui` 158, `dispatch_ui_returning` 163.
