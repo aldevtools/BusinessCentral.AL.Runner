@@ -293,6 +293,11 @@ pub trait Ctx: FormatCtx {
     fn in_test_run(&self) -> bool {
         false
     }
+    /// Whether the test codeunit runs under its RequiredTestIsolation = Function or Disabled, as BC's TestRunnerHub runs
+    /// it, instead of under a test runner codeunit's TestIsolation.
+    fn isolation_from_hub(&self) -> bool {
+        false
+    }
     /// `Error(ErrorInfo)` of a collectible error: inside a `[ErrorBehavior(Collect)]` scope the
     /// session keeps a copy and the call returns normally (`true`); outside one it is raised like
     /// any other error (`false`).
@@ -1830,6 +1835,14 @@ fn start_session(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Res
         } else {
             Value::Null
         });
+    }
+    // Whether BC starts a session in a test codeunit the TestRunnerHub runs under RequiredTestIsolation = Function or
+    // Disabled is not pinned (al-runner issue 5609; the corpus pins only Codeunit isolation).
+    if c.in_test_run() && c.isolation_from_hub() {
+        return unsupported(
+            "StartSession in a test codeunit run under its RequiredTestIsolation = Function or Disabled (--isolation \
+             required): whether BC starts the session there is not pinned",
+        );
     }
     if c.in_test_run() {
         return Err(Signal::Error(Box::new(AlError {

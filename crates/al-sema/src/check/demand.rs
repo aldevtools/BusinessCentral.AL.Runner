@@ -350,16 +350,18 @@ impl Checker<'_> {
     }
 
     /// The install baseline's roots (ADR-013 decision 5): every install codeunit of a dependency
-    /// app, with its install triggers, and Base Application's `Company-Initialize`.
-    pub(super) fn reach_baseline(&self) {
+    /// app, with its install triggers, Base Application's `Company-Initialize`, and the `OnRun` of every dependency
+    /// codeunit in `company_data` (the codeunits that build the company's data after it).
+    pub(super) fn reach_baseline(&self, company_data: &[u32]) {
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if !self.ws.is_dependency(i) || o.kind != ObjKind::Codeunit {
                 continue;
             }
             // Cheap facts first: `usable` parses the object's file, and most codeunits are no root.
-            let company_initialize =
-                o.id == Some(COMPANY_INITIALIZE) && o.name.eq_ignore_ascii_case("Company-Initialize");
+            let company_initialize = (o.id == Some(COMPANY_INITIALIZE)
+                && o.name.eq_ignore_ascii_case("Company-Initialize"))
+                || o.id.is_some_and(|id| company_data.contains(&id));
             if !(o.install || company_initialize) || !self.ws.usable(i) {
                 continue;
             }
@@ -2173,6 +2175,57 @@ mod tests {
             &dep,
         );
         assert!(compiled(&passed, "Rep", "OnPreReport"));
+    }
+
+    // The company data codeunit's app (`--company-data demotool`) hands its reports' ids to a procedure that runs them
+    // (the DemoTool's Interface Relationship Mgt.RunReport(Report::"Create Conts. from Customers")): its app counts as
+    // reaching them, as workspace code does. Another dependency app's mention does not.
+    #[test]
+    fn the_company_data_codeunits_app_reaches_the_reports_it_hands_to_a_call() {
+        let dep = [
+            ("r.al", "report 40 Rep { trigger OnPreReport() begin end; }"),
+            (
+                "b.al",
+                "codeunit 50 Build { trigger OnRun() begin Show(Report::Rep); end; procedure Show(Id: Integer) begin Report.Run(Id); end; }",
+            ),
+        ];
+        let build = |company_data: Vec<u32>| {
+            let app = |id: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
+                id: id.into(),
+                name: id.into(),
+                dependencies: deps.iter().map(|d| d.to_string()).collect(),
+                files,
+            };
+            crate::lower::compile_apps_with(
+                vec![
+                    app("main", &["dep"], vec![("main.al".into(), "codeunit 1 Main { }".into())]),
+                    app(
+                        "dep",
+                        &[],
+                        dep.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+                    ),
+                ],
+                vec![AppKind::Workspace, AppKind::Dependency],
+                &Default::default(),
+                None,
+                crate::check::Roots {
+                    baseline: true,
+                    company_data,
+                    ..Default::default()
+                },
+            )
+            .1
+        };
+        assert!(compiled(&build(vec![50]), "Rep", "OnPreReport"));
+        let other = build(vec![]);
+        let o = object(&other, "Rep");
+        assert!(
+            other.program.objects[o]
+                .routines
+                .iter()
+                .all(|r| r.name != "OnPreReport")
+                || !compiled(&other, "Rep", "OnPreReport")
+        );
     }
 
     #[test]

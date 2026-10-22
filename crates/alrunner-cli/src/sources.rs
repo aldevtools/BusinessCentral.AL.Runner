@@ -147,10 +147,8 @@ pub fn app_file(path: &Path, app: &str) -> PathBuf {
 }
 
 /// The arguments of one test app's recipe run.
-fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) -> TestArgs {
+fn app_args(a: &TestArgs, app: &TestApp, build: &str) -> TestArgs {
     let mut t = a.clone();
-    // The Legacy lane's company comes from this package (`recipe_run::lane_args` turns `company_package` on there).
-    t.package_path = package.map(Path::to_path_buf);
     t.apps = vec![app.path.clone()];
     t.deps.extend(app.deps.iter().cloned());
     t.microsoft_apps.clear();
@@ -164,17 +162,17 @@ fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) ->
     t
 }
 
-/// The `microsoft` source of a run: the build, its test apps and the Legacy lane's package.
+/// The `microsoft` source of a run: the build and its test apps.
 struct Microsoft {
     build: String,
     country: String,
     set: MicrosoftApps,
-    package: Option<PathBuf>,
     /// Where the listing came from (`the artifact feed`, a local artifact).
     from: String,
 }
 
-/// Lists the Microsoft test apps of the run's build and country (ADR-052 1.3) and fetches the Legacy lane's package.
+/// Lists the Microsoft test apps of the run's build and country (ADR-052 1.3). The Legacy lane builds its company with
+/// the DemoTool (`recipe_run::lane_args`), so no RapidStart package is fetched.
 fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
     let fetch = Fetch {
         cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
@@ -189,14 +187,10 @@ fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
     }
     let extra = bcapps_apps_of(a, &listing);
     let set = test_apps_of(&listing, &a.microsoft_apps, &extra)?;
-    // The Legacy lane builds its company from the artifact's RapidStart package; it is fetched once here, so that a run
-    // from the artifact feed does not depend on an extracted artifact on disk.
-    let package = listing.rapidstart_package()?;
     Ok(Microsoft {
         build: listing.build.to_string(),
         country: listing.country.to_string(),
         set,
-        package,
         from: listing.from.to_string(),
     })
 }
@@ -348,10 +342,13 @@ pub fn test_microsoft(a: &TestArgs) -> Result<u8, String> {
     for note in &ms.set.bcapps_notes {
         eprintln!("  {note}");
     }
+    if a.list_lanes {
+        return list_lanes(a, &ms);
+    }
     let mut results: Vec<AppResult> = Vec::new();
     for (i, app) in ms.set.apps.iter().enumerate() {
         eprintln!("== test app {} ({} of {}) ==", app.name, i + 1, ms.set.apps.len());
-        let outcome = match recipe_run::run_lanes(&app_args(a, app, &ms.build, ms.package.as_deref())) {
+        let outcome = match recipe_run::run_lanes(&app_args(a, app, &ms.build)) {
             Ok(run) => {
                 for line in recipe_run::summary_lines(&run.results, run.unrun) {
                     println!("{line}");
@@ -375,6 +372,114 @@ pub fn test_microsoft(a: &TestArgs) -> Result<u8, String> {
         println!("{line}");
     }
     Ok(sources_report::worst(results.iter().map(AppResult::exit_code)))
+}
+
+/// `al-runner test-microsoft --list-lanes`: the lane (Microsoft's build mode) of every test app's codeunits, with
+/// codeunits, tests, the tests Microsoft disables and the tests that would run, then one total per lane. Only the
+/// sources are read; nothing is compiled or run. A test app whose lanes cannot be planned is one error line (exit 2).
+fn list_lanes(a: &TestArgs, ms: &Microsoft) -> Result<u8, String> {
+    let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut rows = vec![words(&[
+        "test app",
+        "lane",
+        "codeunits",
+        "tests",
+        "disabled",
+        "would run",
+    ])];
+    let mut verbose = vec![words(&[
+        "codeunit",
+        "test app",
+        "lane",
+        "tests",
+        "disabled",
+        "would run",
+    ])];
+    // Lane -> (codeunits, tests, disabled).
+    let mut totals: Vec<(String, [usize; 3])> = Vec::new();
+    let mut code = 0;
+    for app in &ms.set.apps {
+        let planned = match recipe_run::plan_lanes(&app_args(a, app, &ms.build)) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("error: test app {}: {e}", app.name);
+                code = 2;
+                continue;
+            }
+        };
+        // Every lane of the app reads the same disabled tests (the app's own folder): read them once per app.
+        let disabled = match planned.lanes.first() {
+            Some(lane) => crate::run::load_disabled(&lane.args)?,
+            None => None,
+        };
+        for lane in &planned.lanes {
+            let off = |c: u32, t: &str| disabled.as_ref().is_some_and(|d| d.is_disabled(c, t));
+            let mut sum = [0usize; 3];
+            for &c in &lane.args.codeunits {
+                let names = planned.tests.get(&c).map_or(&[][..], Vec::as_slice);
+                let d = names.iter().filter(|t| off(c, t)).count();
+                sum[0] += 1;
+                sum[1] += names.len();
+                sum[2] += d;
+                if a.verbose {
+                    verbose.push(vec![
+                        format!("codeunit {c}"),
+                        app.name.clone(),
+                        lane.build_mode.clone(),
+                        names.len().to_string(),
+                        d.to_string(),
+                        (names.len() - d).to_string(),
+                    ]);
+                }
+            }
+            rows.push(vec![
+                app.name.clone(),
+                lane.build_mode.clone(),
+                sum[0].to_string(),
+                sum[1].to_string(),
+                sum[2].to_string(),
+                (sum[1] - sum[2]).to_string(),
+            ]);
+            match totals.iter_mut().find(|(m, _)| *m == lane.build_mode) {
+                Some((_, t)) => (0..3).for_each(|i| t[i] += sum[i]),
+                None => totals.push((lane.build_mode.clone(), sum)),
+            }
+        }
+        if planned.unrun > 0 {
+            rows.push(vec![
+                app.name.clone(),
+                "no lane (AITest, or RequiredTestIsolation = Disabled outside UnitTest)".into(),
+                planned.unrun.to_string(),
+            ]);
+        }
+    }
+    let mut lines = crate::matrix::table(&rows);
+    lines.push(String::new());
+    let mut total_rows = vec![words(&[
+        "total per lane",
+        "codeunits",
+        "tests",
+        "disabled",
+        "would run",
+    ])];
+    for (mode, t) in &totals {
+        total_rows.push(vec![
+            format!("lane {mode}"),
+            t[0].to_string(),
+            t[1].to_string(),
+            t[2].to_string(),
+            (t[1] - t[2]).to_string(),
+        ]);
+    }
+    lines.extend(crate::matrix::table(&total_rows));
+    if a.verbose {
+        lines.push(String::new());
+        lines.extend(crate::matrix::table(&verbose));
+    }
+    for l in lines {
+        println!("{l}");
+    }
+    Ok(code)
 }
 
 /// The number of objects in an app's source.
@@ -1041,7 +1146,7 @@ fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> SourceOut {
     let base = source_base(a);
     let mut notes: Vec<String> = Vec::new();
     for app in &ms.set.apps {
-        let planned = match recipe_run::plan_lanes(&app_args(&base, app, &ms.build, ms.package.as_deref())) {
+        let planned = match recipe_run::plan_lanes(&app_args(&base, app, &ms.build)) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("error: test app {}: {e}", app.name);
@@ -1102,7 +1207,7 @@ pub fn build_index(a: &TestArgs) -> Result<u8, String> {
     let ms = microsoft(a)?;
     let mut codes = Vec::new();
     for app in &ms.set.apps {
-        let planned = recipe_run::plan_lanes(&app_args(&source_base(a), app, &ms.build, ms.package.as_deref()))?;
+        let planned = recipe_run::plan_lanes(&app_args(&source_base(a), app, &ms.build))?;
         eprintln!("{}", planned.how);
         for lane in planned.lanes {
             let name = lane.lane.test_type();

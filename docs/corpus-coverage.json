@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "57c59078da0bd475e6625cda5a07c57e594b4c03",
+  "corpus_commit": "381a4ee3d9523f5e75d0a9f205229ce00e981959",
   "language": {
     "bc": "27-29",
-    "implemented": 1501,
+    "implemented": 1502,
     "methods": [
       {
         "bc": [
@@ -225,7 +225,7 @@
         "scope": "",
         "sig": "(Text)",
         "site": "lt-o-system-onprem/OBlobAndSession.al:23",
-        "state": "refused",
+        "state": "implemented",
         "type": "Blob"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 221,
+    "refused": 220,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

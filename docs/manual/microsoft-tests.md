@@ -42,6 +42,9 @@ and runs it with `--recipe microsoft`.
 - **Files.** `--junit FILE` writes one file per test app and lane, for example
   `FILE.Tests-ERM.legacy.xml`. `--output-json FILE` writes one document per test app
   and lane, and FILE is required here.
+- **Lanes only.** `--list-lanes` prints, without compiling or running, the lane of every
+  test app (codeunits, tests, Microsoft's disabled tests, tests that would run) and one
+  total per lane. `--verbose` adds one line per codeunit.
 - **Exit code.** The worst test app's: 2 if an app could not be loaded or compiled,
   else 1, 8 or 7. It is 6 only when nothing ran.
 
@@ -57,10 +60,10 @@ which they call a lane:
 
 | Test codeunit | Company |
 |---|---|
-| Legacy test apps | The RapidStart package company |
-| `TestType = UnitTest` | An empty company |
+| Legacy test apps | The DemoTool company, on every BC version, as Microsoft's CI builds it (see [Test data](test-data.md#the-demotool-company)). A RapidStart package is not used. |
+| `TestType = UnitTest`, or no `TestType` | An empty company |
 | `IntegrationTest` | The Contoso setup company (not run yet) |
-| The rest | The Contoso company with all demo data (not run yet) |
+| `Uncategorized` | The Contoso company with all demo data (not run yet) |
 
 Each lane has its own summary and, with `--junit FILE`, its own file
 (`FILE.<lane>.xml`). Microsoft's disabled tests are skipped and counted. The BCApps

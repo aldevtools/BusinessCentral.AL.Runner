@@ -73,6 +73,9 @@ pub struct TestArgs {
     pub output_json: Option<Option<PathBuf>>,
     /// `--isolation codeunit|test|disabled`: the isolation of every test codeunit (default: Codeunit).
     pub isolation: Option<al_testrun::isolation::TestIsolation>,
+    /// `--isolation required`: each test codeunit runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub runs
+    /// it on BC 28 and later (`isolation` is then `None`).
+    pub required_isolation: bool,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
@@ -116,6 +119,9 @@ pub struct TestArgs {
     /// Not a command line option: `captureValues` and `iterationTracking` of a server request.
     pub capture: al_vm::CaptureConfig,
     pub verbose: bool,
+    /// `al-runner test-microsoft --list-lanes`: print the lane of every test app and its test counts; nothing is
+    /// compiled or run.
+    pub list_lanes: bool,
     /// `--color auto|always|never` (default auto).
     pub color: crate::style::ColorMode,
     pub quiet: bool,
@@ -149,8 +155,16 @@ pub struct TestArgs {
     pub company_package: bool,
     /// `--package PATH`: the `.rapidstart` file; else the one of the artifact that holds the backup.
     pub package_path: Option<PathBuf>,
+    /// `--company-data demotool`: build the company by running the DemoTool's "Create Demo Data from Config" after
+    /// Company-Initialize, as Microsoft's Legacy test lane does on BC 29 and later (`demotool.rs`). No backup is restored.
+    pub company_demotool: bool,
+    /// `--demotool DIR`: a BCApps checkout holding `src/DemoTool` and `src/Layers/W1/DemoTool`; else the cache or a fetch.
+    pub demotool_dir: Option<PathBuf>,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
+    /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
+    /// are read (`<app name with _ for spaces>`), as Microsoft's recipe reads them; a missing folder disables nothing.
+    pub disabled_tests_apps: Vec<String>,
     /// `--parity`: skip the tests Microsoft turns off instead of running and marking them.
     pub parity: bool,
     /// `--recipe microsoft`: run the way Microsoft's CI does: one run per lane (the company each test codeunit gets),
@@ -202,7 +216,7 @@ impl TestArgs {
 
     /// Whether the run restores a company: unless `--no-test-data` says otherwise.
     pub fn wants_test_data(&self) -> bool {
-        !self.no_test_data
+        !self.no_test_data && !self.company_demotool
     }
 
     /// Whether the command line asked for test data (a backup or `--test-data`), so a failure to
@@ -529,7 +543,10 @@ ISOLATION
                          TestIsolation = Function does. A test that calls Commit() under `test`
                          is reported as not run: whether BC keeps the committed rows for the next
                          test is not pinned yet; run that codeunit with `codeunit`. `disabled`:
-                         not pinned yet, so every test is reported as not run.
+                         not pinned yet, so every test is reported as not run. `required`: each
+                         test codeunit runs under its own RequiredTestIsolation, as Business
+                         Central runs it without a test runner codeunit from version 28 (on
+                         version 27 as `codeunit`).
 
 EXIT CODES
     0  every selected test passed
@@ -615,18 +632,27 @@ TEST DATA
                          company, else 'CRONUS International Ltd.'.
     The summary says what was loaded and every exclusion: tables the runtime could not rebuild,
     tables the reader failed on (with its text), and columns left out.
-    --company-data bak|package  `bak` (default) restores the CRONUS company of the backup. `package`
+    --company-data bak|package|demotool  `bak` (default) restores the CRONUS company of the backup. `package`
                          builds the company the way Microsoft's Legacy test lane does: a fresh
                          company, Company-Initialize, then the RapidStart package of the artifact
                          (platform/ConfigurationPackages/*.rapidstart, the DemoTool's Extended data).
-                         Opt-in; nothing else changes.
+                         `demotool` builds it as that lane does on a release whose artifact has
+                         no package: a fresh company, Company-Initialize, then the DemoTool's
+                         \"Create Demo Data from Config\" (codeunit 101899), compiled from BCApps' source
+                         of the release with the W1 resource files (fetched with git, sparse, into
+                         <cache dir>/bcapps-demotool/<major>.<minor>/ once). No backup is restored. If
+                         the codeunit does not run to its end, no test runs and the reason says where
+                         it stopped. The company is kept with the install baseline in the compile cache.
+                         w1 only. Opt-in; nothing else changes.
     --package PATH       The .rapidstart file to use (implies --company-data package).
+    --demotool DIR       A BCApps checkout holding src/DemoTool and src/Layers/W1/DemoTool (implies
+                         --company-data demotool).
     --disabled-tests DIR  Microsoft's list of disabled tests: BCApps' src/DisabledTests, or one
                          app's folder (every *.json below DIR is read). Those tests still run and
                          the summary and the JUnit file mark them (property disabled_by_microsoft).
     --parity             With --disabled-tests: do not run those tests.
     --recipe microsoft   Run the way Microsoft's CI does. BCApps' settings decide the company of each test
-                         codeunit (a lane): the Legacy test apps get the RapidStart package company, a codeunit
+                         codeunit (a lane): the Legacy test apps get the DemoTool company, a codeunit
                          with TestType = UnitTest an empty company, IntegrationTest the Contoso setup company,
                          the rest the Contoso company with all demo data. One run per lane, each with its own
                          summary and, with --junit FILE, its own file (FILE.<lane>.xml). Microsoft's disabled
@@ -656,6 +682,11 @@ TEST-MICROSOFT
                          With APPs (your extensions, no test codeunits): `al-runner test APP...
                          --affected-from microsoft` without own tests (see TEST SOURCES); --impact
                          applies. An APP with test codeunits is refused.
+    --list-lanes         Print, for every test app, the lane of Microsoft's CI each of its test codeunits
+                         runs in (the build mode: Default, IntegrationTests, UncategorizedTests,
+                         LegacyTestsBucket1, ...), with codeunits, tests, tests Microsoft disables and tests
+                         that would run, then one total per lane. Nothing is compiled or run. --verbose adds
+                         one line per codeunit. Not with an APP, --junit or --output-json.
     --app NAME           (also --microsoft-app NAME) Run only this test app, by its name in the
                          artifact (`Tests-ERM`), without case. Repeatable. An unknown name exits 2
                          and lists the names.
@@ -850,6 +881,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.coverage
         || t.explain.is_some()
         || t.isolation.is_some()
+        || t.required_isolation
         || t.affected
         || t.include_failing
         || t.strict_environment
@@ -1092,12 +1124,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--auto-provision" => {}
             "--isolation" | "--test-isolation" => {
                 let v = text()?;
-                a.isolation = Some(match v.to_ascii_lowercase().as_str() {
-                    "codeunit" => al_testrun::isolation::TestIsolation::Codeunit,
-                    "test" | "function" | "method" => al_testrun::isolation::TestIsolation::Function,
-                    "disabled" => al_testrun::isolation::TestIsolation::Disabled,
-                    _ => return Err(format!("{flag} needs codeunit, test or disabled, got `{v}`")),
-                });
+                a.required_isolation = v.eq_ignore_ascii_case("required");
+                a.isolation = match v.to_ascii_lowercase().as_str() {
+                    "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
+                    "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
+                    "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
+                    "required" => None,
+                    _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
+                };
             }
             "--color" => {
                 let v = text()?;
@@ -1140,14 +1174,33 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--company-data" => {
                 let v = text()?;
                 match v.as_str() {
-                    "bak" | "backup" => a.company_package = false,
-                    "package" | "rapidstart" => a.company_package = true,
-                    other => return Err(format!("--company-data takes `bak` or `package`, not `{other}`")),
+                    "bak" | "backup" => {
+                        a.company_package = false;
+                        a.company_demotool = false;
+                    }
+                    "package" | "rapidstart" => {
+                        a.company_package = true;
+                        a.company_demotool = false;
+                    }
+                    "demotool" => {
+                        a.company_demotool = true;
+                        a.company_package = false;
+                    }
+                    other => {
+                        return Err(format!(
+                            "--company-data takes `bak`, `package` or `demotool`, not `{other}`"
+                        ));
+                    }
                 }
             }
             "--package" => {
                 a.package_path = Some(text()?.into());
                 a.company_package = true;
+            }
+            "--demotool" => {
+                a.demotool_dir = Some(text()?.into());
+                a.company_demotool = true;
+                a.company_package = false;
             }
             "--disabled-tests" => a.disabled_tests_dir = Some(text()?.into()),
             "--parity" => a.parity = true,
@@ -1163,6 +1216,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--affected-from" if !index_build => a.affected_from.push(text()?),
             "--from" if index_build => a.affected_from.push(text()?),
             "--app" if test_microsoft => a.microsoft_apps.push(text()?),
+            "--list-lanes" if test_microsoft => a.list_lanes = true,
             "--test-data-normalize-company" => {
                 return Err(format!(
                     "{flag} is not available: AL Runner v2's company normalization rules are not ported (ADR-020)"
@@ -1234,12 +1288,21 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
     }
+    if a.company_demotool {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
+        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
+            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
     if a.recipe {
         for (given, flag) in [
             (a.company_package, "--company-data package / --package"),
+            (a.company_demotool, "--company-data demotool / --demotool"),
             (a.test_data_asked_for(), "--test-data"),
             (a.no_test_data, "--no-test-data"),
             (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1473,6 +1536,7 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (!a.affected_from.is_empty(), "--affected-from"),
         (a.recipe, "--recipe"),
         (a.company_package, "--company-data package / --package"),
+        (a.company_demotool, "--company-data demotool / --demotool"),
         (a.test_data_asked_for(), "--test-data"),
         (a.no_test_data, "--no-test-data"),
         (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1498,6 +1562,9 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
                 "al-runner test-microsoft runs Microsoft's recipe (company per codeunit, Microsoft's disabled tests skipped): {flag} cannot be combined with it"
             ));
         }
+    }
+    if a.list_lanes && (extension || a.junit.is_some() || a.output_json.is_some() || a.matrix.is_some()) {
+        return Err("--list-lanes only prints the lanes of Microsoft's test apps: it takes no APP, --junit, --output-json or matrix".into());
     }
     if matches!(a.output_json, Some(None)) {
         return Err("al-runner test-microsoft writes one --output-json document per test app and lane: name a FILE (`--output-json results.json`)".into());
@@ -1649,6 +1716,15 @@ mod tests {
                 .contains("needs --affected")
         );
         assert!(p("test-microsoft --output-json").unwrap_err().contains("FILE"));
+        match p("test-microsoft --list-lanes --app Tests-ERM").unwrap() {
+            Command::TestMicrosoft(a) => assert!(a.list_lanes),
+            other => panic!("{other:?}"),
+        }
+        for extra in ["MyApp", "--junit r.xml", "--output-json r.json"] {
+            let e = p(&format!("test-microsoft --list-lanes {extra}")).unwrap_err();
+            assert!(e.contains("--list-lanes"), "{extra}: {e}");
+        }
+        assert!(p("test --list-lanes").unwrap_err().contains("unknown option"));
         assert!(p("test-microsoft --output-json r.json").is_ok());
         // `--app` is the short form in this command only; `--microsoft-app` needs the command too.
         assert!(p("test A --app Tests-ERM").unwrap_err().contains("unknown option"));
@@ -1833,6 +1909,25 @@ mod tests {
     }
 
     #[test]
+    fn company_data_demotool_builds_the_company_without_a_backup() {
+        let a = test_args("test A --company-data demotool");
+        assert!(a.company_demotool && !a.company_package);
+        assert!(!a.wants_test_data(), "no backup is restored under the DemoTool company");
+        let a = test_args("test A --demotool d");
+        assert!(a.company_demotool && a.demotool_dir == Some(PathBuf::from("d")));
+        assert!(!test_args("test A --company-data demotool --company-data bak").company_demotool);
+        for bad in [
+            "test A --company-data demotool --test-data x.bak",
+            "test A --company-data demotool --no-test-data",
+            "test A --company-data demotool --country us",
+            "test A --company-data demotool --recipe microsoft",
+        ] {
+            assert!(p(bad).is_err(), "{bad}");
+        }
+        assert!(HELP.contains("--company-data bak|package|demotool") && HELP.contains("--demotool DIR"));
+    }
+
+    #[test]
     fn server_url_is_checked_when_parsed() {
         assert_eq!(
             test_args("test A --server-url http://h:1/BC/").server_url.as_deref(),
@@ -1891,6 +1986,8 @@ mod tests {
         assert_eq!(a.test_timeout_secs, Some(7));
         assert_eq!(a.filters, vec!["Codeunit1.Z"]);
         assert_eq!(test_args("test A --isolation codeunit").isolation, Some(I::Codeunit));
+        let r = test_args("test A --isolation Required");
+        assert_eq!((r.isolation, r.required_isolation), (None, true));
         assert_eq!(
             test_args("test A --test-isolation disabled").isolation,
             Some(I::Disabled)
@@ -1898,7 +1995,7 @@ mod tests {
         assert!(
             p("test A --isolation nope")
                 .unwrap_err()
-                .contains("codeunit, test or disabled")
+                .contains("codeunit, test, disabled or required")
         );
     }
 

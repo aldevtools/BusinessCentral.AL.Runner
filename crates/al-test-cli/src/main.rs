@@ -568,10 +568,18 @@ fn run_version(
         trace: explained.is_some(),
         // The corpus has no test data: its oracle is a database the cases fill themselves.
         test_data: None,
+        company_data: None,
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
         isolation: None,
+        // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
+        // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
+        // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of
+        // the platform (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+        required_isolation: chosen
+            .target
+            .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28),
         coverage: false,
         execute: false,
         capture: Default::default(),

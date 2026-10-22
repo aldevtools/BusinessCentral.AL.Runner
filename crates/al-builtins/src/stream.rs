@@ -540,6 +540,41 @@ fn blob_has_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NR
     Ok(Value::Boolean(!buf.bytes.is_empty()))
 }
 
+/// `Blob.Import(Name)` (al-language-onprem/lt-o-system-onprem/OBlobAndSession.al:27-58): the blob holds the bytes of the
+/// file, read through the host file system. A missing file raises `FileNotFound` and the blob keeps what it held (:74-103,
+/// `import missing|code`, `blob length after failed import` 1); the text names the server's path and only its start and end
+/// are pinned, so it is raised as an unpinned text. The name it returns is pinned only by its end (`return ends with file
+/// name`): a call that uses it is refused, as is a blank name (pinned for Export only).
+fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let name = match a.first().and_then(crate::native::text_of) {
+        Some(t) => t.to_string(),
+        None => return unsupported(format!("Blob.Import of {}", a.first().describe())),
+    };
+    if name.trim().is_empty() {
+        return unsupported("Blob.Import with a blank file name (the error is pinned for Blob.Export only)");
+    }
+    if c.ret_used() {
+        return unsupported("the file name Blob.Import returns (only its end is pinned)");
+    }
+    let Some(bytes) = c.fs_read(&name)? else {
+        return Err(Signal::Error(Box::new(crate::native::unpinned_text_error(
+            "FileNotFound",
+            "the text of Blob.Import's FileNotFound error, which names the server's path (only `File ` and ` was not found.` are pinned)",
+        ))));
+    };
+    let b = blob_of(r)?;
+    let mut buf = b.borrow_mut();
+    buf.bytes = bytes;
+    buf.write_pos = 0;
+    buf.loaded = true;
+    buf.refetch = false;
+    buf.persisted = false;
+    buf.written = true;
+    buf.inserted = false;
+    buf.render_pending = None;
+    Ok(Value::Text(name.into()))
+}
+
 fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
@@ -1398,6 +1433,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("Blob", "CreateInStream", ["InStream", ..]) => blob_create_in,
         ("Blob", "HasValue", []) => blob_has_value,
         ("Blob", "Length", []) => blob_length,
+        ("Blob", "Import", ["Text"]) => blob_import,
         ("InStream", "EOS", []) => in_eos,
         ("InStream", "ResetPosition", []) => in_reset,
         ("InStream", "Length", []) => in_length,

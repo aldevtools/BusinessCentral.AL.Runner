@@ -204,6 +204,11 @@ pub enum Gate {
     /// (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49). Consumed by
     /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression.
     AutoFormatAmountFieldRoundsFrom28,
+    /// The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub from BC 28, under the codeunit's
+    /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the
+    /// CI's harness, not of the platform (codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 36-39). Consumed by
+    /// `al-test-cli` (`RunOptions::required_isolation`).
+    TestRunnerHubRequiredIsolationFrom28,
 }
 
 impl Gate {
@@ -261,6 +266,7 @@ impl Gate {
         Gate::HttpHandlerUnderAllowFromHandlerFrom29,
         Gate::HttpBlankHeaderNameIsFormatFrom29,
         Gate::HttpHeaderNameRulesProbedFrom28,
+        Gate::TestRunnerHubRequiredIsolationFrom28,
     ];
 
     /// The first BC major with the new behaviour.
@@ -318,7 +324,8 @@ impl Gate {
             | Gate::JsonSelectTokensListFrom28
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
-            | Gate::AutoFormatAmountFieldRoundsFrom28 => 28,
+            | Gate::AutoFormatAmountFieldRoundsFrom28
+            | Gate::TestRunnerHubRequiredIsolationFrom28 => 28,
         }
     }
 
@@ -865,6 +872,10 @@ impl Gate {
             Gate::HttpBlankHeaderNameIsFormatFrom29 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "304-308",
+            }],
+            Gate::TestRunnerHubRequiredIsolationFrom28 => &[Evidence {
+                file: "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al",
+                lines: "443,531,724",
             }],
             Gate::HttpHeaderNameRulesProbedFrom28 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",

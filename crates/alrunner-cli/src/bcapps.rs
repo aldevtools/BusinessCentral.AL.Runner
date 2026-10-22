@@ -140,6 +140,11 @@ pub fn resolve(
 /// The real fetch: a shallow clone with no file contents, then only the recipe folders checked out. The `.git` folder is
 /// removed afterwards; the cache holds the files only.
 pub fn git_fetch(url: &str, branch: &str, dest: &Path) -> Result<(), String> {
+    git_fetch_parts(url, branch, dest, &SPARSE_PATHS)
+}
+
+/// [`git_fetch`] of other parts of the repository (the DemoTool's source and files, `demotool.rs`).
+pub fn git_fetch_parts(url: &str, branch: &str, dest: &Path, parts: &[&str]) -> Result<(), String> {
     let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
         let mut c = Command::new("git");
         c.args(args).env("GIT_TERMINAL_PROMPT", "0");
@@ -174,7 +179,7 @@ pub fn git_fetch(url: &str, branch: &str, dest: &Path) -> Result<(), String> {
         None,
     )?;
     let mut args = vec!["sparse-checkout", "set"];
-    args.extend(SPARSE_PATHS);
+    args.extend(parts);
     run(&args, Some(dest))?;
     std::fs::remove_dir_all(dest.join(".git")).map_err(|e| format!("{}: {e}", dest.display()))
 }

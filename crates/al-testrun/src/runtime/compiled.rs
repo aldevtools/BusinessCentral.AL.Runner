@@ -24,6 +24,11 @@ pub struct RunOptions {
     /// `al-runner test --isolation`: the isolation of every test codeunit, instead of the runner's property (`None`: the runner's,
     /// else Codeunit).
     pub isolation: Option<TestIsolation>,
+    /// Each test codeunit of a suite without a runner runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub
+    /// runs a test codeunit that has no handlers: the corpus CI on BC 28 and later. Off: under Codeunit isolation, as
+    /// Microsoft's runner 130450 runs every codeunit (the corpus CI on BC 27), whatever the property says
+    /// (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+    pub required_isolation: bool,
     /// Count how often each statement of the workspace's apps runs, per test (`al-runner test --coverage`).
     /// Off, a run pays one branch per statement.
     pub coverage: bool,
@@ -71,6 +76,10 @@ pub struct RunOptions {
     /// (codeunit id, test name in lower case); the others are left out as BC's test tool leaves out the test methods
     /// that are not enabled. `None`: every test of the codeunit runs.
     pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// A dependency codeunit that builds the company's data in the install baseline, after Company-Initialize
+    /// (`al-runner test --company-data demotool`, `company_data.rs`). The baseline then always runs, and a codeunit that
+    /// does not run to its end leaves every test not run. `None`: the company is what the installs leave.
+    pub company_data: Option<crate::company_data::CompanyData>,
     /// Several passes over the same compile and install baseline (a `serve` request with `entries`, issue 5635): each
     /// entry runs its own tests with its own resource files, from the same database. Empty: one pass, as `only`,
     /// `run_only` and `hooks` say.

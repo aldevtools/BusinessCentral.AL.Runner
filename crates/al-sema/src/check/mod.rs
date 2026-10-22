@@ -172,6 +172,9 @@ pub struct Roots {
     /// The install baseline: the install codeunits of the dependency apps and Base Application's
     /// `Company-Initialize` (codeunit 2).
     pub baseline: bool,
+    /// With `baseline`: dependency codeunits (by id) whose `OnRun` the install baseline runs after `Company-Initialize`
+    /// to build the company's data (`--company-data demotool`: the DemoTool's `Create Demo Data from Config`). Empty: none.
+    pub company_data: Vec<u32>,
     /// A test selection (`al-test-cli --codeunit ...`): the test codeunits to run, as (app index,
     /// object id). Every other test codeunit of a workspace app is neither checked nor compiled
     /// (its routines are stubs that refuse), so the demand starts from the selected tests and the
@@ -290,6 +293,16 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut timings = CheckTimings::default();
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), demand_mode);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
+    if roots.baseline {
+        c.company_data_apps = (0..ws.objects.len())
+            .filter(|&oi| {
+                ws.is_dependency(oi)
+                    && ws.objects[oi].kind == ObjKind::Codeunit
+                    && ws.objects[oi].id.is_some_and(|id| roots.company_data.contains(&id))
+            })
+            .map(|oi| ws.objects[oi].app)
+            .collect();
+    }
     // The files of the dependency objects the checker reaches are parsed ahead on other
     // threads; parsing is a third of the cost and the checker only waits for what is not ready.
     let demand = if demand_mode {
@@ -318,7 +331,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
                 .collect();
             let started = std::time::Instant::now();
             if roots.baseline {
-                c.reach_baseline();
+                c.reach_baseline(&roots.company_data);
             }
             // Install code of an app under test that runs: an install codeunit, or a subscriber to the install events
             // of `Extension Triggers` (ADR-046 decision 1), that the selection keeps.
@@ -774,6 +787,9 @@ pub(crate) struct Checker<'a> {
     /// Check the routines a selection left out as unreached too (`Workspace::routine_unreached`): the check of what a
     /// selection leaves out, for its compile errors only (`left_out_diagnostics`).
     all_routines: bool,
+    /// The apps (indexes) of the company data codeunits (`Roots::company_data`): their code reaches the reports it
+    /// hands to a call, as workspace code does (`reach_named_object`).
+    company_data_apps: Vec<usize>,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].

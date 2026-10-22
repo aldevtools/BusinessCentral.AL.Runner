@@ -1875,6 +1875,162 @@ fn isolation_refusals_say_why_and_what_to_use_instead() {
     assert_eq!(code(&o), 0, "{}", text(&o));
 }
 
+/// Issues 5607 and 5609 with RequiredTestIsolation on the test codeunit: `--isolation required` runs each test codeunit
+/// under its own RequiredTestIsolation, as BC's TestRunnerHub does on BC 28 and later (corpus
+/// codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 25-39).
+const REQUIRED: &str = r#"
+table 50670 "Req Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50670 "Req Function"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+
+    [Test]
+    procedure A_CommitCall()
+    var
+        R: Record "Req Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        Commit();
+    end;
+
+    [Test]
+    procedure B_NextTestSeesNothing()
+    var
+        R: Record "Req Row";
+    begin
+        if R.Count() <> 0 then
+            Error('kept');
+    end;
+}
+codeunit 50671 "Req Disabled A"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+
+    [Test]
+    procedure Passes()
+    var
+        R: Record "Req Row";
+    begin
+        R.Id := 2;
+        R.Insert();
+    end;
+}
+codeunit 50672 "Req Disabled B"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+
+    [Test]
+    procedure SeesTheRow()
+    var
+        R: Record "Req Row";
+    begin
+        if not R.Get(2) then
+            Error('gone');
+    end;
+}
+"#;
+
+/// A codeunit the TestRunnerHub mode still refuses: RequiredTestIsolation = Function with handlers.
+const REQUIRED_HANDLERS: &str = r#"
+codeunit 50675 "Req Handlers"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure Shows()
+    begin
+        Message('x');
+    end;
+
+    [MessageHandler]
+    procedure Msg(Text: Text[1024])
+    begin
+    end;
+}
+"#;
+
+#[test]
+fn isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("req");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005670", "Req", &[]),
+    );
+    write(&app, "T.al", REQUIRED);
+    let a = app.to_str().unwrap();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["test", a, "--no-download", "--no-test-data", "--output-json"];
+        args.extend_from_slice(extra);
+        alrunner(&args)
+    };
+    // BC 28 and later: Function returns the next test to its start, the Commit() included (QuCommitIsolation.al:466-488);
+    // Disabled keeps the row for the next codeunit (QuCommitIsolation.al:695-718).
+    let o = run(&["--isolation", "required"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert_eq!(json_of(&o)["passed"], 4, "{}", text(&o));
+    // The default is unchanged: Codeunit isolation for every codeunit, so the second test sees the first one's row.
+    let o = run(&[]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert_eq!(
+        row(&json_of(&o), "Codeunit50670.B_NextTestSeesNothing")["message"],
+        "kept"
+    );
+    assert_eq!(row(&json_of(&o), "Codeunit50672.SeesTheRow")["message"], "gone");
+    // BC 27: every codeunit runs under Codeunit isolation (QuCommitIsolation.al:36-40, the BC28PLUS guards), and the
+    // report says so.
+    let o = run(&["--isolation", "required", "--bc-version", "27.5.46862.48827"]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert_eq!(
+        row(&json_of(&o), "Codeunit50670.B_NextTestSeesNothing")["message"],
+        "kept"
+    );
+    assert!(
+        text(&o).contains("Business Central 27 runs every test codeunit under TestIsolation = Codeunit"),
+        "{}",
+        text(&o)
+    );
+    // The old values stay refused: a Commit() under --isolation test.
+    let o = run(&["--isolation", "test"]);
+    let m = row(&json_of(&o), "Codeunit50670.A_CommitCall")["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(m.contains("Commit inside a test under TestIsolation = Function"), "{m}");
+    // What the mode does not cover is refused per test, with the reason.
+    let h = d.path().join("handlers");
+    write(
+        &h,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005675", "ReqHandlers", &[]),
+    );
+    write(&h, "T.al", REQUIRED_HANDLERS);
+    let o = alrunner(&[
+        "test",
+        h.to_str().unwrap(),
+        "--no-download",
+        "--no-test-data",
+        "--output-json",
+        "--isolation",
+        "required",
+    ]);
+    assert_eq!(code(&o), 7, "{}", text(&o));
+    let m = row(&json_of(&o), "Codeunit50675.Shows")["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        m.contains("RequiredTestIsolation = Function on a test codeunit with handlers"),
+        "{m}"
+    );
+}
 /// Issue 5608: an outbound request no handler answers fails with BC's pinned error where BC fails it without a
 /// connection (an internal address: PyHttpPolicy.al:82-90) and under BlockOutboundRequests (AyHttpHandler.al:121); a
 /// request BC sends for real is refused with a reason that says why and what to do instead.

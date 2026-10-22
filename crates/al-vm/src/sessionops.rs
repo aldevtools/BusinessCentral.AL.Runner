@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// One `NumberSequence`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sequence {
     pub increment: i64,
     /// The value `Next` hands out when nothing was allocated yet.

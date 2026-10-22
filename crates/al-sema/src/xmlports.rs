@@ -50,6 +50,7 @@ pub struct Layout {
     pub format_evaluate_xml: bool,
     /// `FormatEvaluate` as declared.
     pub format_evaluate_declared: Option<bool>,
+    pub no_default_fields_validation: bool,
     pub reasons: Vec<String>,
     /// Reasons only running the port refuses (see `ir::XmlPort::run_unsupported`).
     pub run_reasons: Vec<String>,
@@ -119,8 +120,10 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "namespaceprefix",
             "autocalcfield",
             "unbound",
+            "fieldvalidate",
         ],
-        ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound"],
+        // `occurrence` is checked in `visit`: Required or Optional on a field attribute of a table element.
+        ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound", "occurrence"],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
         ir::XmlNodeKind::Text => &["xmlname", "minoccurs", "maxoccurs"],
@@ -147,6 +150,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         encoding: None,
         format_evaluate_xml: false,
         format_evaluate_declared: None,
+        no_default_fields_validation: false,
         reasons: Vec::new(),
         run_reasons: Vec::new(),
     };
@@ -246,6 +250,16 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     .run_reasons
                     .push(format!("xmlport property formatevaluate = {other} is not pinned")),
             },
+            // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334: true and left out validate the
+            // same; false validates only FieldValidate = Yes. Pinned for Format = Xml; the import refuses another format where
+            // validation would be seen (al-vm xmlports.rs).
+            "defaultfieldsvalidation" => match bool_prop(&value) {
+                Some(on) => out.no_default_fields_validation = !on,
+                None => out.run_reasons.push(format!(
+                    "xmlport property defaultfieldsvalidation = {} is not pinned",
+                    value.trim()
+                )),
+            },
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             other => out
                 .run_reasons
@@ -264,6 +278,15 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for top in obj.sections() {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
+            // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
+            // nothing in it changes nothing for Import and Export. That the same holds with empty `layout` and
+            // `actions` sections inside it (the DemoTool's xmlport 101899) is not pinned: refused until probed
+            // (docs/probes-needed.md, "The DemoTool company").
+            "requestpage" if request_page_is_empty(&top) => {}
+            "requestpage" if request_page_has_only_empty_sections(&top) => out.run_reasons.push(
+                "an xmlport request page with an empty layout or actions section is not pinned (only `requestpage { }` is)"
+                    .into(),
+            ),
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -276,6 +299,25 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     out
+}
+
+fn section_is_bare(s: &ast::Section) -> bool {
+    s.properties().next().is_none() && s.triggers().next().is_none() && s.var_decls().next().is_none()
+}
+
+/// A `requestpage` section with nothing in it: no property, trigger, variable or section.
+fn request_page_is_empty(rp: &ast::Section) -> bool {
+    section_is_bare(rp) && rp.sections().next().is_none()
+}
+
+/// A `requestpage` section that holds only empty `layout` and `actions` sections (and at least one of them).
+fn request_page_has_only_empty_sections(rp: &ast::Section) -> bool {
+    section_is_bare(rp)
+        && rp.sections().all(|s| {
+            matches!(s.name().to_ascii_lowercase().as_str(), "layout" | "actions")
+                && section_is_bare(&s)
+                && s.sections().next().is_none()
+        })
 }
 
 fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
@@ -305,14 +347,24 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // through a request page they cancel (handlers/TestReqPageBoundVisibility.al:172).
                 out.run_reasons
                     .push(format!("property {pn} of {section_name} {name} is not supported yet"));
+            } else if pn == "fieldvalidate" && bool_prop(&p.value_text()).is_none() {
+                out.run_reasons.push(format!(
+                    "fieldvalidate = {} of {section_name} {name} is not pinned",
+                    p.value_text().trim()
+                ));
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
             } else if pn == "occurrence" {
                 // Pinned for a text attribute of the root, of a container text element and of a table element below it
                 // (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441-560, QS_TextAttr_*; earlier on a table
                 // element below the root: report/lt-u-report-props/UPropertyTests.al:336). Below a field element it is not.
+                // On a field attribute it is pinned for one of a table element, on import (platform/lt-ag-contoso/
+                // AgXmlPortImport.al:27-53, :248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
                 let value = p.value_text().trim().to_ascii_lowercase();
-                let parent_ok = parent.is_some_and(|i| matches!(out.nodes[i].kind, K::Text | K::Table));
+                let parent_ok = parent.is_some_and(|i| match kind {
+                    K::FieldAttr => out.nodes[i].kind == K::Table,
+                    _ => matches!(out.nodes[i].kind, K::Text | K::Table),
+                });
                 if !parent_ok || !matches!(value.as_str(), "required" | "optional") {
                     out.run_reasons.push(format!(
                         "property occurrence = {value} of {section_name} {name} is not supported (not pinned)"
@@ -511,10 +563,11 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             auto_calc: layout.property(i, "AutoCalcField").and_then(|v| bool_prop(&v)),
             unbound: kind == ir::XmlNodeKind::Field
                 && layout.property(i, "Unbound").and_then(|v| bool_prop(&v)) == Some(true),
-            required: (kind == ir::XmlNodeKind::TextAttr)
+            required: matches!(kind, ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr)
                 .then(|| layout.property(i, "Occurrence"))
                 .flatten()
                 .map(|v| v.trim().eq_ignore_ascii_case("required")),
+            field_validate: layout.property(i, "FieldValidate").and_then(|v| bool_prop(&v)),
             triggers,
         };
         match kind {
@@ -697,6 +750,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         xml_v11: layout.xml_v11,
         format_evaluate_xml: layout.format_evaluate_xml,
         format_evaluate_declared: layout.format_evaluate_declared.is_some(),
+        no_default_fields_validation: layout.no_default_fields_validation,
         nodes,
         source_slot: cx.source_slot,
         destination_slot: cx.destination_slot,
@@ -727,6 +781,44 @@ mod tests {
             names,
             vec![("Docs", None), ("T", Some(0)), ("A", Some(1)), ("B", Some(1))]
         );
+    }
+
+    // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
+    // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. Empty `layout`
+    // and `actions` sections inside it (the DemoTool's xmlport 101899) are not pinned, nor is one with a control, an
+    // action, a property or a trigger.
+    #[test]
+    fn an_empty_request_page_runs_and_one_with_content_is_refused() {
+        let schema = "schema { textelement(R) { } }";
+        let l = layout_of(&format!("xmlport 1 X {{ {schema} requestpage {{ }} }}"));
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        for sub in [
+            "requestpage { layout { } actions { } }",
+            "requestpage { layout { } }",
+            "requestpage { actions { } }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {sub} }}"));
+            assert!(
+                l.run_reasons
+                    .iter()
+                    .any(|r| r.contains("empty layout or actions section")),
+                "{sub}: {:?}",
+                l.run_reasons
+            );
+        }
+        for full in [
+            "requestpage { layout { area(content) { field(F; F) { } } } }",
+            "requestpage { actions { area(processing) { action(A) { } } } }",
+            "requestpage { SaveValues = true; }",
+            "requestpage { trigger OnOpenPage() begin end; }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {full} }}"));
+            assert!(
+                l.run_reasons.iter().any(|r| r.contains("request pages")),
+                "{full}: {:?}",
+                l.run_reasons
+            );
+        }
     }
 
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
@@ -768,7 +860,7 @@ mod tests {
     #[test]
     fn what_the_corpus_does_not_pin_becomes_a_reason() {
         let l = layout_of(
-            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { } }",
+            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { SaveValues = true; } }",
         );
         let all = [l.reasons.clone(), l.run_reasons.clone()].concat().join("; ");
         assert!(all.contains("Format = binary"), "{all}");

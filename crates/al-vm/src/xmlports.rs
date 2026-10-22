@@ -899,10 +899,13 @@ impl Session {
         // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. So has a text
         // attribute declared `Occurrence = Required`, also when its value is empty (xmlport/lt-qr-xmlport-container-occurs/
         // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Rows; report/lt-u-report-props/UPropertyTests.al:336).
-        // A text attribute without `Occurrence` may be missing, as before these pins.
+        // A text attribute without `Occurrence` may be missing, as before these pins. A field attribute declared
+        // `Occurrence = Optional` may be missing and leaves its field as it is, one declared Required may not
+        // (platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
         let missing = schema.children(node).into_iter().find(|&a| {
             let n = schema.node(a);
-            (n.kind == ir::XmlNodeKind::FieldAttr || (n.kind == ir::XmlNodeKind::TextAttr && n.required == Some(true)))
+            ((n.kind == ir::XmlNodeKind::FieldAttr && n.required != Some(false))
+                || (n.kind == ir::XmlNodeKind::TextAttr && n.required == Some(true)))
                 && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name)
         });
         // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
@@ -1062,9 +1065,73 @@ impl Session {
         } else {
             self.xp_value(text, &ty, false)?
         };
-        rec.borrow_mut().fields[pos] = value;
+        rec.borrow_mut().fields[pos] = value.clone();
+        self.xp_validate_field(schema, node, &rec, pos, value)?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
+    }
+
+    /// The validation of an imported field (xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334):
+    /// on a Format = Xml port a field element is validated unless it says `FieldValidate = No`, or, with
+    /// `DefaultFieldsValidation = false`, when it says `FieldValidate = Yes`. Validated, its OnValidate runs with xRec
+    /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
+    /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
+    /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
+    /// format, a field attribute, and a validated element with an OnAfterAssignField trigger (which runs first is not
+    /// pinned).
+    fn xp_validate_field(
+        &mut self,
+        schema: &Schema,
+        node: usize,
+        rec: &Rec,
+        pos: usize,
+        value: Value,
+    ) -> Result<(), Signal> {
+        let n = schema.node(node);
+        let t = self.table(rec)?;
+        let engine = self.engine.clone();
+        let Some(field) = engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.get(pos))
+        else {
+            return Ok(());
+        };
+        let mut seen = field.on_validate.is_some()
+            || !field.ext_before_validate.is_empty()
+            || !field.ext_after_validate.is_empty()
+            || (field.relation && engine.field_facts[t.object as usize][pos].validate_relation);
+        if !seen {
+            seen = self.listened(&t, "onbeforevalidateevent", Some(&field.name))?
+                || self.listened(&t, "onaftervalidateevent", Some(&field.name))?;
+        }
+        if !seen {
+            return Ok(());
+        }
+        let xp = schema.xp();
+        if xp.format != al_ir::XmlFormat::Xml {
+            return unsupported(format!(
+                "XmlPort import of {} into {}.{}, which has validation code: whether a port of a Format other than Xml validates it is not pinned",
+                n.name, t.name, field.name
+            ));
+        }
+        if n.kind != al_ir::XmlNodeKind::Field {
+            return unsupported(format!(
+                "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
+                n.name, t.name, field.name
+            ));
+        }
+        if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {
+            return Ok(());
+        }
+        if n.trigger("onafterassignfield").is_some() {
+            return unsupported(format!(
+                "XmlPort import of field element {} with OnAfterAssignField into a validated field: which runs first is not pinned",
+                n.name
+            ));
+        }
+        self.record_op(RecordOp::Validate, rec, &mut [Value::Integer(pos as i32), value])?;
+        Ok(())
     }
 
     /// The value an imported text becomes in a field of type `ty`. An empty text is the type's
@@ -1944,6 +2011,14 @@ impl Session {
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
+                    // AgXmlPortImport.al pins `Occurrence` of a field attribute on import only. Whether an empty value is
+                    // written or left out on export is not pinned (the text attribute's rule above is not assumed here).
+                    if v.is_empty() && c.required.is_some() {
+                        return unsupported(format!(
+                            "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
+                            c.xml_name
+                        ));
+                    }
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {

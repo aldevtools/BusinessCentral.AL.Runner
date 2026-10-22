@@ -341,13 +341,24 @@ from the package and read Company Information."Country/Region Code"). Until then
    name, so entries for tests a 27.5 artifact lacks do nothing.
 2. The lane of a test codeunit: a test app in `TestConfiguration.json` (`LegacyTests-Bucket1`, `-Bucket2`) is Legacy,
    whatever the codeunit says. For any other app the AL property `TestType` of the codeunit decides:
-   `UnitTest`, `IntegrationTest`, none or `Uncategorized`; `AITest` is in no build mode and is left out.
-3. Company per lane: Legacy runs `--company-data package` (company name from the settings, CRONUS International Ltd.);
+   `UnitTest` or none, `IntegrationTest`, `Uncategorized`; `AITest` is in no build mode and is left out. A codeunit
+   without the property runs in the UnitTest lane: checked 2026-10-22 against Microsoft's CI (BCApps `releases/29.x`,
+   run 39519586834), where the Default job ran 242 such codeunits and the UncategorizedTests job none.
+3. Company per lane: Legacy runs `--company-data demotool` on every BC version (company name from the settings,
+   CRONUS International Ltd.): BCApps' CI runs the DemoTool's "Create Demo Data from Config" after Company-Initialize
+   (`Invoke-LegacyDemoDataTool`, 27.5, 28.5 and 29.0); the RapidStart package is not used (owner decision 2026-10-22);
    UnitTest runs without demo data (Company-Initialize and the installs only). IntegrationTest and Uncategorized need
    Microsoft's Contoso Demo Tool (`CreateSetupDemoData`, `CreateAllDemoData`, then the tenant data codeunit 5691, which also
    creates the Web Service rows). The runner does not run it yet, so those lanes print `NOT RUN` with the reason and the
    exit code is 7.
-4. Microsoft's disabled tests are skipped (`--parity`) and counted per lane. Each lane has its own summary and, with
+   A codeunit with `RequiredTestIsolation = Disabled` runs only in the UnitTest lane: BCApps
+   `build/scripts/RunTestsInBcContainer.ps1` runs a second pass with `requiredTestIsolation = Disabled` (test runner
+   130451) for `UnitTest` only, and in run 39519586834 the IntegrationTests job ran none of its 13 such codeunits.
+   `al-runner test-microsoft --list-lanes` prints the lane of every codeunit without compiling or running anything.
+4. Microsoft's disabled tests are skipped (`--parity`) and counted per lane. Each test app reads only its own folder,
+   `src/DisabledTests/<app name with _ for spaces>/*.json` (`Get-DisabledTests -AppName` in the same script): the
+   folder of E-Document Core Tests disables codeunit 139235 with `*`, and Microsoft still runs its 105 tests in PEPPOL
+   Tests. Each lane has its own summary and, with
    `--junit FILE`, its own `FILE.<lane>.xml`.
 
 Time limit per test (2026-10-22): Microsoft's recipe sets no time limit per test, so `--recipe microsoft` (and

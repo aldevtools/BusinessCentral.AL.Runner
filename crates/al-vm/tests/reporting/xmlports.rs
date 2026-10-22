@@ -4,6 +4,23 @@ use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 const FIXTURES: &str = r#"
+// Occurrence = Required and Optional on field attributes of a table element (platform/lt-ag-contoso/AgXmlPortImport.al:27-53).
+xmlport 60101 "ALT FieldAttr Occ"
+{
+    Direction = Both; Format = Xml; UseRequestPage = false;
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Row; "ALT Universal")
+            {
+                fieldattribute(Id; Row."Entry No.") { Occurrence = Required; }
+                fieldattribute(Name; Row."Text Field") { Occurrence = Optional; }
+                fieldattribute(Num; Row."Integer Field") { Occurrence = Required; }
+            }
+        }
+    }
+}
 // UseLax (YXmlPortProps.al:67, :87).
 xmlport 60091 "ALT Lax" { Format = Xml; UseLax = true; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
 xmlport 60092 "ALT Strict" { Format = Xml; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
@@ -1974,5 +1991,75 @@ fn a_temporary_table_element_without_autosave_holds_only_what_its_triggers_inser
     assert_eq!(
         temp_no_save("ALT Temp No Save Xml", true, data),
         "before id=1 txt=one temp=0;after id=1 temp=1 real=0;before id=2 txt=two temp=1;after id=2 temp=2 real=0; count=2 rows=1:one;2:two; real after=0"
+    );
+}
+
+const FA_OCC_VARS: &str =
+    "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; U: Record \"ALT Universal\"; Rows: Text;";
+
+/// `ok <rows>` or `<error text>|<code>`.
+fn fa_occ_import(xml: &str) -> String {
+    match run(
+        FA_OCC_VARS,
+        &format!(
+            "H.Stage(B, InStr, '{xml}'); XmlPort.Import(60101, InStr);
+             if U.FindSet() then repeat Rows += Format(U.\"Entry No.\") + ':' + U.\"Text Field\" + ':' + Format(U.\"Integer Field\") + ','; until U.Next() = 0;
+             exit('ok ' + Rows);"
+        ),
+    ) {
+        Ok(Value::Text(s)) => s.to_string(),
+        Err(Signal::Error(e)) => format!("{}|{}", e.message, e.code),
+        other => panic!("{other:?}"),
+    }
+}
+
+// platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import: a missing Optional field
+// attribute leaves the field at its initial value; a missing Required one fails the schema check, and the first one the element
+// lacks is named.
+#[test]
+fn an_import_checks_the_occurrence_of_field_attributes() {
+    let pre = "Imported XML cannot validate with the schema: ";
+    assert_eq!(
+        fa_occ_import("<Root><Row Id=\"10\" Name=\"ten\" Num=\"1\"/></Root>"),
+        "ok 10:ten:1,"
+    );
+    assert_eq!(fa_occ_import("<Root><Row Id=\"10\" Num=\"1\"/></Root>"), "ok 10::1,");
+    assert_eq!(
+        fa_occ_import("<Root><Row Name=\"ten\" Num=\"1\"/></Root>"),
+        format!("{pre}The required attribute 'Id' is missing.|XmlPortInvalidXml")
+    );
+    assert_eq!(
+        fa_occ_import("<Root><Row Id=\"10\" Name=\"ten\"/></Root>"),
+        format!("{pre}The required attribute 'Num' is missing.|XmlPortInvalidXml")
+    );
+    assert_eq!(
+        fa_occ_import("<Root><Row/></Root>"),
+        format!("{pre}The required attribute 'Id' is missing.|XmlPortInvalidXml")
+    );
+    assert_eq!(
+        fa_occ_import("<Root/>"),
+        format!(
+            "{pre}The element 'Root' has incomplete content. List of possible elements expected: 'Row'.|XmlPortInvalidXml"
+        )
+    );
+}
+
+// The export of a field attribute with an explicit Occurrence and an empty value is not pinned (AgXmlPortImport.al pins import
+// only); it is refused. A value that is not empty is written as without the property.
+#[test]
+fn an_export_of_an_empty_field_attribute_with_an_occurrence_is_refused() {
+    let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; OutStr: OutStream; U: Record \"ALT Universal\";";
+    let set = "U.\"Entry No.\" := 10; U.\"Text Field\" := 'ten'; U.\"Integer Field\" := 1; U.Insert();
+               B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); XmlPort.Export(60101, OutStr); B.Modify(); exit(H.ReadAll(B));";
+    assert!(
+        text(vars, set).contains("<Row Id=\"10\" Name=\"ten\" Num=\"1\" />"),
+        "{}",
+        text(vars, set)
+    );
+    let empty = set.replace("'ten'", "''");
+    assert!(
+        refusal(vars, &empty).contains("Occurrence"),
+        "{}",
+        refusal(vars, &empty)
     );
 }

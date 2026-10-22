@@ -1349,3 +1349,86 @@ codeunit 50672 \"Res Install Tests\" { Subtype = Test; [Test] procedure Installe
         "{lines:?}"
     );
 }
+
+/// Issues 5607 and 5609 with RequiredTestIsolation on the test codeunit: `testIsolation: "required"` runs each test
+/// codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub does on BC 28 and later (corpus
+/// codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 25-39).
+const REQUIRED: &str = r#"
+table 50680 "Req Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50680 "Req Function"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+
+    [Test]
+    procedure A_CommitCall()
+    var
+        R: Record "Req Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        Commit();
+    end;
+
+    [Test]
+    procedure B_NextTestSeesNothing()
+    var
+        R: Record "Req Row";
+    begin
+        if R.Count() <> 0 then
+            Error('kept');
+    end;
+}
+codeunit 50681 "Req Disabled A"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+
+    [Test]
+    procedure Passes()
+    var
+        R: Record "Req Row";
+    begin
+        R.Id := 2;
+        R.Insert();
+    end;
+}
+codeunit 50682 "Req Disabled B"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+
+    [Test]
+    procedure SeesTheRow()
+    var
+        R: Record "Req Row";
+    begin
+        if not R.Get(2) then
+            Error('gone');
+    end;
+}
+"#;
+
+#[test]
+fn test_isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "required", REQUIRED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "required"}));
+    let lines = s.until_summary();
+    let summary = lines.last().unwrap();
+    assert_eq!(
+        (summary["passed"].as_u64(), summary["exitCode"].as_u64()),
+        (Some(4), Some(0)),
+        "{lines:?}"
+    );
+    // The default request is unchanged: Codeunit isolation for every codeunit.
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    assert_eq!(lines.last().unwrap()["failed"].as_u64(), Some(2), "{lines:?}");
+    // A value it does not know names the values it does.
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "nope"}));
+    let l = s.line();
+    assert!(l["error"].as_str().is_some_and(|e| e.contains("required")), "{l}");
+}

@@ -28,6 +28,7 @@ impl<'a> Checker<'a> {
             tdd_apps: None,
             tdd_pending: Vec::new(),
             all_routines: false,
+            company_data_apps: Vec::new(),
         }
     }
 

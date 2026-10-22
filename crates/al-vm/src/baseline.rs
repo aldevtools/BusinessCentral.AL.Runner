@@ -246,6 +246,12 @@ impl Session {
         old
     }
 
+    /// The isolated storage and the number sequences of the session now differ from those of `start` (state a later
+    /// session sees besides the tables).
+    pub fn storage_or_sequences_differ(&self, start: &Baseline) -> bool {
+        self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
+    }
+
     /// Replaces the session's data with the baseline's (a new session starts here).
     pub fn restore_baseline(&mut self, b: &Baseline) {
         let provider = self.store.virtual_tables();

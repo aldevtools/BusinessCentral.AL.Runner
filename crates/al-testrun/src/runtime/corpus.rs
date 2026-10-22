@@ -214,6 +214,8 @@ impl CorpusRuntime {
         let try_skip = baseline_wanted
             && std::env::var_os("AL_FORCE_BASELINE").is_none()
             && !opts.execute
+            // A company built by a codeunit in the baseline is the company every test runs in.
+            && opts.company_data.is_none()
             && suites.iter().all(|s| s.runner.is_none());
         let compile_started = std::time::Instant::now();
         // The compile cache holds the dependency apps, which come first in the program (ADR-022).
@@ -301,6 +303,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
+            company_data: opts.company_data.iter().map(|c| c.codeunit).collect(),
             only_tests: only.clone(),
             tdd: opts.tdd,
             object_hashes: opts.object_hashes,
@@ -497,8 +500,18 @@ impl CorpusRuntime {
                 eprintln!("compile: error {} {}: {}", d.code, d.file, d.message);
             }
         }
-        if std::env::var_os("AL_REACH_REPORT").is_some() {
-            eprintln!("{}", crate::reach::report(&ws, &lowered));
+        if let Some(how) = std::env::var_os("AL_REACH_REPORT") {
+            if how == "tests" {
+                for (test, refused) in crate::reach::refused_by_test(&lowered) {
+                    let n: usize = refused.iter().map(|(_, v)| v.len()).sum();
+                    eprintln!("reach: {test}: {n} refused routines, {} reasons", refused.len());
+                    for (reason, routines) in &refused {
+                        eprintln!("reach:   {:>4}  {reason}  [{}]", routines.len(), routines.join("; "));
+                    }
+                }
+            } else {
+                eprintln!("{}", crate::reach::report(&ws, &lowered));
+            }
         }
         // Nothing else holds the program yet, so this does not copy it.
         for (app, m) in std::sync::Arc::make_mut(&mut lowered.program)
@@ -728,7 +741,12 @@ impl CorpusRuntime {
                 .flatten();
             let run = if baseline {
                 kept.or_else(|| {
-                    crate::baseline::run_traced(&engine, lowered, opts.impact_trace || opts.narrow.is_some())
+                    crate::baseline::run_traced(
+                        &engine,
+                        lowered,
+                        opts.impact_trace || opts.narrow.is_some(),
+                        opts.company_data.as_ref(),
+                    )
                 })
             } else {
                 None
@@ -787,9 +805,80 @@ impl CorpusRuntime {
                 e.unseeded = unseeded;
             }
         }
+        // A company built by a codeunit in the baseline (`company_data.rs`): when the codeunit did not run to its end, or
+        // the baseline did not run, no test runs.
+        let company_refusal = opts.company_data.as_ref().and_then(|c| match &baseline_run {
+            Some(b) => crate::company_data::blocked(&b.notes),
+            None => Some(format!(
+                "{}the install baseline that runs codeunit {} \"{}\" did not run",
+                crate::company_data::BLOCKED_NOTE,
+                c.codeunit,
+                c.name
+            )),
+        });
+        if let Some(why) = &company_refusal {
+            // A baseline that ran printed it with its notes.
+            if baseline_run.is_none() || opts.quiet_baseline {
+                eprintln!("baseline: {why}");
+            }
+            // Everything the codeunit could stop at, not only where it stopped: the routines lowering refuses that it
+            // reaches through its calls.
+            if let Some(c) = &opts.company_data {
+                let objs = &lowered.program.objects;
+                let root = (0..objs.len())
+                    .find(|&oi| {
+                        lowered.dependency[oi]
+                            && objs[oi].is_kind(al_ir::ObjKind::Codeunit)
+                            && objs[oi].id == Some(c.codeunit)
+                    })
+                    .and_then(|oi| Some((oi, crate::baseline::trigger(&objs[oi], "OnRun")?)));
+                if let Some(root) = root {
+                    // A codeunit whose app came from the compile cache has no recorded calls: its whole app is listed.
+                    let (refused, what) = if lowered.provided.get(root.0).copied().unwrap_or(false) {
+                        (
+                            crate::reach::refused_in_app(lowered, objs[root.0].app),
+                            "'s app (from the compile cache) holds",
+                        )
+                    } else {
+                        (crate::reach::refused_reached_from(lowered, &[root]), " reaches")
+                    };
+                    let n: usize = refused.iter().map(|(_, v)| v.len()).sum();
+                    eprintln!(
+                        "baseline: codeunit {} \"{}\"{what} {n} routines that are refused, for {} reasons{}",
+                        c.codeunit,
+                        c.name,
+                        refused.len(),
+                        if opts.quiet_baseline {
+                            " (--verbose lists them)"
+                        } else {
+                            ":"
+                        }
+                    );
+                    if !opts.quiet_baseline {
+                        for (reason, routines) in &refused {
+                            eprintln!(
+                                "baseline:   {:>4}  {}  [{}{}]",
+                                routines.len(),
+                                crate::refusals::clip(reason, 200),
+                                routines.iter().take(3).cloned().collect::<Vec<_>>().join("; "),
+                                if routines.len() > 3 { "; ..." } else { "" }
+                            );
+                        }
+                    }
+                }
+            }
+            match Arc::get_mut(&mut engine) {
+                Some(e) => e.company_refusal = Some(why.clone()),
+                None => panic!("the test engine is shared before the tests start"),
+            }
+        }
         // Without test data the tests run against the corpus database's company, whose demo rows the runtime does not
         // have (ADR-047 rejected): a Count or IsEmpty of one of those tables before the test wrote to it is refused (`demo_row_tables`).
-        if opts.test_data.is_none() {
+        // A company the baseline built (`--company-data demotool`) holds the rows its codeunit wrote, not the corpus
+        // database's. The refusal is off there because nothing is missing: every row comes from Microsoft's own code
+        // (Company-Initialize and the DemoTool, compiled from their source and run to their end, else no test runs),
+        // so a Count or IsEmpty answers from the rows real BC would hold after the same code.
+        if opts.test_data.is_none() && opts.company_data.is_none() {
             let demo = crate::baseline::demo_row_tables(lowered);
             if !demo.is_empty() {
                 match Arc::get_mut(&mut engine) {
@@ -893,6 +982,8 @@ impl CorpusRuntime {
             let opts_only = &pass.only;
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
+            // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub that are not run (suite, id, object, why).
+            let mut refused_disabled: Vec<(usize, u32, usize, String)> = Vec::new();
             for (si, suite) in suites.iter().enumerate() {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
@@ -911,6 +1002,8 @@ impl CorpusRuntime {
                             clock_start: None,
                             impact: opts.impact_trace,
                             run_only: None,
+                            hub: false,
+                            leak: None,
                         });
                     }
                     continue;
@@ -926,12 +1019,23 @@ impl CorpusRuntime {
                         (_, Some(why)) => &Err(why.clone()),
                         (i, None) => i,
                     };
-                    match isolation {
-                        Ok(i) => units.push(Unit {
+                    // The corpus CI on BC 28 and later runs a codeunit without handlers through the TestRunnerHub, under
+                    // its RequiredTestIsolation (`RunOptions::required_isolation`).
+                    let this = match isolation {
+                        Ok(i) if suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() => {
+                            hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true)))
+                        }
+                        Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
+                        Err(why) => Err(why.clone()),
+                    };
+                    match &this {
+                        Ok((i, hub)) => units.push(Unit {
                             si,
                             oi,
                             id,
-                            isolation: opts.isolation.unwrap_or(*i),
+                            isolation: *i,
+                            hub: *hub,
+                            leak: None,
                             without_baseline: false,
                             coverage: opts.coverage,
                             execute: false,
@@ -943,6 +1047,9 @@ impl CorpusRuntime {
                             run_only: pass.run_only.clone(),
                         }),
                         Err(why) => {
+                            if suite.runner.is_none() && opts.required_isolation && requires_disabled(o) {
+                                refused_disabled.push((si, id, oi, why.clone()));
+                            }
                             for r in test_routines(o) {
                                 if refused.is_some() {
                                     if let Some(f) = &pass.hooks.on_test {
@@ -1007,9 +1114,72 @@ impl CorpusRuntime {
                     units.len()
                 );
             }
-            let results: Vec<UnitResult> = if workers <= 1 || units.len() < 2 {
-                units
-                    .iter()
+            // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub run first, on this thread, in id order:
+            // each starts from what the one before it in its suite left, and leaves everything for the later codeunits
+            // (QuCommitIsolation.al:695-718 QU_D11_NextCodeunitSees; codeunits run in ascending id order, :18-20).
+            enum Link {
+                Run(usize),
+                Refused(usize, String),
+            }
+            let mut chain: Vec<(usize, u32, Link)> = (0..units.len())
+                .filter(|&k| units[k].hub && units[k].isolation == TestIsolation::Disabled)
+                .map(|k| (units[k].si, units[k].id, Link::Run(k)))
+                .chain(
+                    refused_disabled
+                        .into_iter()
+                        .map(|(si, id, oi, why)| (si, id, Link::Refused(oi, why))),
+                )
+                .collect();
+            chain.sort_by_key(|(si, id, _)| (*si, *id));
+            let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
+            // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
+            let mut carried: Vec<(usize, u32, super::run::Carried)> = Vec::new();
+            for (si, id, link) in chain {
+                let before = carried.iter().rev().find(|(s, _, _)| *s == si);
+                let mut left = match link {
+                    Link::Run(k) => {
+                        units[k].leak = before.map(|(_, _, c)| Arc::new(c.tables.clone()));
+                        let start = match before {
+                            Some((_, _, c)) => c.baseline.as_ref(),
+                            None => baseline.as_ref(),
+                        };
+                        let mut r = run_unit(&engine, lowered, start, &units[k], None, limit);
+                        let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
+                        if let (Some((_, _, b)), Ok(done)) = (before, &mut r.result) {
+                            if done.5.leak_hit || b.everything {
+                                if let Some(why) = &b.unfinished {
+                                    refuse_all(&mut done.0, why);
+                                }
+                            }
+                        }
+                        slots[k] = Some(r);
+                        left.unwrap_or_else(|| not_run_link(lowered, units[k].oi, "it was not run as a whole".into()))
+                    }
+                    Link::Refused(oi, why) => not_run_link(lowered, oi, why),
+                };
+                if let Some((_, _, b)) = before {
+                    left.tables.extend(b.tables.iter().copied());
+                    left.unfinished = left.unfinished.or_else(|| b.unfinished.clone());
+                    left.everything |= b.everything;
+                    if left.baseline.is_none() {
+                        left.baseline = b.baseline.clone();
+                    }
+                }
+                carried.push((si, id, left));
+            }
+            // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
+            // codeunit left rows in, and then runs again below, from what it left.
+            for u in units.iter_mut() {
+                if let Some((_, _, c)) = carried.iter().rev().find(|(si, id, _)| *si == u.si && *id < u.id) {
+                    if u.leak.is_none() {
+                        u.leak = Some(Arc::new(c.tables.clone()));
+                    }
+                }
+            }
+            let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
+            let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
+                rest.iter()
+                    .map(|&k| &units[k])
                     .map(|u| {
                         let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                             let mut d = explain::detail(
@@ -1039,13 +1209,15 @@ impl CorpusRuntime {
                     let mut done = Vec::new();
                     loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(u) = units.get(k) else { return done };
+                        let Some(u) = rest.get(k).map(|&i| &units[i]) else {
+                            return done;
+                        };
                         done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
                     }
                 };
                 std::thread::scope(|scope| {
                     let mut handles = Vec::new();
-                    for _ in 1..workers.min(units.len()) {
+                    for _ in 1..workers.min(rest.len()) {
                         let spawned = std::thread::Builder::new()
                             .stack_size(TEST_STACK)
                             .spawn_scoped(scope, || {
@@ -1056,7 +1228,10 @@ impl CorpusRuntime {
                                         .as_deref()
                                         .and_then(al_vm::Baseline::from_bytes)
                                         .map(|b| b.backed_by(e))
-                                        .or_else(|| crate::baseline::run(e, lowered).map(|b| b.baseline))
+                                        .or_else(|| {
+                                            crate::baseline::run(e, lowered, opts.company_data.as_ref())
+                                                .map(|b| b.baseline)
+                                        })
                                 });
                                 pull(own.as_ref())
                             });
@@ -1075,6 +1250,46 @@ impl CorpusRuntime {
                     done.into_iter().map(|(_, r)| r).collect()
                 })
             };
+            for (k, mut r) in rest.into_iter().zip(results) {
+                let before = carried
+                    .iter()
+                    .rev()
+                    .find(|(si, id, _)| *si == units[k].si && *id < units[k].id);
+                let hit =
+                    r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || before.is_some_and(|(_, _, c)| c.everything);
+                if let (true, Some((_, _, c))) = (hit, before) {
+                    let o = &lowered.program.objects[units[k].oi];
+                    let handlers = o.routines.iter().any(|r| {
+                        r.attributes
+                            .iter()
+                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+                    });
+                    let refused = match &c.unfinished {
+                        Some(why) => Some(why.clone()),
+                        // BC's CI runs a codeunit with handlers through another runner than the TestRunnerHub
+                        // (QuCommitIsolation.al:11-13): whether it runs before or after the Disabled codeunit is not pinned.
+                        None if handlers => Some(
+                            "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and \
+                             whether BC runs this codeunit, which has handlers, before or after it is not pinned"
+                                .to_string(),
+                        ),
+                        None => None,
+                    };
+                    match refused {
+                        Some(why) => {
+                            if let Ok(done) = &mut r.result {
+                                refuse_all(&mut done.0, &why);
+                            }
+                        }
+                        None => {
+                            units[k].leak = None;
+                            r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], None, limit);
+                        }
+                    }
+                }
+                slots[k] = Some(r);
+            }
+            let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));
                 codeunit_times.push(CodeunitTime {
@@ -1436,6 +1651,11 @@ fn baseline_key(
         },
     );
     key.bytes("runtime_build", &crate::compile_cache::runtime_build());
+    // The codeunit that builds the company, and what its files and its app's source are.
+    match &opts.company_data {
+        Some(c) => key.text("company_data", &format!("{} {} {}", c.codeunit, c.name, c.identity)),
+        None => key.text("company_data", ""),
+    };
     key.text("dependencies", &report.file.file_name()?.to_string_lossy());
     for (i, app) in ws.apps.iter().enumerate() {
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {
@@ -1482,4 +1702,87 @@ fn baseline_key(
         &std::env::var("AL_UNPINNED_BASE_ACCESS").unwrap_or_default(),
     );
     Some(key.finish())
+}
+
+/// The isolation BC's TestRunnerHub runs test codeunit `oi` under: its `RequiredTestIsolation`, `None` when that is
+/// Codeunit or not set (the codeunit then runs as under Microsoft's runner 130450, QuCommitIsolation.al:331-399 and
+/// :719-860 QU_C and QU_N). What the corpus pins are codeunits without handlers or an `OnRun` trigger
+/// (QuCommitIsolation.al:10-16); the rest is refused, with the reason.
+fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, String> {
+    let o = &lowered.program.objects[oi];
+    let Some(value) = o
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("RequiredTestIsolation"))
+        .map(|(_, v)| v.trim().trim_matches(['"', '\'']).to_string())
+    else {
+        return Ok(None);
+    };
+    let isolation = match TestIsolation::parse(&value) {
+        Some(TestIsolation::Codeunit) => return Ok(None),
+        Some(i) => i,
+        None => {
+            return Err(format!(
+                "RequiredTestIsolation = {value}: how BC's TestRunnerHub runs a test codeunit with it is not pinned"
+            ));
+        }
+    };
+    let name = isolation.name();
+    if o.routines.iter().any(|r| {
+        r.attributes
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+    }) {
+        return Err(format!(
+            "RequiredTestIsolation = {name} on a test codeunit with handlers: which test runner BC uses for it, and so its \
+             isolation, is not pinned"
+        ));
+    }
+    if o.routines
+        .iter()
+        .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))
+    {
+        return Err(format!(
+            "RequiredTestIsolation = {name} on a test codeunit with an OnRun trigger: what the isolation does with the \
+             writes of OnRun is not pinned"
+        ));
+    }
+    Ok(Some(isolation))
+}
+
+/// Every outcome of a codeunit becomes not run, for `why`.
+fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
+    for (_, o) in done.iter_mut() {
+        *o = Outcome::NotRun(why.to_string());
+    }
+}
+
+/// The test codeunit's `RequiredTestIsolation` is Disabled.
+fn requires_disabled(o: &al_ir::Object) -> bool {
+    o.properties.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("RequiredTestIsolation") && TestIsolation::parse(v) == Some(TestIsolation::Disabled)
+    })
+}
+
+/// What a codeunit with RequiredTestIsolation = Disabled that did not run leaves for the later ones: nothing known, so a
+/// later codeunit that names a table its tests name is not run.
+fn not_run_link(lowered: &Lowered, oi: usize, why: String) -> super::run::Carried {
+    let o = &lowered.program.objects[oi];
+    let mut tables = std::collections::BTreeSet::new();
+    for (r, routine) in o.routines.iter().enumerate() {
+        if routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")) {
+            tables.extend(tables_touched(lowered, oi, r));
+        }
+    }
+    super::run::Carried {
+        baseline: None,
+        tables,
+        unfinished: Some(format!(
+            "an earlier codeunit with RequiredTestIsolation = Disabled, {}, can write a table this test reads, and it was \
+             not run ({}): what BC's run of it left is not known",
+            o.name,
+            why.chars().take(160).collect::<String>()
+        )),
+        everything: false,
+    }
 }

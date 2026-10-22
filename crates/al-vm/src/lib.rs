@@ -97,6 +97,9 @@ pub struct Engine {
     /// Tables whose demo rows the corpus database holds and the runtime does not (ADR-047 rejected): a `Count` or `IsEmpty`
     /// of one that the session's own code has not written to is refused (`al_testrun::baseline::demo_row_tables`).
     pub demo_tables: std::collections::HashSet<usize>,
+    /// Why the company the tests run in could not be built (`al_testrun::company_data`): every test codeunit is then not
+    /// run, with this reason. `None`: the company is as the install baseline left it.
+    pub company_refusal: Option<String>,
     /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
     /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
@@ -358,6 +361,7 @@ impl Engine {
             unseeded: Default::default(),
             platform_unseeded: unseeded,
             demo_tables: Default::default(),
+            company_refusal: None,
             resource_overrides: Default::default(),
             resources_read: Default::default(),
             test_data: None,
@@ -554,6 +558,9 @@ pub struct Session {
     pub tx_model: TxModel,
     /// Whether a test codeunit is executing (a test codeunit cannot be run from one).
     pub in_test_codeunit: bool,
+    /// The test codeunit runs under its RequiredTestIsolation = Function or Disabled, as BC's TestRunnerHub runs it
+    /// (al-testrun `RunOptions::required_isolation`), not under a test runner codeunit's TestIsolation.
+    pub isolation_from_hub: bool,
     /// The test runner's step that assigns the permission sets of a test method runs (codeunit 130302 "Set State Test
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
@@ -792,6 +799,7 @@ impl Session {
             default_table_connection: Default::default(),
             tx_model: TxModel::default(),
             in_test_codeunit: false,
+            isolation_from_hub: false,
             runner_permission_step: false,
             test_object: None,
             http_policy: None,
@@ -861,6 +869,7 @@ impl Session {
                 publisher_var_lens: Vec::new(),
                 unpinned_event_depth: 0,
                 skip_dependency_subscribers: false,
+                not_installed_apps: None,
                 global_setups: Default::default(),
             },
             coverage: CoverageState {
@@ -1143,6 +1152,27 @@ impl Session {
     pub fn set_install_scope(&mut self, on: bool) {
         self.install_scope = on;
         self.store.record_restored_changes(on);
+    }
+
+    /// The session runs on a server of kind `environment` from now on (`Environment Information` and the tenant helper
+    /// answer for it). The install baseline runs a company data codeunit on the server kind its recipe names
+    /// (`al-testrun/src/company_data.rs`); the tests keep the run's own `--environment`.
+    pub fn set_environment(&mut self, environment: al_host::Environment) {
+        let host = std::mem::take(&mut self.host);
+        self.host = host.in_environment(environment);
+    }
+
+    /// The server kind the session runs on.
+    pub fn environment(&self) -> al_host::Environment {
+        self.host.identity.environment()
+    }
+
+    /// The apps (indexes in `Program::apps`) that are not installed yet: their event subscribers do not run. `None`:
+    /// every app is installed. Microsoft's Legacy lane installs only its base apps before the DemoTool runs, the rest
+    /// after it (BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923), so the install baseline holds the others
+    /// back while the company is built.
+    pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        self.events.not_installed_apps = apps;
     }
 
     /// Whether an install routine runs (`set_install_scope`).

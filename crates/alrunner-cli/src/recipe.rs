@@ -3,7 +3,7 @@
 //! BCApps (MIT) decides the company per run, not per test: `build/projects/Test Apps W1/.AL-Go/settings.json` lists the
 //! build modes and, for each, a `testType` and a `companyName`; `build/scripts/TestConfiguration.json` lists the test apps
 //! of the two Legacy buckets. A test app in a Legacy list runs in the Legacy lane. Every other test app runs once per
-//! other lane, and a lane runs the codeunits whose AL property `TestType` is that lane's type (no property: Uncategorized).
+//! other lane, and a lane runs the codeunits whose AL property `TestType` is that lane's type (no property: UnitTest).
 //! This module only reads those files and plans the lanes. It has no OS access beyond reading the files it is given.
 //! Nothing here is Microsoft's data: the files stay in the cache (`bcapps.rs`).
 
@@ -42,9 +42,13 @@ impl Lane {
 
     /// The lane of a test codeunit's `TestType` property. `None`: the type belongs to no lane (`AITest`, or a word
     /// BCApps does not run), so the codeunit is not run.
+    ///
+    /// No property is UnitTest: in BCApps releases/29.x, run 39519586834, the Default job (UnitTest) ran 242 codeunits
+    /// of non-Legacy apps that set no `TestType` (157 of them from System Application Test), and the
+    /// UncategorizedTests job ran only codeunits that say `TestType = Uncategorized`.
     pub fn of_property(property: Option<&str>) -> Option<Lane> {
         match property {
-            None => Some(Lane::Uncategorized),
+            None => Some(Lane::UnitTest),
             Some(p) if p.eq_ignore_ascii_case("Uncategorized") => Some(Lane::Uncategorized),
             Some(p) if p.eq_ignore_ascii_case("UnitTest") => Some(Lane::UnitTest),
             Some(p) if p.eq_ignore_ascii_case("IntegrationTest") => Some(Lane::Integration),
@@ -182,6 +186,30 @@ impl Recipe {
             .map(|l| l.company_name.as_str())
     }
 
+    /// The build mode of Microsoft's CI that runs a lane of `app_name`, as its job is named (`Default`,
+    /// `IntegrationTests`, `UncategorizedTests`, `LegacyTestsBucket1`): a Legacy app's bucket picks the Legacy mode.
+    pub fn build_mode(&self, app_name: &str, lane: Lane) -> String {
+        let bucket = if lane == Lane::Legacy {
+            self.legacy_bucket(app_name)
+        } else {
+            None
+        };
+        self.lanes
+            .iter()
+            .find(|l| l.lane == lane && (bucket.is_none() || l.bucket == bucket))
+            .map_or_else(
+                || lane.test_type().to_string(),
+                // The first entry is the project's own settings, the job without a build mode.
+                |l| {
+                    if std::ptr::eq(l, &self.lanes[0]) {
+                        "Default".to_string()
+                    } else {
+                        l.build_mode.clone()
+                    }
+                },
+            )
+    }
+
     /// The lane of one test codeunit: every codeunit of a Legacy app is Legacy; otherwise its `TestType` decides.
     pub fn lane_of(&self, app_name: &str, test_type: Option<&str>) -> Option<Lane> {
         if self.legacy_bucket(app_name).is_some() {
@@ -196,6 +224,8 @@ impl Recipe {
 pub struct AppUnits {
     pub app_name: String,
     pub codeunits: Vec<(u32, Option<String>)>,
+    /// The codeunits that set `RequiredTestIsolation = Disabled`.
+    pub isolation_disabled: Vec<u32>,
 }
 
 /// The codeunits one lane runs, and those the recipe does not run at all.
@@ -215,7 +245,14 @@ pub fn plan(recipe: &Recipe, apps: &[AppUnits]) -> Plan {
             if !seen.insert(*id) {
                 continue;
             }
-            match recipe.lane_of(&app.app_name, ty.as_deref()) {
+            // `RequiredTestIsolation = Disabled` runs only in the UnitTest lane: BCApps
+            // `build/scripts/RunTestsInBcContainer.ps1` (releases/29.0) runs a second pass with
+            // `requiredTestIsolation = Disabled` for `UnitTest` only, and in run 39519586834 the IntegrationTests job ran
+            // none of its 13 such codeunits while the Default job ran 27.
+            let lane = recipe
+                .lane_of(&app.app_name, ty.as_deref())
+                .filter(|l| *l == Lane::UnitTest || !app.isolation_disabled.contains(id));
+            match lane {
                 Some(lane) => p.lanes.entry(lane).or_default().push(*id),
                 None => p.unrun.push(*id),
             }
@@ -273,6 +310,16 @@ mod tests {
     }
 
     #[test]
+    fn a_lane_is_named_by_the_build_mode_of_microsofts_job() {
+        let r = recipe();
+        assert_eq!(r.build_mode("Tests-Misc", Lane::UnitTest), "Default");
+        assert_eq!(r.build_mode("Tests-Misc", Lane::Integration), "IntegrationTests");
+        assert_eq!(r.build_mode("Tests-Misc", Lane::Uncategorized), "UncategorizedTests");
+        assert_eq!(r.build_mode("tests-erm", Lane::Legacy), "LegacyTestsBucket1");
+        assert_eq!(r.build_mode("Tests-SCM", Lane::Legacy), "LegacyTestsBucket2");
+    }
+
+    #[test]
     fn a_legacy_app_runs_every_codeunit_in_the_legacy_lane() {
         let r = recipe();
         assert_eq!(r.legacy_bucket("tests-erm"), Some(1));
@@ -289,10 +336,34 @@ mod tests {
         assert_eq!(r.lane_of("Tests-New", Some("UnitTest")), Some(Lane::UnitTest));
         assert_eq!(r.lane_of("Tests-New", Some("integrationtest")), Some(Lane::Integration));
         assert_eq!(r.lane_of("Tests-New", Some("Uncategorized")), Some(Lane::Uncategorized));
-        // No property: Uncategorized.
-        assert_eq!(r.lane_of("Tests-New", None), Some(Lane::Uncategorized));
+        // No property: UnitTest, the Default job (BCApps releases/29.x, run 39519586834: the Default job ran 242
+        // codeunits without a TestType, the UncategorizedTests job none).
+        assert_eq!(r.lane_of("Tests-New", None), Some(Lane::UnitTest));
         // AITest is in none of the four build modes.
         assert_eq!(r.lane_of("Tests-New", Some("AITest")), None);
+    }
+
+    #[test]
+    fn a_codeunit_that_requires_isolation_disabled_runs_only_in_the_unit_test_lane() {
+        // BCApps `build/scripts/RunTestsInBcContainer.ps1` (releases/29.0): only for `UnitTest` a second pass runs with
+        // `requiredTestIsolation = Disabled` (runner 130451). Run 39519586834: the Default job ran 27 such codeunits,
+        // the IntegrationTests job none of the 13 it has (`_Exclude_APIV1_ Tests` 139700, `TestType = IntegrationTest`).
+        let r = recipe();
+        let apps = vec![AppUnits {
+            app_name: "Tests-New".into(),
+            codeunits: vec![
+                (1, Some("UnitTest".into())),
+                (2, None),
+                (3, Some("IntegrationTest".into())),
+                (4, Some("Uncategorized".into())),
+            ],
+            isolation_disabled: vec![1, 2, 3, 4],
+        }];
+        let p = plan(&r, &apps);
+        assert_eq!(p.lanes[&Lane::UnitTest], vec![1, 2]);
+        assert!(!p.lanes.contains_key(&Lane::Integration));
+        assert!(!p.lanes.contains_key(&Lane::Uncategorized));
+        assert_eq!(p.unrun, vec![3, 4]);
     }
 
     #[test]
@@ -302,6 +373,7 @@ mod tests {
             AppUnits {
                 app_name: "Tests-ERM".into(),
                 codeunits: vec![(1, None), (2, Some("UnitTest".into()))],
+                isolation_disabled: vec![],
             },
             AppUnits {
                 app_name: "Tests-New".into(),
@@ -311,13 +383,14 @@ mod tests {
                     (5, None),
                     (6, Some("AITest".into())),
                 ],
+                isolation_disabled: vec![],
             },
         ];
         let p = plan(&r, &apps);
         assert_eq!(p.lanes[&Lane::Legacy], vec![1, 2]);
-        assert_eq!(p.lanes[&Lane::UnitTest], vec![3]);
+        assert_eq!(p.lanes[&Lane::UnitTest], vec![3, 5]);
         assert_eq!(p.lanes[&Lane::Integration], vec![4]);
-        assert_eq!(p.lanes[&Lane::Uncategorized], vec![5]);
+        assert!(!p.lanes.contains_key(&Lane::Uncategorized));
         assert_eq!(p.unrun, vec![6]);
     }
 

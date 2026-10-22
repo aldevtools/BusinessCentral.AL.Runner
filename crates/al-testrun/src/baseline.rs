@@ -13,6 +13,7 @@
 //! engine's `unseeded` set, so that a `Get` that finds nothing in dependency code is refused for
 //! exactly those tables instead of answered.
 
+use crate::company_data::CompanyData;
 use al_builtins::native::Signal;
 use al_sema::lower::Lowered;
 use al_vm::{Baseline, Engine, Session};
@@ -96,12 +97,21 @@ pub fn assumption_ids(notes: &[String]) -> Vec<String> {
 }
 
 /// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
-pub fn run(engine: &Arc<Engine>, lowered: &Lowered) -> Option<BaselineRun> {
-    run_traced(engine, lowered, false)
+pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
+    run_traced(engine, lowered, false, company)
 }
 
 /// [`run`], and with `trace` what the install code raised and touched (`BaselineRun::trace`, ADR-043 step 2).
-pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Option<BaselineRun> {
+///
+/// With `company`, the `OnRun` of its codeunit runs last of the dependency roots, after `Company-Initialize`, with the
+/// files of its resource folder (`company_data.rs`). When it does not run to its end, or the program has no such
+/// codeunit, the notes say why under [`crate::company_data::BLOCKED_NOTE`].
+pub fn run_traced(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    trace: bool,
+    company: Option<&CompanyData>,
+) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
     // (object, routine, keep what it wrote when it stops early, no company chosen)
     //
@@ -109,13 +119,31 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
     // subscribers, ADR-046 decision 1), every per-company routine, then every per-database routine, which runs last and
     // with CompanyName() empty. Measured on real BC 27.5 (a fresh install with two companies, a scratch app;
     // docs/probes-needed.md) and pinned by install/lt-bf-install-probes/BfInstallTests.al:138-140, :239.
+    //
+    // With a company data codeunit whose recipe installs only some apps first (`CompanyData::installed_first`; Microsoft's
+    // Legacy lane, BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923: `Install-BaseAppsForDemoTool`,
+    // `New-TestCompany`, `Invoke-LegacyDemoDataTool`, then `Install-AllApps`), the install code of the other apps runs
+    // after the codeunit, and their subscribers do not run before that.
+    let late_apps: Option<BTreeSet<u32>> = company.and_then(|c| c.installed_first.as_ref()).map(|first| {
+        lowered
+            .program
+            .apps
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| !first.iter().any(|n| n.eq_ignore_ascii_case(&a.name)))
+            .map(|(i, _)| i as u32)
+            .collect()
+    });
+    let is_late = |app: usize| late_apps.as_ref().is_some_and(|l| l.contains(&(app as u32)));
     let mut roots: Vec<(usize, usize, bool, bool)> = Vec::new();
+    let mut late_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
     for app in crate::install::plan(lowered, &engine.events, true) {
+        let into = if is_late(app.app) { &mut late_roots } else { &mut roots };
         for &(oi, ri) in &app.company {
-            roots.push((oi, ri, false, false));
+            into.push((oi, ri, false, false));
         }
         for &(oi, ri) in &app.database {
-            roots.push((oi, ri, false, true));
+            into.push((oi, ri, false, true));
         }
     }
     let company_initialize = (0..objs.len()).find(|&oi| {
@@ -129,12 +157,53 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
             roots.push((oi, ri, true, false));
         }
     }
-    if roots.is_empty() {
+    // The codeunit that builds the company's data, after Company-Initialize (BCApps' CI: `Invoke-LegacyDemoDataTool`
+    // runs codeunit 2, then the DemoTool's action).
+    let mut company_root: Option<usize> = None;
+    let mut company_missing: Option<String> = None;
+    if let Some(c) = company {
+        let found = (0..objs.len()).find(|&oi| {
+            lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(c.codeunit)
+        });
+        match found.map(|oi| {
+            (
+                oi,
+                objs[oi].name.eq_ignore_ascii_case(&c.name),
+                trigger(&objs[oi], "OnRun"),
+            )
+        }) {
+            Some((oi, true, Some(ri))) => {
+                company_root = Some(roots.len());
+                roots.push((oi, ri, false, false));
+            }
+            Some((oi, true, None)) => {
+                company_missing = Some(format!("codeunit {} \"{}\" has no OnRun", c.codeunit, objs[oi].name))
+            }
+            Some((oi, false, _)) => {
+                company_missing = Some(format!(
+                    "codeunit {} is \"{}\", not \"{}\"",
+                    c.codeunit, objs[oi].name, c.name
+                ))
+            }
+            None => company_missing = Some(format!("no dependency app has codeunit {} \"{}\"", c.codeunit, c.name)),
+        }
+    }
+    // Where the apps installed after the company is built begin.
+    let late_from = late_apps.as_ref().map(|_| roots.len());
+    roots.extend(late_roots);
+    if roots.is_empty() && company_missing.is_none() {
         return None;
     }
 
     crate::install::ensure_facts(engine, lowered);
-    let mut session = Session::with_host(engine.clone(), crate::host::system_host());
+    let host = crate::host::system_host();
+    // The company data codeunit reads its resource files through `File`; the rest of the install code sees them too,
+    // as every session of BCApps' CI server does once the files are in the user folder.
+    let host = match company.and_then(|c| c.resources.clone()) {
+        Some(dir) => host.with_files(crate::company_data::ResourceFiles::new(dir)),
+        None => host,
+    };
+    let mut session = Session::with_host(engine.clone(), host);
     session.set_install_scope(true);
     if trace {
         session.enable_impact_trace();
@@ -145,9 +214,22 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
     let mut touched = BTreeSet::new();
     let mut ran = 0;
     al_builtins::assumptions::clear_hits();
-    let company = session.set_company("");
-    session.set_company(&company);
-    for &(oi, ri, keep_prefix, no_company) in &roots {
+    let run_environment = session.environment();
+    let company_name = session.set_company("");
+    session.set_company(&company_name);
+    // The company is built on the server kind its recipe names; the apps under test install, and the tests run, on the
+    // run's own.
+    if let Some(e) = company.and_then(|c| c.environment) {
+        session.set_environment(e);
+    }
+    session.set_apps_not_installed(late_apps.clone());
+    if let Some(why) = &company_missing {
+        notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
+    }
+    for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
+        if late_from == Some(k) {
+            session.set_apps_not_installed(None);
+        }
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
         if no_company {
             session.set_company("");
@@ -172,7 +254,7 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
             Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
             Err(_) => None,
         };
-        session.set_company(&company);
+        session.set_company(&company_name);
         match why {
             None => {
                 ran += 1;
@@ -184,18 +266,27 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
                 } else {
                     session.rollback_transaction();
                 }
-                notes.push(format!(
-                    "{label} did not run to its end{}: {why}",
-                    if keep_prefix {
-                        " (the rows before it are kept)"
-                    } else {
-                        ""
-                    }
-                ));
+                if company_root == Some(k) {
+                    notes.push(format!(
+                        "{}{label} did not run to its end: {why}",
+                        crate::company_data::BLOCKED_NOTE
+                    ));
+                } else {
+                    notes.push(format!(
+                        "{label} did not run to its end{}: {why}",
+                        if keep_prefix {
+                            " (the rows before it are kept)"
+                        } else {
+                            ""
+                        }
+                    ));
+                }
                 touched.extend(tables_written(lowered, oi, ri));
             }
         }
     }
+    session.set_apps_not_installed(None);
+    session.set_environment(run_environment);
     session.trace_faults(false);
     // The baseline is not a test, so no test carries its marks; the run says what the shared start relied on.
     for a in al_builtins::assumptions::take_hits() {

@@ -1,0 +1,246 @@
+//! A company built by AL code in the install baseline (`al-runner test --company-data demotool`): after the dependency
+//! installs and `Company-Initialize`, the `OnRun` of one dependency codeunit runs and writes the company's data. For
+//! Microsoft's Legacy test lane that is the DemoTool's `Create Demo Data from Config` (codeunit 101899), which BCApps'
+//! CI runs through page 101900 "Demonstration Data Tool" in a new company after `Company-Initialize`
+//! (`build/scripts/ImportTestDataInBcContainer.ps1`, `Invoke-LegacyDemoDataTool`). Nothing is faked: the rows are what
+//! the codeunit writes, and a codeunit that does not run to its end blocks the company (every test is not run, with the
+//! reason), since a part of the company is not the company Microsoft's tests run against.
+//!
+//! The codeunit reads its resource files (`DemoDataConfig.xml`, pictures, text files) through the `File` type, by paths
+//! relative to the server's user folder, where BCApps' script copies them. [`ResourceFiles`] serves them from one
+//! folder, read-only; what the codeunit writes (its log file) stays in memory.
+
+use al_host::{FileSystem, MemFileSystem};
+use std::collections::BTreeSet;
+use std::path::{Component, Path, PathBuf};
+
+/// The codeunit that builds the company, and the files it reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyData {
+    /// The id of the dependency codeunit whose `OnRun` builds the company.
+    pub codeunit: u32,
+    /// Its name, as a check that the id names the codeunit meant (a dependency codeunit of another name with that id
+    /// is not run, and the company is blocked).
+    pub name: String,
+    /// The folder whose files the codeunit reads through `File`, if any.
+    pub resources: Option<PathBuf>,
+    /// What the company depends on beyond the program, for the key of the kept baseline (the source of the codeunit's
+    /// app and its resources, as the caller describes them).
+    pub identity: String,
+    /// The kind of server the company is built on, if not the run's own (`--environment`): the dependency installs,
+    /// `Company-Initialize` and the codeunit run on it, the tests and the install code of the apps under test do not.
+    pub environment: Option<al_host::Environment>,
+    /// The names of the apps installed before the company is built (matched without case), if not every app: the
+    /// install code of the other apps runs after the codeunit, and their event subscribers do not run before that.
+    pub installed_first: Option<Vec<String>>,
+}
+
+/// The id of the DemoTool's `Create Demo Data from Config` (BCApps `src/Layers/W1/DemoTool/CreateDemoDatafromConfig.Codeunit.al`).
+pub const DEMOTOOL_CODEUNIT: u32 = 101_899;
+/// Its name.
+pub const DEMOTOOL_CODEUNIT_NAME: &str = "Create Demo Data from Config";
+
+/// The note of a baseline whose company data codeunit did not run to its end; it survives the kept baseline as text.
+pub const BLOCKED_NOTE: &str = "the company data was not built: ";
+
+/// Why the company is blocked, from the notes of a baseline run.
+pub fn blocked(notes: &[String]) -> Option<String> {
+    notes
+        .iter()
+        .find_map(|n| n.strip_prefix(BLOCKED_NOTE))
+        .map(|why| format!("{BLOCKED_NOTE}{why}"))
+}
+
+/// The files of one folder, read-only, plus what the code writes, in memory. AL paths are relative to the folder,
+/// with `\` or `/` between the parts. A part that names no file exactly is matched without case, as the Windows
+/// server BCApps' CI runs the DemoTool on does (the DemoTool names `CurrencyData.txt`, the folder holds
+/// `CurrencyData.TXT`). Why that is an assumption: AL code can see it (File.Exists and File.Open of a name in other
+/// case answer differently on a case-sensitive file system), no corpus test pins it (the corpus CI runs BC on Linux,
+/// and the rule is the server's file system, not the language), and Microsoft's Legacy tests need it to get their
+/// company. So the match without case marks `resource-file-name-case` (assumptions.rs) when it is used, and the
+/// tests that run in the company are flagged passes. A path that is absolute or climbs out with `..` names no file
+/// of the folder.
+pub struct ResourceFiles {
+    root: PathBuf,
+    written: MemFileSystem,
+    removed: BTreeSet<String>,
+}
+
+impl ResourceFiles {
+    pub fn new(root: PathBuf) -> ResourceFiles {
+        ResourceFiles {
+            root,
+            written: MemFileSystem::default(),
+            removed: BTreeSet::new(),
+        }
+    }
+
+    fn key(path: &str) -> String {
+        Self::from_user_folder(path).replace('/', "\\").to_lowercase()
+    }
+
+    /// `path` relative to the user folder. BCApps copies the resources into the session's user folder, the folder above
+    /// `TemporaryPath()` (`\TEMP\` here, al-vm hostvalues.rs), after the page opens (build/scripts/
+    /// ImportTestDataInBcContainer.ps1, `Invoke-LegacyDemoDataTool`), and the DemoTool reads them as
+    /// `TemporaryPath() + '..\WalkMeTour'` or `TemporaryPath() + '\..\' + 'PostingExchangeDefinitions'`. So a path that
+    /// climbs out of the temporary folder names the user folder. Only the lookup changes: the text AL code holds is left
+    /// as it is (File.IsPathTemporary refuses such a path, al-builtins file.rs).
+    fn from_user_folder(path: &str) -> std::borrow::Cow<'_, str> {
+        let mut parts = path.split(['\\', '/']).filter(|p| !p.is_empty());
+        let rooted = path.starts_with(['\\', '/']);
+        match (parts.next(), parts.next()) {
+            (Some(t), Some("..")) if rooted && t.eq_ignore_ascii_case("TEMP") => {
+                parts.collect::<Vec<_>>().join("\\").into()
+            }
+            _ => path.into(),
+        }
+    }
+
+    /// The file of the folder that `path` names, matched part by part without case.
+    fn resolve(&self, path: &str) -> Option<PathBuf> {
+        if self.removed.contains(&Self::key(path)) {
+            return None;
+        }
+        let rel = Self::from_user_folder(path).replace('\\', "/");
+        let mut out = self.root.clone();
+        let mut any = false;
+        for c in Path::new(&rel).components() {
+            match c {
+                Component::Normal(p) => {
+                    let want = p.to_string_lossy().to_lowercase();
+                    let exact = out.join(p);
+                    out = if exact.exists() {
+                        exact
+                    } else {
+                        let found = std::fs::read_dir(&out)
+                            .ok()?
+                            .filter_map(|e| e.ok())
+                            .find(|e| e.file_name().to_string_lossy().to_lowercase() == want)?
+                            .path();
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ResourceFileNameCase);
+                        found
+                    };
+                    any = true;
+                }
+                Component::CurDir => {}
+                _ => return None,
+            }
+        }
+        (any && out.is_file()).then_some(out)
+    }
+}
+
+impl FileSystem for ResourceFiles {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        if let Some(b) = self.written.read(&Self::key(path)) {
+            return Some(b);
+        }
+        std::fs::read(self.resolve(path)?).ok()
+    }
+    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.removed.remove(&Self::key(path));
+        self.written.write(&Self::key(path), bytes)
+    }
+    fn exists(&self, path: &str) -> bool {
+        self.written.exists(&Self::key(path)) || self.resolve(path).is_some()
+    }
+    fn remove(&mut self, path: &str) -> bool {
+        let was = self.exists(path);
+        self.written.remove(&Self::key(path));
+        if was {
+            self.removed.insert(Self::key(path));
+        }
+        was
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_files_are_read_without_case_and_writes_stay_in_memory() {
+        let dir = std::env::temp_dir().join(format!("alr-resfiles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Images").join("Item")).unwrap();
+        std::fs::write(dir.join("CurrencyData.TXT"), b"EUR").unwrap();
+        std::fs::write(dir.join("Images").join("Item").join("1000.jpg"), b"jpg").unwrap();
+        let mut fs = ResourceFiles::new(dir.clone());
+        assert_eq!(fs.read("CurrencyData.txt").as_deref(), Some(&b"EUR"[..]));
+        assert_eq!(fs.read("images\\item\\1000.JPG").as_deref(), Some(&b"jpg"[..]));
+        assert!(fs.exists("Images/Item/1000.jpg"));
+        assert!(!fs.exists("Images"), "a folder is no file");
+        assert!(!fs.exists("..\\CurrencyData.TXT") && !fs.exists("/etc/passwd"));
+        fs.write("CreateDemoData.log", b"log").unwrap();
+        assert_eq!(fs.read("createdemodata.log").as_deref(), Some(&b"log"[..]));
+        assert!(
+            !dir.join("CreateDemoData.log").exists(),
+            "nothing is written to the folder"
+        );
+        assert!(fs.remove("CurrencyData.txt"));
+        assert!(!fs.exists("CurrencyData.txt"));
+        assert!(
+            dir.join("CurrencyData.TXT").exists(),
+            "a removed resource stays on disk"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // `resource-file-name-case` (assumptions.rs): only a name that matches without case, not exactly, marks it.
+    #[test]
+    fn a_resource_file_found_only_without_case_marks_its_assumption() {
+        use al_builtins::assumptions::{Assumption, take_hits};
+        let dir = std::env::temp_dir().join(format!("alr-rescase-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("CurrencyData.TXT"), b"EUR").unwrap();
+        let fs = ResourceFiles::new(dir.clone());
+        take_hits();
+        assert!(fs.exists("CurrencyData.TXT"));
+        assert!(take_hits().is_empty(), "an exact name takes no assumption");
+        assert!(fs.read("CurrencyData.txt").is_some());
+        assert_eq!(take_hits(), vec![Assumption::ResourceFileNameCase]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // BCApps copies the resources into the session's user folder, the folder above TemporaryPath()
+    // (ImportTestDataInBcContainer.ps1, Invoke-LegacyDemoDataTool), and the DemoTool reads them as
+    // `TemporaryPath() + '..\WalkMeTour'` and `TemporaryPath() + '\..\' + 'PostingExchangeDefinitions'`.
+    #[test]
+    fn a_path_that_climbs_out_of_the_temporary_folder_names_a_resource() {
+        let dir = std::env::temp_dir().join(format!("alr-restemp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("WalkMeTour")).unwrap();
+        std::fs::write(dir.join("WalkMeTour").join("a.txt"), b"a").unwrap();
+        let fs = ResourceFiles::new(dir.clone());
+        assert_eq!(fs.read("\\TEMP\\..\\WalkMeTour\\a.txt").as_deref(), Some(&b"a"[..]));
+        assert!(
+            fs.exists("\\TEMP\\\\..\\WalkMeTour\\a.txt"),
+            "the doubled separator of `TemporaryPath() + '\\..\\'`"
+        );
+        assert!(
+            !fs.exists("\\TEMP\\..\\..\\WalkMeTour\\a.txt"),
+            "no climbing above the user folder"
+        );
+        assert!(!fs.exists("\\Other\\..\\WalkMeTour\\a.txt"));
+        assert!(
+            !fs.exists("\\TEMP\\WalkMeTour\\a.txt"),
+            "the temporary folder holds no resource"
+        );
+        assert!(!fs.exists("WalkMeTour\\..\\WalkMeTour\\a.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_blocked_reason_is_read_back_from_the_notes() {
+        let notes = vec![
+            "Company-Initialize.OnRun did not run to its end: x".to_string(),
+            format!("{BLOCKED_NOTE}Create Demo Data from Config.OnRun stopped: y"),
+        ];
+        assert_eq!(
+            blocked(&notes).as_deref(),
+            Some("the company data was not built: Create Demo Data from Config.OnRun stopped: y")
+        );
+        assert!(blocked(&notes[..1]).is_none());
+    }
+}
