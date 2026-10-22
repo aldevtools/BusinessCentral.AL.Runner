@@ -235,6 +235,8 @@ impl Lowerer<'_> {
                     // A TextConst has the length 2048 (types/lt-variant/VaTTextConst.al:TextConst_MaxStrLen: Simple, Long, Empty and
                     // MultiLang). A Label answers 2048 too (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength).
                     Ty::Label => Ok(ir::Expr::Const(ir::Const::Integer(2048))),
+                    // A Guid, null or not, answers 2147483647 (types/lt-aj-probes/AjMisc.al:68-69 and :82-83).
+                    Ty::Guid => Ok(ir::Expr::Const(ir::Const::Integer(i32::MAX))),
                     other => Err(format!("MaxStrLen of a value of type {other}")),
                 }
             }
