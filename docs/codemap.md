@@ -298,6 +298,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dotnet/last_error.rs` (188): The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry: `types` 168, `exception_text` 70.
 - `dotnet/policy.rs` (269): What is refused before a `DotNet` request is sent (ADR-014 section 8). Entry: `Access` 6, `Policy` 14.
 - `dotnet/registry.rs` (113): Runtime-provided .NET classes (ADR-014 section 1). Entry: `MemberKind` 19, `Pin` 28, `MemberFn` 45, `RegistryMember` 47.
+- `dotnet/query_metadata.rs` (200): Microsoft's `QueryMetadataReader` over a query's Application Object Metadata (ReQueryMetadataShapes.al). Entry: `types`, `from_stream`.
 - `errorcollect.rs` (140): ErrorBehavior::Collect scopes. Entry: `declares_collect` 44, `collect_error` 71, `close_error_scope` 86.
 - `events.rs` (601): Event publishers and subscribers. Entry: `Registry` 37, `build` 116, `Subscriber` 14, `Publisher` 26.
 - `faultsite.rs` (57): Where a refusal or a failure was raised, for `al-test-cli --explain`. Entry: `FaultFrame` 14, `trace_faults` 23, `fault_site` 30, `note_fault` 40.

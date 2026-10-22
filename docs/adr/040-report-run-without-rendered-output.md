@@ -192,6 +192,15 @@ change is an allow-list (section 3): for a listed report the test's claim does n
 - Custom-layout dispatch (`OnCustomDocumentMergerEx`, Pageworks) is a separate change and a separate ADR if it
   needs a seam. It does not depend on this one.
 
+## Owner decision 2026-10-22: SaveAsPdf in the company build
+
+While Microsoft's DemoTool builds the company (`Session::set_company_build`, set by al-testrun baseline.rs around the company
+data codeunit only), `SaveAsPdf` to a file of any report takes the no-output path: the report runs (triggers and data), no file
+is written, the path is marked like a listed report's, and `report-render-discarded` is marked. The DemoTool saves three PDFs
+under TemporaryPath that nothing reads (MakeCorrections.Codeunit.al:62, PostRevaluation.Codeunit.al:82,
+RunPostInventoryCosttoGL.Codeunit.al:17). Other formats, a stream target, and every SaveAsPdf outside the company build keep
+the refusal. Test: `report_no_output_in_the_company_build_save_as_pdf_to_a_file_runs_the_report_and_writes_no_file`.
+
 ## Conformance
 
 - `al-vm` tests named `report_no_output_*`: one per path F1 to F11 and S1 to S7, the controls, flag propagation.
