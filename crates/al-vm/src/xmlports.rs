@@ -1762,8 +1762,8 @@ impl Session {
                     let n = schema.node(f);
                     n.kind == ir::XmlNodeKind::Field && n.min_zero
                 });
-            let length_pinned = values.len() == fields.len()
-                || (variable && (lacking_optional || values.len() == fields.len() + 1));
+            let length_pinned =
+                values.len() == fields.len() || (variable && (lacking_optional || values.len() == fields.len() + 1));
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
@@ -1904,9 +1904,7 @@ impl Session {
         };
         let table_top = xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table;
         let table_root = root_table_element(schema, top);
-        if !table_top
-            && !table_root
-            && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
+        if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
         }

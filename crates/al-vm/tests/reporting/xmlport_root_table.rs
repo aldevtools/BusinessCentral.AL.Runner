@@ -175,7 +175,9 @@ fn an_import_checks_the_root_element() {
 fn an_export_writes_one_root_element_per_row() {
     assert_eq!(
         text(run("ExportNone")),
-        format!("{UTF8}<QxSetup>|  <StartingYear>0</StartingYear>|  <CompanyType>VAT</CompanyType>|  <AdvancedSetup>No</AdvancedSetup>|  <CurrencyCode />|  <AdditionalCurrency />|  <DataType>Standard</DataType>|</QxSetup>|")
+        format!(
+            "{UTF8}<QxSetup>|  <StartingYear>0</StartingYear>|  <CompanyType>VAT</CompanyType>|  <AdvancedSetup>No</AdvancedSetup>|  <CurrencyCode />|  <AdditionalCurrency />|  <DataType>Standard</DataType>|</QxSetup>|"
+        )
     );
     assert_eq!(text(run("ExportOne")), format!("{UTF8}{ROW}#{UTF16}{ROW}"));
     assert_eq!(text(run("ExportTwo")), format!("{UTF8}{ROW}{ROW}#{UTF16}{ROW}{ROW}"));

@@ -45,7 +45,10 @@ fn a_date_loop_visits_each_day_and_ends_on_the_end_bound() {
     );
     assert_eq!(text(call("Empty")), "count=0 first= after=2024-01-05");
     assert_eq!(text(call("ZeroToZero")), "count=1 first=, after=");
-    assert_eq!(text(call("ToClosing")), "count=2 first=2023-12-30,2023-12-31, after=2024-01-01");
+    assert_eq!(
+        text(call("ToClosing")),
+        "count=2 first=2023-12-30,2023-12-31, after=2024-01-01"
+    );
 }
 
 #[test]

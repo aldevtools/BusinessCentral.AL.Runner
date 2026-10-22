@@ -405,7 +405,12 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
   [Test] procedure LocalizationOf1030() var W: Record "Windows Language"; begin W.Get(1030); if W."Localization Exist" then; end;
   [Test] procedure AnAbbreviationNotPinned() var W: Record "Windows Language"; begin W.SetFilter("Abbreviated Name", 'ARA'); if W.FindFirst() then; end; }"#,
     );
-    for t in ["PinnedColumns", "FilterOnGloballyEnabledAndStx", "ByAbbreviatedName", "LocalizationOf1040"] {
+    for t in [
+        "PinnedColumns",
+        "FilterOnGloballyEnabledAndStx",
+        "ByAbbreviatedName",
+        "LocalizationOf1040",
+    ] {
         passes(&o, t);
     }
     for t in [
@@ -416,7 +421,10 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
         "LocalizationOf1030",
     ] {
         let why = not_run(&o, t);
-        assert!(why.contains("Windows Language") || why.contains("not pinned"), "{t}: {why}");
+        assert!(
+            why.contains("Windows Language") || why.contains("not pinned"),
+            "{t}: {why}"
+        );
     }
 }
 

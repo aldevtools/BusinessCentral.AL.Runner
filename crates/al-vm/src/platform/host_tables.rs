@@ -158,9 +158,9 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
 
 // ---- Windows Language -----------------------------------------------------------------------------
 
+use super::mat::Mat;
 use super::{option, ranges, refused};
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use super::mat::Mat;
 use al_data::{Row, Scan, StoreError};
 
 /// The languages the corpus pins, as (LCID, name, abbreviated name, primary code page, tag). The table lists every

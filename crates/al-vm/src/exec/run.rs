@@ -740,7 +740,8 @@ impl Session {
         let to = take(f, site.to, nl);
         // Only Date bounds on a Date variable are pinned (misc/lt-system-functions/ControlFlow.al:607).
         if site.int_local.is_none()
-            && (matches!(from, Value::Date(..)) != matches!(self.place_type(&site.var, f), al_builtins::value::RtType::Date))
+            && (matches!(from, Value::Date(..))
+                != matches!(self.place_type(&site.var, f), al_builtins::value::RtType::Date))
         {
             return Err(Signal::Unsupported(
                 "a for loop over Dates whose variable is not a Date, or a Date variable with bounds of another type (not pinned)"

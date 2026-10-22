@@ -282,8 +282,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // nothing in it changes nothing for Import and Export. The same holds with empty `layout` and `actions`
             // sections inside it, both or one alone (xmlports 87564-87566 at :835-912, imported and exported at
             // :476-512; the DemoTool's xmlport 101899 has this shape).
-            "requestpage"
-                if request_page_is_empty(&top) || request_page_has_only_empty_sections(&top) => {}
+            "requestpage" if request_page_is_empty(&top) || request_page_has_only_empty_sections(&top) => {}
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
