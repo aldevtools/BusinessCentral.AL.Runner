@@ -315,9 +315,36 @@ fn import_file_of_other_content_or_a_media_set_stays_refused() {
     for body in [
         "begin Rec.Picture.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
         "begin Rec.Picture.ImportFile('\\TEMP\\d.gif', 'x'); exit(''); end;",
-        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); exit(''); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\b.png', 'x'); exit(''); end;",
     ] {
         let r = import_file(body);
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
+    }
+}
+
+// onprem media/MediaFiles.al:317-344 QX_MediaAndMediaSet_ImportFile_Jpeg: a .jpg imported into an empty MediaSet gives the set
+// one member whose Tenant Media row has the description, image/jpeg and the picture's size ('mediaset count',
+// 'mediaset item 1 tenant'). The return value and the row's File Name are not pinned (:340 ignores it): a read of either is refused.
+#[test]
+fn media_set_import_file_of_a_jpeg_fills_the_set() {
+    let r = import_file(
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'Item picture'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+         T.Get(Rec.Images.Item(1)); exit(Format(Rec.Images.Count()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + \
+         Format(T.Width) + 'x' + Format(T.Height)); end;",
+    );
+    assert_eq!(r.unwrap(), "1|Item picture|image/jpeg|3x2");
+}
+
+#[test]
+fn media_set_import_file_return_value_and_file_name_are_refused() {
+    for body in [
+        "begin id := Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); exit(Format(id)); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); T.Get(Rec.Images.Item(1)); exit(T.\"File Name\"); end;",
+    ] {
+        let r = import_file(body);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
+            "{body}: {r:?}"
+        );
     }
 }

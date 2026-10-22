@@ -43,6 +43,13 @@ pub const DEMOTOOL_CODEUNIT_NAME: &str = "Create Demo Data from Config";
 /// The note of a baseline whose company data codeunit did not run to its end; it survives the kept baseline as text.
 pub const BLOCKED_NOTE: &str = "the company data was not built: ";
 
+/// The note of a `Message` the company data codeunit raised. Orchestrator decision (2026-10-22): BCApps' CI runs the
+/// DemoTool's codeunit 101899 without a client (`Invoke-LegacyDemoDataTool`), and 101900 ends with a Message
+/// (CreateDemonstrationData.Codeunit.al:133). While the company is built, and only then, a Message is accepted and its text
+/// written to the run log; Confirm and StrMenu stay refused, and so does a Message of any other install code or a test.
+/// Not language semantics, so no probe: what the runner shows is the runner's choice.
+pub const MESSAGE_NOTE: &str = "the company data codeunit showed a message: ";
+
 /// Why the company is blocked, from the notes of a baseline run.
 pub fn blocked(notes: &[String]) -> Option<String> {
     notes
