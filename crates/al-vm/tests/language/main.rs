@@ -36,6 +36,7 @@ mod guid_max_str_len;
 mod impact_trace;
 mod in_precedence;
 mod interfaces;
+mod json_remove_statement;
 mod keyword_variable_names;
 mod lane_bump28;
 mod lane_captions;

@@ -227,7 +227,9 @@ impl Session {
             // session's language (misc/lt-probes-needed-8/PnH4CurrReport.al:244 `region=[]`). After `CurrReport.Language :=` only
             // `de-DE` after 1031 is pinned (PnC06ReportLanguage.al:58-65); any other region there is refused (docs/probes-needed.md).
             ids::REPORT_FORMATREGION_1 => match args.first() {
-                Some(Value::Text(t) | Value::Code(t)) if self.report.report_preview_pinned.last() == Some(&true) => {
+                Some(Value::Text(t) | Value::Code(t))
+                    if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) =>
+                {
                     let t = t.to_string();
                     match self.report.curr_report_language {
                         None if t == "en-US" => self.report.format_region = None,
@@ -243,9 +245,9 @@ impl Session {
                     Ok(Value::Null)
                 }
                 Some(Value::Text(_) | Value::Code(_)) => Ok(Value::Null),
-                None if self.report.report_preview_pinned.last() == Some(&true) => Ok(Value::Text(
-                    self.report.format_region.clone().unwrap_or_default().into(),
-                )),
+                None if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) => Ok(
+                    Value::Text(self.report.format_region.clone().unwrap_or_default().into()),
+                ),
                 None => Ok(Value::Text(String::new().into())),
                 Some(other) => unsupported(format!("CurrReport.FormatRegion with {}", other.describe())),
             },
@@ -279,11 +281,23 @@ impl Session {
             // `CurrReport.Preview()` is false in a report run by `Report.Run` (with and without the request
             // page) and `RunModal` (handlers/TestReportRequestPageUpdateObjectIdContracts.al:
             // RequestPageUpdate_RefreshesTheOtherControls, ObjectIdAndPreview_WithoutTheRequestPage_AndWithRunModal).
-            // Execute, SaveAs and the request page's preview action are not pinned.
+            // It is false in every trigger of a report run by `SaveAs`, as Xml and as Pdf (report/W3ReportObjectIdPreviewLanguage.al:
+            // 626-673 QV_Preview_SaveAsXml_Column, QV_Preview_SaveAsPdf; AL Runner issue 5666). The request page's
+            // preview action is refused.
             ids::REPORT_PREVIEW_1 => match self.report.report_preview_pinned.last() {
-                Some(true) => Ok(Value::Boolean(false)),
+                // OnInitReport answers false whatever started the report: Run, Execute, SaveAs and RunRequestPage
+                // (W3ReportObjectIdPreviewLanguage.al:651, :673, :690, :711, :730, :749 `init preview=No`).
+                Some(
+                    crate::state::ReportStart::Run
+                    | crate::state::ReportStart::SaveAs
+                    | crate::state::ReportStart::Init,
+                ) => Ok(Value::Boolean(false)),
+                // A report run by `Execute` answers true in OnPreReport, OnAfterGetRecord, its columns and OnPostReport
+                // (W3ReportObjectIdPreviewLanguage.al:676-690 QV_Preview_Execute `pre preview=Yes;get preview=Yes;column preview=Yes;
+                // post preview=Yes`).
+                Some(crate::state::ReportStart::Execute) => Ok(Value::Boolean(true)),
                 _ => unsupported(
-                    "Report.Preview outside a report started by Run or RunModal (whether an Execute, a SaveAs or a request page preview is a preview is not pinned)",
+                    "Report.Preview outside a report started by Run, RunModal, Execute or SaveAs (a request page preview, or OnInitReport run by the first call of a procedure, is not pinned)",
                 ),
             },
             ids::REPORT_USEREQUESTPAGE_1 => {
@@ -721,7 +735,7 @@ impl Session {
         if inst.borrow().initialized {
             return Ok(());
         }
-        if self.report_init(inst)? {
+        if self.report_init_by(inst, crate::state::ReportStart::FirstUse)? {
             return unsupported("CurrReport.Quit in OnInitReport while a procedure first uses the report (not pinned)");
         }
         // The request page's OnInit runs here, after OnInitReport and before the procedure's body, so what the procedure sets
@@ -776,6 +790,11 @@ impl Session {
     /// Makes the globals of `inst` and, for a report that had none, runs `OnInitReport`. Returns
     /// whether the trigger quit the report.
     fn report_init(&mut self, inst: &Inst) -> Result<bool, Signal> {
+        self.report_init_by(inst, crate::state::ReportStart::Init)
+    }
+
+    /// `report_init`; `start` is what `CurrReport.Preview()` sees in OnInitReport.
+    fn report_init_by(&mut self, inst: &Inst, start: crate::state::ReportStart) -> Result<bool, Signal> {
         let first = !inst.borrow().initialized;
         if first {
             self.report
@@ -801,7 +820,9 @@ impl Session {
         self.report.report_quit = false;
         let region = o.report.as_ref().and_then(|r| r.format_region.clone());
         let outer_region = std::mem::replace(&mut self.report.region_in_init, region);
+        self.report.report_preview_pinned.push(start);
         let r = self.call(object, on_init, inst.clone(), Vec::new());
+        self.report.report_preview_pinned.pop();
         self.report.region_in_init = outer_region;
         self.report.report_init_depth = saved;
         let quit = std::mem::take(&mut self.report.report_quit);
@@ -1081,7 +1102,10 @@ impl Session {
         enters: bool,
     ) -> Result<(), Signal> {
         let shows_page = entry == Entry::Run && window;
-        self.report.report_preview_pinned.push(entry == Entry::Run);
+        self.report.report_preview_pinned.push(match entry {
+            Entry::Run => crate::state::ReportStart::Run,
+            Entry::Execute => crate::state::ReportStart::Execute,
+        });
         // The language and region a trigger sets belong to this run (PnC06ReportLanguage.al:Language_Invalid starts three
         // runs with no language set after Language_SetAndRead set one).
         let outer_region = self.report.format_region.take();
@@ -2242,7 +2266,9 @@ impl Session {
             self.report.dataset = outer;
             return Err(e);
         }
-        self.report.report_preview_pinned.push(false);
+        self.report
+            .report_preview_pinned
+            .push(crate::state::ReportStart::SaveAs);
         let outer_region = std::mem::replace(&mut self.report.format_region, region.as_ref().map(|(r, _)| r.clone()));
         let outer_property = std::mem::replace(&mut self.report.region_property, region.is_some());
         let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));

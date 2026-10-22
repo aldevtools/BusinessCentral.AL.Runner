@@ -2416,6 +2416,12 @@ mod tests {
                 "TB.Add('x')",
                 "'TextBuilder' does not contain a definition for 'Add'",
             ),
+            // must-not-compile 2048: JsonArray has RemoveAt(Index), no Remove(JsonToken).
+            (
+                "J: JsonArray; T: JsonToken",
+                "J.Remove(T)",
+                "'JsonArray' does not contain a definition for 'Remove'",
+            ),
         ];
         for (var, stmt, message) in cases {
             let cu = format!("codeunit 50001 C {{ procedure Run1() var {var}; begin {stmt}; end; }}");
