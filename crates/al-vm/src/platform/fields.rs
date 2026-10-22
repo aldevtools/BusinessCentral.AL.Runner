@@ -210,9 +210,10 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
     r[pos(t, 7)] = blank.option(t, 7, 0);
     r[pos(t, 8)] = Value::Boolean(true);
     let normal = tid < 2_000_000_000
-        && !o.properties.iter().any(|(k, v)| {
-            k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal")
-        });
+        && !o
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal"));
     let refuse = (!normal).then(|| {
         format!(
             "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/lt-aj-probes/AjMisc.al:466-521)",

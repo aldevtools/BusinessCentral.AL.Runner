@@ -71,7 +71,9 @@ fn single_value(e: &al_builtins::filter::FilterExpr) -> bool {
     use al_builtins::filter::FilterExpr;
     match e {
         FilterExpr::Eq(_) => true,
-        FilterExpr::Range(Some(a), Some(b)) => key_cmp(std::slice::from_ref(a), std::slice::from_ref(b)) == Ordering::Equal,
+        FilterExpr::Range(Some(a), Some(b)) => {
+            key_cmp(std::slice::from_ref(a), std::slice::from_ref(b)) == Ordering::Equal
+        }
         _ => false,
     }
 }

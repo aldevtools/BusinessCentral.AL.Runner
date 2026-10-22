@@ -1647,7 +1647,14 @@ impl Session {
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
         let temporary = rec.borrow().temporary;
-        if again && !temporary && self.tx.deferred_insert.as_ref().is_some_and(|(o, _)| *o == t.object as usize) {
+        if again
+            && !temporary
+            && self
+                .tx
+                .deferred_insert
+                .as_ref()
+                .is_some_and(|(o, _)| *o == t.object as usize)
+        {
             // The insert of a row whose key already existed fails after the row's child rows and before its second
             // OnBeforeModifyRecord, with the table's "already exists" error (XmlPortTriggerFlow.al:468
             // NoAutoReplace_ExistingParentWithChild: trace ends at `C.ai=10`, then DB:RecordExists).
