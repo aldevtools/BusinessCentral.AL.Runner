@@ -107,6 +107,8 @@ pub struct StoredCodeunit {
     pub entered: Vec<String>,
     /// A test reached a `DotNet` value or a .NET static: state the trace does not key.
     pub dotnet: bool,
+    /// `--tdd`: a test of it ran a stub (ADR-051); it runs on every run (decision 8).
+    pub stubbed: bool,
     pub ended: Ended,
     /// Its tests in the order they ran, with their outcome.
     pub tests: Vec<(String, Outcome)>,
@@ -196,6 +198,15 @@ pub fn header_mismatch(stored: &Header, current: &Header) -> Option<String> {
 }
 
 impl Stored {
+    /// The codeunits of the stored run with a test that ran a stub (`Current::stubbed`).
+    pub fn stubbed(&self) -> Vec<(String, u32)> {
+        self.codeunits
+            .iter()
+            .filter(|c| c.stubbed)
+            .map(StoredCodeunit::id_key)
+            .collect()
+    }
+
     /// The test codeunits to run (ADR-050 decisions 4 to 8).
     pub fn select(&self, current: &Current) -> Selection {
         let all: BTreeSet<(String, u32)> = current.codeunits.iter().cloned().collect();
@@ -384,6 +395,7 @@ impl Stored {
                 "keys": c.keys,
                 "entered": c.entered,
                 "dotnet": c.dotnet,
+                "stubbed": c.stubbed,
                 "cut": c.ended == Ended::Cut,
                 "tests": c.tests.iter().map(|(name, o)| {
                     let (kind, message) = match o {
@@ -470,6 +482,7 @@ impl Stored {
                 entered: texts(&c["entered"]),
                 // A missing flag is read as the safe answer.
                 dotnet: c["dotnet"].as_bool().unwrap_or(true),
+                stubbed: c["stubbed"].as_bool().unwrap_or(true),
                 ended: if c["cut"].as_bool().unwrap_or(true) {
                     Ended::Cut
                 } else {

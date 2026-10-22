@@ -28,6 +28,7 @@ al-testrun.workspace = true
 al-version.workspace = true
 al-vm.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [target.'cfg(unix)'.dependencies]

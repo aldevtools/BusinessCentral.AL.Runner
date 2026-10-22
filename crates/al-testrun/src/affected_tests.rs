@@ -56,6 +56,7 @@ fn stored_cu(id: u32, keys: &[&str], entered: &[String]) -> StoredCodeunit {
         keys: keys.iter().map(|k| k.to_string()).collect(),
         entered: entered.to_vec(),
         dotnet: false,
+        stubbed: false,
         ended: Ended::Normal,
         tests: vec![("Test1".into(), Outcome::Pass)],
     }
@@ -344,6 +345,13 @@ fn stubbed_codeunits_run_every_time() {
 }
 
 #[test]
+fn the_stubbed_codeunits_of_the_stored_run() {
+    let (mut stored, _) = base();
+    stored.codeunits[1].stubbed = true;
+    assert_eq!(stored.stubbed(), vec![(APP.to_string(), 60001)]);
+}
+
+#[test]
 fn an_unrecorded_codeunit_runs() {
     let (mut stored, now) = base();
     stored.codeunits.remove(0);
@@ -358,6 +366,7 @@ fn the_stored_result_survives_json() {
         .push(("Test2".into(), Outcome::Fail("a \"quoted\" message".into())));
     stored.codeunits[2].ended = Ended::Cut;
     stored.codeunits[2].dotnet = true;
+    stored.codeunits[0].stubbed = true;
     let back = Stored::from_json(&stored.to_json()).expect("readable");
     assert_eq!(back, stored);
 }

@@ -85,6 +85,16 @@ pub struct TestArgs {
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
     pub run_selected_only: bool,
+    /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
+    /// affect; the others keep their stored outcome.
+    pub affected: bool,
+    /// `--affected-store FILE` (ADR-050 decision 10): the stored result, instead of the one in the cache folder.
+    pub affected_store: Option<PathBuf>,
+    /// `--include-failing` (with `--affected`): every codeunit with a test that did not pass last time runs too.
+    pub include_failing: bool,
+    /// `--strict-environment` (with `--affected`): accepted for AL Runner v2's tools; the strict behavior is always on
+    /// (ADR-050 decision 7).
+    pub strict_environment: bool,
     /// `--coverage-out FILE`: write Cobertura XML there (implies `--coverage`; default `coverage.cobertura.xml`).
     pub coverage_out: Option<PathBuf>,
     /// `--coverage-json FILE`: write the statements and the statements of each test as JSON (implies `--coverage`).
@@ -299,6 +309,26 @@ selects only the tests both match)
                          the test methods that are enabled: the other tests do not run, so their
                          globals, rows, time and refusals do not reach the selected ones. The
                          codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
+
+AFFECTED TESTS (ADR-050)
+    --affected           Run only the test codeunits a change since the last --affected run can
+                         affect: those whose tests entered a changed object, used a changed table,
+                         page, report or enum, or raised an event a changed subscriber binds, and
+                         those that are new or did not run to their end last time. The others are
+                         not run and keep their stored outcome: they are counted as skipped, never
+                         as passed or failed in this run, and a skipped test that failed last time
+                         keeps the exit code at 1. A change the rule cannot follow (an added or
+                         removed object, app.json, a dependency app, the BC build, a run option,
+                         install code) runs everything and says why. Every run with --affected
+                         writes the stored result for the next one. Cannot be combined with
+                         --test, --test-exact, --codeunit or --exclude-test.
+    --affected-store FILE  Read and write the stored result at FILE (for CI: save and restore it
+                         between builds). Default: <cache dir>/affected/<key>.json.gz, keyed by the
+                         ids and versions of the APPs.
+    --include-failing    With --affected: also run every codeunit with a test that did not pass
+                         last time.
+    --strict-environment With --affected: accepted for AL Runner v2's tools. The strict behavior is
+                         always on: another dependency app or BC build runs everything.
 
 OUTPUT
     Default: the version line, one line per failing test with the AL call stack of its error
@@ -730,6 +760,10 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.coverage
         || t.explain.is_some()
         || t.isolation.is_some()
+        || t.affected
+        || t.include_failing
+        || t.strict_environment
+        || t.affected_store.is_some()
     {
         return Err("al-runner serve takes only the options that do not depend on a request: --package-cache, --dep, --define, --preprocessor-symbols, --test-timeout, --bc-version, --cache-dir, --no-download, --test-data and the like; the rest comes in each `runTests` request".into());
     }
@@ -1014,7 +1048,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--tdd" => a.tdd = true,
             "--run-selected-only" => a.run_selected_only = true,
-            "--watch" | "--affected" | "--per-suite" | "--include-failing" | "--strict-environment" => {
+            "--affected" => a.affected = true,
+            "--affected-store" => a.affected_store = Some(text()?.into()),
+            "--include-failing" => a.include_failing = true,
+            "--strict-environment" => a.strict_environment = true,
+            "--watch" | "--per-suite" => {
                 return Err(format!(
                     "{flag} is deferred in v3 (ADR-016, owner direction 2026-10-13): features that only hide start-up or run cost wait until they are measured to matter"
                 ));
@@ -1023,6 +1061,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
     }
     if test_microsoft {
+        // `--affected` and its options belong to `test`: test-microsoft keeps no stored result.
+        affected_selection_args(&a, true)?;
         return test_microsoft_args(a);
     }
     source_names(&mut a, if index_build { "--from" } else { "--affected-from" })?;
@@ -1093,6 +1133,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.verbose && a.quiet {
         return Err("--verbose and --quiet cannot be combined".into());
     }
+    affected_selection_args(&a, index_build || debug.is_some())?;
     if index_build {
         if !a.impact_of.is_empty() || a.impact.is_some() || a.impact_accept.is_some() || a.impact_json.is_some() {
             return Err("al-runner impact-index build runs the tests without any extension: --impact-of, --impact, --impact-accept and --impact-json do not apply".into());
@@ -1139,6 +1180,41 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         affected_args(&a, "--affected-from")?;
     }
     Ok(Command::Test(Box::new(a)))
+}
+
+/// The checks of `--affected` and its options (ADR-050 decision 1): exit 2 for a combination it cannot take.
+fn affected_selection_args(a: &TestArgs, other_command: bool) -> Result<(), String> {
+    if !a.affected {
+        for (set, flag) in [
+            (a.include_failing, "--include-failing"),
+            (a.strict_environment, "--strict-environment"),
+            (a.affected_store.is_some(), "--affected-store"),
+        ] {
+            if set {
+                return Err(format!("{flag} needs --affected"));
+            }
+        }
+        return Ok(());
+    }
+    for (set, flag) in [
+        (other_command, "this command"),
+        (!a.filters.is_empty(), "--test"),
+        (!a.exact.is_empty(), "--test-exact"),
+        (!a.codeunits.is_empty(), "--codeunit"),
+        (!a.excludes.is_empty(), "--exclude-test"),
+        (!a.impact_of.is_empty(), "--impact-of"),
+        (!a.affected_from.is_empty(), "--affected-from"),
+        (a.recipe, "--recipe microsoft"),
+        (a.explain.is_some(), "--explain"),
+        (a.execute, "a scratch run"),
+    ] {
+        if set {
+            return Err(format!(
+                "--affected cannot be combined with {flag}: it selects the test codeunits itself, from the stored result of the last run"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The names of the test sources (ADR-052 1.1): `microsoft`, without case. A path (an ISV test app) is build step 3.
@@ -1387,6 +1463,22 @@ mod tests {
             assert!(e.contains(flag.split(' ').next().unwrap()), "{flag}: {e}");
         }
         assert!(p("test-microsoft --affected-from microsoft").is_err());
+        // `--affected` selects from the stored result of a `test` run; test-microsoft has none (ADR-050 decision 1).
+        assert!(
+            p("test Ext --affected --affected-from microsoft")
+                .unwrap_err()
+                .contains("--affected cannot be combined with --affected-from")
+        );
+        assert!(
+            p("test-microsoft --affected")
+                .unwrap_err()
+                .contains("--affected cannot be combined")
+        );
+        assert!(
+            p("test-microsoft --include-failing")
+                .unwrap_err()
+                .contains("needs --affected")
+        );
         assert!(p("test-microsoft --output-json").unwrap_err().contains("FILE"));
         assert!(p("test-microsoft --output-json r.json").is_ok());
         // `--app` is the short form in this command only; `--microsoft-app` needs the command too.

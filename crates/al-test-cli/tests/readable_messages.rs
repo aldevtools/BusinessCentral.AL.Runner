@@ -10,6 +10,21 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "alrunner-cli/src/affected.rs",
+        r#""{:?}","#,
+        "the run options of `--affected` as the input of a hash, never shown",
+    ),
+    (
+        "alrunner-cli/src/affected.rs",
+        r#"Err(_) => sha(format!("{:?} {:?} {:?}", i.json, i.manifest, i.symbols).as_bytes()),"#,
+        "the manifest of a package as the input of a hash, never shown",
+    ),
+    (
+        "alrunner-cli/src/affected.rs",
+        r#"let key = sha(format!("{apps:?}").as_bytes());"#,
+        "the workspace apps as the input of the stored result's file name, never shown",
+    ),
+    (
         "al-test-cli/src/behavior_coverage.rs",
         r#"format!("{k:?}")"#,
         "the grammar kind name as the catalog key of the behavior coverage map (SyntaxKind names are the item names)",

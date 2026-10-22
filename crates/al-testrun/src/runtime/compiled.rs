@@ -55,6 +55,10 @@ pub struct RunOptions {
     pub narrow: Option<Narrow>,
     /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
     pub tdd: bool,
+    /// `al-runner test --affected` (ADR-050 decision 3): lowering hashes the symbolic form of each workspace object
+    /// (`Lowered::object_hashes`, `Roots::object_hashes`), and the compile is never lean, so every workspace object
+    /// has its hash.
+    pub object_hashes: bool,
     /// `al-runner debug` (ADR-048): called once the compile is done and the install baseline has run, before any test
     /// runs; it returns when the tests may start. The tests then run on one thread, one after the other, with the
     /// debugger of `hooks.debugger`.

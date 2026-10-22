@@ -113,7 +113,9 @@ impl CorpusRuntime {
         suites: &[SuiteRun],
         opts: &RunOptions,
     ) -> Result<CorpusRuntime, String> {
-        let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, true)?;
+        // A lean compile leaves workspace objects out: `--affected` needs the hash of each.
+        let lean = !opts.object_hashes;
+        let compiled = Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean)?;
         let rt = Self::run_compiled(&compiled, target, dotnet.clone(), opts);
         // A lean compile left out the workspace objects no selected test names (`Roots::lean`). A run that met one of
         // their routines was compiled for less than it needs: the apps are compiled completely and the tests run again,
@@ -301,6 +303,7 @@ impl CorpusRuntime {
             baseline: baseline_wanted,
             only_tests: only.clone(),
             tdd: opts.tdd,
+            object_hashes: opts.object_hashes,
             ..Default::default()
         };
         // Whether the install baseline runs, and why it does when it was weighed.
