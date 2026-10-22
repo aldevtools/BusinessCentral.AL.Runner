@@ -2355,11 +2355,35 @@ impl Session {
 
     /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
     /// selection reads it). Pinned by pages/lt-page-runmodal-rec/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
+    /// Whether the view of the page's source has a row (a probe on a copy of Rec, which keeps its filters).
+    fn page_view_has_rows(&mut self, st: &St) -> bool {
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        !matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut []),
+            Ok(Value::Boolean(false))
+        )
+    }
+
     fn hand_back_selection(&mut self, st: &St, handed: &Option<Rec>, answer: &Value) {
         let statement = st.borrow().statement_run;
         let closed_on_row = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK" || a == "LookupCancel"
             || (statement && (a == "OK" || a == "Cancel"))));
         let picked = st.borrow_mut().selection.take();
+        // LookupOK from a page that shows no row (an empty view of a list without a new-row line,
+        // handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine): what Rec holds then is not
+        // pinned (only GetRecord of a page variable after OK on an empty table is, errors/lt-ms-refusals-129/P129PageMisc.al:633
+        // `id=0`), so a later use of Rec refuses. A partner test reached it.
+        let lookup_ok = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK"));
+        if let (true, false, Some(r), None) = (lookup_ok, statement, handed, picked.as_ref()) {
+            if self.has_source(st) && !self.page_view_has_rows(st) {
+                r.borrow_mut().unpinned_buffer = Some(
+                    "Rec after Page.RunModal(Id, Rec) answered LookupOK on a page that shows no row (what Rec holds then is not pinned)",
+                );
+                return;
+            }
+        }
         if let (true, Some(r), Some(fields)) = (closed_on_row, handed, picked) {
             if r.borrow().fields.len() == fields.len() {
                 // Called as a statement, whether Rec takes the row the page closed on is not pinned: when that row is not the

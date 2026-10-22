@@ -688,6 +688,15 @@ pub(crate) fn run_codeunit_core(
             scratch.stubbed.push((routine.name.clone(), reached.clone()));
         }
         let took = test_started.elapsed();
+        // The count starts with the test (`start_sleep_budget`): a test that did not start slept nothing.
+        let slept_ms = if began {
+            u64::try_from(session.slept_in_test_ms()).unwrap_or(0)
+        } else {
+            0
+        };
+        if slept_ms > 0 {
+            scratch.slept.push((routine.name.clone(), slept_ms));
+        }
         if execute {
             scratch.messages.push((routine.name.clone(), session.take_messages()));
         }
@@ -725,6 +734,7 @@ pub(crate) fn run_codeunit_core(
                     .map(|(_, s)| s.clone())
                     .unwrap_or_default(),
                 time: took,
+                slept_ms,
                 coverage: cov.clone(),
                 captured: captured_at.clone(),
                 stubs: reached,
@@ -756,6 +766,7 @@ pub(crate) fn run_codeunit_core(
                     outcome: outcome.clone(),
                     call_stack: String::new(),
                     time: std::time::Duration::ZERO,
+                    slept_ms: 0,
                     coverage: Vec::new(),
                     captured: None,
                     stubs: Vec::new(),

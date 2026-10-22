@@ -36,6 +36,8 @@ pub struct TestEvent {
     pub outcome: Outcome,
     pub call_stack: String,
     pub time: std::time::Duration,
+    /// The time the test's `Sleep` calls asked for, in milliseconds (`TestResult::slept_ms`).
+    pub slept_ms: u64,
     /// With `RunOptions::coverage`: the statements the test ran (position id, runs).
     pub coverage: Vec<(u32, u32)>,
     /// With `RunOptions::capture`: what the test's code did, statement by statement.
