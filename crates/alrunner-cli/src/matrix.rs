@@ -427,7 +427,7 @@ fn shown(s: Option<&Seen>) -> String {
     }
 }
 
-fn table(rows: &[Vec<String>]) -> Vec<String> {
+pub(crate) fn table(rows: &[Vec<String>]) -> Vec<String> {
     let n = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..n)
         .map(|c| rows.iter().map(|r| r.get(c).map_or(0, String::len)).max().unwrap_or(0))

@@ -128,7 +128,7 @@ fn source_fixture(root: &Path) -> (String, String, String) {
     ));
     std::fs::write(
         test.join("Tests-Imp.Source.zip"),
-        // The recipe's UnitTest lane (an empty company); without a TestType the codeunit is in the Uncategorized lane.
+        // The recipe's UnitTest lane (an empty company), as a codeunit without a TestType is too.
         zip(&[
             ("app.json", read("app.json")),
             (
@@ -301,7 +301,8 @@ fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_re
     let test = dir.path().join(format!(
         "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
     ));
-    // The same test app without a TestType: Microsoft's recipe puts it in the Uncategorized lane (Contoso data).
+    // The same test app with `TestType = Uncategorized`: Microsoft's recipe puts it in the Uncategorized lane (Contoso
+    // data).
     std::fs::write(
         test.join("Tests-Imp-Uncategorized.Source.zip"),
         zip(&[
@@ -314,7 +315,10 @@ fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_re
                     )
                     .replace("Impact Tests", "Impact Tests U"),
             ),
-            ("src/Tests.Codeunit.al", read("Tests.Codeunit.al")),
+            (
+                "src/Tests.Codeunit.al",
+                read("Tests.Codeunit.al").replace("Subtype = Test;", "Subtype = Test;\n    TestType = Uncategorized;"),
+            ),
         ]),
     )
     .unwrap();
@@ -360,4 +364,84 @@ fn the_microsoft_source_writes_one_impact_json_entry_per_test_app_and_lane_and_r
     let out = text(&o);
     assert_eq!(o.status.code(), Some(0), "{out}");
     assert!(!out.contains("no longer match"), "{out}");
+}
+
+#[test]
+fn list_lanes_prints_the_lane_of_every_test_app_without_compiling_or_running() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), true);
+    // In the fake recipe's Legacy bucket 1 (build mode `L`).
+    support::add_test_app(dir.path(), BUILD, "Tests-Other", 50700, "ORuns");
+    let o = run(dir.path(), &["--list-lanes", "--verbose"]);
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(0), "{out}");
+    // test app, lane (Microsoft's build mode), codeunits, tests, disabled by Microsoft, would run.
+    assert_eq!(row(&out, "Tests-Fake-A"), "Default 1 2 1 1", "{out}");
+    assert_eq!(row(&out, "Tests-Fake-B"), "Default 1 1 0 1", "{out}");
+    assert_eq!(row(&out, "Tests-Other"), "L 1 1 0 1", "{out}");
+    // One total per lane.
+    assert_eq!(row(&out, "lane Default"), "2 3 1 2", "{out}");
+    assert_eq!(row(&out, "lane L"), "1 1 0 1", "{out}");
+    // --verbose: one line per codeunit.
+    assert_eq!(row(&out, "codeunit 50100"), "Tests-Fake-A Default 2 1 1", "{out}");
+    // Nothing ran: the failing test of Tests-Fake-B is not reported.
+    assert!(!out.contains("boom") && !out.contains("== test app"), "{out}");
+}
+
+#[test]
+fn a_codeunit_without_a_test_type_runs_in_the_default_lane_as_in_microsofts_ci() {
+    // BCApps releases/29.x, run 39519586834: the Default job (UnitTest, an empty company) ran 242 codeunits that set
+    // no TestType (157 of them from System Application Test); the UncategorizedTests job ran only codeunits that say
+    // `TestType = Uncategorized`.
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), false);
+    let test = dir.path().join(format!(
+        "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
+    ));
+    std::fs::write(
+        test.join("Tests-NoType.Source.zip"),
+        support::app(
+            "a0000000-0000-0000-0000-000000000009",
+            "Tests-NoType",
+            "codeunit 50900 \"No Type Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure NRuns()\n    begin\n    end;\n}\n",
+        ),
+    )
+    .unwrap();
+    // `RequiredTestIsolation = Disabled` outside the UnitTest lane: Microsoft's CI does not run it (its second pass with
+    // isolation disabled is for UnitTest only; run 39519586834 ran none of the 13 IntegrationTest ones).
+    std::fs::write(
+        test.join("Tests-NoIsolation.Source.zip"),
+        support::app(
+            "a0000000-0000-0000-0000-000000000010",
+            "Tests-NoIsolation",
+            "codeunit 50950 \"No Isolation Tests\"\n{\n    Subtype = Test;\n    TestType = IntegrationTest;\n    RequiredTestIsolation = Disabled;\n\n    [Test]\n    procedure IRuns()\n    begin\n    end;\n}\n",
+        ),
+    )
+    .unwrap();
+    let o = run(dir.path(), &["--list-lanes"]);
+    let out = text(&o);
+    assert_eq!(row(&out, "Tests-NoType"), "Default 1 1 0 1", "{out}");
+    assert!(
+        out.contains("Tests-NoIsolation  no lane (AITest, or RequiredTestIsolation = Disabled outside UnitTest)  1"),
+        "{out}"
+    );
+    let o = run(dir.path(), &["--app", "Tests-NoType"]);
+    let out = text(&o);
+    assert_eq!(row(&out, "Tests-NoType"), "1 0 0 1 0 0", "{out}");
+}
+
+#[test]
+fn each_test_app_skips_only_the_tests_its_own_disabled_folder_lists() {
+    // BCApps `build/scripts/RunTestsInBcContainer.ps1` (`Get-DisabledTests -AppName`) reads only
+    // `src/DisabledTests/<app name, spaces as _>/*.json` for the app it runs. In releases/29.0 the folder of
+    // E-Document Core Tests disables codeunit 139235 with `*`, and run 39519586834 ran its 105 tests in PEPPOL Tests.
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), false);
+    let o = run(dir.path(), &["--list-lanes"]);
+    let out = text(&o);
+    assert_eq!(row(&out, "Tests-Fake-A"), "Default 1 2 1 1", "{out}");
+    assert_eq!(row(&out, "Tests-Fake-B"), "Default 1 1 0 1", "{out}");
+    let o = run(dir.path(), &["--app", "Tests-Fake-B"]);
+    let out = text(&o);
+    assert_eq!(row(&out, "Tests-Fake-B"), "1 0 0 1 0 0", "{out}");
 }

@@ -138,7 +138,7 @@ pub fn summary_lines(results: &[LaneResult], unrun: usize) -> Vec<String> {
     }
     if unrun > 0 {
         out.push(format!(
-            "  {unrun} codeunits have a TestType that no lane runs (AITest); they are left out"
+            "  {unrun} codeunits are in no lane of Microsoft's CI (a TestType no lane runs, such as AITest, or RequiredTestIsolation = Disabled outside the UnitTest lane); they are left out"
         ));
     }
     out
@@ -171,6 +171,8 @@ pub fn test(a: &TestArgs) -> Result<u8, String> {
 /// One lane of the recipe as planned: its company, the arguments of its run, and why it cannot run, if it cannot.
 pub struct PlannedLane {
     pub lane: Lane,
+    /// The build mode of Microsoft's CI that runs this lane (`Default`, `LegacyTestsBucket1`).
+    pub build_mode: String,
     pub company: String,
     pub args: TestArgs,
     pub refusal: Option<String>,
@@ -182,6 +184,8 @@ pub struct Planned {
     pub unrun: usize,
     /// Where the BCApps files came from (one line).
     pub how: String,
+    /// The `[Test]` procedures of every test codeunit of the APPs.
+    pub tests: std::collections::BTreeMap<u32, Vec<String>>,
 }
 
 /// Plans the recipe's lanes for the APPs of `a`: lanes without a codeunit are left out.
@@ -206,26 +210,39 @@ pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
     )?;
     let recipe = Recipe::load(&source.dir, a.country())?;
     let mut units: Vec<AppUnits> = Vec::new();
+    let mut tests = std::collections::BTreeMap::new();
     for i in &inputs {
         let mut codeunits = Vec::new();
+        let mut isolation_disabled = Vec::new();
         for (_, text) in &i.source.files {
             codeunits.extend(al_testrun::discover::test_codeunit_types(text));
+            isolation_disabled.extend(al_testrun::discover::isolation_disabled_codeunits(text));
+            tests.extend(al_testrun::discover::test_codeunits(text));
         }
         units.push(AppUnits {
             app_name: i.json.name.clone(),
             codeunits,
+            isolation_disabled,
         });
     }
     let plan = recipe::plan(&recipe, &units);
     let mut lanes = Vec::new();
     for (lane, ids) in &plan.lanes {
         let company = recipe.company_name(*lane).unwrap_or("").to_string();
-        let args = lane_args(a, *lane, &company, ids, &recipe);
+        let mut args = lane_args(a, *lane, &company, ids, &recipe);
+        // Microsoft reads the disabled tests of the app it runs only (`Get-DisabledTests -AppName`).
+        args.disabled_tests_apps = inputs.iter().map(|i| i.json.name.clone()).collect();
         if args.codeunits.is_empty() {
             continue;
         }
+        // The app of the lane's first codeunit names the Legacy bucket (Legacy lanes hold the apps of the buckets).
+        let app = units
+            .iter()
+            .find(|u| u.codeunits.iter().any(|(c, _)| Some(c) == ids.first()))
+            .map_or("", |u| u.app_name.as_str());
         lanes.push(PlannedLane {
             lane: *lane,
+            build_mode: recipe.build_mode(app, *lane),
             refusal: company_refusal(*lane),
             company,
             args,
@@ -235,6 +252,7 @@ pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
         lanes,
         unrun: plan.unrun.len(),
         how: source.how,
+        tests,
     })
 }
 
@@ -248,6 +266,7 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
         company,
         args: la,
         refusal,
+        ..
     } in planned.lanes
     {
         let n = la.codeunits.len();

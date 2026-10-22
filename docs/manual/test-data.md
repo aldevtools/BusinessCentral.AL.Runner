@@ -74,9 +74,9 @@ settings decide the company of each test codeunit, which they call a lane:
 | Test codeunit | Company |
 |---|---|
 | Legacy test apps | The RapidStart package company |
-| `TestType = UnitTest` | An empty company |
+| `TestType = UnitTest`, or no `TestType` | An empty company |
 | `IntegrationTest` | The Contoso setup company (not run yet) |
-| The rest | The Contoso company with all demo data (not run yet) |
+| `Uncategorized` | The Contoso company with all demo data (not run yet) |
 
 Each lane has its own summary and, with `--junit FILE`, its own file
 (`FILE.<lane>.xml`). Microsoft's disabled tests are skipped and counted. The BCApps
