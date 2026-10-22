@@ -605,7 +605,8 @@ impl MemStore {
     /// Watches every read and write of the table objects `tables` (in any company) from now on, replacing what was watched;
     /// an empty set stops watching. [`MemStore::watch_hit`] says whether one was accessed.
     pub fn watch(&mut self, tables: std::collections::BTreeSet<u32>) {
-        self.watch = (!tables.is_empty()).then(|| std::rc::Rc::new(std::cell::RefCell::new(Watch { tables, hit: None })));
+        self.watch =
+            (!tables.is_empty()).then(|| std::rc::Rc::new(std::cell::RefCell::new(Watch { tables, hit: None })));
     }
 
     /// The first watched table that was read or written since [`MemStore::watch`].
@@ -1356,7 +1357,10 @@ mod tests {
         s.insert(&c, &t, row("A", 1, 1)).unwrap();
         assert_eq!(s.tables_changed_since(before), [7].into());
         s.rollback();
-        assert!(s.tables_changed_since(before).is_empty(), "a rolled back write is not a change");
+        assert!(
+            s.tables_changed_since(before).is_empty(),
+            "a rolled back write is not a change"
+        );
         s.insert(&c, &t, row("A", 1, 1)).unwrap();
         s.commit();
         s.watch([7].into());
