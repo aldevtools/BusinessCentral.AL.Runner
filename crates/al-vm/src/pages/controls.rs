@@ -897,6 +897,14 @@ impl Session {
                     self.last_error = *e;
                     return Ok(Value::Null);
                 }
+                // Out of the table's OnValidate (or anything else than the control's own trigger) only an error with a text is
+                // pinned (P81PageValidateEvents.al below); for `Error('')` the corpus pins the card control's trigger alone
+                // (QiEmptyErrorPages.al:253). Corpus issue 712 queues the probe.
+                if e.message.is_empty() {
+                    return unsupported(
+                        "an error with an empty text out of a table field's OnValidate during TestPage SetValue (what the test client does with it is not pinned)",
+                    );
+                }
                 al_builtins::native::refuse_unpinned_text(&e, "A page validation error built from an error")?;
                 if matches!(ctl.binding, ir::Binding::Expr(_)) {
                     return Err(refuse_bound(e.message));

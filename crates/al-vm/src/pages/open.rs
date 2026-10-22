@@ -183,6 +183,7 @@ impl Session {
         as_part: bool,
     ) -> Result<Option<Handler>, Signal> {
         let test_open = std::mem::take(&mut self.pages.test_open);
+        let rec_unpinned = st.borrow_mut().open_rec_unpinned.take();
         let mut handler = None;
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -458,8 +459,14 @@ impl Session {
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
+            if let (Some(why), true) = (rec_unpinned, has_source) {
+                self.page_rec(st).borrow_mut().unpinned_buffer = Some(why);
+            }
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
+            if rec_unpinned.is_some() && has_source {
+                self.page_rec(st).borrow_mut().unpinned_buffer = None;
+            }
             opened?;
             if let Some(before) = before_open {
                 let kept = self.temp_rec_position(st)?.is_some_and(|now| {

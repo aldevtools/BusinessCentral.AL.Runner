@@ -418,6 +418,9 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
+    /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
+    pub open_rec_unpinned: Option<&'static str>,
     /// A temporary Worksheet opened on the row in a key other than the primary key that was set before the open: it reads each
     /// row once more, as a list over a database table in such a key does (see `reads_once_more_in_its_key`).
     pub temp_reads_once_more: bool,
@@ -721,6 +724,7 @@ impl PageState {
             open_reads_above: false,
             opened_on_moved_rec: false,
             onopenpage_kept_rec: false,
+            open_rec_unpinned: None,
             temp_reads_once_more: false,
             reads_once_more_in: None,
             open_read: false,

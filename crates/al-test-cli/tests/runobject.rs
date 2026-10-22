@@ -168,6 +168,18 @@ page 61041 "RO Head Card"
         }
     }
 }
+page 61042 "RO Lines Reader"
+{
+    PageType = List; SourceTable = "RO Line"; Editable = false;
+    layout { area(Content) { repeater(R) { field(Head; Rec."Head No.") { } } } }
+    trigger OnOpenPage() var P: Codeunit "RO Probe"; begin P.SetSeen(Rec."Head No."); end;
+}
+page 61043 "RO Reader Host"
+{
+    PageType = Card; SourceTable = "RO Head";
+    layout { area(Content) { field(NoCtl; Rec."No.") { } } }
+    actions { area(Processing) { action(Read) { RunObject = Page "RO Lines Reader"; RunPageLink = "Head No." = field("No."); } } }
+}
 "#;
 
 fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
@@ -511,6 +523,20 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
     assert!(why("CreateOnRec").contains("RunPageMode = Create"), "{got:?}");
     assert!(why("MissingTarget").contains("outside the workspace"), "{got:?}");
     assert!(why("UnknownMode").contains("RunPageMode = strange"), "{got:?}");
+}
+
+// What `Rec` holds in the OnOpenPage of a page opened through `RunPageLink` is not pinned (only the filter groups are,
+// handlers/TestActionRunPageLinkFilterGroup.al:119): a read of a field of Rec there refuses; reading the filters runs
+// (run_page_link_filters_the_target_in_filter_group_zero). Probe queued in the corpus repo (issue 712).
+#[test]
+fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_is_refused() {
+    let got = not_run(
+        "[Test] [HandlerFunctions('Handler')] procedure Read() var H: Record \"RO Head\"; L: Record \"RO Line\"; Host: TestPage \"RO Reader Host\"; begin
+            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.Read.Invoke(); end;
+        [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
+    );
+    assert!(got[0].1.contains("RunPageLink"), "{got:?}");
 }
 
 // An action that declares both runs only its RunObject

@@ -1536,7 +1536,7 @@ impl Session {
     }
 
     /// A record method on a record whose buffer is not pinned (`RecordState::unpinned_buffer`): methods that do not read the
-    /// buffer run, a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
+    /// buffer run (the filter, key and view reads among them), a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
     /// pinned again, and every other method refuses.
     fn unpinned_buffer_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let why = rec.borrow().unpinned_buffer.unwrap_or_default();
@@ -1554,6 +1554,14 @@ impl Session {
                 | RecordOp::SetRange
                 | RecordOp::SetFilter
                 | RecordOp::FilterGroup
+                | RecordOp::GetFilter
+                | RecordOp::GetFilters
+                | RecordOp::GetRangeMin
+                | RecordOp::GetRangeMax
+                | RecordOp::HasFilter
+                | RecordOp::GetView
+                | RecordOp::CurrentKey
+                | RecordOp::FieldNo
                 | RecordOp::SetLoadFields
                 | RecordOp::AddLoadFields
                 | RecordOp::SetAutoCalcFields
