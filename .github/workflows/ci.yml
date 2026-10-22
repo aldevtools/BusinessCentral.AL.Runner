@@ -307,7 +307,9 @@ jobs:
 
       # ADR-050 decision 12: edits of the corpus app; per edit the --affected selection plus the stored outcomes of the
       # skipped codeunits must equal a full run (about 5 s per run, two runs per narrowed edit).
+      # Runner time is scarce: the differential runs on pushes to main, not on every pull request.
       - name: Affected selection differential
+        if: github.event_name != 'pull_request'
         run: |
           cargo test --release --no-fail-fast \
             -p al-test-cli --test affected_differential \
