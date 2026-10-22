@@ -3168,18 +3168,34 @@ impl Session {
                                     && value(*i).is_some_and(|v| !v.is_empty())
                             });
                             // The other elements write the value of their field (misc/lt-probes-needed-2/PnBReportSaveAs.al:568-592).
-                            // The logo is the Picture field in base64; how BC encodes it is not built, so a picture is refused.
+                            // The logo is the Picture field's bytes in base64 as they were written, a PNG and bytes that are no
+                            // picture alike, with no line breaks; empty without a picture (report/lt-ah-dataset-header/
+                            // AhDatasetHeader.al:218-248 QV_Header_CompanyLogo_PictureVariants, BC 29; AL Runner issue 5681).
                             for (element, field) in dataset::COMPANY_FIELDS {
                                 let Some(i) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(field)) else {
                                     continue;
                                 };
                                 if element == "CompanyLogo" {
                                     self.load_blobs(&rec, &[i])?;
-                                    if !matches!(&rec.borrow().fields[i], Value::Blob(b) if b.borrow().bytes.is_empty())
-                                    {
-                                        return unsupported(
-                                            "the CompanyLogo of the dataset header (Company Information has a Picture; its encoding is not built)",
-                                        );
+                                    let logo = match &rec.borrow().fields[i] {
+                                        Value::Blob(b) => {
+                                            let b = b.borrow();
+                                            if b.render_pending.is_some() {
+                                                return unsupported(
+                                                    "the CompanyLogo of the dataset header: the Picture holds content that was never produced",
+                                                );
+                                            }
+                                            crate::sessionops::base64(&b.bytes)
+                                        }
+                                        other => {
+                                            return unsupported(format!(
+                                                "the CompanyLogo of the dataset header from {}",
+                                                other.describe()
+                                            ));
+                                        }
+                                    };
+                                    if !logo.is_empty() {
+                                        company_values.push((element, logo));
                                     }
                                     continue;
                                 }
