@@ -279,29 +279,40 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "PendingHasARow");
 }
 
-// A table without a key over SystemRowVersion has no Field row for it (metadata/W6FieldKeyRows.al:263-270,
-// record/TestFieldLenAndFeatureKeyContracts.al:107-116). Whether a table that declares such a key has one (No. 0,
-// named `timestamp` like RecordRef.Field(0): record/TestRowVersionFieldNumberFieldActiveContracts.al:63-67) is not
-// pinned, so a read that could see that row is refused; a read the row cannot touch still answers.
+// The Field table answers the rowversion row (No. 0, `timestamp`, BigInteger, Normal, Len 8, Enabled) only to a FieldName
+// filter, on a table with a key over SystemRowVersion and on one without (types/lt-aj-probes/AjMisc.al:510-521, helper
+// QtFieldTableAnswers :414-429). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter on another name and a
+// TableNo-only scan do not see it (same helper; RaFieldScan :613-641; metadata/W6FieldKeyRows.al:263-270). Only the shape
+// TableNo plus FieldName = 'timestamp' (:405-406) is pinned: another filter next to them, or a pattern, is refused.
 #[test]
-fn a_field_row_for_the_rowversion_of_a_table_with_a_rowversion_key_is_refused() {
+fn the_rowversion_row_of_the_field_table_answers_only_a_fieldname_filter() {
     let o = outcomes(
         r#"table 50003 "Rv Host" { fields { field(1; Id; Integer) { } field(2; Txt; Text[10]) { } }
   keys { key(PK; Id) { } key(Rv; SystemRowVersion) { } } }
 table 50004 "No Rv" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure FindsByName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then; end;
-  [Test] procedure CountsFields() var F: Record Field; begin F.SetRange(TableNo, 50003); if F.Count() = 0 then; end;
+  local procedure Answers(Tab: Integer): Text var F: Record Field; s: Text; begin
+    if F.Get(Tab, 0) then s := 'found|' else s := 'not found|';
+    F.SetRange(TableNo, Tab); F.SetRange(FieldName, 'timestamp');
+    if F.FindSet() then repeat s += Format(F."No.") + ':' + F.FieldName + ':' + Format(F.Type) + ':' + Format(F.Class) + ':' + Format(F.Len) + ':' + Format(F.Enabled) + ';'; until F.Next() = 0;
+    F.SetRange(FieldName, 'SystemRowVersion'); s += '|' + Format(F.Count());
+    F.SetRange(FieldName); F.SetRange("No.", 0); s += '|' + Format(F.Count());
+    F.SetRange("No."); F.SetRange(Type, F.Type::BigInteger); s += '|' + Format(F.Count());
+    F.SetRange(Type); F.FindFirst(); s += '|' + Format(F."No.");
+    exit(s); end;
+  [Test] procedure WithKey() begin if Answers(50003) <> 'not found|0:timestamp:BigInteger:Normal:8:Yes;|0|0|0|1' then Error(Answers(50003)); end;
+  [Test] procedure WithoutKey() begin if Answers(50004) <> 'not found|0:timestamp:BigInteger:Normal:8:Yes;|0|0|0|1' then Error(Answers(50004)); end;
   [Test] procedure OtherName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'Txt'); F.FindFirst(); if F."No." <> 2 then Error('wrong'); end;
-  [Test] procedure GetByNumber() var F: Record Field; begin F.Get(50003, 2); end;
-  [Test] procedure NoKeyNoRow() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then Error('listed'); end; }"#,
+  [Test] procedure Pattern() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetFilter(FieldName, 'time*'); if F.Count() = 0 then; end;
+  [Test] procedure ExtraFilter() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.SetRange(Class, F.Class::Normal); if F.Count() = 0 then; end;
+  [Test] procedure UnpinnedColumn() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); if F."Field Caption" = '' then; end; }"#,
     );
-    for t in ["FindsByName", "CountsFields"] {
-        let why = not_run(&o, t);
-        assert!(why.contains("SystemRowVersion"), "{t}: {why}");
-    }
-    for t in ["OtherName", "GetByNumber", "NoKeyNoRow"] {
+    for t in ["WithKey", "WithoutKey", "OtherName"] {
         passes(&o, t);
+    }
+    for t in ["Pattern", "ExtraFilter", "UnpinnedColumn"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("timestamp"), "{t}: {why}");
     }
 }
 

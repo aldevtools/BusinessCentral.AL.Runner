@@ -169,7 +169,7 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 }
             }
         }
-        if let Some(e) = rowversion_key_row(schema, t, &blank, tid, &o.name) {
+        if let Some(e) = rowversion_row(o, schema, t, &blank, tid) {
             out.push(e);
         }
         if user_name_fields {
@@ -179,32 +179,47 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     out
 }
 
-/// The Field row of the rowversion of a table that declares a key over SystemRowVersion (its own key or one a
-/// tableextension adds). A table without such a key has no row for it (metadata/W6FieldKeyRows.al:263-270,
-/// record/TestFieldLenAndFeatureKeyContracts.al:107-116); whether a table with one has a row is not pinned
-/// (docs/probes-needed.md). The row is poisoned: a read that might see it is refused. Its number is 0 and its name
-/// `timestamp`, the number and name of RecordRef.Field(FieldNo(SystemRowVersion))
-/// (record/TestRowVersionFieldNumberFieldActiveContracts.al:63-67). The name is kept as known so that a lookup by the name
-/// of another field (names are unique in a table) still answers.
-fn rowversion_key_row(schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32, table: &str) -> Option<Entry> {
-    let rv = schema.fields.iter().position(|f| f.id == 2_000_000_005)?;
-    if !schema.keys.iter().any(|k| k.contains(&rv)) {
-        return None;
-    }
+/// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
+/// FieldName filter finds it, on a table with a key over SystemRowVersion (own key, or one a tableextension adds) and on
+/// one without (types/lt-aj-probes/AjMisc.al:466-521, helper QtFieldTableAnswers :414-429, QtRowVersionRows :400-412;
+/// FieldTable_Customer_RowVersionField :336-348). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter
+/// on another name and a TableNo-only scan do not see it (same helper; RaFieldScan :613-641;
+/// metadata/W6FieldKeyRows.al:263-270). The other columns are not pinned: reading one refuses. Pinned on normal tables
+/// of the workspace and the Base Application only: for another kind of table the row refuses where it could be found.
+fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32) -> Option<Entry> {
+    schema.fields.iter().find(|f| f.id == 2_000_000_005)?;
+    static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
+    let why = WHY
+        .get_or_init(|| {
+            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only TableNo, No., FieldName, Type, Len, Class and Enabled are pinned (types/lt-aj-probes/AjMisc.al:409)"
+                .into()
+        })
+        .clone();
     let mut r = blank.row();
+    for (i, f) in t.fields.iter().enumerate() {
+        if ![1, 2, 4, 5, 6, 7, 8].contains(&f.id) {
+            r[i] = Value::Unknown(why.clone());
+        }
+    }
     r[pos(t, 1)] = Value::Integer(tid as i32);
     r[pos(t, 2)] = Value::Integer(0);
     let name = pos(t, 4);
     r[name] = Value::Text("timestamp".into());
-    Some(
-        Entry::poisoned(
-            r,
-            format!(
-                "the Field table row of SystemRowVersion of table '{table}', which declares a key over SystemRowVersion: whether such a table lists its rowversion in the Field table is not pinned (docs/probes-needed.md)"
-            ),
+    r[pos(t, 5)] = blank.option(t, 5, 17);
+    r[pos(t, 6)] = Value::Integer(8);
+    r[pos(t, 7)] = blank.option(t, 7, 0);
+    r[pos(t, 8)] = Value::Boolean(true);
+    let normal = tid < 2_000_000_000
+        && !o.properties.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal")
+        });
+    let refuse = (!normal).then(|| {
+        format!(
+            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/lt-aj-probes/AjMisc.al:466-521)",
+            o.name
         )
-        .with_known_cols(vec![name]),
-    )
+    });
+    Some(Entry::ok(r).by_name_only(name, refuse))
 }
 
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class

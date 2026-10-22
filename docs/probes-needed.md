@@ -1235,12 +1235,6 @@ whose OnOpenPage moves Rec stays under assumption `worksheet-temp-source-open-ro
 | Such a Worksheet with OnFindRecord, or in a key other than the primary key, whose `=>`/`=><` from Rec lands on the first row of the view | REFUSED | QT_TempWsFind with a key before the first row | pages/open.rs |
 | A temporary Worksheet or List without an OnOpenPage trigger whose row was set before the open | NOT REFUSED: opens on its first row, as before this bump (no corpus case pins it; the QT pages all declare OnOpenPage) | The QT pages without OnOpenPage | pages/open.rs `load_first_row` |
 
-## Field table row of SystemRowVersion (lane-np-runtime, 2026-10-22)
-
-| Behavior | Status | Probe wanted | Code |
-|---|---|---|---|
-| Whether the Field table lists SystemRowVersion (No. 0, FieldName `timestamp`) for a table that declares a key over SystemRowVersion, in its own keys or through a tableextension key. A table without such a key has no row (W6FieldKeyRows.al:263-270, TestFieldLenAndFeatureKeyContracts.al:107-116) | REFUSED: a Field read that could see that row (a FieldName filter of `timestamp`, a scan or count of the table's rows, a filter on any other column). A lookup by another field's name or number still answers | On a table with `key(Rv; SystemRowVersion)` and one through a tableextension over a Base Application table: `Field.SetRange(TableNo, ..); Field.SetRange(FieldName, 'timestamp'); FindFirst`, then Count and the list of No./FieldName/Type/Class, and `Data Type Management.FindFieldByName(RecRef, FldRef, 'timestamp')` with `FldRef.Number()` | `al-vm/src/platform/fields.rs` `rowversion_key_row` |
-
 ## The DemoTool company of the Legacy lane (lane-demotool, 2026-10-22)
 
 `--company-data demotool` runs the DemoTool's "Create Demo Data from Config" (codeunit 101899) after Company-Initialize,
