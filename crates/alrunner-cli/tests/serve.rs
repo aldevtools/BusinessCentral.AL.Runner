@@ -1366,10 +1366,12 @@ fn an_entry_whose_selection_matches_no_test_has_exit_code_6_and_so_has_the_reque
     let a = mutant_app(d.path());
     let mut s = Server::start(&["--no-download", "--no-test-data"]);
     s.line();
-    s.send(json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "entries": [
-        {"id": "ok", "test": "Codeunit50661.Passes"},
-        {"id": "none", "test": "Codeunit59999."},
-    ]}));
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "entries": [
+            {"id": "ok", "test": "Codeunit50661.Passes"},
+            {"id": "none", "test": "Codeunit59999."},
+        ]}),
+    );
     let lines = s.until_summary();
     let entry = |id: &str| {
         lines
@@ -1379,17 +1381,32 @@ fn an_entry_whose_selection_matches_no_test_has_exit_code_6_and_so_has_the_reque
             .clone()
     };
     let ok = entry("ok");
-    assert_eq!((ok["total"].as_u64(), ok["exitCode"].as_u64()), (Some(1), Some(0)), "{ok}");
+    assert_eq!(
+        (ok["total"].as_u64(), ok["exitCode"].as_u64()),
+        (Some(1), Some(0)),
+        "{ok}"
+    );
     assert!(ok.get("warnings").is_none(), "{ok}");
     let none = entry("none");
-    assert_eq!((none["total"].as_u64(), none["exitCode"].as_u64()), (Some(0), Some(6)), "{none}");
+    assert_eq!(
+        (none["total"].as_u64(), none["exitCode"].as_u64()),
+        (Some(0), Some(6)),
+        "{none}"
+    );
     assert!(
-        none["warnings"][0].as_str().unwrap_or_default().contains("matches no test"),
+        none["warnings"][0]
+            .as_str()
+            .unwrap_or_default()
+            .contains("matches no test"),
         "{none}"
     );
     let summary = lines.last().unwrap();
     assert_eq!(summary["type"], "summary", "{summary}");
-    assert_eq!((summary["exitCode"].as_u64(), summary["passed"].as_u64()), (Some(6), Some(1)), "{summary}");
+    assert_eq!(
+        (summary["exitCode"].as_u64(), summary["passed"].as_u64()),
+        (Some(6), Some(1)),
+        "{summary}"
+    );
     let w = summary["warnings"].to_string();
     assert!(w.contains("`none`") && w.contains("matches no test"), "{summary}");
 }

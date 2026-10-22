@@ -224,7 +224,9 @@ fn test_filter(fields: &Map<String, Value>) -> Result<Option<String>, String> {
     match fields.get("test") {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(t)) => Ok(Some(t.clone()).filter(|t| !t.is_empty())),
-        Some(_) => Err("`test` is a text (one pattern); select several tests with `entries` or exclude with `excludeTests`".into()),
+        Some(_) => Err(
+            "`test` is a text (one pattern); select several tests with `entries` or exclude with `excludeTests`".into(),
+        ),
     }
 }
 

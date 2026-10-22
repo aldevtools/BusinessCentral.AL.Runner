@@ -1924,7 +1924,10 @@ fn the_time_limit_applies_to_the_on_run_trigger_of_a_test_codeunit() {
         let (out, _) = run_with_limit(src, name, std::time::Duration::from_secs(1));
         match &out.iter().find(|(t, _)| t == "Noop").unwrap().1 {
             Outcome::NotRun(r) => {
-                assert!(r.starts_with("the test used more than the time limit of 1 s"), "{name}: {r}");
+                assert!(
+                    r.starts_with("the test used more than the time limit of 1 s"),
+                    "{name}: {r}"
+                );
                 assert!(r.contains("OnRun"), "{name}: {r}");
             }
             o => panic!("{name}: {o:?}"),
