@@ -59,7 +59,7 @@ impl AlcRuntime {
         }
     }
 
-    fn parse(ranges: &str, rest: &str) -> Result<AlcRuntime, String> {
+    pub(crate) fn parse(ranges: &str, rest: &str) -> Result<AlcRuntime, String> {
         if ranges == "-" {
             return Ok(AlcRuntime::NotExpressible(rest.to_string()));
         }
@@ -68,7 +68,12 @@ impl AlcRuntime {
             let (from, to) = r.split_once("..").ok_or_else(|| format!("bad range `{r}`"))?;
             Ok((rt(from)?, if to.is_empty() { None } else { Some(rt(to)?) }))
         };
-        let ranges = ranges.split(',').map(range).collect::<Result<Vec<_>, String>>()?;
+        // `none` (catalog/alc-features.txt): no measured runtime compiles the probe, and alc reports AL0666 on it.
+        let ranges = if ranges == "none" {
+            Vec::new()
+        } else {
+            ranges.split(',').map(range).collect::<Result<Vec<_>, String>>()?
+        };
         let fails = rest
             .split("; ")
             .filter(|f| !f.is_empty())

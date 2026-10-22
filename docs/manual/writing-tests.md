@@ -27,6 +27,10 @@ AL Runner uses a table measured with the AL compiler itself, so it reports the s
 AL0666. Where the compiler reports something other than AL0666 for the call (for
 example a method only OnPrem apps may use, in an app older than runtime 4.0), the
 routine that makes the call does not run, and a note says so.
+The same holds for properties, data types, method attributes and object types: a
+property the compiler does not accept at the app's runtime (for example `Subtype` on a
+report layout below runtime 18.0, or `ObsoleteState` on a page area from runtime 13.0
+on) gets the compiler's AL0666, from a second table measured the same way.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 

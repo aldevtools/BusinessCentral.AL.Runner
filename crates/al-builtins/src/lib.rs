@@ -24,6 +24,7 @@ pub mod describe;
 pub mod dotnet_sigs;
 pub mod errorinfo;
 pub mod evaluate;
+pub mod features;
 pub mod file;
 pub mod filter;
 pub mod format;

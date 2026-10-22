@@ -733,8 +733,17 @@ it only declares the lowest server it can run on.
   the table has no row, the call is AR1007 and the routine is refused.
 - A method removed in an older runtime (`TestPage.Prev`, alc: "'3.0' until, but not including '13.0'") is AL0666 at
   every later runtime, also at and above the floor (must-not-compile 0561, 0562).
-- Not covered: language features, properties and object types newer than the app's runtime. They are as ungated as
-  before, at every runtime.
+- Language features (lane-al0666-2, 2026-10-22): `tools/alc-runtimes/alc_features.py` measures properties, data types,
+  method attributes and object types the same way, into `catalog/alc-features.txt`. Each property is probed at each
+  element kind it is written at (`page/layout/field`, `report/rendering/layout`, `pageextension/layout/modify:part`:
+  the object type, the section keywords without arguments, the innermost section keyword, and for a page extension's
+  `modify` the kind of control it changes), with one more probe per enum-like value seen for it in the corpus and in
+  Microsoft's source (`Importance = Optional`). Values come from those sources; nothing from them is committed but
+  the property names and values. `al-sema/src/features.rs` reports AL0666 with alc's quoted name and supported-versions
+  text where the table says alc reported AL0666 on the feature's own line at the app's runtime, in apps under test
+  only. A data type is gated where a variable declares it, an attribute on a codeunit method. Everything the table
+  does not cover (an element kind no probe was written for, a property with no probe that compiles, a request page
+  control, a parameter type) is not gated, so no code alc accepts is rejected.
 - The compiler is the one the corpus uses (owner rule: always the latest, prerelease included): the `al_tool_version`
   of `corpus/.github/workflows/ci.yml`, NuGet `Microsoft.Dynamics.BusinessCentral.Development.Tools` 30.0.42.60748-beta
   since 2026-10-22 (the first table was measured with the stable 18.1.43.24897). AL 30.0.42.60748 accepts 59 runtimes:
