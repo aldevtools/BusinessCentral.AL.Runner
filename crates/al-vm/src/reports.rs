@@ -2312,7 +2312,8 @@ impl Session {
         let outer_region = std::mem::replace(&mut self.report.format_region, region.as_ref().map(|(r, _)| r.clone()));
         let outer_property = std::mem::replace(&mut self.report.region_property, region.is_some());
         // Each SaveAs starts with no language set, whatever an earlier run set (report/W3ReportObjectIdPreviewLanguage.al:572-583
-        // LanguageAndFormatRegion_BothSet_Columns `language before set equals GlobalLanguage=Yes` after the run of :546-557).
+        // LanguageAndFormatRegion_BothSet_Columns `language before set equals GlobalLanguage=Yes` after the run of :546-557;
+        // report/lt-bd-format-region/BdRegionTests.al:1045-1056 BdSetterLanguage_1033_EnUS `before=... language=1033`).
         let outer_language = self.report.curr_report_language.take();
         let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
         self.report.format_region = outer_region;
