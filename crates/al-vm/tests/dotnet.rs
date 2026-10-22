@@ -120,6 +120,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.DateTime\"; \"ClrDateTime\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
     type(\"System.IO.File\"; \"File\") { }
+    type(\"System.IO.Directory\"; \"Directory\") { }
+    type(\"System.Array\"; \"Array\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
@@ -1604,4 +1606,87 @@ fn a_dotnet_string_assigned_to_a_secret_text_is_its_content() {
         ": Text",
     );
     assert_eq!(text(r), "Yes");
+}
+
+// ---- folders staged for the company build -----------------------------------------------
+
+/// A file system that, like the company build's resource folder (al-testrun company_data.rs), lists one staged folder.
+struct Staged;
+
+impl al_host::FileSystem for Staged {
+    fn read(&self, _: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn write(&mut self, _: &str, _: &[u8]) -> Result<(), String> {
+        Err("read only".into())
+    }
+    fn exists(&self, _: &str) -> bool {
+        false
+    }
+    fn remove(&mut self, _: &str) -> bool {
+        false
+    }
+    fn staged_folder_files(&self, dir: &str) -> Option<Vec<String>> {
+        (dir == "\\TEMP\\..\\WalkMeTour").then(|| vec![format!("{dir}\\a.png"), format!("{dir}\\b.png")])
+    }
+}
+
+const GET_FILES: &str = "Files := Directory.GetFiles(Path); exit(Format(Files.GetLength(0)));";
+
+fn run_staged(host: &Fake, path: &str, files: Option<Staged>) -> Ran {
+    let (program, blocked, oi, ri) = compile(
+        "Directory: DotNet Directory; Files: DotNet Array; Path: Text;",
+        &format!("Path := '{path}'; {GET_FILES}"),
+        ": Text",
+    );
+    let engine = Engine::with_dotnet(program, blocked, cfg(host));
+    let h = al_host::Host::default();
+    let mut s = Session::with_host(
+        engine,
+        match files {
+            Some(f) => h.with_files(f),
+            None => h,
+        },
+    );
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+fn split_script() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a)
+            if t.name == "System.Text.RegularExpressions.Regex" && m == "Split" =>
+        {
+            assert_eq!(
+                a.iter().map(|a| a.value.clone()).collect::<Vec<_>>(),
+                vec![
+                    DotNetValue::Str("\\TEMP\\..\\WalkMeTour\\a.png\n\\TEMP\\..\\WalkMeTour\\b.png".into()),
+                    DotNetValue::Str("\n".into())
+                ]
+            );
+            reply(handle(7, "System.String[]"))
+        }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "GetLength" => reply(DotNetValue::Int32(2)),
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+#[test]
+fn directory_get_files_of_a_folder_staged_for_the_company_build_is_a_string_array_of_its_files() {
+    let host = split_script();
+    assert_eq!(text(run_staged(&host, "\\TEMP\\..\\WalkMeTour", Some(Staged))), "2");
+}
+
+#[test]
+fn directory_get_files_of_any_other_folder_stays_refused_and_never_reaches_the_host() {
+    for (path, files) in [("\\TEMP\\..\\Other", Some(Staged)), ("\\TEMP\\..\\WalkMeTour", None)] {
+        let host = split_script();
+        let r = run_staged(&host, path, files);
+        assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));
+        assert!(host.calls().is_empty(), "{:?}", host.calls());
+    }
 }

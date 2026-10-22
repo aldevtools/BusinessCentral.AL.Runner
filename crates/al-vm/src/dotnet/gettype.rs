@@ -147,7 +147,11 @@ impl Session {
         self.type_reply(reply, &format!("{clr_type}.GetType"))
     }
 
-    fn type_reply(&mut self, reply: Result<DotNetReply, DotNetFailure>, shown: &str) -> Result<Value, Signal> {
+    pub(super) fn type_reply(
+        &mut self,
+        reply: Result<DotNetReply, DotNetFailure>,
+        shown: &str,
+    ) -> Result<Value, Signal> {
         match reply {
             Ok(r) => {
                 self.dotnet.null_string = matches!(r.value, DotNetValue::NullString);

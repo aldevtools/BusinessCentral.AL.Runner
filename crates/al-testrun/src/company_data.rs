@@ -101,6 +101,11 @@ impl ResourceFiles {
         if self.removed.contains(&Self::key(path)) {
             return None;
         }
+        self.resolve_entry(path).filter(|p| p.is_file())
+    }
+
+    /// The file or folder of the folder that `path` names, matched part by part without case.
+    fn resolve_entry(&self, path: &str) -> Option<PathBuf> {
         let rel = Self::from_user_folder(path).replace('\\', "/");
         let mut out = self.root.clone();
         let mut any = false;
@@ -126,7 +131,7 @@ impl ResourceFiles {
                 _ => return None,
             }
         }
-        (any && out.is_file()).then_some(out)
+        any.then_some(out)
     }
 }
 
@@ -143,6 +148,37 @@ impl FileSystem for ResourceFiles {
     }
     fn exists(&self, path: &str) -> bool {
         self.written.exists(&Self::key(path)) || self.resolve(path).is_some()
+    }
+    /// Only a folder reached by climbing out of the temporary folder (`TemporaryPath() + '..\WalkMeTour'`, the form the
+    /// DemoTool uses) and only while AL code has neither written nor removed a file in it: then it holds exactly what
+    /// was staged. The paths are `dir` joined with each name by `/`: Windows BC joins with `\`, but the DemoTool cuts
+    /// the names out again with System.IO.Path (File Management.GetFileName, GetFileNameWithoutExtension, GetExtension),
+    /// which the runtime's .NET runs on Linux, where only `/` separates. Windows .NET takes `/` as well, so the names AL
+    /// code gets are the ones Windows BC gives it; the joined text is only seen inside the company build.
+    fn staged_folder_files(&self, dir: &str) -> Option<Vec<String>> {
+        if matches!(Self::from_user_folder(dir), std::borrow::Cow::Borrowed(_)) {
+            return None;
+        }
+        let folder = self.resolve_entry(dir).filter(|p| p.is_dir())?;
+        let prefix = format!("{}\\", Self::key(dir).trim_end_matches('\\'));
+        if self
+            .written
+            .paths()
+            .iter()
+            .chain(&self.removed)
+            .any(|k| k.starts_with(&prefix))
+        {
+            return None;
+        }
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort_by_key(|n| n.to_uppercase());
+        let dir = dir.trim_end_matches(['\\', '/']);
+        Some(names.into_iter().map(|n| format!("{dir}/{n}")).collect())
     }
     fn remove(&mut self, path: &str) -> bool {
         let was = self.exists(path);
@@ -228,6 +264,48 @@ mod tests {
             "the temporary folder holds no resource"
         );
         assert!(!fs.exists("WalkMeTour\\..\\WalkMeTour\\a.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Create Getting Started Data lists `TemporaryPath() + '..\WalkMeTour'` (File Management.GetServerDirectoryFilesList,
+    // DotNet Directory.GetFiles). Windows BC lists the files, without case, in name order (windows-check-results
+    // 2026-10-22 QX item 14); subfolders are not files.
+    #[test]
+    fn a_staged_folder_lists_its_files_in_name_order_and_no_other_folder_is_listed() {
+        let dir = std::env::temp_dir().join(format!("alr-reslist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("WalkMeTour").join("SetupDevice")).unwrap();
+        for n in ["c.png", "B.png", "a.png"] {
+            std::fs::write(dir.join("WalkMeTour").join(n), b"x").unwrap();
+        }
+        let mut fs = ResourceFiles::new(dir.clone());
+        assert_eq!(
+            fs.staged_folder_files("\\TEMP\\..\\WalkMeTour"),
+            Some(vec![
+                "\\TEMP\\..\\WalkMeTour/a.png".to_string(),
+                "\\TEMP\\..\\WalkMeTour/B.png".to_string(),
+                "\\TEMP\\..\\WalkMeTour/c.png".to_string()
+            ])
+        );
+        assert_eq!(
+            fs.staged_folder_files("\\TEMP\\..\\walkmetour\\").map(|f| f[0].clone()),
+            Some("\\TEMP\\..\\walkmetour/a.png".to_string())
+        );
+        for other in [
+            "WalkMeTour",
+            "\\TEMP\\..\\Missing",
+            "\\TEMP\\..\\WalkMeTour\\a.png",
+            "\\TEMP\\WalkMeTour",
+            "/etc",
+        ] {
+            assert_eq!(fs.staged_folder_files(other), None, "{other}");
+        }
+        fs.write("\\TEMP\\..\\WalkMeTour\\d.png", b"d").unwrap();
+        assert_eq!(
+            fs.staged_folder_files("\\TEMP\\..\\WalkMeTour"),
+            None,
+            "a folder AL code changed is no longer only what was staged"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

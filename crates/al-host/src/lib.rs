@@ -481,6 +481,12 @@ pub trait FileSystem {
     fn exists(&self, path: &str) -> bool;
     /// Deletes the file; `false` if there was none.
     fn remove(&mut self, path: &str) -> bool;
+    /// The paths of the files in the folder `dir`, only for a folder AL Runner staged itself for the company build (the
+    /// DemoTool's resources, al-testrun company_data.rs). `None` for every other folder: a folder listing a test could
+    /// observe is not served (Windows and Linux BC differ on it, bc-linux issue 175).
+    fn staged_folder_files(&self, _dir: &str) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// Files kept in memory, by path. Matching is exact and case sensitive (the directory-backed
