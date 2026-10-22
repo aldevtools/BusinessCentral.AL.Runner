@@ -251,12 +251,12 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_201, "NAV App Setting", Provider::Stored),
 ];
 
-/// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Web Service and
-/// Tenant Web Service: not empty, PZPlatformSurvey.al:178-187; 64 rows in W4PlatformAndMeta.al:93,
-/// depending on the apps). The runtime starts them empty, so it treats them as unseeded
-/// (`Engine::unseeded`): writes work, and a read of rows that were not written, or a `Get` that
-/// finds nothing, is refused.
-pub const UNSEEDED_ROWS: &[u32] = &[2_000_000_076, 2_000_000_168];
+/// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Tenant Web Service: not empty,
+/// PZPlatformSurvey.al:178-187; 64 rows in W4PlatformAndMeta.al:93 and PtWebServiceRows.al:136, which rows is not
+/// pinned). The runtime starts them empty, so it treats them as unseeded (`Engine::unseeded`): writes work, and a read
+/// of rows that were not written, or a `Get` that finds nothing, is refused. Web Service is seeded with its pinned
+/// rows instead (al-vm `platform/seed.rs`).
+pub const UNSEEDED_ROWS: &[u32] = &[2_000_000_168];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:

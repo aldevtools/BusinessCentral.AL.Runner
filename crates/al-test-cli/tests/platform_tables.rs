@@ -1121,8 +1121,8 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// Tenant Web Service and Web Service take Insert, Modify and Delete from AL
 /// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds rows
-/// there that nothing pins (the count is 64 and 29 in records/W4PlatformAndMeta.al:93-95 and
-/// depends on the apps), so a read that would count or scan them is refused, and a Get that finds nothing too.
+/// in Tenant Web Service that nothing pins (only the count, 64, in PtWebServiceRows.al:136), so a read that would
+/// count or scan them is refused, and a Get that finds nothing too.
 #[test]
 fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() {
     let o = outcomes(
@@ -1139,6 +1139,21 @@ fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() 
         let why = not_run(&o, t);
         assert!(why.contains("Tenant Web Service"), "{t}: {why}");
     }
+}
+
+// Web Service on a fresh tenant: 17 rows, every column (tests/al-language-onprem/platform/PtWebServiceRows.al:39-73,
+// WebService_Content). Microsoft's DemoTool (Create Web Services) calls CreateWebService for page 42, which finds SalesOrder.
+#[test]
+fn web_service_holds_the_rows_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Rows() var W: Record "Web Service"; begin if W.Count() <> 17 then Error('count %1', W.Count()); W.FindFirst();
+    if (W."Object Type" <> W."Object Type"::Codeunit) or (W."Service Name" <> 'CompanySetupService') or (W."Object ID" <> 1801) or not W.Published or W.ExcludeFieldsOutsideRepeater then Error('first');
+    W.FindLast(); if (W."Service Name" <> 'TopCustomerOverview') or (W."Object ID" <> 100) then Error('last');
+    if not W.Get(W."Object Type"::Page, 'SalesOrder') then Error('42'); if W."Object ID" <> 42 then Error('id');
+    if W.Get(W."Object Type"::Page, 'Nope') then Error('nope'); end; }"#,
+    );
+    passes(&o, "Rows");
 }
 
 /// Field.IsPartOfPrimaryKey (column 28) is read in AL code: true for a field of the primary key

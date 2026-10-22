@@ -18,6 +18,30 @@ pub(super) const USER: u32 = 2_000_000_120;
 pub(super) const ACCESS_CONTROL: u32 = 2_000_000_053;
 pub(super) const USER_PERSONALIZATION: u32 = 2_000_000_073;
 pub(super) const USER_PROPERTY: u32 = crate::usertable::USER_PROPERTY;
+pub(super) const WEB_SERVICE: u32 = 2_000_000_076;
+
+/// The Web Service rows of a fresh tenant, every column (onprem platform/PtWebServiceRows.al:39-73, WebService_Content:
+/// 17 rows): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every row.
+/// They are rows of the database the service tier starts with, not written by AL of an app.
+const WEB_SERVICES: &[(i32, &str, i32)] = &[
+    (5, "CompanySetupService", 1801),
+    (5, "ExchangeServiceSetup", 5324),
+    (5, "PageActionProvider", 2915),
+    (5, "SummaryProvider", 2718),
+    (8, "AccountantPortalActivityCues", 1314),
+    (8, "AccountantPortalFinanceCues", 1315),
+    (8, "AccountantPortalUserTasks", 1316),
+    (8, "powerbifinance", 197),
+    (8, "SalesOrder", 42),
+    (8, "UserTaskSetComplete", 1170),
+    (9, "DimensionSets", 257),
+    (9, "ItemSalesAndProfit", 103),
+    (9, "ItemSalesByCustomer", 102),
+    (9, "SalesDashboard", 101),
+    (9, "SalesOpportunities", 105),
+    (9, "SalesOrdersBySalesPerson", 104),
+    (9, "TopCustomerOverview", 100),
+];
 
 /// A text value for the field `id`, as a Code or a Text by the field's type.
 fn text(t: &TableDef, id: u32, s: &str) -> Value {
@@ -41,6 +65,21 @@ impl Session {
             let row: Row = match id {
                 super::profiles::ALL_PROFILE => {
                     wrote |= self.seed_profiles(t, i);
+                    continue;
+                }
+                WEB_SERVICE => {
+                    for &(object_type, name, object_id) in WEB_SERVICES {
+                        let mut r = super::blank(t);
+                        r[pos(t, 3)] = super::option(t, 3, object_type);
+                        r[pos(t, 9)] = text(t, 9, name);
+                        r[pos(t, 6)] = Value::Integer(object_id);
+                        r[pos(t, 12)] = Value::Boolean(true);
+                        if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
+                            r[p] = Value::Guid(self.fresh_system_id());
+                        }
+                        let _ = self.store.insert(&self.cx, t, r);
+                    }
+                    wrote = true;
                     continue;
                 }
                 COMPANY => {
