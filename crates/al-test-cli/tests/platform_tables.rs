@@ -448,6 +448,31 @@ fn license_permission_answers_its_two_pinned_rows_and_refuses_the_rest() {
     }
 }
 
+// Language Selection: every row and column of a fresh tenant (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al:76,
+// 212 rows from BC 29 and 208 before, :574-586). Base Application's Customer.UpdateFormatRegion reads it by Language ID (DemoTool).
+// The Name of a row in another session language is not pinned: refused.
+#[test]
+fn language_selection_lists_the_pinned_rows_per_major() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Count29() var L: Record "Language Selection"; begin if L.Count() <> 212 then Error('count %1', L.Count()); end;
+  [Test] procedure Count27() var L: Record "Language Selection"; begin if L.Count() <> 208 then Error('count %1', L.Count()); end;
+  [Test] procedure FirstRow() var L: Record "Language Selection"; begin L.FindFirst(); if (L."Language Tag" <> 'af-ZA') or (L.Name <> 'Afrikaans (South Africa)') or (L."Language ID" <> 1078) or (L."Abbreviated Name" <> 'AFK') or L.Enabled then Error('first %1', L."Language Tag"); end;
+  [Test] procedure ByLanguageId() var L: Record "Language Selection"; begin L.SetRange("Language ID", 1031); L.FindFirst(); if (L."Language Tag" <> 'de-DE') or (L."Primary Language ID" <> 1031) or not L.Enabled then Error('de %1', L."Language Tag"); end;
+  [Test] procedure ZhTwOn29() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if L.IsEmpty() then Error('no zh-TW'); end;
+  [Test] procedure ZhTwNotOn27() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if not L.IsEmpty() then Error('zh-TW'); end;
+  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1031); if L.FindFirst() then; end; }"#;
+    let o29 = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
+    for t in ["Count29", "FirstRow", "ByLanguageId", "ZhTwOn29"] {
+        passes(&o29, t);
+    }
+    let why = not_run(&o29, "OtherLanguage");
+    assert!(why.contains("Language Selection"), "{why}");
+    let o27 = outcomes_bc("main", src, al_sema::check::Roots::default(), "27.5.0.0");
+    for t in ["Count27", "FirstRow", "ZhTwNotOn27"] {
+        passes(&o27, t);
+    }
+}
+
 #[test]
 fn a_permission_set_is_listed_with_its_caption_and_assignable_default() {
     let o = outcomes(

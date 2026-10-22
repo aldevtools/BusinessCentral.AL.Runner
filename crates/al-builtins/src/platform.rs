@@ -36,6 +36,8 @@ pub enum Virtual {
     PageControlField,
     TimeZone,
     WindowsLanguage,
+    /// Every row of a fresh tenant is pinned (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al).
+    LanguageSelection,
     /// Two rows are pinned (platform/lt-platform-tables/PtCloudTables.al:60-76); any other read is refused.
     LicensePermission,
     NavAppInstalledApp,
@@ -114,6 +116,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         2_000_000_045,
         "Windows Language",
         Provider::Virtual(Virtual::WindowsLanguage),
+    ),
+    (
+        2_000_000_050,
+        "Language Selection",
+        Provider::Virtual(Virtual::LanguageSelection),
     ),
     (
         2_000_000_043,

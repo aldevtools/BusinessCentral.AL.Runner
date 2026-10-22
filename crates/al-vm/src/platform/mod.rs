@@ -422,6 +422,13 @@ impl Providers {
                 reports::layout_list_rows(self, t),
             ))));
         }
+        // The Name of a language is pinned for a session in 1033 only (PlatformRowsLanguageSelection.al runs in it).
+        if kind == Virtual::LanguageSelection && self.language() != 1033 {
+            return Err(refused(format!(
+                "Language Selection: the rows in session language {} are not pinned (only those in 1033 are)",
+                self.language()
+            )));
+        }
         if let Some(m) = self.listed.borrow().get(&kind) {
             return Ok(m.clone());
         }
@@ -501,6 +508,7 @@ impl Providers {
             Virtual::PageControlField => pages::page_control_field_rows(self, t),
             Virtual::Field => fields::field_rows(self, t),
             Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
+            Virtual::LanguageSelection => host_tables::language_selection_rows(t, self.engine().target.as_ref()),
             Virtual::Key => fields::key_rows(self, t),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {
                 unreachable!("generated, never listed")
