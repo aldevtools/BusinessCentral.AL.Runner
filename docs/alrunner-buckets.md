@@ -350,6 +350,19 @@ from the package and read Company Information."Country/Region Code"). Until then
 4. Microsoft's disabled tests are skipped (`--parity`) and counted per lane. Each lane has its own summary and, with
    `--junit FILE`, its own `FILE.<lane>.xml`.
 
+Time limit per test (2026-10-22): Microsoft's recipe sets no time limit per test, so `--recipe microsoft` (and
+`test-microsoft`, `--affected-from microsoft`) keeps AL Runner's default of 20 s (`--test-timeout-secs`). Checked in the
+BCApps files the recipe fetches (`releases/29.0`): `build/scripts/RunTestsInBcContainer.ps1` passes no timeout to
+BcContainerHelper's `Run-TestsInBcContainer`; the only timeouts in `build/scripts` are for waiting on a free tenant
+(`ParallelTestExecution.psm1`, `Wait-ForFreeTenant`, 7200 s), web requests and the client session of the test data
+import (`ImportTestDataInBcContainer.ps1`, 2 hours); `build/projects` and `TestConfiguration.json` have none. The test
+runner of the artifact (`TestFramework/TestRunner`) has one limit, the client transaction timeout of 10 minutes in
+`Internal/ALTestRunnerInternal.psm1` (`DefaultTransactionTimeout`), and it applies to one `RunNextTest` call, which
+runs a whole test codeunit (`TestSuiteMgt.Codeunit.al`, `RunNextTest`), not one test. A test whose `Sleep` calls ask
+for more than 20 s is therefore a timeout row under the recipe too: Tests-Dimension `TestGetShortcutDimCached`
+(codeunit 134482, `Sleep(60500)`) passes on BC and is `Test exceeded 20s timeout.` here. Pass `--test-timeout 120`
+(or `0`, no limit) to run it; measured 2026-10-22 on BC 29.0.54011.55816: it passes with `--test-timeout 120`.
+
 Company name per lane (2026-10-18, `ms-recipe-4`): a lane without a restored company sets the run's company name
 (`TestArgs.company_name`, `al_testrun::host::set_company_name`), so `CompanyName()` answers `Empty Company` in the UnitTest lane
 (and `My Company` once the Contoso lanes run). The name is part of the baseline cache key. Legacy answers the company of
