@@ -96,7 +96,10 @@ pub(crate) fn is_blank(v: &Value) -> Result<bool, Signal> {
         // TestField_Blob_AutoCalcAndSetLoadFields).
         Value::Blob(b) => {
             let buf = b.borrow();
-            if buf.render_pending.is_some() {
+            if let Some(what) = &buf.render_pending {
+                if &**what == al_builtins::stream::UNLOADED_WRITE {
+                    return Err(al_builtins::stream::render_pending_error(what));
+                }
                 return unsupported("TestField of a Blob that holds the output of a report run for its effects only");
             }
             buf.bytes.is_empty()

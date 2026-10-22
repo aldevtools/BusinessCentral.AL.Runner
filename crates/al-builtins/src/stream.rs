@@ -67,8 +67,21 @@ thread_local! {
 /// (types/W7Media.al:141-151), and other content is not probed on those majors.
 pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 
+/// The mark a stream write puts on a Blob of a record read without `CalcFields` while the stored content is longer than what
+/// was written: what the Blob holds then is not pinned (AL Runner issue 5681). A write that reaches the stored content's end
+/// clears it (`write_bytes`): both readings agree then (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:
+/// BlobCalcFields_UnsavedContent_Result, BlobCalcFields_AfterModifyAndClear_Result).
+pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
+
 /// The refusal for a look at the output of a report that was run for its effects only (ADR-040).
 pub fn render_pending_error(report: &str) -> Signal {
+    if report == UNLOADED_WRITE {
+        return Signal::Unsupported(
+            "a Blob written through a stream after the record was read without CalcFields, shorter than its stored content \
+             (whether the stored bytes stay after the new ones is not pinned)"
+                .into(),
+        );
+    }
     if report == MEDIA_REENCODED {
         return Signal::Unsupported(
             "the bytes Media.ExportStream gives on a major that re-encodes an imported PNG (not pinned)".into(),
@@ -194,6 +207,9 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     buf.persisted = false;
     buf.written = true;
     buf.inserted = false;
+    if buf.write_pos == buf.bytes.len() && buf.render_pending.as_deref() == Some(UNLOADED_WRITE) {
+        buf.render_pending = None;
+    }
 }
 
 /// How text becomes bytes in a stream. MSDos is code page 437 and the default (streams/TestStreamsRuntimeContracts.al:
@@ -493,11 +509,19 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
+        // That case writes over content the record holds. A record read without CalcFields holds none, but the row does:
+        // the Blob is marked until a write reaches the stored content's end (`UNLOADED_WRITE`). A mark from an earlier
+        // stream stays, as the stored bytes still decide what the Blob holds.
+        let unloaded_content = !buf.loaded && !buf.bytes.is_empty();
+        if unloaded_content || buf.render_pending.as_deref() == Some(UNLOADED_WRITE) {
+            buf.render_pending = Some(UNLOADED_WRITE.into());
+        } else {
+            buf.render_pending = None;
+        }
         buf.write_pos = 0;
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;
-        buf.render_pending = None;
     }
     set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
     Ok(Value::Null)
