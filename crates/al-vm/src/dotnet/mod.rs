@@ -418,22 +418,6 @@ impl Session {
         }
         let ty = ty.to_ascii_lowercase();
         let member = member.to_ascii_lowercase();
-        // A path under a prefix MediaSet.ExportFile was given in the company build: what is there is not pinned.
-        if let Err(e) = self.refuse_pending_file(&path) {
-            return Some(Err(e));
-        }
-        if ty == "system.io.directory" && member == "delete" && !self.media_export_prefixes.is_empty() {
-            let folder = format!("{}/", crate::ctx::pending_key(&path).trim_end_matches('/'));
-            if self.media_export_prefixes.iter().any(|p| p.starts_with(&folder)) {
-                if !matches!(values.get(1), Some(Value::Boolean(true))) {
-                    return Some(unsupported(format!(
-                        "DotNet {shown}: the folder holds the files of a MediaSet.ExportFile in the company build, which were not \
-                         written (assumption company-build-media-set-export-not-written)"
-                    )));
-                }
-                self.media_export_prefixes.retain(|p| !p.starts_with(&folder));
-            }
-        }
         let fs = &mut self.host.files;
         let refused = |why: String| Some(unsupported(format!("DotNet {shown}: {why}")));
         match (ty.as_str(), member.as_str(), &values[1..]) {

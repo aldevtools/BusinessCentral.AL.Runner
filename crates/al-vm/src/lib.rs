@@ -641,9 +641,6 @@ pub struct Session {
     /// written (path in lower case with `/`, name of the report). Any look at one is refused; a write by AL over the
     /// path ends the mark.
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
-    /// The prefixes `MediaSet.ExportFile` was given in the company build (`pending_key` form): the files under them were not
-    /// written, and a look at one is refused (assumption company-build-media-set-export-not-written).
-    pub(crate) media_export_prefixes: Vec<String>,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The date `WorkDate(Date)` set; today until then.
@@ -751,7 +748,6 @@ impl Session {
             encryption_key: EncryptionKey::Present,
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
-            media_export_prefixes: Vec::new(),
             last_stamp: i64::MIN / 2,
             work_date: None,
             engine,

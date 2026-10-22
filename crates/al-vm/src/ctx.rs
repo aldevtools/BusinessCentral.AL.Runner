@@ -166,13 +166,6 @@ impl al_builtins::native::Ctx for Session {
         self.refuse_pending_file(path)?;
         Ok(self.host.files.remove(path))
     }
-    fn company_build_media_export(&mut self, prefix: &str) -> bool {
-        if !self.company_build || !self.host.files.serves_path(prefix) {
-            return false;
-        }
-        self.media_export_prefixes.push(pending_key(prefix));
-        true
-    }
     fn fs_temp_name(&mut self) -> String {
         self.temp_files += 1;
         format!("{}{}.tmp", al_builtins::file::TEMP_DIR, self.temp_files)
@@ -401,17 +394,10 @@ pub(crate) fn pending_key(path: &str) -> String {
 impl Session {
     /// Refuses a look at a file whose rendered output was never produced (ADR-040).
     pub(crate) fn refuse_pending_file(&self, path: &str) -> Result<(), Signal> {
-        if self.render_pending_files.is_empty() && self.media_export_prefixes.is_empty() {
+        if self.render_pending_files.is_empty() {
             return Ok(());
         }
-        let key = pending_key(path);
-        if self.media_export_prefixes.iter().any(|p| key.starts_with(p.as_str())) {
-            return Err(Signal::Unsupported(format!(
-                "`{path}` is under a prefix MediaSet.ExportFile was given in the company build: the names of the files BC writes \
-                 are not pinned and none was written (assumption company-build-media-set-export-not-written)"
-            )));
-        }
-        match self.render_pending_files.get(&key) {
+        match self.render_pending_files.get(&pending_key(path)) {
             Some(report) => Err(al_builtins::stream::render_pending_error(report)),
             None => Ok(()),
         }

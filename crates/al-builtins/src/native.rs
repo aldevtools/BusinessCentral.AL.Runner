@@ -324,12 +324,6 @@ pub trait Ctx: FormatCtx {
     fn fs_remove(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
-    /// `MediaSet.ExportFile(prefix)` inside Microsoft's DemoTool company build (assumption
-    /// company-build-media-set-export-not-written): `true` when the session builds the company and its file system serves
-    /// `prefix`; the session then marks the prefix, so a look at a path under it is refused. `false` elsewhere (refused).
-    fn company_build_media_export(&mut self, _prefix: &str) -> bool {
-        false
-    }
     /// A new name for a temporary file, under [`crate::file::TEMP_DIR`].
     fn fs_temp_name(&mut self) -> String {
         format!("{}0.tmp", crate::file::TEMP_DIR)
