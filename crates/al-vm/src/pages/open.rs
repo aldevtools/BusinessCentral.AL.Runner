@@ -1974,6 +1974,7 @@ impl Session {
     }
 
     pub(super) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
+        st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
         self.note_lower_key(st)?;
@@ -1987,6 +1988,12 @@ impl Session {
             s.draft = true;
             s.typed_before_key = false;
         }
+        let held = self.page_xrec_fields(st);
+        let blank_held = if st.borrow().host.is_some() {
+            self.blank_held_xrec(st, &held)
+        } else {
+            None
+        };
         // The blank line of a part is a started record: the client runs NewRecord when it becomes
         // current (corpus handlers/TestPagePartDraftLineLink.al:LinkedPart_DraftLine_*,
         // handlers/TestPagePartOnNewRecordCount.al). A top-level list does the same, and both then
@@ -1994,7 +2001,10 @@ impl Session {
         // 258-273 TopLevelList_BlankLine_RunsOnNewRecord, Part_BlankLine_RunsOnNewRecord).
         // A part whose host record is not saved yet links to a blank value, which is validated like any other
         // (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:398, :400; see `sync_part`).
-        self.stamp_from_filters(st, true)?;
+        match blank_held {
+            Some(before) => self.stamp_from_filters_seen_as(st, before)?,
+            None => self.stamp_from_filters(st, true)?,
+        }
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         // xRec is the new record itself there (misc/lt-probes-needed-7/PnGNewRecord.al:HandedRecordNoFilters `AGCR(,)`,
@@ -2070,9 +2080,16 @@ impl Session {
         // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
         // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
         st.borrow_mut().split_starts_low = true;
-        for validate in [true, false, true] {
+        let blank_held = self.blank_held_xrec(st, &held);
+        let table_blank = self.initial_fields(table);
+        for (n, validate) in [true, false, true].into_iter().enumerate() {
+            let first = n == 0;
             if validate {
                 self.set_xrec_fields(st, held.clone());
+            } else {
+                // The second run sees the table's blank record as xRec, not the line as stamped (QjPartPropagation.al:3501
+                // QT_ValPartSplit_Empty_Last `log-openedit`: the second `V.NEW(H1 0 x= 0 below=Yes)`).
+                self.set_xrec_fields(st, table_blank.clone());
             }
             if validate {
                 // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
@@ -2082,7 +2099,14 @@ impl Session {
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
-                self.stamp_from_filters(st, true)?;
+                let stamped = match blank_held.clone() {
+                    Some(before) => self.stamp_from_filters_seen_as(st, before),
+                    None => self.stamp_from_filters(st, true),
+                };
+                if let Err(Signal::Error(e)) = stamped {
+                    return self.part_open_link_validate_failed(st, e, first);
+                }
+                stamped?;
             }
             self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
             self.page_event(st, "onnewrecordevent", None, Some(true))?;
@@ -2254,6 +2278,80 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// The first validation of a part's link value raised an error as the host opened: the error is swallowed, OnNewRecord and
+    /// OnAfterGetCurrRecord run once on the line as stamped and the part runs nothing more; the open goes on (pages/
+    /// lt-qj-part-propagation/QjPartPropagation.al:3766 QT_ValPartSplit_Empty_Last_KeyValidateErrors `open = ok`, `log-open =
+    /// T.Doc.V(H1 x= ln=0) V.NEW(H1 0 x= 0 below=Yes) V.AGCR(H1 0 a=0 x=H1 0)`; :3825 QT_ValPartPlain_). The part then answers
+    /// Last() with No and runs nothing, and a write raises TestRowNotFound (`last = ok No`, `log-last` empty, `type|code =
+    /// TestRowNotFound`). Pinned for a part with AutoSplitKey and DelayedInsert and for one with neither, on the first validation
+    /// of a host's open; an error elsewhere, or on another part shape, is raised as before.
+    fn part_open_link_validate_failed(
+        &mut self,
+        st: &St,
+        e: Box<al_builtins::native::AlError>,
+        first: bool,
+    ) -> Result<(), Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let on = |name: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && is_true(v))
+        };
+        let shape_pinned = on("AutoSplitKey") == on("DelayedInsert");
+        let host_document = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| {
+                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+            });
+        if !first || !self.part_open_running || !shape_pinned || !host_document {
+            if !first || !self.part_open_running {
+                return Err(Signal::Error(e));
+            }
+            return unsupported(
+                "a part's link value failed its validation as the host opened, on a part with only one of AutoSplitKey and DelayedInsert or another host than a Document page (not pinned)",
+            );
+        }
+        self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
+        self.page_event(st, "onnewrecordevent", None, Some(true))?;
+        self.set_xrec(st);
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        // What GetLastErrorText reads after the swallowed error is not pinned.
+        self.last_error = al_builtins::native::unpinned_error();
+        st.borrow_mut().link_validate_failed = true;
+        Ok(())
+    }
+
+    /// `stamp_from_filters` with validation, the validate triggers seeing `before` as xRec: a part's blank line that held no row
+    /// validates its link value with a blank xRec, not with the line as stamped (pages/lt-qj-part-propagation/
+    /// QjPartPropagation.al:3501 QT_ValPartSplit_Empty_Last `log-openedit` and `log-last`: `T.Doc.V(H1 x= ln=0)`, :3583
+    /// QT_ValPartDelayed_, :3665 QT_ValPartPlain_; :3937 QT_ValPartSplit_Empty_New_ThenType `log-new`). Callers use it only when
+    /// `before` is the table's blank record; with another held row the xRec is not pinned and the line as stamped stays.
+    pub(super) fn stamp_from_filters_seen_as(&mut self, st: &St, before: Vec<Value>) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let handle = Rc::as_ptr(&rec) as usize;
+        if self.validating.iter().any(|(h, _)| *h == handle) {
+            return self.stamp_from_filters(st, true);
+        }
+        self.validating.push((handle, before));
+        let r = self.stamp_from_filters(st, true);
+        self.validating.retain(|(h, _)| *h != handle);
+        r
+    }
+
+    /// The xRec a part's blank line validates its link value with: `held` when it is the table's blank record (the part held
+    /// no row), else `None` (see `stamp_from_filters_seen_as`).
+    pub(super) fn blank_held_xrec(&mut self, st: &St, held: &[Value]) -> Option<Vec<Value>> {
+        let table = self.page_rec(st).borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        Self::same_values(held, &fresh).then_some(fresh)
     }
 
     /// AutoSplitKey: the last field of the primary key of a new line is numbered from its
