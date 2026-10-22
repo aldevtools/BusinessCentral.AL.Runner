@@ -2209,13 +2209,11 @@ impl Session {
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
-                    // AgXmlPortImport.al pins `Occurrence` of a field attribute on import only. Whether an empty value is
-                    // written or left out on export is not pinned (the text attribute's rule above is not assumed here).
-                    if v.is_empty() && c.required.is_some() {
-                        return unsupported(format!(
-                            "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
-                            c.xml_name
-                        ));
+                    // An Optional field attribute whose text is empty is left out, a Required one is written as `attr=""`
+                    // (xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: Text, Code
+                    // and a blank Date left out or empty, `OptNum="0"` and `OptFlag="No"` written).
+                    if v.is_empty() && c.required == Some(false) {
+                        continue;
                     }
                     out.attrs.push((c.xml_name.clone(), v));
                 }
