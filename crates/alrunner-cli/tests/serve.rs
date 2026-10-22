@@ -1307,6 +1307,93 @@ fn entries_that_cannot_run_are_an_error_of_the_request() {
     }
 }
 
+/// Issue 5702: `test` is one text, as in v2's protocol (`string? Test`). A list, in the request or in an entry, is an error
+/// of the request, as a non-list `excludeTests` is; it was ignored and every test ran.
+#[test]
+fn a_test_field_that_is_not_a_text_is_an_error_of_the_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = mutant_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    for request in [
+        json!({"test": ["Codeunit50661."]}),
+        json!({"test": 50661}),
+        json!({"entries": [{"id": "A", "test": ["Codeunit50661.", "Codeunit50662."]}]}),
+    ] {
+        let mut r = request.as_object().unwrap().clone();
+        r.insert("command".into(), json!("runTests"));
+        r.insert("sourcePaths".into(), json!([a]));
+        s.send(Value::Object(r));
+        let lines = s.until_summary();
+        assert_eq!(lines.len(), 1, "{request}: no test runs: {lines:?}");
+        let e = lines[0]["error"].as_str().unwrap_or_default();
+        assert!(e.contains("`test` is a text"), "{request}: {lines:?}");
+    }
+}
+
+/// Issue 5703: two entries with the same `id` cannot be told apart in the answer: an error of the request.
+#[test]
+fn entries_with_the_same_id_are_an_error_of_the_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = mutant_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    for entries in [
+        json!([{"id": "D", "resources": {"active.txt": "M1"}, "test": "Codeunit50661."},
+               {"id": "D", "resources": {"active.txt": "M2"}, "test": "Codeunit50661."}]),
+        // An explicit id equal to the default id (the index) of another entry.
+        json!([{"test": "Codeunit50661."}, {"id": 0, "test": "Codeunit50661."}]),
+        // A text and a number that read alike: a client that keys its answers by text would merge them.
+        json!([{"id": "1", "test": "Codeunit50661."}, {"id": 1, "test": "Codeunit50661."}]),
+    ] {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "entries": entries}));
+        let lines = s.until_summary();
+        assert_eq!(lines.len(), 1, "{entries}: no test runs: {lines:?}");
+        let e = lines[0]["error"].as_str().unwrap_or_default();
+        assert!(e.contains("more than one entry has the `id`"), "{entries}: {lines:?}");
+    }
+    // Different ids run.
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "D", "test": "Codeunit50661.Passes"}, {"id": "E", "test": "Codeunit50661.Passes"}]}));
+    assert_eq!(s.until_summary().last().unwrap()["total"], 2);
+}
+
+/// Issue 5704: an entry whose selection matches no test gets the signal a whole request gets (exit code 6 and the reason
+/// in `warnings`) on its `entrySummary`, and the request's exit code is 6 (the rank of section 5: 2, 6, 1, 8, 7).
+#[test]
+fn an_entry_whose_selection_matches_no_test_has_exit_code_6_and_so_has_the_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = mutant_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "entries": [
+        {"id": "ok", "test": "Codeunit50661.Passes"},
+        {"id": "none", "test": "Codeunit59999."},
+    ]}));
+    let lines = s.until_summary();
+    let entry = |id: &str| {
+        lines
+            .iter()
+            .find(|l| l["type"] == "entrySummary" && l["entry"] == id)
+            .unwrap_or_else(|| panic!("{id}: {lines:?}"))
+            .clone()
+    };
+    let ok = entry("ok");
+    assert_eq!((ok["total"].as_u64(), ok["exitCode"].as_u64()), (Some(1), Some(0)), "{ok}");
+    assert!(ok.get("warnings").is_none(), "{ok}");
+    let none = entry("none");
+    assert_eq!((none["total"].as_u64(), none["exitCode"].as_u64()), (Some(0), Some(6)), "{none}");
+    assert!(
+        none["warnings"][0].as_str().unwrap_or_default().contains("matches no test"),
+        "{none}"
+    );
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    assert_eq!((summary["exitCode"].as_u64(), summary["passed"].as_u64()), (Some(6), Some(1)), "{summary}");
+    let w = summary["warnings"].to_string();
+    assert!(w.contains("`none`") && w.contains("matches no test"), "{summary}");
+}
+
 /// Issue 5635: with no dependency app the install code runs in each test codeunit's session, so it reads the entry's
 /// resource texts (an install baseline that ran once is `al-testrun`'s `entries` test).
 #[test]

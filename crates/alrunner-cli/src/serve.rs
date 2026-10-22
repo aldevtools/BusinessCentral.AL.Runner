@@ -218,6 +218,16 @@ fn string_list(fields: &Map<String, Value>, name: &str) -> Result<Vec<String>, S
     }
 }
 
+/// The `test` selection of a request or an entry: one text, as in v2's protocol (`string? Test`). A list or another
+/// value is an error, as a non-list `excludeTests` is (al-runner issue 5702: a list was ignored and every test ran).
+fn test_filter(fields: &Map<String, Value>) -> Result<Option<String>, String> {
+    match fields.get("test") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(t)) => Ok(Some(t.clone()).filter(|t| !t.is_empty())),
+        Some(_) => Err("`test` is a text (one pattern); select several tests with `entries` or exclude with `excludeTests`".into()),
+    }
+}
+
 fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
     match fields.get(name) {
         None | Some(Value::Null) => Ok(false),
@@ -244,8 +254,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.apps = sources.into_iter().map(PathBuf::from).collect();
     a.package_caches
         .extend(string_list(fields, "packagePaths")?.into_iter().map(PathBuf::from));
-    if let Some(t) = fields.get("test").and_then(Value::as_str).filter(|t| !t.is_empty()) {
-        a.filters.push(t.into());
+    if let Some(t) = test_filter(fields)? {
+        a.filters.push(t);
     }
     a.excludes.extend(string_list(fields, "excludeTests")?);
     if let Some(i) = fields.get("testIsolation").and_then(Value::as_str) {
@@ -346,11 +356,20 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
         if let Some(key) = e.keys().find(|key| !ENTRY_FIELDS.contains(&key.as_str())) {
             return Err(format!("unknown field `{key}` in an entry of `entries`"));
         }
-        ids.push(match e.get("id") {
+        let id = match e.get("id") {
             None | Some(Value::Null) => json!(k),
             Some(id @ (Value::String(_) | Value::Number(_))) => id.clone(),
             Some(_) => return Err("the `id` of an entry is a text or a number".into()),
-        });
+        };
+        // Al-runner issue 5703: the answers of two entries with one id cannot be told apart. A text and a number that
+        // read alike count as one id, as a client may key its answers by text.
+        let key = |id: &Value| id.as_str().map_or_else(|| id.to_string(), String::from);
+        if ids.iter().any(|seen| key(seen) == key(&id)) {
+            return Err(format!(
+                "more than one entry has the `id` {id}: each entry needs its own id (the default id is the entry's index)"
+            ));
+        }
+        ids.push(id);
         let mut resources = std::collections::BTreeMap::new();
         if let Some(r) = e.get("resources").filter(|v| !v.is_null()) {
             let r = r
@@ -364,12 +383,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             }
         }
         entries.push(run::Entry {
-            filters: e
-                .get("test")
-                .and_then(Value::as_str)
-                .filter(|t| !t.is_empty())
-                .map(|t| vec![t.to_string()])
-                .unwrap_or_default(),
+            filters: test_filter(e)?.into_iter().collect(),
             excludes: string_list(e, "excludeTests")?,
             resources,
         });
@@ -451,18 +465,26 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                     summary[key] = v.clone();
                 }
             }
-            if !warnings.is_empty() {
-                summary["warnings"] = json!(warnings);
-            }
-            // One summary per entry, in the order of the entries, before the summary of the request (issue 5635).
+            // One summary per entry, in the order of the entries, before the summary of the request (issue 5635). An
+            // entry's warnings are also the request's, with the entry's id (issue 5704).
             if let Some(counts) = doc.get("entries").and_then(Value::as_array) {
                 for (k, c) in counts.iter().enumerate() {
-                    let mut line = json!({"type": "entrySummary", "entry": ids.get(k).cloned().unwrap_or(json!(k))});
-                    for key in ["passed", "failed", "errors", "notRun", "total"] {
-                        line[key] = c[key].clone();
+                    let id = ids.get(k).cloned().unwrap_or(json!(k));
+                    let mut line = json!({"type": "entrySummary", "entry": id});
+                    for key in ["exitCode", "passed", "failed", "errors", "notRun", "total", "warnings"] {
+                        if let Some(v) = c.get(key) {
+                            line[key] = v.clone();
+                        }
+                    }
+                    for w in c["warnings"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        let shown = id.as_str().map_or_else(|| id.to_string(), String::from);
+                        warnings.push(format!("entry `{shown}`: {w}"));
                     }
                     out(&line);
                 }
+            }
+            if !warnings.is_empty() {
+                summary["warnings"] = json!(warnings);
             }
             if let Some(cov) = &report.coverage {
                 if want_coverage {
