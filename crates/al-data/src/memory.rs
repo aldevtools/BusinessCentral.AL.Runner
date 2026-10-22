@@ -155,6 +155,16 @@ pub struct MemStore {
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
     /// not settled (platform/lt-aw-fresh-tenant/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
     virtual_write_pending: bool,
+    /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
+    /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
+    watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+}
+
+/// The tables [`MemStore::watch`] watches, and the first of them that was read or written.
+#[derive(Debug, Default)]
+struct Watch {
+    tables: std::collections::BTreeSet<u32>,
+    hit: Option<u32>,
 }
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
@@ -528,6 +538,7 @@ impl MemStore {
 
     /// The rows table `object` has to offer `company`, if the store has a backing.
     pub fn backed_rows(&self, company: &str, object: u32) -> Option<Rows> {
+        self.seen(object);
         self.backing.as_ref()?.rows(company, object)
     }
 
@@ -551,6 +562,7 @@ impl MemStore {
 
     /// The rows a Modify stored for the computed table `t` (a provider answers them over its own).
     pub fn stored_rows(&self, cx: &AccessContext, t: &TableDef) -> Vec<Row> {
+        bump();
         self.table(cx, t)
             .map(|tb| tb.values().cloned().collect())
             .unwrap_or_default()
@@ -576,8 +588,56 @@ impl MemStore {
         !(self.tables.ptr_eq(&self.committed) || (self.tables.is_empty() && self.committed.is_empty()))
     }
 
+    /// The number every write hands out: [`MemStore::tables_changed_since`] takes it to tell which tables changed after.
+    pub fn change_counter(&self) -> u64 {
+        self.counter
+    }
+
+    /// The table objects (in any company) whose rows changed after the change counter was `counter`, and whose change a
+    /// rollback has not undone (`versions` follows rollback).
+    pub fn tables_changed_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
+        self.versions
+            .iter()
+            .filter(|(_, v)| **v > counter)
+            .map(|((_, object), _)| *object)
+            .collect()
+    }
+
+    /// Watches every read and write of the table objects `tables` (in any company) from now on, replacing what was watched;
+    /// an empty set stops watching. [`MemStore::watch_hit`] says whether one was accessed.
+    pub fn watch(&mut self, tables: std::collections::BTreeSet<u32>) {
+        self.watch =
+            (!tables.is_empty()).then(|| std::rc::Rc::new(std::cell::RefCell::new(Watch { tables, hit: None })));
+    }
+
+    /// The first watched table that was read or written since [`MemStore::watch`].
+    pub fn watch_hit(&self) -> Option<u32> {
+        self.watch.as_ref().and_then(|w| w.borrow().hit)
+    }
+
+    /// Notes an access to table `object` for the watch.
+    fn seen(&self, object: u32) {
+        if let Some(w) = &self.watch {
+            let mut w = w.borrow_mut();
+            if w.hit.is_none() && w.tables.contains(&object) {
+                w.hit = Some(object);
+            }
+        }
+    }
+
+    /// Notes an access to every watched table (a read of the whole store).
+    fn seen_all(&self) {
+        if let Some(w) = &self.watch {
+            let mut w = w.borrow_mut();
+            if w.hit.is_none() {
+                w.hit = w.tables.iter().next().copied();
+            }
+        }
+    }
+
     /// Whether table object `object` holds a row now (committed or not) in any company.
     pub fn has_rows(&self, object: u32) -> bool {
+        self.seen(object);
         if self.tables.iter().any(|((_, o), t)| *o == object && !t.is_empty()) {
             return true;
         }
@@ -626,6 +686,7 @@ impl MemStore {
     }
 
     pub fn nonempty_tables(&self) -> std::collections::BTreeSet<u32> {
+        self.seen_all();
         self.committed
             .iter()
             .filter(|(_, t)| !t.is_empty())
@@ -635,6 +696,7 @@ impl MemStore {
 
     /// Whether `company` holds a row in any per-company table, committed or not.
     pub fn has_company_rows(&self, company: &str) -> bool {
+        self.seen_all();
         self.tables
             .iter()
             .any(|((c, _), t)| !c.is_empty() && &**c == company && !t.is_empty())
@@ -646,6 +708,7 @@ impl MemStore {
 
     /// The companies that hold a row in per-company table `object`, committed or not.
     pub fn companies_with_rows(&self, object: u32) -> Vec<String> {
+        self.seen(object);
         let mut out: Vec<String> = self
             .tables
             .iter()
@@ -723,6 +786,7 @@ impl MemStore {
     }
 
     fn table(&self, cx: &AccessContext, t: &TableDef) -> Option<std::borrow::Cow<'_, Table>> {
+        self.seen(t.object);
         let slot = slot(cx, t);
         match self.tables.get(&slot) {
             Some(table) => Some(std::borrow::Cow::Borrowed(table)),
@@ -954,6 +1018,7 @@ impl MemStore {
     }
 
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
+        self.seen(t.object);
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
             let start = self
@@ -967,8 +1032,25 @@ impl MemStore {
     }
 }
 
+thread_local! {
+    static STORE_OPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// One more operation on a store of this thread.
+#[inline(always)]
+fn bump() {
+    STORE_OPS.with(|c| c.set(c.get().wrapping_add(1)));
+}
+
+/// How many operations the stores of this thread have done (reads, writes, commits, rollbacks, restores). The VM's SQL
+/// counters compare two of these to see store access that no record method it logged made (al-vm `sqlcount.rs`).
+pub fn store_ops() -> u64 {
+    STORE_OPS.with(|c| c.get())
+}
+
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Insert"));
         }
@@ -984,6 +1066,7 @@ impl Store for MemStore {
     }
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
         }
@@ -991,6 +1074,7 @@ impl Store for MemStore {
     }
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             let writable = v.writable_columns(t);
             if !writable.is_empty() {
@@ -1039,6 +1123,7 @@ impl Store for MemStore {
     }
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Delete"));
         }
@@ -1059,6 +1144,7 @@ impl Store for MemStore {
         old: &[Value],
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
@@ -1078,6 +1164,7 @@ impl Store for MemStore {
     }
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
@@ -1202,6 +1289,7 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.count(self, cx, t, f);
         }
@@ -1213,6 +1301,7 @@ impl Store for MemStore {
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
@@ -1241,6 +1330,7 @@ impl Store for MemStore {
     }
 
     fn commit(&mut self) {
+        bump();
         self.virtual_write_pending = false;
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
@@ -1248,6 +1338,7 @@ impl Store for MemStore {
     }
 
     fn rollback(&mut self) {
+        bump();
         self.virtual_write_pending = false;
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();
@@ -1268,6 +1359,7 @@ impl SnapshotStore for MemStore {
         self.clone()
     }
     fn restore(&mut self, s: MemStore) {
+        bump();
         let counter = self.counter.max(s.counter);
         *self = s;
         self.counter = counter;
@@ -1277,6 +1369,39 @@ impl SnapshotStore for MemStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // al-runner issue 5641: the test runner asks which tables a Company Triggers subscriber wrote while it ran, and whether a
+    // test read or wrote one of them.
+    #[test]
+    fn the_store_tells_which_tables_changed_and_whether_a_watched_one_was_accessed() {
+        use crate::contract::{cx, row, table};
+        let (c, t) = (cx("C"), table());
+        let mut other = table();
+        other.object = 8;
+        let mut s = MemStore::default();
+        s.insert(&c, &other, row("A", 1, 1)).unwrap();
+        s.commit();
+        let before = s.change_counter();
+        s.insert(&c, &t, row("A", 1, 1)).unwrap();
+        assert_eq!(s.tables_changed_since(before), [7].into());
+        s.rollback();
+        assert!(
+            s.tables_changed_since(before).is_empty(),
+            "a rolled back write is not a change"
+        );
+        s.insert(&c, &t, row("A", 1, 1)).unwrap();
+        s.commit();
+        s.watch([7].into());
+        let snap = s.clone();
+        s.count(&c, &other, &[]).unwrap();
+        assert_eq!(s.watch_hit(), None);
+        s.count(&c, &t, &[]).unwrap();
+        assert_eq!(s.watch_hit(), Some(7));
+        assert_eq!(snap.watch_hit(), Some(7), "the clones of the store share the watch");
+        s.watch(Default::default());
+        s.count(&c, &t, &[]).unwrap();
+        assert_eq!(s.watch_hit(), None);
+    }
 
     // ---- the key seek (ADR-035): a scan starts where the filters on the leading key fields start ----
 

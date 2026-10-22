@@ -41,7 +41,7 @@ jobs:
 ## Advice
 
 - **Pin the version** when the result must be repeatable. Replace `edge` with a tag
-  such as `v3.0.0-alpha.3`.
+  such as `v3.0.0-alpha.4`.
 - **Cache the cache folder.** Set `ALRUNNER_CACHE` to a folder inside the workspace
   and cache it. It holds the downloads, the demo backup and the compile cache. The
   first run builds it, which takes about 10 seconds of compile plus the downloads.

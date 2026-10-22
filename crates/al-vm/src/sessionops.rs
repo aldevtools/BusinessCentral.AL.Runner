@@ -182,6 +182,13 @@ impl Session {
         if id == ids::SYSTEM_GETDOTNETTYPE_1 {
             return self.get_dotnet_type(args);
         }
+        // A tainted value whose number is the runtime's model (sqlcount.rs, issue 5580).
+        if id == ids::SESSIONINFORMATION_SQLSTATEMENTSEXECUTED_1 {
+            return Ok(self.sql.read(al_builtins::value::SqlCounter::Statements, self.commits));
+        }
+        if id == ids::SESSIONINFORMATION_SQLROWSREAD_1 {
+            return Ok(self.sql.read(al_builtins::value::SqlCounter::RowsRead, self.commits));
+        }
         if id == ids::SESSIONINFORMATION_CALLSTACK_1 {
             // Frames innermost first, a backslash after each, the runner's below
             // (session/TestSessionInformationCallstackContracts.al:130-143).

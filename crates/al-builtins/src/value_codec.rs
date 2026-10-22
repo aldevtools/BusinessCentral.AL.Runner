@@ -174,7 +174,9 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
         }
         // Handles (`Rc`) have no form: they cannot leave their thread. Every variant is named, so a new one is a
         // compile error here and has to be placed (plain, with a tag, or in this list), never a silent fallback.
-        Value::List(_)
+        // A counter value is tied to the session whose reads it compares with (`sqlcount`).
+        Value::SqlCount(_)
+        | Value::List(_)
         | Value::Dictionary(_)
         | Value::Array(_)
         | Value::Codeunit(_)

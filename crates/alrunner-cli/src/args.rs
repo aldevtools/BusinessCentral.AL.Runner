@@ -125,7 +125,7 @@ pub struct TestArgs {
     pub dotnet_allow_roll_forward: bool,
     pub dotnet_timeout_secs: Option<u64>,
     /// `--test-timeout-secs N`: a test that uses more CPU time, or whose `Sleep` calls ask for more time in total, is
-    /// stopped and not run (default 20; 0: no limit).
+    /// stopped and not run (default 20, 60 in a lane of Microsoft's recipe; 0: no limit).
     pub test_timeout_secs: Option<u64>,
     pub require_dotnet: bool,
     pub files_dir: Option<PathBuf>,
@@ -673,7 +673,8 @@ OTHER
                          the APPs' `preprocessorSymbols` and these are all there is.
     --auto-provision     Accepted and ignored (v2 downloaded platform apps with it; v3 always does,
                          unless --no-download).
-    --test-timeout-secs N  (`--test-timeout N` is the same) A test that uses more than N seconds of CPU time (default 20; the
+    --test-timeout-secs N  (`--test-timeout N` is the same) A test that uses more than N seconds of CPU time (default 20;
+                         60 with --recipe microsoft, test-microsoft and --affected-from microsoft; the
                          load of the machine does not count; a test that hangs without
                          computing is stopped at 10 times N of wall time) is stopped at its
                          next loop iteration and reported as not run, with the limit as the
@@ -693,7 +694,7 @@ ENVIRONMENT
                          the same name), and no list of them under --version.
     NO_COLOR             No color with --color auto.
     ALRUNNER_TEST_TIMEOUT, AL_RUNNER_TEST_TIMEOUT_SEC  The test time limit in seconds when
-    --test-timeout-secs is not given (the second is AL Runner v2's name).
+    --test-timeout-secs is not given, also for Microsoft's recipe (the second is AL Runner v2's name).
     AL_CHECK_THREADS, AL_LOWER_THREADS, AL_TEST_THREADS  Worker threads of the check, the
     lowering and the test codeunits (default: one per core).
 ";
