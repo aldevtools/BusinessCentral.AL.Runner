@@ -339,7 +339,7 @@ fn an_app_declaring_an_older_runtime_than_the_target_gets_al0666_for_its_own_run
 
 #[test]
 fn below_the_runtime_floor_the_al_compilers_table_decides() {
-    // al-runner issue 5573: AL compiler 18.1 rejects NavApp.GetResourceAsText(Text, TextEncoding) below runtime 14.0
+    // al-runner issue 5573: the AL compiler (30.0.42.60748) rejects NavApp.GetResourceAsText(Text, TextEncoding) below runtime 14.0
     // (catalog/alc-runtimes.txt). The sentence is the one must-not-compile 0620 pins; the versions part is alc's.
     let src =
         cu("procedure P() var T: Text; begin T := NavApp.GetResourceAsText('value.txt', TextEncoding::UTF8); end;");
@@ -369,7 +369,8 @@ fn below_the_runtime_floor_a_call_without_an_al0666_answer_is_refused_with_ar100
     let src = cu("procedure P() var B: Boolean; begin B := File.Exists('x'); end;");
     let got = diags_declared("28", "3.0", &[&src]);
     assert!(
-        got.len() == 1 && got[0].starts_with("AR1007 `Exists` does not compile at runtime 3.0 with AL compiler 18."),
+        got.len() == 1
+            && got[0].starts_with("AR1007 `Exists` does not compile at runtime 3.0 with AL compiler 30.0.42.60748,"),
         "{got:?}"
     );
     assert_eq!(diags_declared("28", "4.0", &[&src]), Vec::<String>::new());
@@ -377,7 +378,7 @@ fn below_the_runtime_floor_a_call_without_an_al0666_answer_is_refused_with_ar100
 
 #[test]
 fn a_method_removed_in_an_older_runtime_is_al0666_at_every_later_runtime() {
-    // must-not-compile 0561-testpage-prev.al:1: `'Prev' is not available in runtime version '`; alc 18.1:
+    // must-not-compile 0561-testpage-prev.al:1: `'Prev' is not available in runtime version '`; alc 30.0.42.60748:
     // "The supported runtime versions are: '3.0' until, but not including '13.0'."
     let src = "codeunit 50100 T { Subtype = Test; procedure P() var Pg: TestPage \"ALT Page\"; begin Pg.Prev(); end; }";
     let page = "page 50101 \"ALT Page\" { }";
@@ -751,4 +752,97 @@ fn keywords_alc_rejects_as_parameter_names() {
     ] {
         assert_eq!(one(params), Vec::<String>::new(), "{params}");
     }
+}
+
+// Language features by runtime (al-runner issue 5573): `al-builtins/catalog/alc-features.txt`, measured with the AL
+// compiler. The sentence is the one the must-not-compile corpus pins; the name and the versions part are alc's.
+const FT_TABLE: &str =
+    "table 50900 \"FT T\" { fields { field(1; \"No.\"; Integer) { } } keys { key(PK; \"No.\") { } } }";
+
+fn al0666(name: &str, at: &str, versions: &str) -> String {
+    format!(
+        "AL0666 '{name}' is not available in runtime version '{at}'. The supported runtime versions are: {versions}."
+    )
+}
+
+#[test]
+fn a_page_area_takes_no_obsolete_state_at_runtime_13_and_later() {
+    // must-not-compile 0799-obsoletestate-on-page-areas.al:2 (16.1), 0778 (18.0).
+    let page = "page 50901 \"FT P\" { PageType = Card; SourceTable = \"FT T\"; layout { area(Content) { ObsoleteState = Pending; field(F; Rec.\"No.\") { } } } actions { area(Processing) { ObsoleteTag = '1.0'; action(A) { } } } }";
+    assert_eq!(
+        diags_declared("29", "16.1", &[FT_TABLE, page]),
+        vec![
+            al0666("ObsoleteState", "16.1", "'4.0' until, but not including '13.0'"),
+            al0666("ObsoleteTag", "16.1", "'4.3' until, but not including '13.0'"),
+        ]
+    );
+    assert_eq!(diags_declared("29", "12.0", &[FT_TABLE, page]), Vec::<String>::new());
+}
+
+#[test]
+fn importance_optional_is_refused_by_value() {
+    // must-not-compile 1431-page-field-importance-optional.al:1: `'Optional' is not available in runtime version '`.
+    let page = |imp: &str| {
+        format!(
+            "page 50901 \"FT P\" {{ PageType = Card; SourceTable = \"FT T\"; layout {{ area(Content) {{ field(F; Rec.\"No.\") {{ Importance = {imp}; }} }} }} }}"
+        )
+    };
+    assert_eq!(
+        diags_for("29", &[FT_TABLE, &page("Optional")]),
+        vec![al0666("Optional", "18.0", "'1.0' until, but not including '3.0'")]
+    );
+    assert_eq!(diags_for("29", &[FT_TABLE, &page("Promoted")]), Vec::<String>::new());
+}
+
+#[test]
+fn report_parts_need_runtime_18() {
+    // must-not-compile 0800-report-defaultheaderfooterpart-bc27-28.al:1, 0803-layout-subtype-bc27-28.al:1.
+    let report = "report 50902 \"FT R\" { DefaultRenderingLayout = L; DefaultHeaderFooterPart = HF; dataset { dataitem(D; \"FT T\") { column(No; \"No.\") { } } } rendering { layout(L) { Type = Word; LayoutFile = 'l.docx'; } layout(HF) { Type = Word; LayoutFile = 'hf.docx'; Subtype = HeaderFooter; } } }";
+    assert_eq!(
+        diags_declared("29", "17.1", &[FT_TABLE, report]),
+        vec![
+            al0666("DefaultHeaderFooterPart", "17.1", "'18.0' or greater"),
+            al0666("Subtype", "17.1", "'18.0' or greater"),
+        ]
+    );
+    assert_eq!(diags_for("29", &[FT_TABLE, report]), Vec::<String>::new());
+}
+
+#[test]
+fn bc29_types_and_attributes_need_runtime_18() {
+    // must-not-compile 0995-datasourcecontext-runtime-16.al:1, 0996-testhandlercontext-runtime-16.al:1,
+    // 0997-requiredpending-runtime-16.al:1.
+    let src = "codeunit 50903 \"FT C\" { [RequiredPending('x', '29.0')] procedure A() begin end; procedure B() var Ctx: DataSourceContext; begin end; }";
+    assert_eq!(
+        diags_declared("29", "16.0", &[src]),
+        vec![
+            al0666("RequiredPending", "16.0", "'18.0' or greater"),
+            al0666("DataSourceContext", "16.0", "'18.0' or greater"),
+        ]
+    );
+    assert_eq!(diags_for("29", &[src]), Vec::<String>::new());
+}
+
+#[test]
+fn a_page_extension_cannot_modify_editable_of_a_part() {
+    // must-not-compile 0684-pageext-modify-part-editable.al:1. Of a field it can (no row says otherwise).
+    let part = "page 50904 \"FT LP\" { PageType = ListPart; SourceTable = \"FT T\"; layout { area(Content) { repeater(R) { field(No; Rec.\"No.\") { } } } } }";
+    let card = "page 50905 \"FT P\" { PageType = Card; SourceTable = \"FT T\"; layout { area(Content) { field(No; Rec.\"No.\") { } part(Pt; \"FT LP\") { } } } }";
+    let ext = |ctl: &str| {
+        format!(
+            "pageextension 50906 \"FT PE\" extends \"FT P\" {{ layout {{ modify({ctl}) {{ Editable = false; }} }} }}"
+        )
+    };
+    assert_eq!(
+        diags_for("29", &[FT_TABLE, part, card, &ext("Pt")]),
+        vec![al0666(
+            "Modifying Editable from Extensions",
+            "18.0",
+            "'1.0' until, but not including '10.1'"
+        )]
+    );
+    assert_eq!(
+        diags_for("29", &[FT_TABLE, part, card, &ext("No")]),
+        Vec::<String>::new()
+    );
 }

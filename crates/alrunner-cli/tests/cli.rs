@@ -1641,7 +1641,7 @@ fn a_call_newer_than_the_apps_declared_runtime_is_a_compile_error() {
         "codeunit 50150 \"Resource Reader Test\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsResource()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Value() <> 'HELLO' then\n            Error('expected HELLO, got %1', Reader.Value());\n    end;\n\n    [Test]\n    procedure ReadsPlain()\n    var\n        Reader: Codeunit \"Resource Reader\";\n    begin\n        if Reader.Plain() <> 'HELLO' then\n            Error('expected HELLO');\n    end;\n}\n",
     );
     let o = alrunner(&["test", app.to_str().unwrap(), test.to_str().unwrap(), "--no-download"]);
-    // As the AL compiler 18.1 does (catalog/alc-runtimes.txt): AL0666, no test runs, exit 3.
+    // As the AL compiler does (catalog/alc-runtimes.txt, measured with AL 30.0.42.60748): AL0666, no test runs, exit 3.
     assert_eq!(code(&o), 3, "{}", text(&o));
     assert!(
         text(&o).contains(
