@@ -1085,7 +1085,11 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc.borrow().unpinned_buffer {
+                if let Some(why) = rc
+                    .borrow()
+                    .unpinned_buffer
+                    .filter(|w| !crate::records::run_page_link_fields_read(w))
+                {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::Unsupported(format!("a read of a field of Rec {why}")));
                     }

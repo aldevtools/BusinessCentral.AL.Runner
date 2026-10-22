@@ -1048,6 +1048,7 @@ impl Session {
                     last_modify: None,
                     globals: Default::default(),
                     unpinned_buffer: None,
+                    run_page_link: None,
                 })))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
@@ -1326,6 +1327,20 @@ impl Session {
         let mut st = rc.borrow().clone();
         if st.temporary {
             st.temp_id = Some(self.new_temp_id());
+        }
+        // A copy of Rec of a page an action opened through `RunPageLink` holds Rec's fields and not the link's filters
+        // (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord); what else it
+        // answers is not pinned (`records::RUN_PAGE_LINK_COPY`). Filters Rec's own code added stay and refuse GetFilters.
+        if let Some(link) = st.run_page_link.take() {
+            if crate::records::same_filters(&st.filters, &link) {
+                st.filters.clear();
+            }
+            if st
+                .unpinned_buffer
+                .is_none_or(|w| w == crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+            {
+                st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_COPY);
+            }
         }
         Value::Record(Rc::new(RefCell::new(st)))
     }

@@ -150,7 +150,18 @@ impl Session {
         // per filter group there (handlers/TestActionRunPageLinkFilterGroup.al:119-131); the other reads refuse
         // (records.rs run_page_link_open_op).
         if !ro.on_rec && ro.link.as_ref().is_some_and(|l| !l.entries.is_empty()) {
-            target_state.borrow_mut().open_rec_unpinned = Some(crate::records::RUN_PAGE_LINK_OPEN);
+            let fill = match &record {
+                Some(r) => self.run_page_link_fill(r, ro, &page_type)?,
+                None => None,
+            };
+            let mut t = target_state.borrow_mut();
+            match fill {
+                Some(fill) => {
+                    t.open_rec_unpinned = Some(crate::records::RUN_PAGE_LINK_OPEN_FILLED);
+                    t.open_rec_fill = Some(fill);
+                }
+                None => t.open_rec_unpinned = Some(crate::records::RUN_PAGE_LINK_OPEN),
+            }
         }
         let kind = if modal { UiKind::ModalPage } else { UiKind::Page };
         // The handler is looked up after OnInit and OnOpenPage; a page nobody answers stops there.
@@ -185,6 +196,60 @@ impl Session {
         // A page target that wrote nothing leaves the host as it was; one that wrote makes the host
         // read its row again (handlers/TestPageRunObjectContracts.al:228-246, :194-215).
         self.reread_host_row(st, false)
+    }
+
+    /// What an action's `RunPageLink` fills into the target's Rec before its OnOpenPage, in the shape the corpus pins: a List
+    /// or Card target, no `RunPageView`, every entry `field(...)` or `const(...)` of a Code, Text or Integer field. Real BC
+    /// fills the linked fields there and leaves the others blank, with or without a matching row
+    /// (handlers/TestActionRunPageLinkFilterGroup.al:292 QZ_RunPageLink_RecInOnOpenPage_List_Handler, :313 _List_Trap,
+    /// :333 _Card_Trap, :354 _Const, :369 _NoHandler; `open code=P1 number=7 line=0 note=`). With it come the link's filters,
+    /// which a by-value copy of Rec does not carry (`filters=`). `None`: another shape, whose Rec stays not pinned.
+    fn run_page_link_fill(
+        &mut self,
+        rec: &Rec,
+        ro: &ir::RunObject,
+        page_type: &str,
+    ) -> Result<Option<al_builtins::value::RunPageLinkFill>, Signal> {
+        let Some(link) = &ro.link else { return Ok(None) };
+        if link.view.is_some() || !matches!(page_type, "list" | "card") {
+            return Ok(None);
+        }
+        let table = self.table(rec)?;
+        let r = rec.borrow();
+        let link_filters: Vec<FieldFilter> = r
+            .filters
+            .iter()
+            .filter(|f| f.group == RUN_LINK_GROUP)
+            .cloned()
+            .collect();
+        // Only the link's own filters: a handed record carries nothing else (no RunPageOnRec, no view).
+        if link_filters.len() != r.filters.len() || link_filters.len() != link.entries.len() {
+            return Ok(None);
+        }
+        let mut fill = Vec::new();
+        for (i, entry) in link.entries.iter().enumerate() {
+            let pf = match entry {
+                ir::LinkEntry::Field(pf, _) => *pf,
+                ir::LinkEntry::Filter(pf, _) if link.consts.contains(&i) => *pf,
+                ir::LinkEntry::Filter(..) => return Ok(None),
+            };
+            if !matches!(table.fields[pf].ty, RtType::Code(_) | RtType::Text(_) | RtType::Integer) {
+                return Ok(None);
+            }
+            let Some(f) = link_filters.iter().find(|f| f.field == pf) else {
+                return Ok(None);
+            };
+            let value = match &f.expr {
+                FilterExpr::Eq(v) => v.clone(),
+                FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).is_ok_and(|o| o.is_eq()) => a.clone(),
+                _ => return Ok(None),
+            };
+            let Ok(value) = ops::convert(value, &table.fields[pf].ty) else {
+                return Ok(None);
+            };
+            fill.push((pf, value));
+        }
+        Ok(Some((fill, Rc::new(link_filters))))
     }
 
     /// The record the target opens on: the host's stored row for `RunPageOnRec`, narrowed by

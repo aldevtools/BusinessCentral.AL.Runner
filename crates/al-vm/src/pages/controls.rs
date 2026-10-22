@@ -229,17 +229,49 @@ impl Session {
         // The blank-captioned value itself handed in (a Variant holding it, `member0` at BeEnumSetValueBlank.al:541-597) and a
         // Text of spaces (`space`, :600-611; `litSpace`) select it the same way.
         let pinned_card = self.has_source(st) && !self.is_list(st) && !self.shows_no_row(st, idx);
+        // On a list, a table-field control over an Enum field with NotBlank (not the control's) takes a Text of spaces and the
+        // Integer 0 for its blank-captioned value " " as a card does, and shows ' ' (BeEnumSetValueBlank.al:4021
+        // QZ_NotBlankEnum_SetValueBlank_List, `notblank after space`, `notblank after ordinal 0`). Without NotBlank it is not pinned.
+        let pinned_list_not_blank = rec_bound
+            && self.has_source(st)
+            && self.is_list(st)
+            && st.borrow().host.is_none()
+            && !self.shows_no_row(st, idx)
+            && !matches!(
+                page_of(&engine, st).controls[idx].prop("notblank"),
+                Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("true")
+            )
+            && self.control_field(st, idx).is_some_and(|f| {
+                f.properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
+            });
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
                 let o = &engine.program.objects[*id as usize];
+                // A value without a Caption shows its name (the `" "` member of QzNotBlankEnumList.al, BeEnumSetValueBlank.al:4021);
+                // pinned in that list shape only.
                 let blank = o
                     .enum_captions
                     .iter()
                     .find(|(_, c)| !c.is_empty() && c.chars().all(|c| c == ' '))
-                    .map(|(v, _)| *v);
+                    .map(|(v, _)| *v)
+                    .or_else(|| {
+                        if !pinned_list_not_blank {
+                            return None;
+                        }
+                        o.enum_values
+                            .iter()
+                            .find(|(v, n)| {
+                                !n.is_empty()
+                                    && n.chars().all(|c| c == ' ')
+                                    && !o.enum_captions.iter().any(|(w, _)| w == v)
+                            })
+                            .map(|(v, _)| *v)
+                    });
                 if let Some(v) = blank {
-                    if !pinned_card {
+                    if !pinned_card && !pinned_list_not_blank {
                         return unsupported(
                             "SetValue of a blank text on an Enum control with a blank caption on a list or a page without a row (not pinned)",
                         );
@@ -265,7 +297,7 @@ impl Session {
             let converted = ops::convert(arg.clone(), &ty)?;
             let shown = self.control_text(st, idx, &converted)?;
             if !shown.is_empty() && shown.trim().is_empty() {
-                if !pinned_card {
+                if !pinned_card && !pinned_list_not_blank {
                     if rec_bound {
                         return unsupported(
                             "SetValue of an Integer selecting a blank-captioned Enum value on a table-field control of a list or of a page without a row (not pinned)",
@@ -450,7 +482,17 @@ impl Session {
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
         });
-        if rec_bound && text.is_empty() && (control_not_blank || field_not_blank) && !(control_not_blank && no_row) {
+        // An Enum field with NotBlank on a list does not check the empty entry for NotBlank: it is refused as the same field
+        // without NotBlank refuses it, an entry that is not a member (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:4021
+        // QZ_NotBlankEnum_SetValueBlank_List, `Your entry of '' is not an acceptable value for 'KindNB'.`, no Refresh hint).
+        let list_enum_field_not_blank =
+            rec_bound && !no_row && !control_not_blank && self.is_list(st) && matches!(ty, RtType::Enum(_));
+        if rec_bound
+            && text.is_empty()
+            && (control_not_blank || field_not_blank)
+            && !(control_not_blank && no_row)
+            && !list_enum_field_not_blank
+        {
             if no_row || (self.is_list(st) && !control_not_blank) {
                 return unsupported(
                     "SetValue of a blank value on a NotBlank control of a list or of a page without a row (the client's text is not pinned)",
@@ -489,6 +531,10 @@ impl Session {
                     .find(|(k, _)| k.eq_ignore_ascii_case("CharAllowed"))
                     .map(|(_, v)| unquote(v))
             });
+            // On a list the table field's property is pinned as on a card, with no Refresh hint in the text
+            // (record/lt-x-table-props/XTablePropsTests.al:928 QZ_CharAllowed_TestPage_List); the page control's property there and
+            // a part are not.
+            let list_pinned = rec_bound && page_prop.is_none() && st.borrow().host.is_none();
             if let Some(allowed) = page_prop.or(field_prop) {
                 // Several pairs are several ranges: a character in any of them is taken, and the error lists the pairs
                 // separated by commas (pages/lt-ah-pages/AhPageTests.al:176 `az,AZ,09`, :808-811 ThreeRanges, :837-838
@@ -501,7 +547,7 @@ impl Session {
                     || chars.len() % 2 != 0
                     || ranges.iter().any(|(a, b)| a > b)
                     || no_row
-                    || self.is_list(st)
+                    || (self.is_list(st) && !list_pinned)
                 {
                     return unsupported(
                         "SetValue on a field with CharAllowed of an odd length or a backward range, on a list or on a page without a row (not pinned)",
@@ -900,6 +946,26 @@ impl Session {
                 // Out of the table's OnValidate (or anything else than the control's own trigger) only an error with a text is
                 // pinned (P81PageValidateEvents.al below); for `Error('')` the corpus pins the card control's trigger alone
                 // (QiEmptyErrorPages.al:253). Corpus issue 712 queues the probe.
+                // Out of the table field's OnValidate of a control bound to a field of Rec, on a control without its own OnValidate,
+                // it ends the SetValue quietly as well, on a List and a Card, directly and after a Confirm answered No: the test goes
+                // on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the
+                // stored row keeps it (QiEmptyErrorPages.al:342 QZ_EE_TableValidate_ConfirmNo_List_NoAsserterror, :367 _Asserterror,
+                // :390 _Direct_List_NoAsserterror, :414 _Direct_Card_NoAsserterror).
+                if e.message.is_empty()
+                    && rec_bound
+                    && ctl.trigger("onvalidate").is_none()
+                    && st.borrow().host.is_none()
+                    && matches!(
+                        engine.object_facts[st.borrow().object as usize].page_type,
+                        Some(al_ir::PageType::List | al_ir::PageType::Card)
+                    )
+                {
+                    let mut e = e;
+                    e.code = format!("NSValidateField:{}", e.code);
+                    self.error_finals = None;
+                    self.last_error = *e;
+                    return Ok(Value::Null);
+                }
                 if e.message.is_empty() {
                     return unsupported(
                         "an error with an empty text out of a table field's OnValidate during TestPage SetValue (what the test client does with it is not pinned)",
@@ -939,6 +1005,24 @@ impl Session {
     }
 
     // ---- controls -----------------------------------------------------------------------
+
+    /// Whether control `idx` is bound to an expression that is no place (no routine writes it), on a Card without a source table
+    /// that is no request page, and declares no Editable: the shape QZ_NoSourceTable_SetValue_OnExpressionControls pins
+    /// (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:506, `editable = No|No|No|Yes`).
+    pub(super) fn read_only_expression_control(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
+        matches!(ctl.binding, ir::Binding::Expr(_))
+            && ctl.trigger("__sourceset").is_none()
+            && ctl.prop("editable").is_none()
+            && !self.has_source(st)
+            && !self.is_request_page(st)
+            && st.borrow().host.is_none()
+            && matches!(
+                engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Card)
+            )
+    }
 
     /// Whether control `idx` sits inside a `cuegroup` with `CuegroupLayout = Wide`.
     fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
@@ -1388,6 +1472,7 @@ impl Session {
             // A field of a part also answers what its part control says (see `part_field_gate`).
             PageMethod::Editable => match self.part_field_gate(st, true)? {
                 Some(b) => Ok(Value::Boolean(b)),
+                None if self.read_only_expression_control(st, idx) => Ok(Value::Boolean(false)),
                 None => Ok(Value::Boolean(self.control_editable(st, idx)?)),
             },
             PageMethod::Enabled => match self.part_field_gate(st, false)? {
@@ -1400,6 +1485,10 @@ impl Session {
             // SetValue on a field of a cuegroup does nothing and raises nothing
             // (handlers/TestPageCueGroupFixedGridContracts.al:CueGroup_SetValue_IsSilentlyIgnored).
             PageMethod::SetValue if self.in_cue_group(st, idx) => Ok(Value::Null),
+            // A control bound to an expression that is no place, on a card without a source table, is not editable, and SetValue
+            // on it raises nothing and leaves the value as it was (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:506
+            // QZ_NoSourceTable_SetValue_OnExpressionControls: GetTotal(), ValA + ValB, UpperCase(PlainText)).
+            PageMethod::SetValue if self.read_only_expression_control(st, idx) => Ok(Value::Null),
             PageMethod::SetValue => {
                 let r = self.control_set_value(st, idx, args)?;
                 self.resync_parts_linked_by(st, idx)?;

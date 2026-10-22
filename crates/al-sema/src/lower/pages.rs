@@ -490,6 +490,9 @@ impl Lowerer<'_> {
                         .ok_or("RunPageLink on a target page without a source table")?;
                     self.link_entries("RunPageLink", &link, file, self.table_of[oi], target_table)
                 })();
+                pl.consts = crate::pages::parse_run_page_link_kinds(&link)
+                    .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
+                    .unwrap_or_default();
                 match entries {
                     Ok(e) => pl.entries = e,
                     Err(why) => out.unsupported = Some(why),

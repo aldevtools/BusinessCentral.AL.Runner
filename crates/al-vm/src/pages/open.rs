@@ -184,6 +184,7 @@ impl Session {
     ) -> Result<Option<Handler>, Signal> {
         let test_open = std::mem::take(&mut self.pages.test_open);
         let rec_unpinned = st.borrow_mut().open_rec_unpinned.take();
+        let rec_fill = st.borrow_mut().open_rec_fill.take();
         let mut handler = None;
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -461,6 +462,19 @@ impl Session {
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
             if let (Some(why), true) = (rec_unpinned, has_source) {
                 self.page_rec(st).borrow_mut().unpinned_buffer = Some(why);
+            }
+            // The linked fields of an action's `RunPageLink`, filled into Rec before OnOpenPage; the others stay blank
+            // (handlers/TestActionRunPageLinkFilterGroup.al:292-369, see `run_page_link_fill`).
+            if has_source {
+                let rec = self.page_rec(st);
+                let mut r = rec.borrow_mut();
+                r.run_page_link = None;
+                if let Some((fill, link)) = &rec_fill {
+                    for (pos, value) in fill {
+                        r.fields[*pos] = value.clone();
+                    }
+                    r.run_page_link = Some(link.clone());
+                }
             }
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
