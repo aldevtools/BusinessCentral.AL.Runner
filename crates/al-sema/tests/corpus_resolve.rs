@@ -151,6 +151,22 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "report/lt-ch-report-leads/ChReportPart.al",
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),
+    (
+        "QyXbObjects.al",
+        "a procedure declared with the same parameters by a table and by an extension of another app: which one a bare call runs is not modelled (corpus bump 56)",
+    ),
+    (
+        "record/lt-record-write/QzInitOverload.al",
+        "a table procedure Init with parameters hides the built-in Init() for the checker (corpus bump 56)",
+    ),
+    (
+        "record/lt-record-write/RcBInit.al",
+        "a table procedure Init with parameters hides the built-in Init() for the checker (corpus bump 56)",
+    ),
+    (
+        "xmlport/lt-aj-xmlport/QzBareRun.al",
+        "the checker does not resolve a bare `Run()` inside a codeunit (corpus bump 56)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,
