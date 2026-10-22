@@ -388,3 +388,7 @@
 27 1580-pageext-protected-var-type-from-unreferenced-app
 28 1580-pageext-protected-var-type-from-unreferenced-app
 29 1580-pageext-protected-var-type-from-unreferenced-app
+# corpus bump with the multi-app fixtures (writer QV case): AL0132 for JsonArray.Remove is not reported yet
+27 2048-jsonarray-remove-token
+28 2048-jsonarray-remove-token
+29 2048-jsonarray-remove-token
