@@ -75,8 +75,10 @@ pub struct ResourceFiles {
     dirs: BTreeSet<String>,
 }
 
-/// The temporary folder `TemporaryPath()` names (`\TEMP\`), in `key` form without the closing separator.
-const TEMP: &str = "\\temp";
+/// The temporary folder, in `key` form without the closing separator: what `TemporaryPath()` names (`\TEMP\`, al-vm
+/// hostvalues.rs), and the folder of `File.CreateTempFile`'s names (`temp/`, al-builtins file.rs `TEMP_DIR`), which
+/// FileManagement.ServerTempFileName returns and Config. XML Exchange puts its media folder next to.
+const TEMP_ROOTS: [&str; 2] = ["\\temp", "temp"];
 
 impl ResourceFiles {
     pub fn new(root: PathBuf) -> ResourceFiles {
@@ -95,8 +97,14 @@ impl ResourceFiles {
 
     /// Whether `path` is inside the temporary folder (or is it).
     fn in_temp(path: &str) -> bool {
-        let k = Self::dir_key(path);
-        k == TEMP || k.starts_with(&format!("{TEMP}\\"))
+        Self::temp_root(&Self::dir_key(path)).is_some()
+    }
+
+    /// The temporary folder that `k` (a `dir_key`) is in, or is.
+    fn temp_root(k: &str) -> Option<&'static str> {
+        TEMP_ROOTS
+            .into_iter()
+            .find(|r| k == *r || k.starts_with(&format!("{r}\\")))
     }
 
     fn key(path: &str) -> String {
@@ -217,7 +225,7 @@ impl FileSystem for ResourceFiles {
             return false;
         }
         let k = Self::dir_key(path);
-        if k == TEMP || self.dirs.contains(&k) {
+        if TEMP_ROOTS.contains(&k.as_str()) || self.dirs.contains(&k) {
             return true;
         }
         matches!(Self::from_user_folder(path), std::borrow::Cow::Owned(_))
@@ -234,7 +242,8 @@ impl FileSystem for ResourceFiles {
             return Err("a file of that name exists (the .NET exception is not pinned)".into());
         }
         let mut at = k.as_str();
-        while at.len() > TEMP.len() {
+        let root = Self::temp_root(&k).unwrap_or_default();
+        while at.len() > root.len() {
             self.dirs.insert(at.to_string());
             at = &at[..at.rfind('\\').unwrap_or(0)];
         }
@@ -421,6 +430,13 @@ mod tests {
         assert!(!fs.dir_exists(path), "remove empty non-recursive");
         assert!(fs.remove_dir(path, true).is_err(), "a missing folder: not pinned");
         assert!(fs.create_dir("\\TEMP\\..\\Other").is_err(), "only inside the temporary folder");
+        // The folder of File.CreateTempFile's names (`temp/1.tmp`, al-builtins file.rs TEMP_DIR), as FileManagement.
+        // ServerTempFileName and Config. XML Exchange's media folder use it.
+        assert!(fs.serves_path("temp/Media") && fs.dir_exists("temp") && !fs.dir_exists("temp/Media"));
+        fs.create_dir("temp/Media").unwrap();
+        assert!(fs.dir_exists("temp/Media/"));
+        fs.remove_dir("temp/Media", true).unwrap();
+        assert!(!fs.dir_exists("temp/Media") && fs.dir_exists("temp"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
