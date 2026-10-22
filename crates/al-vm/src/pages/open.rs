@@ -2012,7 +2012,9 @@ impl Session {
         // ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries, whose repeater says
         // `Editable = false`, and expects no blank line, so landing on it is refused rather than run.
         if self.repeater_says_editable(st) {
-            return unsupported("the blank new-row line of a list whose repeater says Editable (whether it shows is not pinned)");
+            return unsupported(
+                "the blank new-row line of a list whose repeater says Editable (whether it shows is not pinned)",
+            );
         }
         st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);

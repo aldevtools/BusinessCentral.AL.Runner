@@ -507,9 +507,19 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         K::Text if root => (&[], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
-        // Below a table element (a nested table element) neither is pinned: its trigger order is not yet what BC does
-        // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, Import_TriggerOrder_NewRows).
-        K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => (&[], &[]),
+        // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent with
+        // AutoReplace = true that saves (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, :188, tests :293-399). Below a
+        // parent without AutoReplace on import, and MaxOccurs, are not pinned.
+        K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => {
+            let p = raw.parent.expect("checked above");
+            let flag = |name: &str| layout.property(p, name).and_then(|v| bool_prop(&v));
+            let replaces = flag("AutoReplace") == Some(true) && flag("AutoSave") != Some(false);
+            if layout.direction == ir::XmlDirection::Export || replaces {
+                (&["zero"], &[])
+            } else {
+                (&[], &[])
+            }
+        }
         K::Table => (&["zero"], &["unbounded"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
@@ -868,6 +878,37 @@ mod tests {
             ),
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));
+            let all = l.run_reasons.join("; ");
+            assert!(all.contains(want), "{src}: {all}");
+        }
+    }
+
+    // XmlPortTriggerFlow.al:74959-74960 (tests :293-399): a nested table element with MinOccurs = Zero runs on export, and on
+    // import below a parent with AutoReplace = true. Below a parent without AutoReplace on import, and any MaxOccurs, stay refused.
+    #[test]
+    fn a_nested_optional_table_element_runs_on_export_and_below_an_auto_replace_parent() {
+        for src in [
+            "Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+            "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoReplace = true; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {src} }}"));
+            assert!(l.run_reasons.is_empty(), "{src}: {:?}", l.run_reasons);
+        }
+        for (src, want) in [
+            (
+                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+                "minoccurs = zero of tableelement C",
+            ),
+            (
+                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoReplace = true; AutoSave = false; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+                "minoccurs = zero of tableelement C",
+            ),
+            (
+                "Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MaxOccurs = Unbounded; } } } }",
+                "maxoccurs = unbounded of tableelement C",
+            ),
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {src} }}"));
             let all = l.run_reasons.join("; ");
             assert!(all.contains(want), "{src}: {all}");
         }
