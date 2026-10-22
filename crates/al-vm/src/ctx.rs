@@ -165,16 +165,20 @@ impl al_builtins::native::Ctx for Session {
     }
     fn app_resources(&self) -> Option<al_builtins::native::AppResources> {
         let obj = *self.frames.last()?;
-        let app = self
+        let index = self.engine.program.objects[obj].app as usize;
+        let app = self.engine.program.apps.get(index)?;
+        self.engine
+            .resources_read
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let resources = self
             .engine
-            .program
-            .apps
-            .get(self.engine.program.objects[obj].app as usize)?;
+            .resource_overrides
+            .read()
+            .ok()
+            .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
+            .unwrap_or_else(|| app.resources.clone());
         // BC names the app `<name> by <publisher> <version>` (session/W5NavAppResources.al:GetResourceAsText_NameMatching).
-        Some((
-            format!("{} by {} {}", app.name, app.publisher, app.version),
-            app.resources.clone(),
-        ))
+        Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
     }
     fn runner_call_stack(&self) -> String {
         self.runner_frames.clone()

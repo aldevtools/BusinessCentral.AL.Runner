@@ -71,6 +71,31 @@ pub struct RunOptions {
     /// (codeunit id, test name in lower case); the others are left out as BC's test tool leaves out the test methods
     /// that are not enabled. `None`: every test of the codeunit runs.
     pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// Several passes over the same compile and install baseline (a `serve` request with `entries`, issue 5635): each
+    /// entry runs its own tests with its own resource files, from the same database. Empty: one pass, as `only`,
+    /// `run_only` and `hooks` say.
+    pub entries: Vec<EntryRun>,
+}
+
+/// One entry of a run (`RunOptions::entries`).
+#[derive(Debug, Clone, Default)]
+pub struct EntryRun {
+    /// The test codeunits of the entry, as `RunOptions::only` numbers them; `None`: those of `RunOptions::only`.
+    pub only: Option<Vec<(usize, u32)>>,
+    /// As `RunOptions::run_only`, for this entry.
+    pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// The callbacks of this entry's tests.
+    pub hooks: crate::events::Hooks,
+    /// The resource files this entry gives some apps in place of theirs: (app as the caller numbered it, resources).
+    pub resources: Vec<(usize, ResourceFiles)>,
+}
+
+/// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
+pub(crate) struct Pass {
+    pub(crate) only: Option<Vec<(usize, u32)>>,
+    pub(crate) run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    pub(crate) hooks: crate::events::Hooks,
+    pub(crate) resources: al_vm::ResourceOverrides,
 }
 
 /// What [`RunOptions::debug_ready`] sees of the compile.
@@ -339,6 +364,8 @@ impl Compiled {
 
 /// The resource files of an app: name relative to its resource folder, content.
 pub type Resources = [(String, Vec<u8>)];
+/// The resource files of an app, owned.
+pub type ResourceFiles = Vec<(String, Vec<u8>)>;
 
 impl Compiled {
     /// Gives the apps the resource files `resources[i]` (for the app the caller numbered `i`) where they differ from

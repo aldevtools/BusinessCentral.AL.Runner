@@ -566,7 +566,10 @@ SERVE
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
                          tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
-                         strictEnvironment (as --affected and its options; the summary gets `selection`).
+                         strictEnvironment (as --affected and its options; the summary gets `selection`),
+                         entries (several runs on one compile and one install baseline, each with its own
+                         id, resources, test and excludeTests; `entry` on the test lines, one
+                         `entrySummary` line per entry).
     --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 

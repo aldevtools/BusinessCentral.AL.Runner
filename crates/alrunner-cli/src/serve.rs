@@ -30,7 +30,10 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
+    "entries",
 ];
+/// The fields of an entry of `runTests` (issue 5635).
+const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests"];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
     "command",
@@ -69,6 +72,8 @@ struct Flags {
     cancel: Arc<AtomicBool>,
     /// The request asked for a `started` line, and it was not written yet.
     announce: AtomicBool,
+    /// The ids of the entries of the request in progress (`entries`), which its `test` lines carry.
+    entry_ids: std::sync::Mutex<Vec<Value>>,
 }
 
 /// Reads stdin on a thread of its own: `cancel` is answered here, at once, also while a run keeps the main thread busy;
@@ -112,24 +117,31 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
     let base = daemon_args(daemon)?;
     let flags = Arc::new(Flags::default());
     let rx = reader(flags.clone());
+    let ids = flags.clone();
     let mut ctx = WarmCtx {
         cancel: Some(flags.cancel.clone()),
-        on_test: Some(Arc::new(|e: al_testrun::events::TestEvent, captured: Option<Value>| {
-            let mut row =
-                crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
-            crate::output::add_stubs(&mut row, &e.stubs);
-            crate::output::add_slept(&mut row, e.slept_ms);
-            let mut line = test_line(&mut row);
-            // What the test's code did (`captureValues`, `iterationTracking`): the values and loops are part of the line.
-            if let Some(Value::Object(c)) = captured {
-                for key in ["capturedValues", "loops", "capturedValuesTruncated"] {
-                    if let Some(v) = c.get(key) {
-                        line.insert(key.into(), v.clone());
+        on_test: Some(Arc::new(
+            move |e: al_testrun::events::TestEvent, captured: Option<Value>| {
+                let mut row =
+                    crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
+                crate::output::add_stubs(&mut row, &e.stubs);
+                crate::output::add_slept(&mut row, e.slept_ms);
+                let mut line = test_line(&mut row);
+                if let Some(k) = e.entry {
+                    let id = ids.entry_ids.lock().ok().and_then(|v| v.get(k).cloned());
+                    line.insert("entry".into(), id.unwrap_or(json!(k)));
+                }
+                // What the test's code did (`captureValues`, `iterationTracking`): the values and loops are part of the line.
+                if let Some(Value::Object(c)) = captured {
+                    for key in ["capturedValues", "loops", "capturedValuesTruncated"] {
+                        if let Some(v) = c.get(key) {
+                            line.insert(key.into(), v.clone());
+                        }
                     }
                 }
-            }
-            out(&Value::Object(line));
-        })),
+                out(&Value::Object(line));
+            },
+        )),
         on_start: Some({
             let flags = flags.clone();
             Arc::new(move |codeunit: u32, test: &str| {
@@ -295,11 +307,81 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     Ok((a, warnings))
 }
 
+/// The `entries` of a `runTests` request (issue 5635): each entry's selection and resource texts, and its id (the
+/// index when it has none).
+fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value>), String> {
+    let Some(v) = fields.get("entries").filter(|v| !v.is_null()) else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let list = v.as_array().ok_or("`entries` is a list of objects")?;
+    for (field, why) in [
+        ("test", "each entry has its own `test`"),
+        ("excludeTests", "each entry has its own `excludeTests`"),
+        ("affectedOnly", "it is not supported with entries"),
+        ("coverage", "coverage is not supported with entries"),
+        ("perTestCoverage", "coverage is not supported with entries"),
+    ] {
+        if fields
+            .get(field)
+            .is_some_and(|v| !v.is_null() && v != &Value::Bool(false))
+        {
+            return Err(format!("`{field}` cannot be combined with `entries`: {why}"));
+        }
+    }
+    if list.is_empty() {
+        return Err("`entries` needs at least one entry".into());
+    }
+    let mut entries = Vec::new();
+    let mut ids = Vec::new();
+    for (k, e) in list.iter().enumerate() {
+        let e = e.as_object().ok_or("`entries` is a list of objects")?;
+        if let Some(key) = e.keys().find(|key| !ENTRY_FIELDS.contains(&key.as_str())) {
+            return Err(format!("unknown field `{key}` in an entry of `entries`"));
+        }
+        ids.push(match e.get("id") {
+            None | Some(Value::Null) => json!(k),
+            Some(id @ (Value::String(_) | Value::Number(_))) => id.clone(),
+            Some(_) => return Err("the `id` of an entry is a text or a number".into()),
+        });
+        let mut resources = std::collections::BTreeMap::new();
+        if let Some(r) = e.get("resources").filter(|v| !v.is_null()) {
+            let r = r
+                .as_object()
+                .ok_or("the `resources` of an entry is an object: resource name -> text")?;
+            for (name, text) in r {
+                let text = text
+                    .as_str()
+                    .ok_or_else(|| format!("the `resources` of an entry: the value of `{name}` is not a text"))?;
+                resources.insert(name.clone(), text.to_string());
+            }
+        }
+        entries.push(run::Entry {
+            filters: e
+                .get("test")
+                .and_then(Value::as_str)
+                .filter(|t| !t.is_empty())
+                .map(|t| vec![t.to_string()])
+                .unwrap_or_default(),
+            excludes: string_list(e, "excludeTests")?,
+            resources,
+        });
+    }
+    Ok((entries, ids))
+}
+
 fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flags: &Flags) {
+    let (entries, ids) = match entries_of(fields) {
+        Ok(x) => x,
+        Err(e) => return error(e),
+    };
     let (args, warnings) = match request_args(base, fields) {
         Ok(x) => x,
         Err(e) => return error(e),
     };
+    if let Ok(mut v) = flags.entry_ids.lock() {
+        v.clone_from(&ids);
+    }
+    ctx.entries = entries;
     let (want_coverage, want_per_test) = (
         flag(fields, "coverage").unwrap_or(false) || flag(fields, "perTestCoverage").unwrap_or(false),
         flag(fields, "perTestCoverage").unwrap_or(false),
@@ -315,6 +397,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
     let started = std::time::Instant::now();
     // A panic anywhere in a request ends the request, not the server; what is kept is dropped, as it may be inconsistent.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run::test_with(&args, Some(ctx))));
+    ctx.entries.clear();
     flags.running.store(false, Ordering::SeqCst);
     let cancelled = flags.cancel.swap(false, Ordering::SeqCst);
     match outcome {
@@ -362,6 +445,16 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
             }
             if !warnings.is_empty() {
                 summary["warnings"] = json!(warnings);
+            }
+            // One summary per entry, in the order of the entries, before the summary of the request (issue 5635).
+            if let Some(counts) = doc.get("entries").and_then(Value::as_array) {
+                for (k, c) in counts.iter().enumerate() {
+                    let mut line = json!({"type": "entrySummary", "entry": ids.get(k).cloned().unwrap_or(json!(k))});
+                    for key in ["passed", "failed", "errors", "notRun", "total"] {
+                        line[key] = c[key].clone();
+                    }
+                    out(&line);
+                }
             }
             if let Some(cov) = &report.coverage {
                 if want_coverage {

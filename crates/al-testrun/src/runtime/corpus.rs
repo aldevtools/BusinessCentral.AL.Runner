@@ -640,6 +640,7 @@ impl CorpusRuntime {
                 program_apps: Vec::new(),
                 tdd_stubs: lowered.program.tdd_stubs.clone(),
                 compile_errors,
+                entries: Vec::new(),
             };
         }
         let blocked: Vec<Vec<Option<String>>> = lowered
@@ -702,6 +703,9 @@ impl CorpusRuntime {
             // The impact index and an impact run's selection need what the install code raised and touched: the
             // baseline runs.
             .filter(|_| !opts.impact_trace && opts.narrow.is_none())
+            // An entry with resource files of its own (issue 5635): whether the install code read resources is known
+            // only when it runs here.
+            .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
             .and_then(|(key, cc)| crate::baseline_cache::read(&cc.dir, key))
             .filter(|(_, at)| {
                 crate::host::SystemClock::begin_at(*at)
@@ -731,6 +735,9 @@ impl CorpusRuntime {
             };
             (run, spare.map(|h| h.join().expect("the second engine is built")))
         });
+        // The engine the install code ran on (the tests may get another below).
+        let install_read_resources =
+            baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
         if let (false, Some(key), Some(cc), Some(run)) = (
             from_cache,
             baseline_key.as_ref(),
@@ -829,8 +836,6 @@ impl CorpusRuntime {
         let mut details = std::collections::HashMap::new();
         let mut panics = 0;
         let mut codeunit_times: Vec<CodeunitTime> = Vec::new();
-        // The test codeunits to run, in the order the report lists them.
-        let mut units: Vec<Unit> = Vec::new();
         let order_arc: Arc<Vec<usize>> = Arc::new(order.clone());
         let mut list: Vec<TestResult> = Vec::new();
         let mut impact_keys = crate::impact_trace::Interner::default();
@@ -841,309 +846,377 @@ impl CorpusRuntime {
             .iter()
             .map(|a| (a.id.clone(), a.name.clone(), a.version.clone()))
             .collect();
-        for (si, suite) in suites.iter().enumerate() {
-            if opts.execute {
-                // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
-                if let Some(oi) = on_run_target(lowered, suite.app) {
-                    units.push(Unit {
-                        si,
-                        oi,
-                        id: lowered.program.objects[oi].id.unwrap_or(0),
-                        isolation: TestIsolation::default(),
-                        without_baseline: false,
-                        coverage: opts.coverage,
-                        execute: true,
-                        capture: opts.capture,
-                        order: order_arc.clone(),
-                        hooks: opts.hooks.clone(),
-                        clock_start: None,
-                        impact: opts.impact_trace,
-                        run_only: None,
-                    });
-                }
-                continue;
-            }
-            let isolation = match suite.runner {
-                None => Ok(TestIsolation::default()),
-                Some(r) => runner_isolation(lowered, r),
-            };
-            for (oi, o) in lowered.program.objects.iter().enumerate() {
-                let is_test = is_selected_test(lowered, oi, suite, &opts_only);
-                let Some(id) = o.id.filter(|_| is_test) else { continue };
-                match &isolation {
-                    Ok(i) => units.push(Unit {
-                        si,
-                        oi,
-                        id,
-                        isolation: opts.isolation.unwrap_or(*i),
-                        without_baseline: false,
-                        coverage: opts.coverage,
-                        execute: false,
-                        capture: opts.capture,
-                        order: order_arc.clone(),
-                        hooks: opts.hooks.clone(),
-                        clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
-                        impact: opts.impact_trace,
-                        run_only: opts.run_only.clone(),
-                    }),
-                    Err(why) => {
-                        for r in test_routines(o) {
-                            outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
-                            list.push(TestResult {
-                                suite: si,
-                                app: order[o.app as usize],
-                                codeunit: id,
-                                codeunit_name: o.name.clone(),
-                                test: r.name.clone(),
-                                outcome: Outcome::NotRun(why.clone()),
-                                call_stack: String::new(),
-                                assumptions: Vec::new(),
-                                time: std::time::Duration::ZERO,
-                                coverage: Vec::new(),
-                                messages: Vec::new(),
-                                captured: None,
-                                impact: Vec::new(),
-                                stubs: Vec::new(),
-                                slept_ms: 0,
-                                entered: Vec::new(),
-                                dotnet: false,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        // AL_CHECK_BASELINE_RULE=1: the verification of `observe.rs`. The baseline runs as usual, but
-        // each test codeunit the rule calls free of it starts on an empty store. A run compared with a
-        // normal one must show no outcome that differs (`tools/baseline_rule_check.sh`).
-        if std::env::var_os("AL_CHECK_BASELINE_RULE").is_some() && baseline.is_some() {
-            let list = std::env::var("AL_CHECK_BASELINE_RULE").is_ok_and(|v| v == "list");
-            for u in &mut units {
-                let why = crate::observe::may_observe_baseline(lowered, &[u.oi]);
-                if let (true, Some(why)) = (list, &why) {
-                    eprintln!(
-                        "baseline rule check: {} may observe it: {why}",
-                        lowered.program.objects[u.oi].name
-                    );
-                }
-                u.without_baseline = why.is_none();
-            }
-            eprintln!(
-                "baseline rule check: {} of {} test codeunits run without the baseline",
-                units.iter().filter(|u| u.without_baseline).count(),
-                units.len()
-            );
-        }
-        let results: Vec<UnitResult> = if workers <= 1 || units.len() < 2 {
-            units
+        let mut suite_work: Vec<(usize, std::time::Duration)> = Vec::new();
+        // Each test thread starts from its own copy of the baseline (a baseline holds `Rc`s and cannot be shared
+        // between threads), and reading a snapshot is far cheaper than running the install code again.
+        let snapshot: Option<Vec<u8>> = baseline_engine
+            .is_some()
+            .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
+            .flatten();
+        // The passes of the run: one, or one per entry (issue 5635), each over the same compile and install baseline.
+        let passes: Vec<Pass> = if opts.entries.is_empty() {
+            vec![Pass {
+                only: opts_only.clone(),
+                run_only: opts.run_only.clone(),
+                hooks: opts.hooks.clone(),
+                resources: Default::default(),
+            }]
+        } else {
+            opts.entries
                 .iter()
-                .map(|u| {
-                    let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                        let mut d = explain::detail(
-                            &lowered.program,
-                            seen.session.fault_site(),
-                            seen.error.map(|e| explain::ErrorInfo {
-                                message: e.message.clone(),
-                                code: e.code.clone(),
-                                call_stack: e.call_stack.clone(),
-                            }),
-                        );
-                        d.refused_in = seen
-                            .refused_in
-                            .map(|(o, r)| explain::describe(&lowered.program, o, r, al_ir::NO_POS));
-                        details.insert((u.si, u.id, name.to_lowercase()), d);
-                    };
-                    let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                    run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
+                .map(|e| Pass {
+                    only: e.only.as_deref().map(in_program_order).or_else(|| opts_only.clone()),
+                    run_only: e.run_only.clone(),
+                    hooks: e.hooks.clone(),
+                    resources: e
+                        .resources
+                        .iter()
+                        .filter_map(|(caller, r)| {
+                            let p = order.iter().position(|o| o == caller)?;
+                            Some((p, Arc::new(r.clone())))
+                        })
+                        .collect(),
                 })
                 .collect()
-        } else {
-            // Test codeunits run on a session each and do not share anything (the install
-            // baseline is put back for each), so worker threads take them in turn. A worker
-            // sets up its own copy of the baseline.
-            let next = std::sync::atomic::AtomicUsize::new(0);
-            let pull = |baseline: Option<&al_vm::Baseline>| {
-                let mut done = Vec::new();
-                loop {
-                    let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let Some(u) = units.get(k) else { return done };
-                    done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
-                }
-            };
-            // Each test thread starts from its own copy of the baseline (a baseline holds `Rc`s and cannot be shared
-            // between threads), and reading a snapshot is far cheaper than running the install code again.
-            let snapshot: Option<Vec<u8>> = baseline_engine
-                .is_some()
-                .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
-                .flatten();
-            std::thread::scope(|scope| {
-                let mut handles = Vec::new();
-                for _ in 1..workers.min(units.len()) {
-                    let spawned = std::thread::Builder::new()
-                        .stack_size(TEST_STACK)
-                        .spawn_scoped(scope, || {
-                            // The baseline the first run left, as its snapshot says (over the engine's test data, if
-                            // it has any); only a baseline that has no snapshot is run again, once per thread.
-                            let own = baseline_engine.as_ref().and_then(|e| {
-                                snapshot
-                                    .as_deref()
-                                    .and_then(al_vm::Baseline::from_bytes)
-                                    .map(|b| b.backed_by(e))
-                                    .or_else(|| crate::baseline::run(e, lowered).map(|b| b.baseline))
-                            });
-                            pull(own.as_ref())
-                        });
-                    match spawned {
-                        Ok(h) => handles.push(h),
-                        // No room for another thread (an address space limit): fewer will do.
-                        Err(_) => break,
-                    }
-                }
-                let mut done = pull(baseline.as_ref());
-                for h in handles {
-                    done.extend(h.join().expect("a test worker panicked"));
-                }
-                // Results in the order of the units, whichever worker finished first.
-                done.sort_by_key(|(k, _)| *k);
-                done.into_iter().map(|(_, r)| r).collect()
-            })
         };
-        let mut suite_work: Vec<(usize, std::time::Duration)> = Vec::new();
-        for r in results {
-            suite_work.push((r.si, r.took));
-            codeunit_times.push(CodeunitTime {
-                id: r.id,
-                name: lowered.program.objects[r.oi].name.clone(),
-                took: r.took,
-                sidecar_start: r.sidecar_start,
-            });
-            let o = &lowered.program.objects[r.oi];
-            let push = |list: &mut Vec<TestResult>,
-                        test: &str,
-                        outcome: &Outcome,
-                        call_stack: String,
-                        assumptions: Vec<Assumption>,
-                        time: std::time::Duration,
-                        coverage: Vec<(u32, u32)>,
-                        messages: Vec<String>,
-                        captured: Option<crate::events::CapturedAt>,
-                        impact: Vec<u32>| {
-                list.push(TestResult {
-                    suite: r.si,
-                    app: order[o.app as usize],
-                    codeunit: r.id,
-                    codeunit_name: o.name.clone(),
-                    test: test.to_string(),
-                    outcome: outcome.clone(),
-                    call_stack,
-                    assumptions,
-                    time,
-                    coverage,
-                    messages,
-                    captured,
-                    impact,
-                    stubs: Vec::new(),
-                    slept_ms: 0,
-                    entered: Vec::new(),
-                    dotnet: false,
-                })
-            };
-            match r.result {
-                Ok((done, stacks, times, hits, mut covs, mut scratch)) => {
-                    for (name, outcome) in done {
-                        let stack = stacks.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
-                        let marks = hits.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());
-                        let marks = marks.unwrap_or_default();
-                        if !marks.is_empty() {
-                            marks_by_test.insert((r.si, r.id, name.to_lowercase()), marks.clone());
-                        }
-                        let time = times
-                            .iter()
-                            .find(|(n, _)| *n == name)
-                            .map_or(std::time::Duration::ZERO, |(_, d)| *d);
-                        let cov = covs
-                            .iter()
-                            .position(|(n, _)| *n == name)
-                            .map(|i| std::mem::take(&mut covs[i].1))
-                            .unwrap_or_default();
-                        let said = scratch
-                            .messages
-                            .iter()
-                            .position(|(n, _)| *n == name)
-                            .map(|i| std::mem::take(&mut scratch.messages[i].1))
-                            .unwrap_or_default();
-                        let seen = scratch
-                            .captured
-                            .iter()
-                            .position(|(n, _)| *n == name)
-                            .map(|i| std::mem::take(&mut scratch.captured[i].1));
-                        let touched = scratch
-                            .traces
-                            .iter()
-                            .position(|(n, _)| *n == name)
-                            .map(|i| impact_keys.ids(std::mem::take(&mut scratch.traces[i].1)))
-                            .unwrap_or_default();
-                        push(
-                            &mut list,
-                            &name,
-                            &outcome,
-                            stack.unwrap_or_default(),
-                            marks,
-                            time,
-                            cov,
-                            said,
-                            seen,
-                            touched,
-                        );
-                        if let Some((_, ms)) = scratch.slept.iter().find(|(n, _)| *n == name) {
-                            if let Some(last) = list.last_mut() {
-                                last.slept_ms = *ms;
-                            }
-                        }
-                        if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
-                            if let Some(last) = list.last_mut() {
-                                last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
-                            }
-                        }
-                        if let Some(i) = scratch.entered.iter().position(|(n, _, _)| *n == name) {
-                            if let Some(last) = list.last_mut() {
-                                last.entered = std::mem::take(&mut scratch.entered[i].1);
-                                last.dotnet = scratch.entered[i].2;
-                            }
-                        }
-                        times_by_case.insert((r.si, r.id, name.to_lowercase()), time);
-                        outcomes.insert((r.si, r.id, name.to_lowercase()), outcome);
+        let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
+        for pass in &passes {
+            let start = list.len();
+            if let Ok(mut o) = engine.resource_overrides.write() {
+                o.clone_from(&pass.resources);
+            }
+            // The install code read resource files, and this entry has resource files of its own: its install baseline
+            // would be another one, which is not made per entry.
+            let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
+            "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
+        });
+            let opts_only = &pass.only;
+            // The test codeunits to run, in the order the report lists them.
+            let mut units: Vec<Unit> = Vec::new();
+            for (si, suite) in suites.iter().enumerate() {
+                if opts.execute {
+                    // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
+                    if let Some(oi) = on_run_target(lowered, suite.app) {
+                        units.push(Unit {
+                            si,
+                            oi,
+                            id: lowered.program.objects[oi].id.unwrap_or(0),
+                            isolation: TestIsolation::default(),
+                            without_baseline: false,
+                            coverage: opts.coverage,
+                            execute: true,
+                            capture: opts.capture,
+                            order: order_arc.clone(),
+                            hooks: pass.hooks.clone(),
+                            clock_start: None,
+                            impact: opts.impact_trace,
+                            run_only: None,
+                        });
                     }
+                    continue;
                 }
-                Err(msg) => {
-                    panics += 1;
-                    let panicked: Vec<&al_ir::Routine> = if opts.execute {
-                        lowered.program.objects[r.oi]
-                            .routines
-                            .iter()
-                            .filter(|t| t.is_trigger && t.name.eq_ignore_ascii_case("OnRun"))
-                            .collect()
-                    } else {
-                        test_routines(&lowered.program.objects[r.oi]).collect()
+                let isolation = match suite.runner {
+                    None => Ok(TestIsolation::default()),
+                    Some(r) => runner_isolation(lowered, r),
+                };
+                for (oi, o) in lowered.program.objects.iter().enumerate() {
+                    let is_test = is_selected_test(lowered, oi, suite, opts_only);
+                    let Some(id) = o.id.filter(|_| is_test) else { continue };
+                    let isolation = match (&isolation, &refused) {
+                        (_, Some(why)) => &Err(why.clone()),
+                        (i, None) => i,
                     };
-                    for t in panicked {
-                        let outcome = Outcome::NotRun(format!("runtime panic (bug): {msg}"));
-                        push(
-                            &mut list,
-                            &t.name,
-                            &outcome,
-                            String::new(),
-                            Vec::new(),
-                            std::time::Duration::ZERO,
-                            Vec::new(),
-                            Vec::new(),
-                            None,
-                            Vec::new(),
-                        );
-                        outcomes.insert((r.si, r.id, t.name.to_lowercase()), outcome);
+                    match isolation {
+                        Ok(i) => units.push(Unit {
+                            si,
+                            oi,
+                            id,
+                            isolation: opts.isolation.unwrap_or(*i),
+                            without_baseline: false,
+                            coverage: opts.coverage,
+                            execute: false,
+                            capture: opts.capture,
+                            order: order_arc.clone(),
+                            hooks: pass.hooks.clone(),
+                            clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
+                            impact: opts.impact_trace,
+                            run_only: pass.run_only.clone(),
+                        }),
+                        Err(why) => {
+                            for r in test_routines(o) {
+                                if refused.is_some() {
+                                    if let Some(f) = &pass.hooks.on_test {
+                                        f(crate::events::TestEvent {
+                                            codeunit: id,
+                                            codeunit_name: o.name.clone(),
+                                            test: r.name.clone(),
+                                            outcome: Outcome::NotRun(why.clone()),
+                                            call_stack: String::new(),
+                                            time: std::time::Duration::ZERO,
+                                            slept_ms: 0,
+                                            coverage: Vec::new(),
+                                            captured: None,
+                                            stubs: Vec::new(),
+                                            entry: None,
+                                        });
+                                    }
+                                }
+                                outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
+                                list.push(TestResult {
+                                    suite: si,
+                                    app: order[o.app as usize],
+                                    codeunit: id,
+                                    codeunit_name: o.name.clone(),
+                                    test: r.name.clone(),
+                                    outcome: Outcome::NotRun(why.clone()),
+                                    call_stack: String::new(),
+                                    assumptions: Vec::new(),
+                                    time: std::time::Duration::ZERO,
+                                    coverage: Vec::new(),
+                                    messages: Vec::new(),
+                                    captured: None,
+                                    impact: Vec::new(),
+                                    stubs: Vec::new(),
+                                    slept_ms: 0,
+                                    entered: Vec::new(),
+                                    dotnet: false,
+                                });
+                            }
+                        }
                     }
                 }
             }
+            // AL_CHECK_BASELINE_RULE=1: the verification of `observe.rs`. The baseline runs as usual, but
+            // each test codeunit the rule calls free of it starts on an empty store. A run compared with a
+            // normal one must show no outcome that differs (`tools/baseline_rule_check.sh`).
+            if std::env::var_os("AL_CHECK_BASELINE_RULE").is_some() && baseline.is_some() {
+                let list = std::env::var("AL_CHECK_BASELINE_RULE").is_ok_and(|v| v == "list");
+                for u in &mut units {
+                    let why = crate::observe::may_observe_baseline(lowered, &[u.oi]);
+                    if let (true, Some(why)) = (list, &why) {
+                        eprintln!(
+                            "baseline rule check: {} may observe it: {why}",
+                            lowered.program.objects[u.oi].name
+                        );
+                    }
+                    u.without_baseline = why.is_none();
+                }
+                eprintln!(
+                    "baseline rule check: {} of {} test codeunits run without the baseline",
+                    units.iter().filter(|u| u.without_baseline).count(),
+                    units.len()
+                );
+            }
+            let results: Vec<UnitResult> = if workers <= 1 || units.len() < 2 {
+                units
+                    .iter()
+                    .map(|u| {
+                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                            let mut d = explain::detail(
+                                &lowered.program,
+                                seen.session.fault_site(),
+                                seen.error.map(|e| explain::ErrorInfo {
+                                    message: e.message.clone(),
+                                    code: e.code.clone(),
+                                    call_stack: e.call_stack.clone(),
+                                }),
+                            );
+                            d.refused_in = seen
+                                .refused_in
+                                .map(|(o, r)| explain::describe(&lowered.program, o, r, al_ir::NO_POS));
+                            details.insert((u.si, u.id, name.to_lowercase()), d);
+                        };
+                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+                        run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
+                    })
+                    .collect()
+            } else {
+                // Test codeunits run on a session each and do not share anything (the install
+                // baseline is put back for each), so worker threads take them in turn. A worker
+                // sets up its own copy of the baseline.
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let pull = |baseline: Option<&al_vm::Baseline>| {
+                    let mut done = Vec::new();
+                    loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(u) = units.get(k) else { return done };
+                        done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
+                    }
+                };
+                std::thread::scope(|scope| {
+                    let mut handles = Vec::new();
+                    for _ in 1..workers.min(units.len()) {
+                        let spawned = std::thread::Builder::new()
+                            .stack_size(TEST_STACK)
+                            .spawn_scoped(scope, || {
+                                // The baseline the first run left, as its snapshot says (over the engine's test data, if
+                                // it has any); only a baseline that has no snapshot is run again, once per thread.
+                                let own = baseline_engine.as_ref().and_then(|e| {
+                                    snapshot
+                                        .as_deref()
+                                        .and_then(al_vm::Baseline::from_bytes)
+                                        .map(|b| b.backed_by(e))
+                                        .or_else(|| crate::baseline::run(e, lowered).map(|b| b.baseline))
+                                });
+                                pull(own.as_ref())
+                            });
+                        match spawned {
+                            Ok(h) => handles.push(h),
+                            // No room for another thread (an address space limit): fewer will do.
+                            Err(_) => break,
+                        }
+                    }
+                    let mut done = pull(baseline.as_ref());
+                    for h in handles {
+                        done.extend(h.join().expect("a test worker panicked"));
+                    }
+                    // Results in the order of the units, whichever worker finished first.
+                    done.sort_by_key(|(k, _)| *k);
+                    done.into_iter().map(|(_, r)| r).collect()
+                })
+            };
+            for r in results {
+                suite_work.push((r.si, r.took));
+                codeunit_times.push(CodeunitTime {
+                    id: r.id,
+                    name: lowered.program.objects[r.oi].name.clone(),
+                    took: r.took,
+                    sidecar_start: r.sidecar_start,
+                });
+                let o = &lowered.program.objects[r.oi];
+                let push = |list: &mut Vec<TestResult>,
+                            test: &str,
+                            outcome: &Outcome,
+                            call_stack: String,
+                            assumptions: Vec<Assumption>,
+                            time: std::time::Duration,
+                            coverage: Vec<(u32, u32)>,
+                            messages: Vec<String>,
+                            captured: Option<crate::events::CapturedAt>,
+                            impact: Vec<u32>| {
+                    list.push(TestResult {
+                        suite: r.si,
+                        app: order[o.app as usize],
+                        codeunit: r.id,
+                        codeunit_name: o.name.clone(),
+                        test: test.to_string(),
+                        outcome: outcome.clone(),
+                        call_stack,
+                        assumptions,
+                        time,
+                        coverage,
+                        messages,
+                        captured,
+                        impact,
+                        stubs: Vec::new(),
+                        slept_ms: 0,
+                        entered: Vec::new(),
+                        dotnet: false,
+                    })
+                };
+                match r.result {
+                    Ok((done, stacks, times, hits, mut covs, mut scratch)) => {
+                        for (name, outcome) in done {
+                            let stack = stacks.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
+                            let marks = hits.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());
+                            let marks = marks.unwrap_or_default();
+                            if !marks.is_empty() {
+                                marks_by_test.insert((r.si, r.id, name.to_lowercase()), marks.clone());
+                            }
+                            let time = times
+                                .iter()
+                                .find(|(n, _)| *n == name)
+                                .map_or(std::time::Duration::ZERO, |(_, d)| *d);
+                            let cov = covs
+                                .iter()
+                                .position(|(n, _)| *n == name)
+                                .map(|i| std::mem::take(&mut covs[i].1))
+                                .unwrap_or_default();
+                            let said = scratch
+                                .messages
+                                .iter()
+                                .position(|(n, _)| *n == name)
+                                .map(|i| std::mem::take(&mut scratch.messages[i].1))
+                                .unwrap_or_default();
+                            let seen = scratch
+                                .captured
+                                .iter()
+                                .position(|(n, _)| *n == name)
+                                .map(|i| std::mem::take(&mut scratch.captured[i].1));
+                            let touched = scratch
+                                .traces
+                                .iter()
+                                .position(|(n, _)| *n == name)
+                                .map(|i| impact_keys.ids(std::mem::take(&mut scratch.traces[i].1)))
+                                .unwrap_or_default();
+                            push(
+                                &mut list,
+                                &name,
+                                &outcome,
+                                stack.unwrap_or_default(),
+                                marks,
+                                time,
+                                cov,
+                                said,
+                                seen,
+                                touched,
+                            );
+                            if let Some((_, ms)) = scratch.slept.iter().find(|(n, _)| *n == name) {
+                                if let Some(last) = list.last_mut() {
+                                    last.slept_ms = *ms;
+                                }
+                            }
+                            if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
+                                if let Some(last) = list.last_mut() {
+                                    last.stubs = std::mem::take(&mut scratch.stubbed[i].1);
+                                }
+                            }
+                            if let Some(i) = scratch.entered.iter().position(|(n, _, _)| *n == name) {
+                                if let Some(last) = list.last_mut() {
+                                    last.entered = std::mem::take(&mut scratch.entered[i].1);
+                                    last.dotnet = scratch.entered[i].2;
+                                }
+                            }
+                            times_by_case.insert((r.si, r.id, name.to_lowercase()), time);
+                            outcomes.insert((r.si, r.id, name.to_lowercase()), outcome);
+                        }
+                    }
+                    Err(msg) => {
+                        panics += 1;
+                        let panicked: Vec<&al_ir::Routine> = if opts.execute {
+                            lowered.program.objects[r.oi]
+                                .routines
+                                .iter()
+                                .filter(|t| t.is_trigger && t.name.eq_ignore_ascii_case("OnRun"))
+                                .collect()
+                        } else {
+                            test_routines(&lowered.program.objects[r.oi]).collect()
+                        };
+                        for t in panicked {
+                            let outcome = Outcome::NotRun(format!("runtime panic (bug): {msg}"));
+                            push(
+                                &mut list,
+                                &t.name,
+                                &outcome,
+                                String::new(),
+                                Vec::new(),
+                                std::time::Duration::ZERO,
+                                Vec::new(),
+                                Vec::new(),
+                                None,
+                                Vec::new(),
+                            );
+                            outcomes.insert((r.si, r.id, t.name.to_lowercase()), outcome);
+                        }
+                    }
+                }
+            }
+            if !opts.entries.is_empty() {
+                entry_ranges.push(start..list.len());
+            }
+        }
+        if let Ok(mut o) = engine.resource_overrides.write() {
+            o.clear();
         }
         let tests_time = tests_started.elapsed();
         // Test codeunits of different runs may overlap in time: a run's time is what its codeunits took.
@@ -1204,6 +1277,7 @@ impl CorpusRuntime {
             program_apps,
             tdd_stubs: lowered.program.tdd_stubs.clone(),
             compile_errors,
+            entries: entry_ranges,
         }
     }
 }
