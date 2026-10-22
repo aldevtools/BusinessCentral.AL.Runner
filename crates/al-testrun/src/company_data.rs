@@ -258,7 +258,12 @@ impl FileSystem for ResourceFiles {
             return Err("the folder does not exist (the .NET exception is not pinned)".into());
         }
         let prefix = format!("{k}\\");
-        let files: Vec<String> = self.written.paths().into_iter().filter(|p| p.starts_with(&prefix)).collect();
+        let files: Vec<String> = self
+            .written
+            .paths()
+            .into_iter()
+            .filter(|p| p.starts_with(&prefix))
+            .collect();
         let below: Vec<String> = self.dirs.iter().filter(|d| d.starts_with(&prefix)).cloned().collect();
         if !recursive && !(files.is_empty() && below.is_empty()) {
             return Err("the folder is not empty (the .NET exception is not pinned)".into());
@@ -423,13 +428,22 @@ mod tests {
         fs.create_dir(&media).unwrap();
         fs.write(&format!("{media}/a.txt"), b"x").unwrap();
         assert!(!fs.dir_exists(&format!("{media}/a.txt")), "a file path");
-        assert!(fs.remove_dir(path, false).is_err(), "a folder that is not empty, not recursive: not pinned");
+        assert!(
+            fs.remove_dir(path, false).is_err(),
+            "a folder that is not empty, not recursive: not pinned"
+        );
         fs.remove_dir(&media, true).unwrap();
-        assert!(!fs.dir_exists(&media) && !fs.exists(&format!("{media}/a.txt")), "recursive removes files");
+        assert!(
+            !fs.dir_exists(&media) && !fs.exists(&format!("{media}/a.txt")),
+            "recursive removes files"
+        );
         fs.remove_dir(path, false).unwrap();
         assert!(!fs.dir_exists(path), "remove empty non-recursive");
         assert!(fs.remove_dir(path, true).is_err(), "a missing folder: not pinned");
-        assert!(fs.create_dir("\\TEMP\\..\\Other").is_err(), "only inside the temporary folder");
+        assert!(
+            fs.create_dir("\\TEMP\\..\\Other").is_err(),
+            "only inside the temporary folder"
+        );
         // The folder of File.CreateTempFile's names (`temp/1.tmp`, al-builtins file.rs TEMP_DIR), as FileManagement.
         // ServerTempFileName and Config. XML Exchange's media folder use it.
         assert!(fs.serves_path("temp/Media") && fs.dir_exists("temp") && !fs.dir_exists("temp/Media"));

@@ -472,6 +472,8 @@ fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused
          B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); B.Get('B'); \
          B.CalcFields(Src); B.Src.CreateInStream(InS); InS.ReadText(t); exit(t); end;",
     );
-    assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains(".docx")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains(".docx")),
+        "{r:?}"
+    );
 }
-

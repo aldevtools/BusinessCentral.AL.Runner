@@ -491,7 +491,10 @@ fn report_no_output_writing_over_the_path_or_recreating_the_stream_ends_the_mark
 fn report_no_output_in_the_company_build_save_as_pdf_to_a_file_runs_the_report_and_writes_no_file() {
     let mut b = built("");
     b.session.set_company_build(true);
-    assert_eq!(al_testkit::text(b.run_in("RNO Tests", "CompanyBuildPdf")), "pre;row1;row2;post;");
+    assert_eq!(
+        al_testkit::text(b.run_in("RNO Tests", "CompanyBuildPdf")),
+        "pre;row1;row2;post;"
+    );
     assert!(al_builtins::assumptions::hit(
         al_builtins::assumptions::Assumption::ReportRenderDiscarded
     ));

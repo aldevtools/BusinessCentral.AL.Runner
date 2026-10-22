@@ -83,7 +83,9 @@ fn from_stream(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value]) ->
         .find(|o| o.kind == al_ir::ObjKind::Query && o.id == Some(id as u32))
         .and_then(|o| o.query.as_ref())
     else {
-        return unsupported(format!("DotNet {QUERY_METADATA_READER}.FromStream: query {id} is not compiled"));
+        return unsupported(format!(
+            "DotNet {QUERY_METADATA_READER}.FromStream: query {id} is not compiled"
+        ));
     };
     let mut entries = Vec::new();
     for c in &def.columns {
@@ -136,7 +138,9 @@ fn fields(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> R
 
 fn count(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     no_args(args, "Count")?;
-    Ok(Value::Integer(this_state(this, QUERY_FIELDS_LIST)?.borrow().len() as i32))
+    Ok(Value::Integer(
+        this_state(this, QUERY_FIELDS_LIST)?.borrow().len() as i32
+    ))
 }
 
 fn item(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {

@@ -7,9 +7,9 @@ mod drawing;
 mod gettype;
 mod last_error;
 pub mod policy;
+mod query_metadata;
 pub mod registry;
 pub mod server_classes;
-mod query_metadata;
 mod staged_dir;
 
 use crate::{Frame, Session};
@@ -296,7 +296,8 @@ impl Session {
         // XmlDocument.Save of a file there: .NET saves into an AL stream, and the bytes become the file
         // (QxDotNetDemoShapes.al:370-377: what Save writes; Config. XML Exchange.ExportPackageXML).
         let mut save_to = None;
-        if let (Target::Host(..), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) = (&target, kind, values.as_slice())
+        if let (Target::Host(..), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
+            (&target, kind, values.as_slice())
             && clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument")
             && member.eq_ignore_ascii_case("Save")
             && self.host.files.serves_path(p)
@@ -408,7 +409,13 @@ impl Session {
 
     /// Step 1d of the router: a static System.IO.Directory or System.IO.File call on a path the session's file system
     /// serves (only the company build's), or `None` to go on.
-    fn temp_folder_call(&mut self, ty: &str, member: &str, values: &[Value], shown: &str) -> Option<Result<Value, Signal>> {
+    fn temp_folder_call(
+        &mut self,
+        ty: &str,
+        member: &str,
+        values: &[Value],
+        shown: &str,
+    ) -> Option<Result<Value, Signal>> {
         let path = match values.first() {
             Some(Value::Text(p) | Value::Code(p)) => p.to_string(),
             _ => return None,

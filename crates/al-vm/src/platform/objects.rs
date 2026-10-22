@@ -556,8 +556,7 @@ pub(super) fn application_object_metadata_rows(p: &Providers, t: &TableDef) -> V
             if o.kind != al_ir::ObjKind::Query {
                 return Err(format!(
                     "the Application Object Metadata row of {:?} '{}' (only a query's Metadata is pinned)",
-                    o.kind,
-                    o.name
+                    o.kind, o.name
                 ));
             }
             let blob = al_builtins::stream::new_blob();
