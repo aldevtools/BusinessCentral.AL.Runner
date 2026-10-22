@@ -372,7 +372,8 @@ OUTPUT
     --junit FILE         Write JUnit XML. A test that did not run is <skipped> with its reason.
     --output-json [FILE] Write one JSON document of the shape of AL Runner v2: `tests[]` with
                          `name` (`Codeunit<ID>.<Method>`), `status` (`pass`, `fail`, `error`),
-                         `durationMs`, `message`, `stackTrace`, and `passed`, `failed`, `errors`,
+                         `durationMs`, `sleptMs` (the time its Sleep calls asked for, summed),
+                         `message`, `stackTrace`, and `passed`, `failed`, `errors`,
                          `skipped`, `total`, `notRun`, `exitCode`, `wallSeconds`. A test that did not
                          run is `error` with the message `NotRun: out-of-scope: <reason>`; one the
                          time limit stopped is `error` with `Test exceeded <N>s timeout.`. When the

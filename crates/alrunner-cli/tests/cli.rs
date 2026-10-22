@@ -1147,6 +1147,44 @@ fn sleep_time_past_the_test_timeout_is_reported_as_a_timeout() {
     assert_eq!(row(&j, "Codeunit50410.UnderTheLimit")["status"], "pass");
 }
 
+/// LethAL asked for the summed `Sleep` time of a test as its own field: `sleptMs` on the row of `--output-json` is the
+/// time the test's `Sleep` calls asked for (they return at once, so `durationMs` does not hold it). A test without a
+/// `Sleep` has no `sleptMs`; a test the Sleep time stopped has the sum that stopped it.
+#[test]
+fn output_json_has_the_slept_time_of_each_test() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("sleeps");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000042", "Sleeps", &[]),
+    );
+    write(
+        &app,
+        "T.al",
+        "codeunit 50411 \"Sleeps\" { Subtype = Test;
+            [Test] procedure Twice() begin Sleep(2000); Sleep(999); end;
+            [Test] procedure NoSleep() begin end;
+            [Test] procedure SleepsThenFails() begin Sleep(40); Error('after the sleep'); end;
+            [Test] procedure PastTheLimit() begin Sleep(2500); Sleep(2500); end; }",
+    );
+    let a = app.to_str().unwrap();
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--no-test-data",
+        "--test-timeout",
+        "3",
+        "--output-json",
+    ]);
+    let j = json_of(&o);
+    assert_eq!(row(&j, "Codeunit50411.Twice")["sleptMs"], 2999, "{j}");
+    assert!(row(&j, "Codeunit50411.NoSleep").get("sleptMs").is_none(), "{j}");
+    assert_eq!(row(&j, "Codeunit50411.SleepsThenFails")["sleptMs"], 40, "{j}");
+    assert_eq!(row(&j, "Codeunit50411.PastTheLimit")["sleptMs"], 5000, "{j}");
+}
+
 // ---- coverage (docs/integrations/alchemist-lethal.md, step 2) ----
 
 const COVERED: &str = r#"

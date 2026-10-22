@@ -113,6 +113,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `tests[].message` | text with a .NET prefix such as `NavNCLDialogException: ` | the BC message only (ADR-009) | Do not match .NET type prefixes. Match the message text. |
 | `tests[].stackTrace` | .NET stack | the AL call stack, one frame per line, innermost first | Show it as text. |
 | `tests[].durationMs` | present | present when the test started (also on a test refused while it ran); absent on a test refused before it started | none |
+| `tests[].sleptMs` | absent | the time the test's `Sleep` calls asked for, in milliseconds, summed; absent on a test that did not sleep | New. `Sleep` returns at once in v3, so `durationMs` does not hold this time; the sum counts toward the time limit. Add it to `durationMs` for the time the test would have taken on BC. |
 | `tests[].notRun` | absent | `true` on a test that did not run | New. v3 refuses what it cannot answer instead of running it (hard rule 4). Count these separately. |
 | not-run tests | no such thing in v2 | a row with `status: "error"`, `notRun: true`, `message: "NotRun: out-of-scope: <reason>"` | The prefix `<Type>: out-of-scope: ` is the form LethAL reads as "the runner refused" (not a killed mutant). Treat it as "unknown", not "killed". |
 | timed-out test | row with `Test exceeded <N>s timeout.` | the same sentence, `status: "error"`, `notRun: true` | none |
@@ -198,7 +199,8 @@ Differences a client must adapt to:
    dependency cache (a minute with Microsoft's apps, then 3 GB resident); with the cache on disk it takes as long as a
    one-shot run. Repeats take 0.2 to 2 s.
    A panic in a test is reported as an error for that test and the server goes on.
-3. `test` lines have `type`, `name`, `status` (`pass`, `fail`, `error`), `durationMs`, `message`, `stackTrace`,
+3. `test` lines have `type`, `name`, `status` (`pass`, `fail`, `error`), `durationMs`, `sleptMs` (as in
+   `--output-json`, section 4), `message`, `stackTrace`,
    `stackFrames` (the AL stack split into lines), and `notRun: true` for a test that did not run (status `error`, message
    `NotRun: out-of-scope: <reason>`; see section 4). `errorKind`, `alSourceFile`, `alSourceLine` are not sent.
 4. The `summary` has `exitCode` (the exit code of `al-runner test`, section 5), `passed`, `failed`, `errors` (= not run),
