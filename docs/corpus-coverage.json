@@ -2,7 +2,7 @@
   "corpus_commit": "3c0336cbbf499b1ab3495fb14f6d997ed209d947",
   "language": {
     "bc": "27-29",
-    "implemented": 1503,
+    "implemented": 1505,
     "methods": [
       {
         "bc": [
@@ -20693,7 +20693,7 @@
         "scope": "",
         "sig": "()",
         "site": "report/W3ReportObjectIdPreviewLanguage.al:376",
-        "state": "refused",
+        "state": "implemented",
         "type": "TestRequestPage"
       },
       {
@@ -20725,7 +20725,7 @@
         "scope": "",
         "sig": "()",
         "site": "report/W3ReportObjectIdPreviewLanguage.al:782",
-        "state": "refused",
+        "state": "implemented",
         "type": "TestRequestPage"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 219,
+    "refused": 217,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
