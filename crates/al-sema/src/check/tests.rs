@@ -752,3 +752,30 @@ fn keywords_alc_rejects_as_parameter_names() {
         assert_eq!(one(params), Vec::<String>::new(), "{params}");
     }
 }
+
+/// AL0398 for a Decimal constant where an Option ordinal is expected: a case label of an Option selector
+/// (corpus tests/must-not-compile/cases/2008-case-option-decimal-label.al:1) and the `in` list of an Option
+/// (2009-option-in-decimal-list.al:1-2). Comparing an Option with a Decimal compiles, and so does a Decimal
+/// variable as a case label (types/PROptionInteger.al:175-178, :308-322).
+#[test]
+fn al0398_decimal_constant_against_an_option() {
+    let case = cu(
+        "procedure P(): Boolean var O: Option None,Quantity,Amount; begin case O of 1.0: exit(true); end; exit(false); end;",
+    );
+    assert_eq!(
+        diags(&[&case]),
+        vec!["AL0398 Constant value '1.0' is outside of the valid ordinal range for this Option type"]
+    );
+    let list = cu("procedure P(): Boolean var O: Option None,Quantity,Amount; begin exit(O in [0.0, 1.5]); end;");
+    assert_eq!(
+        diags(&[&list]),
+        vec![
+            "AL0398 Constant value '0.0' is outside of the valid ordinal range for this Option type",
+            "AL0398 Constant value '1.5' is outside of the valid ordinal range for this Option type",
+        ]
+    );
+    let fine = cu(
+        "procedure P(): Boolean var O: Option None,Quantity,Amount; D: Decimal; begin case O of D: exit(true); 1: exit(O = 1.5); end; exit(O < 1.0); end;",
+    );
+    assert_eq!(diags(&[&fine]), Vec::<String>::new());
+}
