@@ -50,6 +50,7 @@ pub struct Layout {
     pub format_evaluate_xml: bool,
     /// `FormatEvaluate` as declared.
     pub format_evaluate_declared: Option<bool>,
+    pub no_default_fields_validation: bool,
     pub reasons: Vec<String>,
     /// Reasons only running the port refuses (see `ir::XmlPort::run_unsupported`).
     pub run_reasons: Vec<String>,
@@ -119,6 +120,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "namespaceprefix",
             "autocalcfield",
             "unbound",
+            "fieldvalidate",
         ],
         ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound"],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
@@ -147,6 +149,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         encoding: None,
         format_evaluate_xml: false,
         format_evaluate_declared: None,
+        no_default_fields_validation: false,
         reasons: Vec::new(),
         run_reasons: Vec::new(),
     };
@@ -246,6 +249,16 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     .run_reasons
                     .push(format!("xmlport property formatevaluate = {other} is not pinned")),
             },
+            // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334: true and left out validate the
+            // same; false validates only FieldValidate = Yes. Pinned for Format = Xml; the import refuses another format where
+            // validation would be seen (al-vm xmlports.rs).
+            "defaultfieldsvalidation" => match bool_prop(&value) {
+                Some(on) => out.no_default_fields_validation = !on,
+                None => out.run_reasons.push(format!(
+                    "xmlport property defaultfieldsvalidation = {} is not pinned",
+                    value.trim()
+                )),
+            },
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             other => out
                 .run_reasons
@@ -333,6 +346,11 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // through a request page they cancel (handlers/TestReqPageBoundVisibility.al:172).
                 out.run_reasons
                     .push(format!("property {pn} of {section_name} {name} is not supported yet"));
+            } else if pn == "fieldvalidate" && bool_prop(&p.value_text()).is_none() {
+                out.run_reasons.push(format!(
+                    "fieldvalidate = {} of {section_name} {name} is not pinned",
+                    p.value_text().trim()
+                ));
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
             } else if pn == "occurrence" {
@@ -543,6 +561,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 .then(|| layout.property(i, "Occurrence"))
                 .flatten()
                 .map(|v| v.trim().eq_ignore_ascii_case("required")),
+            field_validate: layout.property(i, "FieldValidate").and_then(|v| bool_prop(&v)),
             triggers,
         };
         match kind {
@@ -725,6 +744,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         xml_v11: layout.xml_v11,
         format_evaluate_xml: layout.format_evaluate_xml,
         format_evaluate_declared: layout.format_evaluate_declared.is_some(),
+        no_default_fields_validation: layout.no_default_fields_validation,
         nodes,
         source_slot: cx.source_slot,
         destination_slot: cx.destination_slot,

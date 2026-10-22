@@ -22,5 +22,6 @@ mod reportext_this;
 mod reports;
 mod request_page_oninit_first_use;
 mod user_gaps_xml_blob;
+mod xmlport_field_validation;
 mod xmlport_flowfield_import;
 mod xmlports;

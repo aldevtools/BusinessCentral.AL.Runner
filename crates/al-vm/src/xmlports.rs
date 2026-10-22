@@ -1062,9 +1062,73 @@ impl Session {
         } else {
             self.xp_value(text, &ty, false)?
         };
-        rec.borrow_mut().fields[pos] = value;
+        rec.borrow_mut().fields[pos] = value.clone();
+        self.xp_validate_field(schema, node, &rec, pos, value)?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
+    }
+
+    /// The validation of an imported field (xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334):
+    /// on a Format = Xml port a field element is validated unless it says `FieldValidate = No`, or, with
+    /// `DefaultFieldsValidation = false`, when it says `FieldValidate = Yes`. Validated, its OnValidate runs with xRec
+    /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
+    /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
+    /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
+    /// format, a field attribute, and a validated element with an OnAfterAssignField trigger (which runs first is not
+    /// pinned).
+    fn xp_validate_field(
+        &mut self,
+        schema: &Schema,
+        node: usize,
+        rec: &Rec,
+        pos: usize,
+        value: Value,
+    ) -> Result<(), Signal> {
+        let n = schema.node(node);
+        let t = self.table(rec)?;
+        let engine = self.engine.clone();
+        let Some(field) = engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.get(pos))
+        else {
+            return Ok(());
+        };
+        let mut seen = field.on_validate.is_some()
+            || !field.ext_before_validate.is_empty()
+            || !field.ext_after_validate.is_empty()
+            || (field.relation && engine.field_facts[t.object as usize][pos].validate_relation);
+        if !seen {
+            seen = self.listened(&t, "onbeforevalidateevent", Some(&field.name))?
+                || self.listened(&t, "onaftervalidateevent", Some(&field.name))?;
+        }
+        if !seen {
+            return Ok(());
+        }
+        let xp = schema.xp();
+        if xp.format != al_ir::XmlFormat::Xml {
+            return unsupported(format!(
+                "XmlPort import of {} into {}.{}, which has validation code: whether a {:?} port validates it is not pinned",
+                n.name, t.name, field.name, xp.format
+            ));
+        }
+        if n.kind != al_ir::XmlNodeKind::Field {
+            return unsupported(format!(
+                "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
+                n.name, t.name, field.name
+            ));
+        }
+        if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {
+            return Ok(());
+        }
+        if n.trigger("onafterassignfield").is_some() {
+            return unsupported(format!(
+                "XmlPort import of field element {} with OnAfterAssignField into a validated field: which runs first is not pinned",
+                n.name
+            ));
+        }
+        self.record_op(RecordOp::Validate, rec, &mut [Value::Integer(pos as i32), value])?;
+        Ok(())
     }
 
     /// The value an imported text becomes in a field of type `ty`. An empty text is the type's
