@@ -25,6 +25,10 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
 
+/// The `RecordState::unpinned_buffer` reason of Rec while the OnOpenPage of a page an action opens through `RunPageLink` runs
+/// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
+pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
+
 fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     match args.get(i) {
         None => Ok(false),
@@ -1536,10 +1540,14 @@ impl Session {
     }
 
     /// A record method on a record whose buffer is not pinned (`RecordState::unpinned_buffer`): methods that do not read the
-    /// buffer run (the filter, key and view reads among them), a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
-    /// pinned again, and every other method refuses.
+    /// buffer run, a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
+    /// pinned again, and every other method refuses. Rec in the OnOpenPage of a page an action opens through `RunPageLink`
+    /// ([`RUN_PAGE_LINK_OPEN`]) is narrower, see [`Self::run_page_link_open_op`].
     fn unpinned_buffer_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let why = rec.borrow().unpinned_buffer.unwrap_or_default();
+        if why == RUN_PAGE_LINK_OPEN {
+            return self.run_page_link_open_op(method, rec, args);
+        }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
             RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "-" || w.as_str() == "+"),
@@ -1554,13 +1562,6 @@ impl Session {
                 | RecordOp::SetRange
                 | RecordOp::SetFilter
                 | RecordOp::FilterGroup
-                | RecordOp::GetFilter
-                | RecordOp::GetFilters
-                | RecordOp::GetRangeMin
-                | RecordOp::GetRangeMax
-                | RecordOp::HasFilter
-                | RecordOp::GetView
-                | RecordOp::CurrentKey
                 | RecordOp::FieldNo
                 | RecordOp::SetLoadFields
                 | RecordOp::AddLoadFields
@@ -1586,6 +1587,44 @@ impl Session {
         let r = self.record_op_inner(method, rec, args);
         let refilled = refill && matches!(r, Ok(Value::Boolean(true)));
         if !refilled {
+            rec.borrow_mut().unpinned_buffer = flag;
+        }
+        r
+    }
+
+    /// A record method on Rec in the OnOpenPage of a page an action opens through `RunPageLink`. Real BC fills the linked fields
+    /// there and `GetFilters()` of a copy of Rec reads '' (corpus issue 712, writer QZ), while the runtime holds the link as a
+    /// filter: every read of the buffer, the filters, the key, the view or the rows refuses. What runs: `GetFilter` of one field
+    /// and `FilterGroup` (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), the filter and key
+    /// setters, the table's names, and a `Get`, which ignores the filters and fills the buffer again.
+    fn run_page_link_open_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let runs = matches!(
+            method,
+            RecordOp::Get
+                | RecordOp::GetFilter
+                | RecordOp::FilterGroup
+                | RecordOp::Reset
+                | RecordOp::SetCurrentKey
+                | RecordOp::SetAscending
+                | RecordOp::SetRange
+                | RecordOp::SetFilter
+                | RecordOp::FieldNo
+                | RecordOp::SetLoadFields
+                | RecordOp::AddLoadFields
+                | RecordOp::SetAutoCalcFields
+                | RecordOp::IsTemporary
+                | RecordOp::TableName
+                | RecordOp::TableCaption
+                | RecordOp::LockTable
+                | RecordOp::ReadIsolation
+                | RecordOp::SecurityFiltering
+        );
+        if !runs {
+            return unsupported(format!("Rec.{}() {RUN_PAGE_LINK_OPEN}", method.name()));
+        }
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        if !(method == RecordOp::Get && matches!(r, Ok(Value::Boolean(true)))) {
             rec.borrow_mut().unpinned_buffer = flag;
         }
         r

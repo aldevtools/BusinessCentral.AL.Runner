@@ -52,3 +52,28 @@ fn rec_after_lookup_ok_on_a_page_without_a_row_is_refused() {
     );
     assert_eq!(o[1].1, Outcome::Pass, "{:?}", o[1]);
 }
+
+// No corpus test pins Rec's filters, key or view after that LookupOK either: their reads refuse too.
+#[test]
+fn filter_reads_of_rec_after_lookup_ok_on_a_page_without_a_row_are_refused() {
+    let o = outcomes(
+        "[Test] [HandlerFunctions('OkHandler')] procedure Filters() var R: Record \"LNR Row\"; begin
+             R.DeleteAll();
+             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
+             R.SetRange(Grp, 'NONE');
+             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
+             if R.GetFilters() = '' then Error('filters');
+         end;
+         [Test] [HandlerFunctions('OkHandler')] procedure View() var R: Record \"LNR Row\"; begin
+             R.DeleteAll();
+             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
+             R.SetRange(Grp, 'NONE');
+             if Page.RunModal(0, R) <> Action::LookupOK then Error('answer');
+             if R.GetView() = '' then Error('view');
+         end;
+         [ModalPageHandler] procedure OkHandler(var P: TestPage \"LNR List\") begin P.First(); P.OK().Invoke(); end;",
+    );
+    for (n, r) in &o {
+        assert!(matches!(r, Outcome::NotRun(why) if why.contains("shows no row")), "{n}: {r:?}");
+    }
+}

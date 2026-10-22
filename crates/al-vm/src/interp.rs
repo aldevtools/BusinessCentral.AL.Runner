@@ -1074,6 +1074,9 @@ impl Session {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
                 if let Some(why) = rc.borrow().unpinned_buffer {
+                    if why == crate::records::RUN_PAGE_LINK_OPEN {
+                        return Err(Signal::Unsupported(format!("a read of a field of Rec {why}")));
+                    }
                     return Err(Signal::Unsupported(why.into()));
                 }
                 let r = rc.borrow();

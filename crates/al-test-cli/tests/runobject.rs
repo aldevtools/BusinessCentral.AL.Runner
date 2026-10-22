@@ -178,7 +178,28 @@ page 61043 "RO Reader Host"
 {
     PageType = Card; SourceTable = "RO Head";
     layout { area(Content) { field(NoCtl; Rec."No.") { } } }
-    actions { area(Processing) { action(Read) { RunObject = Page "RO Lines Reader"; RunPageLink = "Head No." = field("No."); } } }
+    actions { area(Processing) {
+        action(Read) { RunObject = Page "RO Lines Reader"; RunPageLink = "Head No." = field("No."); }
+        action(ReadOp) { RunObject = Page "RO Lines Op Reader"; RunPageLink = "Head No." = field("No."); }
+    } }
+}
+page 61044 "RO Lines Op Reader"
+{
+    PageType = List; SourceTable = "RO Line"; Editable = false;
+    layout { area(Content) { repeater(R) { field(Head; Rec."Head No.") { } } } }
+    trigger OnOpenPage() var P: Codeunit "RO Probe"; begin
+        case P.GetSeen() of
+            'GetFilter': P.SetGroups(Rec.GetFilter("Head No."));
+            'GetFilters': P.SetGroups(Rec.GetFilters());
+            'GetView': P.SetGroups(Rec.GetView());
+            'CurrentKey': P.SetGroups(Rec.CurrentKey());
+            'HasFilter': P.SetGroups(Format(Rec.HasFilter()));
+            'GetRangeMin': P.SetGroups(Rec.GetRangeMin("Head No."));
+            'Count': P.SetGroups(Format(Rec.Count()));
+            'IsEmpty': P.SetGroups(Format(Rec.IsEmpty()));
+            'FindFirst': P.SetGroups(Format(Rec.FindFirst()));
+        end;
+    end;
 }
 "#;
 
@@ -537,6 +558,37 @@ fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_is_refused() {
         [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
     );
     assert!(got[0].1.contains("RunPageLink"), "{got:?}");
+}
+
+// Real BC fills the linked fields of Rec in that OnOpenPage, and GetFilters() of a copy of Rec reads '' (corpus issue 712, writer
+// QZ). The runtime holds the link as a filter, so the reads of Rec's filters, key, view and rows refuse there. GetFilter of one
+// field runs: the corpus pins it per filter group (handlers/TestActionRunPageLinkFilterGroup.al:119-131, baseline 60941).
+#[test]
+fn filter_key_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
+    let ops = ["GetFilters", "GetView", "CurrentKey", "HasFilter", "GetRangeMin", "Count", "IsEmpty", "FindFirst"];
+    let mut tests = String::from(
+        "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
+        local procedure Read(Op: Text) var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.DeleteAll(); L.DeleteAll(); P.SetSeen(Op);
+            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadOp.Invoke(); end;",
+    );
+    for op in ops {
+        tests += &format!("[Test] [HandlerFunctions('Handler')] procedure {op}x() begin Read('{op}'); end;");
+    }
+    let got = not_run(&tests);
+    assert_eq!(got.len(), ops.len(), "{got:?}");
+    for (n, why) in &got {
+        assert!(why.contains("RunPageLink") && why.contains("712"), "{n}: {why}");
+    }
+    passes(
+        "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
+        [Test] [HandlerFunctions('Handler')] procedure GetFilterRuns() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.DeleteAll(); L.DeleteAll(); P.SetSeen('GetFilter');
+            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadOp.Invoke();
+            if P.GetGroups() <> 'H1' then Error('got <%1>', P.GetGroups()); end;",
+    );
 }
 
 // An action that declares both runs only its RunObject

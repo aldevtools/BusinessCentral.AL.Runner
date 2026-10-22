@@ -145,13 +145,12 @@ impl Session {
         }
         target_state.borrow_mut().modal = modal;
         let record = self.run_object_record(st, &target_state, ro, mode)?;
-        // What Rec holds in the target's OnOpenPage when only `RunPageLink` hands it the host's values is not pinned: the
-        // corpus pins the filter groups there (handlers/TestActionRunPageLinkFilterGroup.al:119-131), not the fields. A use
-        // that reads the buffer refuses; filter methods and a Get or Find that fills it run (corpus issue 712 queues the probe).
+        // What Rec holds in the target's OnOpenPage when only `RunPageLink` hands it the host's values: real BC fills the linked
+        // fields and GetFilters() reads '' (corpus issue 712), the runtime holds the link as a filter. The corpus pins GetFilter
+        // per filter group there (handlers/TestActionRunPageLinkFilterGroup.al:119-131); the other reads refuse
+        // (records.rs run_page_link_open_op).
         if !ro.on_rec && ro.link.as_ref().is_some_and(|l| !l.entries.is_empty()) {
-            target_state.borrow_mut().open_rec_unpinned = Some(
-                "a read of Rec in the OnOpenPage of a page an action opens through RunPageLink (whether Rec holds the linked values is not pinned)",
-            );
+            target_state.borrow_mut().open_rec_unpinned = Some(crate::records::RUN_PAGE_LINK_OPEN);
         }
         let kind = if modal { UiKind::ModalPage } else { UiKind::Page };
         // The handler is looked up after OnInit and OnOpenPage; a page nobody answers stops there.
