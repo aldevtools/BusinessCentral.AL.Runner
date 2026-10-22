@@ -595,6 +595,11 @@ impl Session {
         // `...;R20;R1;N(-1);F(=);R1;C`), for an ascending view.
         let end_reached = (end_reached || (find_page && keys.len() == Self::WINDOW)) && opening;
         if end_reached && find_page && self.declares(st, "onaftergetrecord") {
+            if moved_open && (keys.len() < 2 || !rec.borrow().ascending || !self.declares(st, "onaftergetcurrrecord")) {
+                return unsupported(
+                    "the open read of a list that serves its rows from OnNextRecord, on a row set before the open, that is the last of the view, in a descending view or without OnAfterGetCurrRecord (not pinned)",
+                );
+            }
             // A descending view that opens on its last row steps back over the rows above it before OnAfterGetCurrRecord
             // (misc/lt-probes-needed-6/PnF06FindListMoves.al:304, :318: `R1;N(1);N(-1);R2;N(-1);R3;...;F(=);R1;C`). Pinned when
             // the first row read is the last of the view; other descending opens are refused.
@@ -620,6 +625,41 @@ impl Session {
             // OpenOnRow_SetPositionInOnOpenPage_LastRow).
             st.borrow_mut().view_read_to_end = view_ended_at_open && keys.len() < Self::WINDOW;
             let stepped_back = self.declares(st, "onnextrecord") && self.nav_next(st, -1)?;
+            // On a row set before the open (a temporary Worksheet, `open_on_rec_moved_by_onopenpage`) the client reads each row
+            // above it, stepping back with OnNextRecord(-1) until that answers 0, then reads the row again; the rows it holds then
+            // start at the first row of the view (QrMovedTests.al:2538 QT_TempWsNext_RunModal_B
+            // `O:B;R:B;N:1>C;R:C;N:1>D;R:D;N:1>D;R:B;N:-1>A;R:A;N:-1>A;R:B;R:B;C:B;`, :2554 _BB_Between, :2586
+            // QT_TempWsFind_RunModal_B `...;N:-1>A;R:B;F:=>B;R:B;C:B;`).
+            let mut above = Vec::new();
+            if moved_open {
+                if !stepped_back {
+                    return unsupported(
+                        "the open read of a list that serves its rows from OnNextRecord, on a row set before the open that is the first of the view (not pinned)",
+                    );
+                }
+                loop {
+                    if above.len() + keys.len() >= Self::WINDOW {
+                        return unsupported(
+                            "the open read of a list on a row set before the open, with more rows than a window holds (not pinned)",
+                        );
+                    }
+                    let key = self.row_key(&rec)?;
+                    let stored = rec.borrow().fields.clone();
+                    self.populate_current(st)?;
+                    above.push(al_builtins::value::WindowRow {
+                        key,
+                        stored,
+                        shown: rec.borrow().fields.clone(),
+                    });
+                    if !self.nav_next(st, -1)? {
+                        break;
+                    }
+                }
+                rec.borrow_mut().fields = keys[0].stored.clone();
+                self.populate_current(st)?;
+                keys[0].shown = rec.borrow().fields.clone();
+                above.reverse();
+            }
             // The closing OnFindRecord(`=`) and its read belong to the OnAfterGetCurrRecord that follows; a
             // list without that trigger ends after OnNextRecord(-1) when that answers 0 (pages/lt-f3-pages/F3ListTests.al:24
             // Nav_TwelveRows_OpenLastPreviousFirstNext `open`, a list of 12 rows with OnFindRecord, OnNextRecord and
@@ -646,7 +686,8 @@ impl Session {
                 rec.borrow_mut().fields = row.shown.clone();
                 self.set_xrec_fields(st, row.stored.clone());
             }
-            st.borrow_mut().window = keys;
+            above.extend(keys);
+            st.borrow_mut().window = above;
             if reread {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
             }
@@ -1575,7 +1616,9 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let r = rec.borrow();
-        r.key != 0 && !r.temporary
+        // A temporary Worksheet opened in a key set before the open reads the same (QrMovedTests.al:2458
+        // QT_TempWs_RunModal_ByName_B); other temporary sources are not pinned.
+        r.key != 0 && (!r.temporary || st.borrow().temp_reads_once_more)
     }
 
     /// The list opened reading each row once more (`reads_once_more_in_its_key`) and Rec is still in that key and order. A key
