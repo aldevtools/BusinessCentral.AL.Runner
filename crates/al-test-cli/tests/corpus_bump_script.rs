@@ -287,6 +287,64 @@ fn a_rerun_job_leaves_two_artifacts_of_a_role_and_the_newest_wins() {
     );
 }
 
+/// A leg has a fourth artifact since the corpus added the TestLibraries job: it is not part of the oracle.
+#[test]
+fn the_test_libraries_artifact_of_a_leg_is_left_out() {
+    let f = fixture();
+    let d = f.dir.path();
+    let mut a = Vec::new();
+    let mut id = 200;
+    for leg in ["27.5", "28.5", "29.0"] {
+        let mut roles = vec![
+            ("junit-al-language.xml", 250_000, "2026-10-19T19:00:00Z"),
+            ("junit-al-language-onprem.xml", 6_000, "2026-10-19T18:40:00Z"),
+            ("junit-al-language-onprem-dotnet.xml", 3_000, "2026-10-19T18:41:00Z"),
+        ];
+        // The TestLibraries job (corpus tests/al-language-testlibraries) runs with Microsoft's Tests-TestLibraries
+        // installed, an environment the runtime does not model: its results are not an oracle (orchestrator, 2026-10-22).
+        roles.push(("junit-al-language-testlibraries.xml", 900, "2026-10-19T18:42:00Z"));
+        for (xml, size, at) in roles {
+            id += 1;
+            let src = d.join(format!("z{id}"));
+            std::fs::create_dir_all(&src).unwrap();
+            std::fs::write(src.join(xml), "<testsuites/>").unwrap();
+            let st = Command::new("zip")
+                .current_dir(&src)
+                .args(["-q", &format!("{}/{id}.zip", d.display()), xml])
+                .status()
+                .unwrap();
+            assert!(st.success());
+            a.push(format!(
+                r#"{{"id":{id},"name":"junit-test-results-{leg}","size_in_bytes":{size},"created_at":"{at}"}}"#
+            ));
+        }
+    }
+    let gh = fake_gh(
+        d,
+        &run_json("success", &f.on_branch),
+        &format!(r#"{{"artifacts":[{}]}}"#, a.join(",")),
+    );
+    // Serve each artifact's zip: `api repos/.../actions/artifacts/ID/zip`.
+    let dd = d.display();
+    std::fs::write(
+        &gh,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  *\"run view\"*) cat {dd}/run.json;;\n  */zip*) id=$(echo \"$*\" | sed 's#.*/artifacts/\\([0-9]*\\)/zip.*#\\1#'); cat {dd}/$id.zip;;\n  *artifacts*) cat {dd}/artifacts.json;;\n  *) echo \"unexpected gh $*\" >&2; exit 9;;\nesac\n"
+        ),
+    )
+    .unwrap();
+    let (code, out) = bump(&f, &gh, &["--dry-run", "123"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203"),
+        "{out}"
+    );
+    assert!(
+        out.contains("28.5: oracle artifact 205, onprem artifact 206, dotnet artifact 207"),
+        "{out}"
+    );
+}
+
 #[test]
 fn usage_without_a_run_id() {
     let f = fixture();
