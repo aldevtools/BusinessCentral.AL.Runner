@@ -198,6 +198,37 @@ fn catalog_param_ty(p: &str) -> Option<Ty> {
     })
 }
 
+/// Whether argument `i` of the record method `method` names a field, as a stub field site may (ADR-051 decision 10):
+/// the first argument of `Validate`, `SetRange`, `SetFilter`, `TestField`, `ModifyAll`, `FieldNo` and `FieldCaption`,
+/// and every argument of `CalcFields` and `SetCurrentKey`.
+pub(crate) fn field_arg_method(method: &str, i: usize) -> bool {
+    match method.to_ascii_lowercase().as_str() {
+        "validate" | "setrange" | "setfilter" | "testfield" | "modifyall" | "fieldno" | "fieldcaption" => i == 0,
+        "calcfields" | "setcurrentkey" => true,
+        _ => false,
+    }
+}
+
+/// The arguments of the record method `method` (lowercase, called with `n` arguments) whose values have the type of
+/// the field its first argument names.
+fn field_value_args(method: &str, n: usize) -> std::ops::Range<usize> {
+    let r = match method {
+        "validate" | "testfield" | "modifyall" => 1..2,
+        "setrange" => 1..3,
+        "setfilter" => 2..n,
+        _ => 0..0,
+    };
+    r.start.min(n)..r.end.min(n)
+}
+
+/// Why `CalcFields` of the stub field `site` is refused.
+fn calcfields_reason(site: &TddSite) -> String {
+    format!(
+        "--tdd: CalcFields of the stub field {}: a stub field is not a FlowField",
+        site.shown()
+    )
+}
+
 fn variant_like(p: &str) -> bool {
     matches!(p.trim().to_ascii_lowercase().as_str(), "variant" | "any" | "joker")
 }
@@ -274,7 +305,7 @@ impl<'a> Checker<'a> {
         if !self.catalog.overloads("Record", name).is_empty() || !self.catalog.hidden("Record", name).is_empty() {
             return false;
         }
-        let site = TddSite {
+        let mut site = TddSite {
             object,
             name: name.to_string(),
             receiver: receiver.text().to_string().trim().to_string(),
@@ -282,10 +313,149 @@ impl<'a> Checker<'a> {
             ret: TddRet::Pending,
             kind: TddKind::Field,
         };
+        if let Some(why) = self.tdd_not_extensible(object, "table", &format!("field {}", site.shown())) {
+            site.ret = TddRet::Refused(why);
+        }
         let k = Self::tdd_key(sc, node);
         self.resolutions.insert(k, Res::TddStub(Box::new(site)));
         self.tdd_pending.push(k);
         true
+    }
+
+    /// `Rec.Validate(F, ...)`, `Rec.SetRange(F, ...)` or another method of [`field_arg_method`] (`callee` is the call's
+    /// callee, a member expression on `Rec`), where `F` (`arg`, a bare name) is no field of the record's table, in a
+    /// test app: a stub field site on the argument (ADR-051 decision 10), as [`Self::tdd_field`] makes one for `Rec.F`.
+    /// A local or global variable named `F` wins: the name is then left to the normal lookup. `CalcFields` of the
+    /// site is refused at once: a stub field is a Normal field, not a FlowField.
+    pub(crate) fn tdd_field_arg(
+        &mut self,
+        sc: &Scope,
+        arg: &SyntaxNode,
+        callee: &SyntaxNode,
+        receiver_ty: Option<&Ty>,
+    ) -> bool {
+        let Some(base) = receiver_ty else { return false };
+        let Some(receiver) = callee.children().next() else {
+            return false;
+        };
+        let name = name_of(arg);
+        let var = name.to_lowercase();
+        if sc.vars.iter().any(|f| f.contains_key(&var)) || sc.globals.contains_key(&var) {
+            return false;
+        }
+        if !self.tdd_field(sc, arg, &receiver, base, &name) {
+            return false;
+        }
+        if member_name(callee).eq_ignore_ascii_case("calcfields") {
+            if let Some((k, site)) = self.tdd_site(sc, arg) {
+                let why = calcfields_reason(&site);
+                self.tdd_set(k, site, TddRet::Refused(why));
+            }
+        }
+        true
+    }
+
+    /// `Rec.CalcFields(F)` where `F` is a stub field a compile before this one declared (ADR-051 decision 10): refused,
+    /// as a stub field is a Normal field, not a FlowField. The argument becomes a refused stub site, which lowering
+    /// gives as the routine's reason. `ti` is the record's table, `fid` the field's id.
+    pub(crate) fn tdd_calcfields_stub(
+        &mut self,
+        sc: &Scope,
+        arg: &SyntaxNode,
+        callee: &SyntaxNode,
+        ti: usize,
+        fid: u32,
+    ) -> bool {
+        if self.tdd_apps.is_none() || !member_name(callee).eq_ignore_ascii_case("calcfields") {
+            return false;
+        }
+        let Some(f) = self.members[ti].fields.iter().find(|f| f.id == fid) else {
+            return false;
+        };
+        let Some(holder) = f.declared_in else { return false };
+        if !super::tdd_decl::is_stub(self.ws, holder) {
+            return false;
+        }
+        let receiver = callee
+            .children()
+            .next()
+            .map(|r| r.text().to_string().trim().to_string())
+            .unwrap_or_default();
+        let mut site = TddSite {
+            object: ti,
+            name: f.name.clone(),
+            receiver,
+            args: Vec::new(),
+            ret: TddRet::Pending,
+            kind: TddKind::Field,
+        };
+        site.ret = TddRet::Refused(calcfields_reason(&site));
+        let k = Self::tdd_key(sc, arg);
+        self.resolutions.insert(k, Res::TddStub(Box::new(site)));
+        true
+    }
+
+    /// The type of a stub field site named as the field argument of a record method (`Rec.TestField(F, 5)`), from the
+    /// method's value arguments ([`field_value_args`]): the value of `Validate`, `TestField` and `ModifyAll`, the
+    /// bounds of `SetRange`, the substitution values of `SetFilter` (its filter text says nothing about the field's
+    /// type). Values that disagree are refused, as for `Variant` siblings; a value that is itself a pending stub is
+    /// refused as both sides unknown. No value leaves the site pending: another use may type it, or the end of the
+    /// routine refuses it.
+    pub(crate) fn tdd_settle_field_args(
+        &mut self,
+        sc: &Scope,
+        callee: &SyntaxNode,
+        args: &[SyntaxNode],
+        arg_tys: &[Ty],
+    ) {
+        let method = member_name(callee).to_ascii_lowercase();
+        let Some(first) = args.first() else { return };
+        if !field_arg_method(&method, 0) || !self.tdd_is_pending(sc, first) {
+            return;
+        }
+        if !self.tdd_site(sc, first).is_some_and(|(_, s)| s.kind == TddKind::Field) {
+            return;
+        }
+        let mut known: Vec<Ty> = Vec::new();
+        let mut stub_value = false;
+        for j in field_value_args(&method, args.len()) {
+            if self
+                .tdd_site(sc, &args[j])
+                .is_some_and(|(_, s)| s.ret == TddRet::Pending)
+            {
+                stub_value = true;
+                continue;
+            }
+            match &arg_tys[j] {
+                Ty::Unknown => {}
+                Ty::Builtin(n) if n.to_string().eq_ignore_ascii_case("ErrorInfo") => {}
+                t => {
+                    let t = norm(t);
+                    if !known.contains(&t) {
+                        known.push(t);
+                    }
+                }
+            }
+        }
+        match known.as_slice() {
+            [t] => {
+                let t = t.clone();
+                self.tdd_settle(sc, first, &t);
+            }
+            [] if stub_value => {
+                self.tdd_refuse_both(sc, first);
+                for j in field_value_args(&method, args.len()) {
+                    self.tdd_refuse_both(sc, &args[j]);
+                }
+            }
+            [] => {}
+            _ => {
+                if let Some((k, site)) = self.tdd_site(sc, first) {
+                    let why = format!("--tdd: cannot infer {} (the values have different types)", site.what());
+                    self.tdd_set(k, site, TddRet::Refused(why));
+                }
+            }
+        }
     }
 
     /// `E::Missing`, a value enum `ei` (with its extensions) does not have, in a test app (decision 10): a stub value
@@ -299,7 +469,10 @@ impl<'a> Checker<'a> {
             name: name.to_string(),
             receiver: crate::types::display_name(&self.ws.objects[ei].name).to_string(),
             args: Vec::new(),
-            ret: TddRet::NoValue,
+            ret: match self.tdd_not_extensible(ei, "enum", &format!("value {name}")) {
+                Some(why) => TddRet::Refused(why),
+                None => TddRet::NoValue,
+            },
             kind: TddKind::EnumValue,
         };
         self.record(sc, node, Res::TddStub(Box::new(site)));
@@ -452,6 +625,33 @@ impl<'a> Checker<'a> {
         }
         self.resolutions.insert(k, Res::TddStub(Box::new(site)));
         true
+    }
+
+    /// Why no stub member (`what`, as `field Item.F` or `value V`) can be added to object `oi` (a `kind`, table or
+    /// enum) of a dependency app: it is not extensible. An enum is extensible only with `Extensible = true`, a table
+    /// unless `Extensible = false`. A workspace object is changed by the developer itself, so it always takes a stub.
+    /// v2 refuses the same (`TddGeneration.PackageMembers.cs`): an extension of such an object does not compile.
+    fn tdd_not_extensible(&self, oi: usize, kind: &str, what: &str) -> Option<String> {
+        if !self.ws.is_dependency(oi) {
+            return None;
+        }
+        let value = self
+            .ws
+            .object_ast(oi)
+            .properties()
+            .find(|p| p.name().eq_ignore_ascii_case("Extensible"))
+            .map(|p| p.value_text().trim().to_ascii_lowercase());
+        let extensible = match value.as_deref() {
+            Some("true") => true,
+            Some("false") => false,
+            _ => kind == "table",
+        };
+        (!extensible).then(|| {
+            format!(
+                "--tdd: the {kind} \"{}\" is not extensible: no stub {what} can be added to it",
+                self.ws.objects[oi].name
+            )
+        })
     }
 
     fn tdd_site(&self, sc: &Scope, node: &SyntaxNode) -> Option<(posmap::PosKey, TddSite)> {

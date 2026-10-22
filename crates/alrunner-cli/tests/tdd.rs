@@ -465,3 +465,93 @@ fn globals_of_stub_objects_bare_fields_and_dynamic_writes_flag_or_refuse() {
         );
     }
 }
+
+/// ADR-051 decision 10: a field named only as the field argument of `Validate` or `SetRange` (`Rec.Validate(F, 5)`,
+/// `Rec.SetRange(F, 1, 10)`) is a stub field site, as `Rec.F` is. Its type comes from the value arguments (the Variant
+/// rule of decision 3), and every test that reaches it is stubbed.
+#[test]
+fn a_field_named_by_validate_or_setrange_is_a_stub_field() {
+    let (doc, o) = json_run(&fixture("field-args"), &["--tdd"]);
+    for (method, want) in [
+        ("ValidateNewField", r#"Tdd Arg Item: field "Quantity": Integer"#),
+        ("ValidateOnlyNewField", r#"Tdd Arg Item: field "Size": Integer"#),
+        ("SetRangeNewField", r#"Tdd Arg Item: field "Weight": Integer"#),
+    ] {
+        let r = row(&doc, method);
+        assert_eq!(r["status"], "pass", "{method}: {r:#}\n{}", text(&o));
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert_eq!(stubs(r), vec![want.to_string()], "{method}: {r:#}");
+    }
+    let r = row(&doc, "Untouched");
+    assert_eq!(r["status"], "pass", "{r:#}");
+    assert!(r.get("stubbed").is_none(), "{r:#}");
+    // Without --tdd the missing fields stay compile errors.
+    let (doc, o) = json_run(&fixture("field-args"), &[]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    let errors = doc["compilationErrors"].to_string();
+    for name in ["Size", "Weight"] {
+        assert!(errors.contains(&format!("'{name}'")), "{name}: {errors}");
+    }
+}
+
+/// ADR-051 decision 10: a field named only as the field argument of `TestField`, `SetFilter`, `CalcFields`, `FieldNo`,
+/// `FieldCaption`, `ModifyAll` or `SetCurrentKey` is a stub field site, as for `Validate` and `SetRange`. The type comes
+/// from the value arguments (`TestField(F, v)`, `ModifyAll(F, v)`, the substitution values of `SetFilter`); a method
+/// without a value argument (`FieldNo`, `FieldCaption`, `SetCurrentKey`, `TestField(F)`, `SetFilter(F, 'text')`) gives no
+/// type, so the field must be typed by another use or the routine is refused. `CalcFields` on a stub field is
+/// refused: a stub field is a Normal field, not a FlowField.
+#[test]
+fn a_field_named_by_other_field_methods_is_a_stub_field_and_calcfields_refuses() {
+    let (doc, o) = json_run(&fixture("field-args-more"), &["--tdd"]);
+    for (method, want) in [
+        ("TestFieldNewField", r#"Tdd Arg2 Item: field "Amount": Integer"#),
+        ("ModifyAllNewField", r#"Tdd Arg2 Item: field "Level": Integer"#),
+        ("SetFilterNewField", r#"Tdd Arg2 Item: field "Rank": Integer"#),
+        ("FieldNoTypedElsewhere", r#"Tdd Arg2 Item: field "Memo": Text"#),
+        ("SetCurrentKeyTypedElsewhere", r#"Tdd Arg2 Item: field "Prio": Integer"#),
+    ] {
+        let r = row(&doc, method);
+        assert_eq!(r["status"], "pass", "{method}: {r:#}\n{}", text(&o));
+        assert_eq!(r["stubbed"], true, "{method}: {r:#}");
+        assert_eq!(stubs(r), vec![want.to_string()], "{method}: {r:#}");
+    }
+    for (method, want) in [
+        (
+            "SetFilterWithoutValue",
+            "--tdd: cannot infer the type of the stub field Item.Color from its use",
+        ),
+        (
+            "FieldNoOnly",
+            "--tdd: cannot infer the type of the stub field Item.Weight from its use",
+        ),
+        (
+            "TestFieldWithoutValue",
+            "--tdd: cannot infer the type of the stub field Item.Flag from its use",
+        ),
+        (
+            "CalcFieldsNewField",
+            "--tdd: CalcFields of the stub field Item.Total: a stub field is not a FlowField",
+        ),
+        (
+            "CalcFieldsTypedElsewhere",
+            "--tdd: CalcFields of the stub field Item.Sum: a stub field is not a FlowField",
+        ),
+    ] {
+        let r = row(&doc, method);
+        assert_eq!(r["notRun"], true, "{method}: {r:#}");
+        assert!(
+            r["message"].as_str().unwrap_or_default().contains(want),
+            "{method}: {r:#}"
+        );
+    }
+    let r = row(&doc, "Untouched");
+    assert_eq!(r["status"], "pass", "{r:#}");
+    assert!(r.get("stubbed").is_none(), "{r:#}");
+    // Without --tdd the missing fields stay compile errors.
+    let (doc, o) = json_run(&fixture("field-args-more"), &[]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    let errors = doc["compilationErrors"].to_string();
+    for name in ["Amount", "Level", "Rank", "Weight", "Total"] {
+        assert!(errors.contains(&format!("'{name}'")), "{name}: {errors}");
+    }
+}

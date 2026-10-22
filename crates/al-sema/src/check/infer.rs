@@ -799,10 +799,23 @@ impl<'a> Checker<'a> {
                             if let Some(ti) = table_idx {
                                 if let Some(f) = self.members[ti].field(&name_of(a)) {
                                     let id = f.id;
-                                    self.record(sc, a, Res::Field { table: ti, id });
+                                    // `--tdd`: `CalcFields` of a stub field is refused (ADR-051 decision 10).
+                                    if !self.tdd_calcfields_stub(sc, a, &kids[0], ti, id) {
+                                        self.record(sc, a, Res::Field { table: ti, id });
+                                    }
                                 }
                             }
                             arg_tys.push(t);
+                            continue;
+                        }
+                        // `--tdd` (ADR-051 decision 10): the field argument of `Rec.Validate(F, ...)`,
+                        // `Rec.SetRange(F, ...)`, `Rec.TestField(F, ...)` and the other record methods that name a
+                        // field names one the table lacks: a stub field site, as `Rec.F` is. Its type comes from the
+                        // value arguments (`tdd_settle_field_args`).
+                        if super::tdd::field_arg_method(&member_name(callee), i)
+                            && self.tdd_field_arg(sc, a, &kids[0], receiver.as_ref())
+                        {
+                            arg_tys.push(Ty::Unknown);
                             continue;
                         }
                     }
@@ -818,6 +831,7 @@ impl<'a> Checker<'a> {
                     E::Callable(c) => {
                         let ret = self.pick(sc, node, &c, &arg_tys, &member_name(callee));
                         if self.tdd_apps.is_some() {
+                            self.tdd_settle_field_args(sc, callee, &args, &arg_tys);
                             self.tdd_settle_args(sc, node, callee, &c, &args, &arg_tys);
                         }
                         E::Val(ret)

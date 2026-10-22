@@ -13113,6 +13113,10 @@
 79000 Evaluate_Time_FromDateText
 79000 JsonValue_String_Letters_AsDecimalAndInteger
 79000 QR_Evaluate_Time_FormatRoundTrip
+79002 ThisRun_EmptyOnRun
+79002 ThisRun_OnRunRaisesError
+79002 ThisRun_WithOnRunCode
+79002 ThisRun_WithRecordParameter
 79011 XmlPort_RealTable_AutoSaveFalse_Import
 79011 XmlPort_UseTemporary_AutoSaveDefault_Import
 79201 AtContainsFilterMatchesCaseInsensitively
