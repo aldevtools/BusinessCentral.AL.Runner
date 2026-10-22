@@ -739,7 +739,10 @@ impl Lowerer<'_> {
                     if let Some(inner) = crate::queries::whole_literal(raw)
                         .filter(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')', '\'']))
                     {
-                        if inner.replace("<>", "").contains(['&', '.', '<', '>', '=', '@', '(', ')']) {
+                        if inner
+                            .replace("<>", "")
+                            .contains(['&', '.', '<', '>', '=', '@', '(', ')'])
+                        {
                             return Err(format!(
                                 "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",
                                 raw.trim()
