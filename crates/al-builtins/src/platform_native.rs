@@ -21,7 +21,7 @@
 //! a character that Windows-1252 and Latin-1 encode differently) is refused.
 
 use crate::describe::Describe;
-use crate::native::{NativeFn, Signal, raise};
+use crate::native::{Ctx, NativeFn, Signal, raise};
 use crate::stream::{drain_in, write_raw_bytes};
 use crate::value::Value;
 
@@ -105,6 +105,55 @@ pub const TABLE: &[Entry] = &[
         id: "Base64Convert.FromBase64#stream-out",
         run: from_base64_stream_out,
     },
+    Entry {
+        object: "Agent Utilities",
+        name: "GetCurrentSessionAgentTaskId",
+        params: &[],
+        id: "AgentUtilities.GetCurrentSessionAgentTaskId",
+        run: agent_task_id,
+    },
+    Entry {
+        object: "Agent Utilities",
+        name: "GetCurrentSessionAgentMetadataProviderType",
+        params: &[],
+        id: "AgentUtilities.GetCurrentSessionAgentMetadataProviderType",
+        run: agent_provider_type,
+    },
+    Entry {
+        object: "Feature Access Management",
+        name: "AgentManagementAllowedInternal",
+        params: &["boolean"],
+        id: "FeatureAccessManagement.AgentManagementAllowedInternal",
+        run: fam_agent_management_allowed,
+    },
+    Entry {
+        object: "Feature Access Management",
+        name: "IsSandboxEnvironmentOrFirstPartyCodeInternal",
+        params: &["boolean"],
+        id: "FeatureAccessManagement.IsSandboxEnvironmentOrFirstPartyCodeInternal",
+        run: fam_microsoft_only,
+    },
+    Entry {
+        object: "Feature Access Management",
+        name: "IsEnvironmentPositiveListedInternal",
+        params: &[],
+        id: "FeatureAccessManagement.IsEnvironmentPositiveListedInternal",
+        run: fam_microsoft_only,
+    },
+    Entry {
+        object: "Feature Access Management",
+        name: "IsTestSessionInternal",
+        params: &[],
+        id: "FeatureAccessManagement.IsTestSessionInternal",
+        run: fam_microsoft_only,
+    },
+    Entry {
+        object: "Feature Access Management",
+        name: "IsSandboxEnvironmentInternal",
+        params: &[],
+        id: "FeatureAccessManagement.IsSandboxEnvironmentInternal",
+        run: fam_is_sandbox,
+    },
 ];
 
 /// The native for the procedure `name` of the codeunit `object` with parameters of these types.
@@ -125,6 +174,60 @@ pub fn lookup_by_scan(id: &str) -> Option<NativeFn> {
 /// Every entry, in table order.
 pub fn entries() -> impl Iterator<Item = (&'static str, NativeFn)> {
     TABLE.iter().map(|e| (e.id, e.run))
+}
+
+// ---------------------------------------------------------------- agents and feature access
+
+// "Agent Utilities" (System.app 2000000022) in a session that is not an agent session: task id 0
+// (platform/lt-rh-agent-session/RhAgentSession.al:47 through "Agent Session"; al-language-onprem/platform/
+// lt-rh-agent-natives/RhAgentNatives.al:82 called directly) and provider type -1 (RhAgentNatives.al:83).
+fn agent_task_id(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
+    Ok(Value::Integer(0))
+}
+
+fn agent_provider_type(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
+    Ok(Value::Integer(-1))
+}
+
+/// Whether the code that called into "Feature Access Management" belongs to a Microsoft app: the publisher of the
+/// first app on the call stack below System.app's codeunit. `None` when no other app is on the stack.
+fn caller_is_microsoft(ctx: &dyn Ctx) -> Option<bool> {
+    ctx.calling_app_publisher().map(|p| p == "Microsoft")
+}
+
+/// Called from a non-Microsoft app, the access checks of "Feature Access Management" (System.app 2000000020) raise this
+/// whatever ThrowError says (al-language-onprem/platform/lt-rh-agent-natives/RhAgentNatives.al:104, :126, :156-178).
+fn not_microsoft<T>() -> Result<T, Signal> {
+    raise("Feature availability can only be checked by Microsoft applications.", "InvalidOperation")
+}
+
+// AgentManagementAllowed / AgentTaskManagementPreviewEnabled. From the System Application with ThrowError true it returns
+// without an error ("Agent Task Builder".Initialize and SetExternalId, platform/lt-rh-agent-session/RhAgentSession.al:66-69).
+// The answer is not pinned; every Microsoft caller (System Application and Base Application 29) discards it, so no AL code
+// can read it. Microsoft code with ThrowError false is not pinned: refused.
+fn fam_agent_management_allowed(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Out {
+    match (caller_is_microsoft(ctx), args.first()) {
+        (Some(false), _) => not_microsoft(),
+        (Some(true), Some(Value::Boolean(true))) => Ok(Value::Boolean(true)),
+        _ => unsupported("Feature Access Management.AgentManagementAllowed called by Microsoft code without ThrowError (not pinned)"),
+    }
+}
+
+// IsSandboxEnvironmentOrFirstPartyCode, IsEnvironmentPositiveListed, IsTestSession: pinned from a non-Microsoft app only.
+fn fam_microsoft_only(ctx: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
+    match caller_is_microsoft(ctx) {
+        Some(false) => not_microsoft(),
+        _ => unsupported("a Feature Access Management check called by Microsoft code (what it answers is not pinned)"),
+    }
+}
+
+// IsSandboxEnvironment answers Yes, with no error, called from a non-Microsoft app (RhAgentNatives.al:156, the corpus CI
+// container). From Microsoft code it is not pinned: refused.
+fn fam_is_sandbox(ctx: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
+    match caller_is_microsoft(ctx) {
+        Some(false) => Ok(Value::Boolean(true)),
+        _ => unsupported("Feature Access Management.IsSandboxEnvironment called by Microsoft code (what it answers is not pinned)"),
+    }
 }
 
 // ---------------------------------------------------------------- encodings

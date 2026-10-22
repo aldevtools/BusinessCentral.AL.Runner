@@ -232,10 +232,12 @@ impl Lowerer<'_> {
                 ir::Stmt::Expr(call)
             }];
         } else if body.is_empty() && r.attributes().any(|a| a.name().eq_ignore_ascii_case("native")) {
-            self.reasons.push(format!(
+            // Refused when it runs, not when it lowers: code that can reach the native but never calls it runs on BC
+            // (al-runner issue 5684, an install routine that calls `Agent Utilities.SetInstructions` only per row).
+            body = vec![ir::Stmt::Expr(ir::Expr::Refused(format!(
                 "[Native] procedure `{}` is implemented by the platform and has no AL body (what it answers is not pinned)",
                 r.name()
-            ));
+            )))];
         }
         let expr_tys = self.take_table(&body);
         self.tys_on = false;

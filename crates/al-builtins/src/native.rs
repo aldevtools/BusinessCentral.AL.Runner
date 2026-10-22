@@ -257,6 +257,11 @@ pub trait Ctx: FormatCtx {
     fn module_callstack(&self, _skip: usize) -> Vec<crate::value::ModuleInfoState> {
         Vec::new()
     }
+    /// The publisher of the app whose code called into the innermost frame's app: the first frame, from the
+    /// innermost, that belongs to another app. `None` when every frame belongs to that app.
+    fn calling_app_publisher(&self) -> Option<String> {
+        None
+    }
     /// The frames of the test runner below the test, in `Callstack` form (backslash after each
     /// frame); empty where the context has no runner (al-vm/callstack.rs).
     fn runner_call_stack(&self) -> String {

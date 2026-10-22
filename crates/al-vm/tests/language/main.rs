@@ -1,6 +1,7 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of language/.
 
 mod abs_duration;
+mod agent_natives;
 mod append_char;
 mod array_params;
 mod assumption_truth;
