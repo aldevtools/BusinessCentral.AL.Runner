@@ -75,7 +75,8 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 ];
 
 /// Codes the must-not-compile corpus expects and this front end cannot decide, with the reason. AL0175 is reported
-/// for `Char - Text` and `Text - Char` on two variables only (case 0500), AL0666 for catalog methods only (`check/calls.rs`);
+/// for `Char - Text` and `Text - Char` on two variables only (case 0500), AL0666 for catalog methods (`check/calls.rs`) and
+/// the features `catalog/alc-features.txt` measured (`features.rs`);
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
@@ -84,7 +85,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0666",
-        "reported by the checker only for a call of a catalog method tagged newer than the app's runtime (cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824); properties, layouts and methods the catalog does not tag (the runtime 18.0 ones) are not decided.",
+        "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
     ),
 ];
 

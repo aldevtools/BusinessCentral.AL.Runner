@@ -77,6 +77,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
 - `errorinfo.rs` (307): ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry: `raise` 239, `copy_of` 263, `native_for` 283.
+- `features.rs` (~150): `catalog/alc-features.txt` (what the AL compiler reports per property and element kind, data type, attribute and object type at each runtime; `tools/alc-runtimes/alc_features.py`). Entry: `feature`, `al0666_at`.
 - `evaluate.rs` (265): `Evaluate(var Variable, String [, Number])`. Entry: `evaluate` 205.
 - `file.rs` (362): The `File` data type, on the host file system capability (ADR-006, `al-host::FileSystem`). Entry: `FileState` 32, `native_for` 331.
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
@@ -152,6 +153,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 ### al-sema
 
 - `alcodes.rs` (520): Compile errors with the AL compiler's own codes (must-not-compile corpus): `IMPLEMENTED`, `NOT_CHECKED`, `check_workspace` (source-only checks, run by `check_with`), `check_context` (target and app.json checks, the caller supplies the `AppContext`). The typed ones (AL0118, AL0122, AL0132, AL0161) are in `check.rs` (`al_unresolved_name`, `al_enum_assignment`, `ABSENT_ENUM_MEMBERS`).
+- `features.rs` (~200): AL0666 for a property, data type, attribute or object type the app's runtime lacks (al-builtins `features`), keyed by element kind (`page/layout/field`, `pageextension/layout/modify:part`). Run by `check_with` next to `alcodes::check_workspace`. Entry: `check`.
 - `base_access.rs` (78): Page and report extension code that names the base object's members (ADR-023): which probes are pinned (`PINNED`), the `AL_UNPINNED_BASE_ACCESS` switch, the base's visible variables and procedures, and the slot of a base variable from syntax. Entry: `PINNED`, `pinned`, `scope_enabled`, `visible_vars`, `visible_procs`, `slot_of`.
 - `calcformula.rs` (513): The `CalcFormula` property of a FlowField, as syntax. Entry: `Formula` 18, `Cond` 28, `CondValue` 35, `parse` 48.
 - `check/mod.rs` (755): Resolves every name, member access and call in routine bodies, inferring types. Holds `CheckResult`, `Res`, `Roots`, the checker state and the entry points; `lean_left_out` (the workspace objects a lean compile of a selection leaves out, `Roots::lean`, `LEFT_OUT`). Entry: `check_with` 175, `Checker` 506, `CheckResult` 29, `Res` 82, `Roots` 124.

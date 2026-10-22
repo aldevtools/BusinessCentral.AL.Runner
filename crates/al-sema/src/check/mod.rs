@@ -48,7 +48,7 @@ pub struct CheckResult {
     /// as a refusal, so the run goes on and the tests that reach it are not run.
     pub panicked: HashMap<(usize, usize), String>,
     /// The diagnostics the check of the objects raised, in the order they were found, and the ones
-    /// `alcodes::check_workspace` raised; `diagnostics` is both, sorted.
+    /// `alcodes::check_workspace` and `features::check` raised; `diagnostics` is both, sorted.
     pub from_checker: Vec<Diagnostic>,
     pub from_codes: Vec<Diagnostic>,
     /// The check ran with `--tdd` (`Roots::tdd`).
@@ -374,7 +374,9 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     }
     let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
     let from_checker = c.diags.clone();
-    let from_codes = crate::alcodes::check_workspace(ws);
+    let mut from_codes = crate::alcodes::check_workspace(ws);
+    // Language features newer or older than an app's runtime (AL0666, al-runner issue 5573).
+    from_codes.extend(crate::features::check(ws, catalog));
     c.diags.extend(from_codes.iter().cloned());
     c.diags
         .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
