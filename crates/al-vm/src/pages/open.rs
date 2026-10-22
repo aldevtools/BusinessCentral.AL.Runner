@@ -213,6 +213,7 @@ impl Session {
             s.window_eof = false;
             s.window_whole = false;
             s.opened_on_moved_rec = false;
+            s.reads_once_more_in = None;
             s.focus = None;
             s.focus_in_row = false;
             s.errors = Vec::new();
@@ -486,7 +487,9 @@ impl Session {
                 return Ok(());
             }
             let waiting = self.parts_waiting_refresh(st);
+            st.borrow_mut().open_read = true;
             let (loaded, origin) = self.traced(st, |s| s.load_first_row(st, mode, record.is_some()));
+            st.borrow_mut().open_read = false;
             st.borrow_mut().test_opened_new = false;
             st.borrow_mut().field_captions_settled = true;
             self.open_row_error(st, mode, test_open, loaded, origin)?;
@@ -795,11 +798,64 @@ impl Session {
             && self.declares(st, "onopenpage")
             && !self.declares(st, "onfindrecord")
             && !self.is_request_page(st)
-            && self.rec_moved_by_onopenpage(st)?
         {
-            return self.open_on_rec_moved_by_onopenpage(st);
+            self.read_rec_in_its_key(st)?;
+            if self.rec_moved_by_onopenpage(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
         }
         self.page_first_row(st)
+    }
+
+    /// A Card or List over a database table opened without a record, whose OnOpenPage left Rec on a row in a key other than the
+    /// primary key (a SourceTableView sorting or a SetCurrentKey): before the page finds its row, it reads the row of Rec's
+    /// primary key, filters aside, and runs OnAfterGetRecord on it; it then finds from that row in Rec's key.
+    /// Pinned by corpus pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:228 QR_Card_OpenView_SetCurrentKeyGet `O:B;R:B;R:B;C:B;`,
+    /// :345 QR_List_OpenView_SetCurrentKeyGet, and the QS_KeyAsc_*, QS_KeyDesc_* and QS_KeyWhere_* tests from :856: QS_KeyAsc_Card_GetC
+    /// `O:C;R:C;R:C;C:C;`, QS_KeyAsc_Card_FindFirst `O:D;R:D;R:D;C:D;` (on the first row of the view too), QS_KeyAsc_Card_KeyAssigned
+    /// (`"No." := 'C'` without a read opens on `C|bravo`: the stored row's Name is what the key finds from),
+    /// QS_KeyWhere_Card_GetD `O:D;R:D;R:C;C:C;` (D is outside the view's WHERE, read all the same), QS_KeyWhere_Card_Run_GetD
+    /// (Page.Run). A card run modally does not read first (QS_KeyDesc_Card_RunModal_FindLast `O:D;R:D;C:D;`); a list run modally
+    /// in such a key, and a key no row has, are not pinned. A blank primary key reads nothing (QS_KeyAsc_Card_NoMove `O:;R:D;C:D;`).
+    fn read_rec_in_its_key(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        if rec.borrow().key == 0 || rec.borrow().temporary {
+            return Ok(());
+        }
+        let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
+        if !matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List))
+            || st.borrow().lookup
+            || self.declares(st, "onnextrecord")
+        {
+            return Ok(());
+        }
+        let mut pk = self.row_key(&rec)?;
+        let table = self.table(&rec)?;
+        let blank: Vec<Value> = table.keys[0]
+            .iter()
+            .map(|&f| table.fields[f].ty.clone())
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|ty| self.default_value(ty))
+            .collect();
+        if Self::same_key(&pk, &blank) {
+            return Ok(());
+        }
+        if st.borrow().modal {
+            if self.is_list(st) {
+                return unsupported(
+                    "a list run modally without a record whose OnOpenPage left Rec on a row in a key other than the primary key (not pinned)",
+                );
+            }
+            return Ok(());
+        }
+        self.ret_used = true;
+        if !matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true)) {
+            return unsupported(
+                "a page opened without a record whose OnOpenPage left Rec, in a key other than the primary key, on a primary key no row has (not pinned)",
+            );
+        }
+        self.populate_current(st)
     }
 
     /// A page without OnFindRecord opened without a record, whose OnOpenPage left Rec on a key that is neither blank nor the
@@ -885,38 +941,44 @@ impl Session {
 
     /// Opens a Card or List on the row OnOpenPage left Rec on (see `rec_moved_by_onopenpage`): `=><` from Rec, so a Rec outside
     /// the view it set lands on the nearest row of the view (QrMovedTests.al:253 QR_Card_OpenView_GetThenFilterExcludes `B` for
-    /// C with filter A..B, `O:C;R:B;C:B;`). A card whose key OnOpenPage changed reads its row once more first (:227
-    /// QR_Card_OpenView_SetCurrentKeyGet `O:B;R:B;R:B;C:B;`); a list in such a key is refused. A list's open read goes on above the row (`read_rows_above_the_moved_rec`); its rows then start at the first row of the
+    /// C with filter A..B, `O:C;R:B;C:B;`). In a key other than the primary key the row was read before (`read_rec_in_its_key`),
+    /// and a list reads each row once more (`reads_once_more_in_its_key`). A list's open read goes on above the row (`read_rows_above_the_moved_rec`); its rows then start at the first row of the
     /// view. A view with no row is not pinned.
     fn open_on_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
-        let key_changed = rec.borrow().key != 0;
-        // A key a SourceTableView set is not one OnOpenPage changed: not pinned.
-        let object = st.borrow().object as usize;
-        if key_changed
-            && self.engine.program.objects[object]
-                .properties
-                .iter()
-                .any(|(k, _)| k.eq_ignore_ascii_case("SourceTableView"))
-        {
-            return unsupported(
-                "a page with a SourceTableView key opened without a record whose OnOpenPage left Rec on a row other than the first of its view (not pinned)",
-            );
-        }
+        // A temporary source in a key other than the primary key is not pinned: a card keeps the read after the find it had, a
+        // list is refused.
+        let temp_key = rec.borrow().key != 0 && rec.borrow().temporary;
         let list = self.is_list(st);
-        // A list in a key OnOpenPage changed reads each row more often than in its primary key (:344
-        // QR_List_OpenView_SetCurrentKeyGet `...;R:B;R:B;R:B;C:B;`, `next log` `R:A;R:A;R:A;C:A;`); that read is not modelled.
-        if key_changed && list {
+        if temp_key && list {
             return unsupported(
-                "a list opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (the reads are not implemented)",
+                "a list over a temporary source opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (not pinned)",
             );
         }
+        // The first row of the view, to tell whether `=><` lands on it (a copy of the record, so the page's own is not moved).
+        let first = if list {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            match self.record_op(RecordOp::FindFirst, &probe, &mut [])? {
+                Value::Boolean(true) => Some(self.row_key(&probe)?),
+                _ => None,
+            }
+        } else {
+            None
+        };
         if !self.nav_find(st, "=><")? {
             return unsupported(
                 "a page opened without a record whose OnOpenPage left Rec where its view has no row (not pinned)",
             );
         }
-        if key_changed {
+        // A list whose Rec is outside the view and lands on its first row opens as a list on its first row does
+        // (QrMovedTests.al QS_Where_List_GetA `O:A;R:B;R:C;R:D;R:B;R:B;C:B;` = QS_Where_List_NoMove after `O:`;
+        // QS_KeyWhere_List_GetD `O:D;R:D;R:C;R:B;R:A;R:C;R:C;R:C;C:C;`).
+        let landed = self.row_key(&rec)?;
+        if list && first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
+            return self.page_first_row(st);
+        }
+        if temp_key {
             self.populate_current(st)?;
         }
         {
