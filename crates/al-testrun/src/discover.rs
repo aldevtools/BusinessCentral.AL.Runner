@@ -129,31 +129,31 @@ fn scan(original: &str) -> Vec<Scanned> {
         spans.push((s, &src[s..]));
     }
     let words: Vec<&str> = spans.iter().map(|w| w.1).collect();
-    // id, tests, `Subtype = Test`, TestType, RequiredTestIsolation.
-    let mut out: Vec<(u32, Vec<String>, bool, Option<String>, Option<String>)> = Vec::new();
+    // Each codeunit as scanned, and whether it says `Subtype = Test`.
+    let mut out: Vec<(Scanned, bool)> = Vec::new();
     let mut i = 0;
     while i < words.len() {
         let w = words[i];
         if w.eq_ignore_ascii_case("codeunit") {
             if let Some(id) = words.get(i + 1).and_then(|n| n.parse::<u32>().ok()) {
                 // Only an object header is followed by an id; `Record Codeunit` etc. is not.
-                out.push((id, Vec::new(), false, None, None));
+                out.push(((id, Vec::new(), None, None), false));
                 i += 2;
                 continue;
             }
         }
-        if let Some(cur) = out.last_mut() {
+        if let Some((cur, is_test)) = out.last_mut() {
             if w.eq_ignore_ascii_case("subtype") {
                 if words.get(i + 1).is_some_and(|v| v.eq_ignore_ascii_case("test")) {
-                    cur.2 = true;
+                    *is_test = true;
                 }
             } else if w.eq_ignore_ascii_case("testtype") {
                 if let Some(v) = words.get(i + 1) {
-                    cur.3.get_or_insert_with(|| v.to_string());
+                    cur.2.get_or_insert_with(|| v.to_string());
                 }
             } else if w.eq_ignore_ascii_case("requiredtestisolation") {
                 if let Some(v) = words.get(i + 1) {
-                    cur.4.get_or_insert_with(|| v.to_string());
+                    cur.3.get_or_insert_with(|| v.to_string());
                 }
             } else if w.eq_ignore_ascii_case("[test]") {
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
@@ -167,7 +167,7 @@ fn scan(original: &str) -> Vec<Scanned> {
         }
         i += 1;
     }
-    out.into_iter().filter(|c| c.2).map(|c| (c.0, c.1, c.3, c.4)).collect()
+    out.into_iter().filter(|c| c.1).map(|c| c.0).collect()
 }
 
 #[cfg(test)]
