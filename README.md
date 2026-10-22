@@ -616,6 +616,15 @@ writes your own tests as a plain run does plus a `sources` array; `--impact-json
 (one entry per impact run, each with its `source`); `--impact-accept FILE` reads format 1 and 2, and an
 entry with a `source` matches only in that source. `al-runner serve` refuses test sources.
 
+Matrix runs: `al-runner test MYEXT --bc-version 27.5,28.5,29.0 --country w1,us` runs every combination of
+versions and countries, one cell each; `--matrix "27.5:w1,29.0:us"` names the cells. Every cell is checked
+before any runs (its build, the country, the app's floor), and one bad cell stops the run. Each cell runs as
+its own process; the report has a table of the cells and the list of tests whose outcome differs between
+cells. `--matrix-parallel N` runs up to N cells at once when the free memory allows it. `--junit FILE` writes
+one file per cell, `--output-json FILE` one document with every cell. The exit code is the worst cell's. AL
+Runner sets no preprocessor symbols of its own in a cell: each compiles with the app's `preprocessorSymbols`
+and `--define`, as a single run does.
+
 `al-runner` can run Microsoft's own Base Application test buckets. Most of these tests are
 still refused, not run. The full run of 2026-10-16 (main `fae0c8df`, BC 27.5, all buckets
 together) held 40300 tests: 16848 passed, 2508 failed and 20944 were not run. It took 298 s on a

@@ -13,92 +13,9 @@ use support::{impact_fixture, source_row, text, zip};
 
 const BUILD: &str = "29.0.1.2";
 
-fn app(id: &str, name: &str, al: &str) -> Vec<u8> {
-    let json = format!(
-        r#"{{"id":"{id}","name":"{name}","publisher":"Fixture","version":"1.0.0.0","idRanges":[{{"from":50000,"to":59999}}]}}"#
-    );
-    zip(&[("app.json", json), ("src/Code.al", al.to_string())])
-}
-
-fn test_codeunit(id: u32, name: &str, tests: &[(&str, bool)]) -> String {
-    let mut body = String::new();
-    for (t, pass) in tests {
-        let stmt = if *pass { "" } else { "Error('boom');" };
-        body.push_str(&format!(
-            "    [Test]\n    procedure {t}()\n    begin\n        {stmt}\n    end;\n\n"
-        ));
-    }
-    format!("codeunit {id} \"{name}\"\n{{\n    Subtype = Test;\n    TestType = UnitTest;\n\n{body}}}\n")
-}
-
-/// The fake artifact under `home/.bcartifacts.cache/sandbox/<BUILD>/platform` and a fake BCApps checkout.
+/// The fake artifact of `BUILD` and a fake BCApps checkout.
 fn fixture(root: &Path, fail_b: bool) {
-    let test = root.join(format!(
-        "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
-    ));
-    std::fs::create_dir_all(&test).unwrap();
-    let write = |file: &str, bytes: Vec<u8>| std::fs::write(test.join(file), bytes).unwrap();
-    write(
-        "Tests-Fake-A.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000001",
-            "Tests-Fake-A",
-            &test_codeunit(50100, "Fake A Tests", &[("APasses", true), ("ADisabled", false)]),
-        ),
-    );
-    write(
-        "Tests-Fake-B.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000002",
-            "Tests-Fake-B",
-            &test_codeunit(50200, "Fake B Tests", &[("BRuns", !fail_b)]),
-        ),
-    );
-    write(
-        "Fake Test Library.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000003",
-            "Fake Test Library",
-            "codeunit 50300 \"Fake Library\"\n{\n    procedure Help()\n    begin\n    end;\n}\n",
-        ),
-    );
-    write(
-        "_Exclude_Fake Tests.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000004",
-            "_Exclude_Fake Tests",
-            &test_codeunit(50400, "Fake Excluded Tests", &[("XFails", false)]),
-        ),
-    );
-    // Not a test app: no test in its path.
-    let source = test.parent().unwrap().join("Source");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::write(source.join("Fake App.Source.zip"), b"never read").unwrap();
-    // BCApps: the W1 test project (default lane UnitTest, an empty company), no Legacy bucket for the fakes, and one
-    // disabled test.
-    let bcapps = root.join("bcapps");
-    let settings = bcapps.join("build/projects/Test Apps W1/.AL-Go");
-    std::fs::create_dir_all(&settings).unwrap();
-    std::fs::write(
-        settings.join("settings.json"),
-        r#"{"testType":"UnitTest","companyName":"Empty Company","buildModes":["L"],
-            "ConditionalSettings":[{"buildModes":["L"],"settings":{"testType":"Legacy","bucketNumber":1,"companyName":"CRONUS International Ltd."}}]}"#,
-    )
-    .unwrap();
-    let scripts = bcapps.join("build/scripts");
-    std::fs::create_dir_all(&scripts).unwrap();
-    std::fs::write(
-        scripts.join("TestConfiguration.json"),
-        r#"{"LegacyTests-Bucket1":["Tests-Other"]}"#,
-    )
-    .unwrap();
-    let disabled = bcapps.join("src/DisabledTests");
-    std::fs::create_dir_all(&disabled).unwrap();
-    std::fs::write(
-        disabled.join("Fake.json"),
-        r#"[{"codeunitId":50100,"codeunitName":"Fake A Tests","method":"ADisabled"}]"#,
-    )
-    .unwrap();
+    support::fake_artifact(root, BUILD, fail_b);
 }
 
 fn run(root: &Path, extra: &[&str]) -> Output {
