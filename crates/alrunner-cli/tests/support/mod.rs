@@ -182,11 +182,19 @@ pub fn fake_artifact(root: &std::path::Path, build: &str, fail_b: bool) {
         r#"{"LegacyTests-Bucket1":["Tests-Other"]}"#,
     )
     .unwrap();
+    // One folder per test app, named after the app with `_` for spaces, as Microsoft's recipe reads them
+    // (`Get-DisabledTests -AppName`). The other app's folder disables Tests-Fake-B's test, which therefore still runs.
     let disabled = bcapps.join("src/DisabledTests");
-    std::fs::create_dir_all(&disabled).unwrap();
+    std::fs::create_dir_all(disabled.join("Tests-Fake-A")).unwrap();
     std::fs::write(
-        disabled.join("Fake.json"),
+        disabled.join("Tests-Fake-A/Fake.json"),
         r#"[{"codeunitId":50100,"codeunitName":"Fake A Tests","method":"ADisabled"}]"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(disabled.join("Some_Other_App")).unwrap();
+    std::fs::write(
+        disabled.join("Some_Other_App/Other.DisabledTest.json"),
+        r#"[{"codeunitId":50200,"codeunitName":"Fake B Tests","method":"*"}]"#,
     )
     .unwrap();
 }

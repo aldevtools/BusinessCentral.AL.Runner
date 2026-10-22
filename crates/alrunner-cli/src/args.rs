@@ -116,6 +116,9 @@ pub struct TestArgs {
     /// Not a command line option: `captureValues` and `iterationTracking` of a server request.
     pub capture: al_vm::CaptureConfig,
     pub verbose: bool,
+    /// `al-runner test-microsoft --list-lanes`: print the lane of every test app and its test counts; nothing is
+    /// compiled or run.
+    pub list_lanes: bool,
     /// `--color auto|always|never` (default auto).
     pub color: crate::style::ColorMode,
     pub quiet: bool,
@@ -159,6 +162,9 @@ pub struct TestArgs {
     pub legacy_demotool: bool,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
+    /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
+    /// are read (`<app name with _ for spaces>`), as Microsoft's recipe reads them; a missing folder disables nothing.
+    pub disabled_tests_apps: Vec<String>,
     /// `--parity`: skip the tests Microsoft turns off instead of running and marking them.
     pub parity: bool,
     /// `--recipe microsoft`: run the way Microsoft's CI does: one run per lane (the company each test codeunit gets),
@@ -673,6 +679,11 @@ TEST-MICROSOFT
                          With APPs (your extensions, no test codeunits): `al-runner test APP...
                          --affected-from microsoft` without own tests (see TEST SOURCES); --impact
                          applies. An APP with test codeunits is refused.
+    --list-lanes         Print, for every test app, the lane of Microsoft's CI each of its test codeunits
+                         runs in (the build mode: Default, IntegrationTests, UncategorizedTests,
+                         LegacyTestsBucket1, ...), with codeunits, tests, tests Microsoft disables and tests
+                         that would run, then one total per lane. Nothing is compiled or run. --verbose adds
+                         one line per codeunit. Not with an APP, --junit or --output-json.
     --app NAME           (also --microsoft-app NAME) Run only this test app, by its name in the
                          artifact (`Tests-ERM`), without case. Repeatable. An unknown name exits 2
                          and lists the names.
@@ -1199,6 +1210,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--affected-from" if !index_build => a.affected_from.push(text()?),
             "--from" if index_build => a.affected_from.push(text()?),
             "--app" if test_microsoft => a.microsoft_apps.push(text()?),
+            "--list-lanes" if test_microsoft => a.list_lanes = true,
             "--test-data-normalize-company" => {
                 return Err(format!(
                     "{flag} is not available: AL Runner v2's company normalization rules are not ported (ADR-020)"
@@ -1545,6 +1557,9 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
             ));
         }
     }
+    if a.list_lanes && (extension || a.junit.is_some() || a.output_json.is_some() || a.matrix.is_some()) {
+        return Err("--list-lanes only prints the lanes of Microsoft's test apps: it takes no APP, --junit, --output-json or matrix".into());
+    }
     if matches!(a.output_json, Some(None)) {
         return Err("al-runner test-microsoft writes one --output-json document per test app and lane: name a FILE (`--output-json results.json`)".into());
     }
@@ -1695,6 +1710,15 @@ mod tests {
                 .contains("needs --affected")
         );
         assert!(p("test-microsoft --output-json").unwrap_err().contains("FILE"));
+        match p("test-microsoft --list-lanes --app Tests-ERM").unwrap() {
+            Command::TestMicrosoft(a) => assert!(a.list_lanes),
+            other => panic!("{other:?}"),
+        }
+        for extra in ["MyApp", "--junit r.xml", "--output-json r.json"] {
+            let e = p(&format!("test-microsoft --list-lanes {extra}")).unwrap_err();
+            assert!(e.contains("--list-lanes"), "{extra}: {e}");
+        }
+        assert!(p("test --list-lanes").unwrap_err().contains("unknown option"));
         assert!(p("test-microsoft --output-json r.json").is_ok());
         // `--app` is the short form in this command only; `--microsoft-app` needs the command too.
         assert!(p("test A --app Tests-ERM").unwrap_err().contains("unknown option"));

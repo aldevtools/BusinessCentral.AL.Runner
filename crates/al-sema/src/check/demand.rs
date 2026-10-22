@@ -2220,7 +2220,11 @@ mod tests {
         let other = build(vec![]);
         let o = object(&other, "Rep");
         assert!(
-            other.program.objects[o].routines.iter().all(|r| r.name != "OnPreReport") || !compiled(&other, "Rep", "OnPreReport")
+            other.program.objects[o]
+                .routines
+                .iter()
+                .all(|r| r.name != "OnPreReport")
+                || !compiled(&other, "Rep", "OnPreReport")
         );
     }
 

@@ -9,6 +9,16 @@ pub fn test_codeunits(src: &str) -> Vec<(u32, Vec<String>)> {
     scan(src).into_iter().map(|c| (c.0, c.1)).collect()
 }
 
+/// The ids of the `Subtype = Test` codeunits in `src` that set `RequiredTestIsolation = Disabled`. Microsoft's recipe
+/// runs them only in a second pass of its UnitTest lane (BCApps `build/scripts/RunTestsInBcContainer.ps1`).
+pub fn isolation_disabled_codeunits(src: &str) -> Vec<u32> {
+    scan(src)
+        .into_iter()
+        .filter(|c| c.3.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("disabled")))
+        .map(|c| c.0)
+        .collect()
+}
+
 /// `(codeunit id, TestType)` for every `Subtype = Test` codeunit in `src`. The type is the value of the codeunit's
 /// `TestType = ...;` property as written (`UnitTest`, `IntegrationTest`, `Uncategorized`, `AITest`), or `None` when the
 /// codeunit has no such property. Microsoft's recipe picks the company of a run from it (BCApps
@@ -16,6 +26,9 @@ pub fn test_codeunits(src: &str) -> Vec<(u32, Vec<String>)> {
 pub fn test_codeunit_types(src: &str) -> Vec<(u32, Option<String>)> {
     scan(src).into_iter().map(|c| (c.0, c.2)).collect()
 }
+
+/// One test codeunit of [`scan`]: id, `[Test]` procedures, `TestType`, `RequiredTestIsolation` (as written).
+type Scanned = (u32, Vec<String>, Option<String>, Option<String>);
 
 /// Blanks `//` line comments and `/* */` block comments and the text of string
 /// literals, so a `//` inside quotes is not mistaken for a comment and words in a string are not code.
@@ -94,7 +107,7 @@ fn name_at(src: &str, at: usize) -> Option<&str> {
 }
 
 /// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
-fn scan(original: &str) -> Vec<(u32, Vec<String>, Option<String>)> {
+fn scan(original: &str) -> Vec<Scanned> {
     let stripped = strip_comments(original);
     let src = stripped.as_str();
     debug_assert_eq!(src.len(), original.len());
@@ -116,24 +129,29 @@ fn scan(original: &str) -> Vec<(u32, Vec<String>, Option<String>)> {
         spans.push((s, &src[s..]));
     }
     let words: Vec<&str> = spans.iter().map(|w| w.1).collect();
-    let mut out: Vec<(u32, Vec<String>, bool, Option<String>)> = Vec::new();
+    // Each codeunit as scanned, and whether it says `Subtype = Test`.
+    let mut out: Vec<(Scanned, bool)> = Vec::new();
     let mut i = 0;
     while i < words.len() {
         let w = words[i];
         if w.eq_ignore_ascii_case("codeunit") {
             if let Some(id) = words.get(i + 1).and_then(|n| n.parse::<u32>().ok()) {
                 // Only an object header is followed by an id; `Record Codeunit` etc. is not.
-                out.push((id, Vec::new(), false, None));
+                out.push(((id, Vec::new(), None, None), false));
                 i += 2;
                 continue;
             }
         }
-        if let Some(cur) = out.last_mut() {
+        if let Some((cur, is_test)) = out.last_mut() {
             if w.eq_ignore_ascii_case("subtype") {
                 if words.get(i + 1).is_some_and(|v| v.eq_ignore_ascii_case("test")) {
-                    cur.2 = true;
+                    *is_test = true;
                 }
             } else if w.eq_ignore_ascii_case("testtype") {
+                if let Some(v) = words.get(i + 1) {
+                    cur.2.get_or_insert_with(|| v.to_string());
+                }
+            } else if w.eq_ignore_ascii_case("requiredtestisolation") {
                 if let Some(v) = words.get(i + 1) {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
@@ -149,7 +167,7 @@ fn scan(original: &str) -> Vec<(u32, Vec<String>, Option<String>)> {
         }
         i += 1;
     }
-    out.into_iter().filter(|c| c.2).map(|c| (c.0, c.1, c.3)).collect()
+    out.into_iter().filter(|c| c.1).map(|c| c.0).collect()
 }
 
 #[cfg(test)]
@@ -191,6 +209,14 @@ mod tests {
                 (3, Some("IntegrationTest".to_string()))
             ]
         );
+    }
+
+    #[test]
+    fn the_required_test_isolation_disabled_property_is_read_per_codeunit() {
+        let src = "codeunit 1 \"A\" { Subtype = Test; RequiredTestIsolation = Disabled; [Test] procedure X() begin end; }\n\
+                   codeunit 2 \"B\" { Subtype = Test; RequiredTestIsolation = None; [Test] procedure Y() begin end; }\n\
+                   codeunit 3 \"C\" { Subtype = Test; TestType = UnitTest; [Test] procedure Z() begin end; }";
+        assert_eq!(isolation_disabled_codeunits(src), vec![1]);
     }
 
     #[test]
