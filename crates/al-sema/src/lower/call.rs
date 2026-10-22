@@ -293,8 +293,9 @@ impl Lowerer<'_> {
             }
             // Refused when it runs, so code that never reaches it still runs: Base Application's Item Picture page exports in an
             // action's trigger, which a test that only opens an Item Card never invokes. What the call writes is not pinned (the
-            // corpus skips it: streams/lt-stream-read-write-media/P102Media.al line 5).
-            Some(Res::Builtin(id)) if matches!(id.as_str(), "Media.ExportFile#1" | "MediaSet.ExportFile#1") => {
+            // corpus skips it: streams/lt-stream-read-write-media/P102Media.al line 5). MediaSet.ExportFile is a native that
+            // refuses when it runs outside the company build (al-builtins media.rs set_export_file).
+            Some(Res::Builtin(id)) if id == "Media.ExportFile#1" => {
                 Ok(ir::Expr::Refused(format!(
                     "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
                 )))

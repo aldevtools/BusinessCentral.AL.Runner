@@ -307,6 +307,28 @@ fn set_count(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     Ok(Value::Integer(n as i32))
 }
 
+/// `MediaSet.ExportFile(Prefix)` (OnPrem). Pinned: a set of two items answers 2 and no file is named as the prefix itself
+/// (media/MediaFiles.al:210-263 MediaSet_ImportFile_ExportFile). The names of the files written are not pinned, so only inside
+/// Microsoft's DemoTool company build (Config. XML Exchange.ExportMediaSet writes them next to a package and nothing reads them
+/// back) the count is answered and no file is written; a look under the prefix is refused (assumption
+/// company-build-media-set-export-not-written). Elsewhere, and for an empty set, the call is refused.
+fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    const REFUSED: &str =
+        "builtin MediaSet.ExportFile#1: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)";
+    let id = id_of(&r)?;
+    let prefix = text_arg(a, 0)?;
+    let n = if id == [0; 16] {
+        0
+    } else {
+        store(c)?.sets.borrow().get(&id).map_or(0, Vec::len)
+    };
+    if n == 0 || prefix.is_empty() || !c.company_build_media_export(&prefix) {
+        return unsupported(REFUSED);
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildMediaSetExportNotWritten);
+    Ok(Value::Integer(n as i32))
+}
+
 fn set_item(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let id = id_of(&r)?;
     let Some(Value::Integer(i)) = a.first() else {
@@ -507,6 +529,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("Media.ExportStream#1", media_export),
     ("MediaSet.MediaId#1", media_id),
     ("MediaSet.Count#1", set_count),
+    ("MediaSet.ExportFile#1", set_export_file),
     ("MediaSet.Item#1", set_item),
     ("MediaSet.ImportStream#1", set_import),
     ("MediaSet.Remove#1", set_remove),

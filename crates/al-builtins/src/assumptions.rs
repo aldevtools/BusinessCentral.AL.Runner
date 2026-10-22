@@ -451,6 +451,12 @@ registry! {
         tests: "Post Inventory Cost to G/L through Library - Costing and Library - Assembly PostInvtCostToGL (SCM Kitting D3 Part 1 and 2, SCM WIP Costing Production I and II, SCM Costing Batch); Check.SaveAsPdf (ERM Cash Manager, Match Bank Rec. Scenarios).",
         probe: "A report on the list saved to a temp file and to a stream on a Windows tier: the answer, the order of the triggers, File.Exists and TempBlob.Length afterwards.",
     },
+    CompanyBuildMediaSetExportNotWritten => {
+        id: "company-build-media-set-export-not-written",
+        assumed: "Inside Microsoft's DemoTool company build only, MediaSet.ExportFile(Prefix) on a path in the temporary folder answers the number of items of the set (pinned: media/MediaFiles.al:241-263, export_count 2) and writes no file; AL that looks at a path under the prefix is refused. The names of the files BC writes are not pinned.",
+        tests: "Microsoft's DemoTool company build (Export RapidStart Packages, Config. XML Exchange.ExportMediaSet, ConfigXMLExchange.Codeunit.al:1453: the media files are written next to the package and nothing reads them back); every test of the Legacy lane (for example Tests-SCM-Warehouse 137015) needs that company and passes in Microsoft's CI.",
+        probe: "MediaSet.ExportFile(Prefix) of a set with a JPEG and a PNG item: the names of the files written (File.Exists of Prefix + '1.jpg', Prefix + '-1.jpg', Prefix + MediaId + '.jpg' and Directory.GetFiles of the folder), and the answer for an empty set.",
+    },
     BitmapPictureNotDrawn => {
         id: "bitmap-picture-not-drawn",
         assumed: "O365 Brand Color.MakePicture (new Bitmap(100, 100), Graphics.FromImage, ColorTranslator.FromHtml, new SolidBrush, FillEllipse, Graphics.Dispose, Bitmap.Save(InStream, ImageFormat.Png), Bitmap.Dispose) runs without error on real BC, draws nothing here, and Media.ImportStream of the saved stream gives a field with a value (HasValue true); AL that looks at the picture (stream read, length, export, Tenant Media row) is refused (ADR-044).",
