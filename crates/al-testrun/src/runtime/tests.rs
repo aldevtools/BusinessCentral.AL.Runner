@@ -2327,3 +2327,54 @@ fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
         "{o:?}"
     );
 }
+
+// al-runner issue 5641: code in a company-open subscriber's static reach that does not run (a routine refused at lowering
+// for a `[RunOnClient]` variable, a run by an id known only at run time, behind a branch that is not taken) refused every
+// test of the run. The subscriber runs to its end before the first test, so what it wrote is known: the tables it wrote at
+// run time decide. A test whose static reach reads one is not run; a test whose static reach is not known runs, and is not
+// run when it touches a written table while it runs.
+#[test]
+fn a_company_open_subscriber_refuses_only_tests_that_touch_what_it_wrote_at_run_time() {
+    let o = outcomes(
+        "dotnet { assembly(\"System.Drawing\") { type(\"System.Drawing.Printing.PrinterSettings\"; \"PrinterSettings\") { } } }
+            table 60901 Co { fields { field(1; K; Code[10]) { } } }
+            table 60902 Other { fields { field(1; K; Code[10]) { } } }
+            codeunit 60907 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+                local procedure Open() var R: Record Co; Id: Integer;
+                begin
+                    R.K := 'OPENED'; if R.Insert() then;
+                    if R.K = 'NEVER' then begin ClientPrinter(); Id := R.Count(); Codeunit.Run(Id); end;
+                end;
+                local procedure ClientPrinter(): Text var [RunOnClient] Settings: DotNet PrinterSettings;
+                begin Settings := Settings.PrinterSettings(); exit(Settings.PrinterName); end; }
+            codeunit 60903 ReadsCo { trigger OnRun() var R: Record Co; begin if R.IsEmpty() then Error('empty'); end; }
+            codeunit 60904 NoTable { trigger OnRun() begin end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure Unrelated() begin end;
+                [Test] procedure ReadsOtherTable() var R: Record Other; begin if not R.IsEmpty() then Error('not empty'); end;
+                [Test] procedure ReadsWrittenTable() var R: Record Co; begin if R.IsEmpty() then Error('empty'); end;
+                [Test] procedure UnknownReachTouchesNothing() var Id: Integer; begin Id := 60904; Codeunit.Run(Id); end;
+                [Test] procedure UnknownReachReadsWrittenTable() var Id: Integer; begin Id := 60903; Codeunit.Run(Id); end; }",
+    );
+    let of = |n: &str| o.iter().find(|(t, _)| t == n).map(|(_, r)| r.clone()).unwrap();
+    for n in ["Unrelated", "ReadsOtherTable", "UnknownReachTouchesNothing"] {
+        assert_eq!(of(n), Outcome::Pass, "{n}: {o:?}");
+    }
+    for n in ["ReadsWrittenTable", "UnknownReachReadsWrittenTable"] {
+        assert!(
+            matches!(&of(n), Outcome::NotRun(r) if r.contains("OnCompanyOpen") && r.contains("table Co")),
+            "{n}: {o:?}"
+        );
+    }
+    // A subscriber whose reach is not known and that wrote nothing when it ran refuses no test.
+    let o = outcomes(
+        "table 60901 Co { fields { field(1; K; Code[10]) { } } }
+            codeunit 60907 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+                local procedure Open() var R: Record Co; Id: Integer; begin if R.K = 'NEVER' then begin R.Insert(); Codeunit.Run(Id); end; end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure ReadsCo() var R: Record Co; begin if not R.IsEmpty() then Error('not empty'); end; }",
+    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}

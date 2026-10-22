@@ -468,46 +468,47 @@ fn company_open(lowered: &Lowered, session: &mut Session, app: usize) -> Result<
 /// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
 /// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/lt-bf-company-open/BfCompanyOpenTests.al:19-38,
 /// :40-50; events/lt-platform-events-v/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
-/// does with the database writes of a subscriber is not pinned: the tables they can write are returned, and a test whose
-/// reach can read one is not run (`CompanyOpenWrites::refuses`; al-runner issue 5606). A subscriber that writes and whose
-/// reach is not known refuses the codeunit. The subscribers of dependency apps do not run here, as in the install session
-/// (A4 item 4).
-/// The tables the Company Triggers subscribers of the test session can write ([`test_session_company_open`]).
+/// does with the database writes of a subscriber is not pinned: the tables they wrote while they ran are returned, and a
+/// test that can read one is not run (`CompanyOpenWrites::refuses` before it starts, `CompanyOpenWrites::touched` after it
+/// ran; al-runner issues 5606, 5641). A subscriber that did not run to its end refuses the codeunit. The subscribers of
+/// dependency apps do not run here, as in the install session (A4 item 4).
+/// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
 #[derive(Debug, Default)]
 pub(crate) struct CompanyOpenWrites {
-    /// The first subscriber that writes, for the reason text.
+    /// The first subscriber that wrote, for the reason text.
     pub who: Option<String>,
     pub tables: BTreeSet<u32>,
-    /// A write whose table is not known statically: any table.
-    pub any: bool,
 }
 
 impl CompanyOpenWrites {
-    /// Why a routine whose reach is `facts` is not run: it can read a table a subscriber wrote, or its reach is not known.
-    /// `None` when no subscriber wrote, or the routine cannot see the writes.
+    fn reason(&self, what: &str) -> String {
+        format!(
+            "Company Triggers OnCompanyOpen(Completed) subscriber {} writes the database in the test session before the first test, and {what}: what the test runner does with the writes is not pinned (ADR-046 amendment 1, A4 item 10)",
+            self.who.as_deref().unwrap_or("?")
+        )
+    }
+
+    fn table_name(lowered: &Lowered, t: u32) -> &str {
+        lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str())
+    }
+
+    /// Why a routine whose static reach is `facts` is not run: its reach can read a table a subscriber wrote. `None` when
+    /// no subscriber wrote, the routine cannot see the writes, or its reach is not known: then the routine runs with the
+    /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran.
     pub fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
-        let who = self.who.as_ref()?;
-        let what = match &facts.unknown {
-            Some(why) => format!("part of this test's reach is not known ({why})"),
-            None => {
-                let met = if self.any {
-                    facts.touched.iter().next()
-                } else {
-                    self.tables.intersection(&facts.touched).next()
-                };
-                let t = met?;
-                format!(
-                    "this test can read table {}",
-                    lowered
-                        .program
-                        .objects
-                        .get(*t as usize)
-                        .map_or("?", |o| o.name.as_str())
-                )
-            }
-        };
-        Some(format!(
-            "Company Triggers OnCompanyOpen(Completed) subscriber {who} writes the database in the test session before the first test, and {what}: what the test runner does with the writes is not pinned (ADR-046 amendment 1, A4 item 10)"
+        self.who.as_ref()?;
+        if facts.unknown.is_some() {
+            return None;
+        }
+        let t = self.tables.intersection(&facts.touched).next()?;
+        Some(self.reason(&format!("this test can read table {}", Self::table_name(lowered, *t))))
+    }
+
+    /// Why a test that read or wrote table `t`, which a subscriber wrote, while it ran is not run.
+    pub fn touched(&self, t: u32, lowered: &Lowered) -> String {
+        self.reason(&format!(
+            "this test read or wrote table {} while it ran",
+            Self::table_name(lowered, t)
         ))
     }
 }
@@ -532,25 +533,15 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
     }
     for (o, r) in subs {
         let who = label(lowered, o, r);
-        let written = closure(lowered, o, r).written;
-        let index = engine.derived(|| crate::runtime::written::ReachIndex::new(&engine.events, lowered));
-        let facts = crate::runtime::written::reach_facts(&engine.events, lowered, &index, o, r);
-        if !written.is_empty() || !facts.writes.is_empty() || facts.writes_any {
-            if let Some(why) = &facts.unknown {
-                return Err(format!(
-                    "Company Triggers OnCompanyOpen(Completed) subscriber {who} writes the database in the test session before the first test, and part of its reach is not known ({why}): what the test runner does with the writes is not pinned (ADR-046 amendment 1, A4 item 10)"
-                ));
-            }
-            wrote.tables.extend(written);
-            wrote.tables.extend(facts.writes.iter().copied());
-            wrote.any |= facts.writes_any;
-            wrote.who.get_or_insert(who.clone());
-        }
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
             return Err(format!(
                 "Company Triggers OnCompanyOpen(Completed) subscriber {who} before the first test: {reason}"
             ));
         }
+        // The subscriber runs here, so what it wrote is what it wrote while it ran, not what its static reach could write:
+        // code it did not run (a routine refused at lowering, a run by an id known only at run time, behind a branch that
+        // is not taken) wrote nothing (al-runner issue 5641). Code it ran that is not supported raises `Unsupported`.
+        let since = session.store_mut().change_counter();
         match session.call_parameterless_subscriber(o, r) {
             Ok(()) => {}
             Err(Signal::Unsupported(why)) => {
@@ -569,6 +560,18 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
                     "Company Triggers OnCompanyOpen(Completed) subscriber {who} stopped before the first test (not pinned)"
                 ));
             }
+        }
+        let store = session.store_mut();
+        // A change to a computed (platform) table is not a stored row the watch can follow.
+        if store.virtual_write_pending() {
+            return Err(format!(
+                "Company Triggers OnCompanyOpen(Completed) subscriber {who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)"
+            ));
+        }
+        let changed = store.tables_changed_since(since);
+        if !changed.is_empty() {
+            wrote.tables.extend(changed);
+            wrote.who.get_or_insert(who);
         }
     }
     Ok(wrote)

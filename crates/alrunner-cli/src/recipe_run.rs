@@ -53,6 +53,10 @@ pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], 
     let mut a = base.clone();
     a.recipe = false;
     a.bcapps_dir = None;
+    // The recipe's own time limit, unless the command line or the environment names one.
+    if a.test_timeout_secs.is_none() && !crate::run::test_timeout_env_set() {
+        a.test_timeout_secs = Some(crate::run::RECIPE_TEST_TIMEOUT_SECS);
+    }
     a.codeunits = if base.codeunits.is_empty() {
         codeunits.to_vec()
     } else {
@@ -353,6 +357,19 @@ mod tests {
         assert!(a.no_test_data && !a.company_package);
         assert_eq!(a.company_name.as_deref(), Some("Empty Company"));
         assert_eq!(a.junit, Some(PathBuf::from("out/r.unittest.xml")));
+    }
+
+    #[test]
+    fn a_lane_gets_the_recipe_time_limit_unless_the_command_line_names_one() {
+        let a = lane_args(&base(), Lane::Legacy, "C", &[5], &recipe());
+        assert_eq!(a.test_timeout_secs, Some(60));
+        let mut b = base();
+        b.test_timeout_secs = Some(5);
+        let a = lane_args(&b, Lane::UnitTest, "C", &[5], &recipe());
+        assert_eq!(a.test_timeout_secs, Some(5));
+        b.test_timeout_secs = Some(0);
+        let a = lane_args(&b, Lane::Legacy, "C", &[5], &recipe());
+        assert_eq!(a.test_timeout_secs, Some(0), "0 (no limit) is kept");
     }
 
     #[test]
