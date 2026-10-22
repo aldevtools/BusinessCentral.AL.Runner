@@ -951,30 +951,73 @@ fn a_dotnet_exception_is_unsupported_with_the_clr_type_message_and_inner_excepti
     assert!(why.contains("not pinned"), "{why}");
 }
 
-// The runtime's .NET host has only the encodings .NET itself ships (no code pages such as 1252). Whether BC's server
-// answers Encoding.GetEncoding(1252) with an encoding is not pinned (docs/probes-needed.md, "Encoding.GetEncoding with a
-// code page"), so the refusal says that, not the host's NotSupportedException as if BC raised it.
-#[test]
-fn get_encoding_of_a_code_page_the_host_lacks_is_refused_as_not_pinned() {
-    let host = Fake::new(|_| {
+fn get_encoding_failure(clr_type: &'static str, message: &'static str) -> Fake {
+    Fake::new(move |_| {
         Err(DotNetFailure::Exception(DotNetException {
-            clr_type: "System.NotSupportedException".into(),
-            message: "No data is available for encoding 1252. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.".into(),
+            clr_type: clr_type.into(),
+            message: message.into(),
             inner: vec![],
         }))
-    });
+    })
+}
+
+// An out-of-range code page: BC raises the .NET message with code DotNetInvoke:ArgumentOutOfRange
+// (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:168, :244).
+#[test]
+fn get_encoding_of_an_out_of_range_code_page_raises_argument_out_of_range() {
+    let host = get_encoding_failure(
+        "System.ArgumentOutOfRangeException",
+        "Valid values are between 0 and 65535, inclusive. (Parameter 'codepage')",
+    );
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding; T: Text;",
+        "asserterror X := E.GetEncoding(99999); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Text.Encoding.GetEncoding failed with this message: Valid values are between 0 and 65535, \
+         inclusive. (Parameter 'codepage')#DotNetInvoke:ArgumentOutOfRange"
+    );
+}
+
+// An unknown encoding name: code DotNetInvoke:Argument (RaEncodingCodePages.al:168).
+#[test]
+fn get_encoding_of_an_unknown_name_raises_argument() {
+    let host = get_encoding_failure(
+        "System.ArgumentException",
+        "'x' is not a supported encoding name. (Parameter 'name')",
+    );
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding; T: Text;",
+        "asserterror X := E.GetEncoding('x'); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Text.Encoding.GetEncoding failed with this message: 'x' is not a supported encoding name. \
+         (Parameter 'name')#DotNetInvoke:Argument"
+    );
+}
+
+// A code page in range that .NET has no data for (none pinned): still refused, the error BC raises is not pinned.
+#[test]
+fn get_encoding_of_a_code_page_without_data_is_refused_as_not_pinned() {
+    let host = get_encoding_failure(
+        "System.NotSupportedException",
+        "No data is available for encoding 12345.",
+    );
     let r = run(
         &host,
         "E: DotNet Encoding; X: DotNet Encoding;",
-        "X := E.GetEncoding(1252);",
+        "X := E.GetEncoding(12345);",
         "",
     );
     let why = unsupported(&r);
-    assert_eq!(
-        why,
-        "DotNet System.Text.Encoding.GetEncoding: the runtime's .NET host has no code-page encodings (code page 1252); \
-         whether Business Central provides them is not pinned (docs/probes-needed.md)"
-    );
+    assert!(why.contains("System.Text.Encoding.GetEncoding"), "{why}");
+    assert!(why.contains("not pinned"), "{why}");
 }
 
 #[test]
