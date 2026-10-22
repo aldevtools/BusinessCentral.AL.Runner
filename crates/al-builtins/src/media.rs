@@ -272,13 +272,24 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    if let Some(report) = &obj.pending {
+    // A .docx imported on BC 29 exports without an error (media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
+    // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
+    // import's mark, so a look at what it holds is refused.
+    let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
+    if let Some(report) = obj.pending.as_ref().filter(|_| !docx_mark) {
         return Err(crate::stream::render_pending_error(report));
     }
     let Some(Value::Library(_, h)) = a.first() else {
         return unsupported("Media.ExportStream without an OutStream");
     };
     match &*h.borrow() {
+        LibraryValue::OutStream(blob, _) if docx_mark => {
+            let mut buf = blob.borrow_mut();
+            buf.bytes.clear();
+            buf.loaded = true;
+            buf.written = true;
+            buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
+        }
         // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
         LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         LibraryValue::OutStream(blob, _) => {
