@@ -376,6 +376,12 @@ impl Providers {
                 row[pos(t, 4)] = Value::Text(o.mime.clone().into());
                 row[pos(t, 5)] = Value::Integer(o.height);
                 row[pos(t, 6)] = Value::Integer(o.width);
+                if let (Some(name), Some(p)) = (
+                    &o.file_column,
+                    t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("File Name")),
+                ) {
+                    row[p] = Value::Text(name.clone().into());
+                }
                 // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
                 if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Company Name")) {
                     row[p] = Value::Text(self.ident.company.clone().into());

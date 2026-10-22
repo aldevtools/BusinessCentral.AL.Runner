@@ -225,3 +225,91 @@ fn importing_into_a_media_that_holds_a_value_replaces_it() {
     );
     assert_eq!(text("", &body).unwrap(), "Yes");
 }
+
+// ---- Media.ImportFile of a file that exists --------------------------------------------------------------------------
+
+const TENANT_MEDIA: &str = r#"
+table 2000000184 "Tenant Media"
+{
+    fields
+    {
+        field(1; ID; Guid) { } field(2; Description; Text[250]) { } field(3; Content; Blob) { }
+        field(4; "Mime Type"; Text[100]) { } field(5; Height; Integer) { } field(6; Width; Integer) { }
+        field(11; "File Name"; Text[250]) { }
+    }
+    keys { key(PK; ID) { } }
+}
+"#;
+
+/// A JPEG of 3 x 2 pixels as far as its size goes: SOI, APP0, SOF0, EOI.
+fn jpeg() -> Vec<u8> {
+    let mut b = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+    b.extend_from_slice(b"JFIF\0\x01\x01\x00\x00\x01\x00\x01\x00\x00");
+    b.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x02, 0x00, 0x03, 0x03]);
+    b.extend_from_slice(&[1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+    b.extend_from_slice(&[0xFF, 0xD9]);
+    b
+}
+
+/// A PNG of 4 x 5 pixels as far as its size goes.
+fn png() -> Vec<u8> {
+    let mut b = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+    b.extend_from_slice(b"IHDR");
+    b.extend_from_slice(&[0, 0, 0, 4, 0, 0, 0, 5, 8, 6, 0, 0, 0, 0, 0, 0, 0]);
+    b
+}
+
+fn import_file(body: &str) -> Result<String, Signal> {
+    use al_host::FileSystem;
+    let src = format!(
+        "{TABLE}{TENANT_MEDIA}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; T: Record \"Tenant Media\"; id: Guid; {body} }}"
+    );
+    let l = al_testkit::compile(&src);
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == "F").unwrap();
+    let mut files = al_host::MemFileSystem::default();
+    files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
+    files.write("\\TEMP\\b.png", &png()).unwrap();
+    files.write("\\TEMP\\c.png", &jpeg()).unwrap();
+    files.write("\\TEMP\\d.gif", &png()).unwrap();
+    let mut s = Session::with_host(al_testkit::engine(&l), al_host::Host::default().with_files(files));
+    let inst = s.instance(oi);
+    match s.call(oi, ri, inst, vec![])?.0 {
+        Value::Text(t) => Ok(t.to_string()),
+        other => panic!("{other:?}"),
+    }
+}
+
+const DESCRIBE: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); exit(Format(Rec.Picture.HasValue()) + '|' + T.Description + '|' + \
+                        T.\"Mime Type\" + '|' + Format(T.Width) + 'x' + Format(T.Height) + '|' + T.\"File Name\");";
+
+// onprem media/MediaFiles.al:293-340 QX_MediaAndMediaSet_ImportFile_Jpeg: the returned id is the media's, image/jpeg from a
+// .jpg (and .JPG) file, the picture's size, and the File Name is the path as given ('<tmp><name>').
+#[test]
+fn import_file_of_a_jpeg_file_fills_the_tenant_media_row() {
+    let r = import_file(&format!("begin id := Rec.Picture.ImportFile('\\TEMP\\a.jpg', 'Cronus'); {DESCRIBE} end;"));
+    assert_eq!(r.unwrap(), "Yes|Cronus|image/jpeg|3x2|\\TEMP\\a.jpg");
+}
+
+// Not pinned: a .png file (Microsoft's DemoTool, Create Getting Started Data through Media Resources Mgt.InsertMediaFromFile).
+// Answered as a PNG imported from a stream, under the assumption `media-importfile-png`.
+#[test]
+fn import_file_of_a_png_file_takes_its_assumption() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    take_hits();
+    let r = import_file(&format!("begin id := Rec.Picture.ImportFile('\\TEMP\\b.png', 'P'); {DESCRIBE} end;"));
+    assert_eq!(r.unwrap(), "Yes|P|image/png|4x5|\\TEMP\\b.png");
+    assert!(take_hits().contains(&Assumption::MediaImportFilePng));
+}
+
+#[test]
+fn import_file_of_other_content_or_a_media_set_stays_refused() {
+    for body in [
+        "begin Rec.Picture.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
+        "begin Rec.Picture.ImportFile('\\TEMP\\d.gif', 'x'); exit(''); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); exit(''); end;",
+    ] {
+        let r = import_file(body);
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
+    }
+}
