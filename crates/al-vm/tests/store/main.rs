@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of store/.
 
+mod blob_calcfields_after_run;
 mod autoinc_non_key;
 mod bump_36_transferfields_system_fields;
 mod companies;

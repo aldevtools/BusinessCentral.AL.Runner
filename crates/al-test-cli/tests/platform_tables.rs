@@ -279,6 +279,32 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "PendingHasARow");
 }
 
+// A table without a key over SystemRowVersion has no Field row for it (metadata/W6FieldKeyRows.al:263-270,
+// record/TestFieldLenAndFeatureKeyContracts.al:107-116). Whether a table that declares such a key has one (No. 0,
+// named `timestamp` like RecordRef.Field(0): record/TestRowVersionFieldNumberFieldActiveContracts.al:63-67) is not
+// pinned, so a read that could see that row is refused; a read the row cannot touch still answers.
+#[test]
+fn a_field_row_for_the_rowversion_of_a_table_with_a_rowversion_key_is_refused() {
+    let o = outcomes(
+        r#"table 50003 "Rv Host" { fields { field(1; Id; Integer) { } field(2; Txt; Text[10]) { } }
+  keys { key(PK; Id) { } key(Rv; SystemRowVersion) { } } }
+table 50004 "No Rv" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure FindsByName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then; end;
+  [Test] procedure CountsFields() var F: Record Field; begin F.SetRange(TableNo, 50003); if F.Count() = 0 then; end;
+  [Test] procedure OtherName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'Txt'); F.FindFirst(); if F."No." <> 2 then Error('wrong'); end;
+  [Test] procedure GetByNumber() var F: Record Field; begin F.Get(50003, 2); end;
+  [Test] procedure NoKeyNoRow() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then Error('listed'); end; }"#,
+    );
+    for t in ["FindsByName", "CountsFields"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("SystemRowVersion"), "{t}: {why}");
+    }
+    for t in ["OtherName", "GetByNumber", "NoKeyNoRow"] {
+        passes(&o, t);
+    }
+}
+
 #[test]
 fn registry_providers_are_virtual_or_stored() {
     for (_, name, p) in REGISTRY {
