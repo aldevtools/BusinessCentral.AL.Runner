@@ -118,6 +118,8 @@ pub(crate) struct EventState {
     pub(crate) unpinned_event_depth: usize,
     /// Set while `MakeDateFilter` is raised: subscribers of dependency apps (Microsoft's Filter Tokens) are left out (filterevents.rs).
     pub(crate) skip_dependency_subscribers: bool,
+    /// Apps whose subscribers do not run, because they are not installed yet (`Session::set_apps_not_installed`).
+    pub(crate) not_installed_apps: Option<std::collections::BTreeSet<u32>>,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
     pub(crate) global_setups: std::collections::HashMap<usize, globaltriggers::GlobalSetup>,
 }

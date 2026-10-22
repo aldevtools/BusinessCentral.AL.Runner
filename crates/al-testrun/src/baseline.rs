@@ -119,13 +119,31 @@ pub fn run_traced(
     // subscribers, ADR-046 decision 1), every per-company routine, then every per-database routine, which runs last and
     // with CompanyName() empty. Measured on real BC 27.5 (a fresh install with two companies, a scratch app;
     // docs/probes-needed.md) and pinned by install/lt-bf-install-probes/BfInstallTests.al:138-140, :239.
+    //
+    // With a company data codeunit whose recipe installs only some apps first (`CompanyData::installed_first`; Microsoft's
+    // Legacy lane, BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923: `Install-BaseAppsForDemoTool`,
+    // `New-TestCompany`, `Invoke-LegacyDemoDataTool`, then `Install-AllApps`), the install code of the other apps runs
+    // after the codeunit, and their subscribers do not run before that.
+    let late_apps: Option<BTreeSet<u32>> = company.and_then(|c| c.installed_first.as_ref()).map(|first| {
+        lowered
+            .program
+            .apps
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| !first.iter().any(|n| n.eq_ignore_ascii_case(&a.name)))
+            .map(|(i, _)| i as u32)
+            .collect()
+    });
+    let is_late = |app: usize| late_apps.as_ref().is_some_and(|l| l.contains(&(app as u32)));
     let mut roots: Vec<(usize, usize, bool, bool)> = Vec::new();
+    let mut late_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
     for app in crate::install::plan(lowered, &engine.events, true) {
+        let into = if is_late(app.app) { &mut late_roots } else { &mut roots };
         for &(oi, ri) in &app.company {
-            roots.push((oi, ri, false, false));
+            into.push((oi, ri, false, false));
         }
         for &(oi, ri) in &app.database {
-            roots.push((oi, ri, false, true));
+            into.push((oi, ri, false, true));
         }
     }
     let company_initialize = (0..objs.len()).find(|&oi| {
@@ -170,6 +188,9 @@ pub fn run_traced(
             None => company_missing = Some(format!("no dependency app has codeunit {} \"{}\"", c.codeunit, c.name)),
         }
     }
+    // Where the apps installed after the company is built begin.
+    let late_from = late_apps.as_ref().map(|_| roots.len());
+    roots.extend(late_roots);
     if roots.is_empty() && company_missing.is_none() {
         return None;
     }
@@ -193,12 +214,22 @@ pub fn run_traced(
     let mut touched = BTreeSet::new();
     let mut ran = 0;
     al_builtins::assumptions::clear_hits();
-    let company = session.set_company("");
-    session.set_company(&company);
+    let run_environment = session.environment();
+    let company_name = session.set_company("");
+    session.set_company(&company_name);
+    // The company is built on the server kind its recipe names; the apps under test install, and the tests run, on the
+    // run's own.
+    if let Some(e) = company.and_then(|c| c.environment) {
+        session.set_environment(e);
+    }
+    session.set_apps_not_installed(late_apps.clone());
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
     for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
+        if late_from == Some(k) {
+            session.set_apps_not_installed(None);
+        }
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
         if no_company {
             session.set_company("");
@@ -223,7 +254,7 @@ pub fn run_traced(
             Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
             Err(_) => None,
         };
-        session.set_company(&company);
+        session.set_company(&company_name);
         match why {
             None => {
                 ran += 1;
@@ -254,6 +285,8 @@ pub fn run_traced(
             }
         }
     }
+    session.set_apps_not_installed(None);
+    session.set_environment(run_environment);
     session.trace_faults(false);
     // The baseline is not a test, so no test carries its marks; the run says what the shared start relied on.
     for a in al_builtins::assumptions::take_hits() {

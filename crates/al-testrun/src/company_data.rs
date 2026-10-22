@@ -27,6 +27,12 @@ pub struct CompanyData {
     /// What the company depends on beyond the program, for the key of the kept baseline (the source of the codeunit's
     /// app and its resources, as the caller describes them).
     pub identity: String,
+    /// The kind of server the company is built on, if not the run's own (`--environment`): the dependency installs,
+    /// `Company-Initialize` and the codeunit run on it, the tests and the install code of the apps under test do not.
+    pub environment: Option<al_host::Environment>,
+    /// The names of the apps installed before the company is built (matched without case), if not every app: the
+    /// install code of the other apps runs after the codeunit, and their event subscribers do not run before that.
+    pub installed_first: Option<Vec<String>>,
 }
 
 /// The id of the DemoTool's `Create Demo Data from Config` (BCApps `src/Layers/W1/DemoTool/CreateDemoDatafromConfig.Codeunit.al`).

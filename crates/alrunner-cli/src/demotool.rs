@@ -19,8 +19,15 @@ use al_deps::select::DepDecl;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-/// The parts of BCApps the DemoTool needs.
-pub const SPARSE_PATHS: [&str; 2] = ["src/DemoTool", "src/Layers/W1/DemoTool"];
+/// The parts of BCApps the DemoTool needs. `build/scripts` brings, as a sparse checkout in cone mode does, the files of
+/// `build` itself, among them [`GROUPS`].
+pub const SPARSE_PATHS: [&str; 3] = ["src/DemoTool", "src/Layers/W1/DemoTool", "build/scripts"];
+
+/// The app groups of BCApps' build, which say which apps are installed before the DemoTool runs.
+const GROUPS: &str = "build/groups.json";
+
+/// The country of the DemoTool's layer (`src/Layers/W1`).
+const COUNTRY: &str = "W1";
 
 /// Written last into a finished cache folder.
 const COMPLETE: &str = ".alrunner-complete";
@@ -41,6 +48,8 @@ pub struct DemoTool {
     pub identity: String,
     /// One line: where it came from.
     pub how: String,
+    /// The apps installed before the DemoTool runs (names).
+    pub installed_first: Vec<String>,
 }
 
 impl DemoTool {
@@ -62,6 +71,10 @@ impl DemoTool {
             name: al_testrun::company_data::DEMOTOOL_CODEUNIT_NAME.to_string(),
             resources: Some(self.resources.clone()),
             identity: self.identity.clone(),
+            // Microsoft's Legacy lane builds the company in an on-prem container (the DemoTool app is `"target":
+            // "OnPrem"`); only the company build runs so, the tests keep `--environment`.
+            environment: Some(al_host::Environment::OnPrem),
+            installed_first: Some(self.installed_first.clone()),
         }
     }
 }
@@ -92,7 +105,8 @@ pub fn resolve(
         None => {
             let dir = cache_dir(cache_root, major, minor);
             let own = bcapps::branch(major, minor);
-            if !dir.join(COMPLETE).is_file() {
+            // A cache folder from before the install groups were part of the fetch is fetched again.
+            if !dir.join(COMPLETE).is_file() || !dir.join(GROUPS).is_file() {
                 if offline {
                     return Err(format!(
                         "the DemoTool of {major}.{minor} is not in the cache ({}) and --no-download forbids fetching it; run once without --no-download, or name a BCApps checkout with --demotool DIR",
@@ -137,17 +151,55 @@ pub fn resolve(
                 .join(format!("staged-{}", short_hash(dir.to_string_lossy().as_bytes())));
             let _ = std::fs::remove_dir_all(&staged);
             stage_into(&dir, &staged)?;
-            return finish(app_dir, app, staged, how);
+            return finish(&dir, app_dir, app, staged, how);
         }
         stage(&dir)?;
     }
-    finish(app_dir, app, resources, how)
+    finish(&dir, app_dir, app, resources, how)
 }
 
-fn finish(app_dir: PathBuf, app: AppJson, resources: PathBuf, how: String) -> Result<DemoTool, String> {
+/// The apps BCApps' `Install-BaseAppsForDemoTool` installs before the DemoTool runs (build/scripts/
+/// ImportTestDataInBcContainer.ps1): the apps of the groups `Base`, `TestFramework` and `LocalBaseExtensions` of the
+/// country (`Get-ApplicationGroup`, ALAppBuild.psm1 `GetApplicationsInGroup`: an app is in a group when the group lists
+/// no `countries` or lists the country, and does not list it in `exclude_countries`), and the DemoTool. Like the script,
+/// it takes the names and leaves `doNotInstall` aside.
+fn installed_first(groups_json: &str, country: &str) -> Result<Vec<String>, String> {
+    let apps: Vec<serde_json::Value> = serde_json::from_str(groups_json).map_err(|e| format!("{GROUPS}: {e}"))?;
+    let lists = |g: &serde_json::Value, key: &str| {
+        g.get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().any(|c| c.as_str() == Some(country)))
+    };
+    let mut names: Vec<String> = apps
+        .iter()
+        .filter(|a| {
+            a.get("groups").and_then(|g| g.as_array()).is_some_and(|groups| {
+                groups.iter().any(|g| {
+                    let named = g.get("name").and_then(|n| n.as_str());
+                    matches!(named, Some("Base" | "TestFramework" | "LocalBaseExtensions"))
+                        && lists(g, "countries").unwrap_or(true)
+                        && !lists(g, "exclude_countries").unwrap_or(false)
+                })
+            })
+        })
+        .filter_map(|a| a.get("name").and_then(|n| n.as_str()).map(String::from))
+        .collect();
+    names.push("DemoTool".to_string());
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+fn finish(dir: &Path, app_dir: PathBuf, app: AppJson, resources: PathBuf, how: String) -> Result<DemoTool, String> {
+    let groups = dir.join(GROUPS);
+    let text = std::fs::read_to_string(&groups).map_err(|e| format!("{}: {e}", groups.display()))?;
+    let installed_first = installed_first(&text, COUNTRY)?;
     let mut h = Sha256::new();
     hash_tree(&app_dir, &app_dir, &mut h)?;
     hash_tree(&resources, &resources, &mut h)?;
+    // What the company is built with: the apps installed first, and the server kind.
+    h.update(installed_first.join("\n").as_bytes());
+    h.update(b"onprem");
     let identity = format!("{} {}", app.version, hex(&h.finalize()));
     Ok(DemoTool {
         app_dir,
@@ -155,6 +207,7 @@ fn finish(app_dir: PathBuf, app: AppJson, resources: PathBuf, how: String) -> Re
         resources,
         identity,
         how,
+        installed_first,
     })
 }
 
@@ -263,7 +316,57 @@ mod tests {
             "<DemoDataSetup><DataType>Extended</DataType></DemoDataSetup>",
         )
         .unwrap();
+        std::fs::create_dir_all(dest.join("build")).unwrap();
+        std::fs::write(dest.join("build/groups.json"), GROUPS_JSON).unwrap();
         Ok(())
+    }
+
+    /// The shape of BCApps' build/groups.json: an app is in a group, for some countries only, or not in it.
+    const GROUPS_JSON: &str = r#"[
+        {"name": "System Application", "groups": [{"name": "Base"}, {"name": "Financials"}]},
+        {"name": "Test Runner", "groups": [{"name": "Base", "doNotInstall": true}, {"name": "TestFramework"}]},
+        {"name": "FI Core", "groups": [{"name": "LocalBaseExtensions"}]},
+        {"name": "EU 3-Party Trade Purchase", "groups": [{"name": "LocalBaseExtensions", "countries": ["CZ"]}]},
+        {"name": "Not For W1", "groups": [{"name": "Base", "exclude_countries": ["W1"]}]},
+        {"name": "Shopify Connector", "groups": [{"name": "Financials"}]}
+    ]"#;
+
+    #[test]
+    fn the_company_is_built_on_prem_with_only_the_base_apps_installed_first() {
+        // BCApps build/scripts/ImportTestDataInBcContainer.ps1, Install-BaseAppsForDemoTool: the groups Base,
+        // TestFramework and LocalBaseExtensions of the country, and the DemoTool.
+        let root = tempfile::tempdir().unwrap();
+        let d = resolve(
+            None,
+            29,
+            0,
+            root.path(),
+            false,
+            "u",
+            &|_: &str, _: &str, dest: &Path| fake_checkout(dest),
+        )
+        .unwrap();
+        let c = d.company_data();
+        assert_eq!(c.environment, Some(al_host::Environment::OnPrem));
+        let mut first = c.installed_first.unwrap();
+        first.sort();
+        assert_eq!(first, vec!["DemoTool", "FI Core", "System Application", "Test Runner"]);
+    }
+
+    #[test]
+    fn a_cache_folder_from_before_the_install_groups_is_fetched_again() {
+        let root = tempfile::tempdir().unwrap();
+        let fetched = std::cell::Cell::new(0);
+        let fetch = |_: &str, _: &str, dest: &Path| {
+            fetched.set(fetched.get() + 1);
+            fake_checkout(dest)
+        };
+        resolve(None, 29, 0, root.path(), false, "u", &fetch).unwrap();
+        std::fs::remove_file(cache_dir(root.path(), 29, 0).join(GROUPS)).unwrap();
+        let e = resolve(None, 29, 0, root.path(), true, "u", &fetch).unwrap_err();
+        assert!(e.contains("--no-download"), "{e}");
+        resolve(None, 29, 0, root.path(), false, "u", &fetch).unwrap();
+        assert_eq!(fetched.get(), 2);
     }
 
     #[test]

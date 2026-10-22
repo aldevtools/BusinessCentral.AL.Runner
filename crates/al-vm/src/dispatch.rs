@@ -333,6 +333,14 @@ impl Session {
         };
         let mut targets = Vec::new();
         for s in subs {
+            if self
+                .events
+                .not_installed_apps
+                .as_ref()
+                .is_some_and(|apps| apps.contains(&engine.program.objects[s.object].app))
+            {
+                continue;
+            }
             if object == engine.events.global_key {
                 if let Some(u) = engine.events.unavailable_global.get(&(s.object, s.routine)) {
                     // A subscriber that cannot run would receive this event. BC runs it, and what it
