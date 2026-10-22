@@ -388,9 +388,10 @@ fn run_version(
         eprintln!("note: {note}");
     }
     let symbols = al_version::corpus_symbols(chosen.target.bc.major);
-    // The corpus apps the main app depends on (the internals fixture, the cross-app fixtures), in dependency order,
-    // then the main app: CI publishes them in that order (corpus `.github/workflows/ci.yml`, `app_dirs`).
-    let corpus_deps = deps::corpus_source_dirs(&root.join(&cfg.corpus_app))?;
+    // The corpus apps CI publishes before the main app (the internals fixture, the cross-app fixtures, including
+    // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
+    // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
+    let corpus_deps = deps::corpus_publish_dirs(&root.join(&cfg.corpus_app))?;
     let main_app = corpus_deps.len();
     let mut app_dirs = corpus_deps.clone();
     app_dirs.push(root.join(&cfg.corpus_app));

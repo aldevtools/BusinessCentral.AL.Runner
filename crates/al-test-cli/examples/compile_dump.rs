@@ -40,7 +40,7 @@ fn main() {
     let root = std::path::PathBuf::from(std::env::args().nth(1).unwrap());
     let out = std::env::args().nth(2).unwrap();
     let tests = root.join("corpus/tests");
-    let corpus_deps = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+    let corpus_deps = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
     let mut apps: Vec<_> = corpus_deps.iter().map(|d| runtime::load_app(d).unwrap()).collect();
     apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
     let syms = al_version::corpus_symbols(27);
@@ -125,7 +125,7 @@ fn dump_with_deps(
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
     let deps = al_test_cli::deps::load(
         &tests.join("al-language"),
-        &al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap(),
+        &al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap(),
         &[],
     )
     .unwrap();

@@ -398,11 +398,11 @@ impl Session {
             targets.sort_by_key(|(s, _)| id_of(s));
             return Ok(targets);
         }
-        // Across apps, app by app (BwSubscriberOrderTests.al:52-56: `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on BC 27.5, 28.5 and
-        // 29.0, where A, B, C and the main app depend on each other in that order). The probe cannot tell dependency order
-        // from "apps ordered by their lowest subscriber codeunit id" (BwSubscriberOrderTests.al:20-21), nor dependency
-        // order from publish order. So the order is known only when every two of the apps depend on each other and the
-        // app depended on also has the lower lowest subscriber id; otherwise the raise is refused.
+        // Across apps, app by app in dependency order (BwSubscriberOrderTests.al:52-56: `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on
+        // BC 27.5, 28.5 and 29.0, where A, B, C and the main app depend on each other in that order), also where an app
+        // has lower subscriber codeunit ids than an app it depends on (BwSubscriberOrderTests.al:150: `A;B1;B2;C;M;`, B
+        // and C with lower ids than A). The probes cannot tell dependency order from publish order (CI publishes in
+        // dependency order). Apps that do not depend on each other: see `outside` below.
         let mut lowest: Vec<(usize, u32)> = Vec::new();
         for (s, _) in &targets {
             let (app, id) = (app_of(s), id_of(s));
@@ -421,15 +421,30 @@ impl Session {
                 .copied()
                 .unwrap_or(false)
         };
+        // Dependency order; apps that do not depend on each other keep the order of their lowest subscriber id.
+        let mut order: Vec<usize> = Vec::with_capacity(lowest.len());
+        let mut left: Vec<usize> = lowest.iter().map(|&(a, _)| a).collect();
+        while !left.is_empty() {
+            let at = left
+                .iter()
+                .position(|&a| !left.iter().any(|&b| b != a && depends(a, b)))
+                .unwrap_or(0);
+            order.push(left.remove(at));
+        }
         let dependency_app = |a: usize| program.apps.get(a).is_some_and(|x| x.dependency);
-        // Kept, not pinned: two dependency apps (Microsoft's) whose order is not pinned keep the order the runtime had
-        // before the cross-app probe, ascending codeunit id across them. Refusing it loses baseline cases: System
-        // Application's `OnGetPerCompanyUpgradeTags`, subscribed in Business Foundation (lower lowest id, depends on
-        // System Application) and in the corpus app, runs on ChangeCompany and company creation (68391, 69971, 69973,
-        // 79851, 84835, 85446). An app under test whose place among the others is not pinned is refused.
+        let name = |a: usize| {
+            program
+                .apps
+                .get(a)
+                .map_or_else(|| format!("app {a}"), |x| x.name.clone())
+        };
+        // Kept, not pinned: two dependency apps (Microsoft's) that do not depend on each other keep the order the
+        // runtime had before the cross-app probe, ascending codeunit id across them. An app under test in such a pair
+        // is refused unless it is the one app outside the others' dependencies (below).
         let mut kept = false;
-        for (i, &(first, _)) in lowest.iter().enumerate() {
-            for &(later, _) in &lowest[i + 1..] {
+        let mut unrelated: Vec<(usize, usize)> = Vec::new();
+        for (i, &first) in order.iter().enumerate() {
+            for &later in &order[i + 1..] {
                 if depends(later, first) {
                     continue;
                 }
@@ -437,25 +452,75 @@ impl Session {
                     kept = true;
                     continue;
                 }
-                let name = |a: usize| {
-                    program
-                        .apps
-                        .get(a)
-                        .map_or_else(|| format!("app {a}"), |x| x.name.clone())
-                };
-                return unsupported(format!(
-                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
-                     (the corpus pins app by app in dependency order only where each app depends on the apps \
-                     before it and also has the higher lowest subscriber codeunit id)",
-                    name(first),
-                    name(later)
-                ));
+                unrelated.push((first, later));
             }
         }
-        // One block per app in that order; with a kept pair, each run of dependency apps is one block in codeunit id order.
+        if !unrelated.is_empty() {
+            let refuse = |why: String| {
+                let (first, later) = unrelated[0];
+                unsupported(format!(
+                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
+                     (the corpus pins app by app in dependency order where each app depends on the apps before it, \
+                     and one app outside every other app's dependencies after them{why})",
+                    name(first),
+                    name(later)
+                ))
+            };
+            // One app outside: corpus app D depends on A only, no app depends on it, it is published right after A
+            // and before B, C and the main app, and its subscriber runs last, after the main app
+            // (BwSubscriberOrderTests.al, last test, SubscriberOrder_AppsThatDoNotDependOnEachOther_FiveApps:
+            // `A;B1;B2;C;M;D;` on BC 27.5, 28.5 and 29.0). That one shape does not tell "outside apps last" from a
+            // dependency order that breaks ties by the higher app id (as text), the later app name or the app
+            // published last: each of them must put the app last too, else the raise is refused.
+            let outside = order
+                .iter()
+                .copied()
+                .find(|&x| unrelated.iter().all(|&(f, l)| f == x || l == x));
+            let Some(x) = outside else {
+                return refuse(String::new());
+            };
+            let info = |a: usize| program.apps.get(a);
+            if kept || dependency_app(x) || order.iter().any(|&a| dependency_app(a)) {
+                return refuse(": here a dependency app takes part".into());
+            }
+            if (0..program.apps.len()).any(|a| a != x && depends(a, x)) {
+                return refuse(format!(": another app depends on {}", name(x)));
+            }
+            if !order.iter().any(|&a| a != x && depends(x, a)) {
+                return refuse(format!(": {} depends on none of the other apps", name(x)));
+            }
+            for &(f, l) in &unrelated {
+                let y = if f == x { l } else { f };
+                let (Some(xi), Some(yi)) = (info(x), info(y)) else {
+                    return refuse(String::new());
+                };
+                if xi.id.to_ascii_lowercase() <= yi.id.to_ascii_lowercase() {
+                    return refuse(format!(": {} has a lower app id than {}", name(x), name(y)));
+                }
+                if xi.name.to_lowercase() <= yi.name.to_lowercase() {
+                    return refuse(format!(": {} has a name before {}", name(x), name(y)));
+                }
+                // Apps are numbered in publish order (the corpus runner loads them as corpus CI publishes them).
+                if x > y {
+                    return refuse(format!(": {} is published after {}", name(x), name(y)));
+                }
+            }
+            order.retain(|&a| a != x);
+            order.push(x);
+        }
+        // One block per app in that order; with a kept pair, each run of dependency apps none of which depends on
+        // another is one block in codeunit id order.
         let mut blocks: Vec<(usize, usize)> = Vec::new();
-        for (i, &(app, _)) in lowest.iter().enumerate() {
-            let merge = kept && i > 0 && dependency_app(app) && dependency_app(lowest[i - 1].0);
+        for (i, &app) in order.iter().enumerate() {
+            let merge = kept
+                && i > 0
+                && dependency_app(app)
+                && blocks.last().is_some_and(|&(_, b)| {
+                    blocks
+                        .iter()
+                        .filter(|&&(_, ob)| ob == b)
+                        .all(|&(o, _)| dependency_app(o) && !depends(app, o))
+                });
             let block = match blocks.last() {
                 Some(&(_, b)) if merge => b,
                 Some(&(_, b)) => b + 1,

@@ -83,6 +83,51 @@ pub fn corpus_source_dirs(app_dir: &Path) -> Result<Vec<PathBuf>, String> {
     in_dependency_order(&apps, &roots)
 }
 
+/// The corpus apps CI publishes before the app in `app_dir`, in that order: [`corpus_source_dirs`], and each app next to
+/// it that it does not depend on whose dependencies are all among those (corpus cross-app fixture D, which depends on
+/// fixture A only), right after the last of them it depends on; two such apps at one place in folder-name order. Corpus
+/// `.github/workflows/ci.yml` `app_dirs` publishes fixture, A, D, B, C, then the main app. An app that depends on the
+/// main app (another suite's test app), on no corpus app or on any other app is not published with them.
+pub fn corpus_publish_dirs(app_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut dirs = corpus_source_dirs(app_dir)?;
+    let parent = app_dir.parent().unwrap_or(Path::new("."));
+    let apps = neighbor_apps(parent, Some(app_dir))?;
+    let in_closure: Vec<(PathBuf, String)> = dirs
+        .iter()
+        .filter_map(|d| {
+            apps.iter()
+                .find(|(p, _)| p == d)
+                .map(|(p, j)| (p.clone(), j.id.clone()))
+        })
+        .collect();
+    let mut extra: Vec<(usize, PathBuf)> = Vec::new();
+    for (dir, json) in &apps {
+        if in_closure.iter().any(|(p, _)| p == dir) || json.dependencies.is_empty() {
+            continue;
+        }
+        let at: Option<Vec<usize>> = json
+            .dependencies
+            .iter()
+            .map(|d| in_closure.iter().position(|(_, id)| id.eq_ignore_ascii_case(&d.id)))
+            .collect();
+        if let Some(at) = at {
+            let last = at.into_iter().max().unwrap_or(0);
+            extra.push((last, dir.clone()));
+        }
+    }
+    // `apps` is in folder-name order, so a stable sort keeps two apps at one place in that order; inserting from the
+    // back keeps the earlier positions valid.
+    extra.sort_by_key(|(at, _)| *at);
+    for (at, dir) in extra.into_iter().rev() {
+        let pos = dirs
+            .iter()
+            .position(|d| *d == in_closure[at].0)
+            .map_or(dirs.len(), |p| p + 1);
+        dirs.insert(pos, dir);
+    }
+    Ok(dirs)
+}
+
 /// The source folders in `tests_dir` of the apps named `names` (the `name` of their `app.json`, any case) and of the
 /// apps there they depend on, in the order of [`corpus_source_dirs`]. A name no folder holds is left out (a Microsoft
 /// app). For the must-not-compile cases' `@depends` (corpus `tests/must-not-compile/README.md`).
@@ -369,6 +414,33 @@ mod tests {
             .map(|d| d.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["xapp-a", "fixture", "xapp-b", "xapp-c"]);
+    }
+
+    /// Corpus CI also publishes a cross-app fixture the main app does not depend on (corpus `.github/workflows/ci.yml`,
+    /// `app_dirs`: fixture, A, D, B, C, then the main app; D depends on A only). It goes right after the last corpus app
+    /// it depends on. An app that depends on the main app (a suite's test app), on an app that is not loaded before
+    /// it, or on no corpus app at all is not one of them.
+    #[test]
+    fn a_fixture_app_outside_the_main_apps_dependencies_is_published_after_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tmp.path();
+        app_folder(t, "fixture", &json("f", &[]), &[]);
+        app_folder(t, "xapp-a", &json("a", &[]), &[]);
+        app_folder(t, "xapp-b", &json("b", &["f", "a"]), &[]);
+        app_folder(t, "xapp-c", &json("c", &["a", "b"]), &[]);
+        app_folder(t, "xapp-d", &json("d", &["a"]), &[]);
+        app_folder(t, "unrelated", &json("u", &[]), &[]);
+        app_folder(t, "runner-only", &json("r", &["ms-test-runner"]), &[]);
+        app_folder(t, "onprem", &json("o", &["m"]), &[]);
+        app_folder(t, "on-d", &json("e", &["d"]), &[]);
+        app_folder(t, "mixed", &json("x", &["a", "ms-system"]), &[]);
+        let main = app_folder(t, "main", &json("m", &["f", "a", "b", "c", "ms-system"]), &[]);
+        let names: Vec<String> = corpus_publish_dirs(&main)
+            .unwrap()
+            .iter()
+            .map(|d| d.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["fixture", "xapp-a", "xapp-d", "xapp-b", "xapp-c"]);
     }
 
     /// BC's test environment has Microsoft's Test Runner app installed although no test app declares it

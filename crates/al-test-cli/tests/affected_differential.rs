@@ -461,7 +461,7 @@ fn corpus_differential() {
         tests.join("al-language/app.json").exists(),
         "corpus submodule not checked out"
     );
-    let mut dirs = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+    let mut dirs = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
     dirs.push(tests.join("al-language"));
     let tested = dirs.len() - 1;
     let a = Apps {
