@@ -104,3 +104,96 @@ fn validation_on_another_format_is_refused() {
         "refused"
     );
 }
+
+// platform/lt-ag-contoso/AgXmlPortImport.al:678 (QX_VariableText_TextElementEvaluateAndShortLines, xmlport 87567): on a
+// VariableText port with DefaultFieldsValidation = false, a field element without FieldValidate is not validated (the Iso
+// field's OnValidate never runs). The same port with the property true or left out is not pinned.
+fn text_src(port_props: &str) -> String {
+    format!(
+        r#"
+table 69980 "XT Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
+table 69981 "XT Row"
+{{
+    fields
+    {{
+        field(1; Code; Code[10]) {{ }}
+        field(2; Iso; Code[3]) {{ trigger OnValidate() begin Validated := true; end; }}
+        field(3; Validated; Boolean) {{ }}
+    }}
+    keys {{ key(PK; Code) {{ }} }}
+}}
+xmlport 69982 "XT Port"
+{{
+    Format = VariableText; Direction = Import; UseRequestPage = false; FieldSeparator = ';'; FieldDelimiter = '<None>'; {port_props}
+    schema {{ textelement(Root) {{ tableelement(Cur; "XT Row") {{ fieldelement(cc; Cur.Code) {{ }} fieldelement(IsoCode; Cur.Iso) {{ }} }} }} }}
+}}
+codeunit 69983 C
+{{
+    procedure F(): Text
+    var B: Record "XT Blob" temporary; R: Record "XT Row"; OutS: OutStream; InS: InStream; T: Text;
+    begin
+        B.Code := 'X'; B.Insert();
+        B.Data.CreateOutStream(OutS);
+        OutS.WriteText('AED;784');
+        B.Data.CreateInStream(InS);
+        Xmlport.Import(Xmlport::"XT Port", InS);
+        if R.FindSet() then repeat T += R.Code + ':' + R.Iso + ':' + Format(R.Validated) + ','; until R.Next() = 0;
+        exit(T);
+    end;
+}}
+"#
+    )
+}
+
+#[test]
+fn a_variable_text_port_with_default_fields_validation_false_does_not_validate() {
+    assert_eq!(
+        al_testkit::text(run(&text_src("DefaultFieldsValidation = false;"), "F")),
+        "AED:784:No,"
+    );
+    for props in ["DefaultFieldsValidation = true;", ""] {
+        assert!(
+            matches!(run(&text_src(props), "F"), Err(Signal::Unsupported(r)) if r.contains("not pinned")),
+            "{props}"
+        );
+    }
+}
+
+// AgXmlPortImport.al:678 (xmlport 87567): a VariableText record that ends early leaves its lacking `MinOccurs = Zero` field
+// elements as initialized, and one value too many is left out. A record lacking a field element without MinOccurs = Zero, or with two values too many, is not pinned.
+fn short_src(doc: &str) -> String {
+    format!(
+        r#"
+table 69984 "XS Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
+table 69985 "XS Row" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; N; Integer) {{ }} field(3; D; Text[5]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
+xmlport 69986 "XS Port"
+{{
+    Format = VariableText; Direction = Import; UseRequestPage = false; FieldSeparator = ';'; FieldDelimiter = '<None>'; DefaultFieldsValidation = false;
+    schema {{ textelement(Root) {{ tableelement(R; "XS Row") {{ fieldelement(C; R.Code) {{ }} fieldelement(N; R.N) {{ MinOccurs = Zero; }} fieldelement(D; R.D) {{ MinOccurs = Zero; }} }} }} }}
+}}
+codeunit 69987 C
+{{
+    procedure F(): Text
+    var B: Record "XS Blob" temporary; R: Record "XS Row"; OutS: OutStream; InS: InStream; T: Text; Lf: Text; Ch: Char;
+    begin
+        Ch := 10; Lf += Ch;
+        B.Code := 'X'; B.Insert();
+        B.Data.CreateOutStream(OutS);
+        OutS.WriteText('{doc}'.Replace('#', Lf));
+        B.Data.CreateInStream(InS);
+        Xmlport.Import(Xmlport::"XS Port", InS);
+        if R.FindSet() then repeat T += R.Code + ':' + Format(R.N) + ':' + R.D + ','; until R.Next() = 0;
+        exit(T);
+    end;
+}}
+"#
+    )
+}
+
+#[test]
+fn a_variable_text_record_of_another_length() {
+    assert_eq!(al_testkit::text(run(&short_src("A;1;02:02#"), "F")), "A:1:02:02,");
+    assert_eq!(al_testkit::text(run(&short_src("A;1"), "F")), "A:1:,");
+    assert_eq!(al_testkit::text(run(&short_src("A;1;x;extra#"), "F")), "A:1:x,");
+    assert!(matches!(run(&short_src("A;1;x;e1;e2"), "F"), Err(Signal::Unsupported(r)) if r.contains("not pinned")));
+}

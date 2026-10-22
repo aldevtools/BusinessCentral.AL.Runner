@@ -1115,6 +1115,15 @@ impl Session {
             return Ok(());
         }
         let xp = schema.xp();
+        // A VariableText port with `DefaultFieldsValidation = false` does not validate a field element that does not say
+        // FieldValidate (platform/lt-ag-contoso/AgXmlPortImport.al:678, xmlport 87567: the Iso field's OnValidate never runs).
+        if xp.format == al_ir::XmlFormat::VariableText
+            && xp.no_default_fields_validation
+            && n.kind == al_ir::XmlNodeKind::Field
+            && n.field_validate.is_none()
+        {
+            return Ok(());
+        }
         if xp.format != al_ir::XmlFormat::Xml {
             return unsupported(format!(
                 "XmlPort import of {} into {}.{}, which has validation code: whether a port of a Format other than Xml validates it is not pinned",
@@ -1745,6 +1754,16 @@ impl Session {
             let fresh = self.initial_fields(tbl);
             rec.borrow_mut().fields = fresh;
             self.xp_run_trigger(inst, schema, table, "onafterinitrecord")?;
+            // Fields are read as the values come. Pinned for VariableText (AgXmlPortImport.al:678, xmlport 87567): a record that
+            // ends early leaves the field elements it lacks as initialized when each is `MinOccurs = Zero` ('crlf': `AUD;036;1;0.01`
+            // of 8 columns), and one value too many is left out ('too many columns'). Any other length is not pinned.
+            let lacking_optional = values.len() < fields.len()
+                && fields[values.len()..].iter().all(|&f| {
+                    let n = schema.node(f);
+                    n.kind == ir::XmlNodeKind::Field && n.min_zero
+                });
+            let length_pinned = values.len() == fields.len()
+                || (variable && (lacking_optional || values.len() == fields.len() + 1));
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
@@ -1776,8 +1795,7 @@ impl Session {
                     break;
                 }
             }
-            // Fields are read as the values come; a record of another length is not pinned.
-            if !broke && values.len() != fields.len() {
+            if !broke && !length_pinned {
                 return unsupported(format!(
                     "a record with {} values for a port of {} fields (not pinned)",
                     values.len(),
