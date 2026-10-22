@@ -546,6 +546,11 @@ impl Session {
         self.scratch_messages.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
+    /// Ends [`Session::capture_messages`]: a `Message` outside a test method is refused again. Returns the texts kept.
+    pub fn stop_capturing_messages(&mut self) -> Vec<String> {
+        self.scratch_messages.take().unwrap_or_default()
+    }
+
     pub(crate) fn ui_message(&mut self, text: String) -> Result<(), Signal> {
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);

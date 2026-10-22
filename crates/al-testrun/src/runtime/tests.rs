@@ -2536,6 +2536,32 @@ codeunit 50130 \"Build Company\" {{
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// Orchestrator decision (2026-10-22): BCApps' CI runs the DemoTool's codeunit 101899 without a client
+// (Invoke-LegacyDemoDataTool), and 101900 ends with a Message (CreateDemonstrationData.Codeunit.al:133). While the company
+// is built, a Message is accepted and written to the run log; Confirm and StrMenu stay refused.
+#[test]
+fn a_message_while_the_company_is_built_is_accepted_and_a_confirm_is_not() {
+    let main = "codeunit 50001 \"T\" { Subtype = Test; [Test] procedure Plain() begin end; }";
+    let dep = format!(
+        "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'demo'; L.Insert(); Message('Built %1', 1); end; }}"
+    );
+    let outcome = with_company_data(main, &dep, demo_company(None));
+    assert_eq!(outcome("Plain"), Outcome::Pass);
+    for ui in ["if Confirm('Sure?') then;", "if StrMenu('A,B') = 0 then;"] {
+        let dep = format!(
+            "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() begin {ui} end; }}"
+        );
+        let Outcome::NotRun(why) = with_company_data(main, &dep, demo_company(None))("Plain") else {
+            panic!("{ui}")
+        };
+        assert!(why.starts_with(crate::company_data::BLOCKED_NOTE), "{ui}: {why}");
+    }
+}
+
 #[test]
 fn a_company_data_codeunit_that_does_not_run_to_its_end_leaves_every_test_not_run() {
     let dep = format!(
