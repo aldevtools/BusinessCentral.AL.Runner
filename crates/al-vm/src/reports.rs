@@ -1437,8 +1437,13 @@ impl Session {
                         (None, _) if !schema.report().output.is_empty() => {}
                         _ => {
                             return unsupported(format!(
-                                "a run of report \"{}\" after the {closed:?} action of its request page (not pinned)",
-                                schema.name()
+                                "a run of report \"{}\" after the {} action of its request page (not pinned)",
+                                schema.name(),
+                                if closed == RequestClosed::Preview {
+                                    "Preview"
+                                } else {
+                                    "Print"
+                                }
                             ));
                         }
                     }
