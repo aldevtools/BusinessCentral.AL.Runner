@@ -86,5 +86,10 @@ files (MIT) of the release are fetched sparsely with `git` into
 AL Runner does not build the Contoso company, and the output says so. The recipe
 cannot be combined with the company and disabled-test options.
 
+Microsoft's recipe sets no time limit per test, so the recipe keeps AL Runner's
+default of 20 s. A Microsoft test whose `Sleep` calls ask for more time than that
+(Tests-Dimension `TestGetShortcutDimCached` sleeps 60.5 s) is reported as a timeout.
+Give a larger `--test-timeout` to run it.
+
 For the measurements of Microsoft's Base Application test buckets, see
 [docs/alrunner-buckets.md](../alrunner-buckets.md).

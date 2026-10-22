@@ -84,6 +84,7 @@ impl Index {
             captured: None,
             impact: t.keys.clone(),
             stubs: Vec::new(),
+            slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
         }
