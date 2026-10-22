@@ -298,6 +298,9 @@ pub struct TestResult {
     pub assumptions: Vec<Assumption>,
     /// The wall time the test took; zero for a test that was not started.
     pub time: std::time::Duration,
+    /// The time the test's `Sleep` calls asked for, in milliseconds, summed (`Session::slept_in_test_ms`). `Sleep`
+    /// returns at once, so `time` does not hold it. Zero for a test that did not start or did not sleep.
+    pub slept_ms: u64,
     /// With `RunOptions::coverage`: the statements the test ran, as (position id, runs), sorted by id. Position ids
     /// index `CorpusRuntime::coverage_statements`' `pos` and `Program::positions`.
     pub coverage: Vec<(u32, u32)>,
@@ -464,6 +467,8 @@ pub(crate) struct Scratch {
     traces: Vec<(String, Vec<String>)>,
     /// `--tdd`: the stubs each test reached (`TestResult::stubs`).
     stubbed: Vec<(String, Vec<String>)>,
+    /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
+    slept: Vec<(String, u64)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
@@ -585,6 +590,7 @@ fn run_unit(
             coverage,
             captured: None,
             stubs: Vec::new(),
+            slept_ms: 0,
         };
         match &result {
             Ok((done, stacks, times, _, covs, _)) => {

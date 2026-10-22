@@ -505,6 +505,25 @@ codeunit 50160 "Helper"
 }
 "#;
 
+/// LethAL: the `test` line carries `sleptMs`, the summed time the test's `Sleep` calls asked for, as `--output-json` does.
+#[test]
+fn a_test_line_has_the_slept_time_of_the_test() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "sleeps",
+        "codeunit 50412 \"Sleeps\" { Subtype = Test;
+            [Test] procedure Twice() begin Sleep(300); Sleep(45); end;
+            [Test] procedure NoSleep() begin end; }",
+    );
+    let mut s = started();
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    let line = |n: &str| lines.iter().find(|l| l["name"] == n).cloned().unwrap();
+    assert_eq!(line("Codeunit50412.Twice")["sleptMs"], 345, "{lines:?}");
+    assert!(line("Codeunit50412.NoSleep").get("sleptMs").is_none(), "{lines:?}");
+}
+
 fn started() -> Server {
     let mut s = Server::start(&["--no-download", "--no-test-data"]);
     assert_eq!(s.line(), json!({"ready": true}));

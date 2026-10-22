@@ -117,6 +117,7 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
             let mut row =
                 crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
             crate::output::add_stubs(&mut row, &e.stubs);
+            crate::output::add_slept(&mut row, e.slept_ms);
             let mut line = test_line(&mut row);
             // What the test's code did (`captureValues`, `iterationTracking`): the values and loops are part of the line.
             if let Some(Value::Object(c)) = captured {
@@ -580,6 +581,7 @@ fn test_line(row: &mut Map<String, Value>) -> Map<String, Value> {
         "name",
         "status",
         "durationMs",
+        "sleptMs",
         "message",
         "stackTrace",
         "notRun",
