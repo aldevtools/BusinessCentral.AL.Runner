@@ -128,27 +128,34 @@ report 50101 R { dataset { dataitem(I1; T) { dataitem(I2; T) { } } dataitem(I3; 
 }
 
 /// Base Application's chart pages pass their control add-in to a `var` parameter
-/// (`BusinessChartBuffer.UpdateChart(CurrPage.BusinessChart)`). Control add-ins are not modelled, so the
-/// routine is refused, and the reason names the control add-in instead of "is not assignable".
+/// (`BusinessChartBuffer.UpdateChart(CurrPage.BusinessChart)`), often on a path a flag guards. Control add-ins are not
+/// modelled: the call refuses when it runs, naming the control add-in, and the routine's other paths run.
 #[test]
-fn a_control_add_in_passed_by_reference_is_refused_as_a_control_add_in() {
+fn a_control_add_in_passed_as_an_argument_refuses_when_the_call_runs() {
     let (_, l) = lower_files(
         &[(
             "f.al",
             "controladdin MyChart { }
-codeunit 50100 Buf { procedure UpdateChart(var Chart: ControlAddIn \"MyChart\") begin end; }
+codeunit 50100 Buf { procedure UpdateChart(var Chart: ControlAddIn \"MyChart\") begin end; procedure Show(Chart: ControlAddIn \"MyChart\") begin end; }
 page 50100 P { PageType = Card; layout { area(Content) { usercontrol(BusinessChart; MyChart) { } } }
-  trigger OnOpenPage() var B: Codeunit Buf; begin B.UpdateChart(CurrPage.BusinessChart); end; }",
+  trigger OnOpenPage() var B: Codeunit Buf; begin if Ready then B.UpdateChart(CurrPage.BusinessChart); if Ready then B.Show(CurrPage.BusinessChart); end;
+  var Ready: Boolean; }",
         )],
         true,
     );
     let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
-    assert!(
-        reasons
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let page = l.program.objects.iter().find(|o| o.name == "P").expect("page P");
+    let body = format!(
+        "{:?}",
+        page.routines
             .iter()
-            .any(|r| r.contains("control add-in") && !r.contains("not assignable")),
-        "{reasons:?}"
+            .find(|r| r.name.eq_ignore_ascii_case("OnOpenPage"))
+            .expect("OnOpenPage")
+            .body
     );
+    assert_eq!(body.matches("Refused(").count(), 2, "{body}");
+    assert!(body.contains("control add-in"), "{body}");
 }
 
 /// Tests-SCM: a page extension's field `field(X; Item."Qty. on Component Lines")` names a

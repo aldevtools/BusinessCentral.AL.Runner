@@ -669,3 +669,27 @@ fn transfer_fields_from_another_table_copies_the_four_audit_fields() {
         "YesYesYesYes|YesNoYesYes|NoYesYes"
     );
 }
+
+/// `Media.ExportStream` of an empty Media field is not pinned; Custom Report Layout.InitBuiltInLayout reaches it through
+/// the Layout of a built-in Report Layout List row, whose HasValue the corpus pins as No (report/PZReportLayoutMedia.al:51-53)
+/// but whose export it does not. The refusal names that case (al-runner issue 5712).
+#[test]
+fn an_export_of_an_empty_media_field_is_refused_naming_the_built_in_layout_case() {
+    let src = r#"
+table 69940 "EM Row" { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } } keys { key(PK; Id) { } } }
+table 69941 "EM Out" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }
+codeunit 69942 C
+{
+    procedure F(): Boolean
+    var R: Record "EM Row"; O: Record "EM Out" temporary; S: OutStream;
+    begin
+        O.Data.CreateOutStream(S);
+        exit(R.Pic.ExportStream(S));
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "C", "F") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("Report Layout List"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}

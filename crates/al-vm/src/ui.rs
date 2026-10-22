@@ -36,6 +36,9 @@ pub enum UiKind {
     /// `[RecallNotificationHandler]`: runs on `Notification.Recall` of a sent notification (corpus
     /// handlers/TestNotificationSendRecallContracts.al:95-109).
     RecallNotification,
+    /// `[ReportHandler]`: answers the run of a report that would show its request page, instead of the page. Bound by the
+    /// report of its `var Report` parameter (report/lt-ae-reporthandler/AeReportHandler.al).
+    Report,
     /// `[HttpClientHandler]`: answers an `HttpClient` call (ADR-027 section 5; the probe
     /// session/PZHttpHandler.al on the corpus staging branch).
     HttpClient,
@@ -55,6 +58,7 @@ impl UiKind {
             "sendnotificationhandler" => Some(UiKind::SendNotification),
             "recallnotificationhandler" => Some(UiKind::RecallNotification),
             "httpclienthandler" => Some(UiKind::HttpClient),
+            "reporthandler" => Some(UiKind::Report),
             _ => None,
         }
     }
@@ -71,6 +75,7 @@ impl UiKind {
             UiKind::SendNotification => "SendNotification",
             UiKind::RecallNotification => "RecallNotification",
             UiKind::HttpClient => "HttpClient",
+            UiKind::Report => "Report",
         }
     }
 }
@@ -131,6 +136,9 @@ impl Session {
                 (r.params == 1 && r.by_var == [true] && matches!(ty(0), Some(RtType::TestPage(_))))
                     || (typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)))
             }
+            // ReportHandler(var R: Report "X") (report/lt-ae-reporthandler/AeReportHandler.al:43; must-not-compile 0985 rejects
+            // any other shape).
+            UiKind::Report => r.params == 1 && r.by_var == [true] && self.is_report_type(ty(0)),
             // SessionSettingsHandler(var SessionSettings: SessionSettings): Boolean
             // (session/TestSessionSettings.al:546-552, error AL0244 names the shape).
             UiKind::SessionSettings => {
@@ -175,6 +183,7 @@ impl Session {
                 Some(*p)
             }
             Some(RtType::Page(p)) if typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)) => Some(*p),
+            Some(RtType::Codeunit(p)) if kind == UiKind::Report => Some(*p),
             _ => None,
         };
         // A ModalPageHandler whose parameter is a `Page` and a `var Response: Action` is pinned by
@@ -210,6 +219,11 @@ impl Session {
             fired: optional,
             typed: typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)),
         })
+    }
+
+    /// Whether `ty` is a `Report` variable's type (an instance of a report object).
+    fn is_report_type(&self, ty: Option<&RtType>) -> bool {
+        matches!(ty, Some(RtType::Codeunit(o)) if self.engine.program.objects.get(*o as usize).is_some_and(|o| o.report.is_some()))
     }
 
     /// Starts a test method: from here until `end_ui_scope`, UI calls go to

@@ -7446,6 +7446,9 @@
 70381 P169_QuotedPlaceholder_Single
 70381 P169_QuotedPlaceholders_BlankAndA
 70381 P169_QuotedPlaceholders_TwoNonBlank
+70385 NotEmptyDate_OnlyEmptyRows_Result
+70385 NotEmptyDate_OnlyTodayRow_Result
+70385 NotEmptyDate_TodayRow_Result
 70390 VisiblePart_FollowsHostRow_Result
 70391 Add_LargeValues_Result
 70391 Add_NegativeOperands_Result
@@ -9416,6 +9419,7 @@
 71826 P104_Stream_Detached
 71826 P104_Stream_InDoc
 71828 P104_Create_SameNodeTwice
+71829 P104_RemoveAll
 71839 P112_Export_Break
 71839 P112_Export_BreakUnbound
 71839 P112_Export_EmptyTable
@@ -11012,6 +11016,7 @@
 73402 Attribute_Value_Newlines
 73402 Collection_Count_Get
 73402 Collection_Iteration_Order
+73402 Collection_Set
 73402 SetGet_Attribute
 73403 CData_Create
 73403 Comment_Create
@@ -11691,6 +11696,7 @@
 73850 PX_HandlerError_SaveValues_NextRunShows
 73850 RunRequestPage_ReturnValue_Cancel
 73850 RunRequestPage_ReturnValue_Ok
+73850 SaveAs_WithoutParameters_UsesDefaults
 73850 SetTableView_ThenRequestPage_SeesViewAsFilter
 73850 SetValue_AllTypes_ReachTheReport
 73850 SetValue_HiddenField
@@ -13070,6 +13076,7 @@
 77521 AC_ModuleInfo_Unknown_Found
 77532 AC_Attr_InDataSet_ReportXml
 77532 AC_Attr_Procedures
+77532 AC_Attr_ReportHandler_Handler
 77532 AC_Attr_ReportHandler_RunReport
 77532 AC_Attr_RequiredPending
 77532 AC_Attr_SecurityFiltering_Variable
@@ -13089,11 +13096,24 @@
 78107 Validate_BlankNotFirst
 78107 Validate_Third
 78200 Execute_WithReportHandler
+78200 RunRequestPage_WithReportHandler
+78200 Run_StaticCall
+78200 Run_Twice_HandlerCalledTwice
 78200 Run_UseRequestPageFalse
 78200 Run_UseRequestPageFalseReport_NoHandlerCall
+78200 Run_UseRequestPageTrue
+78200 Run_VariableRun
+78200 Run_VariableRunModal
+78200 SaveAs_WithReportHandler
 78200 TestRequestPage_SetFilterEmpty_ClearsFilter
 78200 TestRequestPage_SetFilterEmpty_OnUntouchedFilter
 78200 TestRequestPage_SetFilterEmpty_ThenReportRows
+78201 Handler_RaisesError
+78201 Handler_RunsReport
+78201 Handler_RunsReportModal
+78201 Handler_SaveAs
+78201 Handler_SetTableViewAndRun
+78201 Handler_UseRequestPageGetter
 78210 NoRequestPage_NoHandler_Run
 78210 NoRequestPage_NoHandler_RunModal_UseRequestPageTrue
 78210 Plain_Handler_Cancel

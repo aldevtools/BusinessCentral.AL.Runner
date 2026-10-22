@@ -172,8 +172,8 @@ codeunit 50405 "Refused Trigger Writes"
     begin
         if T.IsEmpty() then Error('boom');
     end;
-    [ReportHandler]
-    procedure H(var R: Report "R")
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
     begin
     end;
 }

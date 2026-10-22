@@ -241,7 +241,11 @@ fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let id = id_of(&r)?;
     if id == [0; 16] {
-        return unsupported("Media.ExportStream of an empty field (not pinned)");
+        // Custom Report Layout.InitBuiltInLayout exports the Layout of a built-in Report Layout List row: the corpus pins its
+        // HasValue as No (report/PZReportLayoutMedia.al:51-53), not what the export answers or writes (docs/probes-needed.md).
+        return unsupported(
+            "Media.ExportStream of an empty field (not pinned; this includes the Layout of a built-in layout in Report Layout List, whose content the corpus does not pin)",
+        );
     }
     let Some(obj) = store(c)?.objects.borrow().get(&id).cloned() else {
         // A media another holder let go exports nothing and answers false (media/TestMediaPngImport.al:441-470
