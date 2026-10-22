@@ -274,6 +274,24 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // A bare `Init()` in a table that declares Init(A; B) is the built-in on Rec, `Init(5, 'inner')` the procedure; a
+        // procedure with the built-in's own signature hides it (record/lt-record-write/RcBInit.al:445, :475, fixtures
+        // QzInitOverload.al). Only Init is pinned.
+        if !c.is_empty()
+            && sc.rec_unqualified
+            && n.eq_ignore_ascii_case("init")
+            && self.ws.objects[sc.oi].kind == ObjKind::Table
+            && sc.self_obj == sc.oi
+            && let Some(rec @ Ty::Record { .. }) = sc.rec.clone()
+        {
+            let platform = self.catalog_cands("Record", n, true, &rec);
+            let arities: Vec<(usize, usize)> = c.iter().map(|p| (p.min, p.max)).collect();
+            c.extend(
+                platform
+                    .into_iter()
+                    .filter(|b| !arities.iter().any(|(lo, hi)| *lo <= b.max && b.min <= *hi)),
+            );
+        }
         if c.is_empty() && sc.rec_unqualified {
             if let Some(rec) = sc.rec.clone() {
                 if let Some(recv) = receiver_of(&rec) {
