@@ -872,6 +872,44 @@ impl Session {
         Ok(true)
     }
 
+    /// A write to a field outside the key on the blank line a part's Last() ran on a view without rows: a part without
+    /// DelayedInsert and AutoSplitKey inserts the line as it is first, the write then changes the stored row, which is saved at
+    /// Close (pages/lt-qj-part-propagation/QjPartPropagation.al:3696 QT_ValPartPlain_Empty_Last_ThenType `log-type = V.INSR(H1 0
+    /// a=0 below=Yes) T.INS(H1 0 a=0)`, `lines-after-type = [H1:0:a=0]`, `log-close = V.MODR(H1 0 a=7)`). With DelayedInsert or
+    /// AutoSplitKey the line is inserted at Close (:3532 QT_ValPartSplit_, :3614 QT_ValPartDelayed_). After New() a plain part
+    /// does not insert at once (:3217 QN_PartPlain_NewTyped_ThenNew), so only this blank line is served.
+    pub(super) fn insert_blank_after_empty_last(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+        let on_it = {
+            let s = st.borrow();
+            s.blank_after_empty_last && s.cursor == Cursor::NewLine && s.draft && !s.dirty
+        };
+        st.borrow_mut().blank_after_empty_last = false;
+        if !on_it {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let on = |name: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case("true"))
+        };
+        if on("DelayedInsert") || on("AutoSplitKey") {
+            return Ok(());
+        }
+        let ir::Binding::Field(pos) = page_of(&engine, st).controls[idx].binding else {
+            return Ok(());
+        };
+        let rec = self.page_rec(st);
+        if self.table(&rec)?.keys[0].contains(&pos) {
+            return unsupported(
+                "a key field typed on the blank line a part's Last() ran on a view without rows, without DelayedInsert and AutoSplitKey (not pinned)",
+            );
+        }
+        self.insert_draft(st)
+    }
+
     /// After part `child` moved, the parts that take their link from it follow.
     pub(super) fn sync_dependents(&mut self, child: &St) -> Result<(), Signal> {
         let Some((host, idx)) = child.borrow().host.clone() else {
@@ -1000,6 +1038,7 @@ impl Session {
             s.dirty = false;
             s.window = Vec::new();
             s.empty_part_xrec = None;
+            s.blank_after_empty_last = false;
             s.focus = None;
             s.focus_in_row = false;
             s.refused = false;
@@ -1698,30 +1737,6 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
-    /// Last() on a part that shows no row runs its blank line twice; whether the link value is validated each time is not
-    /// pinned (the pinned table has no validation code), so a part whose table validates a key field in code is refused.
-    fn empty_part_new_line_pinned(&self, st: &St) -> Result<(), Signal> {
-        let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
-        let t = rec.borrow().table as usize;
-        let engine = self.engine();
-        let events = &engine.events;
-        let Some(schema) = engine.program.objects[t].table.as_ref() else {
-            return unsupported("a part over a table without a schema");
-        };
-        let validates = table.keys[0].iter().any(|&pos| {
-            let f = &schema.fields[pos];
-            f.on_validate.is_some() || !f.ext_before_validate.is_empty() || !f.ext_after_validate.is_empty()
-        }) || events.is_subscribed(t, "onbeforevalidateevent")
-            || events.is_subscribed(t, "onaftervalidateevent");
-        if validates {
-            return unsupported(
-                "Last() or New() on a part that shows no row whose table validates a key field in code (whether the link value is validated then is not pinned)",
-            );
-        }
-        Ok(())
-    }
-
     fn observes_new_record(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
@@ -1770,7 +1785,6 @@ impl Session {
                         "Last() on a part that shows no row it did not land on through a host move or open (the xRec OnNewRecord sees is not pinned)",
                     );
                 };
-                self.empty_part_new_line_pinned(st)?;
                 // On a new host the host row is inserted first and the part lands on its blank line three more times
                 // (`insert_untouched_new_host`: five runs in all on :2596 QN_EmptyPart_HostOpenNew).
                 self.insert_untouched_new_host(st)?;
@@ -1779,6 +1793,7 @@ impl Session {
                     self.set_xrec_fields(st, x.clone());
                     self.land_on_new_line(st)?;
                 }
+                st.borrow_mut().blank_after_empty_last = true;
                 return Ok(Some(false));
             }
         }
@@ -1798,11 +1813,11 @@ impl Session {
                 }
                 return Ok(None);
             };
-            self.empty_part_new_line_pinned(st)?;
             for _ in 0..2 {
                 self.set_xrec_fields(st, x.clone());
                 self.land_on_new_line(st)?;
             }
+            st.borrow_mut().blank_after_empty_last = true;
             return Ok(Some(false));
         }
         if cursor != Cursor::Row || draft || dirty || empty {
@@ -1867,7 +1882,16 @@ impl Session {
     /// `log-2-new = S.NEW(x=3 x.ln=30000)`). `None` for any other page or state.
     pub(super) fn part_new_xrec(&mut self, st: &St) -> Result<Option<Vec<Value>>, Signal> {
         if !self.part_view_held(st) {
-            return Ok(None);
+            // A part that shows no row, also one the client does not count as holding its view: OnNewRecord sees the blank xRec
+            // the part held as it landed on its blank line (QjPartPropagation.al:3937 QT_ValPartSplit_Empty_New_ThenType
+            // `log-new = T.Doc.V(H1 x= ln=0) V.NEW(H1 0 x= 0 below=Yes) ...`).
+            let held = {
+                let s = st.borrow();
+                (s.host.is_some() && s.cursor == Cursor::NewLine && s.draft && !s.dirty && s.window.is_empty())
+                    .then(|| s.empty_part_xrec.clone())
+                    .flatten()
+            };
+            return Ok(held.filter(|x| self.blank_held_xrec(st, x).is_some()));
         }
         let (cursor, draft, dirty) = {
             let s = st.borrow();

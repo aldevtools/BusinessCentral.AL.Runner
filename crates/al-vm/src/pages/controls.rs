@@ -78,6 +78,7 @@ impl Session {
         if st.borrow().host.is_some() {
             self.save_unsaved_host_first(st)?;
             self.save_sibling_parts(st)?;
+            self.insert_blank_after_empty_last(st, idx)?;
         } else if let ir::Binding::Field(pos) = page_of(&self.engine(), st).controls[idx].binding
             && st.borrow().draft
             && self.has_source(st)

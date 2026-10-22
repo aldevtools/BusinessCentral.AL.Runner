@@ -1874,6 +1874,7 @@ impl Session {
     }
 
     pub(super) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
+        st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
         self.note_lower_key(st)?;
@@ -1887,6 +1888,8 @@ impl Session {
             s.draft = true;
             s.typed_before_key = false;
         }
+        let held = self.page_xrec_fields(st);
+        let blank_held = if st.borrow().host.is_some() { self.blank_held_xrec(st, &held) } else { None };
         // The blank line of a part is a started record: the client runs NewRecord when it becomes
         // current (corpus handlers/TestPagePartDraftLineLink.al:LinkedPart_DraftLine_*,
         // handlers/TestPagePartOnNewRecordCount.al). A top-level list does the same, and both then
@@ -1894,7 +1897,10 @@ impl Session {
         // 258-273 TopLevelList_BlankLine_RunsOnNewRecord, Part_BlankLine_RunsOnNewRecord).
         // A part whose host record is not saved yet links to a blank value, which is validated like any other
         // (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:398, :400; see `sync_part`).
-        self.stamp_from_filters(st, true)?;
+        match blank_held {
+            Some(before) => self.stamp_from_filters_seen_as(st, before)?,
+            None => self.stamp_from_filters(st, true)?,
+        }
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         // xRec is the new record itself there (misc/lt-probes-needed-7/PnGNewRecord.al:HandedRecordNoFilters `AGCR(,)`,
@@ -1970,9 +1976,15 @@ impl Session {
         // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
         // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
         st.borrow_mut().split_starts_low = true;
+        let blank_held = self.blank_held_xrec(st, &held);
+        let table_blank = self.initial_fields(table);
         for validate in [true, false, true] {
             if validate {
                 self.set_xrec_fields(st, held.clone());
+            } else {
+                // The second run sees the table's blank record as xRec, not the line as stamped (QjPartPropagation.al:3501
+                // QT_ValPartSplit_Empty_Last `log-openedit`: the second `V.NEW(H1 0 x= 0 below=Yes)`).
+                self.set_xrec_fields(st, table_blank.clone());
             }
             if validate {
                 // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
@@ -1982,7 +1994,10 @@ impl Session {
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
-                self.stamp_from_filters(st, true)?;
+                match blank_held.clone() {
+                    Some(before) => self.stamp_from_filters_seen_as(st, before)?,
+                    None => self.stamp_from_filters(st, true)?,
+                }
             }
             self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
             self.page_event(st, "onnewrecordevent", None, Some(true))?;
@@ -2154,6 +2169,31 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `stamp_from_filters` with validation, the validate triggers seeing `before` as xRec: a part's blank line that held no row
+    /// validates its link value with a blank xRec, not with the line as stamped (pages/lt-qj-part-propagation/
+    /// QjPartPropagation.al:3501 QT_ValPartSplit_Empty_Last `log-openedit` and `log-last`: `T.Doc.V(H1 x= ln=0)`, :3583
+    /// QT_ValPartDelayed_, :3665 QT_ValPartPlain_; :3937 QT_ValPartSplit_Empty_New_ThenType `log-new`). Callers use it only when
+    /// `before` is the table's blank record; with another held row the xRec is not pinned and the line as stamped stays.
+    pub(super) fn stamp_from_filters_seen_as(&mut self, st: &St, before: Vec<Value>) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let handle = Rc::as_ptr(&rec) as usize;
+        if self.validating.iter().any(|(h, _)| *h == handle) {
+            return self.stamp_from_filters(st, true);
+        }
+        self.validating.push((handle, before));
+        let r = self.stamp_from_filters(st, true);
+        self.validating.retain(|(h, _)| *h != handle);
+        r
+    }
+
+    /// The xRec a part's blank line validates its link value with: `held` when it is the table's blank record (the part held
+    /// no row), else `None` (see `stamp_from_filters_seen_as`).
+    pub(super) fn blank_held_xrec(&mut self, st: &St, held: &[Value]) -> Option<Vec<Value>> {
+        let table = self.page_rec(st).borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        Self::same_values(held, &fresh).then_some(fresh)
     }
 
     /// AutoSplitKey: the last field of the primary key of a new line is numbered from its
