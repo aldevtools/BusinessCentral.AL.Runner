@@ -1889,7 +1889,11 @@ impl Session {
             s.typed_before_key = false;
         }
         let held = self.page_xrec_fields(st);
-        let blank_held = if st.borrow().host.is_some() { self.blank_held_xrec(st, &held) } else { None };
+        let blank_held = if st.borrow().host.is_some() {
+            self.blank_held_xrec(st, &held)
+        } else {
+            None
+        };
         // The blank line of a part is a started record: the client runs NewRecord when it becomes
         // current (corpus handlers/TestPagePartDraftLineLink.al:LinkedPart_DraftLine_*,
         // handlers/TestPagePartOnNewRecordCount.al). A top-level list does the same, and both then
@@ -1978,7 +1982,8 @@ impl Session {
         st.borrow_mut().split_starts_low = true;
         let blank_held = self.blank_held_xrec(st, &held);
         let table_blank = self.initial_fields(table);
-        for validate in [true, false, true] {
+        for (n, validate) in [true, false, true].into_iter().enumerate() {
+            let first = n == 0;
             if validate {
                 self.set_xrec_fields(st, held.clone());
             } else {
@@ -1994,10 +1999,14 @@ impl Session {
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
-                match blank_held.clone() {
-                    Some(before) => self.stamp_from_filters_seen_as(st, before)?,
-                    None => self.stamp_from_filters(st, true)?,
+                let stamped = match blank_held.clone() {
+                    Some(before) => self.stamp_from_filters_seen_as(st, before),
+                    None => self.stamp_from_filters(st, true),
+                };
+                if let Err(Signal::Error(e)) = stamped {
+                    return self.part_open_link_validate_failed(st, e, first);
                 }
+                stamped?;
             }
             self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
             self.page_event(st, "onnewrecordevent", None, Some(true))?;
@@ -2168,6 +2177,55 @@ impl Session {
                 self.record_op(RecordOp::Validate, &rec, &mut [Value::Integer(pos as i32), v])?;
             }
         }
+        Ok(())
+    }
+
+    /// The first validation of a part's link value raised an error as the host opened: the error is swallowed, OnNewRecord and
+    /// OnAfterGetCurrRecord run once on the line as stamped and the part runs nothing more; the open goes on (pages/
+    /// lt-qj-part-propagation/QjPartPropagation.al:3766 QT_ValPartSplit_Empty_Last_KeyValidateErrors `open = ok`, `log-open =
+    /// T.Doc.V(H1 x= ln=0) V.NEW(H1 0 x= 0 below=Yes) V.AGCR(H1 0 a=0 x=H1 0)`; :3825 QT_ValPartPlain_). The part then answers
+    /// Last() with No and runs nothing, and a write raises TestRowNotFound (`last = ok No`, `log-last` empty, `type|code =
+    /// TestRowNotFound`). Pinned for a part with AutoSplitKey and DelayedInsert and for one with neither, on the first validation
+    /// of a host's open; an error elsewhere, or on another part shape, is raised as before.
+    fn part_open_link_validate_failed(
+        &mut self,
+        st: &St,
+        e: Box<al_builtins::native::AlError>,
+        first: bool,
+    ) -> Result<(), Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let on = |name: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && is_true(v))
+        };
+        let shape_pinned = on("AutoSplitKey") == on("DelayedInsert");
+        let host_document = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| {
+                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+            });
+        if !first || !self.part_open_running || !shape_pinned || !host_document {
+            if !first || !self.part_open_running {
+                return Err(Signal::Error(e));
+            }
+            return unsupported(
+                "a part's link value failed its validation as the host opened, on a part with only one of AutoSplitKey and DelayedInsert or another host than a Document page (not pinned)",
+            );
+        }
+        self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
+        self.page_event(st, "onnewrecordevent", None, Some(true))?;
+        self.set_xrec(st);
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        // What GetLastErrorText reads after the swallowed error is not pinned.
+        self.last_error = al_builtins::native::unpinned_error();
+        st.borrow_mut().link_validate_failed = true;
         Ok(())
     }
 

@@ -312,7 +312,10 @@ impl Session {
     /// [`Self::sync_parts`] as the host opens: the parts hidden by a Visible expression read their rows too, in the order of the
     /// controls (pages/lt-page-filtergroup-assumptions/P99InvisiblePart.al:P99_FlagFalseAtOpen).
     pub(super) fn sync_parts_at_open(&mut self, st: &St) -> Result<(), Signal> {
-        self.sync_parts_with(st, Sync::Open)
+        let before = std::mem::replace(&mut self.part_open_running, true);
+        let r = self.sync_parts_with(st, Sync::Open);
+        self.part_open_running = before;
+        r
     }
 
     /// [`Self::sync_parts`] after the host moved to another row with First, Last, Next or Previous. Only the parts with a
@@ -949,6 +952,11 @@ impl Session {
         if !child.borrow().open {
             return Ok(());
         }
+        if child.borrow().link_validate_failed {
+            return unsupported(
+                "a part read again after its link value failed its validation as the host opened (not pinned)",
+            );
+        }
         // What was typed into the row the part stands on is saved before it moves on.
         self.save_row(child)?;
         // The filter `SetSelectionFilter(Rec)` left on the part's own record is gone once the part refreshes with its host
@@ -1313,8 +1321,8 @@ impl Session {
     /// _Default_ `N.Amt.V(5 x=1) N.Amt.V.end N.AGR(10000 a=1 x.a=1) N.AGR(10000 a=1 x.a=1) N.AGCR(10000 a=1 x.a=5)`, `lines-after-
     /// close = 10000:q=1,a=1`). Another host type, a new part row and a host with an unsaved edit are refused.
     ///
-    /// Card and ListPlus hosts behave as the Document host on a stored part row (QjPartPropagation.al:2123
-    /// QN_Card_PartUpdate_HostRowUnchanged, :2151 QN_CardBoth_, :2179 QN_ListPlus_, :2207 QN_ListPlusBoth_). On a new part row the
+    /// Card and ListPlus hosts behave as the Document host on a stored part row (QjPartPropagation.al:2128
+    /// QN_Card_PartUpdate_HostRowUnchanged, :2156 QN_CardBoth_, :2184 QN_ListPlus_, :2212 QN_ListPlusBoth_). On a new part row the
     /// part does what it does when its code changed the host row: with Both on a Document or ListPlus host the host reads its row
     /// again and the part keeps the typed row (:2030 QN_Both_NewPartRow_PartUpdate_HostRowUnchanged `log-part-edit = N.Amt.V(5 x=0)
     /// N.Amt.V.end H.AGR(t=1 x.t=1) H.AGCR(t=1 x.t=1)`, `lines-after-close` with 20000:q=0,a=5; :2266 QN_ListPlusBoth_); with

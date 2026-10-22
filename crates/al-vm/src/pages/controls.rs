@@ -953,6 +953,17 @@ impl Session {
         args: &mut [Value],
     ) -> Result<Value, Signal> {
         self.require_open(&c.page)?;
+        if c.page.borrow().link_validate_failed {
+            // QjPartPropagation.al:3766 QT_ValPartSplit_Empty_Last_KeyValidateErrors `type|text = The row does not exist on the
+            // TestPage.`, `type|code = TestRowNotFound`, nothing logged or stored; :3825 QT_ValPartPlain_.
+            if method.method() == PageMethod::SetValue {
+                return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
+            }
+            return unsupported(format!(
+                "TestField.{} on a part whose link value failed its validation as the host opened (not pinned)",
+                method.method()
+            ));
+        }
         self.refuse_unpinned_state(&c.page)?;
         let st = &c.page;
         let m = method.method();

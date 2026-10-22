@@ -505,6 +505,9 @@ pub struct PageState {
     /// The part stands on the blank line its Last() ran on a view without rows: a part without DelayedInsert and AutoSplitKey
     /// inserts that line at the first write to a field outside the key (pages/lt-qj-part-propagation/QjPartPropagation.al:3696).
     pub blank_after_empty_last: bool,
+    /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
+    /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
+    pub link_validate_failed: bool,
     /// The client's rows were read again from the row a list settled on after an action's filter left its row, with no row before
     /// it: First stays on that row and reads nothing (pages/lt-ai-list-order/AiListOrderTests.al:339, :373 `after_first` empty).
     /// Also set by the refresh of CurrPage.Update on a list with OnFindRecord and OnNextRecord that ends on the first row (:174,
@@ -729,6 +732,7 @@ impl PageState {
             walk_synced_parts: false,
             empty_part_xrec: None,
             blank_after_empty_last: false,
+            link_validate_failed: false,
             settled_first_row: false,
             caption_assigned_closed: false,
             draft_stored: false,
