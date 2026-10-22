@@ -566,7 +566,15 @@ fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_is_refused() {
 // (handlers/TestPageActionRunPageView.al:134).
 #[test]
 fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
-    let ops = ["GetFilters", "GetView", "HasFilter", "GetRangeMin", "Count", "IsEmpty", "FindFirst"];
+    let ops = [
+        "GetFilters",
+        "GetView",
+        "HasFilter",
+        "GetRangeMin",
+        "Count",
+        "IsEmpty",
+        "FindFirst",
+    ];
     let mut tests = String::from(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
         local procedure Read(Op: Text) var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin

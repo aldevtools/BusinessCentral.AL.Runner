@@ -74,6 +74,9 @@ fn filter_reads_of_rec_after_lookup_ok_on_a_page_without_a_row_are_refused() {
          [ModalPageHandler] procedure OkHandler(var P: TestPage \"LNR List\") begin P.First(); P.OK().Invoke(); end;",
     );
     for (n, r) in &o {
-        assert!(matches!(r, Outcome::NotRun(why) if why.contains("shows no row")), "{n}: {r:?}");
+        assert!(
+            matches!(r, Outcome::NotRun(why) if why.contains("shows no row")),
+            "{n}: {r:?}"
+        );
     }
 }
