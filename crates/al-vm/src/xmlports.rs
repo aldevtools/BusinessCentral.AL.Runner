@@ -899,10 +899,13 @@ impl Session {
         // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. So has a text
         // attribute declared `Occurrence = Required`, also when its value is empty (xmlport/lt-qr-xmlport-container-occurs/
         // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Rows; report/lt-u-report-props/UPropertyTests.al:336).
-        // A text attribute without `Occurrence` may be missing, as before these pins.
+        // A text attribute without `Occurrence` may be missing, as before these pins. A field attribute declared
+        // `Occurrence = Optional` may be missing and leaves its field as it is, one declared Required may not
+        // (platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
         let missing = schema.children(node).into_iter().find(|&a| {
             let n = schema.node(a);
-            (n.kind == ir::XmlNodeKind::FieldAttr || (n.kind == ir::XmlNodeKind::TextAttr && n.required == Some(true)))
+            ((n.kind == ir::XmlNodeKind::FieldAttr && n.required != Some(false))
+                || (n.kind == ir::XmlNodeKind::TextAttr && n.required == Some(true)))
                 && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name)
         });
         // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
@@ -2008,6 +2011,14 @@ impl Session {
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
+                    // AgXmlPortImport.al pins `Occurrence` of a field attribute on import only. Whether an empty value is
+                    // written or left out on export is not pinned (the text attribute's rule above is not assumed here).
+                    if v.is_empty() && c.required.is_some() {
+                        return unsupported(format!(
+                            "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
+                            c.xml_name
+                        ));
+                    }
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {

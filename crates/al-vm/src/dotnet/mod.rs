@@ -326,6 +326,22 @@ impl Session {
                         );
                     }
                 }
+                // The runtime's .NET host has only the encodings .NET ships, no code pages (1252 and the like). Whether
+                // BC's server provides them is not pinned (docs/probes-needed.md, "Encoding.GetEncoding with a code page"):
+                // the refusal says that, instead of a .NET exception BC may never raise.
+                if clr_type.eq_ignore_ascii_case("System.Text.Encoding")
+                    && member.eq_ignore_ascii_case("GetEncoding")
+                    && e.clr_type == "System.NotSupportedException"
+                {
+                    let page = match values.first() {
+                        Some(Value::Integer(n)) => format!(" (code page {n})"),
+                        _ => String::new(),
+                    };
+                    return unsupported(format!(
+                        "DotNet {shown}: the runtime's .NET host has no code-page encodings{page}; whether Business Central \
+                         provides them is not pinned (docs/probes-needed.md)"
+                    ));
+                }
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();
                 unsupported(format!(
                     "DotNet {shown} raised the .NET exception {}: {}{inner}; the text AL would see is not pinned (ADR-014 section 7)",

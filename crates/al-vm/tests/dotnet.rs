@@ -951,6 +951,32 @@ fn a_dotnet_exception_is_unsupported_with_the_clr_type_message_and_inner_excepti
     assert!(why.contains("not pinned"), "{why}");
 }
 
+// The runtime's .NET host has only the encodings .NET itself ships (no code pages such as 1252). Whether BC's server
+// answers Encoding.GetEncoding(1252) with an encoding is not pinned (docs/probes-needed.md, "Encoding.GetEncoding with a
+// code page"), so the refusal says that, not the host's NotSupportedException as if BC raised it.
+#[test]
+fn get_encoding_of_a_code_page_the_host_lacks_is_refused_as_not_pinned() {
+    let host = Fake::new(|_| {
+        Err(DotNetFailure::Exception(DotNetException {
+            clr_type: "System.NotSupportedException".into(),
+            message: "No data is available for encoding 1252. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.".into(),
+            inner: vec![],
+        }))
+    });
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding;",
+        "X := E.GetEncoding(1252);",
+        "",
+    );
+    let why = unsupported(&r);
+    assert_eq!(
+        why,
+        "DotNet System.Text.Encoding.GetEncoding: the runtime's .NET host has no code-page encodings (code page 1252); \
+         whether Business Central provides them is not pinned (docs/probes-needed.md)"
+    );
+}
+
 #[test]
 fn asserterror_around_a_dotnet_exception_is_not_run_until_the_text_is_pinned() {
     let host = Fake::new(|_| {
