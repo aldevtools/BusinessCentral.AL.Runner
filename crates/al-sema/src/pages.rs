@@ -1556,9 +1556,13 @@ mod tests {
         let l = merged(bare, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["BCNumber", "BCNoLayoutPart"]);
-        // Another page type is not pinned.
+        // A List takes FactBoxes too (BcImplicitAreas.al:93-136); another page type is not pinned.
         let list = "page 50100 P { PageType = List; layout { area(Content) { repeater(R) { field(Number; Rec.Number) { } } } } }";
         let l = merged(list, &[part]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        let document =
+            "page 50100 P { PageType = Document; layout { area(Content) { field(Number; Rec.Number) { } } } }";
+        let l = merged(document, &[part]);
         assert_eq!(l.reasons.len(), 1, "{:?}", l.reasons);
     }
 
