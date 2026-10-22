@@ -623,7 +623,7 @@ TEST DATA
                          builds the company the way Microsoft's Legacy test lane does: a fresh
                          company, Company-Initialize, then the RapidStart package of the artifact
                          (platform/ConfigurationPackages/*.rapidstart, the DemoTool's Extended data).
-                         `demotool` builds it as that lane does on BC 29 and later, whose artifact has
+                         `demotool` builds it as that lane does on a release whose artifact has
                          no package: a fresh company, Company-Initialize, then the DemoTool's
                          \"Create Demo Data from Config\" (codeunit 101899), compiled from BCApps' source
                          of the release with the W1 resource files (fetched with git, sparse, into
