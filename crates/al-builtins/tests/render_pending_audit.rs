@@ -96,7 +96,7 @@ const TABLE: &[(&str, Kind)] = &[
     ("MediaSet.FindOrphans", Refused),
     ("MediaSet.ImportFile", Guard),
     ("MediaSet.ImportStream", Guard),
-    ("MediaSet.Insert", Refused),
+    ("MediaSet.Insert", Pure),
     ("MediaSet.Item", Pure),
     ("MediaSet.MediaId", Pure),
     ("MediaSet.Remove", Pure),

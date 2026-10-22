@@ -3597,6 +3597,11 @@
 60951 MediaSet_Remove_NeverInserted_ReturnsFalse
 60951 MediaSet_Temporary_ImportStream_Get_CountIsOne
 60951 Media_ImportStream_ModifyThenGet_HasValueTrue
+60951 QV_MediaSet_Insert_ItemOfAnotherRow
+60951 QV_MediaSet_Insert_RecordNotInserted
+60951 QV_MediaSet_Insert_SameIdTwice
+60951 QV_MediaSet_Insert_SourceRemovesAfterwards
+60951 QV_MediaSet_Insert_UnknownAndNullId
 60952 Confirm_DefaultChoiceHonored_WhenHandlerDoesNotOverrideReply
 60952 Confirm_MultipleMixedTypeFormatArgs_HandlerReceivesRawUnsubstitutedQuestion
 60952 Confirm_SingleFormatArg_HandlerReceivesRawUnsubstitutedQuestion
@@ -4641,8 +4646,11 @@
 67761 ObjectId_CurrReport_InOnPreReport
 67761 ObjectId_ReportVariable_WithAndWithoutCaption
 67761 ObjectId_WithAnotherGlobalLanguage
+67761 Preview_ReportExecute
 67761 Preview_ReportRun
 67761 Preview_ReportRunModal
+67761 Preview_ReportSaveAs
+67761 QV_Preview_SaveAsXml_Column
 67762 Hyperlink_WithoutHandler
 67763 AddRecord_CopiesTheFiltersOfTheRecord
 67763 Errors_SameNameForASecondTable
@@ -9734,6 +9742,7 @@
 72043 ObjectId_FromCurrReport_Captioned
 72043 ObjectId_FromCurrReport_NoCaption
 72043 ObjectId_FromReportVariable
+72043 Preview_InReportExecute
 72043 Preview_InReportRun
 72043 Preview_InReportSaveAs
 72044 ClearCollectedErrors_ThenHas
@@ -10047,7 +10056,10 @@
 72500 AddTypedValues
 72500 CloneAndReference
 72500 KeysOrder
+72500 PathAndSelect
+72500 QV_RemoveMissingKey_StatementForm
 72500 RemoveAndReplace
+72500 SelectTokenErrors
 72501 AddAndGet
 72501 ForeachAndPath
 72501 GetOutOfRange
@@ -11701,6 +11713,8 @@
 73874 PW_FindList_Descending_20Rows
 73874 PW_FindList_Descending_21Rows
 73874 PW_FindList_Descending_2Rows
+73874 QV_DescKind_FindNext_Moves
+73874 QV_DescKind_FindOnly_Moves
 73880 Transfer_EnumToEnum_SameType
 73880 Transfer_EnumToOption
 73880 Transfer_OptionToEnum
@@ -12036,6 +12050,7 @@
 74204 MediaOnTemporaryRecord
 74204 MediaReimportReplaces
 74204 MediaSetImportStream
+74204 MediaSetInsertNullAndUnknown
 74204 MediaSetPersistsAcrossGet
 74205 AddTextAppend
 74205 LengthLargeText
@@ -13469,6 +13484,9 @@
 80972 FactBoxes_NotDeclared_OpenView_Closes
 80972 FactBoxes_NotDeclared_PartsShowLinkedRow
 80972 NoLayout_ExtensionAddsContentAndFactBox
+80972 QV_ItemAttributes_FactBoxes_OpenView_Closes
+80972 QV_List_FactBoxes_NotDeclared_OpenView_Closes
+80972 QV_List_FactBoxes_NotDeclared_PartFollowsRow
 80979 Xml_BlobColumn_BinaryBytes
 80979 Xml_BlobColumn_CalcFieldsInTrigger
 80979 Xml_BlobMediaColumns_EmptyAndText
@@ -14095,6 +14113,8 @@
 85722 ReadFrom_ChildInsideParent
 85780 Item46_ArrayGetPastEnd_BooleanForm
 85780 Item48_AddLabelAndAppendLine_WriteTo
+85780 Item49_SelectTokenBoolean_LastError
+85780 Item52_AsTextWithQuotes
 85841 Item62_XmlEncodingHeaderInText
 85841 Item72_Base64OddInput
 85901 WriteThenWriteText_ReadTextAndRead
@@ -14151,6 +14171,7 @@
 86264 QB_ValidateOneArgFlowFieldWithOnValidate
 86382 BgTask_IsolatedStorageGet_KeyWrittenByCaller_QB
 86383 BgTask_IsolatedStorageGet_KeyWrittenByCallerThenCommit_QB
+86441 DescList_OpenAndWalk
 86441 DocPart_OpenEdit_LinesOfH1
 86441 DocPart_OpenEdit_LinesOfH2
 86441 DocPart_PageRunOnRecord

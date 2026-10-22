@@ -2,7 +2,7 @@
   "corpus_commit": "7f1d25b4b0fbe5d19b504abf0d3a8b7f57edbfe9",
   "language": {
     "bc": "27-29",
-    "implemented": 1502,
+    "implemented": 1503,
     "methods": [
       {
         "bc": [
@@ -10528,7 +10528,7 @@
         "scope": "",
         "sig": "(Guid)",
         "site": "media/TestMediaSetPersistence.al:442",
-        "state": "refused",
+        "state": "implemented",
         "type": "MediaSet"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 220,
+    "refused": 219,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

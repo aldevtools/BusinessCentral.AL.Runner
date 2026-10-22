@@ -633,11 +633,18 @@ impl<'a> Checker<'a> {
     /// AL0132 for a method that a library type does not have (corpus must-not-compile 0107 `Length` on a Text, 0224
     /// `Contain` on a Text, 0225 `Length` on a List, 0226 `Size` on a Dictionary, 0228 `Put` on a JsonObject,
     /// 0229 `Send2` on an HttpClient, 0230 `Fieldd` on a RecordRef, 0233 `Invert` on a Boolean, 0234 `Size` on a
-    /// Text, 0235 `GetName` on a JsonToken, 0236 `Add` on a TextBuilder). Only these types are judged, and only
+    /// Text, 0235 `GetName` on a JsonToken, 0236 `Add` on a TextBuilder, 2048 `Remove` on a JsonArray). Only these types are judged, and only
     /// when the catalog has no method of that name for the type in any runtime version: the catalog is not
     /// complete enough for the others.
     pub(crate) fn al_unknown_builtin_member(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
-        const JUDGED: &[&str] = &["JsonObject", "JsonToken", "HttpClient", "RecordRef", "TextBuilder"];
+        const JUDGED: &[&str] = &[
+            "JsonObject",
+            "JsonArray",
+            "JsonToken",
+            "HttpClient",
+            "RecordRef",
+            "TextBuilder",
+        ];
         let shown = match base {
             Ty::Text(_) => "Text".to_string(),
             Ty::Code(_) => "Code".to_string(),

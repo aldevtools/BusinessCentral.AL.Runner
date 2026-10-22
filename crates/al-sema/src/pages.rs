@@ -680,14 +680,28 @@ struct Tree {
     nodes: Vec<Node>,
     areas: Vec<Area>,
     reasons: Vec<String>,
-    /// The page is a Card: an extension may add to `Content` and `FactBoxes` although the page declares neither.
-    card: bool,
+    /// The areas of `layout` an extension may add to although the page declares none (`implicit_layout_areas`).
+    implicit_areas: &'static [&'static str],
 }
 
 /// Areas of `layout` a page extension may add to on a Card page that declares none: pageext/lt-bc-implicit-areas/BcImplicitAreas.al
-/// (FactBoxes on a card with only Content, :31-67; Content and FactBoxes on a card with no layout, :69-88). Other page types are not
-/// pinned.
+/// (FactBoxes on a card with only Content, :31-67; Content and FactBoxes on a card with no layout, :69-88).
 const IMPLICIT_CARD_AREAS: &[&str] = &["Content", "FactBoxes"];
+
+/// Areas of `layout` a page extension may add to on a List page that declares none: FactBoxes on a list with only Content
+/// (pageext/lt-bc-implicit-areas/BcImplicitAreas.al:93-136, AL Runner issue 5674). Content on a List without a layout is not pinned.
+const IMPLICIT_LIST_AREAS: &[&str] = &["FactBoxes"];
+
+/// The implicit `layout` areas of a page of type `page_type`; other page types are not pinned.
+fn implicit_layout_areas(page_type: &str) -> &'static [&'static str] {
+    if page_type.eq_ignore_ascii_case("Card") {
+        IMPLICIT_CARD_AREAS
+    } else if page_type.eq_ignore_ascii_case("List") {
+        IMPLICIT_LIST_AREAS
+    } else {
+        &[]
+    }
+}
 
 /// Walks the `layout` and `actions` sections of page object `obj`.
 pub fn layout(obj: &ast::Object) -> Layout {
@@ -698,24 +712,30 @@ pub fn layout(obj: &ast::Object) -> Layout {
 /// (the order they apply: a later `modify` of a property wins).
 pub fn layout_with(obj: &ast::Object, exts: &[(usize, ast::Object)]) -> Layout {
     let exts: Vec<(usize, Vec<ast::Section>)> = exts.iter().map(|(e, o)| (*e, o.sections().collect())).collect();
-    let card = obj
+    let page_type = obj
         .properties()
-        .any(|p| p.name().eq_ignore_ascii_case("PageType") && p.value_text().trim().eq_ignore_ascii_case("Card"));
-    layout_of(obj.sections(), &exts, card)
+        .find(|p| p.name().eq_ignore_ascii_case("PageType"))
+        .map(|p| p.value_text().trim().to_string())
+        .unwrap_or_default();
+    layout_of(obj.sections(), &exts, implicit_layout_areas(&page_type))
 }
 
 /// The control tree among `sections` (the top-level sections of a page, or the sections of a
 /// report's `requestpage`) with the sections of the extensions `exts` merged in, in the order given.
 pub fn layout_from(sections: impl Iterator<Item = ast::Section>, exts: &[(usize, Vec<ast::Section>)]) -> Layout {
-    layout_of(sections, exts, false)
+    layout_of(sections, exts, &[])
 }
 
-fn layout_of(sections: impl Iterator<Item = ast::Section>, exts: &[(usize, Vec<ast::Section>)], card: bool) -> Layout {
+fn layout_of(
+    sections: impl Iterator<Item = ast::Section>,
+    exts: &[(usize, Vec<ast::Section>)],
+    implicit_areas: &'static [&'static str],
+) -> Layout {
     let mut tree = Tree {
         nodes: Vec::new(),
         areas: Vec::new(),
         reasons: Vec::new(),
-        card,
+        implicit_areas,
     };
     for top in sections {
         let n = top.name().to_ascii_lowercase();
@@ -993,10 +1013,9 @@ impl Tree {
         for op in &pending {
             let kind = op.section.name().to_ascii_lowercase();
             let target = op.section.args().first().cloned().unwrap_or_default();
-            if self.card
-                && !op.in_actions
+            if !op.in_actions
                 && (kind == "addfirst" || kind == "addlast")
-                && IMPLICIT_CARD_AREAS.iter().any(|a| a.eq_ignore_ascii_case(&target))
+                && self.implicit_areas.iter().any(|a| a.eq_ignore_ascii_case(&target))
                 && !self
                     .areas
                     .iter()
@@ -1537,9 +1556,13 @@ mod tests {
         let l = merged(bare, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["BCNumber", "BCNoLayoutPart"]);
-        // Another page type is not pinned.
+        // A List takes FactBoxes too (BcImplicitAreas.al:93-136); another page type is not pinned.
         let list = "page 50100 P { PageType = List; layout { area(Content) { repeater(R) { field(Number; Rec.Number) { } } } } }";
         let l = merged(list, &[part]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        let document =
+            "page 50100 P { PageType = Document; layout { area(Content) { field(Number; Rec.Number) { } } } }";
+        let l = merged(document, &[part]);
         assert_eq!(l.reasons.len(), 1, "{:?}", l.reasons);
     }
 

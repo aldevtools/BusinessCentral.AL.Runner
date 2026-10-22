@@ -533,12 +533,24 @@ impl Session {
 
     /// `find_page_filtered_view` on a page with neither OnAfterGetRecord nor OnAfterGetCurrRecord, the pages of writer QC's probe:
     /// moves inside the rows the client holds ask the page nothing (QcFindViewTests.al:97, :135, :236, :540).
-    /// Pinned for an ascending view; a descending one is refused by `refuse_descending_filtered_find_move`.
+    /// Pinned for an ascending view and for a descending one on a List page; a descending part is refused by
+    /// `refuse_descending_filtered_find_move`.
     pub(super) fn filtered_find_list_without_row_triggers(&self, st: &St) -> bool {
         self.find_page_filtered_view(st)
             && !self.declares(st, "onaftergetrecord")
             && !self.declares(st, "onaftergetcurrrecord")
-            && self.page_rec(st).borrow().ascending
+            && (self.page_rec(st).borrow().ascending || self.descending_find_list_pinned(st))
+    }
+
+    /// A List page (not a part) with OnFindRecord, a descending filtered SourceTableView and no row trigger: its moves ask the
+    /// page nothing, as on an ascending view (misc/lt-probes-needed-6/PnF06FindListMoves.al:825-908 QV_DescKind_FindOnly_Moves
+    /// and QV_DescKind_FindNext_Moves, every move's log empty; AL Runner issue 5682). A part is not pinned.
+    fn descending_find_list_pinned(&self, st: &St) -> bool {
+        st.borrow().host.is_none()
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::List)
+            )
     }
 
     /// A move (First, Last, Next, Previous, GoToKey) on a list with OnFindRecord, a descending filtered SourceTableView and no row
@@ -550,6 +562,7 @@ impl Session {
             && !self.declares(st, "onaftergetrecord")
             && !self.declares(st, "onaftergetcurrrecord")
             && !self.page_rec(st).borrow().ascending
+            && !self.descending_find_list_pinned(st)
         {
             return unsupported(
                 "a move on a list with OnFindRecord and a descending filtered SourceTableView (whether the page is asked is not pinned)",
