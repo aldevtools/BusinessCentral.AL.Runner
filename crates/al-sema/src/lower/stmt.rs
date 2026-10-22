@@ -569,8 +569,6 @@ impl Lowerer<'_> {
 
     /// Notes that the lowering of the statement being lowered rests on assumption `a`: the statement is
     /// preceded by `Stmt::Assume(a)`, so a test that runs it is reported as flagged.
-    // No lowering-level assumption is registered at the moment; the next one calls this.
-    #[allow(dead_code)]
     pub(crate) fn assume(&mut self, a: al_builtins::assumptions::Assumption) {
         if let Some(frame) = self.assumed.last_mut() {
             if !frame.contains(&a) {

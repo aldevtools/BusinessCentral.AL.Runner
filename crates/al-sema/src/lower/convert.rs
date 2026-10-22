@@ -355,11 +355,14 @@ impl<'a> Lowerer<'a> {
             _ => false,
         };
         if !pinned {
-            // A longer Text or Code false branch anywhere else: a value no longer than the true branch is the same whether
-            // BC converts it or not; a longer one is refused when the branch is taken (the Base App's Acc. Schedule Line
-            // `Description := Description = '' ? GLAccCategory.Description : Description`, Text[80] and Text[100]).
+            // A longer Text or Code false branch anywhere else is not pinned. Microsoft's DemoTool needs it to run (Base App
+            // AccScheduleLine.Table.al:113 `Description := Description = '' ? GLAccCategory.Description : Description`, a
+            // Text[80] true branch and a Text[100] false branch into a Text[100] field), so it runs on the registered
+            // assumption `ternary-longer-text-false-branch-fits` (hard rule 3 exception): a value no longer than the true
+            // branch passes unchanged, a longer one is refused when the branch is taken.
             if let (Ty::Text(Some(n)), Ty::Text(Some(_)) | Ty::Code(Some(_))) = (t, f) {
-                return Ok(ir::Expr::TddFit {
+                self.assume(al_builtins::assumptions::Assumption::TernaryLongerTextFalseBranchFits);
+                return Ok(ir::Expr::FitOrRefuse {
                     max: *n,
                     why: format!(
                         "a conditional expression whose false branch ({f}) holds a value longer than its true branch ({t}): whether BC converts it is not pinned"

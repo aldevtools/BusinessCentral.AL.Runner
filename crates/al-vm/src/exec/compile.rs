@@ -657,10 +657,10 @@ impl<'a> Compiler<'a> {
                 let a = self.expr_any(query)?;
                 self.aux(AuxSite::QueryColumn { column: *column }, d, a);
             }
-            E::TddFit { max, why, inner } => {
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
                 let a = self.expr_any(inner)?;
                 self.aux(
-                    AuxSite::TddFit {
+                    AuxSite::Fit {
                         max: *max,
                         why: why.clone(),
                     },

@@ -1518,6 +1518,13 @@ pub enum Expr {
         why: String,
         inner: Box<Expr>,
     },
+    /// The value of `inner`; a text longer than `max` raises `Signal::Unsupported` with `why`. Not `--tdd`: a text whose
+    /// conversion to a shorter type is not pinned when it would not fit (a conditional expression's false branch).
+    FitOrRefuse {
+        max: u32,
+        why: String,
+        inner: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
