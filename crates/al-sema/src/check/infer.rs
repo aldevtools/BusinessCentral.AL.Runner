@@ -141,6 +141,43 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0398 for Decimal constants where an Option ordinal is expected: the labels of `case O of 1.0:` (corpus
+    /// tests/must-not-compile/cases/2008-case-option-decimal-label.al:1) and the list of `O in [0.0, 1.5]`
+    /// (2009-option-in-decimal-list.al:1-2), `O` an Option variable. Only plain Decimal literals are judged; a
+    /// Decimal variable label and `O = 1.5` compile (types/PROptionInteger.al:175-178, :308-322). In a list, only
+    /// one of Decimal literals alone (the pinned shape). Reported for the workspace only.
+    pub(crate) fn al_option_decimal_constants(
+        &mut self,
+        sc: &Scope,
+        selector: &SyntaxNode,
+        sel_ty: &Ty,
+        consts: &[SyntaxNode],
+    ) {
+        if self.ws.is_dependency(sc.oi) || selector.kind() != SyntaxKind::NameRef || !matches!(sel_ty, Ty::Option(_)) {
+            return;
+        }
+        let decimal = |n: &SyntaxNode| -> Option<String> {
+            if n.kind() != SyntaxKind::Literal {
+                return None;
+            }
+            n.children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| !t.kind().is_trivia())
+                .filter(|t| t.kind() == SyntaxKind::Decimal)
+                .map(|t| t.text().to_string())
+        };
+        for c in consts {
+            if let Some(text) = decimal(c) {
+                self.diag(
+                    sc,
+                    c,
+                    "AL0398",
+                    format!("Constant value '{text}' is outside of the valid ordinal range for this Option type"),
+                );
+            }
+        }
+    }
+
     /// AL0122 for the scalar pairs the must-not-compile corpus pins, where the source is a plain name (a variable,
     /// parameter or field): Decimal, Integer and Text to Boolean (0260, 0265, 0286), Date to Text (0261), Boolean,
     /// Text, Decimal and DateTime to Date (0262, 0264, 0268, 0269), Variant to an Enum (0263), a Record to an
@@ -679,6 +716,15 @@ impl<'a> Checker<'a> {
                 let r = kids.get(1).map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 self.al_char_minus_text(sc, node, kids.as_slice(), &l, &r);
                 let op = op_token(node);
+                if op == "in"
+                    && let [a, set] = kids.as_slice()
+                    && set.kind() == SyntaxKind::SetExpr
+                {
+                    let elems: Vec<SyntaxNode> = set.children().collect();
+                    if elems.iter().all(|e| e.kind() == SyntaxKind::Literal) {
+                        self.al_option_decimal_constants(sc, a, &l, &elems);
+                    }
+                }
                 if let [a, b] = kids.as_slice() {
                     self.tdd_settle_operands(sc, &op, a, b, &l, &r);
                 }

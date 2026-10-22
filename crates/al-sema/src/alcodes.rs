@@ -16,9 +16,9 @@
 //!   these checks.
 //!
 //! The codes the checker itself reports (`check/`, where types are known) are AL0118, AL0122,
-//! AL0132 and AL0161 (and AL0175 for Char - Text); they are listed in [`IMPLEMENTED`] too.
+//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text); they are listed in [`IMPLEMENTED`] too.
 
-use crate::workspace::{AppKind, Diagnostic, ObjKind, Workspace};
+use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 
 /// The AL codes this front end reports, with what each one covers.
@@ -51,6 +51,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     (
         "AL0296",
         "a Cloud app names a platform table that is Scope = OnPrem (the 123 of System.app that the corpus lists), calls GetLastErrorObject, SecretText.Unwrap, or File.Open, or sets the report property EnableExternalAssemblies to true",
+    ),
+    (
+        "AL0398",
+        "a Decimal literal as a case label of an Option variable, or in the `in` list (Decimal literals only) of an Option variable",
     ),
     (
         "AL0433",
@@ -408,7 +412,10 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
             ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
-            ObjKind::Report => report_columns(ws, o.file, obj.sections(), &mut out),
+            ObjKind::Report => {
+                let globals = report_variable_columns(ws, o.file, &obj);
+                report_columns(ws, o.file, obj.sections(), &globals, &mut out)
+            }
             _ => {}
         }
     }
@@ -1054,12 +1061,69 @@ fn query_joins(ws: &Workspace, file: usize, sections: impl Iterator<Item = ast::
     }
 }
 
+/// The global variables of report `obj` (lower case) that no field of a data item's table is named like, when every data
+/// item's table is known; empty otherwise. A column whose source is such a name reads a variable, not a field (corpus
+/// must-not-compile 2010).
+fn report_variable_columns(ws: &Workspace, file: usize, obj: &ast::Object) -> Vec<String> {
+    let mut globals: Vec<String> = obj
+        .var_decls()
+        .filter(|d| {
+            !d.type_ref()
+                .is_some_and(|t| t.type_name().eq_ignore_ascii_case("record"))
+        })
+        .flat_map(|d| d.names())
+        .map(|n| n.to_ascii_lowercase())
+        .collect();
+    // Only the names an IncludeCaption column reads are looked up (most reports have none).
+    let read: Vec<String> = ast::sections_in(obj.syntax())
+        .into_iter()
+        .filter(|s| s.name().eq_ignore_ascii_case("column"))
+        .filter(|s| {
+            s.properties().any(|p| {
+                p.name().eq_ignore_ascii_case("IncludeCaption") && p.value_text().trim().eq_ignore_ascii_case("true")
+            })
+        })
+        .filter_map(|s| s.arg_name_parts(1).filter(|p| p.len() == 1))
+        .map(|p| p[0].to_ascii_lowercase())
+        .collect();
+    globals.retain(|g| read.contains(g));
+    if globals.is_empty() {
+        return globals;
+    }
+    let mut field_names: Vec<String> = Vec::new();
+    for item in ast::sections_in(obj.syntax())
+        .into_iter()
+        .filter(|s| s.name().eq_ignore_ascii_case("dataitem"))
+    {
+        let Some(parts) = item.arg_name_parts(1) else {
+            return Vec::new();
+        };
+        let Resolution::Found(t) = ws.resolve_ref(file, ObjKind::Table, &parts) else {
+            return Vec::new();
+        };
+        for o in std::iter::once(t).chain(ws.extensions_of(t).iter().copied()) {
+            for f in ast::sections_in(ws.object_ast(o).syntax())
+                .into_iter()
+                .filter(|s| s.name().eq_ignore_ascii_case("field"))
+            {
+                if let Some(n) = f.arg_name_parts(1).and_then(|p| p.into_iter().next()) {
+                    field_names.push(n.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    globals.retain(|g| !field_names.contains(g));
+    globals
+}
+
 /// AL0385. `IncludeCaption = true` on a report column whose source is an expression, not a named
-/// field (corpus 0015). A source that is a name (a field, or a variable) is not judged here.
+/// field (corpus 0015), or a bare name of a global variable of the report that no data item's table has a field of (corpus 2010).
+/// A source written with a data item name (`Item.Field`) is a named field (errors/lt-ms-refusals-138/P138ColCaptionQualified.al).
 fn report_columns(
     ws: &Workspace,
     file: usize,
     sections: impl Iterator<Item = ast::Section>,
+    globals: &[String],
     out: &mut Vec<Diagnostic>,
 ) {
     for s in sections {
@@ -1077,7 +1141,10 @@ fn report_columns(
                     c == '(' && !quoted
                 })
             });
-            if include && s.arg_name_parts(1).is_none() && is_call {
+            let is_variable = s
+                .arg_name_parts(1)
+                .is_some_and(|p| p.len() == 1 && globals.contains(&p[0].to_ascii_lowercase()));
+            if include && ((s.arg_name_parts(1).is_none() && is_call) || is_variable) {
                 if let Some(p) = s.properties().find(|p| p.name().eq_ignore_ascii_case("IncludeCaption")) {
                     push(
                         out,
@@ -1091,7 +1158,7 @@ fn report_columns(
                 }
             }
         }
-        report_columns(ws, file, s.sections(), out);
+        report_columns(ws, file, s.sections(), globals, out);
     }
 }
 
@@ -1807,6 +1874,32 @@ mod tests {
         );
         assert!(codes(&[PARENT, &q("SqlJoinType = InnerJoin; DataItemLink = Pid = Parent.Id;")]).is_empty());
         assert!(codes(&[PARENT, &q("SqlJoinType = CrossJoin;")]).is_empty());
+    }
+
+    // must-not-compile 2010: a global variable is no named field; a field written with a data item name compiles
+    // (errors/lt-ms-refusals-138/P138ColCaptionQualified.al, QS_*).
+    #[test]
+    fn al0385_include_caption_on_a_global_variable_column() {
+        let r = |col: &str, vars: &str| {
+            format!("report 50001 R {{ dataset {{ dataitem(Row; P) {{ {col} }} }} var {vars} }}")
+        };
+        assert_eq!(
+            codes(&[
+                PARENT,
+                &r("column(C; GCounter) { IncludeCaption = true; }", "GCounter: Integer;")
+            ]),
+            vec!["AL0385"]
+        );
+        assert!(codes(&[PARENT, &r("column(C; GCounter) { }", "GCounter: Integer;")]).is_empty());
+        // A field of a data item's table with the name of a global is not judged.
+        assert!(codes(&[PARENT, &r("column(C; Pid) { IncludeCaption = true; }", "Pid: Integer;")]).is_empty());
+        assert!(
+            codes(&[
+                PARENT,
+                &r("column(C; Row.Id) { IncludeCaption = true; }", "GCounter: Integer;")
+            ])
+            .is_empty()
+        );
     }
 
     #[test]

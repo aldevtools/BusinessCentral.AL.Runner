@@ -53,6 +53,120 @@ xmlport 60095 "ALT Occ"
     end;
 }
 
+// Occurrence of a text attribute on the root, a container and a table element
+// (xmlport/lt-qr-xmlport-container-occurs/QsXpTextAttrObjects.al, the QS_TextAttr_* tests of QrXpContainerOccurs.al:441).
+table 60096 "ALT Attr Row" { fields { field(1; "No."; Code[10]) { } field(2; Ref; Text[30]) { } field(3; Must; Text[30]) { } } keys { key(PK; "No.") { } } }
+xmlport 60097 "ALT Attr Occ"
+{
+    Direction = Both; Format = Xml; Encoding = UTF8; UseRequestPage = false;
+    schema
+    {
+        textelement(envelope)
+        {
+            MaxOccurs = Once;
+            textattribute(instattr) { XmlName = 'cache_instance_id'; Occurrence = Optional;
+                trigger OnBeforePassVariable() begin instattr := InstanceText; end;
+                trigger OnAfterAssignVariable() begin Log += 'instance=' + instattr + ';'; end; }
+            textattribute(verattr) { XmlName = 'version'; Occurrence = Required;
+                trigger OnBeforePassVariable() begin verattr := VersionText; end;
+                trigger OnAfterAssignVariable() begin Log += 'version=' + verattr + ';'; end; }
+            textelement(body)
+            {
+                MinOccurs = Zero; MaxOccurs = Once;
+                textattribute(tokenattr) { XmlName = 'token'; Occurrence = Optional;
+                    trigger OnBeforePassVariable() begin tokenattr := TokenText; end;
+                    trigger OnAfterAssignVariable() begin Log += 'token=' + tokenattr + ';'; end; }
+                tableelement(row; "ALT Attr Row")
+                {
+                    UseTemporary = true; MinOccurs = Zero; MaxOccurs = Unbounded;
+                    fieldattribute(no; row."No.") { }
+                    textattribute(refattr) { XmlName = 'ref'; Occurrence = Optional;
+                        trigger OnBeforePassVariable() begin refattr := row.Ref; end; }
+                    textattribute(mustattr) { XmlName = 'must'; Occurrence = Required;
+                        trigger OnBeforePassVariable() begin mustattr := row.Must; end; }
+                    trigger OnBeforeInsertRecord()
+                    begin
+                        Log += 'row ' + row."No." + ' ref=' + refattr + ' must=' + mustattr + ';';
+                        row.Ref := refattr; row.Must := mustattr;
+                    end;
+                }
+            }
+        }
+    }
+    var InstanceText: Text; VersionText: Text; TokenText: Text; Log: Text;
+    procedure SetValues(NewInstance: Text; NewVersion: Text; NewToken: Text) begin InstanceText := NewInstance; VersionText := NewVersion; TokenText := NewToken; end;
+    procedure AddRow(No: Code[10]; NewRef: Text[30]; NewMust: Text[30]) begin row.Init(); row."No." := No; row.Ref := NewRef; row.Must := NewMust; row.Insert(); end;
+    procedure Result() Res: Text
+    begin
+        Res := 'log=' + Log + ' values: instance=' + instattr + ' version=' + verattr + ' token=' + tokenattr + ' ref=' + refattr + ' must=' + mustattr + ' rows=';
+        if row.FindSet() then repeat Res += row."No." + ':' + row.Ref + '/' + row.Must + ';'; until row.Next() = 0;
+    end;
+}
+
+// UseTemporary with AutoSave = false (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:307 xmlport 87357, :386 xmlport 87358).
+table 60100 "ALT Num" { fields { field(1; Number; Integer) { } } keys { key(PK; Number) { } } }
+xmlport 60098 "ALT Temp No Save Text"
+{
+    Direction = Import; Format = VariableText; FieldDelimiter = '"'; FieldSeparator = '|'; UseRequestPage = false;
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Tmp; "ALT Num")
+            {
+                AutoSave = false; XmlName = 'tmpImport'; UseTemporary = true;
+                textelement(shelf) { }
+                textelement(itemcode) { }
+                trigger OnAfterInitRecord() begin Log += 'init n=' + Format(Tmp.Number) + ' count=' + Format(Tmp.Count()) + ';'; end;
+                trigger OnBeforeInsertRecord()
+                begin
+                    Log += 'before shelf=' + shelf + ' itemcode=' + itemcode + ' n=' + Format(Tmp.Number) + ' count=' + Format(Tmp.Count()) + ' temp=' + Format(Tmp.IsTemporary()) + ';';
+                    if ManualInsert then begin Counter += 1; Tmp.Number := Counter; Tmp.Insert(); end;
+                end;
+                trigger OnAfterInsertRecord() begin Log += 'after n=' + Format(Tmp.Number) + ' count=' + Format(Tmp.Count()) + ';'; end;
+            }
+        }
+    }
+    var Log: Text; ManualInsert: Boolean; Counter: Integer;
+    trigger OnPreXmlPort() begin Log += 'pre count=' + Format(Tmp.Count()) + ';'; end;
+    trigger OnPostXmlPort() begin Log += 'post count=' + Format(Tmp.Count()) + ';'; end;
+    procedure SetManualInsert(NewManualInsert: Boolean) begin ManualInsert := NewManualInsert; end;
+    procedure Result() Res: Text
+    begin
+        if Tmp.FindSet() then repeat Res += Format(Tmp.Number) + ';'; until Tmp.Next() = 0;
+        Res := Log + ' count=' + Format(Tmp.Count()) + ' rows=' + Res;
+    end;
+}
+xmlport 60099 "ALT Temp No Save Xml"
+{
+    Direction = Import; Format = Xml; UseRequestPage = false;
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(U; "ALT Universal")
+            {
+                UseTemporary = true; AutoSave = false; XmlName = 'Row';
+                fieldelement(Id; U."Entry No.") { }
+                fieldelement(Txt; U."Text Field") { }
+                trigger OnBeforeInsertRecord()
+                begin
+                    Log += 'before id=' + Format(U."Entry No.") + ' txt=' + U."Text Field" + ' temp=' + Format(U.Count()) + ';';
+                    if ManualInsert then U.Insert();
+                end;
+                trigger OnAfterInsertRecord() begin Log += 'after id=' + Format(U."Entry No.") + ' temp=' + Format(U.Count()) + ' real=' + Format(Real.Count()) + ';'; end;
+            }
+        }
+    }
+    var Real: Record "ALT Universal"; Log: Text; ManualInsert: Boolean;
+    procedure SetManualInsert(NewManualInsert: Boolean) begin ManualInsert := NewManualInsert; end;
+    procedure Result() Res: Text
+    begin
+        if U.FindSet() then repeat Res += Format(U."Entry No.") + ':' + U."Text Field" + ';'; until U.Next() = 0;
+        Res := Log + ' count=' + Format(U.Count()) + ' rows=' + Res;
+    end;
+}
+
 table 60000 "ALT Universal"
 {
     fields
@@ -1718,5 +1832,147 @@ fn an_import_of_a_missing_or_repeated_container_fails_the_schema_check() {
         format!(
             "{pre}The element 'head' has invalid child element 'name'. List of possible elements expected: 'lines'.|XmlPortInvalidXml"
         )
+    );
+}
+
+const ATTR_VARS: &str = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; OutStr: OutStream; P: XmlPort \"ALT Attr Occ\";";
+
+fn attr_export(setup: &str) -> String {
+    text(
+        ATTR_VARS,
+        &format!(
+            "{setup} B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); P.SetDestination(OutStr); P.Export(); B.Modify();
+             exit(H.ReadAll(B));"
+        ),
+    )
+}
+
+/// `ok <result>` or `<error text>|<code>`.
+fn attr_import(body: &str) -> String {
+    match run(
+        ATTR_VARS,
+        &format!(
+            "H.Stage(B, InStr, '<?xml version=\"1.0\" encoding=\"UTF-8\"?>{body}'); P.SetSource(InStr); P.Import(); exit('ok ' + P.Result());"
+        ),
+    ) {
+        Ok(Value::Text(s)) => s.to_string(),
+        Err(Signal::Error(e)) => format!("{}|{}", e.message, e.code),
+        other => panic!("{other:?}"),
+    }
+}
+
+// QrXpContainerOccurs.al:QS_TextAttr_Export_AllEmpty, QS_TextAttr_Export_AllSet, QS_TextAttr_Export_OptionalSetRequiredEmpty:
+// an empty Required text attribute is written as attr="", an empty Optional one is left out.
+#[test]
+fn an_export_leaves_out_an_empty_optional_text_attribute_and_writes_an_empty_required_one() {
+    let decl = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>";
+    assert_eq!(
+        attr_export(""),
+        format!("{decl}<envelope version=\"\">  <body /></envelope>")
+    );
+    assert_eq!(
+        attr_export("P.SetValues('inst-1', '2', 'tok'); P.AddRow('R1', 'ref-1', 'must-1');"),
+        format!(
+            "{decl}<envelope cache_instance_id=\"inst-1\" version=\"2\">  <body token=\"tok\">    <row no=\"R1\" ref=\"ref-1\" must=\"must-1\" />  </body></envelope>"
+        )
+    );
+    assert_eq!(
+        attr_export("P.SetValues('inst-1', '', ''); P.AddRow('R1', '', ''); P.AddRow('R2', 'ref-2', '');"),
+        format!(
+            "{decl}<envelope cache_instance_id=\"inst-1\" version=\"\">  <body>    <row no=\"R1\" must=\"\" />    <row no=\"R2\" ref=\"ref-2\" must=\"\" />  </body></envelope>"
+        )
+    );
+}
+
+// QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Container: a missing Required text attribute fails the schema
+// check, a present but empty one imports; a missing Optional one runs no trigger; an attribute the schema lacks fails.
+#[test]
+fn an_import_checks_the_occurrence_of_root_and_container_text_attributes() {
+    let pre = "Imported XML cannot validate with the schema: ";
+    assert_eq!(
+        attr_import("<envelope cache_instance_id=\"i1\" version=\"2\"/>"),
+        "ok log=instance=i1;version=2; values: instance=i1 version=2 token= ref= must= rows="
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\"/>"),
+        "ok log=version=2; values: instance= version=2 token= ref= must= rows="
+    );
+    let missing = format!("{pre}The required attribute 'version' is missing.|XmlPortInvalidXml");
+    assert_eq!(attr_import("<envelope cache_instance_id=\"i1\"/>"), missing);
+    assert_eq!(attr_import("<envelope/>"), missing);
+    assert_eq!(
+        attr_import("<envelope version=\"\"/>"),
+        "ok log=version=; values: instance= version= token= ref= must= rows="
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\" other=\"x\"/>"),
+        format!("{pre}The 'other' attribute is not declared.|XmlPortInvalidXml")
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\"><body token=\"t1\"/></envelope>"),
+        "ok log=version=2;token=t1; values: instance= version=2 token=t1 ref= must= rows="
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\"><body/></envelope>"),
+        "ok log=version=2; values: instance= version=2 token= ref= must= rows="
+    );
+}
+
+// QrXpContainerOccurs.al:QS_TextAttr_Import_Rows: an Optional text attribute missing on a later row keeps the value of the row before;
+// a Required one missing on a row fails the schema check.
+#[test]
+fn an_import_checks_the_occurrence_of_row_text_attributes() {
+    assert_eq!(
+        attr_import(
+            "<envelope version=\"2\"><body><row no=\"R1\" ref=\"a\" must=\"m1\"/><row no=\"R2\" must=\"m2\"/></body></envelope>"
+        ),
+        "ok log=version=2;row R1 ref=a must=m1;row R2 ref=a must=m2; values: instance= version=2 token= ref=a must=m2 rows=R1:a/m1;R2:a/m2;"
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\"><body><row no=\"R1\" must=\"m1\"/><row no=\"R2\"/></body></envelope>"),
+        "Imported XML cannot validate with the schema: The required attribute 'must' is missing.|XmlPortInvalidXml"
+    );
+    assert_eq!(
+        attr_import("<envelope version=\"2\"><body><row no=\"R1\" must=\"\"/></body></envelope>"),
+        "ok log=version=2;row R1 ref= must=; values: instance= version=2 token= ref= must= rows=R1:/;"
+    );
+}
+
+fn temp_no_save(port: &str, manual: bool, data: &str) -> String {
+    text(
+        &format!("H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; P: XmlPort \"{port}\"; Real: Record \"ALT Universal\"; Nl: Text[2];"),
+        &format!(
+            "Nl[1] := 13; Nl[2] := 10; H.Stage(B, InStr, {data}); P.SetSource(InStr); P.SetManualInsert({manual}); P.Import();
+             exit(P.Result() + ' real after=' + Format(Real.Count()));"
+        ),
+    )
+}
+
+// AjRunAndXmlPort.al:QS_VariableText_TempInteger_AutoSaveFalse, _ManualInsert: with UseTemporary and AutoSave = false the triggers
+// run as for a saved row and see the imported values; the temporary table holds only what OnBeforeInsertRecord inserts.
+#[test]
+fn a_temporary_table_element_without_autosave_holds_only_what_its_triggers_insert_variable_text() {
+    let data = "'\"S1\"|\"ITEM-A\"' + Nl + '\"S2\"|\"ITEM-B\"' + Nl";
+    assert_eq!(
+        temp_no_save("ALT Temp No Save Text", false, data),
+        "pre count=0;init n=0 count=0;before shelf=S1 itemcode=ITEM-A n=0 count=0 temp=Yes;after n=0 count=0;init n=0 count=0;before shelf=S2 itemcode=ITEM-B n=0 count=0 temp=Yes;after n=0 count=0;post count=0; count=0 rows= real after=0"
+    );
+    assert_eq!(
+        temp_no_save("ALT Temp No Save Text", true, data),
+        "pre count=0;init n=0 count=0;before shelf=S1 itemcode=ITEM-A n=0 count=0 temp=Yes;after n=1 count=1;init n=0 count=1;before shelf=S2 itemcode=ITEM-B n=0 count=1 temp=Yes;after n=2 count=2;post count=2; count=2 rows=1;2; real after=0"
+    );
+}
+
+// AjRunAndXmlPort.al:QS_Xml_TempTable_AutoSaveFalse_Values, _ManualInsert: the same for an Xml port; the database is unchanged.
+#[test]
+fn a_temporary_table_element_without_autosave_holds_only_what_its_triggers_insert_xml() {
+    let data = "'<Root><Row><Id>1</Id><Txt>one</Txt></Row><Row><Id>2</Id><Txt>two</Txt></Row></Root>'";
+    assert_eq!(
+        temp_no_save("ALT Temp No Save Xml", false, data),
+        "before id=1 txt=one temp=0;after id=1 temp=0 real=0;before id=2 txt=two temp=0;after id=2 temp=0 real=0; count=0 rows= real after=0"
+    );
+    assert_eq!(
+        temp_no_save("ALT Temp No Save Xml", true, data),
+        "before id=1 txt=one temp=0;after id=1 temp=1 real=0;before id=2 txt=two temp=1;after id=2 temp=2 real=0; count=2 rows=1:one;2:two; real after=0"
     );
 }
