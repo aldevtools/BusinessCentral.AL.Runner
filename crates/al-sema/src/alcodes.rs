@@ -375,6 +375,13 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     duplicate_names(ws, &mut out);
     event_subscriptions(ws, &mut out);
+    // The files the parser did not accept (`parameter_names` skips them).
+    let unparsed: std::collections::HashSet<(usize, &str)> = ws
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "AR0000")
+        .map(|d| (d.app, d.file.as_str()))
+        .collect();
     for oi in 0..ws.objects.len() {
         let o = &ws.objects[oi];
         if ws.kinds[o.app] == AppKind::Dependency {
@@ -387,6 +394,9 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         subscriber_publishers(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
+        if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) {
+            parameter_names(ws, o.file, obj.syntax(), &mut out);
+        }
         match o.kind {
             ObjKind::XmlPort => xmlport_elements(ws, o.file, obj.sections(), &mut out),
             ObjKind::PageExtension => {
@@ -833,6 +843,96 @@ fn object_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<D
                 ),
             );
         }
+    }
+}
+
+/// The unquoted words the AL compiler rejects as a parameter name: 30.0.42.60748-beta (the compiler of the corpus CI),
+/// measured 2026-10-22 with one probe file per word of the compiler's keyword table (`procedure P1(<word>: Integer)`
+/// and `procedure P1(var <word>: Integer)`). Every other keyword compiles as a parameter name (`local`, `if`, `fields`,
+/// `keys`, `layout`, ...), and so does any quoted name. Test: `check::tests::keywords_alc_rejects_as_parameter_names`.
+const PARAM_NAME_KEYWORDS: &[&str] = &[
+    "actions",
+    "area",
+    "begin",
+    "chartpart",
+    "cuegroup",
+    "end",
+    "event",
+    "extends",
+    "false",
+    "fieldattribute",
+    "fieldelement",
+    "fieldgroups",
+    "key",
+    "of",
+    "pageextension",
+    "procedure",
+    "profileextension",
+    "tableelement",
+    "tableextension",
+    "textattribute",
+    "textelement",
+    "trigger",
+    "true",
+    "var",
+];
+
+/// Of [`PARAM_NAME_KEYWORDS`], the words alc reads as the end of the parameter list when they come without `var`.
+const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
+
+/// AL0104, AL0105 and AL0107: a parameter named by a word of [`PARAM_NAME_KEYWORDS`]. The code and text are those of
+/// the first diagnostic alc gives, at the name; the diagnostics alc gives after it (its recovery) are not reproduced.
+/// Without `var`: AL0104 for `begin`, `procedure` and `trigger`, AL0105 for the rest; `var: Integer` is a parse
+/// error here already. After `var`: AL0107 for every one of them.
+///
+/// The three codes are not listed in [`IMPLEMENTED`]: they are general syntax-error codes, and this is the only shape
+/// that reports them. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
+/// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
+fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    const INVALID: &str =
+        "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+    // Statement blocks and var sections hold no parameter list; they are most of the tree, so they are not entered.
+    let mut params = Vec::new();
+    let mut walk = obj.preorder();
+    while let Some(ev) = walk.next() {
+        let rowan::WalkEvent::Enter(n) = ev else { continue };
+        match n.kind() {
+            SyntaxKind::Block | SyntaxKind::VarSection => walk.skip_subtree(),
+            SyntaxKind::Param => {
+                params.push(n);
+                walk.skip_subtree();
+            }
+            _ => {}
+        }
+    }
+    for p in params {
+        let toks: Vec<al_syntax::SyntaxToken> = p
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| !t.kind().is_trivia())
+            .collect();
+        let is_var = |t: &al_syntax::SyntaxToken| t.kind() == SyntaxKind::Ident && t.text().eq_ignore_ascii_case("var");
+        let (after_var, name) = match toks.as_slice() {
+            [v, n, ..] if is_var(v) && n.kind() == SyntaxKind::Ident => (true, n),
+            [n, ..] if n.kind() == SyntaxKind::Ident && !is_var(n) => (false, n),
+            _ => continue,
+        };
+        let word = name.text().to_ascii_lowercase();
+        if !PARAM_NAME_KEYWORDS.contains(&word.as_str()) {
+            continue;
+        }
+        let offset = name.text_range().start().into();
+        let (code, message) = if after_var {
+            ("AL0107", INVALID.to_string())
+        } else if PARAM_NAME_ENDS_LIST.contains(&word.as_str()) {
+            ("AL0104", "Syntax error, ')' expected".to_string())
+        } else {
+            (
+                "AL0105",
+                format!("Syntax error, identifier expected; '{word}' is a keyword"),
+            )
+        };
+        push(out, ws, file, offset, code, message);
     }
 }
 

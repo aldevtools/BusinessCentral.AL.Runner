@@ -260,7 +260,8 @@ pub fn stack_lines(stack: &str) -> Vec<String> {
 /// document starts with a `{` in column 0.
 ///
 /// - `tests[].name` is `Codeunit<ID>.<Method>`; `status` is `pass`, `fail` or `error`; `durationMs`, `message` and
-///   `stackTrace` (the AL call stack, one frame per line) are left out when empty.
+///   `stackTrace` (the AL call stack, one frame per line) are left out when empty. `sleptMs` is the time the test's
+///   `Sleep` calls asked for, summed, left out when zero.
 /// - v2 told an assertion failure (`fail`) from an unexpected exception (`error`). v3 has no such difference to
 ///   draw: every failing test is `fail`.
 /// - A test that did not run is `error` with the message `NotRun: out-of-scope: <reason>`, and `notRun: true`; one that
@@ -282,6 +283,7 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         .map(|r| {
             let mut row = json_row(r.codeunit, &r.codeunit_name, &r.test, &r.outcome, &r.call_stack, r.time);
             add_stubs(&mut row, &r.stubs);
+            add_slept(&mut row, r.slept_ms);
             // A pass that ran through an unprobed assumption (additive: v2 readers ignore it); the matrix report shows
             // it as PASS* (ADR-052 3.6).
             if matches!(r.outcome, Outcome::Pass) && !r.assumptions.is_empty() {
@@ -306,6 +308,14 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         doc["generatedStubs"] = json!(all);
     }
     serde_json::to_string_pretty(&doc).expect("a JSON value serializes")
+}
+
+/// `sleptMs` on the JSON row of a test whose `Sleep` calls asked for time: their sum in milliseconds (`Sleep` returns at
+/// once, so `durationMs` does not hold it; asked for by LethAL). Nothing for a test that did not sleep.
+pub fn add_slept(row: &mut serde_json::Map<String, serde_json::Value>, slept_ms: u64) {
+    if slept_ms > 0 {
+        row.insert("sleptMs".into(), serde_json::json!(slept_ms));
+    }
 }
 
 /// `stubbed: true` and `generatedStubs` on the JSON row of a test that ran stubs (ADR-051); nothing otherwise.
@@ -604,6 +614,7 @@ mod tests {
             captured: None,
             impact: Vec::new(),
             stubs: Vec::new(),
+            slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
         }

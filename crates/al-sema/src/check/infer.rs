@@ -805,6 +805,19 @@ impl<'a> Checker<'a> {
                             arg_tys.push(t);
                             continue;
                         }
+                        // `--tdd` (ADR-051 decision 10): the field argument of `Rec.Validate(F, ...)` or
+                        // `Rec.SetRange(F, ...)` names a field the table lacks: a stub field site, as `Rec.F` is. Its
+                        // type comes from the value arguments (`tdd_settle_args`).
+                        if i == 0
+                            && matches!(
+                                member_name(callee).to_ascii_lowercase().as_str(),
+                                "validate" | "setrange"
+                            )
+                            && self.tdd_field_arg(sc, a, &kids[0], receiver.as_ref())
+                        {
+                            arg_tys.push(Ty::Unknown);
+                            continue;
+                        }
                     }
                     arg_tys.push(self.ty(sc, a));
                 }

@@ -437,6 +437,7 @@ impl Report {
                     call_stack: String::new(),
                     assumptions: Vec::new(),
                     time: std::time::Duration::ZERO,
+                    slept_ms: 0,
                     coverage: Vec::new(),
                     messages: Vec::new(),
                     captured: None,
