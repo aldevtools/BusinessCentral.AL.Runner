@@ -562,6 +562,7 @@ impl MemStore {
 
     /// The rows a Modify stored for the computed table `t` (a provider answers them over its own).
     pub fn stored_rows(&self, cx: &AccessContext, t: &TableDef) -> Vec<Row> {
+        bump();
         self.table(cx, t)
             .map(|tb| tb.values().cloned().collect())
             .unwrap_or_default()
@@ -1031,8 +1032,25 @@ impl MemStore {
     }
 }
 
+thread_local! {
+    static STORE_OPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// One more operation on a store of this thread.
+#[inline(always)]
+fn bump() {
+    STORE_OPS.with(|c| c.set(c.get().wrapping_add(1)));
+}
+
+/// How many operations the stores of this thread have done (reads, writes, commits, rollbacks, restores). The VM's SQL
+/// counters compare two of these to see store access that no record method it logged made (al-vm `sqlcount.rs`).
+pub fn store_ops() -> u64 {
+    STORE_OPS.with(|c| c.get())
+}
+
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Insert"));
         }
@@ -1048,6 +1066,7 @@ impl Store for MemStore {
     }
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
         }
@@ -1055,6 +1074,7 @@ impl Store for MemStore {
     }
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             let writable = v.writable_columns(t);
             if !writable.is_empty() {
@@ -1103,6 +1123,7 @@ impl Store for MemStore {
     }
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Delete"));
         }
@@ -1123,6 +1144,7 @@ impl Store for MemStore {
         old: &[Value],
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
@@ -1142,6 +1164,7 @@ impl Store for MemStore {
     }
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
@@ -1266,6 +1289,7 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
+        bump();
         if let Some(v) = self.virtual_of(t) {
             return v.count(self, cx, t, f);
         }
@@ -1277,6 +1301,7 @@ impl Store for MemStore {
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
+        bump();
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
@@ -1305,6 +1330,7 @@ impl Store for MemStore {
     }
 
     fn commit(&mut self) {
+        bump();
         self.virtual_write_pending = false;
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
@@ -1312,6 +1338,7 @@ impl Store for MemStore {
     }
 
     fn rollback(&mut self) {
+        bump();
         self.virtual_write_pending = false;
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();
@@ -1332,6 +1359,7 @@ impl SnapshotStore for MemStore {
         self.clone()
     }
     fn restore(&mut self, s: MemStore) {
+        bump();
         let counter = self.counter.max(s.counter);
         *self = s;
         self.counter = counter;

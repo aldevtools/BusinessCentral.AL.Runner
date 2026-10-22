@@ -1066,6 +1066,24 @@ impl Lowerer<'_> {
                 .by_id(&id)
                 .filter(|s| is_property_setter(&s.receiver, &s.name))
                 .cloned();
+            // The member without arguments resolves to the getter; where the setter is an overload of its own
+            // (`XmlReadOptions.PreserveWhitespace#2`), the assignment calls that one.
+            let (id, sig) = match sig.filter(|s| s.params.is_empty()).and_then(|s| {
+                self.catalog
+                    .overloads(&s.receiver, &s.name)
+                    .into_iter()
+                    .find(|o| o.params.len() == 1)
+                    .cloned()
+            }) {
+                Some(setter) => (self.catalog.id(&setter), Some(setter)),
+                None => (
+                    id.clone(),
+                    self.catalog
+                        .by_id(&id)
+                        .filter(|s| is_property_setter(&s.receiver, &s.name))
+                        .cloned(),
+                ),
+            };
             let member = kids[0].kind() == SyntaxKind::MemberExpr;
             // Without a receiver the member is a global function (`WorkDate := d`) or a Record
             // member of the implicit Rec of table, page and dataitem code (`FilterGroup := 2`).

@@ -367,6 +367,9 @@ impl Session {
     #[inline(always)]
     pub(crate) fn binary_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
         use ir::BinOp as B;
+        if matches!(l, Value::SqlCount(_)) || matches!(r, Value::SqlCount(_)) {
+            return Self::sql_count_op(op, l, r);
+        }
         Ok(match op {
             B::Add => ops::arith(ops::Arith::Add, l, r)?,
             B::Sub => ops::arith(ops::Arith::Sub, l, r)?,
@@ -390,6 +393,35 @@ impl Session {
             B::DotNetGt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Greater),
             B::DotNetGe => Value::Boolean(dotnet::dotnet_order(l, r)? != Ordering::Less),
         })
+    }
+
+    /// An operator with a SQL counter value on either side (`al_builtins::sqlcount`).
+    #[cold]
+    #[inline(never)]
+    fn sql_count_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
+        use al_builtins::sqlcount::{Cmp, compare};
+        use ir::BinOp as B;
+        let cmp = match op {
+            B::Eq => Cmp::Eq,
+            B::Ne => Cmp::Ne,
+            B::Lt => Cmp::Lt,
+            B::Le => Cmp::Le,
+            B::Gt => Cmp::Gt,
+            B::Ge => Cmp::Ge,
+            B::Add | B::Sub | B::Mul | B::Div | B::IntDiv | B::Mod => {
+                let a = match op {
+                    B::Add => ops::Arith::Add,
+                    B::Sub => ops::Arith::Sub,
+                    B::Mul => ops::Arith::Mul,
+                    B::Div => ops::Arith::Div,
+                    B::IntDiv => ops::Arith::IntDiv,
+                    _ => ops::Arith::Mod,
+                };
+                return al_builtins::sqlcount::arith(a, l, r);
+            }
+            _ => return Err(al_builtins::sqlcount::refusal("an operator")),
+        };
+        compare(cmp, l, r).map(Value::Boolean)
     }
 
     /// A unary operator on an evaluated operand.
@@ -1091,6 +1123,10 @@ impl Session {
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
             return Err(Signal::Unsupported(why.to_string()));
+        }
+        // A counter value in a field would reach the database and every reader of the row (`al_builtins::sqlcount`).
+        if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
+            return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
         // `:=` between FilterPageBuilders copies the control collection and shares the records
         // (corpus filterpage/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
