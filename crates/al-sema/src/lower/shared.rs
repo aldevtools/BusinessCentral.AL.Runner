@@ -229,6 +229,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         tdd_globals: HashMap::default(),
         tys: Vec::new(),
         tys_on: false,
+        ternary_target: None,
         roots: Vec::new(),
     }
 }

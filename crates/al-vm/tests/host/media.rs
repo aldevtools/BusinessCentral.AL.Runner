@@ -266,7 +266,11 @@ fn import_file(body: &str) -> Result<String, Signal> {
     );
     let l = al_testkit::compile(&src);
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == "F").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .unwrap();
     let mut files = al_host::MemFileSystem::default();
     files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
     files.write("\\TEMP\\b.png", &png()).unwrap();
@@ -287,7 +291,9 @@ const DESCRIBE: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); exit(Format(Re
 // .jpg (and .JPG) file, the picture's size, and the File Name is the path as given ('<tmp><name>').
 #[test]
 fn import_file_of_a_jpeg_file_fills_the_tenant_media_row() {
-    let r = import_file(&format!("begin id := Rec.Picture.ImportFile('\\TEMP\\a.jpg', 'Cronus'); {DESCRIBE} end;"));
+    let r = import_file(&format!(
+        "begin id := Rec.Picture.ImportFile('\\TEMP\\a.jpg', 'Cronus'); {DESCRIBE} end;"
+    ));
     assert_eq!(r.unwrap(), "Yes|Cronus|image/jpeg|3x2|\\TEMP\\a.jpg");
 }
 
@@ -297,7 +303,9 @@ fn import_file_of_a_jpeg_file_fills_the_tenant_media_row() {
 fn import_file_of_a_png_file_takes_its_assumption() {
     use al_builtins::assumptions::{Assumption, take_hits};
     take_hits();
-    let r = import_file(&format!("begin id := Rec.Picture.ImportFile('\\TEMP\\b.png', 'P'); {DESCRIBE} end;"));
+    let r = import_file(&format!(
+        "begin id := Rec.Picture.ImportFile('\\TEMP\\b.png', 'P'); {DESCRIBE} end;"
+    ));
     assert_eq!(r.unwrap(), "Yes|P|image/png|4x5|\\TEMP\\b.png");
     assert!(take_hits().contains(&Assumption::MediaImportFilePng));
 }

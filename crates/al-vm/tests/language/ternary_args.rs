@@ -289,3 +289,59 @@ fn ternaries_whose_false_branch_fits_still_run() {
     assert_eq!(text(run_in(MS_SHAPES, "TM", "Shorter")), "short");
     assert_eq!(al_testkit::int(run_in(MS_SHAPES, "TM", "EnumExit")), 1);
 }
+
+const SIZED: &str = r#"
+codeunit 69901 TS
+{
+    procedure Second(Cond: Boolean; Len: Integer): Text
+    var T80: Text[80]; T100: Text[100];
+    begin
+        T80 := 'short80';
+        T100 := PadStr('', Len, 'x');
+        T80 := Cond ? T80 : T100;
+        exit('ok|' + Format(StrLen(T80)));
+    end;
+
+    procedure BiggerTarget(): Text
+    var T80: Text[80]; T100: Text[100]; Big: Text[100];
+    begin
+        T100 := PadStr('', 90, 'x');
+        Big := false ? T80 : T100;
+        exit(Big);
+    end;
+}
+"#;
+
+// types/lt-qx-ternary-sized/QxTernarySized.al:142-144, :152-155: `T80 := Cond ? T80 : T100` takes the false branch as it is when
+// it fits and fails StringLengthExceeded when it does not.
+#[test]
+fn a_longer_text_false_branch_into_the_true_branch_type_fits_or_fails_its_length() {
+    let run = |cond: bool, len: i32| {
+        al_testkit::run_with(
+            SIZED,
+            "TS",
+            "Second",
+            vec![
+                al_builtins::value::Value::Boolean(cond),
+                al_builtins::value::Value::Integer(len),
+            ],
+        )
+        .map(|(v, _)| v)
+    };
+    assert_eq!(text(run(false, 50)), "ok|50");
+    assert_eq!(text(run(true, 90)), "ok|7");
+    let e = al_testkit::error_message(run(false, 90));
+    assert!(
+        e.starts_with("The length of the string is 90, but it must be less than or equal to 80 characters."),
+        "{e}"
+    );
+}
+
+// Not pinned: the same branches into a target longer than the true branch (BC may convert the false branch to Text[80] or not).
+#[test]
+fn a_longer_text_false_branch_into_another_target_stays_refused() {
+    assert!(matches!(
+        run_in(SIZED, "TS", "BiggerTarget"),
+        Err(Signal::Unsupported(_))
+    ));
+}

@@ -327,7 +327,13 @@ impl<'a> Lowerer<'a> {
     /// :289-337, a Code[20] true branch makes a 30-character Text fail StringLengthExceeded, a Text true branch takes a Code as it is;
     /// BN_Ternary_VariantBranch :173-233, a Text true branch makes a Variant holding an Integer fail TypeConversion, a Variant true
     /// branch keeps the Text). Other pairs of different types are refused: their conversion is not pinned.
-    pub(crate) fn ternary_false_branch(&mut self, t: &Ty, f: &Ty, value: ir::Expr) -> L<ir::Expr> {
+    ///
+    /// `target` is the type of the plain assignment's target when the expression is its whole right side. A Text or Code
+    /// longer than a Text true branch, assigned to a target of exactly the true branch's type, is taken as it is when it fits
+    /// and fails StringLengthExceeded with the target's length when it does not (types/lt-qx-ternary-sized/QxTernarySized.al:
+    /// 142-144, :152-155 `T80 := Cond ? T80 : T100`): whether BC converts it to the true branch's type first or not, the
+    /// result is the same there. Into another target the two differ, which no test pins: refused.
+    pub(crate) fn ternary_false_branch(&mut self, t: &Ty, f: &Ty, value: ir::Expr, target: Option<&Ty>) -> L<ir::Expr> {
         if t == f || matches!(t, Ty::Unknown) || matches!(f, Ty::Unknown) {
             return Ok(value);
         }
@@ -343,6 +349,7 @@ impl<'a> Lowerer<'a> {
             (Ty::Text(n), Ty::Text(_)) if literal_fits(n) => true,
             // A Text or Code no longer than the Text true branch fits it: its conversion cannot fail.
             (Ty::Text(Some(n)), Ty::Text(Some(m)) | Ty::Code(Some(m))) if m <= n => true,
+            (Ty::Text(Some(_)), Ty::Text(Some(_)) | Ty::Code(Some(_))) if target == Some(t) => true,
             (Ty::Text(_), Ty::Variant) => true,
             (Ty::Variant, _) => true,
             _ => false,

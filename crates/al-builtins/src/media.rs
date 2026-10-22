@@ -371,7 +371,10 @@ fn import_file_bytes(c: &mut dyn Ctx, a: &[Value]) -> Result<(String, Vec<u8>), 
 fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     id_of(&r)?;
     let (name, bytes) = import_file_bytes(c, a)?;
-    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
     let (mime, (width, height)) = match (ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
         ("jpg", Some(size), _) => ("image/jpeg", size),
         ("png", _, Some(size)) => {
