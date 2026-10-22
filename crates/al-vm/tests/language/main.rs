@@ -14,6 +14,7 @@ mod clear_enum;
 mod code_compare;
 mod codeunit_index;
 mod codeunit_run_variant_recordref;
+mod codeunit_this_run;
 mod continue_stmt;
 mod corpus_failures_1;
 mod dataformats;
