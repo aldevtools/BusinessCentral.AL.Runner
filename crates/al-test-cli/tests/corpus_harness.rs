@@ -552,7 +552,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 17768 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
     // inside the BC28PLUS guard) now runs on BC 28 and 29. Corpus bump 43 makes it 202: the six tests of 85660 and 85661 in
     // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only.
-    assert!(out.contains("oracle: 202 case(s) differ between versions"), "{out}");
+    // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
+    // (report/lt-ah-dataset-header/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
+    assert!(out.contains("oracle: 203 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
