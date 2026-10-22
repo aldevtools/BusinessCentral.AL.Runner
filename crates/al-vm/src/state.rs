@@ -184,12 +184,26 @@ pub(crate) struct ReportState {
     /// The report instances whose request page OnInit ran before their `[ReportHandler]` was called: a run the handler starts
     /// does not run it again (report/lt-ae-reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
     pub(crate) rp_init_by_handler: Vec<std::rc::Weak<RefCell<Instance>>>,
-    /// For each report body running, innermost last: whether `CurrReport.Preview()` is pinned to be
-    /// false for it (it was started by `Run` or `RunModal`).
-    pub(crate) report_preview_pinned: Vec<bool>,
+    /// For each report body running, innermost last: how it was started, which says what `CurrReport.Preview()` answers.
+    pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The filters each data item record got from a `SetTableView` (keyed by the record's address, as text): the request page shows
     /// those and not the filters a procedure of the report set on the item.
     pub(crate) set_view_filters: Vec<(usize, Vec<ViewFilterKey>)>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
+}
+
+/// How a running report body was started (`report_preview_pinned`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReportStart {
+    /// `Run` or `RunModal`.
+    Run,
+    /// `Execute`.
+    Execute,
+    /// `SaveAs` (to a stream or, OnPrem, to a file).
+    SaveAs,
+    /// `OnInitReport` of a report started by one of the methods above or by `RunRequestPage`.
+    Init,
+    /// `OnInitReport` run by the first call of a procedure of the report.
+    FirstUse,
 }

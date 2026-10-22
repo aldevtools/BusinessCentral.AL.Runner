@@ -288,6 +288,40 @@ fn set_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Boolean(members.len() != before))
 }
 
+/// `MediaSet.Insert(MediaId)` (media/TestMediaSetPersistence.al:424-600, QV_MediaSet_Insert_*; AL Runner issue 5683):
+/// the id of a media that another set holds (another row, another table, another field) goes into an empty set, which
+/// then gets a set id of its own, and the call answers true. An id the set already holds, an id of no media and the null
+/// id answer false and raise nothing. The field holds the new set id at once, a row not yet inserted too; a Modify or
+/// Insert stores it. Not pinned, so refused: adding to a set that holds other media, and the id of a media no set holds
+/// (a Media field's).
+fn set_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let id = id_of(&r)?;
+    let Some(Value::Guid(m)) = a.first() else {
+        return unsupported("MediaSet.Insert with this argument");
+    };
+    let m = *m;
+    let s = store(c)?;
+    if m == [0; 16] || !s.objects.borrow().contains_key(&m) {
+        return Ok(Value::Boolean(false));
+    }
+    let held = s.sets.borrow().get(&id).cloned().unwrap_or_default();
+    if held.contains(&m) {
+        return Ok(Value::Boolean(false));
+    }
+    if !held.is_empty() {
+        return unsupported("MediaSet.Insert into a set that already holds other media (not pinned)");
+    }
+    if !s.sets.borrow().values().any(|s| s.contains(&m)) {
+        return unsupported("MediaSet.Insert of a media that no MediaSet holds (not pinned)");
+    }
+    let set = c.new_guid();
+    store(c)?.sets.borrow_mut().insert(set, vec![m]);
+    if let Some(slot) = r {
+        *slot = Value::Guid(set);
+    }
+    Ok(Value::Boolean(true))
+}
+
 /// `Media.ImportFile` and `MediaSet.ImportFile` (OnPrem): a file name that is empty raises "The specified path is
 /// invalid.", one that names no file "Could not find a part of the path '<path>'.", both with the code InvalidPath
 /// and nothing imported (onprem session/PZMediaImportFile.al, BC 29.0). Importing a file that exists is not pinned:
@@ -319,4 +353,5 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("MediaSet.Item#1", set_item),
     ("MediaSet.ImportStream#1", set_import),
     ("MediaSet.Remove#1", set_remove),
+    ("MediaSet.Insert#1", set_insert),
 ];

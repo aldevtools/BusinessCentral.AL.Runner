@@ -1082,7 +1082,7 @@ fn object_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result
     }
 }
 
-fn object_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+fn object_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let key = key_text(&a[0])?;
     let removed = with_node(&h, |n| match n {
@@ -1094,8 +1094,9 @@ fn object_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Res
             set_parent(&child, None);
             Ok(Value::Boolean(true))
         }
-        None if c.ret_used() => Ok(Value::Boolean(false)),
-        None => unsupported("JsonObject.Remove of a missing key without using the result (error text not pinned yet)"),
+        // A missing key answers false and raises nothing, also in statement form, in a TryFunction and on an empty object
+        // (json/JsonObjectBasics.al:397-425 QV_RemoveMissingKey_StatementForm; AL Runner issue 5680).
+        None => Ok(Value::Boolean(false)),
     }
 }
 
@@ -1812,12 +1813,28 @@ fn value_set_undefined(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) 
 
 enum Seg {
     Key(String),
-    Index(usize),
+    /// `[n]`; a negative index matches nothing (json/JsonObjectBasics.al:323 `select_neg`).
+    Index(i64),
+    /// `[*]`.
+    Wild,
+    /// `[a:b]`.
+    Slice(usize, usize),
+    /// `..name`: every descendant named `name`.
+    Descent(String),
 }
 
-/// Dotted names and `[n]` / `['name']` indexers, with an optional leading `$`.
-/// Wildcards, recursive descent and filters are not pinned by the corpus.
-fn parse_path(p: &str) -> Result<Vec<Seg>, Signal> {
+/// A path the platform cannot read: an indexer with no `]` (json/JsonObjectBasics.al:329 `select_bad`, :371
+/// `select_token_unclosed`) or one that is neither a number, a quoted name, `*` nor a slice (:369 `select_token_bad_index`).
+enum PathErr {
+    Unclosed,
+    BadIndex,
+    Refused(Signal),
+}
+
+/// Dotted names, `[n]` / `['name']` / `[*]` / `[a:b]` indexers and `..name`, with an optional leading `$`.
+/// Filters are not pinned by the corpus.
+fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
+    let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
     let b = p.as_bytes();
     let mut i = 0;
     let mut segs = Vec::new();
@@ -1827,25 +1844,33 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, Signal> {
     while i < b.len() {
         match b[i] {
             b'[' => {
-                let close = p[i..]
-                    .find(']')
-                    .map(|c| c + i)
-                    .ok_or_else(|| Signal::Unsupported("SelectToken path with an unclosed [".into()))?;
+                let close = p[i..].find(']').map(|c| c + i).ok_or(PathErr::Unclosed)?;
                 let inner = &p[i + 1..close];
                 if let Some(q) = inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
                     segs.push(Seg::Key(q.to_string()));
-                } else if let Ok(n) = inner.parse::<usize>() {
+                } else if let Ok(n) = inner.parse::<i64>() {
                     segs.push(Seg::Index(n));
+                } else if inner == "*" {
+                    segs.push(Seg::Wild);
+                } else if let Some((a, z)) = inner.split_once(':') {
+                    match (a.parse::<usize>(), z.parse::<usize>()) {
+                        (Ok(a), Ok(z)) => segs.push(Seg::Slice(a, z)),
+                        _ => return Err(refuse("SelectToken slice form not pinned by the corpus")),
+                    }
+                } else if inner.starts_with('?') || inner.starts_with('(') || inner.contains(',') {
+                    return Err(refuse("SelectToken indexer form not pinned by the corpus"));
                 } else {
-                    return unsupported("SelectToken indexer form not pinned by the corpus");
+                    return Err(PathErr::BadIndex);
                 }
                 i = close + 1;
             }
             c => {
+                let mut descent = false;
                 if c == b'.' {
                     i += 1;
                     if b.get(i) == Some(&b'.') {
-                        return unsupported("SelectToken recursive descent (..)");
+                        descent = true;
+                        i += 1;
                     }
                 }
                 let s = i;
@@ -1854,13 +1879,31 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, Signal> {
                 }
                 let name = &p[s..i];
                 if name.is_empty() || name.contains(['*', '?', '@']) {
-                    return unsupported("SelectToken path form not pinned by the corpus");
+                    return Err(refuse("SelectToken path form not pinned by the corpus"));
                 }
-                segs.push(Seg::Key(name.to_string()));
+                segs.push(match descent {
+                    true => Seg::Descent(name.to_string()),
+                    false => Seg::Key(name.to_string()),
+                });
             }
         }
     }
     Ok(segs)
+}
+
+/// The descendants of `h` named `name`, in document order.
+fn descendants_named(h: &Handle, name: &str, out: &mut Vec<Handle>) {
+    let kids: Vec<(Option<String>, Handle)> = with_node(h, |n| match n {
+        JsonNode::Object(kids) => kids.iter().map(|(k, c)| (Some(k.clone()), c.clone())).collect(),
+        JsonNode::Array(kids) => kids.iter().map(|c| (None, c.clone())).collect(),
+        _ => Vec::new(),
+    });
+    for (k, c) in kids {
+        if k.as_deref() == Some(name) {
+            out.push(c.clone());
+        }
+        descendants_named(&c, name, out);
+    }
 }
 
 fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
@@ -1868,17 +1911,73 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     let Some(p) = crate::native::text_of(&a[0]) else {
         return unsupported("SelectToken path that is not text");
     };
+    let used = c.ret_used();
+    // A path the platform cannot read answers false when the result is used (json/JsonObjectBasics.al:329 `select_bad`, an
+    // unclosed indexer) and raises "The requested operation cannot be performed in this context." (InvalidOperation) as a
+    // statement (:369-380). A bad index with the result used is not pinned.
+    let segs = match parse_path(&p) {
+        Ok(s) => s,
+        Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
+        Err(PathErr::BadIndex) if used => return unsupported("SelectToken with a bad index, result used (not pinned)"),
+        Err(PathErr::Unclosed | PathErr::BadIndex) => {
+            return Err(error(
+                "The requested operation cannot be performed in this context.",
+                "InvalidOperation",
+            ));
+        }
+        Err(PathErr::Refused(e)) => return Err(e),
+    };
+    let last = segs.len().saturating_sub(1);
     let mut cur = h;
-    for seg in parse_path(&p)? {
-        let next = with_node(&cur, |n| match (n, &seg) {
-            (JsonNode::Object(kids), Seg::Key(k)) => kids.iter().find(|(e, _)| e == k).map(|(_, c)| c.clone()),
-            (JsonNode::Array(kids), Seg::Index(i)) => kids.get(*i).cloned(),
-            _ => None,
-        });
-        match next {
-            Some(n) => cur = n,
-            None if c.ret_used() => return Ok(Value::Boolean(false)),
-            None => return unsupported("SelectToken without a match, result unused (error text not pinned yet)"),
+    for (n, seg) in segs.iter().enumerate() {
+        let found: Vec<Handle> = match seg {
+            Seg::Descent(name) => {
+                let mut out = Vec::new();
+                descendants_named(&cur, name, &mut out);
+                out
+            }
+            _ => with_node(&cur, |node| match (node, seg) {
+                (JsonNode::Object(kids), Seg::Key(k)) => {
+                    kids.iter().filter(|(e, _)| e == k).map(|(_, c)| c.clone()).collect()
+                }
+                (JsonNode::Array(kids), Seg::Index(i)) => usize::try_from(*i)
+                    .ok()
+                    .and_then(|i| kids.get(i).cloned())
+                    .into_iter()
+                    .collect(),
+                (JsonNode::Array(kids), Seg::Wild) => kids.clone(),
+                (JsonNode::Array(kids), Seg::Slice(s, z)) => {
+                    kids.iter().skip(*s).take(z.saturating_sub(*s)).cloned().collect()
+                }
+                _ => Vec::new(),
+            }),
+        };
+        let plain = matches!(seg, Seg::Key(_) | Seg::Index(_));
+        match found.len() {
+            1 => cur = found.into_iter().next().expect("one"),
+            // A name or an index that matches nothing (json/JsonObjectBasics.al:316 `select_missing`, :320 `select_arr_oob`,
+            // :323 `select_neg`).
+            0 if plain && used => return Ok(Value::Boolean(false)),
+            0 if plain => {
+                return unsupported("SelectToken without a match, result unused (error text not pinned yet)");
+            }
+            // `[*]` that ends the path and matches more than one token: false when the result is used (:324 `select_wild`),
+            // else "The set of tokens matching the JSON path '<path>' contains more than one element."
+            // (InvalidJsonPathSelection, :363 and :373-374).
+            m if m > 1 && matches!(seg, Seg::Wild) && n == last => {
+                if used {
+                    return Ok(Value::Boolean(false));
+                }
+                return Err(error(
+                    format!("The set of tokens matching the JSON path '{p}' contains more than one element."),
+                    "InvalidJsonPathSelection",
+                ));
+            }
+            _ => {
+                return unsupported(
+                    "SelectToken with a wildcard, a slice or `..` that matches no token, or more than one (not pinned)",
+                );
+            }
         }
     }
     a[1] = tagged("JsonToken", cur);

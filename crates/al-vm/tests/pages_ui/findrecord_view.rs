@@ -192,9 +192,10 @@ fn a_list_with_on_next_record_reads_ahead_at_open() {
     );
 }
 
-/// QcFindViewTests.al:257 DescList_OpenAndWalk: the open is pinned; whether the page is asked for the moves after it is not.
+/// QcFindViewTests.al:257 DescList_OpenAndWalk: the open lands on the lowest row; First goes to the top row of the view and
+/// asks the page nothing (misc/lt-probes-needed-6/PnF06FindListMoves.al:825-868 QV_DescKind_FindOnly_Moves `01_first = Yes|5|`).
 #[test]
-fn a_descending_filtered_view_opens_on_the_lowest_row_and_refuses_the_moves() {
+fn a_descending_filtered_view_opens_on_the_lowest_row_and_first_goes_to_the_top() {
     let src = format!(
         "{OBJECTS}\ncodeunit 69989 T\n{{\n{}\n}}\n",
         r#"
@@ -205,24 +206,20 @@ fn a_descending_filtered_view_opens_on_the_lowest_row_and_refuses_the_moves() {
         L.OpenView();
         exit(L.Id.Value() + '|' + Log.Take() + '|' + Log.TakeFilters());
     end;
-    procedure G(): Boolean
-    var Seed: Codeunit Seed; L: TestPage "FV Desc List";
+    procedure G(): Text
+    var Seed: Codeunit Seed; Log: Codeunit "FV Log"; L: TestPage "FV Desc List";
     begin
         Seed.Run();
         L.OpenView();
-        exit(L.First());
+        Log.Take();
+        exit(Format(L.First()) + ':' + L.Id.Value() + '|' + Log.Take());
     end;"#
     );
     assert_eq!(
         text(al_testkit::run_in(&src, "T", "F")),
         "1|find(=><)=Yes:1;|group=0 g0=[] g2=[Kind: A] key=Id asc=No"
     );
-    match al_testkit::run_in(&src, "T", "G") {
-        Err(al_builtins::native::Signal::Unsupported(m)) => {
-            assert!(m.contains("descending filtered SourceTableView"), "{m}")
-        }
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    assert_eq!(text(al_testkit::run_in(&src, "T", "G")), "Yes:5|");
 }
 
 /// QcFindViewTests.al:294 FreeList_OpenAndWalk: the view does not filter the rows the triggers serve.

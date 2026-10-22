@@ -2,7 +2,7 @@
   "corpus_commit": "3c0336cbbf499b1ab3495fb14f6d997ed209d947",
   "language": {
     "bc": "27-29",
-    "implemented": 1506,
+    "implemented": 1503,
     "methods": [
       {
         "bc": [
@@ -10528,7 +10528,7 @@
         "scope": "",
         "sig": "(Guid)",
         "site": "media/TestMediaSetPersistence.al:442",
-        "state": "refused",
+        "state": "implemented",
         "type": "MediaSet"
       },
       {
@@ -23589,7 +23589,7 @@
         "scope": "",
         "sig": "()",
         "site": "xml/lt-xml-remaining-node-methods/P104AttrCollection.al:70",
-        "state": "implemented",
+        "state": "refused",
         "type": "XmlAttributeCollection"
       },
       {
@@ -23605,7 +23605,7 @@
         "scope": "",
         "sig": "(Text, Text)",
         "site": "xml/XmlAttributes.al:349",
-        "state": "implemented",
+        "state": "refused",
         "type": "XmlAttributeCollection"
       },
       {
@@ -23621,7 +23621,7 @@
         "scope": "",
         "sig": "(Text, Text, Text)",
         "site": "xml/XmlAttributes.al:353",
-        "state": "implemented",
+        "state": "refused",
         "type": "XmlAttributeCollection"
       },
       {
@@ -26213,7 +26213,7 @@
         "scope": "",
         "sig": "(Text, Text, Text)",
         "site": "xml/XmlAttributes.al:216",
-        "state": "implemented",
+        "state": "refused",
         "type": "XmlElement"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 216,
+    "refused": 219,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
