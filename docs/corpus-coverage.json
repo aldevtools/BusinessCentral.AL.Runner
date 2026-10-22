@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "3bdbbf784a16ee9492fb2eb452a4a0df567bcb15",
+  "corpus_commit": "0e0b9f1488aadc9f576a4503d49baa1b39109dbf",
   "language": {
     "bc": "27-29",
     "implemented": 1509,
@@ -17168,7 +17168,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, SecurityOperationResult, Text, AuditCategory, [array[] of Text], [array[] of Text])",
-        "site": "lt-o-system-onprem/OBlobAndSession.al:120",
+        "site": "lt-o-system-onprem/OBlobAndSession.al:166",
         "state": "implemented",
         "type": "Session"
       },
@@ -17296,7 +17296,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "lt-o-system-onprem/OBlobAndSession.al:150",
+        "site": "lt-o-system-onprem/OBlobAndSession.al:196",
         "state": "refused",
         "type": "SessionInformation"
       },
@@ -34647,7 +34647,7 @@
           "id": "Session.LogSecurityAudit#1",
           "pinned": true,
           "signature": "Session.LogSecurityAudit static (Description: Text, Result: SecurityOperationResult, ResultDescription: Text, AuditCategory: AuditCategory, ?TargetType: Array of [Text], ?TargetName: Array of [Text])",
-          "site": "lt-o-system-onprem/OBlobAndSession.al:120"
+          "site": "lt-o-system-onprem/OBlobAndSession.al:166"
         },
         {
           "id": "Session.SendTraceTag#1",
@@ -34702,7 +34702,7 @@
           "id": "SessionInformation.AITokensUsed#1",
           "pinned": true,
           "signature": "SessionInformation.AITokensUsed static () -> BigInteger",
-          "site": "lt-o-system-onprem/OBlobAndSession.al:150"
+          "site": "lt-o-system-onprem/OBlobAndSession.al:196"
         },
         {
           "id": "SessionInformation.Callstack#1",
