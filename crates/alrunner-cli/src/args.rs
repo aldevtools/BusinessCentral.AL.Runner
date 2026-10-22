@@ -73,6 +73,9 @@ pub struct TestArgs {
     pub output_json: Option<Option<PathBuf>>,
     /// `--isolation codeunit|test|disabled`: the isolation of every test codeunit (default: Codeunit).
     pub isolation: Option<al_testrun::isolation::TestIsolation>,
+    /// `--isolation required`: each test codeunit runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub runs
+    /// it on BC 28 and later (`isolation` is then `None`).
+    pub required_isolation: bool,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
@@ -535,7 +538,9 @@ ISOLATION
                          TestIsolation = Function does. A test that calls Commit() under `test`
                          is reported as not run: whether BC keeps the committed rows for the next
                          test is not pinned yet; run that codeunit with `codeunit`. `disabled`:
-                         not pinned yet, so every test is reported as not run.
+                         not pinned yet, so every test is reported as not run. `required`: each
+                         test codeunit runs under its own RequiredTestIsolation, as BC 28 and
+                         later runs it without a test runner codeunit (BC 27: as `codeunit`).
 
 EXIT CODES
     0  every selected test passed
@@ -861,6 +866,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.coverage
         || t.explain.is_some()
         || t.isolation.is_some()
+        || t.required_isolation
         || t.affected
         || t.include_failing
         || t.strict_environment
@@ -1103,12 +1109,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--auto-provision" => {}
             "--isolation" | "--test-isolation" => {
                 let v = text()?;
-                a.isolation = Some(match v.to_ascii_lowercase().as_str() {
-                    "codeunit" => al_testrun::isolation::TestIsolation::Codeunit,
-                    "test" | "function" | "method" => al_testrun::isolation::TestIsolation::Function,
-                    "disabled" => al_testrun::isolation::TestIsolation::Disabled,
-                    _ => return Err(format!("{flag} needs codeunit, test or disabled, got `{v}`")),
-                });
+                a.required_isolation = v.eq_ignore_ascii_case("required");
+                a.isolation = match v.to_ascii_lowercase().as_str() {
+                    "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
+                    "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
+                    "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
+                    "required" => None,
+                    _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
+                };
             }
             "--color" => {
                 let v = text()?;
@@ -1915,6 +1923,8 @@ mod tests {
         assert_eq!(a.test_timeout_secs, Some(7));
         assert_eq!(a.filters, vec!["Codeunit1.Z"]);
         assert_eq!(test_args("test A --isolation codeunit").isolation, Some(I::Codeunit));
+        let r = test_args("test A --isolation Required");
+        assert_eq!((r.isolation, r.required_isolation), (None, true));
         assert_eq!(
             test_args("test A --test-isolation disabled").isolation,
             Some(I::Disabled)
@@ -1922,7 +1932,7 @@ mod tests {
         assert!(
             p("test A --isolation nope")
                 .unwrap_err()
-                .contains("codeunit, test or disabled")
+                .contains("codeunit, test, disabled or required")
         );
     }
 

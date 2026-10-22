@@ -103,10 +103,42 @@ al-runner test --isolation test     ./MyApp ./MyApp.Test
   `OnRun` after every test method. The codeunit's AL variables are kept, as with
   `TestIsolation = Function`.
 - `disabled` is not supported yet. Every test is reported as not run.
+- `required`: each test codeunit runs under its own `RequiredTestIsolation`
+  property, the way Business Central 28 and later runs a test codeunit from
+  VS Code or `al runtests` (without a test runner codeunit). Off by default.
 
 Under `test`, a test that calls `Commit()` is reported as not run, because whether
 Business Central keeps the committed rows for the next test is not pinned yet. Run
-that codeunit with `codeunit` isolation.
+that codeunit with `codeunit` isolation, or set `RequiredTestIsolation` on the
+codeunit and use `required`.
+
+### `--isolation required`
+
+```bash
+al-runner test --isolation required ./MyApp ./MyApp.Test
+```
+
+What each value of `RequiredTestIsolation` does in this mode:
+
+- `Function`: every test starts from the database as it was before the first
+  test. Rows a test committed with `Commit()` are gone in the next test too.
+- `Disabled`: nothing is rolled back. What a test writes stays for the later
+  tests and for the test codeunits with a higher object id (test codeunits run
+  in object id order).
+- `Codeunit`, or no property: as `--isolation codeunit`.
+
+Some cases are not pinned yet. Their tests are reported as not run, with the
+reason:
+
+- a codeunit with `Function` or `Disabled` that has handler functions or an
+  `OnRun` trigger,
+- a codeunit with `RequiredTestIsolation = None`,
+- a later codeunit that reads a table a `Disabled` codeunit wrote, when a test of
+  that `Disabled` codeunit did not pass, or when the later codeunit has handler
+  functions.
+
+On Business Central 27 the property has no effect: every test codeunit runs
+under `codeunit` isolation, and AL Runner prints a note that says so.
 
 ## Test-first work with `--tdd`
 

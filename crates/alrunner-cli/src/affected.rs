@@ -142,6 +142,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     );
     let mut h = Sha256::new();
     h.update(text.as_bytes());
+    // `--isolation required` (added after the other options; off, the hash is the one it was before).
+    if a.required_isolation {
+        h.update(b"required_isolation");
+    }
     for (path, flag) in [
         (&a.test_data_path, "--test-data"),
         (&a.package_path, "--package"),

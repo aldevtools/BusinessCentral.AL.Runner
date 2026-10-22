@@ -248,6 +248,7 @@ pub(crate) fn run_codeunit_core(
     crate::install::ensure_facts(engine, lowered);
     session.mark_install_end();
     session.in_test_codeunit = true;
+    session.isolation_from_hub = scratch.hub && isolation != TestIsolation::Codeunit;
     session.test_object = Some(object);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
     // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.

@@ -254,6 +254,10 @@ pub fn key(a: &TestArgs) -> Result<String, String> {
     )
         .hash(&mut h);
     a.isolation.hash(&mut h);
+    // `--isolation required` (off, the hash is the one it was before the option existed).
+    if a.required_isolation {
+        "required_isolation".hash(&mut h);
+    }
     a.defines.hash(&mut h);
     a.environment.as_ref().map(std::mem::discriminant).hash(&mut h);
     (&a.server_url, a.test_timeout_secs).hash(&mut h);

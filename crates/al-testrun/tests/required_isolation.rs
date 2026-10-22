@@ -279,3 +279,33 @@ codeunit 50661 "Later"
     assert_eq!(outcome(&o, "S1"), &Outcome::Pass, "{o:?}");
     assert!(not_run(outcome(&o, "L1"), "isolated storage"), "{o:?}");
 }
+
+// StartSession in a test raises TestStartSessionNotAllowed under a runner's TestIsolation = Codeunit
+// (session/TestStartSessionRecord.al). Whether BC starts a session in a codeunit the TestRunnerHub runs under
+// RequiredTestIsolation = Function or Disabled is not pinned (al-runner issue 5609): refused, never the Codeunit error.
+const START_SESSION: &str = r#"
+codeunit 50640 "Started" { trigger OnRun() begin end; }
+codeunit 50641 "SF"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+    [Test] procedure SF1() var Id: Integer; begin StartSession(Id, Codeunit::"Started"); end;
+}
+codeunit 50642 "SD"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SD1() var Id: Integer; begin StartSession(Id, Codeunit::"Started"); end;
+}
+"#;
+
+#[test]
+fn start_session_under_the_hub_is_refused() {
+    let o = run(START_SESSION, true);
+    for t in ["SF1", "SD1"] {
+        match outcome(&o, t) {
+            Outcome::NotRun(why) => assert!(why.contains("StartSession"), "{t}: {why}"),
+            other => panic!("{t}: {other:?}"),
+        }
+    }
+}
