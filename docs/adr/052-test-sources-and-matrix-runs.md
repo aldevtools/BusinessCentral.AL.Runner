@@ -560,7 +560,7 @@ format-2 test of the `microsoft` source in `tests/test_microsoft.rs`.
 Step 4 as built: `--bc-version A,B`, `--country X,Y`, `--matrix "V:CC,..."`, `--matrix-parallel N`,
 `--matrix-memory GB` on `al-runner test` (with or without sources) and `al-runner test-microsoft`. Code: `matrix.rs`,
 `al_deps::test_apps::choose` (the build choice of the artifact listing, now shared). Tests: `tests/matrix.rs` (plan
-items 18-26 except 21's version-specific runtime behavior, see below), unit tests in `matrix.rs` and `args.rs`
+items 18-27 except 21's version-specific runtime behavior, see below), unit tests in `matrix.rs` and `args.rs`
 (serve refusal, item 28).
 
 - **The floor in the pre-flight.** A single run below the app's floor warns and runs (`BuildQuery::floor_warning`).
@@ -580,8 +580,9 @@ items 18-26 except 21's version-specific runtime behavior, see below), unit test
 - **"Differs" keys.** A test of the run's own is (codeunit, test); a source test also has the source and, for
   `microsoft`, the test app. Pass versus not run is counted on its own line; failing everywhere with different texts
   differs.
-- **Not built:** the ADR-050 stored result per cell (3.3), because `--affected` is still deferred and refused; the
-  per-cell symbols file (3.4, optional step 6). Test plan item 21's second half (an outcome that differs by
+- **`--affected` per cell (3.3).** A cell's default stored result has its build and country in the key;
+  `--affected-store FILE` becomes `FILE.<version>-<country>` in each cell.
+- **Not built:** the per-cell symbols file (3.4, optional step 6). Test plan item 21's second half (an outcome that differs by
   version-specific runtime behavior) is covered by two builds whose test apps differ (`Tests-Fake-B` fails in one,
   `Tests-Fake-C` exists in one only); the fixture apps have no behavior that differs by BC version in the runtime.
 - `ALRUNNER_MATRIX_TEST_ABORT=<build>` makes a cell of that build abort (tests of a cell the system kills, item 23).

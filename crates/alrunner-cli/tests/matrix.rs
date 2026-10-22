@@ -266,3 +266,55 @@ fn a_test_source_runs_in_every_cell_with_a_row_per_cell_and_part() {
     );
     assert_eq!(o.status.code(), Some(1), "{out}");
 }
+
+#[test]
+fn affected_in_a_matrix_keeps_a_stored_result_per_cell() {
+    let dir = tempfile::tempdir().unwrap();
+    two_builds(dir.path());
+    let app = symbol_app(dir.path());
+    let store = dir.path().join("store");
+    let versions = format!("{OLD},{NEW}");
+    let run = || {
+        alrunner(
+            dir.path(),
+            &[
+                "test",
+                app.to_str().unwrap(),
+                "--bc-version",
+                &versions,
+                "--affected",
+                "--affected-store",
+                store.to_str().unwrap(),
+            ],
+            &[],
+        )
+    };
+    let o = run();
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o));
+    for b in [OLD, NEW] {
+        assert!(dir.path().join(format!("store.{b}-w1")).is_file(), "{b}: {}", text(&o));
+    }
+    // Without --affected-store, each cell's key holds its build and country: the first run stores both, the second
+    // finds both (one shared key would leave one cell without its result).
+    let default = || {
+        alrunner(
+            dir.path(),
+            &[
+                "test",
+                app.to_str().unwrap(),
+                "--bc-version",
+                &versions,
+                "--affected",
+                "--verbose",
+            ],
+            &[],
+        )
+    };
+    let first = text(&default());
+    assert_eq!(first.matches("full run: no stored result").count(), 2, "{first}");
+    let o = default();
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(0), "{out}");
+    assert!(!out.contains("no stored result"), "{out}");
+    assert_eq!(out.matches("affected: ran ").count(), 2, "{out}");
+}

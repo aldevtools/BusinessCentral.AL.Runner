@@ -175,12 +175,26 @@ const PER_CELL: [&str; 6] = [
 
 /// The command line of one cell: the run's own, without the options the parent sets per cell, then the cell's build
 /// and country, its JUnit file, and the file of its document.
-pub fn cell_args(args: &[String], build: &str, country: &str, junit: Option<&Path>, document: &Path) -> Vec<String> {
+pub fn cell_args(
+    args: &[String],
+    tag: &str,
+    build: &str,
+    country: &str,
+    junit: Option<&Path>,
+    document: &Path,
+) -> Vec<String> {
     let mut out = Vec::new();
     let mut it = args.iter().peekable();
     while let Some(a) = it.next() {
         if PER_CELL.contains(&a.as_str()) {
             it.next();
+            continue;
+        }
+        // ADR-052 3.3: a cell's stored result of --affected is its own file.
+        if a == "--affected-store" {
+            if let Some(f) = it.next() {
+                out.extend([a.clone(), format!("{f}.{tag}")]);
+            }
             continue;
         }
         if a == "--output-json" {
@@ -542,6 +556,7 @@ pub fn run(a: &TestArgs, cells: &[Cell], microsoft: bool) -> Result<u8, String> 
             let junit = a.junit.as_deref().map(|p| cell_file(p, &r.file_tag()));
             let cargs = cell_args(
                 &args,
+                &r.file_tag(),
                 &r.build,
                 &r.cell.country,
                 junit.as_deref(),
@@ -923,12 +938,13 @@ mod tests {
 
     #[test]
     fn a_cell_command_line_has_its_own_build_country_and_files() {
-        let args: Vec<String> = "test App --bc-version 27.5,28.5 --country w1,us --junit r.xml --output-json o.json --matrix-parallel 2 --dep D"
+        let args: Vec<String> = "test App --bc-version 27.5,28.5 --country w1,us --junit r.xml --output-json o.json --matrix-parallel 2 --dep D --affected --affected-store S"
             .split(' ')
             .map(String::from)
             .collect();
         let got = cell_args(
             &args,
+            "27.5-us",
             "27.5.1.2",
             "us",
             Some(Path::new("r.27.5-us.xml")),
@@ -936,7 +952,7 @@ mod tests {
         );
         assert_eq!(
             got.join(" "),
-            "test App --dep D --bc-version 27.5.1.2 --country us --junit r.27.5-us.xml --matrix-cell /w/cell.json"
+            "test App --dep D --affected --affected-store S.27.5-us --bc-version 27.5.1.2 --country us --junit r.27.5-us.xml --matrix-cell /w/cell.json"
         );
         assert_eq!(
             cell_file(Path::new("out/results.xml"), "27.5-w1"),
@@ -944,7 +960,7 @@ mod tests {
         );
         assert_eq!(
             command_line(&got),
-            "al-runner test App --dep D --bc-version 27.5.1.2 --country us --junit r.27.5-us.xml"
+            "al-runner test App --dep D --affected --affected-store S.27.5-us --bc-version 27.5.1.2 --country us --junit r.27.5-us.xml"
         );
     }
 

@@ -515,9 +515,11 @@ MATRIX RUNS (ADR-052)
                          class). A test that passes in one cell and is not run in another is counted
                          (--verbose lists it). --junit FILE: one file per cell (results.28.5-w1.xml).
                          --output-json FILE: {format 1, cells [..., run: the cell's document],
-                         differs, exitCode}. Exit code: the worst cell. AL Runner defines no
-                         preprocessor symbol of its own in a cell. Refused with a matrix: --explain,
-                         --test-data PATH.bak, --output-json without a FILE; al-runner serve.
+                         differs, exitCode}. --affected keeps a stored result per cell
+                         (--affected-store FILE becomes FILE.28.5-w1). Exit code: the worst cell.
+                         AL Runner defines no preprocessor symbol of its own in a cell. Refused with
+                         a matrix: --explain, --test-data PATH.bak, --output-json without a FILE;
+                         al-runner serve.
 
 ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database

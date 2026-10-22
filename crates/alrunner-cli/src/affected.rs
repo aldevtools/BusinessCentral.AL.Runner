@@ -207,6 +207,13 @@ pub fn store_path(a: &TestArgs, inputs: &[AppInput]) -> PathBuf {
         return p.clone();
     }
     let mut apps = workspace_apps(inputs);
+    // A cell of a matrix run keeps its own stored result: its build and country are part of the key (ADR-052 3.3).
+    if a.matrix_cell.is_some() {
+        apps.push((
+            "matrix cell".to_string(),
+            format!("{} {}", a.bc_version.as_deref().unwrap_or_default(), a.country()),
+        ));
+    }
     apps.sort();
     let key = sha(format!("{apps:?}").as_bytes());
     al_deps::cache::cache_root_from_env(a.cache_dir.as_deref())
