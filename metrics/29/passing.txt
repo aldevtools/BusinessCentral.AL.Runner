@@ -14686,3 +14686,4 @@
 87503 QW_TernaryColumn_TwoLiterals
 87573 QX_Ternary_CodeAndTextMixes
 87573 QX_Ternary_SizedFieldTarget
+87573 QX_Ternary_SizedTextTarget
