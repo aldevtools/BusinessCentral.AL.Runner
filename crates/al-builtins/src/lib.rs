@@ -48,4 +48,5 @@ pub mod record_op;
 pub mod refs;
 pub mod sessionfns;
 pub mod sessiontypes;
+pub mod sqlcount;
 pub mod sysenum;

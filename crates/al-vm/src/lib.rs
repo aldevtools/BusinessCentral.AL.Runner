@@ -60,6 +60,7 @@ mod relations;
 mod rename;
 mod reports;
 mod sessionops;
+mod sqlcount;
 mod sqltime;
 mod testdata;
 mod transactions;
@@ -496,6 +497,8 @@ pub struct Session {
     /// How many AL routine calls the session has made: `Record.IsDirty` notes whether a record write ran triggers or
     /// subscribers (isdirty.rs).
     pub(crate) calls_made: u64,
+    /// `SessionInformation.SqlStatementsExecuted` and `SqlRowsRead` (sqlcount.rs).
+    pub(crate) sql: sqlcount::SqlCounters,
     /// How many record methods that Record.IsDirty tracks are running (isdirty.rs).
     pub(crate) dirty_ops_open: u32,
     /// Whether the test running has reseeded the `Random` sequence (`Randomize`); see [`Session::inherited_random_draws`].
@@ -740,6 +743,7 @@ impl Session {
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
+            sql: Default::default(),
             dirty_ops_open: 0,
             reseeded_in_test: false,
             inherited_draws: 0,
@@ -897,6 +901,7 @@ impl Session {
         self.tx.deferred_insert = None;
         al_data::Store::commit(&mut self.store);
         self.commits += 1;
+        self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
@@ -957,6 +962,7 @@ impl Session {
     pub fn rollback_transaction(&mut self) {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
+        self.sql.rolled_back();
         self.isolated_storage = self.isolated_committed.clone();
         // The Tenant Media rows a Modify or Delete of this transaction removed come back with the rows.
         let removed = std::mem::take(&mut self.media_removed.0);

@@ -62,6 +62,7 @@ mod qe_decimal_digits;
 mod rec_field_by_var;
 mod relation_blank_member;
 mod setter_call;
+mod sql_counters;
 mod table_ext_base_vars;
 mod temp_record_array;
 mod ternary_args;
