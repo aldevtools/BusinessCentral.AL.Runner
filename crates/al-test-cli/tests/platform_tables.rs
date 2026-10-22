@@ -1156,6 +1156,44 @@ fn web_service_holds_the_rows_of_a_fresh_tenant() {
     passes(&o, "Rows");
 }
 
+// Tenant Report Layout Selection on a fresh tenant: four rows, blank company and user, the layout names; the App ID is not null
+// but its value is not pinned (platform/lt-platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
+// Insert(true) of an existing key answers false, Modify(true) true: Microsoft's DemoTool (Create Custom Report Layout) does that.
+#[test]
+fn tenant_report_layout_selection_holds_the_rows_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Rows() var S: Record "Tenant Report Layout Selection"; B: Guid; begin if S.Count() <> 4 then Error('count');
+    if not S.Get(1302, '', B) then Error('1302'); if S."Layout Name" <> 'StandardSalesProFormaInv.docx' then Error('name');
+    if S.Get(1302, CompanyName(), B) then Error('company'); S.FindLast(); if S."Layout Name" <> 'StandardSalesInvoiceBlueSimple.docx' then Error('last');
+    S.Init(); S."Report ID" := 1306; S."Layout Name" := 'X.docx'; if S.Insert(true) then Error('insert'); if not S.Modify(true) then Error('modify');
+    S.Get(1306, '', B); if S."Layout Name" <> 'X.docx' then Error('modified'); end;
+  [Test] procedure AppIdIsNotPinned() var S: Record "Tenant Report Layout Selection"; begin S.FindFirst(); if IsNullGuid(S."App ID") then; end; }"#,
+    );
+    passes(&o, "Rows");
+    let why = not_run(&o, "AppIdIsNotPinned");
+    assert!(why.contains("App ID"), "{why}");
+}
+
+// OData Edm Type on a fresh tenant: six keys (PtCloudTables.al:435-492, QX_ODataEdmType_RowsAndEdmXml); their Description and
+// Edm Xml are not pinned. An own row inserts, reads back and deletes as in any table.
+#[test]
+fn odata_edm_type_holds_the_keys_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Keys() var E: Record "OData Edm Type"; K: Text; begin if E.Count() <> 6 then Error('count'); E.FindSet(); repeat K += E."Key" + ','; until E.Next() = 0;
+    if K <> 'BOOKINGSDATE,DIMENSION,DOCUMENTLINEOBJECTDETAILS,ITEM-UOM,ITEM-UOM-CONVERSION,POSTALADDRESS,' then Error(K);
+    if E.Get('LTQX') then Error('get'); E.Init(); E."Key" := 'LTQX'; E.Description := 'd'; E.Insert(true); E.Get('LTQX'); if E.Description <> 'd' then Error('d'); E.Delete(); end;
+  [Test] procedure DescriptionIsNotPinned() var E: Record "OData Edm Type"; begin E.Get('DIMENSION'); if E.Description = '' then; end;
+  [Test] procedure EdmXmlIsNotPinned() var E: Record "OData Edm Type"; begin E.SetAutoCalcFields("Edm Xml"); E.Get('DIMENSION'); end; }"#,
+    );
+    passes(&o, "Keys");
+    for t in ["DescriptionIsNotPinned", "EdmXmlIsNotPinned"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("OData Edm Type"), "{t}: {why}");
+    }
+}
+
 /// Field.IsPartOfPrimaryKey (column 28) is read in AL code: true for a field of the primary key
 /// (corpus metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:237-268).
 #[test]

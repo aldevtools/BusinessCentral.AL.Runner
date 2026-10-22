@@ -20,6 +20,30 @@ pub(super) const USER_PERSONALIZATION: u32 = 2_000_000_073;
 pub(super) const USER_PROPERTY: u32 = crate::usertable::USER_PROPERTY;
 pub(super) const WEB_SERVICE: u32 = 2_000_000_076;
 
+pub(super) const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
+pub(super) const ODATA_EDM_TYPE: u32 = 2_000_000_179;
+
+/// The Tenant Report Layout Selection rows of a fresh tenant (platform/lt-platform-tables/PtCloudTables.al:378-424,
+/// QX_TenantReportLayoutSelection_RowsAndDemoShape, 'rows'): (Report ID, Layout Name), blank Company Name and null User ID.
+/// The App ID is not null, but its value is not pinned: unknown, so a read of it is refused.
+const TENANT_REPORT_LAYOUT_SELECTIONS: &[(i32, &str)] = &[
+    (1302, "StandardSalesProFormaInv.docx"),
+    (1303, "StandardDraftSalesInvoiceBlue.docx"),
+    (1304, "StandardSalesQuoteBlue.docx"),
+    (1306, "StandardSalesInvoiceBlueSimple.docx"),
+];
+
+/// The OData Edm Type keys of a fresh tenant (PtCloudTables.al:435-482, QX_ODataEdmType_RowsAndEdmXml, 'fresh keys' and
+/// 'fresh count' 6). Their Description and Edm Xml are not pinned: unknown, so a read of either is refused.
+const ODATA_EDM_TYPES: &[&str] = &[
+    "BOOKINGSDATE",
+    "DIMENSION",
+    "DOCUMENTLINEOBJECTDETAILS",
+    "ITEM-UOM",
+    "ITEM-UOM-CONVERSION",
+    "POSTALADDRESS",
+];
+
 /// The Web Service rows of a fresh tenant, every column (onprem platform/PtWebServiceRows.al:39-73, WebService_Content:
 /// 17 rows): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every row.
 /// They are rows of the database the service tier starts with, not written by AL of an app.
@@ -52,6 +76,14 @@ fn text(t: &TableDef, id: u32, s: &str) -> Value {
 }
 
 impl Session {
+    /// Inserts one seed row of a table that holds several, with a SystemId like any inserted row.
+    fn insert_seed(&mut self, t: &TableDef, mut r: Row) {
+        if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
+            r[p] = Value::Guid(self.fresh_system_id());
+        }
+        let _ = self.store.insert(&self.cx, t, r);
+    }
+
     /// Writes the platform's seed rows into the tables the program compiled, then commits.
     pub(crate) fn seed_platform_rows(&mut self, i: &Ident) {
         let engine = self.engine.clone();
@@ -67,6 +99,29 @@ impl Session {
                     wrote |= self.seed_profiles(t, i);
                     continue;
                 }
+                TENANT_REPORT_LAYOUT_SELECTION => {
+                    for &(report, layout) in TENANT_REPORT_LAYOUT_SELECTIONS {
+                        let mut r = super::blank(t);
+                        r[pos(t, 1)] = Value::Integer(report);
+                        r[pos(t, 2)] = text(t, 2, layout);
+                        r[pos(t, 3)] = super::unknown(t, 3, &format!("the row of report {report} on a fresh tenant"));
+                        self.insert_seed(t, r);
+                    }
+                    wrote = true;
+                    continue;
+                }
+                ODATA_EDM_TYPE => {
+                    for &key in ODATA_EDM_TYPES {
+                        let mut r = super::blank(t);
+                        r[pos(t, 1)] = text(t, 1, key);
+                        let whose = format!("the row {key} on a fresh tenant");
+                        r[pos(t, 2)] = super::unknown(t, 2, &whose);
+                        r[pos(t, 10)] = super::unknown(t, 10, &whose);
+                        self.insert_seed(t, r);
+                    }
+                    wrote = true;
+                    continue;
+                }
                 WEB_SERVICE => {
                     for &(object_type, name, object_id) in WEB_SERVICES {
                         let mut r = super::blank(t);
@@ -74,10 +129,7 @@ impl Session {
                         r[pos(t, 9)] = text(t, 9, name);
                         r[pos(t, 6)] = Value::Integer(object_id);
                         r[pos(t, 12)] = Value::Boolean(true);
-                        if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
-                            r[p] = Value::Guid(self.fresh_system_id());
-                        }
-                        let _ = self.store.insert(&self.cx, t, r);
+                        self.insert_seed(t, r);
                     }
                     wrote = true;
                     continue;

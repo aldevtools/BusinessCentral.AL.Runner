@@ -249,6 +249,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Empty on a fresh tenant and ordinary to Insert, Modify and Delete, with several rows and a blank App ID (platform/lt-platform-tables/
     // PtServicesAppSetting.al: NavAppSetting_Content `count` 0, NavAppSetting_InsertModifyDelete, NavAppSetting_SeveralRowsAndBlankGuid).
     (2_000_000_201, "NAV App Setting", Provider::Stored),
+    // Ordinary tables that a fresh tenant fills with pinned rows (al-vm `platform/seed.rs`): Insert(true) of an existing key
+    // answers false and Modify(true) true (platform/lt-platform-tables/PtCloudTables.al:378-432 and :435-492).
+    (2_000_000_233, "Tenant Report Layout Selection", Provider::Stored),
+    (2_000_000_179, "OData Edm Type", Provider::Stored),
 ];
 
 /// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Tenant Web Service: not empty,
