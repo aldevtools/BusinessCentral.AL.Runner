@@ -5,153 +5,17 @@
 //! (`tests/fixtures/impact/tests`, a stand-in for a Microsoft test app) to the artifact as `Tests-Imp`, with its
 //! publisher app `lib` given by `--dep` and the subscriber `ext` as the extension.
 
+mod support;
+
 use std::path::Path;
 use std::process::{Command, Output};
+use support::{impact_fixture, source_row, text, zip};
 
 const BUILD: &str = "29.0.1.2";
 
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &b in data {
-        crc ^= u32::from(b);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xEDB8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
-}
-
-/// A ZIP with stored entries.
-fn zip(entries: &[(&str, String)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut central = Vec::new();
-    for (name, text) in entries {
-        let data = text.as_bytes();
-        let crc = crc32(data);
-        let offset = out.len() as u32;
-        out.extend(0x0403_4b50u32.to_le_bytes());
-        out.extend([20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        out.extend(crc.to_le_bytes());
-        out.extend((data.len() as u32).to_le_bytes());
-        out.extend((data.len() as u32).to_le_bytes());
-        out.extend((name.len() as u16).to_le_bytes());
-        out.extend([0, 0]);
-        out.extend(name.as_bytes());
-        out.extend(data);
-        central.extend(0x0201_4b50u32.to_le_bytes());
-        central.extend([20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        central.extend(crc.to_le_bytes());
-        central.extend((data.len() as u32).to_le_bytes());
-        central.extend((data.len() as u32).to_le_bytes());
-        central.extend((name.len() as u16).to_le_bytes());
-        central.extend([0; 12]);
-        central.extend(offset.to_le_bytes());
-        central.extend(name.as_bytes());
-    }
-    let cd_offset = out.len() as u32;
-    let n = entries.len() as u16;
-    let cd_len = central.len() as u32;
-    out.extend(central);
-    out.extend(0x0605_4b50u32.to_le_bytes());
-    out.extend([0, 0, 0, 0]);
-    out.extend(n.to_le_bytes());
-    out.extend(n.to_le_bytes());
-    out.extend(cd_len.to_le_bytes());
-    out.extend(cd_offset.to_le_bytes());
-    out.extend([0, 0]);
-    out
-}
-
-fn app(id: &str, name: &str, al: &str) -> Vec<u8> {
-    let json = format!(
-        r#"{{"id":"{id}","name":"{name}","publisher":"Fixture","version":"1.0.0.0","idRanges":[{{"from":50000,"to":59999}}]}}"#
-    );
-    zip(&[("app.json", json), ("src/Code.al", al.to_string())])
-}
-
-fn test_codeunit(id: u32, name: &str, tests: &[(&str, bool)]) -> String {
-    let mut body = String::new();
-    for (t, pass) in tests {
-        let stmt = if *pass { "" } else { "Error('boom');" };
-        body.push_str(&format!(
-            "    [Test]\n    procedure {t}()\n    begin\n        {stmt}\n    end;\n\n"
-        ));
-    }
-    format!("codeunit {id} \"{name}\"\n{{\n    Subtype = Test;\n    TestType = UnitTest;\n\n{body}}}\n")
-}
-
-/// The fake artifact under `home/.bcartifacts.cache/sandbox/<BUILD>/platform` and a fake BCApps checkout.
+/// The fake artifact of `BUILD` and a fake BCApps checkout.
 fn fixture(root: &Path, fail_b: bool) {
-    let test = root.join(format!(
-        "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
-    ));
-    std::fs::create_dir_all(&test).unwrap();
-    let write = |file: &str, bytes: Vec<u8>| std::fs::write(test.join(file), bytes).unwrap();
-    write(
-        "Tests-Fake-A.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000001",
-            "Tests-Fake-A",
-            &test_codeunit(50100, "Fake A Tests", &[("APasses", true), ("ADisabled", false)]),
-        ),
-    );
-    write(
-        "Tests-Fake-B.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000002",
-            "Tests-Fake-B",
-            &test_codeunit(50200, "Fake B Tests", &[("BRuns", !fail_b)]),
-        ),
-    );
-    write(
-        "Fake Test Library.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000003",
-            "Fake Test Library",
-            "codeunit 50300 \"Fake Library\"\n{\n    procedure Help()\n    begin\n    end;\n}\n",
-        ),
-    );
-    write(
-        "_Exclude_Fake Tests.Source.zip",
-        app(
-            "a0000000-0000-0000-0000-000000000004",
-            "_Exclude_Fake Tests",
-            &test_codeunit(50400, "Fake Excluded Tests", &[("XFails", false)]),
-        ),
-    );
-    // Not a test app: no test in its path.
-    let source = test.parent().unwrap().join("Source");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::write(source.join("Fake App.Source.zip"), b"never read").unwrap();
-    // BCApps: the W1 test project (default lane UnitTest, an empty company), no Legacy bucket for the fakes, and one
-    // disabled test.
-    let bcapps = root.join("bcapps");
-    let settings = bcapps.join("build/projects/Test Apps W1/.AL-Go");
-    std::fs::create_dir_all(&settings).unwrap();
-    std::fs::write(
-        settings.join("settings.json"),
-        r#"{"testType":"UnitTest","companyName":"Empty Company","buildModes":["L"],
-            "ConditionalSettings":[{"buildModes":["L"],"settings":{"testType":"Legacy","bucketNumber":1,"companyName":"CRONUS International Ltd."}}]}"#,
-    )
-    .unwrap();
-    let scripts = bcapps.join("build/scripts");
-    std::fs::create_dir_all(&scripts).unwrap();
-    std::fs::write(
-        scripts.join("TestConfiguration.json"),
-        r#"{"LegacyTests-Bucket1":["Tests-Other"]}"#,
-    )
-    .unwrap();
-    let disabled = bcapps.join("src/DisabledTests");
-    std::fs::create_dir_all(&disabled).unwrap();
-    std::fs::write(
-        disabled.join("Fake.json"),
-        r#"[{"codeunitId":50100,"codeunitName":"Fake A Tests","method":"ADisabled"}]"#,
-    )
-    .unwrap();
+    support::fake_artifact(root, BUILD, fail_b);
 }
 
 fn run(root: &Path, extra: &[&str]) -> Output {
@@ -181,14 +45,6 @@ fn run_cmd(root: &Path, cmd: &[&str], extra: &[&str]) -> Output {
         .args(&args)
         .output()
         .expect("run al-runner")
-}
-
-fn text(o: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    )
 }
 
 /// The numbers of a row of the summary table.
@@ -261,12 +117,6 @@ fn an_unknown_app_name_or_a_library_exits_2_before_any_test_runs() {
     assert_eq!(row(&out, "_Exclude_Fake"), "Tests 0 1 0 1 0 1", "{out}");
 }
 
-fn impact_fixture(name: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/impact")
-        .join(name)
-}
-
 /// The step 1 artifact plus `Tests-Imp` (the impact fixture's test app), and the extension without its own tests
 /// under `root/ext-only`. Returns (ext-only, ext with own tests, lib).
 fn source_fixture(root: &Path) -> (String, String, String) {
@@ -288,35 +138,13 @@ fn source_fixture(root: &Path) -> (String, String, String) {
         ]),
     )
     .unwrap();
+    let only = support::ext_only(root);
     let ext = impact_fixture("ext");
-    let only = root.join("ext-only");
-    std::fs::create_dir_all(&only).unwrap();
-    std::fs::copy(ext.join("app.json"), only.join("app.json")).unwrap();
-    let al = std::fs::read_to_string(ext.join("Subscriber.Codeunit.al")).unwrap();
-    let cut = al
-        .find("// The extension's own tests")
-        .expect("the fixture's own tests");
-    std::fs::write(only.join("Subscriber.Codeunit.al"), &al[..cut]).unwrap();
     (
         only.to_string_lossy().into_owned(),
         ext.to_string_lossy().into_owned(),
         impact_fixture("lib").to_string_lossy().into_owned(),
     )
-}
-
-/// The cells of a row of the `Sources` table.
-fn source_row(out: &str, name: &str) -> String {
-    let at = out
-        .find("\nSources\n")
-        .unwrap_or_else(|| panic!("no Sources table in:\n{out}"));
-    let line = out[at..]
-        .lines()
-        .find(|l| l.trim_start().starts_with(&format!("{name} ")))
-        .unwrap_or_else(|| panic!("no row {name} in:\n{out}"));
-    line.trim_start()[name.len()..]
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 #[test]
@@ -500,4 +328,36 @@ fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_re
     // Nothing ran, nothing reached the extension's code: a source that selects nothing gives 0, not a pass count.
     assert_eq!(source_row(&out, "microsoft"), "0 0 0 0 0 0 0", "{out}");
     assert_eq!(o.status.code(), Some(0), "{out}");
+}
+
+#[test]
+fn the_microsoft_source_writes_one_impact_json_entry_per_test_app_and_lane_and_reads_it_back_as_accept_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ext, _, lib) = source_fixture(dir.path());
+    let diff = dir.path().join("diff.json");
+    let o = run(
+        dir.path(),
+        &[&ext, "--dep", &lib, "--impact-json", diff.to_str().unwrap()],
+    );
+    assert_eq!(o.status.code(), Some(1), "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&diff).unwrap()).unwrap();
+    assert_eq!(doc["format"], 2, "{doc}");
+    let imp: Vec<&serde_json::Value> = doc["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["testApp"] == "Tests-Imp")
+        .collect();
+    assert_eq!(imp.len(), 1, "{doc}");
+    assert_eq!(imp[0]["source"], "microsoft", "{doc}");
+    assert_eq!(imp[0]["lane"], "UnitTest", "{doc}");
+    assert_eq!(imp[0]["counts"]["newlyFailing"], 1, "{doc}");
+    // Given back, the change is accepted in its run, and no entry is stale in the runs of the other test apps.
+    let o = run(
+        dir.path(),
+        &[&ext, "--dep", &lib, "--impact-accept", diff.to_str().unwrap()],
+    );
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(0), "{out}");
+    assert!(!out.contains("no longer match"), "{out}");
 }
