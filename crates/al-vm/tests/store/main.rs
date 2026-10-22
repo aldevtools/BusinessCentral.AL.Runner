@@ -2,6 +2,7 @@
 
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
+mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod companies;
 mod delete_all_cascade;

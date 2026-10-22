@@ -3168,6 +3168,11 @@ impl Session {
     ) -> Result<String, Signal> {
         {
             let buf = b.borrow();
+            if buf.render_pending.as_deref() == Some(al_builtins::stream::UNLOADED_WRITE) {
+                return Err(al_builtins::stream::render_pending_error(
+                    al_builtins::stream::UNLOADED_WRITE,
+                ));
+            }
             if buf.render_pending.is_some() {
                 return unsupported(format!(
                     "report column {} holds a Blob a report was saved to in a rendered format (ADR-040)",
@@ -3377,6 +3382,11 @@ impl Session {
                                     let logo = match &rec.borrow().fields[i] {
                                         Value::Blob(b) => {
                                             let b = b.borrow();
+                                            if let Some(what) = b.render_pending.as_deref()
+                                                && what == al_builtins::stream::UNLOADED_WRITE
+                                            {
+                                                return Err(al_builtins::stream::render_pending_error(what));
+                                            }
                                             if b.render_pending.is_some() {
                                                 return unsupported(
                                                     "the CompanyLogo of the dataset header: the Picture holds content that was never produced",
