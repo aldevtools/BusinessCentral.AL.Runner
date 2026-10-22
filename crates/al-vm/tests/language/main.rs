@@ -17,6 +17,7 @@ mod codeunit_run_variant_recordref;
 mod codeunit_this_run;
 mod continue_stmt;
 mod corpus_failures_1;
+mod cross_app;
 mod dataformats;
 mod debugger;
 mod duration_date_arith;

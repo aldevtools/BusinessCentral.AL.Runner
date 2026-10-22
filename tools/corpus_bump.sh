@@ -86,6 +86,7 @@ xml_of() {
 declare -A oracle_id onprem_id dotnet_id
 for leg in $legs; do
   # Two artifacts: the oracle (larger) and the OnPrem file. Three (since the OnPrem DotNet app runs in CI): the DotNet file is the smallest.
+  # Four (since the TestLibraries job): the roles are read from the XML file names below.
   read -r n big mid small < <(python3 -c '
 import json, sys
 a = [x for x in json.loads(sys.argv[1]).get("artifacts", []) if x.get("name") == "junit-test-results-" + sys.argv[2]]
@@ -106,6 +107,9 @@ else:
         junit-al-language.xml) [ "$big" != 0 ] || big=$id ;;
         junit-al-language-onprem.xml) [ "$mid" != 0 ] || mid=$id ;;
         junit-al-language-onprem-dotnet.xml) [ "$small" != 0 ] || small=$id ;;
+        # The TestLibraries job runs with Microsoft's Tests-TestLibraries installed, an environment the runtime does not
+        # model (orchestrator, 2026-10-22): its results are no oracle.
+        junit-al-language-testlibraries.xml) ;;
         *) die "artifact $id of junit-test-results-$leg holds no known JUnit file" ;;
       esac
     done < <(python3 -c '
@@ -115,7 +119,7 @@ a.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 print("\n".join(str(x["id"]) for x in a))' "$arts" "$leg")
     { [ "$big" != 0 ] && [ "$mid" != 0 ]; } || die "run $run: junit-test-results-$leg lacks the oracle or the OnPrem file"
   fi
-  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 or 3 (the oracle, the OnPrem file, and the OnPrem DotNet file)"
+  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 to 4 (the oracle, the OnPrem file, the OnPrem DotNet file and the TestLibraries file)"
   oracle_id[$leg]=$big
   onprem_id[$leg]=$mid
   dotnet_id[$leg]=$small

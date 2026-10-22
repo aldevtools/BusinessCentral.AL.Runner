@@ -133,9 +133,10 @@ impl Lowerer<'_> {
                         Some(Box::new(ir::Expr::BaseInstance))
                     }
                     // A table extension calling its table's procedure: on the same Rec.
-                    None if self.table_of[object].is_some() && self.rec_slot.is_some() => Some(Box::new(
-                        ir::Expr::Load(ir::Place::Global(self.rec_slot.expect("checked"))),
-                    )),
+                    None if self.table_of[object].is_some() && self.rec_slot.is_some() => {
+                        self.report_item_same_name_refusal(node)?;
+                        Some(Box::new(ir::Expr::Load(ir::Place::Global(self.rec_slot.expect("checked")))))
+                    }
                     None => return Err("implicit calls into another object are not lowered yet".into()),
                 };
                 // The routine node is the one `routine_at` numbered, so no search by offset.
@@ -787,7 +788,8 @@ impl Lowerer<'_> {
 
     /// A call in a report data item to a name the report and the item's table both declare, in a shape no corpus test
     /// pins (the checker's AR1006, see `Checker::lookup_callable`; report/lt-cj-report-leads/CjDataset.al:215-241 pins
-    /// only one procedure on each side with the same parameters).
+    /// only one procedure on each side with the same parameters). Also a bare call in a third object's code to a name a
+    /// table and another app's table extension declare with the same parameters (`same_signature_in_two_objects`).
     fn report_item_same_name_refusal(&self, node: &SyntaxNode) -> L<()> {
         let path = &self.ws.files[self.file].path;
         let at: usize = node.text_range().start().into();

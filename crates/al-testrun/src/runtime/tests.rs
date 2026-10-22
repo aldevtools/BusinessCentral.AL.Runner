@@ -1902,6 +1902,39 @@ fn run_with_limit(src: &str, name: &str, limit: std::time::Duration) -> (Vec<(St
     (out, started.elapsed())
 }
 
+/// Al-runner issue 5698: the time limit applies to a test codeunit's `OnRun` trigger too, with a budget of its own (the
+/// time of `OnRun` counts toward no test method). An `OnRun` that goes past it stops, and every test of the codeunit
+/// gets the timeout reason (the outputs turn it into `Test exceeded <N>s timeout.`), which names the trigger.
+#[test]
+fn the_time_limit_applies_to_the_on_run_trigger_of_a_test_codeunit() {
+    for (src, name) in [
+        (
+            "codeunit 61402 OnRunSpin { Subtype = Test;
+            trigger OnRun() var i: Integer; begin while i < 300000000 do i += 1; end;
+            [Test] procedure Noop() begin end; }",
+            "OnRunSpin",
+        ),
+        (
+            "codeunit 61403 OnRunSleeps { Subtype = Test;
+            trigger OnRun() begin Sleep(600000); end;
+            [Test] procedure Noop() begin end; }",
+            "OnRunSleeps",
+        ),
+    ] {
+        let (out, _) = run_with_limit(src, name, std::time::Duration::from_secs(1));
+        match &out.iter().find(|(t, _)| t == "Noop").unwrap().1 {
+            Outcome::NotRun(r) => {
+                assert!(
+                    r.starts_with("the test used more than the time limit of 1 s"),
+                    "{name}: {r}"
+                );
+                assert!(r.contains("OnRun"), "{name}: {r}");
+            }
+            o => panic!("{name}: {o:?}"),
+        }
+    }
+}
+
 /// Al-runner issue 5605: `Sleep` does not wait, but the time it asks for counts toward the test's time limit, summed
 /// over the test. A test whose Sleeps go past the limit is stopped and reported like a test over its CPU limit (the
 /// reason starts with "the test used more than the time limit of N s", which the outputs turn into v2's timeout

@@ -32,13 +32,11 @@ fn unresolved_references_are_exactly_what_no_dependency_supplies() {
         tests.join("al-language/app.json").exists(),
         "corpus submodule not checked out"
     );
-    let fixture = tests.join("al-language-internals-fixture");
-    let mut apps = vec![
-        runtime::load_app(&fixture).unwrap(),
-        runtime::load_app(&tests.join("al-language")).unwrap(),
-    ];
+    let corpus_deps = deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+    let mut apps: Vec<_> = corpus_deps.iter().map(|d| runtime::load_app(d).unwrap()).collect();
+    apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
-    let dependencies = deps::load(&tests.join("al-language"), &[fixture], &[]).unwrap();
+    let dependencies = deps::load(&tests.join("al-language"), &corpus_deps, &[]).unwrap();
     assert!(
         dependencies.apps.iter().any(|a| a.name == "Base Application"),
         "the corpus's .alpackages supplies Base Application: {:?}",

@@ -585,8 +585,9 @@ SERVE
                          tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
                          strictEnvironment (as --affected and its options; the summary gets `selection`),
                          entries (several runs on one compile and one install baseline, each with its own
-                         id, resources, test and excludeTests; `entry` on the test lines, one
-                         `entrySummary` line per entry).
+                         id, resources, test and excludeTests; ids are unique; `entry` on the test lines,
+                         one `entrySummary` line per entry with its `exitCode`; an entry that matches no
+                         test has exit code 6 and `warnings`, and so has the request). `test` is one text.
     --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 
@@ -715,7 +716,9 @@ OTHER
                          load of the machine does not count; a test that hangs without
                          computing is stopped at 10 times N of wall time) is stopped at its
                          next loop iteration and reported as not run, with the limit as the
-                         reason; the codeunit's later failures are then not trusted. 0: no limit.
+                         reason; the codeunit's later failures are then not trusted. A test
+                         codeunit's OnRun trigger has a limit of its own (its time counts toward
+                         no test); past it, every test of the codeunit gets the timeout row. 0: no limit.
                          Sleep does not wait, but the time it asks for, summed over the test,
                          counts toward N: a test whose Sleep calls go past N is stopped and
                          reported the same way.
