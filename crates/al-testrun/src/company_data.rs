@@ -71,7 +71,12 @@ pub struct ResourceFiles {
     root: PathBuf,
     written: MemFileSystem,
     removed: BTreeSet<String>,
+    /// The folders AL code created in the temporary folder (`key` form, no closing separator).
+    dirs: BTreeSet<String>,
 }
+
+/// The temporary folder `TemporaryPath()` names (`\TEMP\`), in `key` form without the closing separator.
+const TEMP: &str = "\\temp";
 
 impl ResourceFiles {
     pub fn new(root: PathBuf) -> ResourceFiles {
@@ -79,7 +84,19 @@ impl ResourceFiles {
             root,
             written: MemFileSystem::default(),
             removed: BTreeSet::new(),
+            dirs: BTreeSet::new(),
         }
+    }
+
+    /// `key` of a folder: without the closing separator.
+    fn dir_key(path: &str) -> String {
+        Self::key(path).trim_end_matches('\\').to_string()
+    }
+
+    /// Whether `path` is inside the temporary folder (or is it).
+    fn in_temp(path: &str) -> bool {
+        let k = Self::dir_key(path);
+        k == TEMP || k.starts_with(&format!("{TEMP}\\"))
     }
 
     fn key(path: &str) -> String {
@@ -186,6 +203,65 @@ impl FileSystem for ResourceFiles {
         names.sort_by_key(|n| n.to_uppercase());
         let dir = dir.trim_end_matches(['\\', '/']);
         Some(names.into_iter().map(|n| format!("{dir}/{n}")).collect())
+    }
+    /// The temporary folder and what is in it, a folder staged in the user folder, and the empty text (Directory.Exists('')
+    /// is No: QxDotNetDemoShapes.al:281). Any other path (another drive, a relative one) is not served.
+    fn serves_path(&self, path: &str) -> bool {
+        path.is_empty() || Self::in_temp(path) || matches!(Self::from_user_folder(path), std::borrow::Cow::Owned(_))
+    }
+    /// The temporary folder exists, a folder AL code created in it until it is removed, and a staged folder of the user
+    /// folder (QxDotNetDemoShapes.al:271-291: missing No, created Yes, with a closing separator Yes, a file No, '' No,
+    /// TemporaryPath Yes, deleted No).
+    fn dir_exists(&self, path: &str) -> bool {
+        if path.is_empty() {
+            return false;
+        }
+        let k = Self::dir_key(path);
+        if k == TEMP || self.dirs.contains(&k) {
+            return true;
+        }
+        matches!(Self::from_user_folder(path), std::borrow::Cow::Owned(_))
+            && self.resolve_entry(path).is_some_and(|p| p.is_dir())
+    }
+    /// A folder of the temporary folder, with the folders above it (FileManagement.ServerCreateDirectory of a nested folder:
+    /// QxDotNetDemoShapes.al:304-307). A file of that name is refused (the .NET exception is not pinned).
+    fn create_dir(&mut self, path: &str) -> Result<(), String> {
+        if !Self::in_temp(path) {
+            return Err("a folder outside the temporary folder".into());
+        }
+        let k = Self::dir_key(path);
+        if self.exists(path) {
+            return Err("a file of that name exists (the .NET exception is not pinned)".into());
+        }
+        let mut at = k.as_str();
+        while at.len() > TEMP.len() {
+            self.dirs.insert(at.to_string());
+            at = &at[..at.rfind('\\').unwrap_or(0)];
+        }
+        Ok(())
+    }
+    /// Removes a folder AL code created, recursively with its folders and files (QxDotNetDemoShapes.al:317-325), or
+    /// an empty one without (:326-327). A missing folder, or one that holds something without `recursive`, raises a .NET
+    /// exception no test pins: refused.
+    fn remove_dir(&mut self, path: &str, recursive: bool) -> Result<(), String> {
+        let k = Self::dir_key(path);
+        if !self.dirs.contains(&k) {
+            return Err("the folder does not exist (the .NET exception is not pinned)".into());
+        }
+        let prefix = format!("{k}\\");
+        let files: Vec<String> = self.written.paths().into_iter().filter(|p| p.starts_with(&prefix)).collect();
+        let below: Vec<String> = self.dirs.iter().filter(|d| d.starts_with(&prefix)).cloned().collect();
+        if !recursive && !(files.is_empty() && below.is_empty()) {
+            return Err("the folder is not empty (the .NET exception is not pinned)".into());
+        }
+        for f in files {
+            self.written.remove(&f);
+        }
+        for d in below {
+            self.dirs.remove(&d);
+        }
+        self.dirs.remove(&k);
+        Ok(())
     }
     fn remove(&mut self, path: &str) -> bool {
         let was = self.exists(path);
@@ -313,6 +389,38 @@ mod tests {
             None,
             "a folder AL code changed is no longer only what was staged"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The folders of the temporary folder, as static System.IO.Directory sees them on real BC (tests/al-language-onprem-dotnet/
+    // lt-qx-dotnet/QxDotNetDemoShapes.al:265-292 RD_DirectoryExists_Static, :294-346 RD_FileManagement_ServerFolderOperations).
+    #[test]
+    fn folders_of_the_temporary_folder_are_created_and_removed_in_memory() {
+        let dir = std::env::temp_dir().join(format!("alr-resdirs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("WalkMeTour")).unwrap();
+        let mut fs = ResourceFiles::new(dir.clone());
+        let path = "\\TEMP\\ltrd1";
+        let media = format!("{path}/Media");
+        assert!(fs.serves_path(path) && fs.serves_path("") && fs.serves_path("\\TEMP\\..\\WalkMeTour"));
+        assert!(!fs.serves_path("C:\\Windows") && !fs.serves_path("relative.txt"));
+        assert!(!fs.dir_exists(path), "missing");
+        assert!(fs.dir_exists("\\TEMP\\"), "TemporaryPath");
+        assert!(!fs.dir_exists(""), "empty text");
+        assert!(fs.dir_exists("\\TEMP\\..\\WalkMeTour"), "a staged folder");
+        fs.create_dir(&media).unwrap();
+        assert!(fs.dir_exists(&media) && fs.dir_exists(path), "create nested");
+        assert!(fs.dir_exists(&format!("{path}/")), "trailing slash");
+        fs.create_dir(&media).unwrap();
+        fs.write(&format!("{media}/a.txt"), b"x").unwrap();
+        assert!(!fs.dir_exists(&format!("{media}/a.txt")), "a file path");
+        assert!(fs.remove_dir(path, false).is_err(), "a folder that is not empty, not recursive: not pinned");
+        fs.remove_dir(&media, true).unwrap();
+        assert!(!fs.dir_exists(&media) && !fs.exists(&format!("{media}/a.txt")), "recursive removes files");
+        fs.remove_dir(path, false).unwrap();
+        assert!(!fs.dir_exists(path), "remove empty non-recursive");
+        assert!(fs.remove_dir(path, true).is_err(), "a missing folder: not pinned");
+        assert!(fs.create_dir("\\TEMP\\..\\Other").is_err(), "only inside the temporary folder");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

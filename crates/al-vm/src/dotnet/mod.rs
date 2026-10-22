@@ -282,6 +282,36 @@ impl Session {
             return self.staged_file_array(files, &shown);
         }
 
+        // 1d. The company build's temporary folder (owner rule 2026-10-22: folder access only inside the company build).
+        // Microsoft's DemoTool exports its RapidStart packages there through File Management (ServerDirectoryExists,
+        // ServerCreateDirectory, ServerRemoveDirectory, DeleteServerFile): static System.IO.Directory and System.IO.File
+        // calls, answered by the company build's file system as real BC answers them (tests/al-language-onprem-dotnet/
+        // lt-qx-dotnet/QxDotNetDemoShapes.al:265-346). Only that file system serves any path; elsewhere the policy below
+        // refuses them.
+        if let (Target::Static(d), MemberKind::Call) = (&target, kind)
+            && let Some(r) = self.temp_folder_call(&d.name, &member, &values, &shown)
+        {
+            return r;
+        }
+        // XmlDocument.Save of a file there: .NET saves into an AL stream, and the bytes become the file
+        // (QxDotNetDemoShapes.al:370-377: what Save writes; Config. XML Exchange.ExportPackageXML).
+        let mut save_to = None;
+        if let (Target::Host(..), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) = (&target, kind, values.as_slice())
+            && clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument")
+            && member.eq_ignore_ascii_case("Save")
+            && self.host.files.serves_path(p)
+        {
+            let blob = al_builtins::stream::new_blob();
+            save_to = Some((p.to_string(), blob.clone()));
+            values[0] = Value::Library(
+                al_builtins::library_kind::LibraryKind::OutStream,
+                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
+                    blob,
+                    al_builtins::stream::Encoding::default(),
+                ))),
+            );
+        }
+
         // 2. The host provider, after the policy (ADR-014 section 8).
         let assembly = match &target {
             Target::Static(d) => Some(d.assembly.as_str()),
@@ -323,7 +353,16 @@ impl Session {
             (_, _) => session.invoke(host_target(&target), &member, wire),
         };
         match reply {
-            Ok(r) => self.apply_reply(r, &book, &places, &shown, f),
+            Ok(r) => {
+                let v = self.apply_reply(r, &book, &places, &shown, f)?;
+                if let Some((path, blob)) = save_to {
+                    let bytes = blob.borrow().bytes.clone();
+                    if let Err(why) = self.host.files.write(&path, &bytes) {
+                        return unsupported(format!("DotNet {shown}: {why}"));
+                    }
+                }
+                Ok(v)
+            }
             Err(DotNetFailure::Refused(why)) => unsupported(format!("DotNet {shown}: {why}")),
             Err(DotNetFailure::Exception(e)) => {
                 // Pinned for the MailAddress constructor only, exactly these two exception types:
@@ -364,6 +403,51 @@ impl Session {
                     e.clr_type, e.message
                 ))
             }
+        }
+    }
+
+    /// Step 1d of the router: a static System.IO.Directory or System.IO.File call on a path the session's file system
+    /// serves (only the company build's), or `None` to go on.
+    fn temp_folder_call(&mut self, ty: &str, member: &str, values: &[Value], shown: &str) -> Option<Result<Value, Signal>> {
+        let path = match values.first() {
+            Some(Value::Text(p) | Value::Code(p)) => p.to_string(),
+            _ => return None,
+        };
+        if !self.host.files.serves_path(&path) {
+            return None;
+        }
+        let ty = ty.to_ascii_lowercase();
+        let member = member.to_ascii_lowercase();
+        let fs = &mut self.host.files;
+        let refused = |why: String| Some(unsupported(format!("DotNet {shown}: {why}")));
+        match (ty.as_str(), member.as_str(), &values[1..]) {
+            ("system.io.directory", "exists", []) => Some(Ok(Value::Boolean(fs.dir_exists(&path)))),
+            // The DirectoryInfo it returns is not served: a use of it is refused where it is read (a null value).
+            ("system.io.directory", "createdirectory", []) => match fs.create_dir(&path) {
+                Ok(()) => Some(Ok(Value::Null)),
+                Err(why) => refused(why),
+            },
+            ("system.io.directory", "delete", rest) => {
+                let recursive = match rest {
+                    [] => false,
+                    [Value::Boolean(b)] => *b,
+                    _ => return None,
+                };
+                match fs.remove_dir(&path, recursive) {
+                    Ok(()) => Some(Ok(Value::Null)),
+                    Err(why) => refused(why),
+                }
+            }
+            ("system.io.file", "exists", []) => Some(Ok(Value::Boolean(fs.exists(&path)))),
+            // Deleting a file that is not there is not pinned.
+            ("system.io.file", "delete", []) => {
+                if fs.remove(&path) {
+                    Some(Ok(Value::Null))
+                } else {
+                    refused("the file does not exist (what .NET does then is not pinned)".into())
+                }
+            }
+            _ => None,
         }
     }
 

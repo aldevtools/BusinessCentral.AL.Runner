@@ -48,6 +48,20 @@ report 1002 "Post Inventory Cost to G/L"
     trigger OnPostReport() var L: Codeunit "RNO Log"; begin L.Add('post'); end;
 }}
 
+report 50904 "RNO Logged"
+{{
+    UsageCategory = None;
+    dataset
+    {{
+        dataitem(T; "RNO Row")
+        {{
+            trigger OnAfterGetRecord() var L: Codeunit "RNO Log"; begin L.Add('row' + Format(T.Id)); end;
+        }}
+    }}
+    trigger OnPreReport() var L: Codeunit "RNO Log"; begin L.Add('pre'); end;
+    trigger OnPostReport() var L: Codeunit "RNO Log"; begin L.Add('post'); end;
+}}
+
 report 50902 "RNO Not Listed"
 {{
     UsageCategory = None;
@@ -127,6 +141,19 @@ codeunit 50903 "RNO Tests"
         Ok := Report.SaveAsHtml(Report::"Post Inventory Cost to G/L", 'out/a.html');
         exit(Format(Ok) + '|' + GetLastErrorText());
     end;
+
+    // The DemoTool's company build (owner decision 2026-10-22): SaveAsPdf of a report variable to a file.
+    procedure CompanyBuildPdf(): Text
+    var L: Codeunit "RNO Log"; Rep: Report "RNO Logged";
+    begin
+        Seed();
+        Rep.UseRequestPage(false);
+        Rep.SaveAsPdf('out/c.pdf');
+        exit(L.Take());
+    end;
+    procedure CompanyBuildPdfThenOpen() var F: File; Rep: Report "RNO Logged"; begin Seed(); Rep.SaveAsPdf('out/c.pdf'); F.Open('out/c.pdf'); end;
+    procedure CompanyBuildWord() var Rep: Report "RNO Logged"; begin Seed(); Rep.SaveAsWord('out/c.docx'); end;
+    procedure CompanyBuildPdfStream() var R: Record "RNO Row"; Out: OutStream; begin Seed(); R.Data.CreateOutStream(Out); Report.SaveAs(Report::"RNO Logged", '', ReportFormat::Pdf, Out); end;
 
     procedure NotListedStaysRefused()
     begin
@@ -455,4 +482,31 @@ fn report_no_output_writing_over_the_path_or_recreating_the_stream_ends_the_mark
     assert!(al_testkit::boolean(run("ControlWriteOverThePath")));
     assert!(!al_testkit::boolean(run("RecreatingTheStreamClearsTheMark")));
     assert!(!al_testkit::boolean(run("ClearingTheRecordClearsTheMark")));
+}
+
+// Owner decision 2026-10-22 ("Run triggers, no file"): inside the DemoTool company build only, SaveAsPdf to a file runs the report
+// (triggers and data) and writes no file (MakeCorrections.Codeunit.al:62, PostRevaluation.Codeunit.al:82,
+// RunPostInventoryCosttoGL.Codeunit.al:17). A look at the file, another format, a stream, and the same call outside it are refused.
+#[test]
+fn report_no_output_in_the_company_build_save_as_pdf_to_a_file_runs_the_report_and_writes_no_file() {
+    let mut b = built("");
+    b.session.set_company_build(true);
+    assert_eq!(al_testkit::text(b.run_in("RNO Tests", "CompanyBuildPdf")), "pre;row1;row2;post;");
+    assert!(al_builtins::assumptions::hit(
+        al_builtins::assumptions::Assumption::ReportRenderDiscarded
+    ));
+    match b.run_in("RNO Tests", "CompanyBuildPdfThenOpen") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("RNO Logged"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    for proc in ["CompanyBuildWord", "CompanyBuildPdfStream"] {
+        match b.run_in("RNO Tests", proc) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{proc}: {why}"),
+            other => panic!("{proc}: {other:?}"),
+        }
+    }
+    match run("CompanyBuildPdf") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{why}"),
+        other => panic!("outside the company build: {other:?}"),
+    }
 }

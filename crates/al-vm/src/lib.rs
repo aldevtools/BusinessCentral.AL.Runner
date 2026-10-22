@@ -479,6 +479,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// An install codeunit is running.
     install_scope: bool,
+    /// The company data codeunit (Microsoft's DemoTool) builds the company (`set_company_build`).
+    company_build: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to.
     demo_written: std::collections::HashSet<u32>,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
@@ -791,6 +793,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             install_scope: false,
+            company_build: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
@@ -1178,6 +1181,12 @@ impl Session {
     /// back while the company is built.
     pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
         self.events.not_installed_apps = apps;
+    }
+
+    /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply
+    /// (owner decision 2026-10-22: `Report.SaveAsPdf` to a file runs the report and writes no file, reports.rs).
+    pub fn set_company_build(&mut self, on: bool) {
+        self.company_build = on;
     }
 
     /// Whether an install routine runs (`set_install_scope`).
