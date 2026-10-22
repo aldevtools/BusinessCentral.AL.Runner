@@ -70,12 +70,11 @@ files (MIT) of the release are fetched sparsely with `git` into
 AL Runner does not build the Contoso company, and the output says so. The recipe
 cannot be combined with the company and disabled-test options.
 
-**Time limit.** Microsoft's recipe sets no time limit per test, so the recipe keeps
-AL Runner's default of 20 seconds (`--test-timeout-secs`). A test whose `Sleep` calls
-ask for more than that is a timeout row. `Sleep` does not wait, but the time it asks
-for counts toward the limit. For example, Tests-Dimension `TestGetShortcutDimCached`
-sleeps 60.5 seconds and passes on Business Central. Run it with `--test-timeout 120`,
-or `0` for no limit.
+**Time limit.** The recipe's limit is 60 seconds of CPU time per test, and other runs
+keep 20. `--test-timeout-secs N` sets another, and `0` removes it. `Sleep` does not
+wait, but the time it asks for counts toward the limit. For example, Tests-Dimension
+`TestGetShortcutDimCached` sleeps 60.5 seconds and passes on Business Central, so it
+is a timeout row at the default. Run it with `--test-timeout 120`.
 
 ## Only the tests your extension can affect
 

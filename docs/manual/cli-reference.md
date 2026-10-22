@@ -99,7 +99,7 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 | Flag | Effect |
 |---|---|
 | `--isolation MODE`, `--test-isolation MODE` | `codeunit` (default), or `test` (also `function`, `method`). Under `test`, a test that calls `Commit()` is reported as not run, because whether Business Central keeps the committed rows for the next test is not pinned yet. `disabled` is not supported yet: every test is reported as not run. |
-| `--test-timeout-secs N`, `--test-timeout N` | CPU-time limit per test, default 20. `0` is no limit. A hung test is stopped at 10 times N of wall time. `Sleep` does not wait, but the time it asks for counts toward N. |
+| `--test-timeout-secs N`, `--test-timeout N` | CPU-time limit per test, default 20; 60 with `--recipe microsoft`, `test-microsoft` and `--affected-from microsoft`. `0` is no limit. A hung test is stopped at 10 times N of wall time. `Sleep` does not wait, but the time it asks for counts toward N. |
 | `--allow-not-run` | Exit 0 instead of 7 or 8. |
 
 ## Output
@@ -205,6 +205,6 @@ Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the erro
 | `ALRUNNER_NO_CACHE_PRUNE=1` | Turn off the automatic cache cleanup. |
 | `ALRUNNER_BCAPPS_URL` | The address `--recipe` fetches BCApps from. |
 | `ALRUNNER_NO_PATH_NOTE=1` | No note about another `al-runner` on the `PATH`, and no list of them under `--version`. |
-| `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given. The second is version 2's name. |
+| `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given (also for Microsoft's recipe). The second is version 2's name. |
 | `AL_CHECK_THREADS`, `AL_LOWER_THREADS`, `AL_TEST_THREADS` | Worker threads of the check, the lowering and the test codeunits. Default: one per core. |
 | `NO_COLOR` | No color with `--color auto`. |

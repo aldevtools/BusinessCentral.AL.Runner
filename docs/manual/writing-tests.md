@@ -201,8 +201,9 @@ default. See [Test data](test-data.md).
 A test that uses more than 20 seconds of CPU time is stopped at its next loop
 iteration and reported as not run, with the limit as the reason. Load on your
 machine does not count. A test that hangs without computing is stopped at ten
-times the limit in wall time. `--test-timeout-secs N` changes the limit, and `0`
-removes it. Later failures in the same codeunit are then not trusted; see
+times the limit in wall time. A run of Microsoft's recipe (`--recipe microsoft`,
+`test-microsoft`, `--affected-from microsoft`) uses 60 seconds. `--test-timeout-secs N`
+changes the limit for any run, and `0` removes it. Later failures in the same codeunit are then not trusted; see
 [Reading results](results.md).
 
 ## Examples

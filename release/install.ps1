@@ -44,7 +44,8 @@ try {
   Expand-Archive (Join-Path $tmp $archive) -DestinationPath $tmp -Force
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
   Copy-Item (Join-Path $tmp "$exe.exe") (Join-Path $dir "$exe.exe") -Force
-  # The binary is unsigned. Remove the download mark so SmartScreen does not block it.
+  # The binary is signed, but a new signing certificate can still trigger SmartScreen until it
+  # has reputation. Remove the download mark so SmartScreen does not block it.
   Unblock-File (Join-Path $dir "$exe.exe")
   & (Join-Path $dir "$exe.exe") --version
   $pathDirs = $env:PATH -split ';'
