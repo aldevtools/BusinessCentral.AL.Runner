@@ -392,6 +392,17 @@ pub struct ReportColumn {
     /// `IncludeCaption = true`: the dataset's Labels block carries `<Name>Caption`.
     #[serde(default)]
     pub include_caption: bool,
+    /// The table (object index) and the field position whose Caption an `IncludeCaption` label shows: the field the source names,
+    /// bare or written with the name of the own, the parent, a child or an earlier top-level data item
+    /// (errors/lt-ms-refusals-138/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
+    #[serde(default)]
+    pub caption_table: Option<usize>,
+    #[serde(default)]
+    pub caption_field: Option<usize>,
+    /// Why writing a value of this column is refused although its label is known: a field of a data item nested below the
+    /// column's own, which BC reads after that item's first row (P138ColCaptionQualified.al:QS_Columns_DataItemNamedLikeTable).
+    #[serde(default)]
+    pub value_unsupported: Option<String>,
     /// The `DecimalPlaces` property as written (`1 : 1`); it decides the `decimalformatter`.
     #[serde(default)]
     pub decimal_places: Option<String>,
@@ -660,6 +671,10 @@ pub struct XmlNode {
     /// (YXmlPortProps.al:712, BC's export of such a port does not end).
     #[serde(default)]
     pub unbound: bool,
+    /// `Occurrence` of a text attribute as declared: `Some(true)` Required, `Some(false)` Optional, `None` not declared
+    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests).
+    #[serde(default)]
+    pub required: Option<bool>,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }

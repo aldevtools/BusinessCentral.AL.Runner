@@ -558,6 +558,8 @@ impl Session {
         let mut walked = 0;
         let mut end_reached = false;
         let opening = std::mem::take(&mut st.borrow_mut().landing_first);
+        // The list opens on a row its OnOpenPage left Rec on (`open_on_rec_moved_by_onopenpage`).
+        let moved_open = st.borrow().open_reads_above;
         let backwards = st.borrow_mut().read_backwards.take();
         if let Some(why) = backwards
             && self.populate_window_backwards(st, start.clone(), why)?
@@ -715,6 +717,31 @@ impl Session {
             && !one_row_read_once
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
+        }
+        // In a key other than the primary key the row is read once more (`reads_once_more_in_its_key`): pinned for an open whose
+        // view of more than one row ends inside the window.
+        if !opening && self.still_reads_once_more(st) {
+            // A refill in that key reads as in the primary key: not pinned (assumed).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOtherKeyOtherMoves);
+        }
+        if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
+            // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
+            // `O:A;R:A;R:A;R:B;R:C;R:D;R:A;R:A;R:A;C:A;`).
+            if end_reached && st.borrow().window.len() >= 2 {
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+                let rec = self.page_rec(st);
+                let at = (rec.borrow().key, rec.borrow().ascending);
+                st.borrow_mut().reads_once_more_in = Some(at);
+            } else if moved_open {
+                // A list on the row OnOpenPage left Rec on, in such a key, whose view has one row or more than a window: not pinned.
+                return unsupported(
+                    "the open read of a list on the row its OnOpenPage left Rec on, in a key other than the primary key, with one row or more rows than a window holds (not pinned)",
+                );
+            } else {
+                // Any other open in such a key (one row, or more rows than a window) keeps the reads of the primary key: not
+                // pinned (assumed; Tests-ERM O365 Correct Sales Invoice and Payments using Creditor Number open such lists).
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOtherKeyOtherMoves);
+            }
         }
         Ok(())
     }
@@ -1423,7 +1450,13 @@ impl Session {
             s.draft = false;
             s.cursor = Cursor::Row;
         }
-        self.read_client_row(st, target)?;
+        // Next and Previous in a key other than the primary key read the row once more (`reads_once_more_in_its_key`).
+        let once_more = matches!(how, PageMethod::Next | PageMethod::Previous) && self.still_reads_once_more(st);
+        if once_more {
+            self.read_client_row_in(st, target, true)?;
+        } else {
+            self.read_client_row(st, target)?;
+        }
         Ok(Some(true))
     }
 
@@ -1515,6 +1548,49 @@ impl Session {
 
     /// The reads of a move onto row `target` of the rows the client holds (see `move_in_client_rows`).
     pub(super) fn read_client_row(&mut self, st: &St, target: usize) -> Result<(), Signal> {
+        if self.still_reads_once_more(st) {
+            // First, Last, GoToKey and GoToRecord in that key read as in the primary key: not pinned (assumed).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOtherKeyOtherMoves);
+        }
+        self.read_client_row_in(st, target, false)
+    }
+
+    /// A plain list (no OnFindRecord or OnNextRecord, with OnAfterGetRecord and OnAfterGetCurrRecord) on a page of its own whose
+    /// Rec is in a key other than the primary key, over a database table: the client reads each row once more than in the
+    /// primary key, when the list opens and at each Next and Previous between the rows it holds (corpus
+    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:345 QR_List_OpenView_SetCurrentKeyGet `...;R:B;R:B;R:B;C:B;`, `next log`
+    /// `R:A;R:A;R:A;C:A;`; the QS_KeyAsc_List_*, QS_KeyDesc_List_* and QS_KeyWhere_List_* tests from :856, for example
+    /// QS_KeyAsc_List_NoMove `O:;R:D;R:C;R:B;R:A;R:D;R:D;R:D;C:D;` against QS_PkDesc_List_NoMove `...;R:D;R:D;C:D;`, the key
+    /// set by SourceTableView or by OnOpenPage). Pinned for views that end inside the window; the other moves are assumed
+    /// (`list-other-key-other-moves`).
+    pub(super) fn reads_once_more_in_its_key(&self, st: &St) -> bool {
+        if !self.is_list(st)
+            || st.borrow().host.is_some()
+            || self.declares(st, "onfindrecord")
+            || self.declares(st, "onnextrecord")
+            || !self.declares(st, "onaftergetrecord")
+            || !self.declares(st, "onaftergetcurrrecord")
+        {
+            return false;
+        }
+        let rec = self.page_rec(st);
+        let r = rec.borrow();
+        r.key != 0 && !r.temporary
+    }
+
+    /// The list opened reading each row once more (`reads_once_more_in_its_key`) and Rec is still in that key and order. A key
+    /// or order changed after the open (TestPage.Filter.SetCurrentKey, misc/lt-probes-needed-7/PnGTestFilter.al) keeps the reads
+    /// it had before.
+    pub(super) fn still_reads_once_more(&self, st: &St) -> bool {
+        let Some(at) = st.borrow().reads_once_more_in else {
+            return false;
+        };
+        let rec = self.page_rec(st);
+        let r = rec.borrow();
+        at == (r.key, r.ascending) && self.reads_once_more_in_its_key(st)
+    }
+
+    fn read_client_row_in(&mut self, st: &St, target: usize, once_more: bool) -> Result<(), Signal> {
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
         let stored = st.borrow().window[target].stored.clone();
@@ -1540,6 +1616,9 @@ impl Session {
             self.nav_find(st, "=")?;
         }
         self.populate_current(st)?;
+        if once_more {
+            self.populate_current(st)?;
+        }
         let shown = rec.borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.get_mut(target) {
             w.shown = shown;

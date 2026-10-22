@@ -896,23 +896,48 @@ impl Session {
         mut assigned: Option<&mut Vec<usize>>,
     ) -> Result<(), Signal> {
         // A field attribute of the schema has to be there (xmlport/lt-xmlport-query-datatransfer/XpTImportOptions.al:
-        // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. For a text
-        // attribute this is not pinned.
-        for a in schema.children(node) {
+        // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. So has a text
+        // attribute declared `Occurrence = Required`, also when its value is empty (xmlport/lt-qr-xmlport-container-occurs/
+        // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, QS_TextAttr_Import_Rows; report/lt-u-report-props/UPropertyTests.al:336).
+        // A text attribute without `Occurrence` may be missing, as before these pins.
+        let missing = schema.children(node).into_iter().find(|&a| {
             let n = schema.node(a);
-            if n.kind == ir::XmlNodeKind::FieldAttr && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name) {
-                return Err(schema_error(format!(
-                    "The required attribute '{}' is missing.",
-                    n.xml_name
-                )));
+            (n.kind == ir::XmlNodeKind::FieldAttr || (n.kind == ir::XmlNodeKind::TextAttr && n.required == Some(true)))
+                && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name)
+        });
+        // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
+        let declares_ns = |name: &str, value: &str| {
+            name.strip_prefix("xmlns:")
+                .is_some_and(|p| schema.xp().namespaces.iter().any(|(q, u)| q == p && u == value))
+        };
+        // An attribute the schema lacks on the root or on a table element fails the schema check (xmlport/
+        // lt-xmlport-query-datatransfer/XpTImportBasic.al:668 Import_AttributeOnRootIgnored, :682 Import_AttributeOnItem;
+        // QrXpContainerOccurs.al:QS_TextAttr_Import_Root, an element with text attributes of its own). Not pinned: a prefixed
+        // name, below a field element, with UseLax, and an element that also lacks a required attribute (which error wins).
+        let unknown = elem.attrs.iter().find(|(name, value)| {
+            !declares_ns(name, value) && Self::xp_child_named(schema, node, name, true).is_none()
+        });
+        if let Some((name, _)) = unknown {
+            let pinned = !name.contains(':')
+                && name != "xmlns"
+                && !schema.xp().use_lax
+                && missing.is_none()
+                && matches!(schema.node(node).kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Table);
+            if !pinned {
+                return unsupported(format!(
+                    "XmlPort import of an attribute {name} the schema does not have (error not pinned)"
+                ));
             }
+            return Err(schema_error(format!("The '{name}' attribute is not declared.")));
+        }
+        if let Some(a) = missing {
+            return Err(schema_error(format!(
+                "The required attribute '{}' is missing.",
+                schema.node(a).xml_name
+            )));
         }
         for (name, value) in &elem.attrs {
-            // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
-            if name
-                .strip_prefix("xmlns:")
-                .is_some_and(|p| schema.xp().namespaces.iter().any(|(q, u)| q == p && u == value))
-            {
+            if declares_ns(name, value) {
                 continue;
             }
             let Some(a) = Self::xp_child_named(schema, node, name, true) else {
@@ -1577,7 +1602,9 @@ impl Session {
     // ------------------------------------------------- VariableText, FixedText
 
     /// The root and table element of a text-format port: `Root > tableelement > fieldelements`.
-    fn xp_text_layout(&self, schema: &Schema, top: usize) -> Result<(usize, Vec<usize>), Signal> {
+    /// `text_columns`: a leaf text element may be a column too (the import of a VariableText port, xmlport/lt-aj-xmlport/
+    /// AjRunAndXmlPort.al:QS_VariableText_TempInteger_AutoSaveFalse: its value goes into the variable).
+    fn xp_text_layout(&self, schema: &Schema, top: usize, text_columns: bool) -> Result<(usize, Vec<usize>), Signal> {
         // A text-format port may have its table element at the top, with no root element
         // (P94Fixtures.al: "LT P94 Csv Plain", exported by P94XpDelim.al:Export_NothingDeclared).
         let direct = schema.node(top).kind == ir::XmlNodeKind::Table;
@@ -1591,7 +1618,12 @@ impl Session {
             return unsupported("a VariableText or FixedText port whose root has no table element (not pinned)");
         }
         let fields = schema.children(table);
-        if fields.iter().any(|&f| schema.node(f).kind != ir::XmlNodeKind::Field) || fields.is_empty() {
+        let column = |f: usize| {
+            let n = schema.node(f);
+            n.kind == ir::XmlNodeKind::Field
+                || (text_columns && n.kind == ir::XmlNodeKind::Text && schema.children(f).is_empty())
+        };
+        if fields.iter().any(|&f| !column(f)) || fields.is_empty() {
             return unsupported(
                 "a VariableText or FixedText port whose table element holds more than field elements (not pinned)",
             );
@@ -1604,7 +1636,7 @@ impl Session {
 
     fn xp_import_text(&mut self, inst: &Inst, schema: &Schema, top: usize, text: &str) -> Result<(), Signal> {
         let xp = schema.xp();
-        let (table, fields) = self.xp_text_layout(schema, top)?;
+        let (table, fields) = self.xp_text_layout(schema, top, xp.format == ir::XmlFormat::VariableText)?;
         let record_sep = non_empty(text_separator(
             set_or_declared(inst, 2, xp.record_separator.as_deref()).as_deref(),
             "\r\n",
@@ -1643,6 +1675,10 @@ impl Session {
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
+                if schema.node(f).kind == ir::XmlNodeKind::Text {
+                    self.xp_assign_variable(inst, schema, f, v.clone())?;
+                    continue;
+                }
                 let is_text = {
                     let pos = schema.node(f).field.expect("field nodes have a field");
                     matches!(
@@ -1685,7 +1721,7 @@ impl Session {
 
     fn xp_export_text(&mut self, inst: &Inst, schema: &Schema, top: usize) -> Result<Vec<u8>, Signal> {
         let xp = schema.xp();
-        let (table, fields) = self.xp_text_layout(schema, top)?;
+        let (table, fields) = self.xp_text_layout(schema, top, false)?;
         let record_sep = text_separator(
             set_or_declared(inst, 2, xp.record_separator.as_deref()).as_deref(),
             "\r\n",
@@ -1900,7 +1936,11 @@ impl Session {
             match c.kind {
                 ir::XmlNodeKind::TextAttr => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
-                    out.attrs.push((c.xml_name.clone(), v));
+                    // An empty `Occurrence = Optional` text attribute is left out, an empty Required one is written as `attr=""`
+                    // (QrXpContainerOccurs.al:QS_TextAttr_Export_AllEmpty, QS_TextAttr_Export_OptionalSetRequiredEmpty).
+                    if !(v.is_empty() && c.required == Some(false)) {
+                        out.attrs.push((c.xml_name.clone(), v));
+                    }
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));

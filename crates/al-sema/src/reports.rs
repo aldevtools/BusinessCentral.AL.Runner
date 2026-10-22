@@ -933,6 +933,11 @@ impl<'a> Owner<'a> {
                     field,
                     item_field,
                     include_caption,
+                    // A bare field or one written with the own data item's name (also one named like its table,
+                    // P138ColCaptionQualified.al:QS_Labels_DataItemNamedLikeTable); other items are resolved by `caption_sources`.
+                    caption_table: field.or(item_field).and(table),
+                    caption_field: field.or(item_field),
+                    value_unsupported: None,
                     decimal_places,
                     option_caption_ml,
                 }
@@ -1074,6 +1079,64 @@ fn item_ir(
     }
 }
 
+/// The field whose Caption an `IncludeCaption` column shows when its source is `Item.Field` of another data item: the parent, a
+/// child, or an earlier top-level item when both are top-level (errors/lt-ms-refusals-138/P138ColCaptionQualified.al:113-137,
+/// QS_Labels_DataItemNamedLikeTable, QS_Labels_WhenNoRows; P138_Labels_OfQualifiedSources for the parent). Any other item (a
+/// grandparent, a later sibling, a nested sibling) is not pinned and keeps the column refused.
+fn caption_sources(members: &crate::members::MemberTable, raw: &[RawItem], items: &mut [ir::ReportItem]) {
+    for i in 0..items.len() {
+        let sections: Vec<ast::Section> = raw[i]
+            .section
+            .sections()
+            .filter(|c| c.name().eq_ignore_ascii_case("column"))
+            .collect();
+        for (k, sec) in sections.iter().enumerate() {
+            if k >= items[i].columns.len() {
+                break;
+            }
+            let Some(parts) = sec.arg_name_parts(1).filter(|p| p.len() == 2) else {
+                continue;
+            };
+            let Some(j) = raw.iter().position(|r| r.name.eq_ignore_ascii_case(&parts[0])) else {
+                continue;
+            };
+            // A field of a data item nested below the column's own: BC writes the value that item's first row holds
+            // (QS_Columns_DataItemNamedLikeTable: `FromChild` of R1 is `child of R1`), and what it writes for a row with several
+            // children or after a later row is not pinned. The value is refused, the label is not.
+            let mut up = raw[j].parent;
+            while let Some(a) = up {
+                if a == i {
+                    items[i].columns[k].value_unsupported = Some(format!(
+                        "column {} reads a field of the data item {} nested below its own (when BC reads it is not implemented)",
+                        items[i].columns[k].name, raw[j].name
+                    ));
+                    break;
+                }
+                up = raw[a].parent;
+            }
+            let c = &items[i].columns[k];
+            if !c.include_caption || c.caption_field.is_some() {
+                continue;
+            }
+            let related = raw[i].parent == Some(j)
+                || raw[j].parent == Some(i)
+                || (raw[i].parent.is_none() && raw[j].parent.is_none() && j < i);
+            let Some(t) = items[j].table.filter(|_| related) else {
+                continue;
+            };
+            let pos = members[t]
+                .fields
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(&parts[1]));
+            if let Some(pos) = pos {
+                let c = &mut items[i].columns[k];
+                c.caption_table = Some(t);
+                c.caption_field = Some(pos);
+            }
+        }
+    }
+}
+
 fn object_trigger(o: &Owner, obj: &ast::Object, name: &str) -> Option<usize> {
     obj.triggers()
         .find(|t| t.name().eq_ignore_ascii_case(name))
@@ -1101,6 +1164,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         let item = item_ir(&o, raw, slot, raw.parent, parent_table, &enclosing, &mut reasons);
         items.push(item);
     }
+    caption_sources(cx.members, &layout.items, &mut items);
     reasons.extend(layout.reasons.iter().cloned());
     reasons.extend(cx.extension_reasons.iter().cloned());
     ir::Report {

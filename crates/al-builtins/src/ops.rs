@@ -1369,6 +1369,12 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Guid(a), V::Guid(b)) => a.cmp(b),
         (V::Option(a, _), V::Option(b, _)) => a.cmp(b),
         (V::Option(a, _), V::Integer(b)) | (V::Integer(a), V::Option(b, _)) => a.cmp(b),
+        // An Option against a Decimal compares the ordinal with the Decimal, a fraction included, in both orders and for
+        // variables, members and fields (types/PROptionInteger.al:175-218 QS_OptionVariable_VersusDecimal `Quantity vs 1.5`
+        // is `<`, :220-251 QS_OptionMember_VersusDecimalConstant, :253-271 QS_OptionField_VersusDecimalField); `case D of
+        // O::X:` too (:273-305, 1.5 matches no member).
+        (V::Option(a, _), V::Decimal(b)) => Decimal::from(*a).cmp(b),
+        (V::Decimal(a), V::Option(b, _)) => a.cmp(&Decimal::from(*b)),
         // An Option column against an Enum value compares by ordinal (B_EnumOptionVariant.al:SetFilter_FlowField_And_Compare).
         (V::Option(a, _), V::Enum(_, b)) | (V::Enum(_, a), V::Option(b, _)) => a.cmp(b),
         // A Duration compares with a whole number of milliseconds (json/TestJsonComplete.al: `Dur > 0`).

@@ -1100,20 +1100,68 @@ fn option_caption_ml(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) 
 /// `1234.500`; pages/lt-page-presentation-properties/P119Table.al:P119_DecimalPlaces `1.500`).
 fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let len = int_arg(args, 1).unwrap_or(0) as i32;
-    let std = int_arg(args, 2).unwrap_or(0) as i32;
     let places = match args.get(3) {
         Some(Value::Text(t)) => crate::pagefmt::parse_decimal_places(t),
         _ => None,
     };
-    if let (Value::Decimal(d), Some(places), 0 | 1 | 9) = (&args[0], places, std) {
+    // An amount field without AutoFormatExpression rounds from BC 28 only; BC 27 writes every digit
+    // (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, `#else` side).
+    let gated = matches!(args.get(4), Some(Value::Boolean(true)));
+    let plain = |ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]| {
+        if matches!(args.get(2), Some(Value::Text(_) | Value::Code(_))) {
+            format_2(ctx, r, &mut args[..3])
+        } else {
+            let n = args.len().min(3);
+            format_1(ctx, r, &mut args[..n])
+        }
+    };
+    if gated && !ctx.format_gate(al_version::Gate::AutoFormatAmountFieldRoundsFrom28) {
+        return plain(ctx, r, args);
+    }
+    // A format string: one with a `<Precision,..>` code formats the value by itself, the field's places do not matter
+    // (AtPrecisionStandardFormat2.al:684-723, `P22S2` and `P2S2` of every field); `<Standard Format,2>` alone is format number 2
+    // with the field's places (`S2`: `1234.6` for the `<Precision,1:1>` field, `1234.57` for the amount from BC 28). Any other
+    // string is not pinned.
+    let std = match args.get(2) {
+        Some(Value::Text(t) | Value::Code(t)) => {
+            let t = t.as_str();
+            if t.contains("<Precision,") {
+                return plain(ctx, r, args);
+            }
+            if t != "<Standard Format,2>" {
+                return Err(Signal::Unsupported(format!(
+                    "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
+                )));
+            }
+            2
+        }
+        _ => int_arg(args, 2).unwrap_or(0) as i32,
+    };
+    if let (Value::Decimal(d), Some(places), 0 | 1 | 2 | 9) = (&args[0], places, std) {
+        // The amount field is pinned for formats 0, 2 and 9 on values of two decimals or more (AtPrecisionStandardFormat2.al:
+        // 663-723: 1234.5678, -0.005).
+        if gated && (std == 1 || d.normalize().scale() < 2) {
+            return Err(Signal::Unsupported(format!(
+                "Format of an amount field (AutoFormatType 1 without AutoFormatExpression) of {d} in format {std} (not pinned)"
+            )));
+        }
         let mut text = crate::pagefmt::decimal_text(d, places);
+        // A negative value that rounds to zero keeps its minus: -0.005 with `<Precision,1:1>` is `-0.0` in formats 0, 2 and 9
+        // (AtPrecisionStandardFormat2.al:684-723, `b default`, `b S2`, `b number 2`, `b number 9`); format 1 is not pinned.
+        if d.is_sign_negative() && !d.is_zero() && !text.starts_with('-') {
+            if std == 1 {
+                return Err(Signal::Unsupported(format!(
+                    "Format 1 of a Decimal field with places of {d}, a negative value that rounds to zero (not pinned)"
+                )));
+            }
+            text.insert(0, '-');
+        }
         if std != 0 {
             text.retain(|c| c != ',');
         }
         return Ok(Value::Text(crate::format::pad(text, len).into()));
     }
-    let n = args.len().min(3);
-    format_1(ctx, r, &mut args[..n])
+    plain(ctx, r, args)
 }
 
 /// `Format(Rec.Field[, Length, FormatNumber])` of a Decimal table field whose AutoFormatExpression is an expression: the

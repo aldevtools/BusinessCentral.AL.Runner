@@ -2777,24 +2777,31 @@ impl Session {
             .labels
             .extend(declared);
         for item in schema.report().items.iter() {
-            let Some(t) = item.table.and_then(|t| engine.tables.get(t)).and_then(|t| t.clone()) else {
-                continue;
-            };
             for c in item
                 .columns
                 .iter()
                 .filter(|c| c.include_caption && c.unsupported.is_none())
             {
-                let (Some(pos), Ok(name)) = (c.field, dataset::dataset_name(&c.name)) else {
+                let Some(t) = c
+                    .caption_table
+                    .and_then(|t| engine.tables.get(t))
+                    .and_then(|t| t.clone())
+                else {
+                    continue;
+                };
+                let (Some(pos), Ok(name)) = (c.caption_field, dataset::dataset_name(&c.name)) else {
                     continue;
                 };
                 let label = (format!("{name}Caption"), self.field_caption(&t, pos));
-                if has_declared {
-                    return unsupported(
-                        "a report with declared labels and a column with IncludeCaption (the order of the two kinds of label is not pinned)",
-                    );
-                }
                 let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
+                if has_declared {
+                    // Observable only in the written dataset (`Dataset::finish`).
+                    ds.labels_unpinned = Some(
+                        "a report with declared labels and a column with IncludeCaption (the order of the two kinds of label is not pinned)"
+                            .to_string(),
+                    );
+                    return Ok(());
+                }
                 if !ds.labels.contains(&label) {
                     ds.labels.push(label);
                 }
@@ -2864,21 +2871,25 @@ impl Session {
         rec: &Rec,
     ) -> Result<Column, Signal> {
         let name = dataset::dataset_name(&c.name)?;
-        if let Some(why) = &c.unsupported {
+        if let Some(why) = c.unsupported.as_ref().or(c.value_unsupported.as_ref()) {
             return unsupported(format!("report column {}: {why}", c.name));
         }
         let routine = c.routine.expect("a column without a routine is unsupported");
         let (value, _) = self.call(object, routine, owner.clone(), Vec::new())?;
         let t = self.engine.tables[table].clone();
         if c.include_caption {
-            // The caption of the field the column reads (the corpus label is the field's Caption).
-            let (Some(t), Some(pos)) = (&t, c.field) else {
+            // The caption of the field the column reads (the corpus label is the field's Caption), also of a field written
+            // with a data item's name (`IncludeCaption` sources: errors/lt-ms-refusals-138/P138ColCaptionQualified.al).
+            let caption_table = c
+                .caption_table
+                .and_then(|t| self.engine.tables.get(t).cloned().flatten());
+            let (Some(ct), Some(pos)) = (caption_table, c.caption_field) else {
                 return unsupported(format!(
                     "report column {}: IncludeCaption on a column that is not one field (not pinned)",
                     c.name
                 ));
             };
-            let label = (format!("{name}Caption"), self.field_caption(t, pos));
+            let label = (format!("{name}Caption"), self.field_caption(&ct, pos));
             let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
             if !ds.labels.contains(&label) {
                 ds.labels.push(label);
