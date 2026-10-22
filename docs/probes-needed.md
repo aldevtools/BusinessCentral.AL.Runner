@@ -291,7 +291,10 @@ bump.
     Profile Scheduler stop an install trigger. For each: the rows a fresh test tenant holds (count and key
     columns), and whether `Insert`, `Modify` and `Delete` are allowed from AL. A table that is empty and writable can
     then be registered as stored, like Scheduled Task.
-11. **Report Layout List, "Layout" (column 6)**, 2: a Media column; `HasValue` and the content size for a built-in layout. Asked in corpus #648.
+11. **Report Layout List, "Layout" (column 6)**, 2: a Media column. `HasValue` of a built-in layout is pinned as No
+    (report/PZReportLayoutMedia.al:51-53). Still wanted: what `Layout.ExportStream(OutStream)` answers for that row and what it
+    writes (Custom Report Layout.InitBuiltInLayout uses the answer to load the Word and RDLC layout; al-runner issue 5712). The
+    runtime refuses the export. Asked in corpus #648.
 
 **Read from the declaration, not pinned** (the provider fills these; the probe turns the line into a pin)
 
