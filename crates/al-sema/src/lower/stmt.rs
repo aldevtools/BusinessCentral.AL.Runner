@@ -1014,6 +1014,28 @@ impl Lowerer<'_> {
                 ret_used: false,
             }));
         }
+        // `Attr.Value := x` on an XmlAttribute is the call `Attr.Value(x)`: it changes the attribute inside its element, also
+        // after Add, to '' and with a namespace (xml/XmlAttributes.al:549, QZ_Attribute_ValueAssignment). Only the plain
+        // assignment on XmlAttribute is pinned; a compound assignment or another Xml type's Value stays refused.
+        if kids[0].kind() == SyntaxKind::MemberExpr
+            && matches!(kids[0].children().next().map(|b| self.ty_ref(&b)), Some(Ty::Builtin(t)) if t.as_ref() == "XmlAttribute")
+            && member_ident(&kids[0]).is_some_and(|m| m.eq_ignore_ascii_case("Value"))
+            && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
+        {
+            let recv = kids[0].children().next().ok_or("member base")?;
+            let receiver = match self.place(&recv) {
+                Ok(p) => ir::Arg::Ref(p),
+                Err(_) => ir::Arg::Value(self.expr(&recv)?),
+            };
+            let rhs = self.expr(&kids[1])?;
+            let rhs = self.convert_to(&Ty::Text(None), self.ty_ref(&kids[1]), rhs)?;
+            return Ok(ir::Stmt::Expr(ir::Expr::Builtin {
+                id: super::call::builtin_id("XmlAttribute.Value#1")?,
+                receiver: Some(Box::new(receiver)),
+                args: vec![ir::Arg::Value(rhs)],
+                ret_used: false,
+            }));
+        }
         // `Part.PAGE.Proc := value`: the checker picked the one-parameter procedure and recorded it on the target.
         if kids[0].kind() == SyntaxKind::MemberExpr
             && matches!(self.res(&kids[0]), Some(Res::Proc { .. }))

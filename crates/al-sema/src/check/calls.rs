@@ -274,6 +274,24 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // A bare `Init()` in a table that declares Init(A; B) is the built-in on Rec, `Init(5, 'inner')` the procedure; a
+        // procedure with the built-in's own signature hides it (record/lt-record-write/RcBInit.al:445, :475, fixtures
+        // QzInitOverload.al). Only Init is pinned.
+        if !c.is_empty()
+            && sc.rec_unqualified
+            && n.eq_ignore_ascii_case("init")
+            && self.ws.objects[sc.oi].kind == ObjKind::Table
+            && sc.self_obj == sc.oi
+            && let Some(rec @ Ty::Record { .. }) = sc.rec.clone()
+        {
+            let platform = self.catalog_cands("Record", n, true, &rec);
+            let arities: Vec<(usize, usize)> = c.iter().map(|p| (p.min, p.max)).collect();
+            c.extend(
+                platform
+                    .into_iter()
+                    .filter(|b| !arities.iter().any(|(lo, hi)| *lo <= b.max && b.min <= *hi)),
+            );
+        }
         if c.is_empty() && sc.rec_unqualified {
             if let Some(rec) = sc.rec.clone() {
                 if let Some(recv) = receiver_of(&rec) {
@@ -579,6 +597,16 @@ impl<'a> Checker<'a> {
         }
         if !base.is_empty() {
             return Some(E::Callable(base));
+        }
+        // A bare `Run()` / `Run(Rec)` in a codeunit's own code is `this.Run()`: the instance method on the running
+        // codeunit (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:170,194,215, fixtures QzBareRun.al). An own procedure
+        // or variable named Run resolved above.
+        if key == "run" && self.ws.objects[sc.oi].kind == ObjKind::Codeunit && sc.self_obj == sc.oi {
+            let me = Ty::Object(ObjKind::Codeunit, self.ws.objects[sc.oi].name.as_str().into());
+            let c = self.catalog_cands("Codeunit", "Run", true, &me);
+            if !c.is_empty() {
+                return Some(E::Callable(c));
+            }
         }
         let globals: Vec<Cand> = self.global_cands(&n);
         if !globals.is_empty() {

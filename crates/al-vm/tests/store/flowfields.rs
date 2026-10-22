@@ -1698,3 +1698,48 @@ codeunit 69952 C
 "#;
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "No01|Yes11");
 }
+
+/// A CalcFormula filter written as one quoted literal is read as the filter its content spells: `'<>'''''` is `<>''`,
+/// `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, and `*` stays a wildcard inside quotes
+/// (corpus calcfields/W4CalcFields.al:396 QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al).
+#[test]
+fn a_calc_formula_filter_quoted_whole_reads_its_content_as_the_filter() {
+    let src = r#"
+table 50120 "QL Line" { fields { field(1; LineNo; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; LineNo) { } } }
+table 50121 "QL Head"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; QuotedNotEmpty; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter('<>'''''))); }
+        field(3; QuotedEmpty; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter(''''''))); }
+        field(4; QuotedPipe; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter('''x|y'''))); }
+        field(5; PlainPipe; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter('x|y'))); }
+        field(6; QuotedStar; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter('''A*'''))); }
+        field(7; QuotedNotX; Integer) { FieldClass = FlowField; CalcFormula = count("QL Line" where(Name = filter('<>''x'''))); }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 50122 C
+{
+    procedure Counts(): Text
+    var
+        L: Record "QL Line";
+        H: Record "QL Head";
+        Names: List of [Text];
+        N: Text;
+    begin
+        L.DeleteAll();
+        Names.Add('x'); Names.Add(''); Names.Add('y'); Names.Add('x|y'); Names.Add('A*'); Names.Add('Ab');
+        foreach N in Names do begin
+            L.LineNo += 1;
+            L.Name := N;
+            L.Insert();
+        end;
+        H.CalcFields(QuotedNotEmpty, QuotedEmpty, QuotedPipe, PlainPipe, QuotedStar, QuotedNotX);
+        exit(Format(H.QuotedNotEmpty) + '|' + Format(H.QuotedEmpty) + '|' + Format(H.QuotedPipe) + '|' + Format(H.PlainPipe) + '|' + Format(H.QuotedStar) + '|' + Format(H.QuotedNotX));
+    end;
+}
+"#;
+    assert_eq!(text(al_testkit::run_in(src, "C", "Counts")), "5|1|1|2|2|5");
+}

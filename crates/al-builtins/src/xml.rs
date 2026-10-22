@@ -3934,8 +3934,8 @@ fn write_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRe
 
 /// `WriteTo([XmlWriteOptions,] OutStream)`: UTF-8 with a byte order mark, whatever the encoding of the
 /// stream, the declaration saying `utf-8`; `PreserveWhitespace(true)` writes the document unindented
-/// (xml/TestXmlDocumentWriteToOutStreamContracts.al). A document whose own declaration names another
-/// encoding or none is refused: nothing pins what is written then.
+/// (xml/TestXmlDocumentWriteToOutStreamContracts.al). A document without a `utf-8` declaration is written as
+/// [`outstream_declaration`] says; another shape is refused.
 fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     let (options, stream) = match a.len() {
@@ -3953,11 +3953,39 @@ fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     };
     let text = serialize_with(&h, indent)?;
     let is_doc = with(&h, |d| matches!(d, XData::Document { .. }));
-    if is_doc && !text.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"") {
-        return unsupported("WriteTo(OutStream) of a document that does not declare encoding utf-8 (not pinned)");
-    }
-    let mut bytes = vec![0xEF, 0xBB, 0xBF];
-    bytes.extend_from_slice(text.as_bytes());
+    let mut utf16 = false;
+    let text = if is_doc && !text.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"") {
+        match outstream_declaration(&h, options.is_some()) {
+            Some(OutDecl::AddUtf8) => text.replacen(
+                "<?xml version=\"1.0\" encoding=\"utf-16\"?>",
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+                1,
+            ),
+            Some(OutDecl::Keep) => text,
+            Some(OutDecl::Utf16) => {
+                utf16 = true;
+                text
+            }
+            None => {
+                return unsupported(
+                    "WriteTo(OutStream) of a document that does not declare encoding utf-8 (not pinned)",
+                );
+            }
+        }
+    } else {
+        text
+    };
+    let bytes = if utf16 {
+        let mut b = vec![0xFF, 0xFE];
+        for u in text.encode_utf16() {
+            b.extend_from_slice(&u.to_le_bytes());
+        }
+        b
+    } else {
+        let mut b = vec![0xEF, 0xBB, 0xBF];
+        b.extend_from_slice(text.as_bytes());
+        b
+    };
     // A text, CDATA, comment or processing instruction leaves the stream where it was, as JSON does: a second WriteTo writes over the
     // first one's bytes (xml/lt-xml-cdata-comment-pi-text/P90CDataRead.al:WriteTo_OutStream_TwiceIntoSameStream and its three siblings:
     // one copy, 16 bytes). Pinned for a stream nothing else was written to. A document and an element keep appending.
@@ -3967,6 +3995,47 @@ fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         crate::stream::write_raw_bytes(&mut a[stream], &bytes)?;
     }
     Ok(Value::Boolean(true))
+}
+
+/// What `WriteTo(OutStream)` does with the declaration of a document that does not say `utf-8`.
+enum OutDecl {
+    /// No declaration, or one without an encoding: the declaration says `utf-8`.
+    AddUtf8,
+    /// `encoding="UTF-8"`: kept as written.
+    Keep,
+    /// `encoding="utf-16"`: UTF-16 LE with its byte order mark.
+    Utf16,
+}
+
+/// The pinned shapes (xml/lt-xml-attr-doc-http-members/P97DocWrite.al:334 QZ_WriteTo_OutStream_ReadFromText): a document read
+/// by `ReadFrom` from text, one root element and nothing else, written without XmlWriteOptions, with no declaration, a
+/// `version="1.0"` declaration without encoding, `encoding="utf-16"` or `encoding="UTF-8"`. Anything else is not pinned.
+fn outstream_declaration(h: &Handle, with_options: bool) -> Option<OutDecl> {
+    let kids = children_of(h);
+    if with_options || kids.len() != 1 || !with(&kids[0], |d| matches!(d, XData::Element { .. })) {
+        return None;
+    }
+    let decl = with(h, |d| match d {
+        XData::Document { decl, .. } => decl.clone(),
+        _ => None,
+    });
+    let Some(decl) = decl else {
+        return Some(OutDecl::AddUtf8);
+    };
+    with(&decl, |d| match d {
+        XData::Declaration {
+            version,
+            encoding,
+            standalone,
+            explicit: false,
+        } if version == "1.0" && standalone.is_empty() => match encoding.as_str() {
+            "" => Some(OutDecl::AddUtf8),
+            "UTF-8" => Some(OutDecl::Keep),
+            "utf-16" => Some(OutDecl::Utf16),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// `XmlWriteOptions.PreserveWhitespace(Value)` (xml/TestXmlDocumentWriteToOutStreamContracts.al).
@@ -3996,6 +4065,11 @@ fn name_table(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResul
 fn set_attribute(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     let (name, value) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    // `SetAttribute('xmlns:q', ..)` raises the XML name error at the colon and adds nothing
+    // (xml/XmlAttributes.al:497-507 Attribute_Xmlns_Handling `af404`, `set_xmlns_q`). Other prefixed names are not pinned.
+    if name.strip_prefix("xmlns:").is_some_and(is_ncname) {
+        verify_ncname(&name)?;
+    }
     check_name(&name)?;
     let existing = attrs_of(&h).into_iter().find(|x| {
         with(
@@ -4186,6 +4260,32 @@ fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     match found {
         Some(at) => {
             a[1] = tagged("XmlAttribute", at);
+            Ok(Value::Boolean(true))
+        }
+        None if c.ret_used() => Ok(Value::Boolean(false)),
+        None => unsupported("XmlAttributeCollection.Get of a missing name, result unused (error text not pinned yet)"),
+    }
+}
+
+/// `Get(LocalName, NamespaceUri, var Attr)` finds the attribute by its local name and namespace: a prefixed attribute read
+/// from text (xml/XmlAttributes.al:245 `get_p_a`), one set with a namespace (:218 `get_ns`, :577), not one in another
+/// namespace (:221 `get_wrong_ns`), and an unprefixed attribute is not in the default namespace (:496
+/// `get_a_default_ns`). An empty namespace URI or a qualified name is not pinned.
+fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let owner = owner_of(r)?;
+    let (name, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    if uri.is_empty() || name.contains(':') {
+        return unsupported("XmlAttributeCollection.Get with an empty namespace URI or a qualified name (not pinned)");
+    }
+    let found = attrs_of(&owner).into_iter().find(|x| {
+        with(
+            x,
+            |d| matches!(d, XData::Attribute { local, ns, .. } if *local == name && *ns == uri),
+        )
+    });
+    match found {
+        Some(at) => {
+            a[2] = tagged("XmlAttribute", at);
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
@@ -4517,6 +4617,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("XmlAttributeCollection", "RemoveAll", []) => attrs_remove_all,
         ("XmlAttributeCollection", "Get", ["Integer", "XmlAttribute"]) => attrs_get_index,
         ("XmlAttributeCollection", "Get", ["Text", "XmlAttribute"]) => attrs_get_name,
+        ("XmlAttributeCollection", "Get", ["Text", "Text", "XmlAttribute"]) => attrs_get_name_ns,
         ("XmlNodeList", "Count", []) => list_count,
         ("XmlNodeList", "Get", ["Integer", "XmlNode"]) => list_get,
         _ => return None,
