@@ -97,8 +97,10 @@ impl Region {
     /// (YReportPropsTests.al:34-148), day 05 in de-DE, fr-FR and da-DK `Format` (PnH4CurrReport.al:241-249).
     fn date(self, y: i32, m: u32, d: u32, column: bool) -> Option<String> {
         // Day 05 in a zz-ZZ dataset column: BdRegionTests.al:213,220 `03/05/2024`.
-        let day_padding_pinned =
-            (!column && matches!(self, Region::DeDE | Region::FrFR | Region::DaDK)) || (column && self == Region::ZzZZ);
+        // Day 05 in a de-DE dataset column: report/W3ReportObjectIdPreviewLanguage.al:912 `05.03.2024` (writer RB),
+        // BdRegionTests.al:131 `05.03.2024`.
+        let day_padding_pinned = (!column && matches!(self, Region::DeDE | Region::FrFR | Region::DaDK))
+            || (column && matches!(self, Region::ZzZZ | Region::DeDE));
         if d < 10 && !day_padding_pinned {
             return None;
         }
@@ -198,6 +200,12 @@ fn format_in_region(
                 format!("{} {h:02}:{mi:02}", r.date(y, m, d, false).ok_or_else(refuse)?)
             }
         },
+        // A Time in de-DE: 24 hours, two digits each (report/W3ReportObjectIdPreviewLanguage.al:912 `09:30:05`, BdRegionTests.al:131
+        // `14:30:15#09:05:07`). Milliseconds are not measured.
+        Value::Time(t) if *t != 0 && standard == 0 && r == Region::DeDE && (t - 1) % 1000 == 0 => {
+            let ms = t - 1;
+            format!("{:02}:{:02}:{:02}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60)
+        }
         // de-DE and da-DK swap the separators (`1.234,5`), fr-FR groups with U+202F; a negative amount is measured nowhere
         // (the de-DE rule predates this guard and keeps its sign).
         Value::Decimal(_) if standard == 0 => {
@@ -279,13 +287,25 @@ pub fn region_column(r: Region, v: &Value) -> Option<String> {
             let ms = t - 1;
             let of_day = ms.rem_euclid(86_400_000);
             let (h, mi, s) = (of_day / 3_600_000, of_day / 60_000 % 60, of_day / 1000 % 60);
-            if h < 10 || of_day % 1000 != 0 {
+            // An hour before 10 in de-DE: `05.03.2024 09:30:05` (W3ReportObjectIdPreviewLanguage.al:912, BdRegionTests.al:131).
+            if (h < 10 && r != Region::DeDE) || of_day % 1000 != 0 {
                 return None;
             }
             let (y, m, d) = civil_from_day(ms.div_euclid(86_400_000) as i32 + 1);
             Some(format!("{} {h:02}:{mi:02}:{s:02}", r.date(y, m, d, true)?))
         }
-        Value::Decimal(d) if !d.is_sign_negative() => {
+        // A Time column in de-DE: `09:30:05` (W3ReportObjectIdPreviewLanguage.al:912), `14:30:15` (BdRegionTests.al:131).
+        Value::Time(t) if r == Region::DeDE && *t != 0 && (t - 1) % 1000 == 0 => {
+            let ms = t - 1;
+            Some(format!(
+                "{:02}:{:02}:{:02}",
+                ms / 3_600_000,
+                ms / 60_000 % 60,
+                ms / 1000 % 60
+            ))
+        }
+        // A negative decimal in de-DE: `-1234567,891` (W3ReportObjectIdPreviewLanguage.al:912), `-1234,5` (BdRegionTests.al:131).
+        Value::Decimal(d) if !d.is_sign_negative() || r == Region::DeDE => {
             // The decimal separator does not depend on the version.
             let (_, decimal) = r.separators(false);
             Some(d.to_string().replace('.', &decimal.to_string()))

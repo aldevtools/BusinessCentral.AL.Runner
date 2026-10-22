@@ -200,10 +200,10 @@ impl Header {
     /// Elements: handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Xml_WritesAByteOrderMarkDeclarationAndHeader;
     /// `BCReportInformation/ReportMetadata/...` for the report's own: handlers/TestReportDatasetHelpLink.al.
     /// `ReportRequest` and, from BC 29, `CompanyMetadata` follow `ReportMetadata` under `BCReportInformation`.
-    fn write(&self, out: &mut String) -> Result<(), Signal> {
+    fn write(&self, out: &mut String, language: &str, region: &str) -> Result<(), Signal> {
         out.push_str("<?xml version=\"1.0\" standalone=\"yes\"?>\r\n");
         out.push_str(&format!(
-            "<ReportDataSet name=\"{}\" id=\"{}\" language=\"{LANGUAGE}\" formatRegion=\"{LANGUAGE}\">\r\n",
+            "<ReportDataSet name=\"{}\" id=\"{}\" language=\"{language}\" formatRegion=\"{region}\">\r\n",
             escape_as(&self.report_name, true)?,
             escape_as(&self.report_id, true)?
         ));
@@ -240,8 +240,8 @@ impl Header {
             "DateAndTime",
             &format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:00"),
         )?;
-        element(out, 6, "Language", LANGUAGE)?;
-        element(out, 6, "FormatRegion", LANGUAGE)?;
+        element(out, 6, "Language", language)?;
+        element(out, 6, "FormatRegion", region)?;
         // The clock parts sit in `DateTimeValues`, two spaces further in, and `ReportRequest` closes after it
         // (misc/lt-probes-needed-2/PnBReportSaveAs.al:542-549, report/W3ReportDataset.al:524-534 on BC 29; on BC 27 and
         // 28 report/W3ReportDataset.al:256 counts 46 line ends, the two lines of this element more than a flat list).
@@ -367,6 +367,9 @@ pub(crate) struct Dataset {
     /// The report's `FormatRegion` property: the `formatRegion` of the top data items and the culture of the columns
     /// (report/lt-y-report-props/YReportPropsTests.al:34-148). `None`: the session's en-US.
     pub region: Option<(String, al_builtins::format::Region)>,
+    /// The culture name of the run's language when it is not the session's en-US (`de-DE` for 1031: report/
+    /// W3ReportObjectIdPreviewLanguage.al:870, :893), written in the header and on the top data items.
+    pub language: Option<String>,
     /// An element written, whatever its kind.
     pub rows: usize,
     /// The `Labels` block: (column name + `Caption`, text), in the order the columns come.
@@ -374,6 +377,8 @@ pub(crate) struct Dataset {
     /// Why the Labels block cannot be written (its order is not pinned). Refused when the dataset is written, not when the run
     /// starts: a run that errors before it writes the dataset raises its own error.
     pub labels_unpinned: Option<String>,
+    /// Why the dataset cannot be written in the language a trigger set (`reports.rs` `saveas_language_set`).
+    pub culture_unpinned: Option<String>,
     /// The rows of the top-level data items for a .NET DataSet: (name, schema type) of the columns
     /// of the first row, and the texts of every row.
     flat: Vec<Vec<(String, Option<&'static str>, String)>>,
@@ -463,8 +468,9 @@ impl Dataset {
         self.body.push_str("<DataItem");
         if depth == 0 {
             let region = self.region.as_ref().map_or(LANGUAGE, |(r, _)| r.as_str());
+            let language = self.language.as_deref().unwrap_or(LANGUAGE);
             self.body
-                .push_str(&format!(" language=\"{LANGUAGE}\" formatRegion=\"{region}\""));
+                .push_str(&format!(" language=\"{language}\" formatRegion=\"{region}\""));
         }
         self.body.push_str(&format!(" name=\"{name}\""));
         // From BC 28 (`Gate::ReportSaveAsDataItemIdentity`): the data item's table id and a GUID.
@@ -574,11 +580,17 @@ impl Dataset {
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
     pub(crate) fn finish(self, header: &Header) -> Result<Vec<u8>, Signal> {
         debug_assert!(self.open.is_empty());
-        if let Some(why) = self.labels_unpinned {
+        if let Some(why) = self.labels_unpinned.or(self.culture_unpinned) {
             return Err(Signal::Unsupported(why));
         }
         let mut out = String::new();
-        header.write(&mut out)?;
+        // The header names the run's language and region as the data items do (report/lt-bd-format-region/BdRegionTests.al:809,
+        // :928 for a trigger's setter; the property's region never gets here, `dataset_header`).
+        header.write(
+            &mut out,
+            self.language.as_deref().unwrap_or(LANGUAGE),
+            self.region.as_ref().map_or(LANGUAGE, |(r, _)| r.as_str()),
+        )?;
         // handlers/TestReportSaveAsColumnTypesContracts.al:222-229: between the information block and
         // the data items.
         if !self.labels.is_empty() {

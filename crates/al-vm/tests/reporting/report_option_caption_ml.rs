@@ -28,14 +28,16 @@ fn option_columns_show_the_captions_of_the_session_language() {
     );
 }
 
-/// The columns of a German or French session are pinned (XTablePropsTests.al:783-784), the rest of that dataset (its header
-/// names the session's language) is not: SaveAs refuses those sessions.
+/// A German session's SaveAs runs (report/W3ReportObjectIdPreviewLanguage.al:870) with the DEU captions
+/// (XTablePropsTests.al:783); a French session's SaveAs is not pinned and refused.
 #[test]
-fn save_as_in_another_session_language_is_refused() {
-    for lang in [1031, 1036] {
-        match columns(lang) {
-            Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("session language"), "{why}"),
-            other => panic!("expected a refusal, got {other:?}"),
-        }
+fn save_as_in_a_german_session_shows_deu_and_a_french_one_is_refused() {
+    assert_eq!(
+        text(columns(1031)),
+        "[<Column name=\"Plain\">Zwei</Column>][<Column name=\"WithCaptionML\">Spalte zwei</Column>][<Column name=\"EnuOnly\">Only B</Column>]"
+    );
+    match columns(1036) {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("session language"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
     }
 }
