@@ -1451,6 +1451,19 @@ impl Session {
                 fresh[k] = r.fields[k].clone();
             }
         }
+        if !first_of_node && n.link_node.is_some() {
+            // A later row under the same parent keeps a link field of its primary key, as Init keeps the key (assumption
+            // xmlport-later-child-keeps-key-link; a link field outside the key is 0 there, pinned by
+            // xmlport/TestXmlPortTriggersReplaceViewContracts.al:414).
+            let t = self.table(&rec)?;
+            let r = rec.borrow();
+            for &(own, _) in &n.link_fields {
+                if t.keys[0].contains(&own) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLaterChildKeepsKeyLink);
+                    fresh[own] = r.fields[own].clone();
+                }
+            }
+        }
         rec.borrow_mut().fields = fresh;
         let mut assigned: Vec<usize> = Vec::new();
         // Nested table elements take their link fields from the record above
