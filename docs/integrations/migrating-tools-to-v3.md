@@ -123,7 +123,8 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
 | `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
-| `compilationErrors`, `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | v3 has no compile stage: what it cannot compile becomes `notRun` rows. A tool that treats "compile failed" as exit 3 must treat all-rows-`notRun` instead (see LethAL, below). |
+| `compilationErrors` | present when non-empty | present on exit 3: no rows, every count 0, `[{file, errors[]}]` as in v2 | Exit 3 covers the AL compiler errors the must-not-compile corpus pins. Other code AL Runner cannot compile becomes `notRun` rows: treat all-rows-`notRun` as "not scorable" too (see LethAL, below). |
+| `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | none |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
 | `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`, and for declarations `"<Table>: field \"<Name>\": <Type>"`, `"<Enum>: value \"<Name>\""` and `"<kind> \"<Name>\" (id N)"`. `status` is the test's own outcome; a stubbed pass is `pass`. |
 | `stubbed`, `generatedStubs` (summary) | absent | with `--tdd` only: `stubbed: {"passed", "failed", "error"}` counts the stubbed tests per outcome, `generatedStubs` lists every stub of the program | New. The exit code follows the outcomes, as in v2: a stubbed pass counts as a pass. |
@@ -205,8 +206,8 @@ Differences a client must adapt to:
    `NotRun: out-of-scope: <reason>`; see section 4). `errorKind`, `alSourceFile`, `alSourceLine` are not sent.
 4. The `summary` has `exitCode` (the exit code of `al-runner test`, section 5), `passed`, `failed`, `errors` (= not run),
    `notRun`, `total`, `cached`, `incremental` when only some objects were compiled again, `protocolVersion`, `wallSeconds`,
-   `warnings` when there are some, `cancelled` when cancelled, and `coverage` / `perTestCoverage` when asked for (section 4a shapes). `compilationErrors`,
-   `changedFiles`, `selection`, `companyInitFailures`, `sourceScanFailures` are not sent.
+   `warnings` when there are some, `cancelled` when cancelled, and `coverage` / `perTestCoverage` when asked for (section 4a shapes). `selection` with `affectedOnly`,
+   and `compilationErrors` when the apps do not compile (exit 3). `changedFiles`, `companyInitFailures`, `sourceScanFailures` are not sent.
 5. A request that cannot run answers one `{"error": "<reason>"}` line instead of a summary with exit code 2 or 3:
    for example `{"error":"/x: no such file or folder"}`, ``{"error":"unknown field `cobertura` for runTests"}``,
    ``{"error":"`sourcePaths` needs at least one app folder"}``. A `test` or `excludeTests` that matches no test is not
@@ -222,7 +223,7 @@ Differences a client must adapt to:
 | 0 | all passed | all selected tests passed |
 | 1 | a test failed or errored | a test failed |
 | 2 | bundle could not execute, bad flag | bad invocation or the run could not start |
-| 3 | bundle could not compile, or suite error | **never**. v3 has no compile stage. |
+| 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the must-not-compile corpus pins; no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
 | 6 | `--test` matched nothing | the selection matched nothing |
 | 7 | (none) | some tests were not run. `--allow-not-run` makes it 0. |
 | 8 | (none) | tests were not run because the .NET helper could not be used (a problem of the machine). |
@@ -266,12 +267,12 @@ Changes in LethAL:
 2. **Version check** (`al-runner-backend.ts:165, 1092-1115`; `al-runner-contract.ts:439-452`): replace
    `/\bv2\.\d/` with a check that stdout starts with `al-runner ` and carries `\d+\.\d+\.\d+`.
 3. **Exit codes** (`al-runner-transport.ts:576-625, 821-845`): read the rows on exit 7 and 8 as on 1.
-   Exit 3 never happens.
+   Exit 3 means the APPs do not compile, as in v2.
 4. **Not-run rows** (`al-runner-backend.ts:97`): keep recognizing `<Type>: out-of-scope: ...`; the v3 message is
    `NotRun: out-of-scope: <reason>`. Also read `notRun: true`. A row with `notRun` is "runner refused", never "killed".
 5. **Timeouts** (`al-runner-backend.ts:79-93`): unchanged sentence. The limit is CPU time in v3.
-6. **Compile failure** (`al-runner-contract.ts` fact `compile-failure-not-scorable`): v3 has no compile
-   exit code. A mutant that does not compile gives rows with `notRun: true`. Score that as "not scorable".
+6. **Compile failure** (`al-runner-contract.ts` fact `compile-failure-not-scorable`): a mutant that the AL compiler
+   rejects gives exit 3 when the must-not-compile corpus pins the error, else rows with `notRun: true`. Score both as "not scorable".
 7. **Assertion screen** (`assertion-screen.ts:36-44, 78-90`): do not depend on `NavNCLDialogException: ` or
    `InvalidOperationException: out-of-scope:`. Messages are the BC text.
 8. **Stderr** (`al-runner-transport.ts:106-210`): see section 7.
