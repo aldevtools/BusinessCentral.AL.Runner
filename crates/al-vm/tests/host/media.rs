@@ -276,6 +276,7 @@ fn import_file(body: &str) -> Result<String, Signal> {
     files.write("\\TEMP\\b.png", &png()).unwrap();
     files.write("\\TEMP\\c.png", &jpeg()).unwrap();
     files.write("\\TEMP\\d.gif", &png()).unwrap();
+    files.write("\\TEMP\\E.PNG", &png()).unwrap();
     let mut s = Session::with_host(al_testkit::engine(&l), al_host::Host::default().with_files(files));
     let inst = s.instance(oi);
     match s.call(oi, ri, inst, vec![])?.0 {
@@ -315,7 +316,7 @@ fn import_file_of_other_content_or_a_media_set_stays_refused() {
     for body in [
         "begin Rec.Picture.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
         "begin Rec.Picture.ImportFile('\\TEMP\\d.gif', 'x'); exit(''); end;",
-        "begin Rec.Images.ImportFile('\\TEMP\\b.png', 'x'); exit(''); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
     ] {
         let r = import_file(body);
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
@@ -335,11 +336,30 @@ fn media_set_import_file_of_a_jpeg_fills_the_set() {
     assert_eq!(r.unwrap(), "1|Item picture|image/jpeg|3x2");
 }
 
+// onprem media/MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng: both ImportFile calls return the set's
+// id (MediaId, not an item's), a second file joins the set as Item(2) and a `.PNG` file holding a PNG is image/png with its
+// size; Count 2 and the order stay after Modify and Get.
 #[test]
-fn media_set_import_file_return_value_and_file_name_are_refused() {
+fn media_set_import_file_returns_the_set_id_and_a_png_joins_as_the_second_item() {
+    use al_builtins::assumptions::take_hits;
+    take_hits();
+    let r = import_file(
+        "id2: Guid; begin id := Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg item'); Rec.Code := 'A'; Rec.Insert(); \
+         id2 := Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png item'); Rec.Modify(); Rec.Get('A'); \
+         T.Get(Rec.Images.Item(2)); exit(Format(id = id2) + '|' + Format(id = Rec.Images.MediaId()) + '|' + \
+         Format(id = Rec.Images.Item(1)) + '|' + Format(Rec.Images.Count()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + \
+         Format(T.Width) + 'x' + Format(T.Height)); end;",
+    );
+    assert_eq!(r.unwrap(), "Yes|Yes|No|2|png item|image/png|4x5");
+    assert!(take_hits().is_empty());
+}
+
+#[test]
+fn media_set_import_file_file_name_and_a_third_member_are_refused() {
     for body in [
-        "begin id := Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); exit(Format(id)); end;",
         "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); T.Get(Rec.Images.Item(1)); exit(T.\"File Name\"); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); Rec.Images.ImportFile('\\TEMP\\E.PNG', 'y'); \
+         Rec.Images.ImportFile('\\TEMP\\a.jpg', 'z'); exit(''); end;",
     ] {
         let r = import_file(body);
         assert!(

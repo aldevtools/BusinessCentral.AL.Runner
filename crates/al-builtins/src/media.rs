@@ -420,35 +420,48 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Guid(id))
 }
 
-/// `MediaSet.ImportFile(FileName, Description)` into an empty set: a `.jpg` file holding a JPEG gives the set one member
-/// whose Tenant Media row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
-/// QX_MediaAndMediaSet_ImportFile_Jpeg, 'mediaset count', 'mediaset item 1 tenant', 'mediaset count after get'). What it
-/// returns and the File Name of the member's row are not pinned (Windows and Linux BC write different names,
-/// windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): both are unknown, so a read of either is
-/// refused. Any other file, and a set that already has members, is refused.
+/// `MediaSet.ImportFile(FileName, Description)`: a `.jpg` file holding a JPEG gives an empty set one member whose Tenant Media
+/// row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
+/// QX_MediaAndMediaSet_ImportFile_Jpeg). A `.PNG` file holding a PNG gives `image/png` and its size, a second file joins a
+/// set of one member as Item(2), and the call returns the set's id, which MediaId answers and no item has; the id stays
+/// when a member joins (MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng). A lower-case `.png` is
+/// answered alike under the assumption `media-importfile-png`. The File Name of the member's row is not pinned (Windows
+/// and Linux BC write different names, windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): a read
+/// of it is refused. Any other file, and a set of two or more members, is refused.
 fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if id_of(&r)? != [0; 16] {
-        return unsupported("MediaSet.ImportFile into a set that already has members (not pinned)");
+    let set = id_of(&r)?;
+    let held = if set == [0; 16] {
+        0
+    } else {
+        store(c)?.sets.borrow().get(&set).map_or(0, Vec::len)
+    };
+    if held > 1 {
+        return unsupported("MediaSet.ImportFile into a set that already has two or more members (not pinned)");
     }
     let (name, bytes) = import_file_bytes(c, a)?;
-    let ext = name
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default();
-    let (Some((width, height)), "jpg") = (jpeg_size(&bytes), ext.as_str()) else {
-        return unsupported(format!(
-            "MediaSet.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
-        ));
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
+    let (mime, (width, height)) = match (ext, jpeg_size(&bytes), png_size(&bytes)) {
+        (e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
+        ("PNG", _, Some(size)) => ("image/png", size),
+        (e, _, Some(size)) if e.eq_ignore_ascii_case("png") => {
+            crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
+            ("image/png", size)
+        }
+        _ => {
+            return unsupported(format!(
+                "MediaSet.ImportFile of `{name}`: only a .jpg file holding a JPEG or a .PNG file holding a PNG is pinned (what BC makes of other content or extensions is not)"
+            ));
+        }
     };
     let description = text_arg(a, 1)?;
     let member = c.new_guid();
-    let set = c.new_guid();
+    let set = if held == 0 { c.new_guid() } else { set };
     let media = store(c)?;
     media.objects.borrow_mut().insert(
         member,
         MediaObject {
             bytes,
-            mime: "image/jpeg".into(),
+            mime: mime.into(),
             description,
             file_name: String::new(),
             file_column: Some(FileColumn::Unpinned),
@@ -457,13 +470,11 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             pending: None,
         },
     );
-    media.sets.borrow_mut().insert(set, vec![member]);
+    media.sets.borrow_mut().entry(set).or_default().push(member);
     if let Some(slot) = r {
         *slot = Value::Guid(set);
     }
-    Ok(Value::Unknown(
-        "the return value of MediaSet.ImportFile is not pinned (onprem media/MediaFiles.al does not read it)".into(),
-    ))
+    Ok(Value::Guid(set))
 }
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[
