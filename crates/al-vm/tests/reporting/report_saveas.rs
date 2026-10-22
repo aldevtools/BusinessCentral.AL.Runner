@@ -464,6 +464,24 @@ report 68398 "Probe Caption Sources"
     }
 }
 
+// Declared labels and an IncludeCaption column: the order of the two kinds of label is not pinned (report/PZReportLabels.al).
+report 68397 "Probe Labels Both"
+{
+    ProcessingOnly = false;
+
+    dataset
+    {
+        dataitem(P; "Probe Rep Parent")
+        {
+            column(IdCol; Id) { IncludeCaption = true; }
+            trigger OnPreDataItem() begin if FailEarly then Error('stopped before any row'); end;
+        }
+    }
+    labels { Declared = 'Declared label'; }
+    var FailEarly: Boolean;
+    procedure SetFailEarly(NewFailEarly: Boolean) begin FailEarly := NewFailEarly; end;
+}
+
 // Skip leaves a row out of the dataset.
 report 68316 "Probe Skip Report"
 {
@@ -1364,4 +1382,22 @@ fn include_caption_of_a_field_written_with_a_data_item_name() {
         text.contains("<Labels>|    <Label name=\"IdOwnCaption\">Id</Label>|    <Label name=\"FromChildCaption\">Code</Label>|    <Label name=\"FromParentCaption\">Name</Label>|    <Label name=\"FromSiblingCaption\">Amt</Label>|  </Labels>"),
         "{text}"
     );
+}
+
+// The order of declared and IncludeCaption labels is only observable in a written dataset: a run that errors before it writes
+// anything raises its own error (report/PZReportLabels.al pins the declared labels alone; the mixed order is not pinned).
+#[test]
+fn declared_labels_with_an_include_caption_column_are_refused_only_when_the_dataset_is_written() {
+    let body = |fail: bool| {
+        format!(
+            "var R: Report \"Probe Labels Both\"; Buf: Record \"Probe Rep Parent\"; OutStr: OutStream; begin
+                Buf.Data.CreateOutStream(OutStr); R.SetFailEarly({fail});
+                R.SaveAs('', ReportFormat::Xml, OutStr); exit('saved'); end;"
+        )
+    };
+    match run(&body(true)) {
+        Err(Signal::Error(e)) => assert_eq!(e.message.to_string(), "stopped before any row"),
+        other => panic!("expected the trigger's error, got {other:?}"),
+    }
+    assert!(refusal(&body(false)).contains("the order of the two kinds of label is not pinned"));
 }

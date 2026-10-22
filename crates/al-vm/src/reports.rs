@@ -2793,12 +2793,15 @@ impl Session {
                     continue;
                 };
                 let label = (format!("{name}Caption"), self.field_caption(&t, pos));
-                if has_declared {
-                    return unsupported(
-                        "a report with declared labels and a column with IncludeCaption (the order of the two kinds of label is not pinned)",
-                    );
-                }
                 let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
+                if has_declared {
+                    // Observable only in the written dataset (`Dataset::finish`).
+                    ds.labels_unpinned = Some(
+                        "a report with declared labels and a column with IncludeCaption (the order of the two kinds of label is not pinned)"
+                            .to_string(),
+                    );
+                    return Ok(());
+                }
                 if !ds.labels.contains(&label) {
                     ds.labels.push(label);
                 }

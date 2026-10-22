@@ -377,6 +377,9 @@ pub(crate) struct Dataset {
     pub rows: usize,
     /// The `Labels` block: (column name + `Caption`, text), in the order the columns come.
     pub labels: Vec<(String, String)>,
+    /// Why the Labels block cannot be written (its order is not pinned). Refused when the dataset is written, not when the run
+    /// starts: a run that errors before it writes the dataset raises its own error.
+    pub labels_unpinned: Option<String>,
     /// The rows of the top-level data items for a .NET DataSet: (name, schema type) of the columns
     /// of the first row, and the texts of every row.
     flat: Vec<Vec<(String, Option<&'static str>, String)>>,
@@ -577,6 +580,9 @@ impl Dataset {
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
     pub(crate) fn finish(self, header: &Header) -> Result<Vec<u8>, Signal> {
         debug_assert!(self.open.is_empty());
+        if let Some(why) = self.labels_unpinned {
+            return Err(Signal::Unsupported(why));
+        }
         let mut out = String::new();
         header.write(&mut out)?;
         // handlers/TestReportSaveAsColumnTypesContracts.al:222-229: between the information block and
