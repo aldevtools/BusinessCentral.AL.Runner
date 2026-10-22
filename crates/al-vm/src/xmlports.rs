@@ -1075,7 +1075,7 @@ impl Session {
             self.xp_value(text, &ty, false)?
         };
         rec.borrow_mut().fields[pos] = value.clone();
-        self.xp_validate_field(schema, node, &rec, pos, value)?;
+        self.xp_validate_field(schema, node, &rec, pos, value, text.is_empty())?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
     }
@@ -1086,8 +1086,9 @@ impl Session {
     /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
-    /// format, a field attribute that does not say FieldValidate (or under DefaultFieldsValidation = false), and a validated element with an OnAfterAssignField trigger (which runs first is not
-    /// pinned).
+    /// format, a blank field attribute into a field without a TableRelation, and a validated element with an
+    /// OnAfterAssignField trigger (which runs first is not pinned). A field attribute follows the same rule as an element,
+    /// except that a blank one is not validated.
     fn xp_validate_field(
         &mut self,
         schema: &Schema,
@@ -1095,6 +1096,7 @@ impl Session {
         rec: &Rec,
         pos: usize,
         value: Value,
+        blank: bool,
     ) -> Result<(), Signal> {
         let n = schema.node(node);
         let t = self.table(rec)?;
@@ -1133,20 +1135,30 @@ impl Session {
                 n.name, t.name, field.name
             ));
         }
-        // A field attribute that says FieldValidate = Yes is validated, one that says No is not, on a port that leaves
-        // DefaultFieldsValidation as it is (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119, :149-151: xRec
-        // already holds the new value, as for a field element). Without FieldValidate, or with DefaultFieldsValidation =
-        // false, it is not pinned.
-        let pinned_attr =
-            n.kind == al_ir::XmlNodeKind::FieldAttr && n.field_validate.is_some() && !xp.no_default_fields_validation;
-        if n.kind != al_ir::XmlNodeKind::Field && !pinned_attr {
+        // A field attribute is validated as a field element is: FieldValidate = Yes always, No never, left out when
+        // DefaultFieldsValidation is true or left out (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119;
+        // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:625, :657, :689, :721: OnValidate runs with
+        // xRec already holding the new value, a value the related table lacks fails the import).
+        if !matches!(n.kind, al_ir::XmlNodeKind::Field | al_ir::XmlNodeKind::FieldAttr) {
             return unsupported(format!(
-                "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
+                "XmlPort import of {} into {}.{}, which has validation code: whether it is validated is not pinned",
                 n.name, t.name, field.name
             ));
         }
         if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {
             return Ok(());
+        }
+        // A blank field attribute is not validated, even with FieldValidate = Yes, where a blank field element is
+        // (BjXmlPortDefaultValidation.al:625 'AttrDef blank'/'AttrYes blank' against :641 'ElDef blank'). Pinned for a field
+        // with a TableRelation only.
+        if n.kind == al_ir::XmlNodeKind::FieldAttr && blank {
+            if field.relation {
+                return Ok(());
+            }
+            return unsupported(format!(
+                "XmlPort import of a blank field attribute {} into {}.{}, which has validation code and no TableRelation: whether it is validated is not pinned",
+                n.name, t.name, field.name
+            ));
         }
         if n.trigger("onafterassignfield").is_some() {
             return unsupported(format!(
