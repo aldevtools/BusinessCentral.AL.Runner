@@ -30,7 +30,7 @@ curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/down
 & ([scriptblock]::Create((irm https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.ps1))) -Version edge
 ```
 
-Replace `edge` with `latest-alpha`, or with a tag such as `v3.0.0-alpha.3`, for a
+Replace `edge` with `latest-alpha`, or with a tag such as `v3.0.0-alpha.4`, for a
 numbered alpha. You can also download an archive from the releases page and check
 it against `SHA256SUMS`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.

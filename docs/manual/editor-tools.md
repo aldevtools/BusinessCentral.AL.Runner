@@ -73,7 +73,6 @@ did not run, so a tool can tell "refused" from "failed".
 
 ## Not available in version 3
 
-Watch mode and the debugger (DAP) are not in `3.0.0-alpha.3`. A debug adapter is
-planned for 3.0.0, and `--affected` test selection is planned as a command line option
-and a `serve` field. Watch mode was rejected for 3.0.0, because `serve` already keeps
-the compile warm.
+Watch mode is not part of AL Runner 3: it was rejected for 3.0.0, because `serve` already
+keeps the compile warm. The debugger is `al-runner debug` (see [debugging](../debugging.md)),
+and `--affected` test selection is a command line option and a `serve` field.

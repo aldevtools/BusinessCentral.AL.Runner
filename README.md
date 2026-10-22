@@ -90,7 +90,7 @@ Windows (PowerShell):
 & ([scriptblock]::Create((irm https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.ps1))) -Version edge
 ```
 
-Replace `edge` with `latest-alpha` or a tag such as `v3.0.0-alpha.3` for a numbered alpha.
+Replace `edge` with `latest-alpha` or a tag such as `v3.0.0-alpha.4` for a numbered alpha.
 The binary goes to `~/.local/bin` (Linux, macOS) or `%LOCALAPPDATA%\alrunner\bin` (Windows).
 Add that folder to your `PATH` if the script says so. More about builds and about the
 unsigned binaries is in "Try the alpha" below.
@@ -246,7 +246,7 @@ jobs:
 ```
 
 `--allow-not-run` keeps refused tests from failing the job while the runtime is an alpha. Drop
-it when you want every test to run. Pin a numbered alpha (`v3.0.0-alpha.3`) instead of `edge`
+it when you want every test to run. Pin a numbered alpha (`v3.0.0-alpha.4`) instead of `edge`
 if the result must be repeatable.
 
 **11. Report a wrong result.** A test that passes or fails here and behaves differently on real
@@ -399,7 +399,7 @@ cargo build --release
 
 ## Try the alpha
 
-`al-runner` is in alpha (`3.0.0-alpha.3`).
+`al-runner` is in alpha (`3.0.0-alpha.4`).
 Many tests are refused, and results may change between builds. Use it to try
 it out and to report what is wrong. Do not gate a pipeline on it.
 
@@ -412,7 +412,7 @@ it out and to report what is wrong. Do not gate a pipeline on it.
 
 **Install** (Linux x64, Windows x64, macOS arm64). One line, pointing at the newest
 build (`edge`). The scripts check the SHA-256 of the download. Replace `edge` with
-`latest-alpha` or a tag such as `v3.0.0-alpha.3` for a numbered checkpoint. mise works too: see
+`latest-alpha` or a tag such as `v3.0.0-alpha.4` for a numbered checkpoint. mise works too: see
 "Install" near the top.
 
 Linux, macOS:
