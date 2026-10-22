@@ -743,7 +743,18 @@ impl Lowerer<'_> {
                             raw.trim()
                         ));
                     }
-                    ir::CalcValue::Filter(rewrite_quotes(raw))
+                    // The empty date literal on a Date field: `filter(<> 0D)` and `filter(<>0D)` match the dated rows, `filter(0D)`
+                    // the empty ones (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:45,93-128). They read as the
+                    // quoted empty text does (filter.rs, a_date_filter_reads_a_quoted_empty_text_as_the_blank_date). Other forms
+                    // with `0D` in them stay refused when the filter is read.
+                    let bare: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+                    if matches!(src_fields[pos].ty, Ty::Date) && bare.eq_ignore_ascii_case("0D") {
+                        ir::CalcValue::Filter("''".into())
+                    } else if matches!(src_fields[pos].ty, Ty::Date) && bare.eq_ignore_ascii_case("<>0D") {
+                        ir::CalcValue::Filter("<>''".into())
+                    } else {
+                        ir::CalcValue::Filter(rewrite_quotes(raw))
+                    }
                 }
                 CondValue::Field(n) => ir::CalcValue::Field(own_pos(n)?),
                 CondValue::UpperLimit(n) => ir::CalcValue::UpperLimit(own_pos(n)?),

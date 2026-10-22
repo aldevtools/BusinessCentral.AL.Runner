@@ -231,6 +231,15 @@ fn with_archive<T>(
         }
         return f(&zip, manifest, false);
     }
+    // A Ready-to-Run wrapper (an artifact's Extensions folder) has no manifest of its own: `readytorunappmanifest.json`
+    // and the one real app inside.
+    if depth < MAX_NESTING && zip.find("readytorunappmanifest.json").is_some() && zip.find("app.json").is_none() {
+        let mut apps = zip.entries.iter().filter(|e| is_app(&e.name));
+        if let (Some(inner), None) = (apps.next(), apps.next()) {
+            let bytes = zip.read(inner)?;
+            return with_archive(&bytes, depth + 1, vars, f);
+        }
+    }
     let root = zip.find("app.json").ok_or(PackageError::NoManifest)?;
     let manifest = manifest_of_source_zip(&String::from_utf8_lossy(&zip.read(root)?), vars)?;
     f(&zip, manifest, true)
@@ -491,6 +500,34 @@ mod tests {
         assert!(has);
         let (_, has) = read_info(&app_with(&[("SymbolReference.json", "{}")])).unwrap();
         assert!(!has);
+    }
+
+    /// A Ready-to-Run wrapper in an artifact's Extensions folder has no NavxManifest.xml of its own: only
+    /// `readytorunappmanifest.json` and the real app (al-runner issue 5710). The fixture is made here, not copied from one.
+    #[test]
+    fn a_ready_to_run_wrapper_without_a_manifest_is_unwrapped() {
+        let inner = app_with(&[("src/a.al", "codeunit 50100 A { }")]);
+        let wrapper = navx(
+            &Builder::new()
+                .add("readytorunappmanifest.json", b"{}", true)
+                .add("Microsoft_Base Application_27.5.app", &inner, false)
+                .finish(),
+        );
+        let (m, src) = read_package(&wrapper).unwrap();
+        assert_eq!(m.name, "Base & Co");
+        assert_eq!(src.len(), 1);
+        assert!(read_info(&wrapper).unwrap().1);
+        // Without the Ready-to-Run manifest, or with two apps inside, it stays an error.
+        let bare = navx(&Builder::new().add("x.app", &inner, false).finish());
+        assert_eq!(read_package(&bare).unwrap_err(), PackageError::NoManifest);
+        let two = navx(
+            &Builder::new()
+                .add("readytorunappmanifest.json", b"{}", true)
+                .add("a.app", &inner, false)
+                .add("b.app", &inner, false)
+                .finish(),
+        );
+        assert_eq!(read_package(&two).unwrap_err(), PackageError::NoManifest);
     }
 
     #[test]

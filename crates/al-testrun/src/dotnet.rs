@@ -438,7 +438,9 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
             ));
         }
     }
-    let Some(dotnet) = cfg.dotnet.clone().or_else(locate_dotnet) else {
+    // An explicit path is a file, read against the runner's folder as the sidecar's path is (`find_sidecar`).
+    let explicit = cfg.dotnet.clone().map(|p| std::path::absolute(&p).unwrap_or(p));
+    let Some(dotnet) = explicit.or_else(locate_dotnet) else {
         return Err(
             "needs the .NET 8 runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)"
                 .into(),
@@ -532,6 +534,9 @@ const NOT_BUILT: &str = "sidecar not built; run 'dotnet publish tools/dotnet-sid
 fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
     let from_env = std::env::var("ALRT_DOTNET_SIDECAR").ok().map(PathBuf::from);
     if let Some(p) = cfg.sidecar.clone().or(from_env) {
+        // The process starts in a working folder of its own (`current_dir` below): a relative path is read against the
+        // folder the runner was started in.
+        let p = std::path::absolute(&p).unwrap_or(p);
         return if p.is_file() {
             Ok(p)
         } else {
@@ -829,7 +834,7 @@ impl SidecarSession {
                 .cfg
                 .assembly_dirs
                 .iter()
-                .map(|d| json!({"path": d.to_string_lossy(), "recursive": false}))
+                .map(|d| json!({"path": std::path::absolute(d).unwrap_or_else(|_| d.clone()).to_string_lossy(), "recursive": false}))
                 .collect();
             self.raw_request(json!({"op":"probe","dirs":dirs}))
                 .map_err(|f| f.to_string())?;
@@ -1349,5 +1354,23 @@ mod tests {
         assert_eq!(major("8.0.30"), Some(8));
         assert_eq!(major("10.0.11"), Some(10));
         assert_eq!(major("x"), None);
+    }
+}
+
+#[cfg(test)]
+mod relative_paths {
+    use super::*;
+
+    /// The sidecar process starts in a working folder of its own, so a relative `--dotnet-sidecar` path is made absolute
+    /// against the folder the runner was started in (al-runner issue 5709).
+    #[test]
+    fn a_relative_sidecar_path_is_made_absolute() {
+        let cfg = SidecarConfig {
+            sidecar: Some(PathBuf::from("Cargo.toml")),
+            ..Default::default()
+        };
+        let p = find_sidecar(&cfg, Path::new("dotnet")).expect("the file exists");
+        assert!(p.is_absolute(), "{}", p.display());
+        assert_eq!(p, std::env::current_dir().unwrap().join("Cargo.toml"));
     }
 }
