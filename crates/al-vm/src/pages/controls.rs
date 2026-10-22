@@ -900,6 +900,26 @@ impl Session {
                 // Out of the table's OnValidate (or anything else than the control's own trigger) only an error with a text is
                 // pinned (P81PageValidateEvents.al below); for `Error('')` the corpus pins the card control's trigger alone
                 // (QiEmptyErrorPages.al:253). Corpus issue 712 queues the probe.
+                // Out of the table field's OnValidate of a control bound to a field of Rec, on a control without its own OnValidate,
+                // it ends the SetValue quietly as well, on a List and a Card, directly and after a Confirm answered No: the test goes
+                // on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the
+                // stored row keeps it (QiEmptyErrorPages.al:342 QZ_EE_TableValidate_ConfirmNo_List_NoAsserterror, :367 _Asserterror,
+                // :390 _Direct_List_NoAsserterror, :414 _Direct_Card_NoAsserterror).
+                if e.message.is_empty()
+                    && rec_bound
+                    && ctl.trigger("onvalidate").is_none()
+                    && st.borrow().host.is_none()
+                    && matches!(
+                        engine.object_facts[st.borrow().object as usize].page_type,
+                        Some(al_ir::PageType::List | al_ir::PageType::Card)
+                    )
+                {
+                    let mut e = e;
+                    e.code = format!("NSValidateField:{}", e.code);
+                    self.error_finals = None;
+                    self.last_error = *e;
+                    return Ok(Value::Null);
+                }
                 if e.message.is_empty() {
                     return unsupported(
                         "an error with an empty text out of a table field's OnValidate during TestPage SetValue (what the test client does with it is not pinned)",
