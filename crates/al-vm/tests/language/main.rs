@@ -74,5 +74,6 @@ mod var_attribute_refusals;
 mod var_global_alias;
 mod version_gates;
 mod xml_doctype;
+mod xml_options_assign;
 mod xml_xmlns_attribute;
 mod xml_xpath_axes;

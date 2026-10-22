@@ -393,6 +393,10 @@ pub(crate) fn is_stmt(k: SyntaxKind) -> bool {
 ///   `HttpClient.Timeout`: the HTTP probes (PZHttpHandler.al; network/lt-http/HttpClient.al, TestHttpMessages.al).
 /// - `File.TextMode`, `File.WriteMode`: Base Application's "Export Consolidation" report.
 /// - `FilterPageBuilder.PageCaption`: the call form is pinned by filterpage/TestFilterPageBuilder.al:600.
+/// - `XmlReadOptions.PreserveWhitespace`, `XmlWriteOptions.PreserveWhitespace` (al-runner issue 5647): the call form is
+///   pinned by xml/XmlDocReadWrite.al:215-217 and :399-406, what `ReadFrom` then reads by misc/W4XmlJsonHttp.al:18-19
+///   (ReadFrom_InnerWhitespace, _WhitespaceAroundTheRoot, _TextContentWhitespace), what `WriteTo` writes by
+///   xml/TestXmlDocumentWriteToOutStreamContracts.al.
 fn is_property_setter(receiver: &str, name: &str) -> bool {
     matches!(
         (receiver, name),
@@ -432,6 +436,7 @@ fn is_property_setter(receiver: &str, name: &str) -> bool {
             | ("HttpClient", "Timeout")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
+            | ("XmlReadOptions" | "XmlWriteOptions", "PreserveWhitespace")
     )
 }
 
