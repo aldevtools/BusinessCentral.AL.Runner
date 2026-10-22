@@ -818,11 +818,14 @@ impl Session {
     /// in OnOpenPage while another user's row sorts first).
     fn rec_moved_by_onopenpage(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
-        let pinned_type = matches!(
-            self.engine.object_facts[st.borrow().object as usize].page_type,
-            Some(al_ir::PageType::Card | al_ir::PageType::List)
-        );
-        if rec.borrow().temporary && !pinned_type {
+        let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
+        let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
+        // A Worksheet over a temporary source opens as a List does (assumption worksheet-temp-source-opens-on-rec-row, not
+        // pinned): Tests-SCM-Warehouse 137154 PickFromWarehouseShipmentReserveAgainstPurchaseOrder needs page 498 Reservation,
+        // filled by SetReservSource before RunModal, to open on the entry summary Rec was left on. A Worksheet over a database
+        // table stays refused below.
+        let temp_worksheet = rec.borrow().temporary && matches!(page_type, Some(al_ir::PageType::Worksheet));
+        if rec.borrow().temporary && !pinned_type && !temp_worksheet {
             return Ok(false);
         }
         let key = self.row_key(&rec)?;
@@ -843,8 +846,33 @@ impl Session {
             Value::Boolean(true) => Some(self.row_key(&probe)?),
             _ => None,
         };
-        if first.is_some_and(|f| Self::same_key(&f, &key)) {
+        if first.as_ref().is_some_and(|f| Self::same_key(f, &key)) {
             return Ok(false);
+        }
+        if temp_worksheet {
+            // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
+            // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,
+            // past the purchase line's). Any other temporary Worksheet keeps the first row, as before this assumption (not
+            // pinned either; the Item Tracking Lines page, whose OnOpenPage changes the key, reaches it in many Microsoft tests).
+            if rec.borrow().key != 0 || st.borrow().lookup || self.declares(st, "onnextrecord") {
+                return Ok(false);
+            }
+            // Where `=><` from Rec lands, as the open does (`open_on_rec_moved_by_onopenpage`): on the first row of the view the
+            // page opens as it always did.
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if !matches!(
+                self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=><".into())])?,
+                Value::Boolean(true)
+            ) {
+                return Ok(false);
+            }
+            let landed = self.row_key(&probe)?;
+            if first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
+                return Ok(false);
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpensOnRecRow);
+            return Ok(true);
         }
         if !pinned_type || st.borrow().lookup || self.declares(st, "onnextrecord") {
             return unsupported(
