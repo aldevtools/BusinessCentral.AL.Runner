@@ -85,11 +85,31 @@ impl<'a> Checker<'a> {
                 if let Some(f) = self.members[ti].field(name) {
                     return Some(E::Val(f.ty.clone()));
                 }
-                let procs: Vec<Cand> = self.members[ti]
+                let mut procs: Vec<Cand> = self.members[ti]
                     .procedures_named(name)
                     .iter()
                     .map(|p| proc_cand(p))
                     .collect();
+                // `Rec.BwSame()` in a third table extension of the twin extension's app runs that extension's body
+                // (BwCrossAppTests.al:214, see `same_app_ext_twin`); the other twin is no candidate then.
+                let object_of = |c: &Cand| match c.target {
+                    Res::Proc { object, .. } => Some(object),
+                    _ => None,
+                };
+                for i in 0..procs.len() {
+                    let mut objects: Vec<usize> = procs
+                        .iter()
+                        .filter(|p| p.param_tys == procs[i].param_tys)
+                        .filter_map(object_of)
+                        .collect();
+                    objects.sort_unstable();
+                    objects.dedup();
+                    if let Some(own) = self.same_app_ext_twin(sc, &objects) {
+                        let tys = procs[i].param_tys.clone();
+                        procs.retain(|p| p.param_tys != tys || object_of(p) == Some(own));
+                        break;
+                    }
+                }
                 if !procs.is_empty() {
                     return Some(E::Callable(procs));
                 }
