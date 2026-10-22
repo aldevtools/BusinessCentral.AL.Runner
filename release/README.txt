@@ -17,9 +17,10 @@ in this archive.
 Optional: tests that use the DotNet type need the .NET 8 SDK. al-runner builds
 a small helper from sources inside the binary on first use.
 
-The binary is not signed.
+The Windows binary is signed (Azure Trusted Signing). The macOS and Linux
+binaries are not signed.
   macOS:   xattr -d com.apple.quarantine ./al-runner
-  Windows: SmartScreen: "More info", then "Run anyway"
+  Windows: if SmartScreen still warns: "More info", then "Run anyway"
            or: Unblock-File .\al-runner.exe
 
 The command was called alrunner up to 3.0.0-alpha.2. AL Runner v2's dotnet

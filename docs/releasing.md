@@ -22,6 +22,16 @@ Rules:
   `al-runner 3.0.0-alpha.2+edge.20261021 (c26a65651)`. A numbered alpha and a
   local build show `al-runner 3.0.0-alpha.2 (c26a65651)`.
 - Nothing from Microsoft goes into any archive.
+- Signing (owner decision 2026-10-22): the Windows `al-runner.exe` is
+  Authenticode-signed with Azure Trusted Signing in `build-packages.yml`, before it
+  is zipped, checksummed and attested. The Windows build job runs in the
+  environment `release`; its OIDC token (subject
+  `repo:aldevtools@326818346/BusinessCentral.AL.Runner@1206772003:environment:release`)
+  is trusted by an Entra federated credential, so there is no client secret. The
+  repository variables `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `SIGNING_ENDPOINT`,
+  `SIGNING_ACCOUNT_NAME` and `SIGNING_CERT_PROFILE_NAME` name the signing account.
+  The job fails unless `Get-AuthenticodeSignature` reports `Valid` with a
+  timestamp. The macOS and Linux binaries are not signed.
 
 ## 1. A new edge build
 
@@ -69,6 +79,10 @@ that `main` does not have. The merge-back in step 5 is missing. Do it, then push
 - Release workflow: Actions, "Release", "Run workflow". It builds and packages
   all targets and creates no release.
 - Edge workflow: the same, from "Edge".
+
+To check a signed build: download the Windows zip of `edge` and run
+`Get-AuthenticodeSignature .\al-runner.exe` on Windows. `Status` must be `Valid`.
+The "Verify the signature" step of the Windows build job prints the same.
 
 ## Open points for the owner
 
