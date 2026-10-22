@@ -496,7 +496,7 @@ MATRIX RUNS (ADR-052)
                          A list in --bc-version or --country runs every combination of them, one
                          cell each (one value in both is a normal run). Works with al-runner test,
                          test-microsoft and --affected-from.
-    --matrix 27.5:w1,29.0:us
+    --matrix 28.5:w1,29.0:us
                          Runs only the named cells (VERSION alone means w1). Not with --bc-version
                          or --country.
     --matrix-parallel N  At most N cells at once (default 1). A cell starts only while the free

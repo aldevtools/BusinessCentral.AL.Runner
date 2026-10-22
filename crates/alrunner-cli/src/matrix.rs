@@ -1,5 +1,5 @@
-//! Matrix runs (ADR-052 section 3): one run per cell of BC versions times countries (`--bc-version 27.5,28.5
-//! --country w1,us`) or of named cells (`--matrix "27.5:w1,29.0:us"`). Every cell is resolved before any runs (the
+//! Matrix runs (ADR-052 section 3): one run per cell of BC versions times countries (`--bc-version 28.5,29.0
+//! --country w1,us`) or of named cells (`--matrix "28.5:w1,29.0:us"`). Every cell is resolved before any runs (the
 //! pre-flight, 3.2), then each cell is a child process of this binary with the cell's command line and a hidden
 //! `--matrix-cell FILE` that makes it write its `--output-json` document. The parent prints a table of the cells, the
 //! tests whose outcome differs between cells, and exits with the worst cell's code.
