@@ -10,7 +10,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 
 | Area | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| attributes | 42 | 33 | 78.6% | 28 | 66.7% | 0 | 14 | 1 |
+| attributes | 42 | 33 | 78.6% | 29 | 69.0% | 0 | 13 | 1 |
 | events | 23 | 16 | 69.6% | 22 | 95.7% | 0 | 1 | 0 |
 | properties | 720 | 671 | 93.2% | 573 | 79.6% | 10 | 137 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
@@ -22,7 +22,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 
 | Owner | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| (code) | 42 | 33 | 78.6% | 28 | 66.7% | 0 | 14 | 1 |
+| (code) | 42 | 33 | 78.6% | 29 | 69.0% | 0 | 13 | 1 |
 
 #### attributes: unpinned items by owner
 

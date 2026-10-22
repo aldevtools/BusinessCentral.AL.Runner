@@ -1333,6 +1333,7 @@ impl Writer {
         for w in &written {
             self.out.push_str(w);
         }
+        let mut generated: Option<String> = None;
         for (ap, al, ans, av) in &plain {
             let use_prefix = if ans.is_empty() {
                 String::new()
@@ -1340,12 +1341,22 @@ impl Writer {
                 ap.clone()
             } else if let Some((p, _)) = self.scope.iter().rev().find(|(p, u)| !p.is_empty() && u == ans) {
                 p.clone()
+            } else if ap.is_empty() && self.scope.is_empty() && generated.is_none() && children.is_empty() {
+                // The writer makes up `p1` and declares it after the attributes (xml/XmlAttributes.al:358 Collection_Set
+                // `<e a="2" p1:a="3" xmlns:p1="urn:x" />`). A second one, or one under a namespace in scope, is not pinned.
+                generated = Some(ans.clone());
+                "p1".to_string()
             } else {
                 return unsupported("serialising a namespaced attribute without a declared prefix");
             };
             let mut s = String::new();
             escape_attr(av, &mut s);
             self.out.push_str(&format!(" {}=\"{s}\"", qname(&use_prefix, al)));
+        }
+        if let Some(uri) = generated {
+            let mut s = String::new();
+            escape_attr(&uri, &mut s);
+            self.out.push_str(&format!(" xmlns:p1=\"{s}\""));
         }
         if children.is_empty() && !open {
             self.out.push_str(" />");
@@ -4086,6 +4097,65 @@ fn attrs_count(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
     Ok(Value::Integer(attrs_of(&owner_of(r)?).len() as i32))
 }
 
+/// `Set(Name, Value)` adds the attribute or gives the one of that name the value, as `XmlElement.SetAttribute` does
+/// (xml/XmlAttributes.al:342-361 Collection_Set `set`, `reset`; P104AttrCollection.al:74 `set_after`).
+fn attrs_set(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let owner = owner_of(r)?;
+    let mut owner_value = tagged("XmlElement", owner);
+    set_attribute(c, Some(&mut owner_value), a)
+}
+
+/// `Set(Name, NamespaceUri, Value)` adds an attribute in that namespace; the writer gives it a generated prefix
+/// (xml/XmlAttributes.al:342-361 Collection_Set `set_ns`, see `Writer::element`). Pinned only on an element with no
+/// namespace in scope and no other attribute in a namespace; giving an existing one a new value is not pinned.
+fn attrs_set_ns(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    add_namespaced_attribute(owner_of(r)?, a)
+}
+
+/// `XmlElement.SetAttribute(Name, NamespaceUri, Value)`: as `XmlAttributeCollection.Set` with a namespace
+/// (xml/lt-xml-remaining-node-methods/P104AttrCollection.al:18,50 `<e a="1" p1:c="3" xmlns:p1="urn:x" />`).
+fn set_attribute_ns(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    add_namespaced_attribute(recv(r)?, a)
+}
+
+/// `RemoveAll()` of the collection takes every attribute off its element and leaves the children
+/// (P104AttrCollection.al:P104_RemoveAll, P104_RemoveAll_KeepsChildren).
+fn attrs_remove_all(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    for a in attrs_of(&owner_of(r)?) {
+        detach(&a);
+    }
+    Ok(Value::Null)
+}
+
+fn add_namespaced_attribute(owner: Handle, a: &mut [Value]) -> NResult {
+    let (name, ns, value) = (arg_text(a, 0)?, arg_text(a, 1)?, arg_text(a, 2)?);
+    check_name(&name)?;
+    if ns.is_empty() {
+        return unsupported("XmlAttributeCollection.Set with an empty namespace URI (not pinned)");
+    }
+    let mut at = Some(owner.clone());
+    while let Some(h) = at {
+        let in_ns = with(&h, |d| matches!(d, XData::Element { ns, .. } if !ns.is_empty()));
+        let declares = attrs_of(&h)
+            .iter()
+            .any(|x| with(x, |d| matches!(d, XData::Attribute { ns, .. } if !ns.is_empty())));
+        if in_ns || declares {
+            return unsupported(
+                "XmlAttributeCollection.Set with a namespace on an element with a namespace or a namespaced attribute in scope (the prefix it gets is not pinned)",
+            );
+        }
+        at = parent_of(&h);
+    }
+    let attr = new_node(XData::Attribute {
+        prefix: String::new(),
+        local: name,
+        ns,
+        value,
+    });
+    insert(&owner, None, vec![attr])?;
+    Ok(Value::Null)
+}
+
 fn attrs_get_index(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let owner = owner_of(r)?;
     let Value::Integer(i) = a[0] else {
@@ -4441,6 +4511,10 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("XmlElement", "RemoveAllAttributes", []) => remove_all_attributes,
         ("XmlElement", "Attributes", []) => attributes,
         ("XmlAttributeCollection", "Count", []) => attrs_count,
+        ("XmlAttributeCollection", "Set", ["Text", "Text"]) => attrs_set,
+        ("XmlAttributeCollection", "Set", ["Text", "Text", "Text"]) => attrs_set_ns,
+        ("XmlElement", "SetAttribute", ["Text", "Text", "Text"]) => set_attribute_ns,
+        ("XmlAttributeCollection", "RemoveAll", []) => attrs_remove_all,
         ("XmlAttributeCollection", "Get", ["Integer", "XmlAttribute"]) => attrs_get_index,
         ("XmlAttributeCollection", "Get", ["Text", "XmlAttribute"]) => attrs_get_name,
         ("XmlNodeList", "Count", []) => list_count,

@@ -181,6 +181,9 @@ pub(crate) struct ReportState {
     /// Report variables whose request page OnInit ran at a procedure's first use (`Session::first_use`): the run does not
     /// run it again.
     pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The report instances whose request page OnInit ran before their `[ReportHandler]` was called: a run the handler starts
+    /// does not run it again (report/lt-ae-reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
+    pub(crate) rp_init_by_handler: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: how it was started, which says what `CurrReport.Preview()` answers.
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
