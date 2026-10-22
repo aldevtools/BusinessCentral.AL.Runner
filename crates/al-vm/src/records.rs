@@ -1594,8 +1594,9 @@ impl Session {
 
     /// A record method on Rec in the OnOpenPage of a page an action opens through `RunPageLink`. Real BC fills the linked fields
     /// there and `GetFilters()` of a copy of Rec reads '' (corpus issue 712, writer QZ), while the runtime holds the link as a
-    /// filter: every read of the buffer, the filters, the key, the view or the rows refuses. What runs: `GetFilter` of one field
-    /// and `FilterGroup` (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), the filter and key
+    /// filter: every read of the buffer, the filters, the view or the rows refuses. What runs: `GetFilter` of one field and
+    /// `FilterGroup` (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), `CurrentKey` and `Ascending`
+    /// (pinned with a RunPageView sorting, handlers/TestPageActionRunPageView.al:121-134, asserted at :341), the filter and key
     /// setters, the table's names, and a `Get`, which ignores the filters and fills the buffer again.
     fn run_page_link_open_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let runs = matches!(
@@ -1603,6 +1604,8 @@ impl Session {
             RecordOp::Get
                 | RecordOp::GetFilter
                 | RecordOp::FilterGroup
+                | RecordOp::CurrentKey
+                | RecordOp::Ascending
                 | RecordOp::Reset
                 | RecordOp::SetCurrentKey
                 | RecordOp::SetAscending
