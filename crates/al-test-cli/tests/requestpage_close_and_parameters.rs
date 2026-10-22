@@ -174,3 +174,150 @@ fn a_boolean_filter_on_no_in_the_parameters_text_is_refused() {
     ));
     assert!(why.contains("Boolean filter"), "{why}");
 }
+
+const PREVIEW_OBJECTS: &str = r#"
+report 61406 "RC Preview"
+{
+    DefaultRenderingLayout = Rdlc;
+    dataset
+    {
+        dataitem(Row; "RC Row")
+        {
+            column(Id; Id) { }
+            trigger OnAfterGetRecord() begin Log('get'); end;
+        }
+    }
+    requestpage
+    {
+        layout { area(Content) { field(Ctl; CtlVal) { ApplicationArea = All; } } }
+        trigger OnOpenPage() begin Log('rp open'); end;
+        trigger OnQueryClosePage(CloseAction: Action): Boolean begin Log('rp close ' + Format(CloseAction)); exit(true); end;
+    }
+    rendering { layout(Rdlc) { Type = RDLC; LayoutFile = './RcPreview.rdl'; } }
+    var CtlVal: Integer; L: Codeunit "RC Log";
+    local procedure Log(Where: Text) begin L.Add(Where + ' preview=' + Format(CurrReport.Preview())); end;
+    trigger OnInitReport() begin Log('init'); end;
+    trigger OnPreReport() begin Log('pre'); end;
+}
+report 61407 "RC No Layout"
+{
+    dataset { dataitem(Row; "RC Row") { column(Id; Id) { } } }
+    requestpage { layout { area(Content) { field(Ctl; CtlVal) { ApplicationArea = All; } } } }
+    var CtlVal: Integer; L: Codeunit "RC Log";
+    trigger OnPreReport() begin L.Add('pre'); end;
+}
+report 61408 "RC Layout"
+{
+    DefaultRenderingLayout = Rdlc;
+    dataset { dataitem(Row; "RC Row") { column(Id; Id) { } } }
+    requestpage { layout { area(Content) { field(Ctl; CtlVal) { ApplicationArea = All; } } } }
+    rendering { layout(Rdlc) { Type = RDLC; LayoutFile = './RcLayout.rdl'; } }
+    var CtlVal: Integer;
+}
+"#;
+
+const PREVIEW_HELPERS: &str = "var L: Codeunit \"RC Log\"; Act: Text;
+local procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;
+local procedure Seed() var R: Record \"RC Row\"; begin R.DeleteAll(); R.Id := 1; R.Insert(); Commit(); L.Take(); end;
+[RequestPageHandler] procedure PreviewHandler(var RP: TestRequestPage \"RC Preview\") begin
+    case Act of 'ok': RP.OK().Invoke(); 'preview': RP.Preview().Invoke(); 'print': RP.Print().Invoke(); end;
+end;
+[RequestPageHandler] procedure NoLayoutHandler(var RP: TestRequestPage \"RC No Layout\") begin
+    case Act of 'preview': RP.Preview().Invoke(); 'print': RP.Print().Invoke(); end;
+    asserterror RP.Cancel().Invoke();
+    L.Add(GetLastErrorText());
+end;
+[RequestPageHandler] procedure LayoutHandler(var RP: TestRequestPage \"RC Layout\") begin
+    case Act of 'preview': RP.Preview().Invoke(); 'print': RP.Print().Invoke(); end;
+end;
+[RequestPageHandler] procedure CloseHandler(var RP: TestRequestPage \"RC Close\") begin RP.Preview().Invoke(); end;";
+
+fn preview_outcomes(tests: &str) -> Vec<(String, Outcome)> {
+    let src = format!("{OBJECTS}\n{PREVIEW_OBJECTS}\ncodeunit 61499 T {{ Subtype = Test; {PREVIEW_HELPERS} {tests} }}");
+    al_testkit::outcomes_in(&src, "T")
+}
+
+// report/W3ReportObjectIdPreviewLanguage.al:484-511 Preview_RequestPagePreviewAction: the Preview action closes the request page
+// with the CloseAction Preview; a report without a valid layout then fails with ReportNoLayout, as after OK, and the page is no
+// longer open.
+#[test]
+fn the_preview_action_closes_the_request_page_of_a_report_without_a_layout() {
+    let o = preview_outcomes(
+        "[Test] [HandlerFunctions('NoLayoutHandler')]
+        procedure P() begin
+            Seed(); Act := 'preview';
+            asserterror Report.Run(Report::\"RC No Layout\");
+            Check('ReportNoLayout', GetLastErrorCode());
+            Check('The TestPage is not open.;', L.Take());
+        end;",
+    );
+    assert_eq!(o, vec![("P".to_string(), Outcome::Pass)]);
+}
+
+// report/W3ReportObjectIdPreviewLanguage.al:696-714 QV_Preview_RunRequestPage: a handler that names Preview and Print but presses
+// OK on the page RunRequestPage opens runs, and the page's triggers answer CurrReport.Preview() false.
+#[test]
+fn a_handler_that_names_preview_runs_when_it_presses_ok() {
+    let o = preview_outcomes(
+        "[Test] [HandlerFunctions('PreviewHandler')]
+        procedure P() begin
+            Seed(); Act := 'ok';
+            Check('Yes', Format(Report.RunRequestPage(Report::\"RC Preview\") <> ''));
+            Check('init preview=No;rp open preview=No;rp close OK preview=No;', L.Take());
+        end;",
+    );
+    assert_eq!(o, vec![("P".to_string(), Outcome::Pass)]);
+}
+
+// Not pinned, or not built: Preview and Print of a report with a layout (W3ReportObjectIdPreviewLanguage.al:717-752 pins the
+// triggers, but the runtime renders no output), on a request page with OnQueryClosePage (the CloseAction Preview and Print is not
+// built), Print of a report without a layout, either on the page RunRequestPage opens or on a processing-only report.
+#[test]
+fn preview_and_print_where_they_are_not_pinned_are_refused() {
+    for (handler, run, needle) in [
+        (
+            "LayoutHandler",
+            "Act := 'preview'; Report.Run(Report::\"RC Layout\");",
+            "renders output",
+        ),
+        (
+            "LayoutHandler",
+            "Act := 'print'; Report.Run(Report::\"RC Layout\");",
+            "renders output",
+        ),
+        (
+            "PreviewHandler",
+            "Act := 'preview'; Report.Run(Report::\"RC Preview\");",
+            "OnQueryClosePage",
+        ),
+        (
+            "PreviewHandler",
+            "Act := 'print'; Report.Run(Report::\"RC Preview\");",
+            "OnQueryClosePage",
+        ),
+        (
+            "NoLayoutHandler",
+            "Act := 'print'; Report.Run(Report::\"RC No Layout\");",
+            "not pinned",
+        ),
+        (
+            "PreviewHandler",
+            "Act := 'preview'; Report.RunRequestPage(Report::\"RC Preview\");",
+            "not pinned",
+        ),
+        (
+            "PreviewHandler",
+            "Act := 'print'; Report.RunRequestPage(Report::\"RC Preview\");",
+            "not pinned",
+        ),
+        ("CloseHandler", "Report.Run(Report::\"RC Close\");", "not pinned"),
+    ] {
+        let o = preview_outcomes(&format!(
+            "[Test] [HandlerFunctions('{handler}')] procedure P() begin Seed(); {run} end;"
+        ));
+        match &o[..] {
+            [(_, Outcome::NotRun(r))] => assert!(r.contains(needle), "{run}: {r}"),
+            other => panic!("{run}: expected a refusal, got {other:?}"),
+        }
+    }
+}

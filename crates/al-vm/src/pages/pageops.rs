@@ -536,8 +536,16 @@ impl Session {
             PageMethod::SaveAsXml => self.request_save_as_xml(st, args),
             PageMethod::SaveAsPdf => self.request_save_as_render(st, args, "Pdf"),
             PageMethod::SaveAsExcel => self.request_save_as_render(st, args, "Excel"),
-            m @ (PageMethod::OK | PageMethod::Cancel | PageMethod::Yes | PageMethod::No) => {
+            m @ (PageMethod::OK
+            | PageMethod::Cancel
+            | PageMethod::Yes
+            | PageMethod::No
+            | PageMethod::Preview
+            | PageMethod::Print) => {
                 self.require_open(st)?;
+                if matches!(m, PageMethod::Preview | PageMethod::Print) {
+                    self.request_preview_print_pinned(st, m.name())?;
+                }
                 if !self.builtin_offered(st, m.name()) {
                     // Code TestActionNotFound (pages/lt-page-run-overloads-testpart/P106RunInstance.al:P106_Inst_RunModal_List `af100`).
                     return Err(error_code(

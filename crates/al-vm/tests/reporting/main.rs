@@ -15,6 +15,7 @@ mod report_option_caption_ml;
 mod report_properties;
 mod report_saveas;
 mod report_saveas_events;
+mod report_saveas_language;
 mod report_temp_globals;
 mod report_trigger_order;
 mod reportext_calls;

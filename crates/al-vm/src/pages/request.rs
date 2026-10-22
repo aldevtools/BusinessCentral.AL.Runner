@@ -16,7 +16,7 @@ use al_builtins::page_op::PageOp;
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
 /// How the request page closed.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestClosed {
     /// The handler confirmed with OK.
     Ok,
@@ -25,6 +25,10 @@ pub(crate) enum RequestClosed {
     Cancel,
     /// The handler called `SaveAsXml`: the report ran there, and the page is closed.
     SavedAsXml,
+    /// The handler invoked the Preview action: the report runs as a preview.
+    Preview,
+    /// The handler invoked the Print action: the report runs as after OK.
+    Print,
 }
 
 impl Session {
@@ -49,8 +53,45 @@ impl Session {
         match which {
             "OK" => processing_only || st.borrow().parameters_wanted,
             "Cancel" => true,
+            "Preview" | "Print" => !processing_only && !st.borrow().parameters_wanted,
             _ => false,
         }
+    }
+
+    /// The Preview and Print actions are pinned on the request page of a report that renders, started by `Report.Run`
+    /// (report/W3ReportObjectIdPreviewLanguage.al:717-752 QV_Preview_Run_PreviewAction, QV_Preview_Run_PrintAction; :484-511
+    /// Preview_RequestPagePreviewAction). On a processing-only report, on the page `RunRequestPage` opens, in a `RunModal` and
+    /// on a report with SaveValues they are not pinned and refused. The CloseAction they close with formats as their name
+    /// (:731 `rp close Preview`, :750 `rp close Print`), a member the Action type here does not have: a request page with an
+    /// OnQueryClosePage is refused.
+    pub(super) fn request_preview_print_pinned(&self, st: &St, which: &str) -> Result<(), Signal> {
+        let object = st.borrow().object as usize;
+        let o = &self.engine.program.objects[object];
+        let report = o.report.as_ref();
+        let why = if report.is_some_and(|r| r.processing_only) {
+            "the request page of a processing-only report"
+        } else if st.borrow().parameters_wanted {
+            "the page RunRequestPage opens"
+        } else if self.report.run_modal {
+            "the request page of a report started by RunModal"
+        } else if o
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("SaveValues") && v.trim().eq_ignore_ascii_case("true"))
+        {
+            "the request page of a report with SaveValues"
+        } else if self.declares(st, "onqueryclosepage")
+            || o.page
+                .as_ref()
+                .is_some_and(|p| p.ext_triggers.iter().any(|(n, _, _)| n == "onqueryclosepage"))
+        {
+            return unsupported(format!(
+                "the {which} action on a request page with OnQueryClosePage (its CloseAction {which} is not built)"
+            ));
+        } else {
+            return Ok(());
+        };
+        unsupported(format!("the {which} action on {why} (not pinned)"))
     }
 
     /// Whether the request page's SourceTableView is the one shape the corpus pins: a SORTING that names the primary key and a
@@ -209,6 +250,8 @@ impl Session {
                 Ok((RequestClosed::Ok, parameters))
             }
             Some("Cancel") => Ok((RequestClosed::Cancel, None)),
+            Some("Preview") => Ok((RequestClosed::Preview, None)),
+            Some("Print") => Ok((RequestClosed::Print, None)),
             Some("SaveAsXml" | "SaveAsPdf" | "SaveAsExcel") => Ok((RequestClosed::SavedAsXml, None)),
             other => unsupported(format!("a request page closed with {} (not pinned)", other.describe())),
         }

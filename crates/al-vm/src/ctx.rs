@@ -18,12 +18,27 @@ impl al_builtins::format::FormatCtx for Session {
     /// `OnInitReport` of a report with the `FormatRegion` property: the corpus reports format their values only in
     /// `OnAfterGetRecord` (report/lt-y-report-props/YReports.al:32-48), so whether `Format` there already follows the
     /// region is not pinned (docs/probes-needed.md).
+    ///
+    /// Outside a report started by Run, `CurrReport.Language :=` another language changes what `Format` writes
+    /// (report/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
+    /// which is not built.
     fn region_unpinned(&self) -> Option<String> {
-        self.report.region_in_init.as_ref().map(|r| {
-            format!(
+        if let Some(r) = &self.report.region_in_init {
+            return Some(format!(
                 "in OnInitReport of a report with FormatRegion = '{r}' (whether it follows the region is not pinned)"
-            )
-        })
+            ));
+        }
+        match self.report.curr_report_language {
+            Some(n)
+                if n != self.global_language
+                    && self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::Run) =>
+            {
+                Some(format!(
+                    "after CurrReport.Language := {n} in a report not started by Run (the formats in that language are not built)"
+                ))
+            }
+            _ => None,
+        }
     }
     /// The caption a value declares, else its name (types/TestEnumCaption.al).
     fn enum_name(&self, id: u32, value: i32) -> String {

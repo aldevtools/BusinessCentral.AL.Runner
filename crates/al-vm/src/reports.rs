@@ -244,6 +244,12 @@ impl Session {
                     }
                     Ok(Value::Null)
                 }
+                // Outside a report started by Run a region changes the formats and the dataset of a SaveAs
+                // (report/W3ReportObjectIdPreviewLanguage.al:559-570 FormatRegion_SetDeDE_FormatAndColumns), which is not built;
+                // the session's own region changes nothing.
+                Some(Value::Text(t) | Value::Code(t)) if t.as_str() != "en-US" => unsupported(format!(
+                    "CurrReport.FormatRegion := '{t}' in a report not started by Run (its formats and dataset in that region are not built)"
+                )),
                 Some(Value::Text(_) | Value::Code(_)) => Ok(Value::Null),
                 None if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) => Ok(
                     Value::Text(self.report.format_region.clone().unwrap_or_default().into()),
@@ -296,6 +302,9 @@ impl Session {
                 // (W3ReportObjectIdPreviewLanguage.al:676-690 QV_Preview_Execute `pre preview=Yes;get preview=Yes;column preview=Yes;
                 // post preview=Yes`).
                 Some(crate::state::ReportStart::Execute) => Ok(Value::Boolean(true)),
+                // The request page triggers of a `RunRequestPage` answer false (W3ReportObjectIdPreviewLanguage.al:696-714
+                // QV_Preview_RunRequestPage `rp open preview=No;rp close OK preview=No`).
+                Some(crate::state::ReportStart::RequestOnly) => Ok(Value::Boolean(false)),
                 _ => unsupported(
                     "Report.Preview outside a report started by Run, RunModal, Execute or SaveAs (a request page preview, or OnInitReport run by the first call of a procedure, is not pinned)",
                 ),
@@ -339,7 +348,12 @@ impl Session {
                     Ok(())
                 } else {
                     match self.report_enter_world(&schema, window) {
-                        Ok(enters) => self.report_run_entered(&inst, &schema, Entry::Run, window, enters),
+                        Ok(enters) => {
+                            let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
+                            let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters);
+                            self.report.run_modal = outer;
+                            ran
+                        }
                         // A RunModal whose request page the platform refuses to open (a pending write) leaves the
                         // variable reset: the next Execute runs OnInitReport again
                         // (misc/lt-probes-needed-8/PnH2UseRp.al:388, WithRP_UseFalse_Run_RunModal_Execute). An error a
@@ -419,8 +433,10 @@ impl Session {
                 if quit {
                     return Ok(Value::Null);
                 }
-                self.report_run(&inst, &schema, Entry::Run, window)
-                    .map(|()| Value::Null)
+                let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_3);
+                let ran = self.report_run(&inst, &schema, Entry::Run, window);
+                self.report.run_modal = outer;
+                ran.map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
@@ -1160,7 +1176,11 @@ impl Session {
         let run = self.report_prepare(inst, schema, false)?;
         let before = self.pages.saved_values.get(&(schema.object as u32)).cloned();
         let ext: Vec<(usize, Inst)> = run.exts.iter().map(|(i, e)| (*e, i.clone())).collect();
+        self.report
+            .report_preview_pinned
+            .push(crate::state::ReportStart::RequestOnly);
         let closed = self.run_request_page(inst, schema.object, seed, ext, true);
+        self.report.report_preview_pinned.pop();
         match before {
             Some(v) => {
                 self.pages.saved_values.insert(schema.object as u32, v);
@@ -1174,6 +1194,10 @@ impl Session {
             (RequestClosed::Ok, parameters) => Ok(parameters.expect("parameters were asked for")),
             (RequestClosed::SavedAsXml, _) => {
                 unsupported("SaveAsXml in the request page of a RunRequestPage (not pinned)")
+            }
+            // `request_preview_print_pinned` refuses both actions on this page before they close it.
+            (RequestClosed::Preview | RequestClosed::Print, _) => {
+                unsupported("Preview or Print in the request page of a RunRequestPage (not pinned)")
             }
         }
     }
@@ -1403,6 +1427,22 @@ impl Session {
                 // (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:
                 // SaveAsXml_RunsTheReportOnce_AndClosesTheRequestPage): it does not run a second time.
                 RequestClosed::SavedAsXml => return Ok(true),
+                // After the Preview action a report without a valid layout fails as after OK (W3ReportObjectIdPreviewLanguage.al:
+                // 484-511 Preview_RequestPagePreviewAction, `ReportNoLayout`). With a layout the report runs its triggers
+                // (:717-752), which `report_after_page` refuses as for OK: the runtime renders no output. Print without a layout,
+                // and either action on a report with neither a layout nor columns, are not pinned.
+                closed @ (RequestClosed::Preview | RequestClosed::Print) => {
+                    match (self.no_valid_layout(schema)?, closed) {
+                        (Some(e), RequestClosed::Preview) => return Err(Signal::Error(Box::new(e))),
+                        (None, _) if !schema.report().output.is_empty() => {}
+                        _ => {
+                            return unsupported(format!(
+                                "a run of report \"{}\" after the {closed:?} action of its request page (not pinned)",
+                                schema.name()
+                            ));
+                        }
+                    }
+                }
                 RequestClosed::Ok => {
                     if hidden {
                         al_builtins::assumptions::assume(
@@ -2271,9 +2311,13 @@ impl Session {
             .push(crate::state::ReportStart::SaveAs);
         let outer_region = std::mem::replace(&mut self.report.format_region, region.as_ref().map(|(r, _)| r.clone()));
         let outer_property = std::mem::replace(&mut self.report.region_property, region.is_some());
+        // Each SaveAs starts with no language set, whatever an earlier run set (report/W3ReportObjectIdPreviewLanguage.al:572-583
+        // LanguageAndFormatRegion_BothSet_Columns `language before set equals GlobalLanguage=Yes` after the run of :546-557).
+        let outer_language = self.report.curr_report_language.take();
         let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
+        self.report.curr_report_language = outer_language;
         self.report.report_preview_pinned.pop();
         let written = std::mem::replace(&mut self.report.dataset, outer);
         match ran {
