@@ -116,8 +116,11 @@ jobs:
         run: |
           $exe = Join-Path '${{ github.workspace }}' 'target\${{ matrix.target }}\release\al-runner.exe'
           if (-not (Test-Path $exe)) { Write-Error "Missing $exe"; exit 1 }
-          Set-Content -Path "$env:RUNNER_TEMP\sign-catalog.txt" -Value $exe
-          "SIGN_CATALOG=$env:RUNNER_TEMP\sign-catalog.txt" >> $env:GITHUB_ENV
+          # The action resolves each catalog line against the catalog's own folder, so the catalog
+          # sits next to the exe and names it without a path.
+          $catalog = Join-Path (Split-Path $exe) 'sign-catalog.txt'
+          Set-Content -Path $catalog -Value 'al-runner.exe'
+          "SIGN_CATALOG=$catalog" >> $env:GITHUB_ENV
           "SIGN_EXE=$exe" >> $env:GITHUB_ENV
       - name: Sign al-runner.exe with Azure Trusted Signing
         if: matrix.target == 'x86_64-pc-windows-msvc'
