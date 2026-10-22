@@ -199,12 +199,17 @@ pub enum Gate {
     /// BC 29; before, the handler is not called, the request is sent for real and the unused handler does not fail the test
     /// (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line; corpus bump 43).
     HttpHandlerUnderDefaultPolicyFrom29,
+    /// `Format` of a Decimal field with `AutoFormatType = 1` (an amount) rounds to 2 decimals from BC 28, under the default format
+    /// and under `<Standard Format,2>` and format number 2 or 9; BC 27 writes every digit
+    /// (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49).
+    AutoFormatAmountFieldRoundsFrom28,
 }
 
 impl Gate {
     pub const ALL: &'static [Gate] = &[
         Gate::FrFrGroupSeparatorNoBreakSpaceFrom29,
         Gate::HttpHandlerUnderDefaultPolicyFrom29,
+        Gate::AutoFormatAmountFieldRoundsFrom28,
         Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29,
         Gate::CaseTimeZeroLabelFrom29,
         Gate::DataTransferAddDestinationFilterFrom28,
@@ -311,13 +316,18 @@ impl Gate {
             | Gate::ControlAddInNotInstantiatedErrorFrom28
             | Gate::JsonSelectTokensListFrom28
             | Gate::DataTransferAddDestinationFilterFrom28
-            | Gate::HttpHeaderNameRulesProbedFrom28 => 28,
+            | Gate::HttpHeaderNameRulesProbedFrom28
+            | Gate::AutoFormatAmountFieldRoundsFrom28 => 28,
         }
     }
 
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
+            Gate::AutoFormatAmountFieldRoundsFrom28 => &[Evidence {
+                file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
+                lines: "684,697,749,762",
+            }],
             Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 => &[Evidence {
                 file: "misc/lt-probes-needed-8/PnH4CurrReport.al",
                 lines: "247,311",
