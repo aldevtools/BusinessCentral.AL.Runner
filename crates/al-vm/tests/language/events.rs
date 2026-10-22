@@ -1838,7 +1838,7 @@ fn subscribers_whose_app_order_the_corpus_does_not_pin_are_refused() {
     // Two apps that do not depend on each other: dependency order does not decide (publish order may).
     let x = order_sub(61115, "X");
     let y = order_sub(61125, "Y");
-    let a = format!("{ORDER_PUBLISHER}");
+    let a = ORDER_PUBLISHER.to_string();
     let r = raise_order(vec![
         order_app("a", &[], &a),
         order_app("x", &["a"], &x),

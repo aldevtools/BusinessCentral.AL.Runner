@@ -167,12 +167,11 @@ fn app_dependencies(apps: &[ir::AppInfo]) -> Vec<Vec<bool>> {
     }
     // Transitive closure (Floyd-Warshall); a program holds tens of apps.
     for k in 0..n {
-        for i in 0..n {
-            if out[i][k] {
-                for j in 0..n {
-                    if out[k][j] {
-                        out[i][j] = true;
-                    }
+        let via = out[k].clone();
+        for row in out.iter_mut() {
+            if row[k] {
+                for (cell, &v) in row.iter_mut().zip(&via) {
+                    *cell |= v;
                 }
             }
         }
