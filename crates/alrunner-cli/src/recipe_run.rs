@@ -447,14 +447,14 @@ mod tests {
 
     #[test]
     fn a_lane_gets_the_recipe_time_limit_unless_the_command_line_names_one() {
-        let a = lane_args(&base(), Lane::Legacy, "C", &[5], &recipe());
+        let a = lane_args(&base(), Lane::Legacy, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(60));
         let mut b = base();
         b.test_timeout_secs = Some(5);
-        let a = lane_args(&b, Lane::UnitTest, "C", &[5], &recipe());
+        let a = lane_args(&b, Lane::UnitTest, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(5));
         b.test_timeout_secs = Some(0);
-        let a = lane_args(&b, Lane::Legacy, "C", &[5], &recipe());
+        let a = lane_args(&b, Lane::Legacy, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(0), "0 (no limit) is kept");
     }
 
