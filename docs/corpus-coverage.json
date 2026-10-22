@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "49ba90204c5e46cb0b4a217ad01a8514a341a195",
+  "corpus_commit": "5ef0f046ddfdbdcece105ccf17d0e76e77d8bec7",
   "language": {
     "bc": "27-29",
     "implemented": 1509,
@@ -1701,7 +1701,7 @@
           29
         ],
         "id": "Dialog.Error#2",
-        "ms_uses": 5655,
+        "ms_uses": 5656,
         "name": "Error",
         "pinned": true,
         "scope": "",
@@ -10866,7 +10866,7 @@
           29
         ],
         "id": "NavApp.GetCallerModuleInfo#1",
-        "ms_uses": 129,
+        "ms_uses": 130,
         "name": "GetCallerModuleInfo",
         "pinned": true,
         "scope": "",
@@ -13440,7 +13440,7 @@
           29
         ],
         "id": "Record.IsEmpty#1",
-        "ms_uses": 2545,
+        "ms_uses": 2546,
         "name": "IsEmpty",
         "pinned": true,
         "scope": "",
@@ -13600,7 +13600,7 @@
           29
         ],
         "id": "Record.ReadIsolation#1",
-        "ms_uses": 317,
+        "ms_uses": 318,
         "name": "ReadIsolation",
         "pinned": true,
         "scope": "",
@@ -13856,7 +13856,7 @@
           29
         ],
         "id": "Record.SetRange#1",
-        "ms_uses": 23648,
+        "ms_uses": 23650,
         "name": "SetRange",
         "pinned": true,
         "scope": "",
