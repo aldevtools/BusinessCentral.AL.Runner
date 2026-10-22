@@ -2019,7 +2019,10 @@ fn fa_occ_import(xml: &str) -> String {
 #[test]
 fn an_import_checks_the_occurrence_of_field_attributes() {
     let pre = "Imported XML cannot validate with the schema: ";
-    assert_eq!(fa_occ_import("<Root><Row Id=\"10\" Name=\"ten\" Num=\"1\"/></Root>"), "ok 10:ten:1,");
+    assert_eq!(
+        fa_occ_import("<Root><Row Id=\"10\" Name=\"ten\" Num=\"1\"/></Root>"),
+        "ok 10:ten:1,"
+    );
     assert_eq!(fa_occ_import("<Root><Row Id=\"10\" Num=\"1\"/></Root>"), "ok 10::1,");
     assert_eq!(
         fa_occ_import("<Root><Row Name=\"ten\" Num=\"1\"/></Root>"),
@@ -2035,7 +2038,9 @@ fn an_import_checks_the_occurrence_of_field_attributes() {
     );
     assert_eq!(
         fa_occ_import("<Root/>"),
-        format!("{pre}The element 'Root' has incomplete content. List of possible elements expected: 'Row'.|XmlPortInvalidXml")
+        format!(
+            "{pre}The element 'Root' has incomplete content. List of possible elements expected: 'Row'.|XmlPortInvalidXml"
+        )
     );
 }
 
@@ -2046,7 +2051,15 @@ fn an_export_of_an_empty_field_attribute_with_an_occurrence_is_refused() {
     let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; OutStr: OutStream; U: Record \"ALT Universal\";";
     let set = "U.\"Entry No.\" := 10; U.\"Text Field\" := 'ten'; U.\"Integer Field\" := 1; U.Insert();
                B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); XmlPort.Export(60101, OutStr); B.Modify(); exit(H.ReadAll(B));";
-    assert!(text(vars, set).contains("<Row Id=\"10\" Name=\"ten\" Num=\"1\" />"), "{}", text(vars, set));
+    assert!(
+        text(vars, set).contains("<Row Id=\"10\" Name=\"ten\" Num=\"1\" />"),
+        "{}",
+        text(vars, set)
+    );
     let empty = set.replace("'ten'", "''");
-    assert!(refusal(vars, &empty).contains("Occurrence"), "{}", refusal(vars, &empty));
+    assert!(
+        refusal(vars, &empty).contains("Occurrence"),
+        "{}",
+        refusal(vars, &empty)
+    );
 }

@@ -963,7 +963,12 @@ fn get_encoding_of_a_code_page_the_host_lacks_is_refused_as_not_pinned() {
             inner: vec![],
         }))
     });
-    let r = run(&host, "E: DotNet Encoding; X: DotNet Encoding;", "X := E.GetEncoding(1252);", "");
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding;",
+        "X := E.GetEncoding(1252);",
+        "",
+    );
     let why = unsupported(&r);
     assert_eq!(
         why,
