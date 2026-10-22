@@ -9,6 +9,7 @@ mod coverage;
 mod debug;
 mod impact;
 mod impact_index;
+mod matrix;
 mod output;
 mod path_note;
 mod recipe;
@@ -64,6 +65,14 @@ fn real_main() -> ExitCode {
         Command::Help | Command::CacheHelp | Command::Version | Command::Serve(_)
     ) {
         path_note::maybe_note();
+    }
+    let test_microsoft = matches!(command, Command::TestMicrosoft(_));
+    if let Command::Test(a) | Command::TestMicrosoft(a) = &command
+        && a.matrix_cell.is_some()
+        && std::env::var("ALRUNNER_MATRIX_TEST_ABORT").ok() == a.bc_version
+    {
+        // The tests of matrix runs simulate a cell the system kills (ADR-052 test plan 23).
+        std::process::abort();
     }
     match command {
         Command::Help => {
@@ -209,6 +218,16 @@ fn real_main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Command::Test(a) | Command::TestMicrosoft(a) if a.matrix.is_some() => {
+            let microsoft = test_microsoft || a.affected_from.iter().any(|s| s == "microsoft");
+            match matrix::run(&a, a.matrix.as_deref().unwrap_or_default(), microsoft) {
+                Ok(code) => ExitCode::from(code),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         Command::TestMicrosoft(a) => match sources::test_microsoft(&a) {
             Ok(code) => ExitCode::from(code),
             Err(e) => {

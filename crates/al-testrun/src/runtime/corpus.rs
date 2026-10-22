@@ -904,6 +904,7 @@ impl CorpusRuntime {
                                 captured: None,
                                 impact: Vec::new(),
                                 stubs: Vec::new(),
+                                slept_ms: 0,
                                 entered: Vec::new(),
                                 dotnet: false,
                             });
@@ -1042,6 +1043,7 @@ impl CorpusRuntime {
                     captured,
                     impact,
                     stubs: Vec::new(),
+                    slept_ms: 0,
                     entered: Vec::new(),
                     dotnet: false,
                 })
@@ -1093,6 +1095,11 @@ impl CorpusRuntime {
                             seen,
                             touched,
                         );
+                        if let Some((_, ms)) = scratch.slept.iter().find(|(n, _)| *n == name) {
+                            if let Some(last) = list.last_mut() {
+                                last.slept_ms = *ms;
+                            }
+                        }
                         if let Some(i) = scratch.stubbed.iter().position(|(n, _)| *n == name) {
                             if let Some(last) = list.last_mut() {
                                 last.stubs = std::mem::take(&mut scratch.stubbed[i].1);

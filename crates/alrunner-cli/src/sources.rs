@@ -25,6 +25,9 @@ pub struct TestApp {
     /// The name in the artifact (`Tests-ERM`).
     pub name: String,
     pub path: PathBuf,
+    /// From its app.json.
+    pub id: String,
+    pub version: String,
 }
 
 /// The test apps of the `microsoft` source, and what was left out and why.
@@ -92,7 +95,12 @@ pub fn test_apps_of<S: RangeSource>(listing: &Listing<S>, wanted: &[String]) -> 
         let path = listing.get(&name)?;
         let input = apps::load(&path, Some(&build)).map_err(|e| format!("test app {name}: {e}"))?;
         if test_codeunits(&input) > 0 {
-            out.apps.push(TestApp { name, path });
+            out.apps.push(TestApp {
+                name,
+                path,
+                id: input.json.id.clone(),
+                version: input.manifest.version.clone(),
+            });
         } else if !wanted.is_empty() {
             return Err(format!(
                 "--app {name}: it holds no test codeunit (it is a test library or part of the test framework); the run loads it as a dependency of the test apps that need it"
@@ -251,6 +259,10 @@ pub struct Split {
     pub own_tests: Vec<PathBuf>,
     /// `name version` of each own test app.
     pub own_names: Vec<String>,
+    /// (id, name) of each extension app.
+    pub extension_apps: Vec<(String, String)>,
+    /// The id of every APP.
+    pub app_ids: Vec<String>,
 }
 
 pub fn split(a: &TestArgs) -> Result<Split, String> {
@@ -258,6 +270,7 @@ pub fn split(a: &TestArgs) -> Result<Split, String> {
     for p in &a.apps {
         let input = apps::load(p, a.bc_version.as_deref())?;
         let tests = test_codeunits(&input);
+        out.app_ids.push(input.json.id.clone());
         if tests > 0 {
             out.own_tests.push(p.clone());
             out.own_names
@@ -265,25 +278,25 @@ pub fn split(a: &TestArgs) -> Result<Split, String> {
         }
         if tests == 0 || objects(&input) > tests {
             out.extension.push(p.clone());
+            out.extension_apps
+                .push((input.json.id.clone(), input.json.name.clone()));
         }
     }
     Ok(out)
 }
 
-/// The command that builds the impact index of one Microsoft test app for this run (ADR-052 1.8): the options that
-/// are part of the index's key.
-fn index_command(a: &TestArgs, app: &str, build: &str) -> String {
-    let quote = |s: &str| {
-        if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '\'') {
-            format!("'{}'", s.replace('\'', "'\\''"))
-        } else {
-            s.to_string()
-        }
-    };
-    let mut out = format!(
-        "al-runner impact-index build --from microsoft --microsoft-app {} --bc-version {build}",
-        quote(app)
-    );
+fn quote(s: &str) -> String {
+    if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '\'') {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    } else {
+        s.to_string()
+    }
+}
+
+/// The command that builds the impact index of one run of a source (ADR-052 1.8): `head`, then the options that are
+/// part of the index's key.
+fn index_command(a: &TestArgs, head: String) -> String {
+    let mut out = head;
     if a.country() != "w1" {
         out.push_str(&format!(" --country {}", a.country()));
     }
@@ -304,6 +317,17 @@ fn index_command(a: &TestArgs, app: &str, build: &str) -> String {
     out
 }
 
+/// The command that builds the index of one Microsoft test app.
+fn microsoft_index_command(a: &TestArgs, app: &str, build: &str) -> String {
+    index_command(
+        a,
+        format!(
+            "al-runner impact-index build --from microsoft --microsoft-app {} --bc-version {build}",
+            quote(app)
+        ),
+    )
+}
+
 /// The arguments of one lane's impact run of a Microsoft test app: the lane's codeunits, the extension, and none of
 /// the options that apply to own tests only (ADR-052 1.2).
 fn source_lane_args(lane: &TestArgs, extension: &[PathBuf], index_command: String) -> TestArgs {
@@ -312,6 +336,8 @@ fn source_lane_args(lane: &TestArgs, extension: &[PathBuf], index_command: Strin
     t.affected_from.clear();
     t.junit = None;
     t.output_json = None;
+    t.impact_json = None;
+    t.accept_source = Some(MICROSOFT.into());
     t.index_command = Some(index_command);
     t
 }
@@ -326,14 +352,344 @@ fn source_base(a: &TestArgs) -> TestArgs {
     t
 }
 
-/// `al-runner test APP... --affected-from microsoft` (ADR-052 sections 1, 2; build step 2): the own tests as a
-/// plain run, then every Microsoft test app, lane by lane, as an impact run of the extension. One report, one JUnit
-/// file, the exit code of the worst part. `only_sources`: `test-microsoft APP`, where an APP with tests is refused.
+/// The name of the `microsoft` source in the report, JUnit and the JSON documents.
+const MICROSOFT: &str = "microsoft";
+
+/// What a source given as a path refuses when the app or one of its dependencies has no AL source (ADR-052 1.5).
+const COMPILED_ONLY: &str = "is a compiled-only app; AL Runner compiles test apps from their AL source (ADR-013). Ask the vendor for a package with source, or a `*.Source.zip`.";
+
+/// An ISV test app given as a source (ADR-052 1.1).
+#[derive(Debug, Clone)]
+pub struct Isv {
+    pub path: PathBuf,
+    pub id: String,
+    /// From its app.json: a source is named by it, never by its path.
+    pub name: String,
+    pub version: String,
+}
+
+/// One test source of a run, in the order given.
+#[derive(Debug, Clone)]
+pub enum Source {
+    Microsoft,
+    Isv(Isv),
+}
+
+/// The apps a path given as a source holds: the path itself, or for a folder without `app.json` every app folder,
+/// `.app` and `*.Source.zip` in it, in name order.
+fn source_paths(given: &Path) -> Result<Vec<PathBuf>, String> {
+    if !given.is_dir() || given.join("app.json").is_file() {
+        return Ok(vec![given.to_path_buf()]);
+    }
+    let mut out: Vec<PathBuf> = std::fs::read_dir(given)
+        .map_err(|e| format!("--affected-from {}: {e}", given.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if p.is_dir() {
+                p.join("app.json").is_file()
+            } else {
+                name.ends_with(".app") || name.ends_with(".source.zip")
+            }
+        })
+        .collect();
+    out.sort();
+    if out.is_empty() {
+        return Err(format!(
+            "--affected-from {}: the folder holds no test app (an app folder with an app.json, an .app or a *.Source.zip)",
+            given.display()
+        ));
+    }
+    Ok(out)
+}
+
+/// The folders a source's dependencies are looked up in (ADR-052 1.2 item 3): `--dep`, `--package-cache`, the
+/// `.alpackages` folder of each folder APP and of the source folder.
+fn search_paths(a: &TestArgs, source: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = a.deps.clone();
+    out.extend(a.package_caches.iter().cloned());
+    for p in a.apps.iter().map(PathBuf::as_path).chain([source]) {
+        let packages = p.join(".alpackages");
+        if p.is_dir() && packages.is_dir() && !out.contains(&packages) {
+            out.push(packages);
+        }
+    }
+    out
+}
+
+/// A dependency of the source that is found only as a package without AL source (ADR-052 1.5). Microsoft's apps come
+/// from the artifact feed and are not looked at here; a dependency that is not found at all fails the source's run,
+/// as for any APP.
+fn compiled_only_dependency(a: &TestArgs, split: &Split, source: &Path, input: &apps::AppInput) -> Result<(), String> {
+    let search = search_paths(a, source);
+    for d in &input.json.dependencies {
+        if apps::is_microsoft(&d.publisher) || split.app_ids.iter().any(|id| id.eq_ignore_ascii_case(&d.id)) {
+            continue;
+        }
+        let found: Vec<al_deps::load::Found> = search
+            .iter()
+            .flat_map(|p| al_deps::load::scan_path(p, a.bc_version.as_deref()).0)
+            .filter(|f| f.manifest.id.eq_ignore_ascii_case(&d.id))
+            .collect();
+        if let Some(f) = found.first().filter(|_| found.iter().all(|f| !f.has_source)) {
+            return Err(format!(
+                "{} {} (a dependency of {}, {}) {COMPILED_ONLY}",
+                f.manifest.name,
+                f.manifest.version,
+                input.json.name,
+                f.path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The sources of a run, read and checked before anything runs (ADR-052 1.5): a compiled-only source or dependency,
+/// a source that depends on the extension, the same app twice and a source that is also an APP exit 2.
+pub fn resolve(a: &TestArgs, split: &Split) -> Result<Vec<Source>, String> {
+    let mut out: Vec<Source> = Vec::new();
+    for given in &a.affected_from {
+        if given == MICROSOFT {
+            out.push(Source::Microsoft);
+            continue;
+        }
+        for path in source_paths(Path::new(given))? {
+            let input = apps::load(&path, a.bc_version.as_deref())
+                .map_err(|e| format!("--affected-from {}: {e}", path.display()))?;
+            let label = format!("{} {}", input.json.name, input.manifest.version);
+            if input.source.files.is_empty() {
+                return Err(format!("--affected-from {}: {label} {COMPILED_ONLY}", path.display()));
+            }
+            if split.app_ids.iter().any(|id| id.eq_ignore_ascii_case(&input.json.id)) {
+                return Err(format!(
+                    "--affected-from {}: {label} is also an APP: an app is either under test or a test source",
+                    path.display()
+                ));
+            }
+            let twice = out
+                .iter()
+                .any(|s| matches!(s, Source::Isv(i) if i.id.eq_ignore_ascii_case(&input.json.id)));
+            if twice {
+                return Err(format!("--affected-from {label} is given twice ({})", path.display()));
+            }
+            for d in &input.json.dependencies {
+                if let Some((_, name)) = split
+                    .extension_apps
+                    .iter()
+                    .find(|(id, _)| id.eq_ignore_ascii_case(&d.id))
+                {
+                    return Err(format!(
+                        "--affected-from {}: {label} depends on {name}: it is your own test app; pass it as an APP",
+                        path.display()
+                    ));
+                }
+            }
+            compiled_only_dependency(a, split, &path, &input)?;
+            out.push(Source::Isv(Isv {
+                path,
+                id: input.json.id.clone(),
+                name: input.json.name.clone(),
+                version: input.manifest.version.clone(),
+            }));
+        }
+    }
+    Ok(out)
+}
+
+/// One impact run of a source (a Microsoft test app's lane, or the one run of an ISV test app).
+struct RunOut {
+    test_app: Option<String>,
+    lane: Option<String>,
+    mode: &'static str,
+    code: u8,
+    /// Its `--impact-json` document (format 1).
+    body: Option<serde_json::Value>,
+}
+
+/// What one source came to: its row of the summary, its JUnit parts, its runs and the accept file's entries no run of
+/// it matched.
+struct SourceOut {
+    row: sources_report::PartRow,
+    /// `microsoft` or `path`.
+    kind: &'static str,
+    /// The path given, for a source given as a path.
+    path: Option<PathBuf>,
+    /// (name, id, version) of its test apps.
+    test_apps: Vec<(String, String, String)>,
+    junit: Vec<crate::output::JunitPart>,
+    runs: Vec<RunOut>,
+    /// Entries that matched no change in any run of this source so far; `None` before the first run.
+    stale: Option<Vec<crate::impact::Accept>>,
+    modes: std::collections::BTreeMap<&'static str, usize>,
+    not_selected: usize,
+}
+
+impl SourceOut {
+    fn new(name: &str, kind: &'static str) -> SourceOut {
+        SourceOut {
+            row: sources_report::PartRow::source(name),
+            kind,
+            path: None,
+            test_apps: Vec::new(),
+            junit: Vec::new(),
+            runs: Vec::new(),
+            stale: None,
+            modes: Default::default(),
+            not_selected: 0,
+        }
+    }
+
+    fn add(&mut self, part: crate::impact::Part, test_app: Option<&str>, lane: Option<&str>) {
+        self.row.add(&part);
+        if !part.mode.is_empty() {
+            *self.modes.entry(part.mode).or_default() += 1;
+        }
+        self.not_selected += part.not_selected.unwrap_or(0);
+        if let Some(mut j) = part.junit {
+            j.suite_properties = vec![("test_source".into(), self.row.name.clone())];
+            self.junit.push(j);
+        }
+        self.stale = Some(match self.stale.take() {
+            None => part.stale,
+            Some(prev) => prev.into_iter().filter(|e| part.stale.contains(e)).collect(),
+        });
+        self.runs.push(RunOut {
+            test_app: test_app.map(str::to_string),
+            lane: lane.map(str::to_string),
+            mode: part.mode,
+            code: part.code,
+            body: part.json,
+        });
+    }
+
+    /// A run of the source that did not load or compile: exit 2 for the source; the other runs go on.
+    fn failed(&mut self) {
+        self.row.code = sources_report::worst([self.row.code, 2]);
+    }
+
+    /// The selection line, the accept file's stale entries, and the `not_selected` count on the first JUnit suite.
+    fn finish(&mut self, notes: &[String]) {
+        let selection: Vec<String> = self
+            .modes
+            .iter()
+            .map(|(m, n)| match (self.kind, *m) {
+                (MICROSOFT, m) => format!("{m} selection in {n} run(s)"),
+                (_, "all") => "every test ran (--impact all)".to_string(),
+                (_, m) => format!("{m} selection"),
+            })
+            .collect();
+        println!(
+            "{}: {}; not selected: {} test(s) do not reach your extension",
+            self.row.name,
+            if selection.is_empty() {
+                "no impact run".to_string()
+            } else {
+                selection.join(", ")
+            },
+            self.not_selected
+        );
+        for n in notes {
+            println!("  {n}");
+        }
+        if let Some(stale) = self.stale.as_deref().filter(|s| !s.is_empty()) {
+            let refs: Vec<&crate::impact::Accept> = stale.iter().collect();
+            for line in crate::impact::stale_lines(&refs) {
+                println!("{line}");
+            }
+        }
+        self.row.not_selected = self.not_selected;
+        if self.junit.is_empty() {
+            self.junit.push(crate::output::JunitPart {
+                suite_properties: vec![("test_source".into(), self.row.name.clone())],
+                empty_name: self.row.name.clone(),
+                ..Default::default()
+            });
+        }
+        self.junit[0].first_suite_properties = vec![("not_selected".to_string(), self.not_selected.to_string())];
+    }
+
+    /// The format-1 documents of its runs, each with `source` (and for `microsoft` the test app and lane): the
+    /// entries of `--impact-json` format 2 (ADR-052 1.6).
+    fn impact_entries(&self) -> Vec<serde_json::Value> {
+        self.runs
+            .iter()
+            .filter_map(|r| {
+                let mut body = r.body.clone()?;
+                body["source"] = self.row.name.clone().into();
+                if let Some(app) = &r.test_app {
+                    body["testApp"] = app.clone().into();
+                }
+                if let Some(lane) = &r.lane {
+                    body["lane"] = lane.clone().into();
+                }
+                Some(body)
+            })
+            .collect()
+    }
+
+    /// Its entry of the `sources` array of `--output-json` (ADR-052 1.6).
+    fn output_entry(&self) -> serde_json::Value {
+        use serde_json::{Value, json};
+        let mut counts = serde_json::Map::new();
+        let mut tests: Vec<Value> = Vec::new();
+        for entry in self.impact_entries() {
+            if let Some(c) = entry["counts"].as_object() {
+                for (k, v) in c {
+                    let n = counts.get(k).and_then(Value::as_u64).unwrap_or(0) + v.as_u64().unwrap_or(0);
+                    counts.insert(k.clone(), json!(n));
+                }
+            }
+            for t in entry["tests"].as_array().into_iter().flatten() {
+                let mut t = t.clone();
+                for key in ["testApp", "lane"] {
+                    if !entry[key].is_null() {
+                        t[key] = entry[key].clone();
+                    }
+                }
+                tests.push(t);
+            }
+        }
+        let modes: Vec<&str> = self.modes.keys().copied().collect();
+        let mut doc = json!({
+            "source": self.row.name,
+            "kind": self.kind,
+            "testApps": self.test_apps.iter().map(|(name, id, version)| json!({"name": name, "id": id, "version": version})).collect::<Vec<_>>(),
+            "mode": match modes.as_slice() {
+                [] => Value::Null,
+                [one] => json!(one),
+                _ => json!("mixed"),
+            },
+            "counts": counts,
+            "notSelected": self.not_selected,
+            "exitCode": self.row.code,
+            "tests": tests,
+        });
+        if let Some(p) = &self.path {
+            doc["path"] = json!(p.display().to_string());
+        }
+        if self.kind == MICROSOFT {
+            doc["lanes"] = self
+                .runs
+                .iter()
+                .map(|r| json!({"testApp": r.test_app, "lane": r.lane, "mode": r.mode, "exitCode": r.code}))
+                .collect();
+        }
+        if let Some(e) = &self.row.error {
+            doc["error"] = json!(e);
+        }
+        doc
+    }
+}
+
+/// `al-runner test APP... --affected-from SOURCE...` (ADR-052 sections 1, 2): the own tests as a plain run, then each
+/// source in the order given, as impact runs of the extension (the `microsoft` source per test app and lane). One
+/// report, one JUnit file, the `--output-json` and `--impact-json` documents of every part, the exit code of the worst
+/// part. `only_sources`: `test-microsoft APP`, where an APP with tests is refused.
 pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
     let started = std::time::Instant::now();
-    if let Some(path) = &a.junit {
-        crate::run::write_file(path, "")?;
-    }
     let split = split(a)?;
     if only_sources && !split.own_tests.is_empty() {
         return Err(format!(
@@ -344,8 +700,23 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
     if split.extension.is_empty() {
         return Err("nothing to measure: --affected-from needs an app without test codeunits. To run Microsoft's tests, use al-runner test-microsoft".into());
     }
+    let sources = resolve(a, &split)?;
+    // A wrong accept file or an unwritable output path stops the run before the long part.
+    let accepts = a
+        .impact_accept
+        .as_deref()
+        .map(crate::impact::Accepts::load)
+        .transpose()?;
+    for path in [&a.junit, &a.impact_json].into_iter().flatten() {
+        crate::run::write_file(path, "")?;
+    }
+    if let Some(Some(path)) = &a.output_json {
+        crate::run::write_file(path, "")?;
+    }
     let mut rows: Vec<sources_report::PartRow> = Vec::new();
     let mut junit: Vec<crate::output::JunitPart> = Vec::new();
+    let mut own_results: Vec<al_testrun::runtime::TestResult> = Vec::new();
+    let mut own_code: Option<u8> = None;
 
     if !split.own_tests.is_empty() {
         println!("== own tests: {} ==", split.own_names.join(", "));
@@ -353,7 +724,10 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
         own.affected_from.clear();
         own.microsoft_apps.clear();
         own.impact = None;
+        own.impact_accept = None;
+        own.impact_json = None;
         own.junit = None;
+        own.output_json = None;
         let mut c = crate::run::Collected::default();
         let row = match crate::run::test_collect(&own, &mut c) {
             Ok(code) => {
@@ -367,6 +741,10 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
                     .iter()
                     .filter(|r| matches!(r.outcome, al_testrun::Outcome::NotRun(_)))
                     .count();
+                own_code = Some(code);
+                if a.output_json.is_some() {
+                    own_results = c.results.clone();
+                }
                 junit.push(crate::output::JunitPart {
                     results: std::mem::take(&mut c.results),
                     disabled: std::mem::take(&mut c.disabled),
@@ -384,31 +762,125 @@ pub fn affected(a: &TestArgs, only_sources: bool) -> Result<u8, String> {
         rows.push(row);
     }
 
-    let (row, parts) = microsoft_source(a, &split.extension);
-    rows.push(row);
-    junit.extend(parts);
+    let mut outs: Vec<SourceOut> = Vec::new();
+    for source in &sources {
+        let out = match source {
+            Source::Microsoft => microsoft_source(a, &split.extension),
+            Source::Isv(isv) => isv_source(a, isv, &split.extension),
+        };
+        rows.push(out.row.clone());
+        junit.extend(out.junit.iter().cloned());
+        outs.push(out);
+    }
+    // Entries of the accept file for a source this run does not have match nothing.
+    if let Some(x) = &accepts {
+        let names: Vec<&str> = outs.iter().map(|o| o.row.name.as_str()).collect();
+        let mut unknown: std::collections::BTreeMap<&str, usize> = Default::default();
+        for e in &x.entries {
+            if let Some(s) = e.source.as_deref().filter(|s| !names.contains(s)) {
+                *unknown.entry(s).or_default() += 1;
+            }
+        }
+        for (s, n) in unknown {
+            println!(
+                "accept file: {n} entr{} of the source {s}, which this run does not have: they match nothing",
+                if n == 1 { "y" } else { "ies" }
+            );
+        }
+    }
 
     for line in sources_report::table_lines(&rows) {
         println!("{line}");
     }
     let code = sources_report::worst(rows.iter().map(|r| r.code));
+    let wall = started.elapsed().as_secs_f64();
     if let Some(path) = &a.junit {
+        crate::run::write_file(path, &crate::output::junit_parts(&junit, wall))?;
+    }
+    if let Some(path) = &a.impact_json {
+        let doc = serde_json::json!({
+            "format": 2,
+            "exitCode": code,
+            "sources": outs.iter().flat_map(SourceOut::impact_entries).collect::<Vec<_>>(),
+        });
         crate::run::write_file(
             path,
-            &crate::output::junit_parts(&junit, started.elapsed().as_secs_f64()),
+            &serde_json::to_string_pretty(&doc).expect("a JSON value serializes"),
+        )?;
+    }
+    if let Some(Some(path)) = &a.output_json {
+        // The own tests in AL Runner v2's shape, as a plain run writes them, and the sources beside them (additive).
+        let refs: Vec<&al_testrun::runtime::TestResult> = own_results.iter().collect();
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&crate::output::json(&refs, own_code.unwrap_or(code), wall))
+                .expect("the run's own document is JSON");
+        doc["exitCode"] = code.into();
+        doc["sources"] = outs.iter().map(SourceOut::output_entry).collect();
+        crate::run::write_file(
+            path,
+            &serde_json::to_string_pretty(&doc).expect("a JSON value serializes"),
         )?;
     }
     Ok(code)
 }
 
-/// The `microsoft` source of a run: per test app and lane, an impact run of the extension. Returns its row of the
-/// summary and its JUnit parts (the first carries `not_selected`).
-fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> (sources_report::PartRow, Vec<crate::output::JunitPart>) {
+/// An ISV test app as a source (ADR-052 1.2, 1.4): one impact run with the run's normal test data, its dependencies
+/// resolved as for any APP (the source folder's `.alpackages` among them).
+fn isv_source(a: &TestArgs, isv: &Isv, extension: &[PathBuf]) -> SourceOut {
+    println!("== {} {} ({}) ==", isv.name, isv.version, isv.path.display());
+    let mut t = source_base(a);
+    t.apps = vec![isv.path.clone()];
+    t.impact_of = extension.to_vec();
+    t.affected_from.clear();
+    t.microsoft_apps.clear();
+    t.recipe = false;
+    t.bcapps_dir = None;
+    t.disabled_tests_dir = None;
+    t.parity = false;
+    t.junit = None;
+    t.output_json = None;
+    t.impact_json = None;
+    t.accept_source = Some(isv.name.clone());
+    // The "without" side resolves the source's dependencies where the "with" side does: the extension's
+    // `.alpackages` too.
+    for p in search_paths(a, &isv.path) {
+        if !t.deps.contains(&p) && !t.package_caches.contains(&p) && !p.starts_with(&isv.path) {
+            t.package_caches.push(p);
+        }
+    }
+    let mut head = format!("al-runner impact-index build {}", quote(&isv.path.to_string_lossy()));
+    if let Some(v) = &a.bc_version {
+        head.push_str(&format!(" --bc-version {v}"));
+    }
+    t.index_command = Some(index_command(&t, head));
+    let mut out = SourceOut::new(&isv.name, "path");
+    out.path = Some(isv.path.clone());
+    out.test_apps = vec![(isv.name.clone(), isv.id.clone(), isv.version.clone())];
+    let mut notes = Vec::new();
+    match crate::impact::run_part(&t) {
+        Ok(part) => out.add(part, None, None),
+        Err(e) => {
+            eprintln!("error: {}: {e}", isv.name);
+            out.failed();
+            out.row.error = Some(e.lines().next().unwrap_or_default().to_string());
+            notes.push(format!("not run: {}", e.lines().next().unwrap_or_default()));
+        }
+    }
+    println!();
+    out.finish(&notes);
+    out
+}
+
+/// The `microsoft` source of a run: per test app and lane, an impact run of the extension.
+fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> SourceOut {
+    let mut out = SourceOut::new(MICROSOFT, MICROSOFT);
     let ms = match microsoft(a) {
         Ok(ms) => ms,
         Err(e) => {
             eprintln!("error: microsoft: {e}");
-            return (sources_report::PartRow::error("microsoft", &e), Vec::new());
+            out.row = sources_report::PartRow::error(MICROSOFT, &e);
+            out.finish(&[]);
+            return out;
         }
     };
     println!(
@@ -421,18 +893,20 @@ fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> (sources_report::Par
     for (name, why) in &ms.set.left_out {
         println!("  left out: {name}: {why}");
     }
+    out.test_apps = ms
+        .set
+        .apps
+        .iter()
+        .map(|t| (t.name.clone(), t.id.clone(), t.version.clone()))
+        .collect();
     let base = source_base(a);
-    let mut row = sources_report::PartRow::source("microsoft");
-    let mut parts: Vec<crate::output::JunitPart> = Vec::new();
-    let mut not_selected = 0usize;
     let mut notes: Vec<String> = Vec::new();
-    let mut modes: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for app in &ms.set.apps {
         let planned = match recipe_run::plan_lanes(&app_args(&base, app, &ms.build, ms.package.as_deref())) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("error: test app {}: {e}", app.name);
-                row.code = sources_report::worst([row.code, 2]);
+                out.failed();
                 notes.push(format!(
                     "{}: not run: {}",
                     app.name,
@@ -463,22 +937,12 @@ fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> (sources_report::Par
                 app.name,
                 lane.args.codeunits.len()
             );
-            let la = source_lane_args(&lane.args, extension, index_command(a, &app.name, &ms.build));
+            let la = source_lane_args(&lane.args, extension, microsoft_index_command(a, &app.name, &ms.build));
             match crate::impact::run_part(&la) {
-                Ok(part) => {
-                    row.add(&part);
-                    if !part.mode.is_empty() {
-                        *modes.entry(part.mode).or_default() += 1;
-                    }
-                    not_selected += part.not_selected.unwrap_or(0);
-                    if let Some(mut j) = part.junit {
-                        j.suite_properties = vec![("test_source".into(), "microsoft".into())];
-                        parts.push(j);
-                    }
-                }
+                Ok(part) => out.add(part, Some(&app.name), Some(name)),
                 Err(e) => {
                     eprintln!("error: {} lane {name}: {e}", app.name);
-                    row.code = sources_report::worst([row.code, 2]);
+                    out.failed();
                     notes.push(format!(
                         "{} lane {name}: not run: {}",
                         app.name,
@@ -489,31 +953,8 @@ fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> (sources_report::Par
         }
     }
     println!();
-    let selection: Vec<String> = modes
-        .iter()
-        .map(|(m, n)| format!("{m} selection in {n} run(s)"))
-        .collect();
-    println!(
-        "microsoft: {}; not selected: {not_selected} test(s) do not reach your extension",
-        if selection.is_empty() {
-            "no impact run".to_string()
-        } else {
-            selection.join(", ")
-        }
-    );
-    for n in &notes {
-        println!("  {n}");
-    }
-    row.not_selected = not_selected;
-    if parts.is_empty() {
-        parts.push(crate::output::JunitPart {
-            suite_properties: vec![("test_source".into(), "microsoft".into())],
-            empty_name: "microsoft".into(),
-            ..Default::default()
-        });
-    }
-    parts[0].first_suite_properties = vec![("not_selected".to_string(), not_selected.to_string())];
-    (row, parts)
+    out.finish(&notes);
+    out
 }
 
 /// `al-runner impact-index build --from microsoft [--microsoft-app NAME ...]` (ADR-052 1.8): the index of every lane

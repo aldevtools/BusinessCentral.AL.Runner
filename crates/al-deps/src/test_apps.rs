@@ -175,16 +175,15 @@ impl<S: RangeSource> Listing<S> {
     }
 }
 
-/// Lists the test-app candidates of the build `fetch.query` picks, the way a test run picks the build of its
-/// dependencies: a cached build first, then a build of the extracted artifacts on disk that the query names exactly,
-/// then the newest published build; offline, or when the feed has no match, any matching build on disk.
-pub fn list<C: Cdn>(fetch: &Fetch, cdn: &C) -> Result<Listing<C::Src>, String> {
+/// The build of `fetch.query`, as [`list`] picks it: a matching build in the artifact cache, an extracted artifact on
+/// disk that the query names exactly, else the newest matching published build; offline, or when the feed has no
+/// match, any matching build on disk (no download of the build
+/// itself). Returns the selection, the local artifacts root when the build comes from there, and the log lines.
+pub fn choose<'f, C: Cdn>(
+    fetch: &'f Fetch,
+    cdn: &C,
+) -> Result<(crate::build::Selection, Option<&'f std::path::Path>, Vec<String>), String> {
     let store = Store::new(&fetch.cache_root);
-    let country = if is_w1(&fetch.country) {
-        "w1".to_string()
-    } else {
-        fetch.country.to_ascii_lowercase()
-    };
     let cache_dir = store.dir().display().to_string();
     let mut log: Vec<String> = Vec::new();
     let local_root = fetch.local_artifacts.as_deref();
@@ -226,6 +225,20 @@ pub fn list<C: Cdn>(fetch: &Fetch, cdn: &C) -> Result<Listing<C::Src>, String> {
             },
         }
     };
+    Ok((sel, local, log))
+}
+
+/// Lists the test-app candidates of the build `fetch.query` picks, the way a test run picks the build of its
+/// dependencies: a cached build first, then a build of the extracted artifacts on disk that the query names exactly,
+/// then the newest published build; offline, or when the feed has no match, any matching build on disk.
+pub fn list<C: Cdn>(fetch: &Fetch, cdn: &C) -> Result<Listing<C::Src>, String> {
+    let store = Store::new(&fetch.cache_root);
+    let country = if is_w1(&fetch.country) {
+        "w1".to_string()
+    } else {
+        fetch.country.to_ascii_lowercase()
+    };
+    let (sel, local, mut log) = choose(fetch, cdn)?;
     log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
     let build = sel.build.clone();
     if let Some(root) = local {
