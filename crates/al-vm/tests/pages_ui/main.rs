@@ -21,6 +21,7 @@ mod host_save_record_parts;
 mod list_caption_filter;
 mod no_source_card;
 mod open_onopenpage_moves_rec;
+mod open_temp_worksheet_rec_row;
 mod page_inserts;
 mod pageext;
 mod pages;
