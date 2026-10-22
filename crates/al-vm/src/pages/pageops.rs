@@ -406,6 +406,9 @@ impl Session {
                 };
                 let skipped_unlinked = match name {
                     PageMethod::Next | PageMethod::Previous => {
+                        if name == PageMethod::Next {
+                            self.restore_held_xrec_of_empty_parts(st);
+                        }
                         self.sync_parts_after_move(st, name == PageMethod::Previous)?;
                         true
                     }
@@ -1068,6 +1071,7 @@ impl Session {
             PageMethod::New => {
                 self.require_open(st)?;
                 self.save_unsaved_host_first(st)?;
+                self.insert_untouched_new_host(st)?;
                 self.new_record(st)
             }
             PageMethod::ValidationErrorCount => {
