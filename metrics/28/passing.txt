@@ -13244,7 +13244,6 @@
 79011 XmlPort_UseTemporary_AutoSaveFalse_Import
 79013 Guid_TextConcatenationAndMaxStrLen
 79013 Option_ComparedWithDecimal
-79013 QT_FieldTable_NoKeyOnRowVersion_Control
 79201 AtContainsFilterMatchesCaseInsensitively
 79201 ContainsFilterWithoutAt
 79201 FieldRefIsOptimizedForTextSearch
