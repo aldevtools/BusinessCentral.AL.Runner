@@ -272,6 +272,11 @@ pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
     json_tdd(results, exit_code, wall_s, None)
 }
 
+/// The counts of a part of a run (an entry of a `serve` request), named as in the summary.
+pub fn json_counts(c: &Counts) -> serde_json::Value {
+    serde_json::json!({"passed": c.pass, "failed": c.fail, "errors": c.not_run, "notRun": c.not_run, "total": c.total})
+}
+
 /// [`json`] of a run with `--tdd` (ADR-051 decision 8) when `tdd_stubs` (every stub of the program) is given: the
 /// summary adds `stubbed` (`passed`, `failed`, `error`) and `generatedStubs`. A stubbed test's row has `stubbed: true`
 /// and `generatedStubs` with or without it.

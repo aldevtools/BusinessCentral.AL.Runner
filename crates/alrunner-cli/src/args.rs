@@ -554,6 +554,7 @@ SERVE
                          one at a time: the compile of the last request is kept, so a request with
                          the same sources and test codeunits reuses it (`cached`), and one that only
                          changes routine code compiles just those objects again (`incremental`).
+                         Resource files are read per request: a change to them reuses the compile.
                          Every request starts from the same database. runTests writes one `test` line
                          per test as it finishes, then a `summary`; execute runs one OnRun trigger per
                          app, or inline `code`, and answers with one line. cancel is answered at once
@@ -565,7 +566,10 @@ SERVE
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
                          tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
-                         strictEnvironment (as --affected and its options; the summary gets `selection`).
+                         strictEnvironment (as --affected and its options; the summary gets `selection`),
+                         entries (several runs on one compile and one install baseline, each with its own
+                         id, resources, test and excludeTests; `entry` on the test lines, one
+                         `entrySummary` line per entry).
     --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 

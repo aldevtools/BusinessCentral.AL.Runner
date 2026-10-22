@@ -354,3 +354,65 @@ fn a_run_with_test_data_keeps_its_baseline_and_the_second_run_reads_it() {
     assert_eq!(outcome(&go(backup(None))), Outcome::Pass);
     assert_eq!(files(dir.path()).len(), 2);
 }
+
+/// Issue 5635: the install code can read the workspace's resource files, which are not compiled (a warm server hands
+/// it new ones without a new compile), so they are part of the key.
+#[test]
+fn other_resource_files_of_the_workspace_get_a_baseline_of_their_own() {
+    let run_with_resource = |dir: &Path, active: &str| {
+        // The same source both times: only the resource differs.
+        let main = r#"
+codeunit 60102 ResourceInstaller
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Setting; begin S.Code := 'RES'; S.Value := NavApp.GetResourceAsText('active.txt'); S.Insert(); end;
+}
+codeunit 60103 ResourceTests
+{
+    Subtype = Test;
+    [Test] procedure ReadsTheInstallRow() var S: Record Setting; begin S.Get('RES'); if S.Value <> NavApp.GetResourceAsText('active.txt') then Error('got ' + S.Value); end;
+}
+"#
+        .to_string();
+        let manifest = |p: &str, resources: Vec<(String, Vec<u8>)>| Manifest {
+            publisher: p.into(),
+            version: "1.0.0.0".into(),
+            resources,
+            include_source: false,
+            target: String::new(),
+            layout_files: Vec::new(),
+            id_ranges: Vec::new(),
+            symbols: vec![],
+        };
+        CorpusRuntime::try_run_suites_with(
+            vec![app("main", &["base"], main), app("base", &[], base("yes"))],
+            vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+            &[
+                manifest("Me", vec![("active.txt".into(), active.as_bytes().to_vec())]),
+                manifest("Microsoft", vec![]),
+            ],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                compile_cache: Some(CompileCache {
+                    dir: dir.to_path_buf(),
+                    require: false,
+                    rebuild: false,
+                    country: String::new(),
+                }),
+                ..Default::default()
+            },
+        )
+        .expect("the run starts")
+    };
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(outcome(&run_with_resource(dir.path(), "M0001")), Outcome::Pass);
+    assert_eq!(
+        outcome(&run_with_resource(dir.path(), "M0002")),
+        Outcome::Pass,
+        "the row is the one the install code wrote from the new resource"
+    );
+    assert_eq!(files(dir.path()).len(), 2, "the resources are part of the key");
+}
