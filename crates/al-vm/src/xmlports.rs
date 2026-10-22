@@ -452,6 +452,16 @@ impl Session {
         if let Some(why) = schema.xp().run_unsupported.first() {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
+        // SourceTableView is pinned for a table element below the root of a Format = Xml port (see `xp_rows_in_view`).
+        if let Some(n) = schema.xp().nodes.iter().find(|n| n.source_view.is_some()) {
+            if schema.xp().format != ir::XmlFormat::Xml || n.parent.is_none() {
+                return unsupported(format!(
+                    "XmlPort \"{}\": SourceTableView of the table element {} in this port shape (not pinned)",
+                    schema.name(),
+                    n.name
+                ));
+            }
+        }
         // OnPreXmlPort runs when the port starts, in both directions
         // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
         // it for an export); the other object triggers are not pinned and refused.
@@ -2061,13 +2071,26 @@ impl Session {
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
-                    // AgXmlPortImport.al pins `Occurrence` of a field attribute on import only. Whether an empty value is
-                    // written or left out on export is not pinned (the text attribute's rule above is not assumed here).
+                    // An empty value of a field attribute with Occurrence: an Optional one is left out, a Required one is
+                    // written as `attr=""`; pinned for an empty Text, Code and Date (Integer 0 and Boolean false are not
+                    // empty: "0", "No") by corpus tests/al-language/xmlport/lt-ra-xmlport/RaXmlPortExport.al:347
+                    // (RA_FieldAttribute_Occurrence_Export_EmptyValues). Other types that format empty, and FormatEvaluate =
+                    // Xml, are not pinned.
                     if v.is_empty() && c.required.is_some() {
-                        return unsupported(format!(
-                            "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
-                            c.xml_name
-                        ));
+                        let pinned = !schema.xp().format_evaluate_xml
+                            && matches!(
+                                self.xp_field_raw(inst, schema, child)?,
+                                Value::Text(_) | Value::Code(_) | Value::Date(..)
+                            );
+                        if !pinned {
+                            return unsupported(format!(
+                                "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
+                                c.xml_name
+                            ));
+                        }
+                        if c.required == Some(false) {
+                            continue;
+                        }
                     }
                     out.attrs.push((c.xml_name.clone(), v));
                 }
@@ -2162,6 +2185,15 @@ impl Session {
             _ => {}
         }
         Ok(FieldPass::Value(self.xp_field_value_text(inst, schema, node)?))
+    }
+
+    /// The value of a field node's field as the record holds it (no FlowField calculation).
+    fn xp_field_raw(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Value, Signal> {
+        let n = schema.node(node);
+        let rec = self.xp_record(inst, schema.node(n.table_node.expect("field nodes have a table node")))?;
+        let pos = n.field.expect("field nodes have a field");
+        let v = rec.borrow().fields[pos].clone();
+        Ok(v)
     }
 
     fn xp_field_value_text(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
@@ -2275,7 +2307,10 @@ impl Session {
                 other?;
             }
         }
-        self.xp_rows(inst, schema, node, &mut rows)?;
+        match &n.source_view {
+            Some(view) => self.xp_rows_in_view(inst, schema, node, view, &mut rows)?,
+            None => self.xp_rows(inst, schema, node, &mut rows)?,
+        }
         let rec = self.xp_record(inst, n)?;
         // A table element without rows still passes its fields once, without a row: OnBeforePassField runs and no
         // OnAfterGetRecord (P94XpPathFlow.al:Export_PathsNoRows). Unless it is optional, the element is written once with the
@@ -2327,6 +2362,88 @@ impl Session {
             }
         }
         Ok(out)
+    }
+
+    /// The rows of table element `node` on export under its `SourceTableView`. Pinned:
+    /// - a temporary element with `sorting(B)` exports its rows by B, `order(descending)` reverses that, and a key and
+    ///   direction from `SetTableView` do not change it while a filter from it applies; a linked temporary child keeps
+    ///   `sorting(B)` within each parent row (corpus tests/al-language/xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448,
+    ///   :474);
+    /// - a database element with `sorting(..) order(descending) where(..)` exports only the rows of the where filter
+    ///   (platform/lt-ag-contoso/AgXmlPortImport.al:312, TableElement_SourceTableView_Export).
+    ///
+    /// Refused, not pinned: a view without `sorting`, a `where` on a temporary or linked element or together with filters
+    /// from `SetTableView`, and triggers on the element or below it (what they see of the view's key and filters). The
+    /// record's own key, direction and filters are put back after the rows are read (not pinned either way, and not
+    /// observable through the pinned shapes).
+    fn xp_rows_in_view(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        raw: &str,
+        rows: &mut Vec<Vec<Value>>,
+    ) -> Result<(), Signal> {
+        let n = schema.node(node);
+        let view = crate::views::property_view(raw);
+        let lower = view.to_ascii_lowercase();
+        let (sorts, filters) = (lower.contains("sorting"), lower.contains("where"));
+        let refuse = |why: &str| {
+            unsupported(format!(
+                "XmlPort export of the table element {} with SourceTableView: {why} (not pinned)",
+                n.xml_name
+            ))
+        };
+        if !sorts {
+            return refuse("a view without sorting");
+        }
+        let mut subtree = vec![node];
+        let mut i = 0;
+        while i < subtree.len() {
+            if !schema.node(subtree[i]).triggers.is_empty() {
+                return refuse("a trigger on the element or below it");
+            }
+            subtree.extend(schema.children(subtree[i]));
+            i += 1;
+        }
+        let rec = self.xp_record(inst, n)?;
+        let t = self.table(&rec)?;
+        let saved = {
+            let r = rec.borrow();
+            (
+                r.key,
+                r.adhoc.clone(),
+                r.ascending,
+                r.field_descending,
+                r.filters.clone(),
+                r.filter_group,
+            )
+        };
+        if filters && (n.use_temporary || n.link_node.is_some() || !saved.4.is_empty()) {
+            return refuse("a where filter on a temporary or linked element, or with filters from SetTableView");
+        }
+        {
+            // The view's order replaces what SetTableView gave, its direction too: a descending SetTableView leaves a
+            // view without order(..) ascending (RaXmlPortExport.al:448, `SetTableView sorting(Seq) descending`).
+            let mut b = rec.borrow_mut();
+            (b.key, b.adhoc, b.ascending, b.field_descending) = (0, None, true, 0);
+        }
+        let applied = self.set_view_in(&rec, &t, &view, None, false, false);
+        if applied.is_ok() && !filters {
+            // A view that only sorts leaves the filters from SetTableView in force (RaXmlPortExport.al:448).
+            rec.borrow_mut().filters = saved.4.clone();
+        }
+        let r = applied.and_then(|_| self.xp_rows(inst, schema, node, rows));
+        let mut b = rec.borrow_mut();
+        (
+            b.key,
+            b.adhoc,
+            b.ascending,
+            b.field_descending,
+            b.filters,
+            b.filter_group,
+        ) = saved;
+        r
     }
 
     /// The rows of table element `node` in export order.

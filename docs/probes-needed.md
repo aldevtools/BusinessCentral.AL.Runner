@@ -1269,12 +1269,6 @@ license column, and the rows of languages other than the DemoTool's 54 codes.
 | Any call on such a part other than Last() and SetValue, and a host move that reads the part again | REFUSED. Last() answers No and runs nothing, SetValue raises TestRowNotFound (QjPartPropagation.al:3766). | After the failed open: First, Next, New, a Value read, and the host's Next onto a head that does not fail. | pages/pageops.rs, pages/controls.rs, pages/parts.rs `sync_part` |
 | The xRec a part's row triggers see when a host move other than Next takes the part from its blank line (shown for a host row without lines) onto a row | KEPT as before (the blank line). Next is pinned: the row the part held before its blank line (QjPartPropagation.al:2625, :4521). | Previous, First, Last and GoToKey from a head without lines onto one with lines, logging the part's OnAfterGetCurrRecord xRec. | pages/parts.rs `restore_held_xrec_of_empty_parts` |
 
-## Field attributes on export (lane-np-encoding, 2026-10-22)
-
-| Behavior | Status | Probe wanted | Code |
-|---|---|---|---|
-| Export of a `fieldattribute` declared `Occurrence = Optional` or `Required` whose field formats to an empty text | REFUSED (AgXmlPortImport.al:248 pins import only). A value that is not empty is written | Export a table element with an empty Text field on an Optional and on a Required field attribute: attribute left out or written as `attr=""` | `al-vm/src/xmlports.rs` `xp_export_content` |
-
 ## Cross-app objects (corpus multi-app fixtures, writer BW)
 
 | Area | Refused until a probe pins it | Probe wanted |
