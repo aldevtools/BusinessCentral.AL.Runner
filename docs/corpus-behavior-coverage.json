@@ -15721,6 +15721,15 @@
           "site": "errorinfo/lt-errnotif/EnTNotification.al:345"
         },
         {
+          "corpus_uses": 3,
+          "group": "procedure",
+          "ms_uses": 0,
+          "name": "ReportHandler",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "lt-ac/ACAttributes.al:312"
+        },
+        {
           "corpus_uses": 272,
           "group": "procedure",
           "ms_uses": 0,
@@ -15818,15 +15827,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "handlers/W3Hyperlink.al:19"
-        },
-        {
-          "corpus_uses": 3,
-          "group": "procedure",
-          "ms_uses": 0,
-          "name": "ReportHandler",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "lt-ac/ACAttributes.al:312"
         }
       ],
       "pinned": 33
@@ -15973,7 +15973,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 295,
+        "line": 299,
         "pinned": true,
         "site": "media/MediaFiles.al:198",
         "template": "The specified path is invalid."
@@ -15982,7 +15982,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 298,
+        "line": 302,
         "pinned": true,
         "site": "media/MediaFiles.al:200",
         "template": "Could not find a part of the path '%'."
@@ -16342,7 +16342,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1357,
+        "line": 1358,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16414,7 +16414,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3366,
+        "line": 3374,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16495,7 +16495,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1246,
+        "line": 1255,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16504,7 +16504,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2044,
+        "line": 2095,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -16513,7 +16513,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 263,
+        "line": 277,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16522,7 +16522,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 462,
+        "line": 476,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16531,7 +16531,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 490,
+        "line": 504,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -30227,7 +30227,7 @@
         "pinned": true,
         "scope": "",
         "site": "lt-ac/ACAttributes.al:312",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "attributes",
