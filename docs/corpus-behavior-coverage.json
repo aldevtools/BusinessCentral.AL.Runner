@@ -3402,7 +3402,7 @@
           "ms_uses": 83,
           "name": "Occurrence",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "platform/lt-ag-contoso/AgXmlPortImport.al:41"
         },
         {
@@ -4153,6 +4153,15 @@
           "site": "pageext/lt-u-page-props/UPageObjects.al:42"
         },
         {
+          "corpus_uses": 8,
+          "group": "xmlport/textattribute",
+          "ms_uses": 23,
+          "name": "Occurrence",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "report/lt-u-report-props/UReportObjects.al:150"
+        },
+        {
           "corpus_uses": 2,
           "group": "page/cuegroup",
           "ms_uses": 23,
@@ -4178,15 +4187,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-presentation-properties/P119ReportCaption.al:27"
-        },
-        {
-          "corpus_uses": 8,
-          "group": "xmlport/textattribute",
-          "ms_uses": 23,
-          "name": "Occurrence",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "report/lt-u-report-props/UReportObjects.al:150"
         },
         {
           "corpus_uses": 5,
@@ -28637,7 +28637,7 @@
         "pinned": true,
         "scope": "",
         "site": "platform/lt-ag-contoso/AgXmlPortImport.al:41",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -29102,7 +29102,7 @@
         "pinned": true,
         "scope": "",
         "site": "report/lt-u-report-props/UReportObjects.al:150",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
