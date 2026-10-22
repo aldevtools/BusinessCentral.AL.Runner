@@ -8,7 +8,7 @@
 
 use crate::args::TestArgs;
 use crate::sources_report::{self, AppOutcome, AppResult};
-use crate::{apps, recipe_run};
+use crate::{apps, bcapps, bcapps_apps, recipe_run};
 use al_deps::artifact::{Fetch, HttpCdn};
 use al_deps::build::BuildQuery;
 use al_deps::remote::RangeSource;
@@ -28,6 +28,8 @@ pub struct TestApp {
     /// From its app.json.
     pub id: String,
     pub version: String,
+    /// Apps the artifact lacks that this test app needs, as BCApps source folders (`--dep`).
+    pub deps: Vec<PathBuf>,
 }
 
 /// The test apps of the `microsoft` source, and what was left out and why.
@@ -36,6 +38,11 @@ pub struct MicrosoftApps {
     pub apps: Vec<TestApp>,
     /// Candidates that are not run: (name, why).
     pub left_out: Vec<(String, String)>,
+    /// The test apps taken from BCApps because the artifact does not hold them.
+    pub from_bcapps: Vec<String>,
+    /// Lines about test folders of Microsoft's project that BCApps does not have, or a reason the BCApps apps were
+    /// not read.
+    pub bcapps_notes: Vec<String>,
 }
 
 /// The names a run takes, and the candidates it leaves out with the reason.
@@ -87,12 +94,29 @@ fn test_codeunits(input: &apps::AppInput) -> usize {
 
 /// Gets the chosen candidates and keeps those that hold a test codeunit. One that `--app` named and that has none is an
 /// error; one taken by default is a dependency (a test library), left out with a line.
-pub fn test_apps_of<S: RangeSource>(listing: &Listing<S>, wanted: &[String]) -> Result<MicrosoftApps, String> {
-    let (names, mut left_out) = choose(&listing.names(), wanted)?;
+pub fn test_apps_of<S: RangeSource>(
+    listing: &Listing<S>,
+    wanted: &[String],
+    extra: &BcappsApps,
+) -> Result<MicrosoftApps, String> {
+    let mut all: Vec<&str> = listing.names();
+    all.extend(extra.candidates.iter().map(|c| c.name.as_str()));
+    all.sort_by_key(|n| n.to_ascii_lowercase());
+    let (names, mut left_out) = choose(&all, wanted)?;
     let build = listing.build.to_string();
-    let mut out = MicrosoftApps::default();
+    let mut out = MicrosoftApps {
+        bcapps_notes: extra.notes.clone(),
+        ..MicrosoftApps::default()
+    };
     for name in names {
-        let path = listing.get(&name)?;
+        let (path, deps) = match extra.candidates.iter().find(|c| c.name == name) {
+            Some(c) => {
+                let (path, deps) = extra.fetch(c)?;
+                out.from_bcapps.push(name.clone());
+                (path, deps)
+            }
+            None => (listing.get(&name)?, Vec::new()),
+        };
         let input = apps::load(&path, Some(&build)).map_err(|e| format!("test app {name}: {e}"))?;
         if test_codeunits(&input) > 0 {
             out.apps.push(TestApp {
@@ -100,6 +124,7 @@ pub fn test_apps_of<S: RangeSource>(listing: &Listing<S>, wanted: &[String]) -> 
                 path,
                 id: input.json.id.clone(),
                 version: input.manifest.version.clone(),
+                deps,
             });
         } else if !wanted.is_empty() {
             return Err(format!(
@@ -144,6 +169,7 @@ fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) ->
     // The Legacy lane's company comes from this package (`recipe_run::lane_args` turns `company_package` on there).
     t.package_path = package.map(Path::to_path_buf);
     t.apps = vec![app.path.clone()];
+    t.deps.extend(app.deps.iter().cloned());
     t.microsoft_apps.clear();
     t.recipe = true;
     t.bc_version = Some(build.to_string());
@@ -178,7 +204,8 @@ fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
     for l in &listing.log {
         eprintln!("{l}");
     }
-    let set = test_apps_of(&listing, &a.microsoft_apps)?;
+    let extra = bcapps_apps_of(a, &listing);
+    let set = test_apps_of(&listing, &a.microsoft_apps, &extra)?;
     // The Legacy lane builds its company from the artifact's RapidStart package; it is fetched once here, so that a run
     // from the artifact feed does not depend on an extracted artifact on disk.
     let package = listing.rapidstart_package()?;
@@ -189,6 +216,129 @@ fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
         package,
         from: listing.from.to_string(),
     })
+}
+
+/// The test apps of Microsoft's project that the artifact does not hold, with where their sources are.
+#[derive(Default)]
+pub struct BcappsApps {
+    /// Every app of the project's folders, from their app.json.
+    apps: Vec<bcapps_apps::BcApp>,
+    /// The test apps (test folders) the artifact does not hold, by name.
+    candidates: Vec<bcapps_apps::BcApp>,
+    /// The artifact's app names (every source archive).
+    in_artifact: Vec<String>,
+    notes: Vec<String>,
+    /// Where the sources are: a `--bcapps` checkout (nothing to fetch) or the cache folder of the release.
+    root: PathBuf,
+    explicit: bool,
+    offline: bool,
+    url: String,
+    branch: String,
+}
+
+impl BcappsApps {
+    /// The folder of a test app, fetched with the apps it needs that the artifact lacks; and those apps' folders.
+    fn fetch(&self, app: &bcapps_apps::BcApp) -> Result<(PathBuf, Vec<PathBuf>), String> {
+        let names: Vec<&str> = self.in_artifact.iter().map(String::as_str).collect();
+        let in_artifact = |n: &str| bcapps_apps::has_name(&names, n);
+        let need = bcapps_apps::closure(&self.apps, app, &in_artifact);
+        if !self.explicit {
+            let patterns: Vec<String> = need.iter().map(|a| bcapps_apps::folder_pattern(&a.folder)).collect();
+            bcapps::ensure_sources(
+                &self.root,
+                &patterns,
+                self.offline,
+                &self.url,
+                &self.branch,
+                &bcapps::git_sparse_fetch,
+            )
+            .map_err(|e| format!("test app {}: {e}", app.name))?;
+        }
+        let path = bcapps_apps::path_of(&self.root, app);
+        let deps = need[1..].iter().map(|d| bcapps_apps::path_of(&self.root, d)).collect();
+        Ok((path, deps))
+    }
+}
+
+/// Reads which test apps Microsoft's CI runs (the folders of the projects its `Test Apps <COUNTRY>` project tests)
+/// and keeps those the artifact does not hold. Anything that stops it is a note, not an error: the artifact's test
+/// apps still run.
+fn bcapps_apps_of<S: RangeSource>(a: &TestArgs, listing: &Listing<S>) -> BcappsApps {
+    let mut out = BcappsApps {
+        in_artifact: listing.source_apps.clone(),
+        offline: a.no_download,
+        url: std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| bcapps::DEFAULT_URL.to_string()),
+        ..BcappsApps::default()
+    };
+    let (major, minor) = (listing.build.major(), listing.build.minor());
+    out.branch = bcapps::branch(major, minor);
+    let cache_root = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref());
+    let recipe = match bcapps::resolve(
+        a.bcapps_dir.as_deref(),
+        major,
+        minor,
+        &cache_root,
+        a.no_download,
+        &out.url,
+        &bcapps::git_fetch,
+        &bcapps::has_recipe,
+    ) {
+        Ok(s) => s.dir,
+        Err(e) => {
+            out.notes
+                .push(format!("the test apps only in BCApps are not read: {e}"));
+            return out;
+        }
+    };
+    let folders = match bcapps_apps::project_folders(&recipe, &listing.country) {
+        Ok(Some(f)) => f,
+        Ok(None) => return out,
+        Err(e) => {
+            out.notes
+                .push(format!("the test apps only in BCApps are not read: {e}"));
+            return out;
+        }
+    };
+    out.explicit = a.bcapps_dir.is_some();
+    out.root = if out.explicit {
+        recipe
+    } else {
+        bcapps::sources_dir(&cache_root, major, minor)
+    };
+    let names: Vec<String> = folders.iter().map(|f| f.path.clone()).collect();
+    if !out.explicit {
+        let patterns: Vec<String> = names.iter().map(|f| bcapps_apps::app_json_pattern(f)).collect();
+        if let Err(e) = bcapps::ensure_sources(
+            &out.root,
+            &patterns,
+            a.no_download,
+            &out.url,
+            &out.branch,
+            &bcapps::git_sparse_fetch,
+        ) {
+            out.notes
+                .push(format!("the test apps only in BCApps are not read: {e}"));
+            return out;
+        }
+    }
+    let (apps, missing) = bcapps_apps::index(&out.root, &names);
+    let test_folder = |path: &str| folders.iter().find(|f| f.path == path && f.test);
+    for folder in missing.iter().filter_map(|m| test_folder(m)) {
+        out.notes.push(format!(
+            "not in BCApps: {} (a test folder of {} without app.json)",
+            folder.path, folder.project
+        ));
+    }
+    let listed: Vec<&str> = listing.names();
+    let artifact: Vec<&str> = out.in_artifact.iter().map(String::as_str).collect();
+    out.candidates = apps
+        .iter()
+        .filter(|x| test_folder(&x.folder).is_some())
+        .filter(|x| !bcapps_apps::has_name(&listed, &x.name) && !bcapps_apps::has_name(&artifact, &x.name))
+        .cloned()
+        .collect();
+    out.apps = apps;
+    out
 }
 
 /// `al-runner test-microsoft` without an APP (ADR-052 section 2, build step 1); with APPs it is a run with the
@@ -208,6 +358,12 @@ pub fn test_microsoft(a: &TestArgs) -> Result<u8, String> {
     eprintln!("{header}");
     for (name, why) in &ms.set.left_out {
         eprintln!("  left out: {name}: {why}");
+    }
+    if !ms.set.from_bcapps.is_empty() {
+        eprintln!("  from BCApps (not in the artifact): {}", ms.set.from_bcapps.join(", "));
+    }
+    for note in &ms.set.bcapps_notes {
+        eprintln!("  {note}");
     }
     let mut results: Vec<AppResult> = Vec::new();
     for (i, app) in ms.set.apps.iter().enumerate() {

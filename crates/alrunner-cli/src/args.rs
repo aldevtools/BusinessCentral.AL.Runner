@@ -637,7 +637,9 @@ TEST-MICROSOFT
                          Run Microsoft's test apps of a BC build the way Microsoft's CI does, without
                          collecting their paths: the list comes from the build's artifact (the
                          Test/*.Source.zip entries and the country's own), each app is fetched when it
-                         runs, and each runs with --recipe microsoft. Default build: the newest of the
+                         runs, and each runs with --recipe microsoft. Test apps Microsoft's CI runs
+                         that the artifact lacks (the testFolders of BCApps' project, such as AlCosting)
+                         run from their BCApps source, with the apps they need that the artifact lacks. Default build: the newest of the
                          newest BC major (a cached build first, as for `test`); default country w1.
                          Apps without a test codeunit (test libraries) are dependencies, not run; apps
                          named _Exclude_... in the artifact run only when --app names them. One run per

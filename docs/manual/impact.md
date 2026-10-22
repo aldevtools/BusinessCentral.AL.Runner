@@ -1,10 +1,11 @@
 ---
 title: "Impact analysis"
-weight: 9
+weight: 10
 ---
 
 Impact analysis answers one question: what does an extension change in the tests
-of other apps? It is meant for Microsoft's own test apps. It runs the selected
+of other apps? It is meant for Microsoft's own test apps. To run those by the recipe, without
+listing their paths, see [Running Microsoft's tests](microsoft-tests.md). It runs the selected
 tests without the extension, then with it, and lists per test what changed and
 which procedures of the extension ran.
 
@@ -34,7 +35,8 @@ al-runner impact-index check-static APP...
 
 `build` runs the tests once (the same options as `test`, without `--impact-of`) and
 keeps, per test, the events it raised and the tables, pages and reports it used.
-It is never built implicitly. `check-static` checks that static reach covers
+It is never built implicitly. `al-runner impact-index build --from microsoft` builds the
+index of every Microsoft test app of a build; see [Running Microsoft's tests](microsoft-tests.md). `check-static` checks that static reach covers
 everything each test recorded in the cached index (exit 1 on a miss), and reports
 how much more static reach selects.
 

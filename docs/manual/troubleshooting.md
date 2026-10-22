@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting"
-weight: 12
+weight: 13
 ---
 
 ## Many tests are "not run"
@@ -59,9 +59,16 @@ used, and the message names it.
 
 ## `-v: no such file or folder`
 
-The short flags `-v` and `-q` appear in `--help` but are read as app paths in
-`3.0.0-alpha.3`
-([issue 5618](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5618)). Use `--verbose` and `--quiet`.
+`3.0.0-alpha.3` read the short flags `-v` and `-q` as app paths
+([issue 5618](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5618)).
+Update to `3.0.0-alpha.4` or later, or use `--verbose` and `--quiet`.
+
+## The run exits with 3
+
+The apps do not compile. An error the AL compiler gives, such as AL0118 or AL0666
+(a method or property newer than the `runtime` in `app.json`), stopped the run
+before any test. The errors are on stderr and in `compilationErrors` of
+`--output-json`.
 
 ## Two copies of `al-runner`
 
