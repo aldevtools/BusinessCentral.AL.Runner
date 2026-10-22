@@ -499,6 +499,98 @@ impl Stored {
     }
 }
 
+/// The test codeunits a narrow callback sees, as the rule names them.
+#[derive(Debug, Clone, Default)]
+pub struct TestCodeunits {
+    /// (app id in lower case, codeunit id), sorted: [`Current::codeunits`].
+    pub codeunits: Vec<(String, u32)>,
+    /// Each of them as (caller's app index, codeunit id), the form `RunOptions::narrow` answers in.
+    pub by_key: BTreeMap<(String, u32), (usize, u32)>,
+    /// The caller's app index of each app id that has one of them.
+    pub caller: BTreeMap<String, usize>,
+}
+
+impl TestCodeunits {
+    /// The test codeunits of the workspace apps (the caller's app indexes below `workspace`) that the run would run.
+    pub fn of(input: &crate::runtime::NarrowInput, workspace: usize) -> TestCodeunits {
+        let program = input.program;
+        let mut out = TestCodeunits::default();
+        for o in &program.objects {
+            let (Some(&app), Some(id)) = (input.order.get(o.app as usize), o.id) else {
+                continue;
+            };
+            if app >= workspace
+                || !crate::impact_static::is_test_codeunit(o)
+                || input.only.is_some_and(|only| !only.contains(&(app, id)))
+            {
+                continue;
+            }
+            let app_id = program.apps[o.app as usize].id.to_lowercase();
+            out.caller.insert(app_id.clone(), app);
+            out.by_key.insert((app_id, id), (app, id));
+        }
+        out.codeunits = out.by_key.keys().cloned().collect();
+        out
+    }
+
+    /// The answer of a narrow callback for `selection`: `None` (every codeunit) for a full run.
+    pub fn narrow(&self, selection: &Selection) -> Option<Vec<(usize, u32)>> {
+        selection.full.is_none().then(|| {
+            selection
+                .run
+                .iter()
+                .filter_map(|k| self.by_key.get(k).copied())
+                .collect()
+        })
+    }
+}
+
+/// What the test codeunits of a run recorded, for [`Stored::merge`], and the number of tests that ran. `app_id` gives
+/// the app id (lower case) of a caller's app index, `None` for an app whose tests are not stored. `impact_keys` are
+/// the keys the results number (`CorpusRuntime::impact_keys`).
+pub fn ran_codeunits(
+    results: &[crate::runtime::TestResult],
+    impact_keys: &[String],
+    app_id: impl Fn(usize) -> Option<String>,
+) -> (Vec<StoredCodeunit>, usize) {
+    let mut ran: BTreeMap<(String, u32), StoredCodeunit> = BTreeMap::new();
+    let mut tests = 0;
+    for r in results {
+        let Some(app) = app_id(r.app) else {
+            continue;
+        };
+        tests += 1;
+        let c = ran.entry((app.clone(), r.codeunit)).or_insert_with(|| StoredCodeunit {
+            app,
+            id: r.codeunit,
+            name: r.codeunit_name.clone(),
+            ..Default::default()
+        });
+        c.keys
+            .extend(r.impact.iter().filter_map(|&k| impact_keys.get(k as usize).cloned()));
+        c.entered.extend(r.entered.iter().cloned());
+        c.dotnet |= r.dotnet;
+        c.stubbed |= !r.stubs.is_empty();
+        // A test refused while it ran, stopped by the time limit or ended by a panic is not run (`NotRun`): what its
+        // codeunit recorded is not all it would reach.
+        if matches!(r.outcome, Outcome::NotRun(_)) {
+            c.ended = Ended::Cut;
+        }
+        c.tests.push((r.test.clone(), r.outcome.clone()));
+    }
+    let ran = ran
+        .into_values()
+        .map(|mut c| {
+            c.keys.sort();
+            c.keys.dedup();
+            c.entered.sort();
+            c.entered.dedup();
+            c
+        })
+        .collect();
+    (ran, tests)
+}
+
 /// The key of object `oi` of `program` (as [`ObjectFacts::key`] makes it).
 pub fn object_key(program: &al_ir::Program, oi: usize) -> Option<String> {
     let o = program.objects.get(oi)?;

@@ -1224,6 +1224,8 @@ fn test_inner(
             // `--tdd` changes what compiles (ADR-051 decision 9), so it is part of the key.
             let target_key = format!("{:?} {}", chosen.target, a.execute);
             let target_key = format!("{target_key} tdd={}", a.tdd);
+            // `affectedOnly` (ADR-050) needs a compile that hashed each object.
+            let target_key = format!("{target_key} affected={}", a.affected);
             let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
@@ -1335,7 +1337,12 @@ fn test_inner(
     results.sort_by_key(|r| (r.app, r.codeunit));
     // `--affected`: the stored result for the next run is written; the skipped codeunits keep their stored outcomes
     // and are reported apart (ADR-050 decisions 9 to 11).
-    let affected = affected.and_then(|af| af.finish(rt.results(), rt.impact_keys()));
+    // A cancelled serve request leaves the stored result as it was (decision 10).
+    let cancelled = warm
+        .as_ref()
+        .and_then(|w| w.cancel.as_ref())
+        .is_some_and(|c| c.load(std::sync::atomic::Ordering::SeqCst));
+    let affected = affected.and_then(|af| af.finish(rt.results(), rt.impact_keys(), !cancelled));
     let mut counts = Counts::of(results.iter().copied());
     if let Some(r) = &affected {
         counts.still_failing = r.still_failing().len();

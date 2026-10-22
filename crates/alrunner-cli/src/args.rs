@@ -563,7 +563,9 @@ SERVE
                          refused. A runTests request carries
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
-                         tdd (`serve --tdd` makes it the default).
+                         tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
+                         strictEnvironment (as --affected and its options; the summary gets `selection`).
+    --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 
 DEBUG
@@ -772,6 +774,22 @@ fn parse_warm(mut it: impl Iterator<Item = String>) -> Result<Command, String> {
     Ok(Command::Warm(Box::new(a)))
 }
 
+/// The daemon option `--affected-store FILE` of `al-runner serve` (ADR-050 decision 10), taken out of `daemon`: where
+/// the requests with `affectedOnly` read and write the stored result. The rest are options of `al-runner test`.
+pub fn split_affected_store(daemon: &[String]) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let mut rest = Vec::new();
+    let mut store = None;
+    let mut it = daemon.iter();
+    while let Some(a) = it.next() {
+        if a == "--affected-store" {
+            store = Some(PathBuf::from(it.next().ok_or("--affected-store needs a value")?));
+        } else {
+            rest.push(a.clone());
+        }
+    }
+    Ok((rest, store))
+}
+
 /// `al-runner serve [--protocol 2] [OPTIONS]`: the options are those of `al-runner test` that do not depend on a request;
 /// they are checked with its parser and handed to every run.
 fn parse_serve(args: Vec<String>) -> Result<Command, String> {
@@ -809,7 +827,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     }
     // A throw-away parse tells a good option from a bad one, and keeps out what only a request decides.
     let mut probe = vec!["test".to_string(), "APP".to_string()];
-    probe.extend(daemon.iter().cloned());
+    probe.extend(split_affected_store(&daemon)?.0);
     let Command::Test(t) = parse(probe)? else {
         return Err("al-runner serve: options of `al-runner test` only".into());
     };

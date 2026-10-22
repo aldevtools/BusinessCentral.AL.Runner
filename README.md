@@ -487,7 +487,8 @@ load it.
   CI). The other tests keep their stored outcome: they are counted as skipped, never as passed,
   and one that failed last time keeps the exit code at 1. A change the rule cannot follow
   (an added object, `app.json`, a dependency app) runs everything and says why.
-  `--include-failing` also runs every test that did not pass last time. Not in `serve` yet.
+  `--include-failing` also runs every test that did not pass last time. In `serve`: the
+  `affectedOnly` and `includeFailing` fields of `runTests`.
 - Only three targets are built: Linux x64, Windows x64 and macOS arm64.
 
 **Report problems** as a GitHub issue, using the "Alpha feedback" template.

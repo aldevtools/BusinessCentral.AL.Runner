@@ -384,3 +384,202 @@ fn flags_that_cannot_go_with_affected_are_refused() {
         assert_eq!(code(&o), 2, "{args:?}: {}", text(&o));
     }
 }
+
+// ---- serve: the request fields `affectedOnly`, `includeFailing` and `strictEnvironment` (ADR-050 part 4) ----
+
+struct Server {
+    child: std::process::Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl Server {
+    fn start(extra: &[&str]) -> Server {
+        use std::process::Stdio;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+            .arg("serve")
+            .args(extra)
+            .env("AL_CHECK_THREADS", "2")
+            .env("AL_LOWER_THREADS", "2")
+            .env("AL_TEST_THREADS", "2")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start al-runner serve");
+        let stdin = child.stdin.take();
+        let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut s = Server { child, stdin, stdout };
+        assert_eq!(s.line()["ready"], true);
+        s
+    }
+
+    fn send(&mut self, v: Value) {
+        use std::io::Write;
+        let stdin = self.stdin.as_mut().unwrap();
+        writeln!(stdin, "{v}").unwrap();
+        stdin.flush().unwrap();
+    }
+
+    fn line(&mut self) -> Value {
+        use std::io::BufRead;
+        let mut s = String::new();
+        assert!(self.stdout.read_line(&mut s).unwrap() > 0, "the server closed stdout");
+        serde_json::from_str(&s).unwrap_or_else(|e| panic!("{e}: {s}"))
+    }
+
+    /// The `test` lines and the summary (or the error) of the next request.
+    fn request(&mut self, v: Value) -> (Vec<Value>, Value) {
+        self.send(v);
+        let mut tests = Vec::new();
+        loop {
+            let l = self.line();
+            if l["type"] == "summary" || l.get("error").is_some() {
+                return (tests, l);
+            }
+            if l["type"] == "test" {
+                tests.push(l);
+            }
+        }
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        let _ = self.child.wait();
+    }
+}
+
+fn names(tests: &[Value]) -> Vec<String> {
+    let mut n: Vec<String> = tests
+        .iter()
+        .map(|t| t["name"].as_str().unwrap_or_default().to_string())
+        .collect();
+    n.sort();
+    n
+}
+
+fn serve_store(dir: &Path) -> Vec<String> {
+    vec![
+        "--no-download".into(),
+        "--no-test-data".into(),
+        "--affected-store".into(),
+        s(&dir.join("store.json.gz")),
+    ]
+}
+
+#[test]
+fn serve_selects_by_the_stored_result_and_a_restarted_server_reads_it() {
+    // Test plan 1, 2 and 12 in serve.
+    let dir = scratch("serve_narrowed");
+    write_app(&dir, false);
+    let app = s(&dir.join("app"));
+    let opts = serve_store(&dir);
+    let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+    let mut server = Server::start(&opts);
+    let req = serde_json::json!({"command": "runTests", "sourcePaths": [app], "affectedOnly": true});
+    let (tests, summary) = server.request(req.clone());
+    assert_eq!(tests.len(), 2, "{summary}");
+    assert_eq!(summary["selection"]["forcedFull"], true, "{summary}");
+    assert_eq!(summary["selection"]["reason"], "no stored result", "{summary}");
+    edit(&dir, "LibA.Codeunit.al", "exit(1);", "exit(0 + 1);");
+    let (tests, summary) = server.request(req.clone());
+    assert_eq!(names(&tests), vec!["Codeunit50110.UsesA"], "{summary}");
+    assert_eq!(summary["selection"]["mode"], "affected", "{summary}");
+    assert_eq!(summary["selection"]["ran"], 1, "{summary}");
+    assert_eq!(summary["selection"]["skipped"], 1, "{summary}");
+    assert_eq!(
+        summary["selection"]["changedObjects"],
+        serde_json::json!(["codeunit 50100 Lib A"]),
+        "{summary}"
+    );
+    assert_eq!(summary["exitCode"], 0, "{summary}");
+    // A request without affectedOnly has no selection.
+    let (_, summary) = server.request(serde_json::json!({"command": "runTests", "sourcePaths": [app]}));
+    assert!(summary.get("selection").is_none(), "{summary}");
+    drop(server);
+
+    edit(&dir, "LibB.Codeunit.al", "exit(2);", "exit(1 + 1);");
+    let mut server = Server::start(&opts);
+    let (tests, summary) = server.request(req);
+    assert_eq!(names(&tests), vec!["Codeunit50111.UsesB"], "{summary}");
+    assert_eq!(summary["selection"]["forcedFull"], false, "{summary}");
+}
+
+#[test]
+fn serve_keeps_a_skipped_failure_red_and_include_failing_reruns_it() {
+    // Test plan 9 and 14 in serve.
+    let dir = scratch("serve_failing");
+    write_app(&dir, true);
+    let app = s(&dir.join("app"));
+    let opts = serve_store(&dir);
+    let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+    let mut server = Server::start(&opts);
+    let req = serde_json::json!({"command": "runTests", "sourcePaths": [app], "affectedOnly": true});
+    server.request(req.clone());
+    edit(&dir, "LibA.Codeunit.al", "exit(1);", "exit(0 + 1);");
+    let (tests, summary) = server.request(req);
+    assert_eq!(names(&tests), vec!["Codeunit50110.UsesA"], "{summary}");
+    assert_eq!(summary["selection"]["skippedFailing"], 1, "{summary}");
+    assert_eq!(summary["exitCode"], 1, "{summary}");
+    let (tests, summary) = server.request(serde_json::json!({
+        "command": "runTests", "sourcePaths": [app], "affectedOnly": true,
+        "includeFailing": true, "strictEnvironment": true
+    }));
+    assert_eq!(names(&tests), vec!["Codeunit50112.AlwaysRed"], "{summary}");
+    assert_eq!(summary["selection"]["skippedFailing"], 0, "{summary}");
+}
+
+#[test]
+fn serve_refuses_test_and_exclude_tests_with_affected_only_and_warns_on_execute() {
+    let dir = scratch("serve_refused");
+    write_app(&dir, false);
+    let app = s(&dir.join("app"));
+    let opts = serve_store(&dir);
+    let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+    let mut server = Server::start(&opts);
+    for extra in [
+        serde_json::json!({"test": "UsesA"}),
+        serde_json::json!({"excludeTests": ["UsesA"]}),
+    ] {
+        let mut req = serde_json::json!({"command": "runTests", "sourcePaths": [app], "affectedOnly": true});
+        for (k, v) in extra.as_object().unwrap() {
+            req[k] = v.clone();
+        }
+        let (_, l) = server.request(req);
+        assert!(
+            l["error"].as_str().is_some_and(|e| e.contains("cannot be combined")),
+            "{l}"
+        );
+    }
+    // Without affectedOnly, includeFailing changes nothing and says so.
+    let (_, summary) = server.request(serde_json::json!({
+        "command": "runTests", "sourcePaths": [app], "includeFailing": true
+    }));
+    assert!(summary.get("selection").is_none(), "{summary}");
+    assert!(summary["warnings"].to_string().contains("includeFailing"), "{summary}");
+    server.send(serde_json::json!({"command": "execute", "code": "Message('x');", "affectedOnly": true}));
+    let l = server.line();
+    assert!(l["warnings"].to_string().contains("affectedOnly"), "{l}");
+}
+
+#[test]
+fn a_serve_store_option_alone_is_accepted_and_the_flags_are_not() {
+    let dir = scratch("serve_options");
+    for flag in ["--affected", "--include-failing", "--strict-environment"] {
+        let o = alrunner(&["serve", flag]);
+        assert_eq!(code(&o), 2, "{flag}: {}", text(&o));
+    }
+    let store = s(&dir.join("store.json.gz"));
+    let o = alrunner(&["serve", "--affected-store"]);
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    // With the store option the server starts (and ends with its input).
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args(["serve", "--no-download", "--affected-store", store.as_str()])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("\"ready\":true"));
+}

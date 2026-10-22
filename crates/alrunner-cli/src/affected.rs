@@ -9,7 +9,7 @@
 use crate::apps::AppInput;
 use crate::args::TestArgs;
 use al_testrun::Outcome;
-use al_testrun::affected::{Current, Ended, Header, ObjectFacts, Selection, Stored, StoredCodeunit};
+use al_testrun::affected::{Current, Header, ObjectFacts, Selection, Stored, TestCodeunits, ran_codeunits};
 use al_testrun::runtime::{Narrow, NarrowInput, TestResult};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -289,96 +289,40 @@ impl Affected {
         let stored = self.stored.clone();
         let (include_failing, workspace) = (self.include_failing, self.workspace);
         Narrow(Arc::new(move |input: &NarrowInput| {
-            let program = input.program;
-            let mut caller: BTreeMap<String, usize> = BTreeMap::new();
-            let mut by_key: BTreeMap<(String, u32), (usize, u32)> = BTreeMap::new();
-            for o in &program.objects {
-                let (Some(&app), Some(id)) = (input.order.get(o.app as usize), o.id) else {
-                    continue;
-                };
-                if app >= workspace
-                    || !al_testrun::impact_static::is_test_codeunit(o)
-                    || input.only.is_some_and(|only| !only.contains(&(app, id)))
-                {
-                    continue;
-                }
-                let app_id = program.apps[o.app as usize].id.to_lowercase();
-                caller.insert(app_id.clone(), app);
-                by_key.insert((app_id, id), (app, id));
-            }
-            let codeunits: Vec<(String, u32)> = by_key.keys().cloned().collect();
+            let tc = TestCodeunits::of(input, workspace);
             let objects = al_testrun::affected::facts(input.lowered);
             let selection = match &stored {
                 Ok(s) => s.select(&Current {
                     header: &header,
                     objects: &objects,
-                    codeunits: &codeunits,
+                    codeunits: &tc.codeunits,
                     include_failing,
                     stubbed: &s.stubbed(),
                 }),
                 Err(reason) => Selection {
                     full: Some(reason.clone()),
-                    run: codeunits.iter().cloned().collect(),
+                    run: tc.codeunits.iter().cloned().collect(),
                     changed: Vec::new(),
                 },
             };
-            let only = selection
-                .full
-                .is_none()
-                .then(|| selection.run.iter().filter_map(|k| by_key.get(k).copied()).collect());
+            let only = tc.narrow(&selection);
             *decided.lock().expect("the decision") = Some(Decided {
                 selection,
                 objects,
-                codeunits,
-                caller,
+                codeunits: tc.codeunits,
+                caller: tc.caller,
             });
             only
         }))
     }
 
-    /// After the run: the stored result for the next run is written (a warning when it cannot be), and the report
-    /// is made. `None` when the run stopped before its compile was done. `impact_keys` are the keys
-    /// `TestResult::impact` numbers.
-    pub fn finish(self, results: &[TestResult], impact_keys: &[String]) -> Option<Report> {
+    /// After the run: the stored result for the next run is written when `store` (a warning when it cannot be; a
+    /// cancelled run writes nothing), and the report is made. `None` when the run stopped before its compile was
+    /// done. `impact_keys` are the keys `TestResult::impact` numbers.
+    pub fn finish(self, results: &[TestResult], impact_keys: &[String], store: bool) -> Option<Report> {
         let d = self.decided.lock().expect("the decision").take()?;
         let id_of: BTreeMap<usize, &String> = d.caller.iter().map(|(id, &app)| (app, id)).collect();
-        let mut ran: BTreeMap<(String, u32), StoredCodeunit> = BTreeMap::new();
-        let mut ran_tests = 0;
-        for r in results {
-            let Some(app_id) = id_of.get(&r.app) else {
-                continue;
-            };
-            ran_tests += 1;
-            let c = ran
-                .entry(((*app_id).clone(), r.codeunit))
-                .or_insert_with(|| StoredCodeunit {
-                    app: (*app_id).clone(),
-                    id: r.codeunit,
-                    name: r.codeunit_name.clone(),
-                    ..Default::default()
-                });
-            c.keys
-                .extend(r.impact.iter().filter_map(|&k| impact_keys.get(k as usize).cloned()));
-            c.entered.extend(r.entered.iter().cloned());
-            c.dotnet |= r.dotnet;
-            c.stubbed |= !r.stubs.is_empty();
-            // A test refused while it ran, stopped by the time limit or ended by a panic is not run (`NotRun`): what
-            // its codeunit recorded is not all it would reach.
-            if matches!(r.outcome, Outcome::NotRun(_)) {
-                c.ended = Ended::Cut;
-            }
-            c.tests.push((r.test.clone(), r.outcome.clone()));
-        }
-        let ran: Vec<StoredCodeunit> = ran
-            .into_values()
-            .map(|mut c| {
-                c.keys.sort();
-                c.keys.dedup();
-                c.entered.sort();
-                c.entered.dedup();
-                c
-            })
-            .collect();
+        let (ran, ran_tests) = ran_codeunits(results, impact_keys, |app| id_of.get(&app).map(|id| (*id).clone()));
         let before = self.stored.unwrap_or_default();
         let skipped: Vec<Skipped> = before
             .codeunits
@@ -396,7 +340,7 @@ impl Affected {
             })
             .collect();
         let after = before.merge(self.header, d.objects, &d.codeunits, ran, d.selection.full.is_some());
-        if let Err(e) = write(&self.store, &after) {
+        if store && let Err(e) = write(&self.store, &after) {
             eprintln!("warning: the stored result of --affected was not written: {e}");
         }
         Some(Report {
@@ -583,6 +527,31 @@ mod tests {
             assert_ne!(before, options_of(&line(&one)), "{flag}: new content, same name");
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_cancelled_run_writes_no_stored_result() {
+        // Test plan 17: a cancelled serve request leaves the stored result as it was.
+        let dir = std::env::temp_dir().join(format!("alrunner-affected-cancel-{}", std::process::id()));
+        let store = dir.join("store.json.gz");
+        let make = || Affected {
+            store: store.clone(),
+            header: Header::default(),
+            stored: Err(NO_STORED_RESULT.into()),
+            include_failing: false,
+            workspace: 1,
+            decided: Arc::new(Mutex::new(Some(Decided {
+                selection: Selection::default(),
+                objects: Vec::new(),
+                codeunits: Vec::new(),
+                caller: BTreeMap::new(),
+            }))),
+        };
+        assert!(make().finish(&[], &[], false).is_some());
+        assert!(!store.exists());
+        assert!(make().finish(&[], &[], true).is_some());
+        assert!(store.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
