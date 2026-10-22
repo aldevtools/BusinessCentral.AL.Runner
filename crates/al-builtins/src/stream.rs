@@ -78,6 +78,9 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// does not pin (`Gate::DocxMediaRezippedFrom29`).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
 
+/// The mark on the Tenant Media Content of a .jpg file holding a PNG (`media::jpg_holding_png`): BC re-encodes it.
+pub const MEDIA_JPG_HOLDING_PNG: &str = "Media.ImportFile of a .jpg holding a PNG";
+
 /// The mark a stream write puts on a Blob of a record read without `CalcFields` while the stored content is longer than what
 /// was written: what the Blob holds then is not pinned (AL Runner issue 5681). A write that reaches the stored content's end
 /// clears it (`write_bytes`): both readings agree then (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:
@@ -112,6 +115,13 @@ pub fn render_pending_error(report: &str) -> Signal {
     if report == MEDIA_REENCODED {
         return Signal::Unsupported(
             "the bytes Media.ExportStream gives on a major that re-encodes an imported PNG (not pinned)".into(),
+        );
+    }
+    if report == MEDIA_JPG_HOLDING_PNG {
+        return Signal::Unsupported(
+            "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
+             does not pin the bytes)"
+                .into(),
         );
     }
     if report == MEDIA_DOCX_REZIPPED {

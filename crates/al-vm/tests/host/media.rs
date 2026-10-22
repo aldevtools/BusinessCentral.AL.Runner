@@ -284,6 +284,7 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
         .unwrap();
     let mut files = al_host::MemFileSystem::default();
     files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
+    files.write("\\TEMP\\p.jpg", &png()).unwrap();
     files.write("\\TEMP\\b.png", &png()).unwrap();
     files.write("\\TEMP\\c.png", &jpeg()).unwrap();
     files.write("\\TEMP\\d.gif", &png()).unwrap();
@@ -324,6 +325,28 @@ fn import_file_of_a_png_file_takes_its_assumption() {
     ));
     assert_eq!(r.unwrap(), "Yes|P|image/png|4x5|\\TEMP\\b.png");
     assert!(take_hits().contains(&Assumption::MediaImportFilePng));
+}
+
+// onprem media/ReMediaJpgHoldingPng.al:108 RE_MediaAndMediaSet_ImportFile_JpgHoldingPng: a .jpg file holding a PNG is
+// image/jpeg (the name decides) with the PNG's size, in a Media and in a MediaSet. BC stores re-encoded content (not
+// pinned): a look at the Tenant Media Content is refused.
+#[test]
+fn import_file_of_a_jpg_holding_a_png_takes_the_mime_type_from_the_name() {
+    let r = import_file(&format!(
+        "begin id := Rec.Picture.ImportFile('\\TEMP\\p.jpg', 'P'); {DESCRIBE} end;"
+    ));
+    assert_eq!(r.unwrap(), "Yes|P|image/jpeg|4x5|\\TEMP\\p.jpg");
+    let r = import_file(
+        "begin Rec.Images.ImportFile('\\TEMP\\p.jpg', 'Item picture'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+         T.Get(Rec.Images.Item(1)); exit(Format(Rec.Images.Count()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + \
+         Format(T.Width) + 'x' + Format(T.Height)); end;",
+    );
+    assert_eq!(r.unwrap(), "1|Item picture|image/jpeg|4x5");
+    let r = import_file(
+        "begin id := Rec.Picture.ImportFile('\\TEMP\\p.jpg', 'P'); Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); \
+         exit(Format(T.Content.Length())); end;",
+    );
+    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 #[test]

@@ -74,6 +74,12 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
 }
 
 /// The size a PNG header gives (`IHDR` at byte 16: width and height, big endian).
+/// A media whose name made it `image/jpeg` while it holds a PNG (ReMediaJpgHoldingPng.al:108): BC stores the picture
+/// re-encoded (111 bytes on Linux, other bytes on Windows, the test ignores both), so its Tenant Media Content is not pinned.
+pub fn jpg_holding_png(o: &MediaObject) -> bool {
+    o.mime == "image/jpeg" && png_size(&o.bytes).is_some()
+}
+
 fn png_size(b: &[u8]) -> Option<(i32, i32)> {
     if b.len() < 24 || b[..8] != PNG_SIGNATURE {
         return None;
@@ -394,6 +400,9 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         .unwrap_or_default();
     let (mime, (width, height)) = match (ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
         ("jpg", Some(size), _) => ("image/jpeg", size),
+        // A .jpg holding a PNG: the name decides the MIME type, the PNG data the size (onprem media/ReMediaJpgHoldingPng.al:108,
+        // 'media tenant'). Its stored content is re-encoded, not pinned (`jpg_holding_png`).
+        ("jpg", None, Some(size)) if name.ends_with(".jpg") => ("image/jpeg", size),
         ("png", _, Some(size)) => {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
             ("image/png", size)
@@ -451,6 +460,8 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
     let (mime, (width, height)) = match (ext, jpeg_size(&bytes), png_size(&bytes)) {
         (e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
+        // ReMediaJpgHoldingPng.al:108 'mediaset item 1 tenant': as for Media.ImportFile.
+        ("jpg", None, Some(size)) => ("image/jpeg", size),
         ("PNG", _, Some(size)) => ("image/png", size),
         (e, _, Some(size)) if e.eq_ignore_ascii_case("png") => {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
