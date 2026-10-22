@@ -165,7 +165,13 @@ fn an_export_reads_a_linked_element_in_the_order_and_through_the_filter_of_its_v
         al_testkit::text(r),
         r#"<Root><Head Code="A"><Line Code="L2" /><Line Code="L3" /><Line Code="L1" /></Head><Head Code="B"><Line Code="L1" /></Head></Root>"#
     );
-    let r = run(&export_src("", "SourceTableView = sorting(HeadCode, Seq) where(Show = const(true));"), "F");
+    let r = run(
+        &export_src(
+            "",
+            "SourceTableView = sorting(HeadCode, Seq) where(Show = const(true));",
+        ),
+        "F",
+    );
     assert_eq!(
         al_testkit::text(r),
         r#"<Root><Head Code="A"><Line Code="L3" /><Line Code="L1" /></Head><Head Code="B"><Line Code="L1" /></Head></Root>"#
@@ -186,7 +192,10 @@ fn an_export_reads_an_element_that_is_not_linked_in_the_order_of_its_view() {
         al_testkit::text(r),
         r#"<Root><Head Code="B"><Line Code="L1" /></Head><Head Code="A"><Line Code="L1" /><Line Code="L2" /><Line Code="L3" /></Head></Root>"#
     );
-    let r = run(&export_src("SourceTableView = sorting(Rank) order(descending);", ""), "F");
+    let r = run(
+        &export_src("SourceTableView = sorting(Rank) order(descending);", ""),
+        "F",
+    );
     assert!(al_testkit::text(r).starts_with(r#"<Root><Head Code="A">"#));
 }
 

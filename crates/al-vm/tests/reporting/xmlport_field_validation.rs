@@ -273,7 +273,10 @@ fn a_field_attribute_without_field_validate_follows_default_fields_validation() 
     }
     let r = run(&attr_src("DefaultFieldsValidation = false;", "", ATTR_DOC), "F");
     assert_eq!(al_testkit::text(r), "21:t21:5:,");
-    let r = run(&attr_src("DefaultFieldsValidation = false;", "FieldValidate = Yes;", ATTR_DOC), "F");
+    let r = run(
+        &attr_src("DefaultFieldsValidation = false;", "FieldValidate = Yes;", ATTR_DOC),
+        "F",
+    );
     assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5:,");
 }
 
@@ -287,7 +290,14 @@ fn a_validated_field_attribute_checks_the_table_relation() {
         al_testkit::text(r),
         "error The field Rel of table XA Row contains a value (NOPE) that cannot be found in the related table (XA Rel). DB:PrimRecordNotFound;"
     );
-    let r = run(&attr_src("DefaultFieldsValidation = false;", "", r#"<Root><Row Id="1" Rel="NOPE"/></Root>"#), "F");
+    let r = run(
+        &attr_src(
+            "DefaultFieldsValidation = false;",
+            "",
+            r#"<Root><Row Id="1" Rel="NOPE"/></Root>"#,
+        ),
+        "F",
+    );
     assert_eq!(al_testkit::text(r), "1::0:NOPE,");
 }
 
@@ -301,7 +311,10 @@ fn a_blank_field_attribute_with_a_table_relation_is_not_validated() {
 #[test]
 fn a_blank_validated_field_attribute_without_a_table_relation_is_refused() {
     // Only fields with a TableRelation are pinned for a blank attribute (BjXmlPortDefaultValidation.al:625).
-    let r = run(&attr_src("", "FieldValidate = Yes;", r#"<Root><Row Id="1" Txt=""/></Root>"#), "F");
+    let r = run(
+        &attr_src("", "FieldValidate = Yes;", r#"<Root><Row Id="1" Txt=""/></Root>"#),
+        "F",
+    );
     assert!(
         matches!(&r, Err(Signal::Unsupported(m)) if m.contains("blank field attribute Txt")),
         "{r:?}"

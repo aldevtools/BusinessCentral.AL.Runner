@@ -538,7 +538,10 @@ impl Session {
         // An import ignores the SourceTableView of an element that is not linked (platform/lt-ag-contoso/AgXmlPortImport.al:62-80);
         // a filter on a linked one is not pinned on import.
         if let Some(n) = schema.xp().nodes.iter().find(|n| {
-            n.link_node.is_some() && n.source_view.as_deref().is_some_and(|v| v.to_ascii_lowercase().contains("where"))
+            n.link_node.is_some()
+                && n.source_view
+                    .as_deref()
+                    .is_some_and(|v| v.to_ascii_lowercase().contains("where"))
         }) {
             return unsupported(format!(
                 "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
@@ -1469,7 +1472,9 @@ impl Session {
             let r = rec.borrow();
             for &(own, _) in &n.link_fields {
                 if t.keys[0].contains(&own) {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLaterChildKeepsKeyLink);
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XmlportLaterChildKeepsKeyLink,
+                    );
                     fresh[own] = r.fields[own].clone();
                 }
             }
