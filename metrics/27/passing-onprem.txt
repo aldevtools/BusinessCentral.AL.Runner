@@ -43,6 +43,7 @@
 61210 UserDeleteOrder_DeleteAllOnBeforeDeleteSubscriberStillSeesUserProperty
 61210 UserDeleteOrder_OnAfterDeleteSubscriberNoLongerSeesUserProperty
 61210 UserDeleteOrder_OnBeforeDeleteSubscriberStillSeesUserProperty
+61229 WebService_InsertModifyDelete
 61230 EnvironmentInformation_GetEnvironmentSetting_IsEmptyForAnyName
 61230 ServerSetting_ApiSubscriptionLimits_AsConfigured
 61230 ServerSetting_Flags_AsConfigured
@@ -65,6 +66,8 @@
 61261 PlatformTable_ObjectOptions
 61261 PlatformTable_PrivacyNotice
 61261 PlatformTable_TenantLicenseState
+61261 PlatformTable_TenantReportLayoutSelection
+61261 PlatformTable_WebService
 61267 P110_CreateTwiceWithoutClose
 61267 P110_InvalidPaths
 61268 P110_Copy
@@ -76,6 +79,7 @@
 61270 P110_CreateTempFile_ReuseVar
 61275 Erase_EmptyName_FullErrorText
 61276 Exists_Folder_And_Blank_Names
+61281 WebService_Content
 61289 PSuperUser_DisableLastSuper
 61289 PSuperUser_RemoveLastSuperAssignment
 61290 Database_SID_Shape
