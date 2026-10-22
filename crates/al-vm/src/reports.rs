@@ -2512,13 +2512,10 @@ impl Session {
             None => (None, None),
         };
         let language = variable_language.unwrap_or(self.global_language);
-        let pinned = match (self.global_language, variable_language, variable_region.as_deref()) {
-            (1033, None | Some(1033), None) => true,
-            (1031, None, None) => true,
-            (1033, Some(1031), None) => true,
-            (1033, None | Some(1033), Some("de-DE")) => true,
-            _ => false,
-        };
+        let pinned = matches!(
+            (self.global_language, variable_language, variable_region.as_deref()),
+            (1033, None | Some(1033), None | Some("de-DE")) | (1031, None, None) | (1033, Some(1031), None)
+        );
         if !pinned {
             return unsupported(format!(
                 "Report.SaveAs with the session language {}, the report variable's Language {} and FormatRegion {} (only en-US, \
