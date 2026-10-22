@@ -1319,7 +1319,7 @@ impl Session {
         if rec.borrow().temp_id.is_none() {
             for v in &mut row {
                 if let Value::Blob(b) = v {
-                    *b = al_builtins::stream::copy_blob(b, false);
+                    *b = al_builtins::stream::copy_blob_db_row(b);
                 }
             }
         } else {

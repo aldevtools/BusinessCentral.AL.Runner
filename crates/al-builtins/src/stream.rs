@@ -53,6 +53,13 @@ pub struct BlobBuf {
     /// such a Blob of the same record is refused (misc/lt-probes-needed-5/PnE06Media.al:66-84 against streams/
     /// lt-stream-read-write-media/P102Media.al:24-41, see `refuse_media_import_from_own_blob` in al-vm).
     pub inserted: bool,
+    /// The buffer is the unloaded copy a read of a database row handed out (`copy_blob_db_row`): the first stream write
+    /// after `CreateOutStream` replaces the stored content (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222-350).
+    pub db_row: bool,
+    /// `CreateOutStream` was called on an unloaded database-row Blob and nothing was written yet: the next write empties
+    /// the buffer first (BlobCalcFieldsLength.al:222 'new' over 'a long stored value' is 'new'); until then the stored value
+    /// stays (:350 RF_GetWithoutCalcFields_OutStreamNotWritten_Modify).
+    pub first_write_truncates: bool,
 }
 
 thread_local! {
@@ -73,12 +80,28 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// BlobCalcFields_UnsavedContent_Result, BlobCalcFields_AfterModifyAndClear_Result).
 pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
 
+/// The mark a stream write puts on a Blob when `CalcFields` (or another load) came between `CreateOutStream` on the unloaded
+/// database-row Blob and the first write: whether the write still replaces the content is not pinned.
+pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields, loaded before the write";
+
+/// Whether a mark is one of the two unpinned Blob writes above (they refuse any look, not only a report column).
+pub fn is_unloaded_write_mark(what: &str) -> bool {
+    what == UNLOADED_WRITE || what == UNLOADED_THEN_LOADED
+}
+
 /// The refusal for a look at the output of a report that was run for its effects only (ADR-040).
 pub fn render_pending_error(report: &str) -> Signal {
     if report == UNLOADED_WRITE {
         return Signal::Unsupported(
             "a Blob written through a stream after the record was read without CalcFields, shorter than its stored content \
              (whether the stored bytes stay after the new ones is not pinned)"
+                .into(),
+        );
+    }
+    if report == UNLOADED_THEN_LOADED {
+        return Signal::Unsupported(
+            "a Blob written through a stream created before CalcFields loaded it, after a read without CalcFields \
+             (whether the write replaces the content is not pinned)"
                 .into(),
         );
     }
@@ -166,6 +189,8 @@ pub fn new_blob() -> BlobRef {
         written: false,
         render_pending: None,
         inserted: false,
+        db_row: false,
+        first_write_truncates: false,
     }))
 }
 
@@ -190,13 +215,33 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         written: false,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
+        db_row: false,
+        first_write_truncates: false,
     }))
+}
+
+/// The unloaded copy a read of a database row hands out (`BlobBuf::db_row`).
+pub fn copy_blob_db_row(b: &BlobRef) -> BlobRef {
+    let c = copy_blob(b, false);
+    c.borrow_mut().db_row = true;
+    c
 }
 
 /// Writes `bytes` at the buffer's write position (over what is there, then past the end) and
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     let mut buf = b.borrow_mut();
+    if buf.first_write_truncates {
+        buf.first_write_truncates = false;
+        if buf.loaded {
+            buf.render_pending = Some(UNLOADED_THEN_LOADED.into());
+        } else {
+            // BlobCalcFieldsLength.al:222, :250, :270: the record held none of the stored content, the write is all of it.
+            buf.bytes.clear();
+            buf.write_pos = 0;
+            buf.render_pending = None;
+        }
+    }
     let at = buf.write_pos.min(buf.bytes.len());
     let overlap = bytes.len().min(buf.bytes.len() - at);
     buf.bytes[at..at + overlap].copy_from_slice(&bytes[..overlap]);
@@ -509,11 +554,22 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
-        // That case writes over content the record holds. A record read without CalcFields holds none, but the row does:
-        // the Blob is marked until a write reaches the stored content's end (`UNLOADED_WRITE`). A mark from an earlier
-        // stream stays, as the stored bytes still decide what the Blob holds.
+        if !buf.loaded && buf.db_row {
+            // A record read from the database without CalcFields: the stream replaces the stored content at its first
+            // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
+            // until then (:350 'after create' is the stored size).
+            buf.first_write_truncates = true;
+            buf.write_pos = 0;
+            buf.refetch = false;
+            drop(buf);
+            set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+            return Ok(Value::Null);
+        }
+        // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
+        // one) is not pinned: it is marked until a write reaches the stored content's end (`UNLOADED_WRITE`). A mark from an
+        // earlier stream stays, as the stored bytes still decide what the Blob holds.
         let unloaded_content = !buf.loaded && !buf.bytes.is_empty();
-        if unloaded_content || buf.render_pending.as_deref() == Some(UNLOADED_WRITE) {
+        if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
         } else {
             buf.render_pending = None;
@@ -549,6 +605,8 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         written: false,
         render_pending: None,
         inserted: false,
+        db_row: false,
+        first_write_truncates: false,
     });
     set_stream(
         &a[0],
@@ -616,8 +674,11 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
         }
-        let pinned =
-            matches!(n, 4 | 5 | 8 | 12) || (matches!(n, 1 | 2) && c.gate(al_version::Gate::ProbedValuesDifferFrom29));
+        // 2, 3, 6 and 19 bytes of text on every major: record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:250 ('ab' 8),
+        // :222 ('new' 9, 'a long stored value' 25), :350 ('stored' 12). 40 bytes of repeated digits are 19 there (:470):
+        // a compressed size, so a length alone does not decide it.
+        let pinned = matches!(n, 2 | 3 | 4 | 5 | 6 | 8 | 12 | 19)
+            || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29));
         if !pinned {
             return unsupported(format!(
                 "Blob.Length before CalcFields of a stored blob of {n} bytes (the stored size is not pinned)"

@@ -1203,6 +1203,9 @@ impl Session {
                                             written: false,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
+                                            // A shorter write into a copy of an unloaded Blob is not pinned (`UNLOADED_WRITE`).
+                                            db_row: false,
+                                            first_write_truncates: false,
                                         },
                                     )))
                                 }
@@ -1242,6 +1245,20 @@ impl Session {
                 Value::Record(rc) => {
                     self.connection_check(&rc)?;
                     let mut r = rc.borrow_mut();
+                    // A Blob of a record read from the database without CalcFields holds none of its content: assigned to
+                    // another field it gives an empty Blob (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:404,
+                    // 'target after assign' has=No|len=0, and the Modify after it stores nothing). The write-back of a
+                    // method call on the field itself keeps the buffer.
+                    let v = match v {
+                        Value::Blob(b)
+                            if b.borrow().db_row
+                                && !b.borrow().loaded
+                                && !matches!(&r.fields[*pos], Value::Blob(cur) if std::sync::Arc::ptr_eq(cur, &b)) =>
+                        {
+                            Value::Blob(al_builtins::stream::new_blob())
+                        }
+                        v => v,
+                    };
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;

@@ -3430,10 +3430,10 @@ impl Session {
     ) -> Result<String, Signal> {
         {
             let buf = b.borrow();
-            if buf.render_pending.as_deref() == Some(al_builtins::stream::UNLOADED_WRITE) {
-                return Err(al_builtins::stream::render_pending_error(
-                    al_builtins::stream::UNLOADED_WRITE,
-                ));
+            if let Some(what) = buf.render_pending.as_deref()
+                && al_builtins::stream::is_unloaded_write_mark(what)
+            {
+                return Err(al_builtins::stream::render_pending_error(what));
             }
             if buf.render_pending.is_some() {
                 return unsupported(format!(
@@ -3758,7 +3758,7 @@ impl Session {
                                         Value::Blob(b) => {
                                             let b = b.borrow();
                                             if let Some(what) = b.render_pending.as_deref()
-                                                && what == al_builtins::stream::UNLOADED_WRITE
+                                                && al_builtins::stream::is_unloaded_write_mark(what)
                                             {
                                                 return Err(al_builtins::stream::render_pending_error(what));
                                             }

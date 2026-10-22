@@ -97,7 +97,7 @@ pub(crate) fn is_blank(v: &Value) -> Result<bool, Signal> {
         Value::Blob(b) => {
             let buf = b.borrow();
             if let Some(what) = &buf.render_pending {
-                if &**what == al_builtins::stream::UNLOADED_WRITE {
+                if al_builtins::stream::is_unloaded_write_mark(what) {
                     return Err(al_builtins::stream::render_pending_error(what));
                 }
                 return unsupported("TestField of a Blob that holds the output of a report run for its effects only");
