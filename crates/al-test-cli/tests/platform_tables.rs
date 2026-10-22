@@ -1818,3 +1818,73 @@ fn a_tests_run_method_id_is_refused_where_its_number_would_show() {
         "{o:?}"
     );
 }
+
+// Application Object Metadata of a query and Microsoft's QueryMetadataReader over its Metadata Blob (ODataUtility.
+// GetTenantWebServiceMetadata): one entry per column in query order, FieldNo the source field (0 for Method = Count),
+// TableNo the data item's table, FieldName the column name (corpus tests/al-language-onprem-dotnet/lt-re-dotnet/
+// ReQueryMetadataShapes.al:99-145, lt-qx-dotnet/QxDotNetDemoShapes.al:150-182). The Blob's bytes are not pinned: a read
+// of them is refused, as is the Metadata of another object type.
+const QUERY_METADATA_SRC: &str = r#"
+dotnet { assembly("Microsoft.Dynamics.Nav.Client.BusinessChart") {
+    type("Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader"; QueryMetadataReader) { }
+    type("Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields"; QueryFields) { }
+} }
+table 50001 "QM Header" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { }
+    field(3; "Line Total"; Decimal) { FieldClass = FlowField; CalcFormula = sum("QM Line".Amount where("Header Id" = field(Id))); }
+    field(4; "Line Count"; Integer) { FieldClass = FlowField; CalcFormula = count("QM Line" where("Header Id" = field(Id))); } }
+    keys { key(PK; Id) { } } }
+table 50002 "QM Line" { fields { field(1; "Header Id"; Integer) { } field(2; "Line No."; Integer) { } field(3; Amount; Decimal) { }
+    field(4; Description; Text[50]) { } } keys { key(PK; "Header Id", "Line No.") { } } }
+query 50003 "QM Query" { elements { dataitem(Head; "QM Header") {
+    column(HeadId; Id) { } column(HeadName; Name) { } column(LineTotal; "Line Total") { } column(LineCountFlow; "Line Count") { }
+    dataitem(Line; "QM Line") { DataItemLink = "Header Id" = Head.Id;
+        column(LineDescription; Description) { } column(LineAmount; Amount) { } column(Lines) { Method = Count; } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Open(ObjType: Option; Id: Integer; var M: Record "Application Object Metadata"; var I: InStream)
+  var AllObj: Record AllObj;
+  begin
+    AllObj.Get(ObjType, Id);
+    M.Get(AllObj."App Runtime Package ID", ObjType, Id);
+    if not M.Metadata.HasValue() then Error('no metadata');
+    M.CalcFields(Metadata);
+    M.Metadata.CreateInStream(I, TextEncoding::Windows);
+  end;
+  [Test] procedure ReadsTheColumns()
+  var M: Record "Application Object Metadata"; I: InStream; R: DotNet QueryMetadataReader; F: DotNet QueryFields; Result: Text; n: Integer;
+  begin
+    Open(9, 50003, M, I);
+    R := R.FromStream(I);
+    if IsNull(R) then Error('null');
+    for n := 0 to R.Fields().Count() - 1 do begin
+      F := R.Fields().Item(n);
+      Result += '[' + Format(F.FieldNo()) + '|' + Format(F.TableNo()) + '|' + F.FieldName() + ']';
+    end;
+    if Result <> '[1|50001|HeadId][2|50001|HeadName][3|50001|LineTotal][4|50001|LineCountFlow][4|50002|LineDescription][3|50002|LineAmount][0|50002|Lines]' then
+      Error(Result);
+  end;
+  [Test] procedure ReadsTheBytes()
+  var M: Record "Application Object Metadata"; I: InStream; T: Text;
+  begin
+    Open(9, 50003, M, I);
+    I.ReadText(T);
+  end;
+  [Test] procedure OfATable()
+  var M: Record "Application Object Metadata"; I: InStream;
+  begin
+    Open(1, 50001, M, I);
+  end;
+}
+"#;
+
+#[test]
+fn application_object_metadata_of_a_query_feeds_the_query_metadata_reader_and_its_bytes_are_refused() {
+    let o = outcomes(QUERY_METADATA_SRC);
+    assert!(
+        o.iter().any(|(n, o)| n == "ReadsTheColumns" && *o == Outcome::Pass),
+        "{o:?}"
+    );
+    let why = not_run(&o, "ReadsTheBytes");
+    assert!(why.contains("Application Object Metadata"), "{why}");
+    let why = not_run(&o, "OfATable");
+    assert!(why.contains("Application Object Metadata"), "{why}");
+}

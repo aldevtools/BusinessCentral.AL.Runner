@@ -492,6 +492,7 @@ impl Providers {
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),
             Virtual::TableRelations => metadata::table_relations_rows(self, t),
+            Virtual::ApplicationObjectMetadata => objects::application_object_metadata_rows(self, t),
             Virtual::QueryMetadata => metadata::query_metadata_rows(self, t),
             Virtual::ReportLayoutList => reports::layout_list_rows(self, t),
             Virtual::ReportMetadata => reports::report_metadata_rows(self, t),

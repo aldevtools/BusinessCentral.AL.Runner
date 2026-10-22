@@ -9,6 +9,7 @@ mod last_error;
 pub mod policy;
 pub mod registry;
 pub mod server_classes;
+mod query_metadata;
 mod staged_dir;
 
 use crate::{Frame, Session};

@@ -91,6 +91,12 @@ pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
 /// database-row Blob and the first write: whether the write still replaces the content is not pinned.
 pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields, loaded before the write";
 
+/// The mark on the Metadata Blob of a query's Application Object Metadata row: the bytes hold only the query's id, for
+/// Microsoft's `QueryMetadataReader.FromStream` (al-vm `dotnet/query_metadata.rs`). What BC stores there is not pinned, so
+/// every other look at the Blob is refused; `HasValue` is Yes (ODataUtility.GetTenantWebServiceMetadata reads it before
+/// FromStream, and the reader is not null: QxDotNetDemoShapes.al:174-181).
+pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a query";
+
 /// Whether a mark is one of the two unpinned Blob writes above (they refuse any look, not only a report column).
 pub fn is_unloaded_write_mark(what: &str) -> bool {
     what == UNLOADED_WRITE || what == UNLOADED_THEN_LOADED
@@ -121,6 +127,13 @@ pub fn render_pending_error(report: &str) -> Signal {
         return Signal::Unsupported(
             "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
              does not pin the bytes)"
+                .into(),
+        );
+    }
+    if report == QUERY_METADATA {
+        return Signal::Unsupported(
+            "the bytes of the Metadata Blob of Application Object Metadata (not pinned; only QueryMetadataReader.FromStream \
+             reads it)"
                 .into(),
         );
     }
@@ -607,7 +620,10 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
 fn blob_create_in(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let enc = Encoding::from_arg(a)?;
     let b = blob_of(r)?;
-    b.borrow().observe()?;
+    // A query's metadata is only handed to QueryMetadataReader.FromStream; a read of the stream refuses (`with_data`).
+    if b.borrow().render_pending.as_deref() != Some(QUERY_METADATA) {
+        b.borrow().observe()?;
+    }
     set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
     Ok(Value::Null)
 }
@@ -639,6 +655,9 @@ fn blob_has_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NR
     // streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue: true after Get without CalcFields.
     let b = blob_of(r)?;
     let buf = b.borrow();
+    if buf.render_pending.as_deref() == Some(QUERY_METADATA) {
+        return Ok(Value::Boolean(true));
+    }
     buf.observe()?;
     Ok(Value::Boolean(!buf.bytes.is_empty()))
 }
