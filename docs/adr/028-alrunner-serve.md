@@ -58,6 +58,13 @@ The owner chose the warm design.
    `cancelled: true` and the test is `error` with the message `NotRun: out-of-scope: cancelled`); a test run lets the running test
    finish.
 10. Value capture and loop tracking: ADR-030. Incremental compile: ADR-029.
+11. Resources and entries (additive, al-runner issue 5635, 2026-10-22). Resource files are run-time data, not part of
+   the kept compile's key: each request reads them as they are, and a request after a resource change reuses the compile.
+   `runTests` takes `entries`: several runs over one compile and one install baseline, each with its own `id`,
+   `resources` (name -> text in place of the file's), `test` and `excludeTests`; each starts from the same post-install
+   database (item 4). The `test` lines carry `entry`, and one `entrySummary` line per entry comes before the summary.
+   When the install baseline read a resource file, an entry with `resources` is not run (it would need a baseline of its
+   own). Fields and answers: `docs/integrations/migrating-tools-to-v3.md`, section 4b.
 
 ## Measurements (release, 4 threads, 2026-10-15)
 

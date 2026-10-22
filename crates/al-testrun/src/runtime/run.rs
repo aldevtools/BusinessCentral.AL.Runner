@@ -778,6 +778,7 @@ pub(crate) fn run_codeunit_core(
                 coverage: cov.clone(),
                 captured: captured_at.clone(),
                 stubs: reached,
+                entry: None,
             });
         }
         if covering {
@@ -810,6 +811,7 @@ pub(crate) fn run_codeunit_core(
                     coverage: Vec::new(),
                     captured: None,
                     stubs: Vec::new(),
+                    entry: None,
                 });
             }
             out.push((obj.routines[r].name.clone(), outcome));
