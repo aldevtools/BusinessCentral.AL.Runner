@@ -25,7 +25,9 @@ pub(super) const ODATA_EDM_TYPE: u32 = 2_000_000_179;
 
 /// The Tenant Report Layout Selection rows of a fresh tenant (platform/lt-platform-tables/PtCloudTables.al:378-424,
 /// QX_TenantReportLayoutSelection_RowsAndDemoShape, 'rows'): (Report ID, Layout Name), blank Company Name and null User ID.
-/// The App ID is not null, but its value is not pinned: unknown, so a read of it is refused.
+/// The App ID is the Base Application's (`BASE_APPLICATION_APP_ID`).
+const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
 const TENANT_REPORT_LAYOUT_SELECTIONS: &[(i32, &str)] = &[
     (1302, "StandardSalesProFormaInv.docx"),
     (1303, "StandardDraftSalesInvoiceBlue.docx"),
@@ -33,15 +35,40 @@ const TENANT_REPORT_LAYOUT_SELECTIONS: &[(i32, &str)] = &[
     (1306, "StandardSalesInvoiceBlueSimple.docx"),
 ];
 
-/// The OData Edm Type keys of a fresh tenant (PtCloudTables.al:435-482, QX_ODataEdmType_RowsAndEdmXml, 'fresh keys' and
-/// 'fresh count' 6). Their Description and Edm Xml are not pinned: unknown, so a read of either is refused.
-const ODATA_EDM_TYPES: &[&str] = &[
-    "BOOKINGSDATE",
-    "DIMENSION",
-    "DOCUMENTLINEOBJECTDETAILS",
-    "ITEM-UOM",
-    "ITEM-UOM-CONVERSION",
-    "POSTALADDRESS",
+/// The OData Edm Type rows of a fresh tenant (PtCloudTables.al:435-482, QX_ODataEdmType_RowsAndEdmXml, 'fresh keys' and
+/// 'fresh count' 6): (Key, Description, Edm Xml as UTF-8 text). Description and Edm Xml: :533 RE_ODataEdmType_FreshDescriptions
+/// and :572-606 (one test per key), the same on BC 27, 28 and 29.
+const ODATA_EDM_TYPES: &[(&str, &str, &str)] = &[
+    (
+        "BOOKINGSDATE",
+        "Graph CDM - Bookings Date complex type",
+        r#"<ComplexType Name="dateTimeTimeZoneType">  <Property Name="dateTime" Type="Edm.String" Nullable="false" />  <Property Name="timeZone" Type="Edm.String" /></ComplexType>"#,
+    ),
+    (
+        "DIMENSION",
+        "Graph CDM - Dimension complex type.",
+        r#"<ComplexType Name="dimensionType"><Property Name="code" Type="Edm.String" Nullable="false" /><Property Name="displayName" Type="Edm.String" Nullable="true" /><Property Name="valueCode" Type="Edm.String" Nullable="false" /><Property Name="valueDisplayName" Type="Edm.String" Nullable="true" /></ComplexType>"#,
+    ),
+    (
+        "DOCUMENTLINEOBJECTDETAILS",
+        "Graph API - Complex type exposing details of the line object that is being sold.",
+        r#"<ComplexType Name="documentLineObjectDetailsType"><Property Name="number" Type="Edm.String" Nullable="true" MaxLength="20"/><Property Name="displayName" Type="Edm.String" Nullable="true" MaxLength="100"/></ComplexType>"#,
+    ),
+    (
+        "ITEM-UOM",
+        "Graph CDM - Unit of Measure complex type on Item Entity page",
+        r#"<ComplexType Name="unitOfMeasureType"><Property Name="code" Type="Edm.String" Nullable="true" MaxLength="10" /><Property Name="displayName" Type="Edm.String" Nullable="true" MaxLength="50" /><Property Name="symbol" Type="Edm.String" Nullable="true" MaxLength="10" /><Property Name="unitConversion" Type="ITEM-UOM-CONVERSION" Nullable="true" /></ComplexType>"#,
+    ),
+    (
+        "ITEM-UOM-CONVERSION",
+        "Graph CDM - Unit of Measure Conversions complex type on Item Entity page",
+        r#"<ComplexType Name="itemUnitOfMeasureConversionType"><Property Name="toUnitOfMeasure" Type="Edm.String" Nullable="true" MaxLength="10" /><Property Name="fromToConversionRate" Type="Edm.Decimal" Nullable="true" /></ComplexType>"#,
+    ),
+    (
+        "POSTALADDRESS",
+        "Graph CDM - Postal Address complex type",
+        r#"<ComplexType Name="postalAddressType"><Property Name="street" Type="Edm.String" Nullable="true" MaxLength="152" /><Property Name="city" Type="Edm.String" Nullable="true" MaxLength="30" /><Property Name="state" Type="Edm.String" Nullable="true" MaxLength="30" /><Property Name="countryLetterCode" Type="Edm.String" Nullable="true" MaxLength="10" /><Property Name="postalCode" Type="Edm.String" Nullable="true" MaxLength="20" /></ComplexType>"#,
+    ),
 ];
 
 /// The Web Service rows of a fresh tenant, every column (onprem platform/PtWebServiceRows.al:39-73, WebService_Content:
@@ -104,19 +131,24 @@ impl Session {
                         let mut r = super::blank(t);
                         r[pos(t, 1)] = Value::Integer(report);
                         r[pos(t, 2)] = text(t, 2, layout);
-                        r[pos(t, 3)] = super::unknown(t, 3, &format!("the row of report {report} on a fresh tenant"));
+                        // The Base Application's id on every row (platform/lt-platform-rows-fresh/PlatformRowsLayoutSelection.al:82-85,
+                        // BC 27, 28 and 29).
+                        r[pos(t, 3)] = Value::Guid(
+                            al_builtins::ops::parse_guid(BASE_APPLICATION_APP_ID).expect("a literal guid"),
+                        );
                         self.insert_seed(t, r);
                     }
                     wrote = true;
                     continue;
                 }
                 ODATA_EDM_TYPE => {
-                    for &key in ODATA_EDM_TYPES {
+                    for &(key, description, edm_xml) in ODATA_EDM_TYPES {
                         let mut r = super::blank(t);
                         r[pos(t, 1)] = text(t, 1, key);
-                        let whose = format!("the row {key} on a fresh tenant");
-                        r[pos(t, 2)] = super::unknown(t, 2, &whose);
-                        r[pos(t, 10)] = super::unknown(t, 10, &whose);
+                        r[pos(t, 2)] = text(t, 2, description);
+                        let blob = al_builtins::stream::new_blob();
+                        al_builtins::stream::write_bytes(&blob, edm_xml.as_bytes());
+                        r[pos(t, 10)] = Value::Blob(blob);
                         self.insert_seed(t, r);
                     }
                     wrote = true;
