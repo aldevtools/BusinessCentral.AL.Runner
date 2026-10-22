@@ -306,7 +306,7 @@ impl Lowerer<'_> {
                 // Evaluate into an Option variable: a variable has no OptionCaption, so a text that is neither an ordinal nor a
                 // member name is a plain rejection (P86Eval.al:Eval Option, `Bet`, `-1`, `1,0`). A field may name a member by its
                 // caption, which the value does not carry, so a field keeps the id that refuses it.
-                let decimal_field_places = if id == "System.Format#1" {
+                let decimal_field_places = if id == "System.Format#1" || id == "System.Format#2" {
                     args.first().and_then(|a| self.decimal_field_places(a))
                 } else {
                     None
@@ -377,7 +377,7 @@ impl Lowerer<'_> {
                     // A Text inside a Variant goes by ordinal digits on an Enum or Option control
                     // (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
                     "TestField.SetValueVariant#1".to_string()
-                } else if id == "System.Format#1" && decimal_field_places.is_some() {
+                } else if (id == "System.Format#1" || id == "System.Format#2") && decimal_field_places.is_some() {
                     "System.FormatDecimalField#1".to_string()
                 } else if id == "System.Format#1" && auto_format_field.is_some() {
                     "System.FormatAutoFormatField#1".to_string()
@@ -650,11 +650,13 @@ impl Lowerer<'_> {
                     out.push(ir::Arg::Value(ir::Expr::Load(record)));
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(pos as i32))));
                 }
-                if let (true, Some(places)) = (emit_id == "System.FormatDecimalField#1", decimal_field_places) {
+                // The places, and whether they hold only from BC 28 (an amount field without AutoFormatExpression).
+                if let (true, Some((places, gated))) = (emit_id == "System.FormatDecimalField#1", decimal_field_places) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(places))));
+                    out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(gated))));
                 }
                 Ok(ir::Expr::Builtin {
                     id: builtin_id(&emit_id)?,

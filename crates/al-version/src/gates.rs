@@ -201,7 +201,8 @@ pub enum Gate {
     HttpHandlerUnderDefaultPolicyFrom29,
     /// `Format` of a Decimal field with `AutoFormatType = 1` (an amount) rounds to 2 decimals from BC 28, under the default format
     /// and under `<Standard Format,2>` and format number 2 or 9; BC 27 writes every digit
-    /// (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49).
+    /// (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49). Consumed by
+    /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression.
     AutoFormatAmountFieldRoundsFrom28,
 }
 

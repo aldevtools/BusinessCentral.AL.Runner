@@ -16,7 +16,7 @@
 //!   these checks.
 //!
 //! The codes the checker itself reports (`check/`, where types are known) are AL0118, AL0122,
-//! AL0132 and AL0161 (and AL0175 for Char - Text); they are listed in [`IMPLEMENTED`] too.
+//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text); they are listed in [`IMPLEMENTED`] too.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Workspace};
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
@@ -51,6 +51,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     (
         "AL0296",
         "a Cloud app names a platform table that is Scope = OnPrem (the 123 of System.app that the corpus lists), calls GetLastErrorObject, SecretText.Unwrap, or File.Open, or sets the report property EnableExternalAssemblies to true",
+    ),
+    (
+        "AL0398",
+        "a Decimal literal as a case label of an Option variable, or in the `in` list (Decimal literals only) of an Option variable",
     ),
     (
         "AL0433",

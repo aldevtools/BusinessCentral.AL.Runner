@@ -749,16 +749,23 @@ impl<'a> Checker<'a> {
         }
         // `case Target.Missing() of`: the type of the case labels.
         if node.kind() == SyntaxKind::CaseStmt {
-            let mut selector: Option<SyntaxNode> = None;
+            let mut selector: Option<(SyntaxNode, Ty)> = None;
             for child in node.children() {
                 if selector.is_none() && is_expr(child.kind()) {
-                    self.ty(sc, &child);
-                    selector = Some(child);
+                    let t = self.ty(sc, &child);
+                    selector = Some((child, t));
                 } else {
                     self.walk(sc, &child);
                 }
             }
-            if let Some(sel) = selector {
+            if let Some((sel, sel_ty)) = selector {
+                // AL0398: a Decimal constant as a label of an Option selector (must-not-compile 2008).
+                let labels: Vec<SyntaxNode> = node
+                    .children()
+                    .filter(|c| c.kind() == SyntaxKind::CaseBranch)
+                    .flat_map(|b| b.children().filter(|c| is_expr(c.kind())).collect::<Vec<_>>())
+                    .collect();
+                self.al_option_decimal_constants(sc, &sel, &sel_ty, &labels);
                 self.tdd_settle_case(sc, node, &sel);
             }
             return;
