@@ -738,6 +738,15 @@ impl Session {
     fn for_init(&mut self, site: &ForSite, f: &mut Frame, nl: u16) -> Result<(), Signal> {
         let from = take(f, site.from, nl);
         let to = take(f, site.to, nl);
+        // Only Date bounds on a Date variable are pinned (misc/lt-system-functions/ControlFlow.al:607).
+        if site.int_local.is_none()
+            && (matches!(from, Value::Date(..)) != matches!(self.place_type(&site.var, f), al_builtins::value::RtType::Date))
+        {
+            return Err(Signal::Unsupported(
+                "a for loop over Dates whose variable is not a Date, or a Date variable with bounds of another type (not pinned)"
+                    .into(),
+            ));
+        }
         let big_end = match to {
             Value::BigInteger(e) if i32::try_from(e).is_err() => Some(e),
             _ => None,
@@ -807,9 +816,43 @@ impl Session {
             }
         }
         let back = Self::for_bound(self.read(&site.var, f)?);
+        if let Value::Date(_, closing) = back {
+            return self.for_next_date(site, f, back, closing);
+        }
         let i = crate::int(&back)?;
         f.locals[site.i as usize] = Value::BigInteger(i + if site.down { -1 } else { 1 });
         Ok(())
+    }
+
+    /// The step of a `for` loop over Dates (misc/lt-system-functions/ControlFlow.al:607, QX_ForLoop_DateControlVariable): on
+    /// the end bound the loop ends with the variable there ('one day', '0D to 0D'); else the variable moves one day by Date
+    /// arithmetic before the test, so an end that is a closing date leaves the day after it ('to a closing date': after
+    /// 2024-01-01), 0D cannot move ('0D to a date', 'date downto 0D': DateInvalid) and a closing date raises ClosingDateOperation
+    /// ('from a closing date').
+    #[inline(never)]
+    fn for_next_date(&mut self, site: &ForSite, f: &mut Frame, d: Value, closing: bool) -> Result<(), Signal> {
+        let Value::BigInteger(end) = f.locals[site.end as usize] else {
+            return Err(Signal::Unsupported("a for loop bound that is not set".into()));
+        };
+        let step = if site.down { -1 } else { 1 };
+        if crate::interp::date_key(&d) == end {
+            f.locals[site.i as usize] = Value::BigInteger(end + step);
+            return Ok(());
+        }
+        if closing {
+            return al_builtins::native::raise(
+                "The operation cannot be performed on a closing date value.",
+                "ClosingDateOperation",
+            );
+        }
+        let op = if site.down {
+            al_builtins::ops::Arith::Sub
+        } else {
+            al_builtins::ops::Arith::Add
+        };
+        let next = al_builtins::ops::arith(op, &d, &Value::Integer(1))?;
+        f.locals[site.i as usize] = Value::BigInteger(crate::interp::date_key(&next));
+        self.write(&site.var, next, f)
     }
 
     #[inline(never)]

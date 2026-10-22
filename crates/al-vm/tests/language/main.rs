@@ -29,6 +29,7 @@ mod erm_defects;
 mod errorcollect;
 mod events;
 mod exec;
+mod for_date;
 mod filtergroup_assign;
 mod format_auto_format_field;
 mod format_precision_standard;

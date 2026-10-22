@@ -479,6 +479,15 @@ impl Session {
     /// types/ for_to_option).
     #[inline(always)]
     pub(crate) fn for_limits(from: Value, to: Value) -> Result<(i64, i64), Signal> {
+        match (&from, &to) {
+            (Value::Date(..), Value::Date(..)) => return Ok((date_key(&from), date_key(&to))),
+            (Value::Date(..), _) | (_, Value::Date(..)) => {
+                return Err(Signal::Unsupported(
+                    "a for loop with a Date bound and a bound of another type (not pinned)".into(),
+                ));
+            }
+            _ => {}
+        }
         let (from, to) = (Self::for_bound(from), Self::for_bound(to));
         Ok((int(&from)?, int(&to)?))
     }
@@ -486,6 +495,9 @@ impl Session {
     /// The value the counter variable of a `for` loop holds in the round with counter `i`.
     #[inline(always)]
     pub(crate) fn for_counter(kind: ForKind, i: i64, slot_ty: &RtType) -> Result<Value, Signal> {
+        if matches!(slot_ty, RtType::Date) {
+            return Ok(date_of_key(i));
+        }
         if kind.is_boolean {
             Ok(Value::Boolean(i != 0))
         } else if kind.is_integer
@@ -1622,4 +1634,19 @@ fn is_alias_scalar(v: &Value) -> bool {
             | Value::Option(..)
             | Value::Enum(..)
     )
+}
+
+/// The counter of a `for` loop over Dates (misc/lt-system-functions/ControlFlow.al:607, QX_ForLoop_DateControlVariable): the
+/// day number twice, plus one for a closing date, so that a closing date sorts after its day and before the next one
+/// (`to ClosingDate(31.12.2023)` visits 30.12 and 31.12).
+pub(crate) fn date_key(v: &Value) -> i64 {
+    match v {
+        Value::Date(d, closing) => i64::from(*d) * 2 + i64::from(*closing),
+        _ => 0,
+    }
+}
+
+/// The Date a [`date_key`] stands for.
+pub(crate) fn date_of_key(k: i64) -> Value {
+    Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
 }
