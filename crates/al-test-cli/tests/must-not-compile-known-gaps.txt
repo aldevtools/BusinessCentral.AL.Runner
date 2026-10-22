@@ -252,8 +252,6 @@
 27 1713-permissionset-table-object-onprem-table
 27 1714-permissionset-internal-codeunit-other-app
 27 1769-interface-from-unrelated-enum
-27 1817-jsonarray-no-removeall
-27 1819-jsonarray-no-clear-method
 28 1410-overloads-differ-only-in-text-length-or-return-type
 28 1412-local-procedure-through-own-object-handle
 28 1413-internal-procedure-of-another-app
@@ -277,8 +275,6 @@
 28 1713-permissionset-table-object-onprem-table
 28 1714-permissionset-internal-codeunit-other-app
 28 1769-interface-from-unrelated-enum
-28 1817-jsonarray-no-removeall
-28 1819-jsonarray-no-clear-method
 29 1410-overloads-differ-only-in-text-length-or-return-type
 29 1412-local-procedure-through-own-object-handle
 29 1413-internal-procedure-of-another-app
@@ -302,8 +298,6 @@
 29 1713-permissionset-table-object-onprem-table
 29 1714-permissionset-internal-codeunit-other-app
 29 1769-interface-from-unrelated-enum
-29 1817-jsonarray-no-removeall
-29 1819-jsonarray-no-clear-method
 # corpus bump 30: new cases the front end does not decide yet (Rec.CurrFieldNo in an event subscriber, ExcludedPermissionSets
 # in a permission set extension, BigText assigned to Text, test page access to pending special controls, and on BC 29 an
 # interface default method called through a codeunit variable).
