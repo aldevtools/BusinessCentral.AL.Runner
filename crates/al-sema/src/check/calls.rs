@@ -548,6 +548,16 @@ impl<'a> Checker<'a> {
         if !base.is_empty() {
             return Some(E::Callable(base));
         }
+        // A bare `Run()` / `Run(Rec)` in a codeunit's own code is `this.Run()`: the instance method on the running
+        // codeunit (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:170,194,215, fixtures QzBareRun.al). An own procedure
+        // or variable named Run resolved above.
+        if key == "run" && self.ws.objects[sc.oi].kind == ObjKind::Codeunit && sc.self_obj == sc.oi {
+            let me = Ty::Object(ObjKind::Codeunit, self.ws.objects[sc.oi].name.as_str().into());
+            let c = self.catalog_cands("Codeunit", "Run", true, &me);
+            if !c.is_empty() {
+                return Some(E::Callable(c));
+            }
+        }
         let globals: Vec<Cand> = self.global_cands(&n);
         if !globals.is_empty() {
             return Some(E::Callable(globals));
