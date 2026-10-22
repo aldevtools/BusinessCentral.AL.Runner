@@ -526,3 +526,63 @@ serve refusals of `--affected-from` and `--microsoft-app` (section 4). Code: `so
 - **The no-index warning** of a source run prints `al-runner impact-index build --from microsoft --microsoft-app
   <app> --bc-version <build>` plus the options that are part of the key (`--country`, `--bcapps`, `--cache-dir`,
   `--dep`, `--package-cache`, `--define`), not the run's own command line.
+
+## Decided without owner review (2026-10-22, build step 3)
+
+Step 3 as built: `al-runner test APP... --affected-from PATH` (ISV test apps), own tests next to any sources, the
+grouped report, `--output-json` with `sources`, `--impact-json` format 2, `--impact-accept` format 1 and 2. Code:
+`sources.rs` (`resolve`, `isv_source`, `SourceOut`), `impact::Part::{json, stale}`, `impact::Accepts::for_source`,
+`TestArgs::accept_source`. Tests: `crates/alrunner-cli/tests/test_sources.rs` (plan items 7-11, 14, 15) and the
+format-2 test of the `microsoft` source in `tests/test_microsoft.rs`.
+
+- **Section header.** `== <name> <version> (<path>) ==`: the "(path given)" of 1.6 is read as the path the user gave
+  (for a folder of apps, the app's path inside it). The row, `test_source` and `source` use the app.json name only.
+- **Checks before the run.** Every source is read before the own tests start. A compiled-only source (`.app` without
+  AL source), a non-Microsoft dependency found only without AL source in `--dep`, `--package-cache` or an
+  `.alpackages` folder, a source that depends on an extension app, the same app id twice, and a source that is also an
+  APP exit 2 with no test run. Only direct dependencies are checked here; a deeper compiled-only dependency fails the
+  source's run with the dependency loader's message (exit 2 for that source, the other parts still run).
+- **The "without" side** of an ISV source also searches the `.alpackages` folder of each folder APP, so both sides
+  resolve the source's dependencies in the same places (ADR-052 1.2 item 3). Those folders are then part of the index
+  key and of the printed `impact-index build` command.
+- **`--impact-json` format 2** has one entry per impact run, not one per source: the `microsoft` source has one run
+  per test app and lane, and each entry adds `testApp` and `lane`. The top level also has the run's `exitCode`.
+- **Stale accept entries** are listed once per source: an entry is stale when no run of that source matched it. An
+  entry whose `source` names a source the run does not have is listed on one line per source name. Neither changes
+  the exit code (as ADR-043).
+- **`--output-json`.** The top-level `exitCode` is the whole run's (the worst part), not the own tests' alone, so a v2
+  reader sees the run's result. Without own tests the v2 part is empty. `--output-json` without a FILE is refused
+  with sources (the text report is on stdout). Each `sources` entry has `mode` (`mixed` when the runs of a source
+  differ), `path` for a source given as a path, `lanes` for `microsoft`, `error` when the source could not run.
+
+## Decided without owner review (2026-10-22, build step 4)
+
+Step 4 as built: `--bc-version A,B`, `--country X,Y`, `--matrix "V:CC,..."`, `--matrix-parallel N`,
+`--matrix-memory GB` on `al-runner test` (with or without sources) and `al-runner test-microsoft`. Code: `matrix.rs`,
+`al_deps::test_apps::choose` (the build choice of the artifact listing, now shared). Tests: `tests/matrix.rs` (plan
+items 18-27 except 21's version-specific runtime behavior, see below), unit tests in `matrix.rs` and `args.rs`
+(serve refusal, item 28).
+
+- **The floor in the pre-flight.** A single run below the app's floor warns and runs (`BuildQuery::floor_warning`).
+  A matrix cell below the floor is a bad cell and stops the run (test plan item 20): a cell the author did not mean
+  to support fails late otherwise.
+- **`--matrix` with `--bc-version` or `--country`** is refused even when they hold one value: `--matrix` names every
+  cell's version and country.
+- **What a cell runs.** The run's own command line without `--bc-version`, `--country`, the matrix options,
+  `--junit` and `--output-json`, plus the cell's exact build, its country, its JUnit file and the hidden
+  `--matrix-cell FILE` (the cell's `--output-json`). The parent reads every JSON document in the cell's folder, so a
+  `test-microsoft` cell's documents per test app and lane are all read.
+- **A lone cell always starts**, whatever the free memory: waiting for memory with nothing running would never end,
+  and one cell at a time is the run without `--matrix-parallel`. The peak of a cell is the child's `VmHWM` (Linux
+  only; the .NET helper is not counted); `ALRUNNER_MATRIX_FREE_MB` replaces the free memory for the tests.
+- **Flagged passes in the JSON.** The v2 document's test rows get `flagged: true` on a pass that ran through an
+  unprobed assumption (additive), so the matrix report can show `PASS*`.
+- **"Differs" keys.** A test of the run's own is (codeunit, test); a source test also has the source and, for
+  `microsoft`, the test app. Pass versus not run is counted on its own line; failing everywhere with different texts
+  differs.
+- **`--affected` per cell (3.3).** A cell's default stored result has its build and country in the key;
+  `--affected-store FILE` becomes `FILE.<version>-<country>` in each cell.
+- **Not built:** the per-cell symbols file (3.4, optional step 6). Test plan item 21's second half (an outcome that differs by
+  version-specific runtime behavior) is covered by two builds whose test apps differ (`Tests-Fake-B` fails in one,
+  `Tests-Fake-C` exists in one only); the fixture apps have no behavior that differs by BC version in the runtime.
+- `ALRUNNER_MATRIX_TEST_ABORT=<build>` makes a cell of that build abort (tests of a cell the system kills, item 23).

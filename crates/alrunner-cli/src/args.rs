@@ -1,6 +1,6 @@
 //! The command line of `al-runner` (ADR-016 section 2): parsing and the help text.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq)]
@@ -174,12 +174,24 @@ pub struct TestArgs {
     /// artifact (`Tests-ERM`), without case. Repeatable. Empty: all of them.
     pub microsoft_apps: Vec<String>,
     /// `--affected-from SOURCE` (ADR-052): further test sources whose tests that reach the extension among the APPs
-    /// run with and without it. Only `microsoft` (every Microsoft test app of the build) is built. Repeatable. In
-    /// `impact-index build` it is `--from SOURCE`.
+    /// run with and without it: `microsoft` (every Microsoft test app of the build) or the path of an ISV test app.
+    /// Repeatable. In `impact-index build` it is `--from microsoft`.
     pub affected_from: Vec<String>,
     /// Not a command line option: the command that builds the impact index of this run, when it is one run of a test
     /// source (ADR-052 1.8); the no-index warning prints it instead of the run's own command line.
     pub index_command: Option<String>,
+    /// Not a command line option: the test source this impact run belongs to (ADR-052 1.6). The accept file's entries
+    /// of other sources are left out, and the entries that match nothing are reported by the caller, once per source.
+    pub accept_source: Option<String>,
+    /// The cells of a matrix run (ADR-052 section 3): a list in `--bc-version` or `--country`, or `--matrix`. When set,
+    /// `bc_version` and `country` are empty: each cell sets its own.
+    pub matrix: Option<Vec<crate::matrix::Cell>>,
+    /// `--matrix-parallel N`: at most N cells at once.
+    pub matrix_parallel: Option<usize>,
+    /// `--matrix-memory GB`: the expected peaks of the cells running at once stay within it.
+    pub matrix_memory_gb: Option<f64>,
+    /// Hidden `--matrix-cell FILE`: this run is one cell of a matrix and writes its `--output-json` document to FILE.
+    pub matrix_cell: Option<PathBuf>,
 }
 
 impl TestArgs {
@@ -444,8 +456,12 @@ IMPACT (ADR-043)
                          --dep and --define of the runs that read it.
 
 TEST SOURCES (ADR-052)
-    --affected-from microsoft
-                         Also run the Microsoft tests your extension can affect: the APPs without a
+    --affected-from SOURCE
+                         SOURCE is `microsoft` or the path of an ISV test app (an app folder, an .app
+                         with AL source or a *.Source.zip; a folder of several test apps is one
+                         source per app). Repeatable; the sources run in the order given.
+                         --affected-from microsoft: also run the Microsoft tests your extension can
+                         affect: the APPs without a
                          test codeunit are the extension, the APPs with one are your own tests (an
                          app with both is both). Your own tests run as a normal run. Then every
                          Microsoft test app of the build (--microsoft-app NAME narrows, repeatable)
@@ -457,11 +473,54 @@ TEST SOURCES (ADR-052)
                          and one Result line. --junit FILE writes one file: your own tests, then the
                          source's tests with the impact properties and the suite property
                          test_source; the source's first suite has not_selected (its count).
+                         --affected-from PATH: the ISV test app runs as one impact run with the
+                         run's normal test data and no disabled tests; its dependencies resolve as
+                         for any APP (--dep, --package-cache, the .alpackages folder of the APPs and
+                         of the source). Its section and row are named by its app.json name; the
+                         no-index warning prints `al-runner impact-index build PATH ...`. A source
+                         that is compiled only (no AL source) or has such a dependency, depends on
+                         the extension, is also an APP or is given twice: exit 2 before any test.
                          --filter, --codeunit, --test-exact and --exclude-test apply to your own
-                         tests only. Exit code: the worst part (2, then 1, 8, 7; a source that
-                         selects nothing gives 0). Refused with it: --recipe, --impact-of,
-                         --no-compile-cache, --explain, --coverage*, --tdd, and (not built yet)
-                         --output-json, --impact-json, --impact-accept and an ISV test app as SOURCE.
+                         tests only. --output-json FILE: your own tests as a plain run writes them,
+                         plus `sources` (per source: source, kind, testApps, mode, lanes, counts,
+                         notSelected, exitCode, tests). --impact-json FILE: format 2, `sources`
+                         holds the format-1 document of each impact run with `source` (and testApp,
+                         lane for microsoft). --impact-accept FILE reads format 1 and 2; an entry
+                         with `source` matches only in that source, and the entries that match
+                         nothing are listed once per source. Exit code: the worst part (2, then 1,
+                         8, 7; a source that selects nothing gives 0). Refused with it: --recipe,
+                         --impact-of, --no-compile-cache, --explain, --coverage*, --tdd and
+                         --output-json without a FILE.
+
+MATRIX RUNS (ADR-052)
+    --bc-version A,B --country X,Y
+                         A list in --bc-version or --country runs every combination of them, one
+                         cell each (one value in both is a normal run). Works with al-runner test,
+                         test-microsoft and --affected-from.
+    --matrix 28.5:w1,29.0:us
+                         Runs only the named cells (VERSION alone means w1). Not with --bc-version
+                         or --country.
+    --matrix-parallel N  At most N cells at once (default 1). A cell starts only while the free
+                         memory is above its expected peak (its peak in the last matrix run, else
+                         3 GB, 10 GB with the microsoft source) plus 2 GB; each cell gets 1/N of
+                         the worker threads.
+    --matrix-memory GB   The expected peaks of the cells running at once stay within GB.
+                         Before any cell runs, every cell is checked as a single run checks itself
+                         (its build, the country on the feed, the app.json floor, --company-data
+                         package only on w1); one bad cell stops the run with exit 2. Each cell is a
+                         child process with its own command line, printed in the report. The report:
+                         each cell's failures and Result line (--verbose: its whole report), a table
+                         of the cells (build, pass, flagged, fail, not run, exit), with sources a
+                         table per cell and part, and the tests whose outcome differs between cells
+                         (pass, fail, PASS* for a flagged pass, absent; a source test by change
+                         class). A test that passes in one cell and is not run in another is counted
+                         (--verbose lists it). --junit FILE: one file per cell (results.28.5-w1.xml).
+                         --output-json FILE: {format 1, cells [..., run: the cell's document],
+                         differs, exitCode}. --affected keeps a stored result per cell
+                         (--affected-store FILE becomes FILE.28.5-w1). Exit code: the worst cell.
+                         AL Runner defines no preprocessor symbol of its own in a cell. Refused with
+                         a matrix: --explain, --test-data PATH.bak, --output-json without a FILE;
+                         al-runner serve.
 
 ISOLATION
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
@@ -505,7 +564,9 @@ SERVE
                          refused. A runTests request carries
                          sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
-                         tdd (`serve --tdd` makes it the default).
+                         tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
+                         strictEnvironment (as --affected and its options; the summary gets `selection`).
+    --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
                          Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
 
 DEBUG
@@ -714,6 +775,22 @@ fn parse_warm(mut it: impl Iterator<Item = String>) -> Result<Command, String> {
     Ok(Command::Warm(Box::new(a)))
 }
 
+/// The daemon option `--affected-store FILE` of `al-runner serve` (ADR-050 decision 10), taken out of `daemon`: where
+/// the requests with `affectedOnly` read and write the stored result. The rest are options of `al-runner test`.
+pub fn split_affected_store(daemon: &[String]) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let mut rest = Vec::new();
+    let mut store = None;
+    let mut it = daemon.iter();
+    while let Some(a) = it.next() {
+        if a == "--affected-store" {
+            store = Some(PathBuf::from(it.next().ok_or("--affected-store needs a value")?));
+        } else {
+            rest.push(a.clone());
+        }
+    }
+    Ok((rest, store))
+}
+
 /// `al-runner serve [--protocol 2] [OPTIONS]`: the options are those of `al-runner test` that do not depend on a request;
 /// they are checked with its parser and handed to every run.
 fn parse_serve(args: Vec<String>) -> Result<Command, String> {
@@ -736,7 +813,13 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     }
     // ADR-052 section 4 (owner answer 5): test sources are another kind of run, refused before the probe parse (which
     // would refuse `--microsoft-app` alone with a message about `test`).
-    for flag in ["--affected-from", "--microsoft-app"] {
+    for flag in [
+        "--affected-from",
+        "--microsoft-app",
+        "--matrix",
+        "--matrix-parallel",
+        "--matrix-memory",
+    ] {
         if daemon.iter().any(|d| d == flag) {
             return Err(format!(
                 "al-runner serve cannot be combined with {flag}: a request runs the tests once, the plain way; use `al-runner test {flag} ...`"
@@ -745,7 +828,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     }
     // A throw-away parse tells a good option from a bad one, and keeps out what only a request decides.
     let mut probe = vec!["test".to_string(), "APP".to_string()];
-    probe.extend(daemon.iter().cloned());
+    probe.extend(split_affected_store(&daemon)?.0);
     let Command::Test(t) = parse(probe)? else {
         return Err("al-runner serve: options of `al-runner test` only".into());
     };
@@ -773,6 +856,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     for (set, flag) in [
         (t.recipe, "--recipe microsoft"),
         (!t.impact_of.is_empty(), "--impact-of"),
+        (t.matrix.is_some(), "a list in --bc-version or --country"),
     ] {
         if set {
             return Err(format!(
@@ -789,6 +873,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         return Ok(Command::Help);
     };
     let mut index_build = false;
+    let mut matrix_spec: Option<String> = None;
+    let mut country_list: Option<String> = None;
     let mut check_static = false;
     let mut debug: Option<crate::debug::Transport> = None;
     let mut test_microsoft = false;
@@ -939,6 +1025,28 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dep" => a.deps.push(text()?.into()),
             "--package-cache" => a.package_caches.push(text()?.into()),
             "--bc-version" => a.bc_version = Some(text()?),
+            "--matrix" => matrix_spec = Some(text()?),
+            "--matrix-parallel" => {
+                let n = number("--matrix-parallel", &text()?)?;
+                if n == 0 {
+                    return Err("--matrix-parallel needs a count of at least 1".into());
+                }
+                a.matrix_parallel = Some(n);
+            }
+            "--matrix-memory" => {
+                let v = text()?;
+                a.matrix_memory_gb = Some(
+                    v.parse::<f64>()
+                        .ok()
+                        .filter(|g| *g > 0.0)
+                        .ok_or_else(|| format!("--matrix-memory needs a size in GB, got `{v}`"))?,
+                );
+            }
+            "--matrix-cell" => {
+                let f = PathBuf::from(text()?);
+                a.output_json = Some(Some(f.clone()));
+                a.matrix_cell = Some(f);
+            }
             "--no-download" => a.no_download = true,
             "--no-test-data" => a.no_test_data = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
@@ -1014,7 +1122,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.test_timeout_secs = Some(number(&flag, &v)? as u64);
             }
             "--test-data-company" => a.test_data_company = Some(text()?),
-            "--country" => a.country = Some(al_deps::artifact::normalize_country(&text()?)?),
+            "--country" => {
+                let v = text()?;
+                if v.contains(',') {
+                    country_list = Some(v);
+                } else {
+                    a.country = Some(al_deps::artifact::normalize_country(&v)?);
+                }
+            }
             "--company-data" => {
                 let v = text()?;
                 match v.as_str() {
@@ -1060,13 +1175,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             _ => return Err(format!("unknown option `{flag}` (see --help)")),
         }
     }
+    matrix_args(&mut a, matrix_spec, country_list)?;
+    if a.matrix.is_some() && (index_build || debug.is_some()) {
+        return Err("a matrix (a list in --bc-version or --country, or --matrix) works with al-runner test and al-runner test-microsoft only: give one --bc-version and --country".into());
+    }
     if test_microsoft {
         // `--affected` and its options belong to `test`: test-microsoft keeps no stored result.
         affected_selection_args(&a, true)?;
         return test_microsoft_args(a);
     }
     source_names(&mut a, if index_build { "--from" } else { "--affected-from" })?;
-    if !a.microsoft_apps.is_empty() && a.affected_from.is_empty() {
+    if !a.microsoft_apps.is_empty() && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err(if index_build {
             "--microsoft-app needs --from microsoft: it names the Microsoft test apps the index is built for".into()
         } else {
@@ -1108,7 +1227,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
     }
-    if a.bcapps_dir.is_some() && !a.recipe && a.affected_from.is_empty() {
+    if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
     if a.recipe {
@@ -1217,17 +1336,73 @@ fn affected_selection_args(a: &TestArgs, other_command: bool) -> Result<(), Stri
     Ok(())
 }
 
-/// The names of the test sources (ADR-052 1.1): `microsoft`, without case. A path (an ISV test app) is build step 3.
+/// The cells of a matrix run and the options that need one (ADR-052 3.1, 3.7).
+fn matrix_args(a: &mut TestArgs, spec: Option<String>, country_list: Option<String>) -> Result<(), String> {
+    let listed = a.bc_version.as_deref().is_some_and(|v| v.contains(','));
+    if spec.is_some() || listed || country_list.is_some() {
+        let bc = a.bc_version.take();
+        let country = country_list.or_else(|| a.country.take());
+        a.matrix = crate::matrix::cells(bc.as_deref(), country.as_deref(), spec.as_deref())?;
+    }
+    let Some(cells) = &a.matrix else {
+        if a.matrix_parallel.is_some() || a.matrix_memory_gb.is_some() {
+            return Err(
+                "--matrix-parallel and --matrix-memory need a matrix: a list in --bc-version or --country, or --matrix"
+                    .into(),
+            );
+        }
+        return Ok(());
+    };
+    if a.matrix_cell.is_some() {
+        return Err("--matrix-cell is one cell of a matrix: it takes one --bc-version and --country".into());
+    }
+    if a.explain.is_some() {
+        return Err("--explain cannot be combined with a matrix: explain one cell's test with that cell's command line, which the matrix report prints".into());
+    }
+    if a.test_data_path.is_some() && cells.len() > 1 {
+        return Err(
+            "--test-data PATH.bak cannot be combined with a matrix: one backup cannot fit several builds or countries"
+                .into(),
+        );
+    }
+    if matches!(a.output_json, Some(None)) {
+        return Err("--output-json in a matrix needs a FILE: the report of the cells goes to stdout".into());
+    }
+    Ok(())
+}
+
+/// The test sources (ADR-052 1.1): `microsoft`, without case, or the path of an ISV test app (a folder, an `.app` or
+/// a `*.Source.zip`; a folder of several test apps is one source per app, `sources::resolve`). `impact-index build
+/// --from` takes `microsoft` only: an ISV test app's index is built with `impact-index build PATH`.
 fn source_names(a: &mut TestArgs, flag: &str) -> Result<(), String> {
     let mut seen: Vec<String> = Vec::new();
+    // The same file or folder, however it is spelled.
+    let same = |x: &str, y: &str| {
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+        canon(x) == canon(y)
+    };
     for s in &a.affected_from {
-        if !s.eq_ignore_ascii_case("microsoft") {
+        let name = if s.eq_ignore_ascii_case("microsoft") {
+            "microsoft".to_string()
+        } else if flag == "--from" {
             return Err(format!(
-                "{flag} {s}: an ISV test app as a test source is not built yet (ADR-052 build step 3); only `{flag} microsoft` works today"
+                "--from {s}: impact-index build --from takes `microsoft`; build the index of an ISV test app with `al-runner impact-index build {s}`"
             ));
-        }
-        let name = s.to_ascii_lowercase();
-        if seen.contains(&name) {
+        } else if !Path::new(s).exists() {
+            return Err(format!("{flag} {s}: no such file or folder"));
+        } else {
+            if let Some(app) = a.apps.iter().find(|p| same(&p.to_string_lossy(), s)) {
+                return Err(format!(
+                    "{flag} {s} is also an APP ({}): an app is either under test or a test source",
+                    app.display()
+                ));
+            }
+            s.clone()
+        };
+        if seen
+            .iter()
+            .any(|t| *t == name || (name != "microsoft" && same(t, &name)))
+        {
             return Err(format!("{flag} {name} is given twice"));
         }
         seen.push(name);
@@ -1271,19 +1446,9 @@ fn affected_args(a: &TestArgs, what: &str) -> Result<(), String> {
             "a source's tests run with and without the extension and have nothing to stub",
         ),
         (
-            a.output_json.is_some(),
-            "--output-json",
-            "its document with a `sources` part is not built yet (ADR-052 build step 3); --junit FILE holds every part",
-        ),
-        (
-            a.impact_json.is_some(),
-            "--impact-json",
-            "its format 2 with one entry per source is not built yet (ADR-052 build step 3); --junit FILE holds the change class of each test",
-        ),
-        (
-            a.impact_accept.is_some(),
-            "--impact-accept",
-            "an accept file across sources (format 2, entries per source) is not built yet (ADR-052 build step 3)",
+            matches!(a.output_json, Some(None)),
+            "--output-json without a FILE",
+            "the report of every part goes to stdout; name a FILE (`--output-json results.json`)",
         ),
     ] {
         if set {
@@ -1452,15 +1617,12 @@ mod tests {
         }
         // Without an extension there is nothing to measure.
         assert!(p("test-microsoft --impact static").unwrap_err().contains("--impact"));
-        for flag in [
-            "--output-json r.json",
-            "--impact-json d.json",
-            "--impact-accept a.json",
-            "--no-compile-cache",
-            "--coverage",
-        ] {
+        for flag in ["--no-compile-cache", "--coverage"] {
             let e = p(&format!("test-microsoft MyApp {flag}")).unwrap_err();
             assert!(e.contains(flag.split(' ').next().unwrap()), "{flag}: {e}");
+        }
+        for flag in ["--output-json r.json", "--impact-json d.json", "--impact-accept a.json"] {
+            assert!(p(&format!("test-microsoft MyApp {flag}")).is_ok(), "{flag}");
         }
         assert!(p("test-microsoft --affected-from microsoft").is_err());
         // `--affected` selects from the stored result of a `test` run; test-microsoft has none (ADR-050 decision 1).
@@ -1500,9 +1662,23 @@ mod tests {
             vec!["microsoft"]
         );
         assert!(p("test Ext --affected-from microsoft --impact all --junit r.xml").is_ok());
-        // An ISV test app as a source is a later step.
-        let e = p("test Ext --affected-from ./vendor-tests").unwrap_err();
-        assert!(e.contains("./vendor-tests") && e.contains("step 3"), "{e}");
+        // An ISV test app is a path; one that does not exist, the same twice or an APP as a source exit 2.
+        let e = p("test Ext --affected-from ./no-such-vendor-tests").unwrap_err();
+        assert!(e.contains("./no-such-vendor-tests") && e.contains("no such"), "{e}");
+        let dir = tempfile::tempdir().unwrap();
+        let v = dir.path().join("vendor");
+        std::fs::create_dir_all(&v).unwrap();
+        let v = v.to_string_lossy();
+        assert_eq!(
+            test_args(&format!("test Ext --affected-from {v} --affected-from microsoft")).affected_from,
+            vec![v.to_string(), "microsoft".into()]
+        );
+        let e = p(&format!("test Ext --affected-from {v} --affected-from {v}/")).unwrap_err();
+        assert!(e.contains("twice"), "{e}");
+        let e = p(&format!("test {v} --affected-from {v}")).unwrap_err();
+        assert!(e.contains("also an APP"), "{e}");
+        let e = p(&format!("test Ext --affected-from {v} --microsoft-app Tests-ERM")).unwrap_err();
+        assert!(e.contains("--affected-from microsoft"), "{e}");
         let e = p("test Ext --affected-from microsoft --affected-from MICROSOFT").unwrap_err();
         assert!(e.contains("microsoft") && e.contains("twice"), "{e}");
         for flag in [
@@ -1511,9 +1687,7 @@ mod tests {
             "--explain T",
             "--coverage",
             "--impact-of E",
-            "--output-json r.json",
-            "--impact-json d.json",
-            "--impact-accept a.json",
+            "--output-json",
             "--tdd",
         ] {
             let e = p(&format!("test Ext --affected-from microsoft {flag}")).unwrap_err();
@@ -1524,6 +1698,13 @@ mod tests {
         }
         let e = p("test Ext --microsoft-app Tests-ERM").unwrap_err();
         assert!(e.contains("--affected-from microsoft"), "{e}");
+        // Build step 3: the files of a run with sources.
+        for flag in ["--output-json r.json", "--impact-json d.json", "--impact-accept a.json"] {
+            assert!(
+                p(&format!("test Ext --affected-from microsoft {flag}")).is_ok(),
+                "{flag}"
+            );
+        }
     }
 
     #[test]
@@ -1537,7 +1718,8 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(p("impact-index build --from microsoft A").unwrap_err().contains("APP"));
-        assert!(p("impact-index build --from ./x").unwrap_err().contains("microsoft"));
+        let e = p("impact-index build --from ./x").unwrap_err();
+        assert!(e.contains("microsoft") && e.contains("impact-index build ./x"), "{e}");
         assert!(p("impact-index check-static --from microsoft").is_err());
         assert!(p("impact-index build A --microsoft-app Tests-ERM").is_err());
     }
@@ -1929,5 +2111,42 @@ mod tests {
         );
         assert!(p("test A --watch").unwrap_err().contains("deferred"));
         assert!(p("run").unwrap_err().contains("not implemented yet"));
+    }
+
+    #[test]
+    fn a_matrix_parses_its_cells_and_refuses_what_cannot_be_combined_with_it() {
+        let a = test_args("test App --bc-version 27.5,28.5 --country w1,us --matrix-parallel 2 --matrix-memory 12");
+        assert_eq!(a.matrix.as_ref().map(Vec::len), Some(4));
+        assert_eq!((a.bc_version.as_deref(), a.country.as_deref()), (None, None));
+        assert_eq!(a.matrix_parallel, Some(2));
+        assert_eq!(a.matrix_memory_gb, Some(12.0));
+        assert_eq!(test_args("test App --country w1,de").matrix.map(|m| m.len()), Some(2));
+        match p("test-microsoft --matrix 27.5:w1,29.0:us").unwrap() {
+            Command::TestMicrosoft(a) => assert_eq!(a.matrix.map(|m| m.len()), Some(2)),
+            other => panic!("{other:?}"),
+        }
+        assert!(test_args("test App --bc-version 29.0 --country us").matrix.is_none());
+        for (cmd, says) in [
+            ("test App --matrix 27.5 --bc-version 28.5,29.0", "--matrix"),
+            ("test App --matrix 27.5,27.5", "twice"),
+            ("test App --bc-version 27.5,28.5 --matrix-parallel 0", "at least 1"),
+            ("test App --matrix-parallel 2", "need a matrix"),
+            ("test App --bc-version 27.5,28.5 --explain T", "--explain"),
+            ("test App --bc-version 27.5,28.5 --test-data x.bak", "one backup"),
+            ("test App --bc-version 27.5,28.5 --output-json", "FILE"),
+            ("impact-index build App --bc-version 27.5,28.5", "test-microsoft only"),
+        ] {
+            let e = p(cmd).unwrap_err();
+            assert!(e.contains(says), "{cmd}: {e}");
+        }
+        // ADR-052 section 4: serve refuses matrix options.
+        for cmd in [
+            "serve --bc-version 27.5,28.5",
+            "serve --matrix 27.5",
+            "serve --matrix-parallel 2",
+        ] {
+            let e = p(cmd).unwrap_err();
+            assert!(e.contains("al-runner serve cannot be combined"), "{cmd}: {e}");
+        }
     }
 }

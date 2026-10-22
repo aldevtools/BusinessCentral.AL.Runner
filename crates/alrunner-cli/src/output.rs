@@ -284,6 +284,11 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
             let mut row = json_row(r.codeunit, &r.codeunit_name, &r.test, &r.outcome, &r.call_stack, r.time);
             add_stubs(&mut row, &r.stubs);
             add_slept(&mut row, r.slept_ms);
+            // A pass that ran through an unprobed assumption (additive: v2 readers ignore it); the matrix report shows
+            // it as PASS* (ADR-052 3.6).
+            if matches!(r.outcome, Outcome::Pass) && !r.assumptions.is_empty() {
+                row.insert("flagged".into(), json!(true));
+            }
             Value::Object(row)
         })
         .collect();

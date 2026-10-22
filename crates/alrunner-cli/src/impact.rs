@@ -343,6 +343,9 @@ pub struct Accept {
     /// `pass`, `fail`, `not run` or `missing`.
     pub outcome: String,
     pub message: Option<String>,
+    /// The test source the entry belongs to (an `--impact-json` file of format 2, ADR-052 1.6); none matches in every
+    /// source.
+    pub source: Option<String>,
 }
 
 /// The changes a partner accepts. The file has the shape of the JSON diff (`--impact-json`): every entry of `tests[]`
@@ -359,16 +362,40 @@ impl Accepts {
         Accepts::parse(&text).map_err(|e| format!("--impact-accept {}: {e}", path.display()))
     }
 
+    /// Format 1 (one impact run, ADR-043) and format 2 (`sources: [...]`, each a format-1 body with `source`,
+    /// ADR-052 1.6).
     pub fn parse(text: &str) -> Result<Accepts, String> {
         let doc: serde_json::Value =
             serde_json::from_str(text).map_err(|e| format!("not a JSON document of an impact run: {e}"))?;
+        let Some(sources) = doc.get("sources") else {
+            return Accepts::parse_body(&doc, None, "");
+        };
+        let sources = sources
+            .as_array()
+            .ok_or("`sources` must be a list (the file has the shape --impact-json writes)")?;
+        let mut entries = Vec::new();
+        for (i, body) in sources.iter().enumerate() {
+            let source = match body.get("source") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(s) => Some(
+                    s.as_str()
+                        .ok_or_else(|| format!("sources[{i}]: `source` must be text"))?
+                        .to_string(),
+                ),
+            };
+            entries.extend(Accepts::parse_body(body, source, &format!("sources[{i}]."))?.entries);
+        }
+        Ok(Accepts { entries })
+    }
+
+    fn parse_body(doc: &serde_json::Value, source: Option<String>, prefix: &str) -> Result<Accepts, String> {
         let tests = doc
             .get("tests")
             .and_then(|t| t.as_array())
-            .ok_or("no `tests` list (the file has the shape --impact-json writes)")?;
+            .ok_or_else(|| format!("{prefix}no `tests` list (the file has the shape --impact-json writes)"))?;
         let mut entries = Vec::new();
         for (i, t) in tests.iter().enumerate() {
-            let at = |what: &str| format!("tests[{i}]: {what}");
+            let at = |what: &str| format!("{prefix}tests[{i}]: {what}");
             if let Some(class) = t.get("class") {
                 let class = class
                     .as_str()
@@ -412,9 +439,21 @@ impl Accepts {
                 test: test.to_string(),
                 outcome,
                 message,
+                source: source.clone(),
             });
         }
         Ok(Accepts { entries })
+    }
+
+    /// The entries that can match in `source`: those of that source and those without one.
+    pub fn for_source(self, source: &str) -> Accepts {
+        Accepts {
+            entries: self
+                .entries
+                .into_iter()
+                .filter(|e| e.source.as_deref().is_none_or(|s| s == source))
+                .collect(),
+        }
     }
 
     /// Marks the changed rows the file accepts: same codeunit, test (names compare without case, as AL does), outcome
@@ -455,7 +494,7 @@ pub struct JsonRun<'a> {
 
 /// The JSON diff of an impact run (`--impact-json`): the counts per class and every test with both sides. Its shape is
 /// also the accept file's.
-pub fn json(rows: &[Row], routines: &Routines, run: &JsonRun) -> String {
+pub fn json_value(rows: &[Row], routines: &Routines, run: &JsonRun) -> serde_json::Value {
     use serde_json::{Value, json};
     let side = |s: Side, present: bool| -> Value {
         if !present {
@@ -504,7 +543,7 @@ pub fn json(rows: &[Row], routines: &Routines, run: &JsonRun) -> String {
     if let Some((tests, codeunits)) = run.not_selected {
         doc["notSelected"] = json!({"tests": tests, "codeunits": codeunits});
     }
-    serde_json::to_string_pretty(&doc).expect("a JSON value serializes")
+    doc
 }
 
 /// What ends the reason of a failure the runner does not trust, before the failure's text (al-testrun `run.rs`).
@@ -705,6 +744,14 @@ pub fn report_with(
         ));
         out.push(refusals::render_top("not verified tests", &list, 10));
     }
+    out.extend(stale_lines(stale));
+    out
+}
+
+/// The entries of the accept file that matched no change: a blank line, a heading and one line each; nothing when
+/// there is none.
+pub fn stale_lines(stale: &[&Accept]) -> Vec<String> {
+    let mut out = Vec::new();
     if !stale.is_empty() {
         out.push(String::new());
         out.push(style::yellow(&format!(
@@ -816,6 +863,11 @@ pub struct Part {
     pub not_selected: Option<usize>,
     /// The "with" run's results with their impact properties, for one JUnit file of all parts.
     pub junit: Option<output::JunitPart>,
+    /// The `--impact-json` document of the run (format 1).
+    pub json: Option<serde_json::Value>,
+    /// The entries of the accept file that matched no change of this run (`accept_source` set: the caller reports
+    /// them once per source).
+    pub stale: Vec<Accept>,
 }
 
 impl Part {
@@ -844,7 +896,10 @@ pub fn run_part(a: &TestArgs) -> Result<Part, String> {
 fn run_kept(a: &TestArgs, keep: &Keep) -> Result<u8, String> {
     let started = std::time::Instant::now();
     // A wrong accept file or an unwritable output path stops the run before the long part.
-    let accepts = a.impact_accept.as_deref().map(Accepts::load).transpose()?;
+    let mut accepts = a.impact_accept.as_deref().map(Accepts::load).transpose()?;
+    if let Some(source) = &a.accept_source {
+        accepts = accepts.map(|x| x.for_source(source));
+    }
     for path in [&a.impact_json, &a.junit].into_iter().flatten() {
         run::write_file(path, "")?;
     }
@@ -971,7 +1026,7 @@ impl Finish<'_> {
             routines,
             self.a.verbose,
             self.not_selected.map(|(t, c)| (t, c, self.not_selected_why)),
-            &stale,
+            if self.a.accept_source.is_some() { &[] } else { &stale },
         ) {
             println!("{line}");
         }
@@ -984,19 +1039,22 @@ impl Finish<'_> {
         }
         let code = verdict(rows);
         let a = self.a;
+        let doc = json_value(
+            rows,
+            routines,
+            &JsonRun {
+                mode: self.mode,
+                extensions: &a.impact_of,
+                test_apps: &a.apps,
+                not_selected: self.not_selected,
+                exit_code: code,
+            },
+        );
         if let Some(path) = &a.impact_json {
-            let doc = json(
-                rows,
-                routines,
-                &JsonRun {
-                    mode: self.mode,
-                    extensions: &a.impact_of,
-                    test_apps: &a.apps,
-                    not_selected: self.not_selected,
-                    exit_code: code,
-                },
-            );
-            run::write_file(path, &doc)?;
+            run::write_file(
+                path,
+                &serde_json::to_string_pretty(&doc).expect("a JSON value serializes"),
+            )?;
         }
         let wall = self.started.elapsed().as_secs_f64();
         let results: Vec<&TestResult> = with.results.iter().collect();
@@ -1033,6 +1091,8 @@ impl Finish<'_> {
                 baseline_assumptions: with.baseline_assumptions.clone(),
                 ..Default::default()
             }),
+            json: Some(doc),
+            stale: stale.iter().map(|e| (*e).clone()).collect(),
         });
         if let Some(path) = &a.junit {
             let disabled: std::collections::HashSet<(u32, &str)> = with
@@ -1807,7 +1867,7 @@ mod tests {
         let without = vec![result("T", pass(), vec![]), result("S", pass(), vec![])];
         let with = vec![result("T", fail("boom"), vec![(4, 1)]), result("S", pass(), vec![])];
         let mut rows = diff(&without, &with, &routines);
-        let doc = json(
+        let doc = json_value(
             &rows,
             &routines,
             &JsonRun {
@@ -1817,11 +1877,37 @@ mod tests {
                 not_selected: None,
                 exit_code: 1,
             },
-        );
+        )
+        .to_string();
         let accepts = Accepts::parse(&doc).unwrap();
         assert_eq!(accepts.entries.len(), 1, "{doc}");
         assert!(accepts.apply(&mut rows).is_empty());
         assert!(rows[0].accepted && !rows[1].accepted);
         assert_eq!(exit_code(&rows), 0);
+    }
+
+    #[test]
+    fn a_format_2_accept_file_keeps_the_source_of_each_entry() {
+        let entry =
+            r#"{"codeunit": 5, "test": "T", "class": "newly failing", "with": {"outcome": "fail", "message": "boom"}}"#;
+        let doc = format!(
+            r#"{{"format": 2, "sources": [{{"source": "microsoft", "tests": [{entry}]}}, {{"source": "Vendor Tests", "tests": [{entry}]}}]}}"#
+        );
+        let accepts = Accepts::parse(&doc).unwrap();
+        assert_eq!(accepts.entries.len(), 2);
+        let vendor = Accepts::parse(&doc).unwrap().for_source("Vendor Tests");
+        assert_eq!(vendor.entries.len(), 1);
+        assert_eq!(vendor.entries[0].source.as_deref(), Some("Vendor Tests"));
+        // A format-1 entry has no source and stays in every source.
+        let one = format!(r#"{{"tests": [{entry}]}}"#);
+        assert_eq!(
+            Accepts::parse(&one).unwrap().for_source("Vendor Tests").entries.len(),
+            1
+        );
+        assert!(
+            Accepts::parse(r#"{"sources": [{"source": "x"}]}"#)
+                .unwrap_err()
+                .contains("sources[0].no `tests` list")
+        );
     }
 }

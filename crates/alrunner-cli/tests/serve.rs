@@ -175,8 +175,8 @@ fn bad_requests_get_an_error_line_and_the_server_goes_on() {
             "unknown field",
         ),
         (
-            json!({"command": "runTests", "sourcePaths": [a], "affectedOnly": true}),
-            "deferred",
+            json!({"command": "runTests", "sourcePaths": [a], "affectedOnly": true, "test": "Passes"}),
+            "cannot be combined",
         ),
         (
             json!({"command": "runTests", "sourcePaths": ["/no/such/app"]}),
@@ -609,11 +609,11 @@ fn execute_checks_its_request_and_says_what_it_does_not_do_yet() {
             .unwrap()
             .contains("bogus")
     );
+    // ADR-050 decision 1: the affected fields earn a warning on execute.
     assert!(
-        ask(json!({"command": "execute", "code": "x", "includeFailing": true}))["error"]
-            .as_str()
-            .unwrap()
-            .contains("deferred")
+        ask(json!({"command": "execute", "code": "Message('a');", "includeFailing": true}))["warnings"]
+            .to_string()
+            .contains("includeFailing")
     );
     let r =
         ask(json!({"command": "execute", "code": "Message('a');", "captureValues": true, "iterationTracking": true}));

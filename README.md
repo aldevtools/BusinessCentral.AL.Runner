@@ -487,7 +487,8 @@ load it.
   CI). The other tests keep their stored outcome: they are counted as skipped, never as passed,
   and one that failed last time keeps the exit code at 1. A change the rule cannot follow
   (an added object, `app.json`, a dependency app) runs everything and says why.
-  `--include-failing` also runs every test that did not pass last time. Not in `serve` yet.
+  `--include-failing` also runs every test that did not pass last time. In `serve`: the
+  `affectedOnly` and `includeFailing` fields of `runTests`.
 - Only three targets are built: Linux x64, Windows x64 and macOS arm64.
 
 **Report problems** as a GitHub issue, using the "Alpha feedback" template.
@@ -605,9 +606,25 @@ test app, lane by lane with the recipe, as an impact run of `MYEXT` (with and wi
 report with one summary table and one `--junit` file (each source suite has the property
 `test_source`, the first one `not_selected`). Without a cached impact index the tests are selected by
 static reach, with a warning that prints the command that builds the index:
-`al-runner impact-index build --from microsoft --microsoft-app Tests-ERM --bc-version ...`. An ISV test
-app as a source (`--affected-from PATH`), `--output-json`, `--impact-json` and `--impact-accept` with
-sources are later steps of ADR-052 and are refused for now; `al-runner serve` refuses test sources.
+`al-runner impact-index build --from microsoft --microsoft-app Tests-ERM --bc-version ...`.
+
+An ISV's test app is a test source too: `al-runner test MYEXT --affected-from ../vendor/Product.Tests`
+(an app folder, an `.app` with AL source or a `*.Source.zip`; a folder of several test apps is one source
+per app; repeatable, also next to `--affected-from microsoft`). It runs with the run's normal test data,
+and its dependencies resolve as for any APP. A test app or dependency without AL source is refused before
+the run, as is a test app that depends on your extension (pass that one as an APP). `--output-json FILE`
+writes your own tests as a plain run does plus a `sources` array; `--impact-json FILE` writes format 2
+(one entry per impact run, each with its `source`); `--impact-accept FILE` reads format 1 and 2, and an
+entry with a `source` matches only in that source. `al-runner serve` refuses test sources.
+
+Matrix runs: `al-runner test MYEXT --bc-version 27.5,28.5,29.0 --country w1,us` runs every combination of
+versions and countries, one cell each; `--matrix "27.5:w1,29.0:us"` names the cells. Every cell is checked
+before any runs (its build, the country, the app's floor), and one bad cell stops the run. Each cell runs as
+its own process; the report has a table of the cells and the list of tests whose outcome differs between
+cells. `--matrix-parallel N` runs up to N cells at once when the free memory allows it. `--junit FILE` writes
+one file per cell, `--output-json FILE` one document with every cell. The exit code is the worst cell's. AL
+Runner sets no preprocessor symbols of its own in a cell: each compiles with the app's `preprocessorSymbols`
+and `--define`, as a single run does.
 
 `al-runner` can run Microsoft's own Base Application test buckets. Most of these tests are
 still refused, not run. The full run of 2026-10-16 (main `fae0c8df`, BC 27.5, all buckets
