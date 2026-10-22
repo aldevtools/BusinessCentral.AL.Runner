@@ -115,9 +115,10 @@ fn test_microsoft_over_two_builds_lists_the_tests_that_differ_and_exits_with_the
             .collect::<Vec<_>>()
             .join(" ")
     };
-    // cell, build, pass, flagged, fail, not run, exit
-    assert_eq!(row("28.5 w1"), format!("28.5 w1 {OLD} 1 0 1 0 1"), "{out}");
-    assert_eq!(row(&format!("{NEW} w1")), format!("{NEW} w1 {NEW} 3 0 0 0 0"), "{out}");
+    // cell, build, pass, flagged, fail, not run, exit. `_Exclude_Fake Tests` runs in both cells (as in Microsoft's CI)
+    // and fails in both, so it is not among the tests that differ.
+    assert_eq!(row("28.5 w1"), format!("28.5 w1 {OLD} 1 0 2 0 1"), "{out}");
+    assert_eq!(row(&format!("{NEW} w1")), format!("{NEW} w1 {NEW} 3 0 1 0 1"), "{out}");
     assert!(out.contains("Differs between cells (2 tests)"), "{out}");
     let differs = &out[out.find("Differs between cells").expect(&out)..];
     let line = |t: &str| {

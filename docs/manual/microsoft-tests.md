@@ -35,7 +35,7 @@ and runs it with `--recipe microsoft`.
   app, by its name in the artifact (`Tests-ERM`, `Data Search Tests`), in any case.
   It is repeatable. An unknown name exits with 2 and lists the names.
 - **Test libraries.** Apps without a test codeunit are loaded as dependencies and not
-  run. Apps whose artifact name starts with `_Exclude_` run only when `--app` names them.
+  run. Apps whose artifact name starts with `_Exclude_` run too, as in Microsoft's CI.
 - **Report.** Each test app is a run of its own. The output ends with one row per
   test app (passed, failed, not run, total, the codeunits of a lane that cannot be
   built yet, and the exit code) and a total.

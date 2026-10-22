@@ -66,17 +66,19 @@ fn every_test_app_of_the_build_runs_by_the_recipe_and_libraries_are_left_out() {
     let o = run(dir.path(), &[]);
     let out = text(&o);
     assert!(
-        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 2 test app(s)")),
+        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 3 test app(s)")),
         "{out}"
     );
     assert!(out.contains("left out: Fake Test Library: no test codeunit"), "{out}");
-    assert!(out.contains("left out: _Exclude_Fake Tests"), "{out}");
+    // Microsoft's CI runs the `_Exclude_` test apps, so the default does too.
+    assert!(!out.contains("left out: _Exclude_Fake Tests"), "{out}");
     assert!(!out.contains("== test app Fake Test Library"), "{out}");
     // passed failed not-run total codeunits-left exit. The disabled test is skipped by the recipe, not run.
     assert_eq!(row(&out, "Tests-Fake-A"), "1 0 0 1 0 0", "{out}");
     assert_eq!(row(&out, "Tests-Fake-B"), "1 0 0 1 0 0", "{out}");
-    assert_eq!(row(&out, "Total"), "2 0 0 2 0 0", "{out}");
-    assert_eq!(o.status.code(), Some(0), "{out}");
+    assert_eq!(row(&out, "_Exclude_Fake"), "Tests 0 1 0 1 0 1", "{out}");
+    assert_eq!(row(&out, "Total"), "2 1 0 3 0 1", "{out}");
+    assert_eq!(o.status.code(), Some(1), "{out}");
 }
 
 #[test]
@@ -155,7 +157,7 @@ fn test_microsoft_with_an_extension_runs_the_microsoft_tests_that_reach_it_with_
     let o = run(dir.path(), &[&ext, "--dep", &lib, "--junit", junit.to_str().unwrap()]);
     let out = text(&o);
     assert!(
-        out.contains(&format!("== microsoft: BC {BUILD} w1, 3 test app(s)")),
+        out.contains(&format!("== microsoft: BC {BUILD} w1, 4 test app(s)")),
         "{out}"
     );
     // No index is cached: static selection, with the exact command that builds the index of that test app.
@@ -170,12 +172,12 @@ fn test_microsoft_with_an_extension_runs_the_microsoft_tests_that_reach_it_with_
         "{out}"
     );
     // tests run, ran your code, newly failing, fails differently, newly refused, not verified, exit. Tests-Fake-A and
-    // -B and the second codeunit of Tests-Imp reach nothing of the extension: they are not selected, never counted
-    // as passes (the disabled test of Tests-Fake-A is among them).
+    // -B, `_Exclude_Fake Tests` and the second codeunit of Tests-Imp reach nothing of the extension: they are not
+    // selected, never counted as passes (the disabled test of Tests-Fake-A is among them).
     let r = source_row(&out, "microsoft");
     assert!(r.ends_with(" 1 0 0 0 1"), "{r}\n{out}");
     assert!(
-        out.contains("not selected: 4 test(s) do not reach your extension"),
+        out.contains("not selected: 5 test(s) do not reach your extension"),
         "{out}"
     );
     assert!(
@@ -189,7 +191,7 @@ fn test_microsoft_with_an_extension_runs_the_microsoft_tests_that_reach_it_with_
         "{x}"
     );
     assert_eq!(
-        x.matches("<property name=\"not_selected\" value=\"4\" />").count(),
+        x.matches("<property name=\"not_selected\" value=\"5\" />").count(),
         1,
         "{x}"
     );
@@ -428,7 +430,7 @@ fn a_test_app_microsoft_runs_that_the_artifact_lacks_runs_from_its_bcapps_source
     let o = run(dir.path(), &[]);
     let out = text(&o);
     assert!(
-        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 3 test app(s)")),
+        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 4 test app(s)")),
         "{out}"
     );
     assert!(
@@ -446,7 +448,9 @@ fn a_test_app_microsoft_runs_that_the_artifact_lacks_runs_from_its_bcapps_source
     assert_eq!(out.matches("== test app Tests-Fake-A").count(), 1, "{out}");
     // Its app comes from BCApps too: the artifact has no Hidden App.
     assert_eq!(row(&out, "Hidden App Tests"), "1 0 0 1 0 0", "{out}");
-    assert_eq!(o.status.code(), Some(0), "{out}");
+    // The default also runs `_Exclude_Fake Tests`, whose one test fails by design: the run exits 1.
+    assert_eq!(row(&out, "_Exclude_Fake"), "Tests 0 1 0 1 0 1", "{out}");
+    assert_eq!(o.status.code(), Some(1), "{out}");
     // --app names it like an artifact app.
     let o = run(dir.path(), &["--app", "hidden app tests"]);
     let out = text(&o);
