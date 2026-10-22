@@ -898,6 +898,7 @@ impl Session {
                 rp_init_done: Vec::new(),
                 rp_init_by_handler: Vec::new(),
                 report_preview_pinned: Vec::new(),
+                run_modal: false,
                 set_view_filters: Vec::new(),
                 dataset: None,
             },

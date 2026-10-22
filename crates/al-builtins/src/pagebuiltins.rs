@@ -119,6 +119,9 @@ page_methods! {
     "TestRequestPage.SaveAsXml#1" => TestRequestPageSaveAsXml,
     "TestRequestPage.SaveAsPdf#1" => TestRequestPageSaveAsPdf,
     "TestRequestPage.SaveAsExcel#1" => TestRequestPageSaveAsExcel,
+    // report/W3ReportObjectIdPreviewLanguage.al:717-752: the Preview and Print actions of a report run by Run.
+    "TestRequestPage.Preview#1" => TestRequestPagePreview,
+    "TestRequestPage.Print#1" => TestRequestPagePrint,
     "TestRequestPage.OK#1" => TestPageOK,
     "TestRequestPage.Cancel#1" => TestPageCancel,
     "TestRequestPage.Caption#1" => TestPageCaption,

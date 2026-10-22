@@ -4613,6 +4613,7 @@
 67730 RunRequestPage_OrderOfReportAndRequestPageTriggers
 67730 Run_Cancel_TriggersThatRun
 67730 Run_OrderOfReportAndRequestPageTriggers
+67730 Run_PreviewActionOfTheRequestPage
 67730 Run_SetTableViewOfTheCaller_BeforeTheHandler
 67735 Instance_AfterRun_TheVariableStartsAgain
 67735 RunModal_Markers_SurviveARollback
@@ -4650,6 +4651,8 @@
 67761 Preview_ReportRun
 67761 Preview_ReportRunModal
 67761 Preview_ReportSaveAs
+67761 Preview_RequestPagePreviewAction
+67761 QV_Preview_RunRequestPage
 67761 QV_Preview_SaveAsXml_Column
 67762 Hyperlink_WithoutHandler
 67763 AddRecord_CopiesTheFiltersOfTheRecord
@@ -13496,6 +13499,7 @@
 80985 SystemId_Method_RoundTrip_Repro
 80985 SystemId_On_CollectedError
 81070 BdProperty_NotSet_DatasetAndFormat
+81070 BdSetterLanguage_1033_EnUS
 81070 BdSetter_EnUS
 81070 BdSetter_EnUS_Run
 81070 BdSummaryML_1036
@@ -14618,4 +14622,3 @@
 87503 QW_TernaryColumn_TwoLiterals
 87573 QX_Ternary_CodeAndTextMixes
 87573 QX_Ternary_SizedFieldTarget
-87573 QX_Ternary_SizedTextTarget

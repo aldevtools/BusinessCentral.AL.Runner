@@ -75,6 +75,10 @@ pub enum PageMethod {
     SaveAsXml,
     SaveAsPdf,
     SaveAsExcel,
+    /// The request page's Preview action.
+    Preview,
+    /// The request page's Print action.
+    Print,
     SaveRecord,
     SetBackgroundTaskResult,
     SetCurrentKey,
@@ -156,6 +160,8 @@ impl PageMethod {
             PageMethod::SaveAsXml => "SaveAsXml",
             PageMethod::SaveAsPdf => "SaveAsPdf",
             PageMethod::SaveAsExcel => "SaveAsExcel",
+            PageMethod::Preview => "Preview",
+            PageMethod::Print => "Print",
             PageMethod::SaveRecord => "SaveRecord",
             PageMethod::SetBackgroundTaskResult => "SetBackgroundTaskResult",
             PageMethod::SetCurrentKey => "SetCurrentKey",
@@ -289,10 +295,12 @@ pub enum PageOp {
     TestRequestPageSaveAsXml,
     TestRequestPageSaveAsPdf,
     TestRequestPageSaveAsExcel,
+    TestRequestPagePreview,
+    TestRequestPagePrint,
 }
 
 impl PageOp {
-    pub const ALL: [PageOp; 104] = [
+    pub const ALL: [PageOp; 106] = [
         PageOp::PageCancelBackgroundTask,
         PageOp::PageCaption,
         PageOp::PageClose,
@@ -397,6 +405,8 @@ impl PageOp {
         PageOp::TestRequestPageSaveAsXml,
         PageOp::TestRequestPageSaveAsPdf,
         PageOp::TestRequestPageSaveAsExcel,
+        PageOp::TestRequestPagePreview,
+        PageOp::TestRequestPagePrint,
     ];
 
     pub fn recv(self) -> PageRecv {
@@ -505,6 +515,8 @@ impl PageOp {
             PageOp::TestRequestPageSaveAsXml => PageRecv::TestRequestPage,
             PageOp::TestRequestPageSaveAsPdf => PageRecv::TestRequestPage,
             PageOp::TestRequestPageSaveAsExcel => PageRecv::TestRequestPage,
+            PageOp::TestRequestPagePreview => PageRecv::TestRequestPage,
+            PageOp::TestRequestPagePrint => PageRecv::TestRequestPage,
         }
     }
 
@@ -614,6 +626,8 @@ impl PageOp {
             PageOp::TestRequestPageSaveAsXml => PageMethod::SaveAsXml,
             PageOp::TestRequestPageSaveAsPdf => PageMethod::SaveAsPdf,
             PageOp::TestRequestPageSaveAsExcel => PageMethod::SaveAsExcel,
+            PageOp::TestRequestPagePreview => PageMethod::Preview,
+            PageOp::TestRequestPagePrint => PageMethod::Print,
         }
     }
 
@@ -724,6 +738,8 @@ impl PageOp {
             PageOp::TestRequestPageSaveAsXml => "TestRequestPage.SaveAsXml",
             PageOp::TestRequestPageSaveAsPdf => "TestRequestPage.SaveAsPdf",
             PageOp::TestRequestPageSaveAsExcel => "TestRequestPage.SaveAsExcel",
+            PageOp::TestRequestPagePreview => "TestRequestPage.Preview",
+            PageOp::TestRequestPagePrint => "TestRequestPage.Print",
         }
     }
 

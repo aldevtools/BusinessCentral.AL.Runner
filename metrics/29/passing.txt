@@ -4610,6 +4610,7 @@
 67730 RunRequestPage_OrderOfReportAndRequestPageTriggers
 67730 Run_Cancel_TriggersThatRun
 67730 Run_OrderOfReportAndRequestPageTriggers
+67730 Run_PreviewActionOfTheRequestPage
 67730 Run_SetTableViewOfTheCaller_BeforeTheHandler
 67735 Instance_AfterRun_TheVariableStartsAgain
 67735 RunModal_Markers_SurviveARollback
@@ -4631,9 +4632,14 @@
 67749 PendingWrite_RunRequestPage
 67749 PendingWrite_SaveAs
 67755 Header_CompanyInformation_NameAndAddress
+67755 Header_RawText_LineEndsAndIndentation
 67755 Header_Values_ReportWithCaption
 67755 Identity_DataItemGuid_IsTheSystemIdOfTheRow
 67755 Names_ColumnsWithSpacesPunctuationAndLetters
+67755 PW_DumpPlain_Lines01To18
+67755 PW_DumpPlain_Lines19To36
+67755 PW_DumpPlain_Lines37To54
+67755 PW_DumpPlain_Lines55To72
 67755 Rows_NoRowsAtAll
 67755 Rows_OnlyTheSiblingItemHasRows
 67755 Rows_ParentsWithChildRowsAndSiblingItem
@@ -4646,6 +4652,8 @@
 67761 Preview_ReportRun
 67761 Preview_ReportRunModal
 67761 Preview_ReportSaveAs
+67761 Preview_RequestPagePreviewAction
+67761 QV_Preview_RunRequestPage
 67761 QV_Preview_SaveAsXml_Column
 67762 Hyperlink_WithoutHandler
 67763 AddRecord_CopiesTheFiltersOfTheRecord
@@ -7616,6 +7624,14 @@
 70535 Header_RawBytes
 70535 Names_SpacesAndParentheses
 70535 OtherFormats_NoLayout
+70535 PW_Dump_Lines001To016
+70535 PW_Dump_Lines017To032
+70535 PW_Dump_Lines033To048
+70535 PW_Dump_Lines049To064
+70535 PW_Dump_Lines065To080
+70535 PW_Dump_Lines081To096
+70535 PW_Dump_Lines097To112
+70535 PW_Dump_Lines113To128
 70535 Rows_BlockAfterHeader
 70535 Rows_ColumnBoundToVariable
 70535 Rows_SkipAndBreak
@@ -13153,6 +13169,8 @@
 78402 RequestPage_EmptySection_ImportAndExport
 78402 TableElement_MinOccursZero_Import
 78601 Decimal_MoreThanEighteenFractionalDigits
+78603 Header_AddressLines_AsInCorpusDatabase
+78603 QV_Header_CompanyLogo_PictureVariants
 78620 Close_AfterFailedDecimalConversion
 78620 Close_AfterFailedIntegerConversion
 78620 Close_AfterOnlyRefusedEdit
@@ -13557,6 +13575,7 @@
 80985 SystemId_Method_RoundTrip_Repro
 80985 SystemId_On_CollectedError
 81070 BdProperty_NotSet_DatasetAndFormat
+81070 BdSetterLanguage_1033_EnUS
 81070 BdSetter_EnUS
 81070 BdSetter_EnUS_Run
 81070 BdSummaryML_1036
@@ -14686,4 +14705,3 @@
 87503 QW_TernaryColumn_TwoLiterals
 87573 QX_Ternary_CodeAndTextMixes
 87573 QX_Ternary_SizedFieldTarget
-87573 QX_Ternary_SizedTextTarget

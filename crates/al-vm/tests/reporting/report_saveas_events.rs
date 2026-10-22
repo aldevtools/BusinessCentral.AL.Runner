@@ -279,8 +279,8 @@ codeunit 50978 "SE Header Tests"
 }
 "#;
 
-/// report/lt-ah-dataset-header/AhDatasetHeader.al:104-151 pins the address lines of the header, which are not built yet: a
-/// Company Information row with an address field other than Address set is refused.
+/// The city line of the header depends on the General Ledger Setup's local address format (report/lt-ah-dataset-header/
+/// AhDatasetHeader.al:125-126); without that table a Company Information row with City set is refused.
 #[test]
 fn a_header_with_company_address_fields_is_refused() {
     assert_refused(

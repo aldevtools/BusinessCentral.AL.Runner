@@ -186,6 +186,8 @@ pub(crate) struct ReportState {
     pub(crate) rp_init_by_handler: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: how it was started, which says what `CurrReport.Preview()` answers.
     pub(crate) report_preview_pinned: Vec<ReportStart>,
+    /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
+    pub(crate) run_modal: bool,
     /// The filters each data item record got from a `SetTableView` (keyed by the record's address, as text): the request page shows
     /// those and not the filters a procedure of the report set on the item.
     pub(crate) set_view_filters: Vec<(usize, Vec<ViewFilterKey>)>,
@@ -206,4 +208,6 @@ pub(crate) enum ReportStart {
     Init,
     /// `OnInitReport` run by the first call of a procedure of the report.
     FirstUse,
+    /// The request page of a `RunRequestPage`, while it is open.
+    RequestOnly,
 }
