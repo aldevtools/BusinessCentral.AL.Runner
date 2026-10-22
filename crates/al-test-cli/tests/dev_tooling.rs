@@ -205,10 +205,10 @@ fn selection_flags_repeat_and_make_a_union() {
         .count() as u64;
     assert_eq!(total_of(&["--test", &name.to_uppercase()]), by_name);
     // --area and --codeunit together: the area, plus the codeunit when it is outside it.
-    assert_eq!(total_of(&["--area", "json"]), 464); // corpus bump 29: 22 more json cases on BC 29
+    assert_eq!(total_of(&["--area", "json"]), 465); // corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more
     assert_eq!(
         total_of(&["--area", "json", "--codeunit", &SMALL_CU.to_string()]),
-        464 + in_cu(SMALL_CU)
+        465 + in_cu(SMALL_CU)
     );
 }
 
