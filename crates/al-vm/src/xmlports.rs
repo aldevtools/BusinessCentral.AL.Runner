@@ -452,6 +452,9 @@ impl Session {
         if let Some(why) = schema.xp().run_unsupported.first() {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
+        if let (Dir::Export, Some(why)) = (dir, schema.xp().export_unsupported.first()) {
+            return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
+        }
         // OnPreXmlPort runs when the port starts, in both directions
         // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
         // it for an export); the other object triggers are not pinned and refused.
@@ -1083,7 +1086,7 @@ impl Session {
     /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
-    /// format, a field attribute, and a validated element with an OnAfterAssignField trigger (which runs first is not
+    /// format, a field attribute that does not say FieldValidate (or under DefaultFieldsValidation = false), and a validated element with an OnAfterAssignField trigger (which runs first is not
     /// pinned).
     fn xp_validate_field(
         &mut self,
@@ -1130,7 +1133,13 @@ impl Session {
                 n.name, t.name, field.name
             ));
         }
-        if n.kind != al_ir::XmlNodeKind::Field {
+        // A field attribute that says FieldValidate = Yes is validated, one that says No is not, on a port that leaves
+        // DefaultFieldsValidation as it is (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119, :149-151: xRec
+        // already holds the new value, as for a field element). Without FieldValidate, or with DefaultFieldsValidation =
+        // false, it is not pinned.
+        let pinned_attr =
+            n.kind == al_ir::XmlNodeKind::FieldAttr && n.field_validate.is_some() && !xp.no_default_fields_validation;
+        if n.kind != al_ir::XmlNodeKind::Field && !pinned_attr {
             return unsupported(format!(
                 "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
                 n.name, t.name, field.name

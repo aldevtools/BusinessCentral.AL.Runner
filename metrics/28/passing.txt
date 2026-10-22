@@ -9874,6 +9874,8 @@
 72129 P121_RequestPage
 72131 P121_RequestPage
 72134 P121_RequestPage
+72148 BP_Import_xRecInOnValidate
+72148 P121_Import
 72150 P121_Import
 72168 P121_Export
 72170 P121_Export
@@ -13135,6 +13137,7 @@
 78402 QX_VariableText_TextElementEvaluateAndShortLines
 78402 RequestPage_EmptySection_ImportAndExport
 78402 TableElement_MinOccursZero_Import
+78402 TableElement_SourceTableView_Import
 78601 Decimal_MoreThanEighteenFractionalDigits
 78620 Close_AfterFailedDecimalConversion
 78620 Close_AfterFailedIntegerConversion

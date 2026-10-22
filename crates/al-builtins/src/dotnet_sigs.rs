@@ -73,6 +73,14 @@ pub const GZIP_STREAM: &str = "System.IO.Compression.GZipStream";
 pub const COMPRESSION_MODE: &str = "System.IO.Compression.CompressionMode";
 
 /// (CLR type, member, result). One row per registry member that returns a value.
+/// `System.IO.DirectoryInfo`, served only for a folder AL Runner staged for the company build (al-vm dotnet/staged_dir.rs).
+pub const DIRECTORY_INFO: &str = "System.IO.DirectoryInfo";
+/// What `GetFiles` of such a folder answers, its enumerator, and one file of it. The names are no real CLR type names, so
+/// no object of the .NET host takes their members.
+pub const STAGED_FILE_ARRAY: &str = "<FileInfo[] of a staged folder>";
+pub const STAGED_FILE_ENUMERATOR: &str = "<enumerator of a staged folder listing>";
+pub const STAGED_FILE_INFO: &str = "<FileInfo of a staged folder>";
+
 pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GraphQuery", Ret::Object),
     (GRAPH_QUERY, "IsM365CollaborationEnabled", Ret::Boolean),
@@ -178,6 +186,14 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (COLOR_TRANSLATOR, "FromHtml", Ret::Object),
     (SOLID_BRUSH, "SolidBrush", Ret::Object),
     (IMAGE_FORMAT, "Png", Ret::Object),
+    (DIRECTORY_INFO, "DirectoryInfo", Ret::Object),
+    (DIRECTORY_INFO, "Exists", Ret::Boolean),
+    (DIRECTORY_INFO, "GetFiles", Ret::Object),
+    (STAGED_FILE_ARRAY, "GetEnumerator", Ret::Object),
+    (STAGED_FILE_ENUMERATOR, "MoveNext", Ret::Boolean),
+    (STAGED_FILE_ENUMERATOR, "Current", Ret::Object),
+    (STAGED_FILE_INFO, "FullName", Ret::Text),
+    (STAGED_FILE_INFO, "Length", Ret::Object),
 ];
 
 /// The declared result of `member` on `clr_type`, if the runtime provides that member.
