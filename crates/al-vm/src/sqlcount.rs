@@ -69,7 +69,7 @@ struct Cursor {
     /// The absolute index of the first event after the read.
     at: usize,
     commits: u64,
-    rollbacks: u64,
+    resets: u64,
     outside: u64,
 }
 
@@ -83,7 +83,7 @@ pub(crate) struct SqlCounters {
     base: usize,
     /// The absolute index of the first event after the last Commit seen while active.
     commit_mark: Option<usize>,
-    rollbacks: u64,
+    resets: u64,
     /// Store operations done inside logged record methods.
     inside: u64,
     /// Record methods running.
@@ -98,6 +98,10 @@ pub(crate) struct Entry {
     calls: u64,
     outer: bool,
 }
+
+/// The most events the log holds. Past it the log is dropped (`SqlCounters::reset`): a test that reads a counter once and
+/// then runs many record methods does not keep them all.
+const LOG_CAP: usize = 4096;
 
 /// One step of the sequence SqlCounters.al:122-159 measured, with the signs of (statements, rows read) it gave.
 const TABLE_STEPS: [(Kind, bool, bool); 6] = [
@@ -158,6 +162,17 @@ impl SqlCounters {
             nested: !e.outer || calls != e.calls,
             key,
         });
+        if self.log.len() > LOG_CAP {
+            self.reset();
+        }
+    }
+
+    /// Forgets the log: reads before this no longer compare with reads after it.
+    fn reset(&mut self) {
+        self.resets += 1;
+        self.base += self.log.len();
+        self.log.clear();
+        self.commit_mark = None;
     }
 
     /// Whether `m` needs its primary key noted.
@@ -175,13 +190,14 @@ impl SqlCounters {
 
     /// A rollback: what the table held since the Commit is gone, and with it the context.
     pub(crate) fn rolled_back(&mut self) {
-        self.rollbacks += 1;
+        self.resets += 1;
         self.commit_mark = None;
     }
 
     /// Drops the events no cursor and no context needs any more.
     fn trim(&mut self) {
-        let keep = [self.stmt.at, self.rows.at, self.commit_mark.unwrap_or(usize::MAX)]
+        let at = |c: &Cursor| if c.read { c.at } else { usize::MAX };
+        let keep = [at(&self.stmt), at(&self.rows), self.commit_mark.unwrap_or(usize::MAX)]
             .into_iter()
             .min()
             .unwrap_or(0);
@@ -206,8 +222,7 @@ impl SqlCounters {
             SqlCounter::Statements => &self.stmt,
             SqlCounter::RowsRead => &self.rows,
         };
-        let change = if cur.read && cur.commits == commits && cur.rollbacks == self.rollbacks && cur.outside == outside
-        {
+        let change = if cur.read && cur.commits == commits && cur.resets == self.resets && cur.outside == outside {
             self.classify(cur.at, now).map(|(s, r)| match counter {
                 SqlCounter::Statements => s,
                 SqlCounter::RowsRead => r,
@@ -215,7 +230,7 @@ impl SqlCounters {
         } else {
             None
         };
-        let rollbacks = self.rollbacks;
+        let resets = self.resets;
         let cur = match counter {
             SqlCounter::Statements => &mut self.stmt,
             SqlCounter::RowsRead => &mut self.rows,
@@ -227,7 +242,7 @@ impl SqlCounters {
         cur.read = true;
         cur.at = now;
         cur.commits = commits;
-        cur.rollbacks = rollbacks;
+        cur.resets = resets;
         cur.outside = outside;
         let v = Value::SqlCount(SqlCount {
             n: cur.n,
@@ -342,4 +357,27 @@ pub(crate) fn guard(
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A test that reads a counter once and then runs many record methods keeps a bounded log: past the cap the log is
+    /// dropped and the reads before it no longer compare.
+    #[test]
+    fn the_log_stays_bounded() {
+        let mut c = SqlCounters::default();
+        let first = c.read(SqlCounter::Statements, 0);
+        for _ in 0..(3 * LOG_CAP) {
+            let e = c.enter(0);
+            c.leave(e, 0, RecordOp::Get, true, 1, &[], None, &Ok(Value::Boolean(true)));
+        }
+        assert!(c.log.len() <= LOG_CAP);
+        let Value::SqlCount(a) = first else { panic!() };
+        let Value::SqlCount(b) = c.read(SqlCounter::Statements, 0) else {
+            panic!()
+        };
+        assert_ne!(a.form, b.form, "a new epoch after the log was dropped");
+    }
 }
