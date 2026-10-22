@@ -27,4 +27,5 @@ mod user_gaps_xml_blob;
 mod xmlport_field_validation;
 mod xmlport_flowfield_import;
 mod xmlport_root_table;
+mod xmlport_view_after_export;
 mod xmlports;

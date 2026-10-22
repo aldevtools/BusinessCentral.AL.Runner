@@ -2295,6 +2295,19 @@ impl Session {
     /// order by default), after the table view and the link to the record above
     /// (xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute).
     fn xp_export_table(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Vec<Elem>, Signal> {
+        let r = self.xp_export_table_rows(inst, schema, node);
+        // What the record's key, order, filters and position are after an export under SourceTableView is not pinned: every
+        // later read of them refuses (records.rs `XP_VIEW_AFTER_EXPORT`).
+        let n = schema.node(node);
+        if n.source_view.is_some() {
+            if let Ok(rec) = self.xp_record(inst, n) {
+                rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+            }
+        }
+        r
+    }
+
+    fn xp_export_table_rows(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Vec<Elem>, Signal> {
         let n = schema.node(node);
         let mut out = Vec::new();
         let mut rows = Vec::new();
@@ -2374,8 +2387,8 @@ impl Session {
     ///
     /// Refused, not pinned: a view without `sorting`, a `where` on a temporary or linked element or together with filters
     /// from `SetTableView`, and triggers on the element or below it (what they see of the view's key and filters). The
-    /// record's own key, direction and filters are put back after the rows are read (not pinned either way, and not
-    /// observable through the pinned shapes).
+    /// record's own key, direction and filters are put back after the rows are read for the runtime's own use; what AL code
+    /// sees of them afterwards is not pinned and refuses (`xp_export_table`, records.rs `XP_VIEW_AFTER_EXPORT`).
     fn xp_rows_in_view(
         &mut self,
         inst: &Inst,
@@ -2407,6 +2420,10 @@ impl Session {
             i += 1;
         }
         let rec = self.xp_record(inst, n)?;
+        // A linked child element exports once per parent row: the mark of its last pass goes (see `xp_export_table`).
+        if crate::records::xp_export_marked(&rec).is_some() {
+            rec.borrow_mut().unpinned_buffer = None;
+        }
         let t = self.table(&rec)?;
         let saved = {
             let r = rec.borrow();

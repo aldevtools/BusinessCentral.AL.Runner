@@ -29,6 +29,24 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
+/// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
+/// xmlports.rs `xp_export_table`). The export order is pinned (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474,
+/// platform/lt-ag-contoso/AgXmlPortImport.al:312); the key, order, filters and position the record has afterwards are not,
+/// so every read of them refuses until `Reset` or `SetView` gives the record a view of its own ([`XP_BUFFER_AFTER_EXPORT`]
+/// then). Its methods in [`Session::xp_view_after_export_op`].
+pub(crate) const XP_VIEW_AFTER_EXPORT: &str = "the table element record's view after an export under SourceTableView is not pinned (its key, order, filters and position)";
+
+/// The `RecordState::unpinned_buffer` reason of that record after `Reset` or `SetView`: the buffer still holds the row the export
+/// left there, which is not pinned either (generic unpinned buffer rules, [`Session::unpinned_buffer_op`]).
+pub(crate) const XP_BUFFER_AFTER_EXPORT: &str = "the table element record's buffer after an export under SourceTableView is not pinned (the row the export left there)";
+
+/// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
+pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
+    rec.borrow()
+        .unpinned_buffer
+        .filter(|w| *w == XP_VIEW_AFTER_EXPORT || *w == XP_BUFFER_AFTER_EXPORT)
+}
+
 fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     match args.get(i) {
         None => Ok(false),
@@ -1548,6 +1566,9 @@ impl Session {
         if why == RUN_PAGE_LINK_OPEN {
             return self.run_page_link_open_op(method, rec, args);
         }
+        if why == XP_VIEW_AFTER_EXPORT {
+            return self.xp_view_after_export_op(method, rec, args);
+        }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
             RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "-" || w.as_str() == "+"),
@@ -1580,7 +1601,21 @@ impl Session {
                 | RecordOp::ReadIsolation
                 | RecordOp::SecurityFiltering
         );
-        if !refill && !independent {
+        // After Reset or SetView the view of a table element record is the code's own again; only its buffer is unpinned
+        // ([`XP_BUFFER_AFTER_EXPORT`]).
+        let own_view = why == XP_BUFFER_AFTER_EXPORT
+            && matches!(
+                method,
+                RecordOp::CurrentKey
+                    | RecordOp::GetFilter
+                    | RecordOp::GetFilters
+                    | RecordOp::GetRangeMin
+                    | RecordOp::GetRangeMax
+                    | RecordOp::GetView
+                    | RecordOp::HasFilter
+                    | RecordOp::SetView
+            );
+        if !refill && !independent && !own_view {
             return unsupported(why);
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
@@ -1633,6 +1668,29 @@ impl Session {
         r
     }
 
+    /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]): `Reset`
+    /// and `SetView` give it a view of its own (its buffer stays unpinned, [`XP_BUFFER_AFTER_EXPORT`]), the table's names
+    /// and `FieldNo` run, every other method reads or builds on the unpinned view and refuses.
+    fn xp_view_after_export_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let resets = matches!(method, RecordOp::Reset | RecordOp::SetView);
+        let runs = resets
+            || matches!(
+                method,
+                RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption
+            );
+        if !runs {
+            return unsupported(format!("Record.{}(): {XP_VIEW_AFTER_EXPORT}", method.name()));
+        }
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        rec.borrow_mut().unpinned_buffer = if resets && r.is_ok() {
+            Some(XP_BUFFER_AFTER_EXPORT)
+        } else {
+            flag
+        };
+        r
+    }
+
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
@@ -1668,6 +1726,13 @@ impl Session {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
             return self.unpinned_buffer_op(method, rec, args);
+        }
+        // Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView
+        // would carry its unpinned view or buffer over.
+        if let Some(Value::Record(src)) = args.first() {
+            if let Some(why) = xp_export_marked(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
         }
         let t = self.table(rec)?;
         // A table declared ObsoleteState = Moved is not in the runtime app: AllObj has no row for it and RecordRef.Open
