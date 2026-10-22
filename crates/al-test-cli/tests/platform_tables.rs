@@ -459,6 +459,31 @@ fn license_permission_answers_its_two_pinned_rows_and_refuses_the_rest() {
     }
 }
 
+// Language Selection: every row and column of a fresh tenant (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al:76,
+// 212 rows from BC 29 and 208 before, :574-586). Base Application's Customer.UpdateFormatRegion reads it by Language ID (DemoTool).
+// The Name of a row in another session language is not pinned: refused.
+#[test]
+fn language_selection_lists_the_pinned_rows_per_major() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Count29() var L: Record "Language Selection"; begin if L.Count() <> 212 then Error('count %1', L.Count()); end;
+  [Test] procedure Count27() var L: Record "Language Selection"; begin if L.Count() <> 208 then Error('count %1', L.Count()); end;
+  [Test] procedure FirstRow() var L: Record "Language Selection"; begin L.FindFirst(); if (L."Language Tag" <> 'af-ZA') or (L.Name <> 'Afrikaans (South Africa)') or (L."Language ID" <> 1078) or (L."Abbreviated Name" <> 'AFK') or L.Enabled then Error('first %1', L."Language Tag"); end;
+  [Test] procedure ByLanguageId() var L: Record "Language Selection"; begin L.SetRange("Language ID", 1031); L.FindFirst(); if (L."Language Tag" <> 'de-DE') or (L."Primary Language ID" <> 1031) or not L.Enabled then Error('de %1', L."Language Tag"); end;
+  [Test] procedure ZhTwOn29() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if L.IsEmpty() then Error('no zh-TW'); end;
+  [Test] procedure ZhTwNotOn27() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if not L.IsEmpty() then Error('zh-TW'); end;
+  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1031); if L.FindFirst() then; end; }"#;
+    let o29 = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
+    for t in ["Count29", "FirstRow", "ByLanguageId", "ZhTwOn29"] {
+        passes(&o29, t);
+    }
+    let why = not_run(&o29, "OtherLanguage");
+    assert!(why.contains("Language Selection"), "{why}");
+    let o27 = outcomes_bc("main", src, al_sema::check::Roots::default(), "27.5.0.0");
+    for t in ["Count27", "FirstRow", "ZhTwNotOn27"] {
+        passes(&o27, t);
+    }
+}
+
 #[test]
 fn a_permission_set_is_listed_with_its_caption_and_assignable_default() {
     let o = outcomes(
@@ -1107,8 +1132,8 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// Tenant Web Service and Web Service take Insert, Modify and Delete from AL
 /// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds rows
-/// there that nothing pins (the count is 64 and 29 in records/W4PlatformAndMeta.al:93-95 and
-/// depends on the apps), so a read that would count or scan them is refused, and a Get that finds nothing too.
+/// in Tenant Web Service that nothing pins (only the count, 64, in PtWebServiceRows.al:136), so a read that would
+/// count or scan them is refused, and a Get that finds nothing too.
 #[test]
 fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() {
     let o = outcomes(
@@ -1124,6 +1149,59 @@ fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() 
     for t in ["CountIsRefused", "MissIsRefused"] {
         let why = not_run(&o, t);
         assert!(why.contains("Tenant Web Service"), "{t}: {why}");
+    }
+}
+
+// Web Service on a fresh tenant: 17 rows, every column (tests/al-language-onprem/platform/PtWebServiceRows.al:39-73,
+// WebService_Content). Microsoft's DemoTool (Create Web Services) calls CreateWebService for page 42, which finds SalesOrder.
+#[test]
+fn web_service_holds_the_rows_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Rows() var W: Record "Web Service"; begin if W.Count() <> 17 then Error('count %1', W.Count()); W.FindFirst();
+    if (W."Object Type" <> W."Object Type"::Codeunit) or (W."Service Name" <> 'CompanySetupService') or (W."Object ID" <> 1801) or not W.Published or W.ExcludeFieldsOutsideRepeater then Error('first');
+    W.FindLast(); if (W."Service Name" <> 'TopCustomerOverview') or (W."Object ID" <> 100) then Error('last');
+    if not W.Get(W."Object Type"::Page, 'SalesOrder') then Error('42'); if W."Object ID" <> 42 then Error('id');
+    if W.Get(W."Object Type"::Page, 'Nope') then Error('nope'); end; }"#,
+    );
+    passes(&o, "Rows");
+}
+
+// Tenant Report Layout Selection on a fresh tenant: four rows, blank company and user, the layout names; the App ID is not null
+// but its value is not pinned (platform/lt-platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
+// Insert(true) of an existing key answers false, Modify(true) true: Microsoft's DemoTool (Create Custom Report Layout) does that.
+#[test]
+fn tenant_report_layout_selection_holds_the_rows_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Rows() var S: Record "Tenant Report Layout Selection"; B: Guid; begin if S.Count() <> 4 then Error('count');
+    if not S.Get(1302, '', B) then Error('1302'); if S."Layout Name" <> 'StandardSalesProFormaInv.docx' then Error('name');
+    if S.Get(1302, CompanyName(), B) then Error('company'); S.FindLast(); if S."Layout Name" <> 'StandardSalesInvoiceBlueSimple.docx' then Error('last');
+    S.Init(); S."Report ID" := 1306; S."Layout Name" := 'X.docx'; if S.Insert(true) then Error('insert'); if not S.Modify(true) then Error('modify');
+    S.Get(1306, '', B); if S."Layout Name" <> 'X.docx' then Error('modified'); end;
+  [Test] procedure AppIdIsNotPinned() var S: Record "Tenant Report Layout Selection"; begin S.FindFirst(); if IsNullGuid(S."App ID") then; end; }"#,
+    );
+    passes(&o, "Rows");
+    let why = not_run(&o, "AppIdIsNotPinned");
+    assert!(why.contains("App ID"), "{why}");
+}
+
+// OData Edm Type on a fresh tenant: six keys (PtCloudTables.al:435-492, QX_ODataEdmType_RowsAndEdmXml); their Description and
+// Edm Xml are not pinned. An own row inserts, reads back and deletes as in any table.
+#[test]
+fn odata_edm_type_holds_the_keys_of_a_fresh_tenant() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Keys() var E: Record "OData Edm Type"; K: Text; begin if E.Count() <> 6 then Error('count'); E.FindSet(); repeat K += E."Key" + ','; until E.Next() = 0;
+    if K <> 'BOOKINGSDATE,DIMENSION,DOCUMENTLINEOBJECTDETAILS,ITEM-UOM,ITEM-UOM-CONVERSION,POSTALADDRESS,' then Error(K);
+    if E.Get('LTQX') then Error('get'); E.Init(); E."Key" := 'LTQX'; E.Description := 'd'; E.Insert(true); E.Get('LTQX'); if E.Description <> 'd' then Error('d'); E.Delete(); end;
+  [Test] procedure DescriptionIsNotPinned() var E: Record "OData Edm Type"; begin E.Get('DIMENSION'); if E.Description = '' then; end;
+  [Test] procedure EdmXmlIsNotPinned() var E: Record "OData Edm Type"; begin E.SetAutoCalcFields("Edm Xml"); E.Get('DIMENSION'); end; }"#,
+    );
+    passes(&o, "Keys");
+    for t in ["DescriptionIsNotPinned", "EdmXmlIsNotPinned"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("OData Edm Type"), "{t}: {why}");
     }
 }
 

@@ -26,15 +26,23 @@ pub struct MediaObject {
     /// Kept for the Tenant Media row, whose `File Name` and the description and MIME type the platform
     /// derives from it are not pinned: a four argument import's Tenant Media row is refused.
     pub file_name: String,
-    /// The Tenant Media `File Name` of a media Media.ImportFile read: the path as given
-    /// (onprem media/MediaFiles.al:337 'media file name' = '<tmp><name>').
-    pub file_column: Option<String>,
+    /// The Tenant Media `File Name` of a media an ImportFile read.
+    pub file_column: Option<FileColumn>,
     /// Width and height of a PNG picture; 0 for content that is no PNG (not pinned).
     pub width: i32,
     pub height: i32,
     /// ADR-044: the stream this media was imported from held a picture that was never produced (a
     /// `System.Drawing.Bitmap` saved into it): the object has a value but no bytes. Any look at its content is refused.
     pub pending: Option<std::sync::Arc<str>>,
+}
+
+/// The Tenant Media `File Name` of a media an ImportFile read.
+#[derive(Debug, Clone)]
+pub enum FileColumn {
+    /// `Media.ImportFile`: the path as given (onprem media/MediaFiles.al:337 'media file name' = '<tmp><name>').
+    Path(String),
+    /// `MediaSet.ImportFile`: not pinned (MediaFiles.al:340 ignores it); a read is refused.
+    Unpinned,
 }
 
 /// The eight bytes every PNG starts with.
@@ -400,7 +408,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             mime: mime.into(),
             description,
             file_name: String::new(),
-            file_column: Some(name),
+            file_column: Some(FileColumn::Path(name)),
             width,
             height,
             pending: None,
@@ -412,14 +420,50 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Guid(id))
 }
 
-/// `MediaSet.ImportFile`: what it returns and the File Name of its Tenant Media row are not pinned (Windows and Linux BC
-/// write different names, windows-check-results 2026-10-22 QX item 9; MediaFiles.al:334 ignores it).
+/// `MediaSet.ImportFile(FileName, Description)` into an empty set: a `.jpg` file holding a JPEG gives the set one member
+/// whose Tenant Media row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
+/// QX_MediaAndMediaSet_ImportFile_Jpeg, 'mediaset count', 'mediaset item 1 tenant', 'mediaset count after get'). What it
+/// returns and the File Name of the member's row are not pinned (Windows and Linux BC write different names,
+/// windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): both are unknown, so a read of either is
+/// refused. Any other file, and a set that already has members, is refused.
 fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    id_of(&r)?;
-    import_file_bytes(c, a)?;
-    unsupported(
-        "MediaSet.ImportFile of a file that exists: its return value and the Tenant Media File Name are not pinned",
-    )
+    if id_of(&r)? != [0; 16] {
+        return unsupported("MediaSet.ImportFile into a set that already has members (not pinned)");
+    }
+    let (name, bytes) = import_file_bytes(c, a)?;
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let (Some((width, height)), "jpg") = (jpeg_size(&bytes), ext.as_str()) else {
+        return unsupported(format!(
+            "MediaSet.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
+        ));
+    };
+    let description = text_arg(a, 1)?;
+    let member = c.new_guid();
+    let set = c.new_guid();
+    let media = store(c)?;
+    media.objects.borrow_mut().insert(
+        member,
+        MediaObject {
+            bytes,
+            mime: "image/jpeg".into(),
+            description,
+            file_name: String::new(),
+            file_column: Some(FileColumn::Unpinned),
+            width,
+            height,
+            pending: None,
+        },
+    );
+    media.sets.borrow_mut().insert(set, vec![member]);
+    if let Some(slot) = r {
+        *slot = Value::Guid(set);
+    }
+    Ok(Value::Unknown(
+        "the return value of MediaSet.ImportFile is not pinned (onprem media/MediaFiles.al does not read it)".into(),
+    ))
 }
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[
