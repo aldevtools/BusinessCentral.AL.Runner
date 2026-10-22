@@ -15,10 +15,6 @@ use al_deps::remote::RangeSource;
 use al_deps::test_apps::{self, Listing};
 use std::path::{Path, PathBuf};
 
-/// Some test apps of the artifact carry this prefix in their file name (`_Exclude_APIV2_ Tests`). They are not run by
-/// default (decided without owner review, ADR-052); `--app` names them to run them.
-const EXCLUDE_PREFIX: &str = "_exclude_";
-
 /// A Microsoft test app the run will run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestApp {
@@ -45,26 +41,12 @@ pub struct MicrosoftApps {
     pub bcapps_notes: Vec<String>,
 }
 
-/// The names a run takes, and the candidates it leaves out with the reason.
-pub type Choice = (Vec<String>, Vec<(String, String)>);
-
 /// Which candidates the run takes before anything is read: the names `--app` gives (an unknown name is an error that
-/// lists the names that exist), else every candidate but the `_Exclude_` ones.
-pub fn choose(names: &[&str], wanted: &[String]) -> Result<Choice, String> {
+/// lists the names that exist), else every candidate. The `_Exclude_` apps (`_Exclude_APIV2_ Tests`) are among them:
+/// Microsoft's CI dispatches them (BCApps releases/29.x, run 39519586834: "Dispatching '_Exclude_APIV1_ Tests'").
+pub fn choose(names: &[&str], wanted: &[String]) -> Result<Vec<String>, String> {
     if wanted.is_empty() {
-        let (excluded, take): (Vec<&str>, Vec<&str>) = names
-            .iter()
-            .partition(|n| n.to_ascii_lowercase().starts_with(EXCLUDE_PREFIX));
-        let left = excluded
-            .into_iter()
-            .map(|n| {
-                (
-                    n.to_string(),
-                    "the artifact names it _Exclude_; name it with --app to run it".to_string(),
-                )
-            })
-            .collect();
-        return Ok((take.into_iter().map(str::to_string).collect(), left));
+        return Ok(names.iter().map(|n| n.to_string()).collect());
     }
     let mut out: Vec<String> = Vec::new();
     for w in wanted {
@@ -79,7 +61,7 @@ pub fn choose(names: &[&str], wanted: &[String]) -> Result<Choice, String> {
             }
         }
     }
-    Ok((out, Vec::new()))
+    Ok(out)
 }
 
 /// The number of test codeunits in an app's source.
@@ -102,7 +84,8 @@ pub fn test_apps_of<S: RangeSource>(
     let mut all: Vec<&str> = listing.names();
     all.extend(extra.candidates.iter().map(|c| c.name.as_str()));
     all.sort_by_key(|n| n.to_ascii_lowercase());
-    let (names, mut left_out) = choose(&all, wanted)?;
+    let names = choose(&all, wanted)?;
+    let mut left_out = Vec::new();
     let build = listing.build.to_string();
     let mut out = MicrosoftApps {
         bcapps_notes: extra.notes.clone(),
@@ -1146,19 +1129,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn by_default_every_candidate_but_the_excluded_ones() {
-        let (take, left) = choose(&["Tests-A", "_Exclude_APIV2_ Tests", "Tests-B"], &[]).unwrap();
-        assert_eq!(take, vec!["Tests-A", "Tests-B"]);
-        assert_eq!(left.len(), 1);
-        assert!(left[0].1.contains("--app"));
+    fn by_default_every_candidate_runs_the_excluded_ones_too() {
+        // Microsoft's CI dispatches the `_Exclude_` test apps (BCApps releases/29.x, run 39519586834: "Dispatching
+        // '_Exclude_APIV1_ Tests'"), so the default takes them.
+        let take = choose(&["Tests-A", "_Exclude_APIV2_ Tests", "Tests-B"], &[]).unwrap();
+        assert_eq!(take, vec!["Tests-A", "_Exclude_APIV2_ Tests", "Tests-B"]);
     }
 
     #[test]
     fn app_names_match_without_case_and_an_unknown_one_lists_the_names() {
         let names = ["Tests-A", "_Exclude_X", "Tests-B"];
-        let (take, left) = choose(&names, &["tests-b".into(), "_exclude_x".into(), "Tests-B".into()]).unwrap();
+        let take = choose(&names, &["tests-b".into(), "_exclude_x".into(), "Tests-B".into()]).unwrap();
         assert_eq!(take, vec!["Tests-B", "_Exclude_X"]);
-        assert!(left.is_empty());
         let e = choose(&names, &["Tests-Z".into()]).unwrap_err();
         assert!(
             e.contains("Tests-Z") && e.contains("Tests-A, _Exclude_X, Tests-B"),

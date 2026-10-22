@@ -523,12 +523,25 @@ pub struct WarmCtx {
     pub on_test: Option<OnTest>,
     /// Called just before each selected test starts to run.
     pub on_start: Option<al_testrun::events::OnStart>,
+    /// The entries of the request (`runTests` with `entries`, issue 5635): each runs its own tests with its own
+    /// resource files, over one compile and one install baseline. Empty: one run, as the arguments say.
+    pub entries: Vec<Entry>,
     /// Set from outside: the run stops after the current test.
     pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// What the last run came to.
     pub report: Option<Report>,
     /// Whether the last run used the compile of an earlier request.
     pub used: Option<al_testrun::runtime::WarmUse>,
+}
+
+/// One entry of a server request (`WarmCtx::entries`).
+#[derive(Debug, Clone, Default)]
+pub struct Entry {
+    /// As `--test` and `--exclude`, for this entry.
+    pub filters: Vec<String>,
+    pub excludes: Vec<String>,
+    /// Resource name (relative to the resource folder) -> the text the entry's run reads in place of the file's.
+    pub resources: std::collections::BTreeMap<String, String>,
 }
 
 /// The result of a run for a caller that is not the console.
@@ -578,13 +591,13 @@ fn warm_key(
         for (path, _) in &i.source.files {
             path.hash(&mut h);
         }
-        // What the app's manifest gives the program beside its code: a change to a resource file, a layout file or
-        // `app.json` is a new key, as the warm compile takes in only source text (issue 5604).
+        // What the app's manifest gives the program beside its code: a change to a layout file or `app.json` is a new
+        // key, as the warm compile takes in only source text (issue 5604). The resource files are not: they are
+        // run-time data, which each request hands to the program as they are then (issue 5635).
         let m = &i.manifest;
         (
             &m.publisher,
             &m.version,
-            &m.resources,
             m.include_source,
             &m.target,
             &m.symbols,
@@ -753,12 +766,39 @@ fn test_inner(
             .cloned()
             .collect(),
     };
+    // A request with entries (issue 5635): each entry selects its own tests; the run compiles for all of them.
+    let entries: Vec<Entry> = warm.as_deref().map(|w| w.entries.clone()).unwrap_or_default();
+    for name in entries.iter().flat_map(|e| e.resources.keys()) {
+        if !inputs
+            .iter()
+            .any(|i| i.manifest.resources.iter().any(|(n, _)| n == name))
+        {
+            return Err(format!(
+                "`entries`: no app under test has a resource file `{name}` (an entry replaces the text of one; it adds none)"
+            ));
+        }
+    }
+    let entry_selections: Vec<Selection> = entries
+        .iter()
+        .map(|e| Selection {
+            filters: e.filters.clone(),
+            excludes: e.excludes.clone(),
+            ..selection.clone()
+        })
+        .collect();
+    let picks = |id: u32, t: &str| {
+        if entry_selections.is_empty() {
+            selection.picks(id, t)
+        } else {
+            entry_selections.iter().any(|s| s.picks(id, t))
+        }
+    };
     let chosen_units: Vec<&Found> = found
         .iter()
-        .filter(|f| f.tests.iter().any(|t| selection.picks(f.id, t)))
+        .filter(|f| f.tests.iter().any(|t| picks(f.id, t)))
         .collect();
     if chosen_units.is_empty() && !a.execute {
-        let what = if selection.active() {
+        let what = if selection.active() || !entries.is_empty() {
             "the selection matches no test"
         } else {
             "no test codeunit (Subtype = Test) in the given apps"
@@ -1092,7 +1132,7 @@ fn test_inner(
     // ADR-038: the closed set of pure framework members is answered in process; ALRUNNER_NO_INPROC=1 sends all to the sidecar.
     let host = al_host::inproc::wrap(host);
     // An impact run names the test codeunits on both sides, so that the extensions' own are not compiled as tests.
-    let opts_only = ((selection.active() || a.test_apps.is_some()) && !a.execute).then(|| {
+    let opts_only = ((selection.active() || !entries.is_empty() || a.test_apps.is_some()) && !a.execute).then(|| {
         let mut v: Vec<(usize, u32)> = chosen_units.iter().map(|f| (f.app, f.id)).collect();
         v.sort_unstable();
         v.dedup();
@@ -1212,6 +1252,7 @@ fn test_inner(
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
         stop_on_compile_errors: true,
+        entries: Vec::new(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
             Arc::new(
@@ -1234,6 +1275,89 @@ fn test_inner(
             country: country.clone(),
         }),
     };
+    let mut opts = opts;
+    if let Some(w) = warm.as_deref() {
+        let cfg = a.capture;
+        let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        opts.entries = entries
+            .iter()
+            .zip(&entry_selections)
+            .enumerate()
+            .map(|(k, (e, sel))| {
+                let units: Vec<(usize, u32)> = {
+                    let mut v: Vec<(usize, u32)> = found
+                        .iter()
+                        .filter(|f| f.tests.iter().any(|t| sel.picks(f.id, t)))
+                        .map(|f| (f.app, f.id))
+                        .collect();
+                    v.sort_unstable();
+                    v.dedup();
+                    v
+                };
+                let run_only = (a.run_selected_only && sel.active()).then(|| {
+                    Arc::new(
+                        found
+                            .iter()
+                            .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                            .filter(|(id, t)| sel.picks(*id, t))
+                            .map(|(id, t)| (id, t.to_lowercase()))
+                            .collect(),
+                    )
+                });
+                // The entry's resource texts, in each app under test that has a resource of that name (the request
+                // checked that one has).
+                let resources: Vec<(usize, al_testrun::runtime::ResourceFiles)> = inputs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, i)| i.manifest.resources.iter().any(|(n, _)| e.resources.contains_key(n)))
+                    .map(|(app, i)| {
+                        let r = i
+                            .manifest
+                            .resources
+                            .iter()
+                            .map(|(n, c)| {
+                                (
+                                    n.clone(),
+                                    e.resources.get(n).map_or_else(|| c.clone(), |t| t.as_bytes().to_vec()),
+                                )
+                            })
+                            .collect();
+                        (app, r)
+                    })
+                    .collect();
+                let pick = sel.clone();
+                let forward = w.on_test.clone();
+                let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
+                al_testrun::runtime::EntryRun {
+                    only: Some(units),
+                    run_only,
+                    hooks: al_testrun::events::Hooks {
+                        on_test: forward.map(|f| {
+                            Arc::new(move |mut e: al_testrun::events::TestEvent| {
+                                if pick.picks(e.codeunit, &e.test) {
+                                    e.entry = Some(k);
+                                    let json = e.captured.as_ref().map(|c| {
+                                        let base = next_loop.fetch_add(
+                                            c.captured.loops.len() as u32,
+                                            std::sync::atomic::Ordering::SeqCst,
+                                        );
+                                        capture::json(c, cfg, base, &|app: usize, file: &str| {
+                                            coverage::label(&paths[app], file, &cwd)
+                                        })
+                                    });
+                                    f(e, json)
+                                }
+                            }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
+                        }),
+                        ..opts.hooks.clone()
+                    },
+                    resources,
+                }
+            })
+            .collect();
+    }
     let load_time = started.elapsed();
     // A scratch run has a run of its own for every app; a test run has one for all of them.
     let suites: Vec<SuiteRun> = if a.execute {
@@ -1280,9 +1404,12 @@ fn test_inner(
                         .map(move |(path, text)| al_testrun::runtime::FileChange { app, path, text })
                 })
                 .collect();
-            let (rt, used) = w.runtime.run(
+            // Resources are read per request, so a changed resource file reuses the compile (issue 5635).
+            let resources: Vec<&[(String, Vec<u8>)]> = inputs.iter().map(|i| i.manifest.resources.as_slice()).collect();
+            let (rt, used) = w.runtime.run_with_resources(
                 &key,
                 &files,
+                Some(&resources),
                 build_apps,
                 &symbols,
                 Some(&chosen.target),
@@ -1378,6 +1505,21 @@ fn test_inner(
         .filter(|r| a.test_apps.is_none_or(|n| r.app < n))
         .collect();
     results.sort_by_key(|r| (r.app, r.codeunit));
+    // A request with entries: the results of each entry, picked by its own selection, in the order of the entries.
+    let mut entry_counts: Vec<Counts> = Vec::new();
+    if !rt.entries.is_empty() {
+        results.clear();
+        for (range, sel) in rt.entries.iter().zip(&entry_selections) {
+            let mut own: Vec<&TestResult> = rt.results()[range.clone()]
+                .iter()
+                .filter(|r| sel.picks(r.codeunit, &r.test))
+                .filter(|r| a.test_apps.is_none_or(|n| r.app < n))
+                .collect();
+            own.sort_by_key(|r| (r.app, r.codeunit));
+            entry_counts.push(Counts::of(own.iter().copied()));
+            results.extend(own);
+        }
+    }
     // `--affected`: the stored result for the next run is written; the skipped codeunits keep their stored outcomes
     // and are reported apart (ADR-050 decisions 9 to 11).
     // A cancelled serve request leaves the stored result as it was (decision 10).
@@ -1836,6 +1978,12 @@ fn test_inner(
                 output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
                 affected.as_ref(),
             ))
+            .map(|mut doc: serde_json::Value| {
+                if !entry_counts.is_empty() {
+                    doc["entries"] = serde_json::Value::Array(entry_counts.iter().map(output::json_counts).collect());
+                }
+                doc
+            })
             .unwrap_or_default(),
             coverage: coverage_doc.as_deref().and_then(|d| serde_json::from_str(d).ok()),
             messages: results.iter().map(|r| r.messages.clone()).collect(),

@@ -73,6 +73,9 @@ pub use ui::{UiHandler, UiKind};
 
 static NEXT_ENGINE_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Program app index -> the resource files a run gives that app in place of the program's (`Engine::resource_overrides`).
+pub type ResourceOverrides = std::collections::HashMap<usize, Arc<Vec<(String, Vec<u8>)>>>;
+
 pub struct Engine {
     pub program: Arc<ir::Program>,
     /// Per object, per routine: why it cannot run, if it cannot.
@@ -97,6 +100,11 @@ pub struct Engine {
     /// Why the company the tests run in could not be built (`al_testrun::company_data`): every test codeunit is then not
     /// run, with this reason. `None`: the company is as the install baseline left it.
     pub company_refusal: Option<String>,
+    /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
+    /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
+    pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
+    /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
+    pub resources_read: std::sync::atomic::AtomicBool,
     /// Rows of a restored company, read when a session first touches a table (ADR-020). `None`: a
     /// run without test data.
     pub test_data: Option<al_host::testdata::TestData>,
@@ -354,6 +362,8 @@ impl Engine {
             platform_unseeded: unseeded,
             demo_tables: Default::default(),
             company_refusal: None,
+            resource_overrides: Default::default(),
+            resources_read: Default::default(),
             test_data: None,
             unevaluable_init,
             table_facts,

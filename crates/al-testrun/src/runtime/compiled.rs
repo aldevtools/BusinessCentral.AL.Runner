@@ -75,6 +75,31 @@ pub struct RunOptions {
     /// (`al-runner test --company-data demotool`, `company_data.rs`). The baseline then always runs, and a codeunit that
     /// does not run to its end leaves every test not run. `None`: the company is what the installs leave.
     pub company_data: Option<crate::company_data::CompanyData>,
+    /// Several passes over the same compile and install baseline (a `serve` request with `entries`, issue 5635): each
+    /// entry runs its own tests with its own resource files, from the same database. Empty: one pass, as `only`,
+    /// `run_only` and `hooks` say.
+    pub entries: Vec<EntryRun>,
+}
+
+/// One entry of a run (`RunOptions::entries`).
+#[derive(Debug, Clone, Default)]
+pub struct EntryRun {
+    /// The test codeunits of the entry, as `RunOptions::only` numbers them; `None`: those of `RunOptions::only`.
+    pub only: Option<Vec<(usize, u32)>>,
+    /// As `RunOptions::run_only`, for this entry.
+    pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// The callbacks of this entry's tests.
+    pub hooks: crate::events::Hooks,
+    /// The resource files this entry gives some apps in place of theirs: (app as the caller numbered it, resources).
+    pub resources: Vec<(usize, ResourceFiles)>,
+}
+
+/// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
+pub(crate) struct Pass {
+    pub(crate) only: Option<Vec<(usize, u32)>>,
+    pub(crate) run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    pub(crate) hooks: crate::events::Hooks,
+    pub(crate) resources: al_vm::ResourceOverrides,
 }
 
 /// What [`RunOptions::debug_ready`] sees of the compile.
@@ -341,6 +366,34 @@ impl Compiled {
     }
 }
 
+/// The resource files of an app: name relative to its resource folder, content.
+pub type Resources = [(String, Vec<u8>)];
+/// The resource files of an app, owned.
+pub type ResourceFiles = Vec<(String, Vec<u8>)>;
+
+impl Compiled {
+    /// Gives the apps the resource files `resources[i]` (for the app the caller numbered `i`) where they differ from
+    /// those the program has. The program is copied only when something else still holds it.
+    pub(crate) fn set_resources(&mut self, resources: &[&Resources]) {
+        let changed: Vec<(usize, usize)> = self
+            .order
+            .iter()
+            .enumerate()
+            .filter_map(|(p, &caller)| {
+                let new = resources.get(caller)?;
+                (self.lowered.program.apps.get(p)?.resources.as_slice() != *new).then_some((p, caller))
+            })
+            .collect();
+        if changed.is_empty() {
+            return;
+        }
+        let program = std::sync::Arc::make_mut(&mut self.lowered.program);
+        for (p, caller) in changed {
+            program.apps[p].resources = resources[caller].to_vec();
+        }
+    }
+}
+
 /// What a warm server keeps between requests (ADR-028): the last compile, and which test codeunits it was compiled for.
 #[derive(Default)]
 pub struct Warm {
@@ -388,6 +441,26 @@ impl Warm {
         &mut self,
         key: &str,
         files: &[FileChange<'_>],
+        build: impl FnOnce() -> (Vec<al_sema::workspace::AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>),
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        suites: &[SuiteRun],
+        opts: &RunOptions,
+    ) -> Result<(CorpusRuntime, WarmUse), String> {
+        self.run_with_resources(key, files, None, build, symbols, target, dotnet, suites, opts)
+    }
+
+    /// [`Warm::run`], with the resource files of the apps as they are now: `resources[i]` for the app the caller
+    /// numbered `i` (issue 5635). Resources are run-time data (`NavApp.GetResourceAsText` reads them from the program,
+    /// `al-vm` `ctx.rs`), not code, so `key` leaves them out and a change of them reuses the compile. `None` keeps
+    /// those of the compile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_with_resources(
+        &mut self,
+        key: &str,
+        files: &[FileChange<'_>],
+        resources: Option<&[&Resources]>,
         build: impl FnOnce() -> (Vec<al_sema::workspace::AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>),
         symbols: &BTreeSet<String>,
         target: Option<&al_version::Target>,
@@ -498,7 +571,10 @@ impl Warm {
                 compiled,
             });
         }
-        let slot = self.slot.as_ref().expect("a compile is kept");
+        let slot = self.slot.as_mut().expect("a compile is kept");
+        if let Some(resources) = resources {
+            slot.compiled.set_resources(resources);
+        }
         let rt = CorpusRuntime::run_compiled(&slot.compiled, target, dotnet, opts);
         Ok((rt, used))
     }
