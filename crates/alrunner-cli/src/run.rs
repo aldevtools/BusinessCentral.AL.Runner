@@ -1173,6 +1173,9 @@ fn test_inner(
             n => Some(std::time::Duration::from_secs(n)),
         },
         isolation: a.isolation,
+        // AL Runner runs every test codeunit as Microsoft's runner 130450 does (TestIsolation = Codeunit unless
+        // --isolation says otherwise); RequiredTestIsolation on a codeunit has no effect there, as on BC.
+        required_isolation: false,
         coverage: a.coverage,
         execute: a.execute,
         capture: a.capture,

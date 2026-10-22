@@ -578,6 +578,11 @@ fn run_version(
         test_time_limit: None,
         lazy: Vec::new(),
         isolation: None,
+        // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
+        // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
+        // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of
+        // the platform (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+        required_isolation: version.major >= 28,
         coverage: false,
         execute: false,
         capture: Default::default(),

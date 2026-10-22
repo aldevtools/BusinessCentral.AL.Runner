@@ -207,8 +207,9 @@ pub(crate) fn run_codeunit_core(
             .collect::<Vec<_>>()
     };
     // Nothing pins what a runner with TestIsolation = Disabled leaves behind, within a codeunit or
-    // for the next one (docs/probes-needed.md), so it is refused (hard rule 4).
-    if isolation == TestIsolation::Disabled {
+    // for the next one (docs/probes-needed.md), so it is refused (hard rule 4). BC's TestRunnerHub under a codeunit's
+    // RequiredTestIsolation = Disabled is pinned (QuCommitIsolation.al:572-718): it runs (`Scratch::hub`).
+    if isolation == TestIsolation::Disabled && !scratch.hub {
         return all(Outcome::NotRun(
             "TestIsolation = Disabled is not supported yet: no corpus test pins what BC keeps between tests and test \
              codeunits in this mode (corpus issue 645). Run with TestIsolation = Codeunit (al-runner: --isolation codeunit, \
@@ -261,6 +262,22 @@ pub(crate) fn run_codeunit_core(
             }
         }
     };
+    // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
+    // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
+    // meet the ones carried over is not pinned.
+    let carries = scratch.hub && isolation == TestIsolation::Disabled && !execute;
+    if carries && company_open.who.is_some() {
+        return all(Outcome::NotRun(
+            "RequiredTestIsolation = Disabled with a Company Triggers subscriber that writes when the test session opens \
+             the company: how its writes meet what an earlier codeunit left is not pinned"
+                .into(),
+        ));
+    }
+    let changes_from = session.store_mut().change_counter();
+    let carried_from = carries.then(|| session.capture_baseline());
+    // The tables an earlier Disabled codeunit left rows in (`Scratch::leak`): a read of one is noted, and the codeunit
+    // then runs again from what that codeunit left (`corpus.rs`).
+    let leak: BTreeSet<u32> = scratch.leak.as_deref().cloned().unwrap_or_default();
     // The reach facts of a routine of this codeunit, for the writes of the Company Triggers subscribers.
     let company_open_refuses = |r: usize| -> Option<String> {
         company_open.who.as_ref()?;
@@ -288,7 +305,13 @@ pub(crate) fn run_codeunit_core(
         if let Some(reason) = company_open_refuses(on_run) {
             return all(Outcome::NotRun(format!("OnRun: {reason}")));
         }
-        match session.call(object, on_run, instance.clone(), Vec::new()) {
+        session.store_mut().watch(leak.clone());
+        let ran = session.call(object, on_run, instance.clone(), Vec::new());
+        if session.store_mut().watch_hit().is_some() {
+            scratch.leak_hit = true;
+        }
+        session.store_mut().watch(Default::default());
+        match ran {
             // NavTestCodeunit.DoRunAsync commits after a declared OnRun
             // (codeunit/TestTestCodeunitOnRun.al).
             Ok(_) if session.inconsistent_table().is_some() => {
@@ -384,7 +407,9 @@ pub(crate) fn run_codeunit_core(
                 Err(reason) => Outcome::NotRun(reason),
                 Ok(()) => {
                     began = true;
-                    session.store_mut().watch(company_open.tables.clone());
+                    session
+                        .store_mut()
+                        .watch(company_open.tables.union(&leak).copied().collect());
                     session.last_error = Default::default();
                     al_builtins::assumptions::clear_hits();
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
@@ -569,7 +594,11 @@ pub(crate) fn run_codeunit_core(
         // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
         // (al-runner issue 5641): what it found there is not pinned.
         let outcome = match session.store_mut().watch_hit() {
-            Some(t) if began => Outcome::NotRun(company_open.touched(t, lowered)),
+            Some(t) if began && company_open.tables.contains(&t) => Outcome::NotRun(company_open.touched(t, lowered)),
+            Some(t) if began && leak.contains(&t) => {
+                scratch.leak_hit = true;
+                outcome
+            }
             _ => outcome,
         };
         session.store_mut().watch(Default::default());
@@ -659,7 +688,10 @@ pub(crate) fn run_codeunit_core(
         // Whether a Commit() inside a test is kept or ignored under Function isolation is not
         // pinned (docs/probes-needed.md): a test that passed through one is not reported as run.
         let outcome = match outcome {
-            Outcome::Pass if committed && checkpoint.is_some() => Outcome::NotRun(
+            // Under BC's TestRunnerHub with RequiredTestIsolation = Function the next test sees nothing a Commit() wrote
+            // (QuCommitIsolation.al:466-488 QU_F04_NextTestSees, :530-551 QU_F09_LaterTestSeesCommittedRows): the
+            // checkpoint below restores it. Under a runner codeunit's TestIsolation = Function it is not pinned.
+            Outcome::Pass if committed && checkpoint.is_some() && !scratch.hub => Outcome::NotRun(
                 "Commit inside a test under TestIsolation = Function is not supported yet: no corpus test pins whether \
                  BC keeps the committed rows for the next test (corpus issue 645). Run this codeunit with TestIsolation = \
                  Codeunit (al-runner: --isolation codeunit, the default)"
@@ -783,7 +815,70 @@ pub(crate) fn run_codeunit_core(
             out.push((obj.routines[r].name.clone(), outcome));
         }
     }
+    // RequiredTestIsolation = Disabled under the TestRunnerHub: everything persists into the next codeunit, the write
+    // still open when a test ended included, as the boundary commits it (QuCommitIsolation.al:695-718 QU_D11_NextCodeunitSees).
+    // What a test that did not pass leaves is not pinned (QuCommitIsolation.al:22).
+    if let Some(start) = carried_from {
+        let mut unfinished = out.iter().find(|(_, o)| *o != Outcome::Pass).map(|(name, o)| {
+            let how = match o {
+                Outcome::Fail(_) => "failed",
+                _ => "was not run",
+            };
+            format!(
+                "an earlier codeunit with RequiredTestIsolation = Disabled, {}, wrote a table this test reads, and its \
+                 test {name} {how}: what it left for the later codeunits is not pinned",
+                obj.name
+            )
+        });
+        let mut tables = session.store_mut().tables_changed_since(changes_from);
+        // A test that did not run to its end may have left out writes it would have made: the tables it names count too.
+        if unfinished.is_some() {
+            for &r in &tests {
+                tables.extend(tables_touched(lowered, object, r));
+            }
+        }
+        // Isolated storage and number sequences carry over as well, but who reads them later is not followed.
+        let everything = session.storage_or_sequences_differ(&start);
+        if everything {
+            unfinished.get_or_insert_with(|| {
+                format!(
+                    "an earlier codeunit with RequiredTestIsolation = Disabled, {}, changed isolated storage or a number \
+                     sequence, which every later codeunit sees: that is not followed",
+                    obj.name
+                )
+            });
+        }
+        let mut baseline = session.capture_baseline();
+        // The install code already ran for what it left; the later codeunits must not run it again on top.
+        baseline.workspace_installs = Some(skipped_installs.clone());
+        let carried = Carried {
+            baseline: Some(baseline),
+            tables,
+            unfinished,
+            everything,
+        };
+        CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+    }
     out
+}
+
+thread_local! {
+    /// What the last codeunit with RequiredTestIsolation = Disabled that ran on this thread left. A baseline holds `Rc`s
+    /// and stays on its thread: the codeunits that start from it run on the same one (`corpus.rs`).
+    pub(crate) static CARRIED: std::cell::RefCell<Option<Carried>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What a codeunit with RequiredTestIsolation = Disabled left for the codeunits after it ([`CARRIED`]).
+pub(crate) struct Carried {
+    /// Its committed data at its end: where a later codeunit that reads one of `tables` starts. `None`: it did not run,
+    /// and the codeunit before it left nothing.
+    pub baseline: Option<al_vm::Baseline>,
+    /// The tables it changed.
+    pub tables: BTreeSet<u32>,
+    /// Why what it left is not known (a test of it did not pass): a later codeunit that reads `tables` is not run.
+    pub unfinished: Option<String>,
+    /// It changed state besides the tables: every later codeunit counts as reading what it left.
+    pub everything: bool,
 }
 
 /// Sets a session's stop flag when a test has used more than its limit of CPU time. The time the
