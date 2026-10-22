@@ -33,7 +33,9 @@ const COUNTRY: &str = "W1";
 const COMPLETE: &str = ".alrunner-complete";
 
 /// The staged resource folder inside the cache folder.
-const STAGED: &str = ".alrunner-resources";
+/// `-crlf`: the text files have the line ends of a Windows checkout (`checked_out_as_text`); a folder staged before
+/// that (`.alrunner-resources`) is left unused and staged again.
+const STAGED: &str = ".alrunner-resources-crlf";
 
 /// The DemoTool of a release, ready to compile and run.
 #[derive(Debug, Clone)]
@@ -272,6 +274,36 @@ fn stage_into(dir: &Path, out: &Path) -> Result<(), String> {
     std::fs::rename(&tmp, out).map_err(|e| format!("{}: {e}", out.display()))
 }
 
+/// The patterns BCApps' `.gitattributes` marks `binary` (lines 3-16); every other file is `* text=auto` (line 1).
+const BINARY: [&str; 14] = [
+    "app", "png", "jpg", "gif", "ico", "ttf", "woff", "woff2", "eot", "pdf", "zip", "dll", "exe", "snk",
+];
+
+/// Whether a Windows checkout of BCApps has CRLF line ends in this file. Microsoft's CI checks BCApps out on Windows, and
+/// BCApps' `.gitattributes` says `* text=auto`: git treats a file as text unless a `binary` pattern names it (matched
+/// without case, as on Windows) or its first 8000 bytes hold a NUL byte, and checks text out with CRLF. BC needs them:
+/// a VariableText XmlPort import with LF-only line ends fails on Windows BC 27.5 and 29.0 as on Linux (the DemoTool's
+/// CurrencyData.txt, coordinator's Windows check of 2026-10-22).
+fn checked_out_as_text(name: &str, bytes: &[u8]) -> bool {
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    !BINARY.contains(&ext.as_str()) && !bytes[..bytes.len().min(8000)].contains(&0)
+}
+
+/// `bytes` with every LF that has no CR before it turned into CRLF.
+fn with_crlf(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 20);
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' && (i == 0 || bytes[i - 1] != b'\r') {
+            out.push(b'\r');
+        }
+        out.push(b);
+    }
+    out
+}
+
 fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     for e in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
@@ -281,7 +313,13 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         if p.is_dir() {
             copy_tree(&p, &dest)?;
         } else {
-            std::fs::copy(&p, &dest).map_err(|e| format!("{}: {e}", p.display()))?;
+            let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let bytes = if checked_out_as_text(&e.file_name().to_string_lossy(), &bytes) {
+                with_crlf(&bytes)
+            } else {
+                bytes
+            };
+            std::fs::write(&dest, bytes).map_err(|e| format!("{}: {e}", dest.display()))?;
         }
     }
     Ok(())
@@ -308,7 +346,9 @@ mod tests {
         let src = dest.join("src/DemoTool");
         std::fs::create_dir_all(src.join("Pictures/Images/Item")).unwrap();
         std::fs::create_dir_all(src.join("o365")).unwrap();
-        std::fs::write(src.join("Pictures/CurrencyData.TXT"), "c").unwrap();
+        std::fs::write(src.join("Pictures/CurrencyData.TXT"), "AED;784\nAFN;971\r\n").unwrap();
+        std::fs::write(src.join("Pictures/1896-S.BMP"), b"BM\0\n\x01").unwrap();
+        std::fs::write(src.join("Pictures/Item.png"), b"png\n").unwrap();
         std::fs::write(src.join("Pictures/Images/Item/1000.jpg"), "j").unwrap();
         std::fs::write(src.join("o365/HyperLink.xml"), "h").unwrap();
         std::fs::write(
@@ -391,6 +431,17 @@ mod tests {
             "O365 is a folder of its own"
         );
         assert!(d.resources.join("DemoDataConfig.xml").is_file());
+        // `* text=auto` (BCApps .gitattributes:1): a Windows checkout has CRLF in text files; binary ones stay as they are.
+        assert_eq!(
+            std::fs::read(d.resources.join("CurrencyData.TXT")).unwrap(),
+            b"AED;784\r\nAFN;971\r\n"
+        );
+        assert_eq!(std::fs::read(d.resources.join("1896-S.BMP")).unwrap(), b"BM\0\n\x01");
+        assert_eq!(
+            std::fs::read(d.resources.join("Item.png")).unwrap(),
+            b"png\n",
+            "*.png binary"
+        );
         let again = resolve(None, 29, 0, root.path(), true, "u", &fetch).unwrap();
         assert_eq!(fetched.get(), 1, "the second run reads the cache");
         assert_eq!(again.identity, d.identity);
