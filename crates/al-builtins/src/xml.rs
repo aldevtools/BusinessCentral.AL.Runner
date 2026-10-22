@@ -3996,6 +3996,11 @@ fn name_table(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResul
 fn set_attribute(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     let (name, value) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    // `SetAttribute('xmlns:q', ..)` raises the XML name error at the colon and adds nothing
+    // (xml/XmlAttributes.al:497-507 Attribute_Xmlns_Handling `af404`, `set_xmlns_q`). Other prefixed names are not pinned.
+    if name.strip_prefix("xmlns:").is_some_and(is_ncname) {
+        verify_ncname(&name)?;
+    }
     check_name(&name)?;
     let existing = attrs_of(&h).into_iter().find(|x| {
         with(
@@ -4186,6 +4191,32 @@ fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     match found {
         Some(at) => {
             a[1] = tagged("XmlAttribute", at);
+            Ok(Value::Boolean(true))
+        }
+        None if c.ret_used() => Ok(Value::Boolean(false)),
+        None => unsupported("XmlAttributeCollection.Get of a missing name, result unused (error text not pinned yet)"),
+    }
+}
+
+/// `Get(LocalName, NamespaceUri, var Attr)` finds the attribute by its local name and namespace: a prefixed attribute read
+/// from text (xml/XmlAttributes.al:245 `get_p_a`), one set with a namespace (:218 `get_ns`, :577), not one in another
+/// namespace (:221 `get_wrong_ns`), and an unprefixed attribute is not in the default namespace (:496
+/// `get_a_default_ns`). An empty namespace URI or a qualified name is not pinned.
+fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let owner = owner_of(r)?;
+    let (name, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    if uri.is_empty() || name.contains(':') {
+        return unsupported("XmlAttributeCollection.Get with an empty namespace URI or a qualified name (not pinned)");
+    }
+    let found = attrs_of(&owner).into_iter().find(|x| {
+        with(
+            x,
+            |d| matches!(d, XData::Attribute { local, ns, .. } if *local == name && *ns == uri),
+        )
+    });
+    match found {
+        Some(at) => {
+            a[2] = tagged("XmlAttribute", at);
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
@@ -4517,6 +4548,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("XmlAttributeCollection", "RemoveAll", []) => attrs_remove_all,
         ("XmlAttributeCollection", "Get", ["Integer", "XmlAttribute"]) => attrs_get_index,
         ("XmlAttributeCollection", "Get", ["Text", "XmlAttribute"]) => attrs_get_name,
+        ("XmlAttributeCollection", "Get", ["Text", "Text", "XmlAttribute"]) => attrs_get_name_ns,
         ("XmlNodeList", "Count", []) => list_count,
         ("XmlNodeList", "Get", ["Integer", "XmlNode"]) => list_get,
         _ => return None,
