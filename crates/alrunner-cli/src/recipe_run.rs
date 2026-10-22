@@ -106,7 +106,9 @@ pub fn lane_args(
 /// Whether the Legacy lane builds its company with the DemoTool: no package is named (`--package`, or the one
 /// `test-microsoft` fetched) and the platform artifact of the test apps holds no RapidStart package. The artifact is the
 /// one an APP lies in (`.../<build>/platform/Applications/...`), else the extracted artifact of the build on disk. When
-/// neither is on disk, the package path stays (and says what is missing when it runs).
+/// neither is on disk (the apps came from the feed's cache, which keeps no platform folder), no package can be read and
+/// the DemoTool builds the company: BCApps' `ImportTestDataInBcContainer.ps1` builds the Legacy company with the
+/// DemoTool on every release (`Invoke-LegacyDemoDataTool`), the package is only its exported data.
 pub fn legacy_uses_demotool(a: &TestArgs, inputs: &[apps::AppInput]) -> bool {
     if a.package_path.is_some() {
         return false;
@@ -124,7 +126,7 @@ pub fn legacy_uses_demotool(a: &TestArgs, inputs: &[apps::AppInput]) -> bool {
         let build = apps::own_build(inputs)?;
         Some(root.join(build.to_string()).join("platform")).filter(|p| p.is_dir())
     });
-    platform.is_some_and(|p| !has_rapidstart(&p.join("ConfigurationPackages")))
+    platform.is_none_or(|p| !has_rapidstart(&p.join("ConfigurationPackages")))
 }
 
 fn has_rapidstart(dir: &Path) -> bool {
@@ -435,6 +437,11 @@ mod tests {
         let mut b = base();
         b.legacy_demotool = true;
         assert!(legacy_uses_demotool(&b, &[]), "test-microsoft found no package");
+        // An APP outside an extracted artifact, with no artifact of its build on disk (the feed's apps cache): no
+        // package can be read, and Microsoft's CI builds the Legacy company with the DemoTool.
+        let mut c = base();
+        c.apps = vec![root.path().join("apps").join("Tests-X.Source.zip")];
+        assert!(legacy_uses_demotool(&c, &[]), "no artifact on disk");
     }
 
     #[test]
