@@ -255,12 +255,13 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_179, "OData Edm Type", Provider::Stored),
 ];
 
-/// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Tenant Web Service: not empty,
-/// PZPlatformSurvey.al:178-187; 64 rows in W4PlatformAndMeta.al:93 and PtWebServiceRows.al:136, which rows is not
-/// pinned). The runtime starts them empty, so it treats them as unseeded (`Engine::unseeded`): writes work, and a read
-/// of rows that were not written, or a `Get` that finds nothing, is refused. Web Service is seeded with its pinned
-/// rows instead (al-vm `platform/seed.rs`).
-pub const UNSEEDED_ROWS: &[u32] = &[2_000_000_168];
+/// Stored tables that a fresh tenant fills with rows no corpus test pins. The runtime starts them empty, so it treats them as
+/// unseeded (`Engine::unseeded`): writes work, and a read of rows that were not written, or a `Get` that finds nothing, is
+/// refused. Web Service and Tenant Web Service are seeded with their pinned rows instead (al-vm `platform/seed.rs`;
+/// PtWebServiceRows.al:39-73, PlatformRowsWebService.al:66-215). Their System Application neighbours are not: Tenant Web
+/// Service OData (6710) holds 29 rows and Tenant Web Service Columns (6711) 402 on a fresh tenant, only the counts are pinned
+/// (onprem platform/PtWebServiceRows.al:237, :267 'counts before'); what Tenant Web Service Filter (6712) holds is not pinned.
+pub const UNSEEDED_ROWS: &[u32] = &[6710, 6711, 6712];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:
