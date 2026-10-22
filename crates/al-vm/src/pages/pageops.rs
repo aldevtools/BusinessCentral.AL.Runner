@@ -179,6 +179,15 @@ impl Session {
 
     pub(super) fn test_page_op(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let name = method.method();
+        if method.recv() == PageRecv::TestPart && st.borrow().link_validate_failed {
+            // QjPartPropagation.al:3766 QT_ValPartSplit_Empty_Last_KeyValidateErrors `last = ok No`, `log-last` empty.
+            if name == PageMethod::Last {
+                return Ok(Value::Boolean(false));
+            }
+            return unsupported(format!(
+                "TestPart.{name} on a part whose link value failed its validation as the host opened (not pinned)"
+            ));
+        }
         if name != PageMethod::Close || st.borrow().unpinned_close {
             self.refuse_unpinned_state(st)?;
         }
@@ -406,6 +415,9 @@ impl Session {
                 };
                 let skipped_unlinked = match name {
                     PageMethod::Next | PageMethod::Previous => {
+                        if name == PageMethod::Next {
+                            self.restore_held_xrec_of_empty_parts(st);
+                        }
                         self.sync_parts_after_move(st, name == PageMethod::Previous)?;
                         true
                     }
@@ -1068,6 +1080,7 @@ impl Session {
             PageMethod::New => {
                 self.require_open(st)?;
                 self.save_unsaved_host_first(st)?;
+                self.insert_untouched_new_host(st)?;
                 self.new_record(st)
             }
             PageMethod::ValidationErrorCount => {

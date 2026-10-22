@@ -773,6 +773,17 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             (V::Text(t) | V::Code(t), V::Null) | (V::Null, V::Text(t) | V::Code(t)) => return Ok(V::Text(t.clone())),
             _ => {}
         }
+        // A Guid next to a text joins as its Format, braces and upper case, null or not: 'x' + G, G + 'x', 'x' + an
+        // empty Guid (types/lt-aj-probes/AjMisc.al:63-72, :77-81).
+        match (l, r) {
+            (V::Text(t) | V::Code(t), V::Guid(g)) => {
+                return Ok(V::Text(format!("{t}{}", crate::format::format_guid(g)).into()));
+            }
+            (V::Guid(g), V::Text(t) | V::Code(t)) => {
+                return Ok(V::Text(format!("{}{t}", crate::format::format_guid(g)).into()));
+            }
+            _ => {}
+        }
         // A Char next to a text is a character of it, not a number: `'line1' + S[1] + 'line2'`
         // (corpus json/TestJsonXmlDeepContracts.al:71, which round-trips the result through JSON).
         // Two Chars add as numbers. A lone surrogate is not a character a Rust string can hold.

@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-vm/src/pages/open.rs",
+        r#"Ok(Some((r.key, r.ascending, format!("{:?}", r.filters), pk)))"#,
+        "the filters of a page's Rec before and after OnOpenPage, compared for equality, never shown",
+    ),
+    (
         "alrunner-cli/src/affected.rs",
         r#""{:?}","#,
         "the run options of `--affected` as the input of a hash, never shown",

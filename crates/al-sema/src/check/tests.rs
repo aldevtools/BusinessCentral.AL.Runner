@@ -754,6 +754,78 @@ fn keywords_alc_rejects_as_parameter_names() {
     }
 }
 
+/// The full diagnostic lists alc gives (its recovery included) for the two shapes the must-not-compile corpus pins whole:
+/// a file of two codeunits whose one procedure takes `<word>: Integer` and `var <word>: Integer` (cases 2016-2039), and a
+/// variable declared `"If"` used unquoted (case 2040). Only the AL codes, sorted, as the corpus harness compares them.
+#[test]
+fn keyword_name_files_give_the_full_lists_alc_gives() {
+    // Two of the shapes do not parse here (`var: Integer`, `If := 1`): the parse error stands, the AL codes come anyway.
+    let al = |src: &str| {
+        let w = ws(&[src]);
+        let r = check(&w, &crate::members::build(&w), &Catalog::load());
+        let mut v: Vec<String> = r
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.starts_with("AL"))
+            .map(|d| format!("{} {}", d.code, d.message))
+            .collect();
+        v.sort();
+        v
+    };
+    let pair = |w: &str| {
+        format!(
+            "codeunit 50000 \"A\"\n{{\n    procedure P1({w}: Integer)\n    begin\n    end;\n}}\n\ncodeunit 50001 \"B\"\n{{\n    procedure P2(var {w}: Integer)\n    begin\n    end;\n}}\n"
+        )
+    };
+    let invalid =
+        "AL0107 Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+    let mut of = vec![
+        "AL0105 Syntax error, identifier expected; 'of' is a keyword".to_string(),
+        "AL0104 Syntax error, ':' expected".into(),
+        invalid.into(),
+        invalid.into(),
+        "AL0104 Syntax error, ':' expected".into(),
+        "AL0105 Syntax error, identifier expected; 'of' is a keyword".into(),
+        "AL0104 Syntax error, ';' expected".into(),
+    ];
+    of.sort();
+    assert_eq!(al(&pair("of")), of);
+    assert_eq!(al(&pair("Of")), of, "the word is named in lower case");
+    let mut var = vec![
+        invalid.to_string(),
+        invalid.into(),
+        "AL0104 Syntax error, ':' expected".into(),
+        "AL0105 Syntax error, identifier expected; 'var' is a keyword".into(),
+        "AL0104 Syntax error, ';' expected".into(),
+    ];
+    var.sort();
+    assert_eq!(al(&pair("var")), var);
+    for (w, n) in [("begin", 15), ("procedure", 13), ("trigger", 15), ("textelement", 7)] {
+        assert_eq!(al(&pair(w)).len(), n, "{w}");
+    }
+    let mut unquoted = vec![
+        "AL0224 Expression expected. Provide a valid expression (variable, constant, calculation, or method call)."
+            .to_string(),
+        "AL0104 Syntax error, 'then' expected".into(),
+    ];
+    unquoted.sort();
+    assert_eq!(
+        al(
+            "codeunit 50100 \"C\"\n{\n    procedure P()\n    var\n        \"If\": Integer;\n    begin\n        If := 1;\n    end;\n}\n"
+        ),
+        unquoted
+    );
+    // Another shape keeps the first diagnostic only: one codeunit, or a second statement.
+    assert_eq!(
+        al("codeunit 50000 \"A\" { procedure P1(of: Integer) begin end; }"),
+        vec!["AL0105 Syntax error, identifier expected; 'of' is a keyword"]
+    );
+    assert_eq!(
+        al("codeunit 50100 \"C\" { procedure P() var \"If\": Integer; begin If := 1; If := 2; end; }"),
+        Vec::<String>::new()
+    );
+}
+
 /// AL0398 for a Decimal constant where an Option ordinal is expected: a case label of an Option selector
 /// (corpus tests/must-not-compile/cases/2008-case-option-decimal-label.al:1) and the `in` list of an Option
 /// (2009-option-in-decimal-list.al:1-2). Comparing an Option with a Decimal compiles, and so does a Decimal

@@ -24,6 +24,26 @@ use al_syntax::{SyntaxKind, SyntaxNode, ast};
 /// The AL codes this front end reports, with what each one covers.
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     (
+        "AL0104",
+        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040)",
+    ),
+    (
+        "AL0105",
+        "a parameter named by one of 20 other keywords without `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039)",
+    ),
+    (
+        "AL0107",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039)",
+    ),
+    (
+        "AL0111",
+        "alc's full list for the two-codeunit file whose procedures take a parameter named begin (case 2016)",
+    ),
+    (
+        "AL0224",
+        "a variable declared \"If\" used unquoted, `If := 1;`, as the one statement of the one procedure of a file's one codeunit (case 2040)",
+    ),
+    (
         "AL0118",
         "a bare call of a name that is not a procedure or system function, in a codeunit; an undeclared bare name in a codeunit, or assigned in a trigger of a table, page, report, query or xmlport; Codeunit::\"X\" or an event subscriber naming a codeunit nobody declares",
     ),
@@ -387,6 +407,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         .filter(|d| d.code == "AR0000")
         .map(|d| (d.app, d.file.as_str()))
         .collect();
+    let whole = keyword_name_files(ws, &mut out);
     for oi in 0..ws.objects.len() {
         let o = &ws.objects[oi];
         if ws.kinds[o.app] == AppKind::Dependency {
@@ -399,7 +420,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         subscriber_publishers(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
-        if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) {
+        if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
         }
         match o.kind {
@@ -893,8 +914,7 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 /// Without `var`: AL0104 for `begin`, `procedure` and `trigger`, AL0105 for the rest; `var: Integer` is a parse
 /// error here already. After `var`: AL0107 for every one of them.
 ///
-/// The three codes are not listed in [`IMPLEMENTED`]: they are general syntax-error codes, and this is the only shape
-/// that reports them. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
+/// A file of the shape [`keyword_name_files`] covers gets alc's full list there instead. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
 /// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     const INVALID: &str =
@@ -942,6 +962,245 @@ fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<
         };
         push(out, ws, file, offset, code, message);
     }
+}
+
+/// One token of a [`keyword_name_files`] shape.
+#[derive(Clone, Copy)]
+enum Pat {
+    /// An identifier with this text, in any case (keywords are identifiers to the lexer).
+    Word(&'static str),
+    /// A token of this kind, any text.
+    Kind(SyntaxKind),
+    /// The name of an object or procedure: a quoted name, or an identifier that is no word of [`PARAM_NAME_KEYWORDS`].
+    Name,
+    /// A word of [`PARAM_NAME_KEYWORDS`]; every `Keyword` of a shape is the same word.
+    Keyword,
+}
+
+/// `codeunit N "A" { procedure P1(<word>: Integer) begin end; } codeunit M "B" { procedure P2(var <word>: Integer) begin
+/// end; }`: must-not-compile cases 2016-2039 (one per word of [`PARAM_NAME_KEYWORDS`]).
+const KEYWORD_PARAM_PAIR: &[Pat] = {
+    use Pat::*;
+    use SyntaxKind as K;
+    &[
+        Word("codeunit"),
+        Kind(K::Integer),
+        Name,
+        Kind(K::LBrace),
+        Word("procedure"),
+        Name,
+        Kind(K::LParen),
+        Keyword,
+        Kind(K::Colon),
+        Word("Integer"),
+        Kind(K::RParen),
+        Word("begin"),
+        Word("end"),
+        Kind(K::Semicolon),
+        Kind(K::RBrace),
+        Word("codeunit"),
+        Kind(K::Integer),
+        Name,
+        Kind(K::LBrace),
+        Word("procedure"),
+        Name,
+        Kind(K::LParen),
+        Word("var"),
+        Keyword,
+        Kind(K::Colon),
+        Word("Integer"),
+        Kind(K::RParen),
+        Word("begin"),
+        Word("end"),
+        Kind(K::Semicolon),
+        Kind(K::RBrace),
+    ]
+};
+
+/// `codeunit N "C" { procedure P() var "If": Integer; begin If := 1; end; }`: must-not-compile case 2040.
+const UNQUOTED_IF: &[Pat] = {
+    use Pat::*;
+    use SyntaxKind as K;
+    &[
+        Word("codeunit"),
+        Kind(K::Integer),
+        Name,
+        Kind(K::LBrace),
+        Word("procedure"),
+        Name,
+        Kind(K::LParen),
+        Kind(K::RParen),
+        Word("var"),
+        Word("\"If\""),
+        Kind(K::Colon),
+        Word("Integer"),
+        Kind(K::Semicolon),
+        Word("begin"),
+        Word("If"),
+        Kind(K::Assign),
+        Word("1"),
+        Kind(K::Semicolon),
+        Word("end"),
+        Kind(K::Semicolon),
+        Kind(K::RBrace),
+    ]
+};
+
+/// The offsets of the tokens of `root` at the `Keyword` (or, for `at`, the `Word` with that text) places of `shape`, when
+/// the file's tokens (trivia left out) are exactly `shape`. It stops at the first token that differs.
+fn match_shape(root: &SyntaxNode, shape: &[Pat], at: Option<&str>) -> Option<(String, Vec<usize>)> {
+    let mut toks = root
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| !t.kind().is_trivia());
+    let mut word: Option<String> = None;
+    let mut offsets = Vec::new();
+    for p in shape {
+        let t = toks.next()?;
+        let text = t.text();
+        let ok = match *p {
+            Pat::Word(w) => {
+                let kind_ok = match w.as_bytes()[0] {
+                    b'"' => t.kind() == SyntaxKind::QuotedIdent,
+                    b'0'..=b'9' => t.kind() == SyntaxKind::Integer,
+                    _ => t.kind() == SyntaxKind::Ident,
+                };
+                if kind_ok && at.is_some_and(|a| a == w) {
+                    offsets.push(t.text_range().start().into());
+                }
+                kind_ok && text.eq_ignore_ascii_case(w)
+            }
+            Pat::Kind(k) => t.kind() == k,
+            Pat::Name => {
+                t.kind() == SyntaxKind::QuotedIdent
+                    || (t.kind() == SyntaxKind::Ident
+                        && !PARAM_NAME_KEYWORDS.contains(&text.to_ascii_lowercase().as_str()))
+            }
+            Pat::Keyword => {
+                let lower = text.to_ascii_lowercase();
+                let same = word.as_ref().is_none_or(|w| *w == lower);
+                let ok = t.kind() == SyntaxKind::Ident && PARAM_NAME_KEYWORDS.contains(&lower.as_str()) && same;
+                word = Some(lower);
+                offsets.push(t.text_range().start().into());
+                ok
+            }
+        };
+        if !ok {
+            return None;
+        }
+    }
+    toks.next().is_none().then(|| (word.unwrap_or_default(), offsets))
+}
+
+/// The diagnostics alc gives, in its order, for [`KEYWORD_PARAM_PAIR`] with `word`: the `@expect` lists of
+/// must-not-compile cases 2016 (begin), 2017 (procedure), 2018 (trigger), 2039 (var), and 2019-2038 for the other words
+/// (one list for all of them, the word named). AL 30.0.42.60748-beta, the same for BC 27, 28 and 29.
+fn keyword_param_pair_list(word: &str) -> Vec<(&'static str, String)> {
+    const INVALID: &str =
+        "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+    let kw = format!("Syntax error, identifier expected; '{word}' is a keyword");
+    let s = |code: &'static str, text: &str| (code, text.to_string());
+    let expected = |what: &str| ("AL0104", format!("Syntax error, '{what}' expected"));
+    let semicolon = s(
+        "AL0111",
+        "Semicolon expected. Add a semicolon (;) to terminate the statement.",
+    );
+    let trigger = s(
+        "AL0162",
+        "'' is not a valid trigger for this object type. Check the object documentation for supported triggers.",
+    );
+    // 2016:1-15, 2017:1-13, 2018:1-15: the procedure with `var` gives three diagnostics at the name, then those of the other one.
+    let ends_list = |tail: Vec<(&'static str, String)>| {
+        let mut v = tail.clone();
+        v.extend([s("AL0107", INVALID), expected(":"), ("AL0105", kw.clone())]);
+        v.extend(tail);
+        v
+    };
+    match word {
+        "begin" => ends_list(vec![
+            expected(")"),
+            expected("end"),
+            expected("end"),
+            semicolon,
+            expected("end"),
+            expected(";"),
+        ]),
+        "procedure" => ends_list(vec![
+            expected(")"),
+            s("AL0107", INVALID),
+            expected("("),
+            expected(":"),
+            s("AL0107", INVALID),
+        ]),
+        "trigger" => ends_list(vec![
+            expected(")"),
+            trigger,
+            s("AL0107", INVALID),
+            expected("("),
+            expected(":"),
+            s("AL0107", INVALID),
+        ]),
+        // 2039:1-5.
+        "var" => vec![
+            s("AL0107", INVALID),
+            s("AL0107", INVALID),
+            expected(":"),
+            ("AL0105", kw),
+            expected(";"),
+        ],
+        // 2019:1-7 to 2038:1-7.
+        _ => vec![
+            ("AL0105", kw.clone()),
+            expected(":"),
+            s("AL0107", INVALID),
+            s("AL0107", INVALID),
+            expected(":"),
+            ("AL0105", kw),
+            expected(";"),
+        ],
+    }
+}
+
+/// AL0104, AL0105, AL0107, AL0111, AL0162 and AL0224 for the two file shapes the must-not-compile corpus pins with alc's
+/// full list, its recovery diagnostics included: [`KEYWORD_PARAM_PAIR`] and [`UNQUOTED_IF`]. The file must be exactly that
+/// shape (names and object numbers aside); for any other file alc's recovery is not known, and [`parameter_names`] gives
+/// the first diagnostic only. Positions are not pinned: the first diagnostic is at the first name, the rest at the
+/// second. Returns the files it covered, which [`parameter_names`] leaves alone.
+fn keyword_name_files(ws: &Workspace, out: &mut Vec<Diagnostic>) -> std::collections::HashSet<usize> {
+    let mut per_file: std::collections::HashMap<usize, Vec<ObjKind>> = Default::default();
+    for o in &ws.objects {
+        if ws.kinds[o.app] != AppKind::Dependency {
+            per_file.entry(o.file).or_default().push(o.kind);
+        }
+    }
+    let mut covered = std::collections::HashSet::new();
+    for (file, kinds) in per_file {
+        if kinds.len() > 2 || kinds.iter().any(|k| *k != ObjKind::Codeunit) {
+            continue;
+        }
+        let root = SyntaxNode::new_root(ws.green(file));
+        if let Some((word, at)) = match_shape(&root, KEYWORD_PARAM_PAIR, None) {
+            for (i, (code, text)) in keyword_param_pair_list(&word).into_iter().enumerate() {
+                push(out, ws, file, at[usize::from(i > 0)], code, text);
+            }
+            covered.insert(file);
+        } else if let Some((_, at)) = match_shape(&root, UNQUOTED_IF, Some("If")) {
+            // 2040:1-2.
+            let at = at[0];
+            push(
+                out,
+                ws,
+                file,
+                at,
+                "AL0224",
+                "Expression expected. Provide a valid expression (variable, constant, calculation, or method call)."
+                    .into(),
+            );
+            push(out, ws, file, at, "AL0104", "Syntax error, 'then' expected".into());
+            covered.insert(file);
+        }
+    }
+    covered
 }
 
 pub(crate) fn signature(r: &ast::Routine) -> Vec<(bool, String)> {
