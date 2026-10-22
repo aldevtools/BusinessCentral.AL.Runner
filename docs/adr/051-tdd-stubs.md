@@ -235,6 +235,15 @@ dependency extensions, free ids, flagging); 1 for output (text, JSON, serve, JUn
   length reason also through `FieldRef.Value`, `FieldRef.Validate`, `Validate` by field number and `TransferFields`
   (`ir::Field::tdd_length_unknown`, read by the VM before it converts the value).
 
+## Decided without owner review (2026-10-22, field arguments)
+
+- **Validate and SetRange.** A bare name as the first argument of `Rec.Validate(F, ...)` or `Rec.SetRange(F, ...)`, in a
+  test app, that is no field of the record's table and no local or global variable, is a stub field site, as `Rec.F`
+  is. Its type comes from the value arguments by the Variant rule of decision 3 (`Validate(F, 5)` and
+  `SetRange(F, 1, 10)` give Integer; `SetRange(F)` alone gives no type and is refused). The other methods that take a
+  field argument (`TestField`, `SetFilter`, `CalcFields`, `FieldNo`, ...) are not stub sites yet.
+- Test: `crates/alrunner-cli/tests/tdd.rs`, `a_field_named_by_validate_or_setrange_is_a_stub_field`.
+
 ## Conformance
 
 `crates/alrunner-cli/tests/tdd.rs`, the `al-sema` unit tests of the type rule, and the compile-dump comparison of

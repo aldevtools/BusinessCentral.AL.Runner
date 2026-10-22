@@ -288,6 +288,29 @@ impl<'a> Checker<'a> {
         true
     }
 
+    /// `Rec.Validate(F, ...)` or `Rec.SetRange(F, ...)` (`call` is the call's callee, a member expression on `Rec`),
+    /// where `F` (`arg`, a bare name) is no field of the record's table, in a test app: a stub field site on the
+    /// argument (ADR-051 decision 10), as [`Self::tdd_field`] makes one for `Rec.F`. A local or global variable named
+    /// `F` wins: the name is then left to the normal lookup.
+    pub(crate) fn tdd_field_arg(
+        &mut self,
+        sc: &Scope,
+        arg: &SyntaxNode,
+        callee: &SyntaxNode,
+        receiver_ty: Option<&Ty>,
+    ) -> bool {
+        let Some(base) = receiver_ty else { return false };
+        let Some(receiver) = callee.children().next() else {
+            return false;
+        };
+        let name = name_of(arg);
+        let var = name.to_lowercase();
+        if sc.vars.iter().any(|f| f.contains_key(&var)) || sc.globals.contains_key(&var) {
+            return false;
+        }
+        self.tdd_field(sc, arg, &receiver, base, &name)
+    }
+
     /// `E::Missing`, a value enum `ei` (with its extensions) does not have, in a test app (decision 10): a stub value
     /// site. The next compile declares the value (`tdd_decl`).
     pub(crate) fn tdd_enum_value(&mut self, sc: &Scope, node: &SyntaxNode, ei: usize, name: &str) -> bool {
