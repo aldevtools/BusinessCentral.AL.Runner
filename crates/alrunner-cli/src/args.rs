@@ -640,7 +640,7 @@ TEST-MICROSOFT
                          runs, and each runs with --recipe microsoft. Default build: the newest of the
                          newest BC major (a cached build first, as for `test`); default country w1.
                          Apps without a test codeunit (test libraries) are dependencies, not run; apps
-                         named _Exclude_... in the artifact run only when --app names them. One run per
+                         named _Exclude_... run too, as in Microsoft's CI. One run per
                          test app; then one row per app (passed, failed, not run, total, codeunits of a
                          lane not run yet, exit code) and a total. Exit code: the worst app's (2 if an
                          app could not be loaded or compiled, else 1, 8, 7; 6 only when nothing ran).

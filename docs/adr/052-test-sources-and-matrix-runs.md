@@ -486,9 +486,10 @@ the serve refusal test in `args.rs`.
   contains `test` (any case): the platform artifact keeps test apps in `Test`, `Tests` and `Test Library` folders, a
   country artifact keeps all apps in one folder where only the file name says it. A candidate is a test app when its
   source holds a `Subtype = Test` codeunit; the others (test libraries, the test framework) are left out with a line.
-- **`_Exclude_` apps.** Test apps whose artifact name starts with `_Exclude_` (`_Exclude_APIV2_ Tests`) are left out
-  by default, with a line; `--app` runs them. The prefix marks apps Microsoft keeps apart; whether its own CI runs
-  them was not checked.
+- **`_Exclude_` apps.** Test apps whose artifact name starts with `_Exclude_` (`_Exclude_APIV2_ Tests`) run by
+  default, like every other test app. Checked on 2026-10-22: Microsoft's own CI runs them (BCApps `releases/29.x`,
+  run 39519586834, all five W1 test jobs: "Dispatching '_Exclude_APIV1_ Tests'"; 11 of the 129 dispatched test apps
+  carry the prefix). Until then (build step 1) they were left out unless `--app` named them.
 - **The Legacy lane's package.** The run fetches the platform artifact's RapidStart package
   (`ConfigurationPackages/*ENU.EXTENDED*.rapidstart`) into `<cache>/artifacts/<build>/packages/` once and gives it to
   every app's Legacy lane. Before this, `--recipe microsoft` found the package only in an extracted artifact on disk,
