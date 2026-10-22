@@ -471,6 +471,33 @@ pub fn refused_reached_from(lowered: &Lowered, roots: &[(usize, usize)]) -> Vec<
     group_refused(lowered, &g, closure(&g, &from, &skip, false))
 }
 
+/// Refused routines grouped by their folded reason: (reason, routine labels).
+pub type RefusedByReason = Vec<(String, Vec<String>)>;
+
+/// For each `[Test]` procedure of the workspace (not of a dependency app), the refused routines it reaches, grouped
+/// as [`refused_reached_from`] groups them (`AL_REACH_REPORT=tests`). A run stops each test at the first refusal it
+/// meets; this lists everything each test could stop at, for a discovery app that calls one step per test.
+pub fn refused_by_test(lowered: &Lowered) -> Vec<(String, RefusedByReason)> {
+    let g = build(lowered);
+    let skip = vec![false; g.at.len()];
+    let mut out = Vec::new();
+    for (o, obj) in lowered.program.objects.iter().enumerate() {
+        if lowered.dependency[o] {
+            continue;
+        }
+        for (r, rt) in obj.routines.iter().enumerate() {
+            if rt.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("test")) {
+                let i = g.id(o, r);
+                out.push((
+                    label(lowered, &g, i),
+                    group_refused(lowered, &g, closure(&g, &[i], &skip, false)),
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// The refused routines of app `app` (index in the program), grouped as [`refused_reached_from`] groups them. For a
 /// compile that took the app from the compile cache, whose call graph is not recorded.
 pub fn refused_in_app(lowered: &Lowered, app: u32) -> Vec<(String, Vec<String>)> {
@@ -531,5 +558,37 @@ codeunit 50131 "Other" { trigger OnRun() begin SerialNumber(); end; }
         assert_eq!(got.len(), 1, "{got:?}");
         assert_eq!(got[0].1.len(), 2, "A and C, not codeunit Other: {got:?}");
         assert!(got[0].1.iter().all(|r| r.contains("\"Build\"")), "{got:?}");
+    }
+
+    #[test]
+    fn the_refused_routines_are_listed_per_test_of_the_workspace() {
+        let src = r#"
+codeunit 50132 "Steps" { Subtype = Test;
+  [Test] procedure StepA() var B: Codeunit "Build2"; begin B.A(); end;
+  [Test] procedure StepB() var B: Codeunit "Build2"; begin B.Fine(); end;
+  procedure Helper() begin SerialNumber(); end; }
+codeunit 50133 "Build2" {
+  procedure A() begin SerialNumber(); end;
+  procedure Fine() begin end; }
+"#;
+        let (_, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src.into())],
+            }],
+            &Default::default(),
+        );
+        let got = super::refused_by_test(&l);
+        let names: Vec<&str> = got.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(
+            names,
+            ["codeunit \"Steps\" . StepA", "codeunit \"Steps\" . StepB"],
+            "{got:?}"
+        );
+        assert_eq!(got[0].1.len(), 1, "{got:?}");
+        assert_eq!(got[0].1[0].1, ["codeunit \"Build2\" . A"], "{got:?}");
+        assert!(got[1].1.is_empty(), "{got:?}");
     }
 }

@@ -264,9 +264,15 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for top in obj.sections() {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
-            // platform/lt-ag-contoso/AgXmlPortImport.al:77-97, :312-327: an empty request page changes nothing for
-            // Import and Export. Empty `layout` and `actions` sections hold nothing either (the DemoTool's xmlport 101899).
+            // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
+            // nothing in it changes nothing for Import and Export. That the same holds with empty `layout` and
+            // `actions` sections inside it (the DemoTool's xmlport 101899) is not pinned: refused until probed
+            // (docs/probes-needed.md, "The DemoTool company").
             "requestpage" if request_page_is_empty(&top) => {}
+            "requestpage" if request_page_has_only_empty_sections(&top) => out.run_reasons.push(
+                "an xmlport request page with an empty layout or actions section is not pinned (only `requestpage { }` is)"
+                    .into(),
+            ),
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -281,16 +287,21 @@ pub fn layout(obj: &ast::Object) -> Layout {
     out
 }
 
-/// A `requestpage` section with nothing in it: no property, trigger or variable, and at most empty `layout` and
-/// `actions` sections.
+fn section_is_bare(s: &ast::Section) -> bool {
+    s.properties().next().is_none() && s.triggers().next().is_none() && s.var_decls().next().is_none()
+}
+
+/// A `requestpage` section with nothing in it: no property, trigger, variable or section.
 fn request_page_is_empty(rp: &ast::Section) -> bool {
-    let bare = |s: &ast::Section| {
-        s.properties().next().is_none() && s.triggers().next().is_none() && s.var_decls().next().is_none()
-    };
-    bare(rp)
+    section_is_bare(rp) && rp.sections().next().is_none()
+}
+
+/// A `requestpage` section that holds only empty `layout` and `actions` sections (and at least one of them).
+fn request_page_has_only_empty_sections(rp: &ast::Section) -> bool {
+    section_is_bare(rp)
         && rp.sections().all(|s| {
             matches!(s.name().to_ascii_lowercase().as_str(), "layout" | "actions")
-                && bare(&s)
+                && section_is_bare(&s)
                 && s.sections().next().is_none()
         })
 }
@@ -746,15 +757,28 @@ mod tests {
         );
     }
 
-    // platform/lt-ag-contoso/AgXmlPortImport.al:77-97, :312-327 (RequestPage_EmptySection_ImportAndExport): a request page
-    // section with nothing in it changes nothing for Xmlport.Import and Export. The DemoTool's xmlport 101899 writes it
-    // as empty layout and actions sections. One with a control, an action, a property or a trigger is not pinned.
+    // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
+    // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. Empty `layout`
+    // and `actions` sections inside it (the DemoTool's xmlport 101899) are not pinned, nor is one with a control, an
+    // action, a property or a trigger.
     #[test]
     fn an_empty_request_page_runs_and_one_with_content_is_refused() {
         let schema = "schema { textelement(R) { } }";
-        for empty in ["requestpage { }", "requestpage { layout { } actions { } }"] {
-            let l = layout_of(&format!("xmlport 1 X {{ {schema} {empty} }}"));
-            assert!(l.run_reasons.is_empty(), "{empty}: {:?}", l.run_reasons);
+        let l = layout_of(&format!("xmlport 1 X {{ {schema} requestpage {{ }} }}"));
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        for sub in [
+            "requestpage { layout { } actions { } }",
+            "requestpage { layout { } }",
+            "requestpage { actions { } }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {sub} }}"));
+            assert!(
+                l.run_reasons
+                    .iter()
+                    .any(|r| r.contains("empty layout or actions section")),
+                "{sub}: {:?}",
+                l.run_reasons
+            );
         }
         for full in [
             "requestpage { layout { area(content) { field(F; F) { } } } }",

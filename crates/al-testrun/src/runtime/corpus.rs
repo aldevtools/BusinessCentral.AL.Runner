@@ -500,8 +500,18 @@ impl CorpusRuntime {
                 eprintln!("compile: error {} {}: {}", d.code, d.file, d.message);
             }
         }
-        if std::env::var_os("AL_REACH_REPORT").is_some() {
-            eprintln!("{}", crate::reach::report(&ws, &lowered));
+        if let Some(how) = std::env::var_os("AL_REACH_REPORT") {
+            if how == "tests" {
+                for (test, refused) in crate::reach::refused_by_test(&lowered) {
+                    let n: usize = refused.iter().map(|(_, v)| v.len()).sum();
+                    eprintln!("reach: {test}: {n} refused routines, {} reasons", refused.len());
+                    for (reason, routines) in &refused {
+                        eprintln!("reach:   {:>4}  {reason}  [{}]", routines.len(), routines.join("; "));
+                    }
+                }
+            } else {
+                eprintln!("{}", crate::reach::report(&ws, &lowered));
+            }
         }
         // Nothing else holds the program yet, so this does not copy it.
         for (app, m) in std::sync::Arc::make_mut(&mut lowered.program)
@@ -858,7 +868,9 @@ impl CorpusRuntime {
         // Without test data the tests run against the corpus database's company, whose demo rows the runtime does not
         // have (ADR-047 rejected): a Count or IsEmpty of one of those tables before the test wrote to it is refused (`demo_row_tables`).
         // A company the baseline built (`--company-data demotool`) holds the rows its codeunit wrote, not the corpus
-        // database's.
+        // database's. The refusal is off there because nothing is missing: every row comes from Microsoft's own code
+        // (Company-Initialize and the DemoTool, compiled from their source and run to their end, else no test runs),
+        // so a Count or IsEmpty answers from the rows real BC would hold after the same code.
         if opts.test_data.is_none() && opts.company_data.is_none() {
             let demo = crate::baseline::demo_row_tables(lowered);
             if !demo.is_empty() {

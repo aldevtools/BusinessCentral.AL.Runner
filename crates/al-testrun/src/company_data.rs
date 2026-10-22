@@ -46,9 +46,14 @@ pub fn blocked(notes: &[String]) -> Option<String> {
 }
 
 /// The files of one folder, read-only, plus what the code writes, in memory. AL paths are relative to the folder,
-/// with `\` or `/` between the parts, and are matched without case, as the Windows server BCApps' CI runs the
-/// DemoTool on does (the DemoTool names `CurrencyData.txt`, the folder holds `CurrencyData.TXT`). A path that is
-/// absolute or climbs out with `..` names no file of the folder.
+/// with `\` or `/` between the parts. A part that names no file exactly is matched without case, as the Windows
+/// server BCApps' CI runs the DemoTool on does (the DemoTool names `CurrencyData.txt`, the folder holds
+/// `CurrencyData.TXT`). Why that is an assumption: AL code can see it (File.Exists and File.Open of a name in other
+/// case answer differently on a case-sensitive file system), no corpus test pins it (the corpus CI runs BC on Linux,
+/// and the rule is the server's file system, not the language), and Microsoft's Legacy tests need it to get their
+/// company. So the match without case marks `resource-file-name-case` (assumptions.rs) when it is used, and the
+/// tests that run in the company are flagged passes. A path that is absolute or climbs out with `..` names no file
+/// of the folder.
 pub struct ResourceFiles {
     root: PathBuf,
     written: MemFileSystem,
@@ -84,11 +89,13 @@ impl ResourceFiles {
                     out = if exact.exists() {
                         exact
                     } else {
-                        std::fs::read_dir(&out)
+                        let found = std::fs::read_dir(&out)
                             .ok()?
                             .filter_map(|e| e.ok())
                             .find(|e| e.file_name().to_string_lossy().to_lowercase() == want)?
-                            .path()
+                            .path();
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ResourceFileNameCase);
+                        found
                     };
                     any = true;
                 }
@@ -153,6 +160,23 @@ mod tests {
             dir.join("CurrencyData.TXT").exists(),
             "a removed resource stays on disk"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // `resource-file-name-case` (assumptions.rs): only a name that matches without case, not exactly, marks it.
+    #[test]
+    fn a_resource_file_found_only_without_case_marks_its_assumption() {
+        use al_builtins::assumptions::{Assumption, take_hits};
+        let dir = std::env::temp_dir().join(format!("alr-rescase-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("CurrencyData.TXT"), b"EUR").unwrap();
+        let fs = ResourceFiles::new(dir.clone());
+        take_hits();
+        assert!(fs.exists("CurrencyData.TXT"));
+        assert!(take_hits().is_empty(), "an exact name takes no assumption");
+        assert!(fs.read("CurrencyData.txt").is_some());
+        assert_eq!(take_hits(), vec![Assumption::ResourceFileNameCase]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -384,6 +384,25 @@ fn date_and_time_zone_and_windows_language_answer_from_their_pins() {
     }
 }
 
+// Windows Language: record/TestWindowsLanguageTable.al:9-13 pins only the columns of the culture (Language ID, Primary Language
+// ID, Name, Abbreviated Name, Primary CodePage, Language Tag) and leaves the license and translation columns out on purpose
+// ("Globally Enabled", "STX File Exist", ...). A read or a filter of one of those is refused, not answered with a blank
+// (the DemoTool's Demo Data Setup."Data Language ID" TableRelation filters on both).
+#[test]
+fn windows_language_refuses_the_columns_no_test_pins() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure PinnedColumns() var W: Record "Windows Language"; begin W.SetFilter("Language ID", '1031|1033|2057'); W.SetRange("Abbreviated Name", 'ENU'); if not W.FindFirst() then Error('no ENU'); if W."Language ID" <> 1033 then Error('id'); end;
+  [Test] procedure FilterOnGloballyEnabled() var W: Record "Windows Language"; begin W.SetRange("Language ID", 1033); W.SetRange("Globally Enabled", true); if W.FindFirst() then; end;
+  [Test] procedure ReadOfSTXFileExist() var W: Record "Windows Language"; begin W.Get(1033); if W."STX File Exist" then; end; }"#,
+    );
+    passes(&o, "PinnedColumns");
+    for t in ["FilterOnGloballyEnabled", "ReadOfSTXFileExist"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("Windows Language"), "{t}: {why}");
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins. Any other object is refused,
 // because the table lists the permissions of the license and nothing pins them (Cash Flow Wksh.-Register Batch reads
 // Codeunit 'Update Analysis View', which is not pinned).
