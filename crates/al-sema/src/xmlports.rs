@@ -507,14 +507,15 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         K::Text if root => (&[], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
-        // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent with
-        // AutoReplace = true that saves (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, :188, tests :293-399). Below a
-        // parent without AutoReplace on import, and MaxOccurs, are not pinned.
+        // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent that
+        // saves (AutoSave not false), with AutoReplace = true (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, :188, tests
+        // :293-399) or without AutoReplace and AutoUpdate, on two and three levels (RcXmlPortNestedImport.al, tests
+        // XmlPortTriggerFlow.al:452-566). Below a parent with AutoUpdate on import, and MaxOccurs, are not pinned.
         K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => {
             let p = raw.parent.expect("checked above");
             let flag = |name: &str| layout.property(p, name).and_then(|v| bool_prop(&v));
-            let replaces = flag("AutoReplace") == Some(true) && flag("AutoSave") != Some(false);
-            if layout.direction == ir::XmlDirection::Export || replaces {
+            let saves = flag("AutoSave") != Some(false) && flag("AutoUpdate") != Some(true);
+            if layout.direction == ir::XmlDirection::Export || saves {
                 (&["zero"], &[])
             } else {
                 (&[], &[])
@@ -848,7 +849,7 @@ mod tests {
     }
 
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
-    // a nested table element's MinOccurs (XmlPortTriggerFlow.al:93) and a container's MaxOccurs = Unbounded are not pinned.
+    // a nested table element's MinOccurs below an AutoUpdate parent and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
     fn only_the_pinned_occurs_values_run() {
         let ok = layout_of(
@@ -869,7 +870,7 @@ mod tests {
                 "minoccurs = once of tableelement H",
             ),
             (
-                "textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } }",
+                "textelement(R) { tableelement(H; Cust) { AutoUpdate = true; tableelement(C; Cust) { MinOccurs = Zero; } } }",
                 "minoccurs = zero of tableelement C",
             ),
             (
@@ -884,19 +885,22 @@ mod tests {
     }
 
     // XmlPortTriggerFlow.al:74959-74960 (tests :293-399): a nested table element with MinOccurs = Zero runs on export, and on
-    // import below a parent with AutoReplace = true. Below a parent without AutoReplace on import, and any MaxOccurs, stay refused.
+    // import below a parent with AutoReplace = true. RcXmlPortNestedImport.al (tests XmlPortTriggerFlow.al:452-566): also below
+    // a parent without AutoReplace and AutoUpdate, on two and three levels. Below a parent with AutoUpdate or AutoSave = false
+    // on import, and any MaxOccurs, stay refused.
     #[test]
-    fn a_nested_optional_table_element_runs_on_export_and_below_an_auto_replace_parent() {
+    fn a_nested_optional_table_element_runs_on_export_and_below_a_saving_import_parent() {
         for src in [
             "Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
             "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoReplace = true; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+            "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; tableelement(G; Cust) { MinOccurs = Zero; } } } } }",
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ {src} }}"));
             assert!(l.run_reasons.is_empty(), "{src}: {:?}", l.run_reasons);
         }
         for (src, want) in [
             (
-                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoUpdate = true; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
                 "minoccurs = zero of tableelement C",
             ),
             (

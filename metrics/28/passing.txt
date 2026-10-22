@@ -12868,6 +12868,10 @@
 74961 Export_TriggerOrder_ParentWithNestedChild
 74961 Import_TriggerOrder_ExistingRows
 74961 Import_TriggerOrder_NewRows
+74961 NoAutoReplace_ExistingParentNoChild
+74961 NoAutoReplace_ExistingParentWithChild
+74961 TempChild_AutoReplace
+74961 ThreeLevels_NoAutoReplace
 74970 SubPageLink_EmptyTerm_HostBlankKey
 74970 SubPageLink_EmptyTerm_HostFilledKeyBlankZone
 74970 SubPageLink_EmptyTerm_HostFilledKeyFilledZone
@@ -13194,6 +13198,9 @@
 78623 ThreeRanges_AcceptedCharacters
 78623 TwoRangesOfLetters_AcceptedCharacters
 78623 UnorderedSingles_AcceptedCharacters
+78630 Grand_Export
+78630 Grand_Import_MatchingLinkValues
+78630 Mixed_Export
 78631 LittleEndian_NoBom_DeclaredUtf16
 78631 LittleEndian_WithBom
 78631 Utf8_Control

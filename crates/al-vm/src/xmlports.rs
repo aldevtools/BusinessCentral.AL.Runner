@@ -1499,7 +1499,7 @@ impl Session {
                     // PersistentChild_Import_*, with LinkTable and no LinkFields). Without LinkTable the elements below are imported first and
                     // the record is stored after them (same file, NoLinkTable_Import_OneParentOneChild, _TwoParents).
                     if save_first && !saved {
-                        self.xp_save_record(inst, schema, node, &assigned)?;
+                        self.xp_save_record(inst, schema, node, &assigned, false)?;
                         saved = true;
                         saved_before_tables = true;
                     }
@@ -1513,7 +1513,7 @@ impl Session {
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
-                        self.xp_save_record(inst, schema, node, &assigned)?;
+                        self.xp_save_record(inst, schema, node, &assigned, false)?;
                         saved = true;
                     }
                     self.xp_import_linked_container(inst, schema, child, ce)?;
@@ -1526,20 +1526,19 @@ impl Session {
         }
         seq.finish(schema)?;
         if !saved {
-            self.xp_save_record(inst, schema, node, &assigned)?;
-        } else if saved_before_tables && n.auto_replace {
-            // A parent with AutoReplace stored before its linked child rows is modified again after them, with its
-            // OnBefore/OnAfterModifyRecord (XmlPortTriggerFlow.al:374 Import_TriggerOrder_NewRows `Par.BeforeModifyRecord=1/one`
-            // after the child rows, :399 Import_TriggerOrder_ExistingRows). With AutoSave = false it is not pinned.
-            // Without AutoReplace the parent is not inserted again (xmlport/lt-xmlport-linktable/XmlPortLinkTableNoLinkFields.al:592,
-            // OnAfterInsertRecord once); whether it is modified is not pinned and nothing runs, as before (kept for baseline cases
-            // 60207, 67507, 68205, 71839, 73502).
-            if !n.auto_save {
+            self.xp_save_record(inst, schema, node, &assigned, false)?;
+        } else if saved_before_tables {
+            // A parent stored before its linked child rows is modified again after them, with its OnBefore/OnAfterModifyRecord and
+            // the table's OnModify: with AutoReplace (XmlPortTriggerFlow.al:374 Import_TriggerOrder_NewRows `Par.BeforeModifyRecord=1/one`
+            // after the child rows, :399 Import_TriggerOrder_ExistingRows) and without it (:452 NoAutoReplace_NewParentTwoChildren,
+            // trace :462; on three levels each row after its own children, :535 ThreeLevels_NoAutoReplace). A parent without child
+            // rows is not modified again (same traces). With AutoSave = false or AutoUpdate it is not pinned.
+            if !n.auto_save || n.auto_update {
                 return unsupported(
-                    "XmlPort import of a table element with AutoReplace and AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
+                    "XmlPort import of a table element with AutoUpdate or AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
                 );
             }
-            self.xp_save_record(inst, schema, node, &assigned)?;
+            self.xp_save_record(inst, schema, node, &assigned, true)?;
         }
         Ok(())
     }
@@ -1635,17 +1634,58 @@ impl Session {
     /// :Import_AutoUpdate_ChangesOnlyTheCarriedFields_KeepsSystemId, corpus: .
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
     /// leaves the storing to them (xmlport/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
-    fn xp_save_record(&mut self, inst: &Inst, schema: &Schema, node: usize, assigned: &[usize]) -> Result<(), Signal> {
+    /// `again`: the second save of a row stored before its linked child rows, a Modify (see `xp_import_record`).
+    fn xp_save_record(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        assigned: &[usize],
+        again: bool,
+    ) -> Result<(), Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
+        let temporary = rec.borrow().temporary;
+        if again && !temporary && self.tx.deferred_insert.as_ref().is_some_and(|(o, _)| *o == t.object as usize) {
+            // The insert of a row whose key already existed fails after the row's child rows and before its second
+            // OnBeforeModifyRecord, with the table's "already exists" error (XmlPortTriggerFlow.al:468
+            // NoAutoReplace_ExistingParentWithChild: trace ends at `C.ai=10`, then DB:RecordExists).
+            let (_, e) = self.tx.deferred_insert.take().expect("checked");
+            self.tx.deferred_raised += 1;
+            return Err(Signal::Error(Box::new(e)));
+        }
+        // A temporary table element saves without the table's triggers: pinned for a nested one with AutoReplace
+        // (XmlPortTriggerFlow.al:551 TempChild_AutoReplace, trace :561: no `tC+` or `tC~`). Elsewhere the triggers of a temporary
+        // table element are not pinned: refused where the table has one.
+        let nested = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+        let run_triggers = !(temporary && nested && n.auto_replace);
+        if temporary
+            && n.auto_save
+            && !(nested && n.auto_replace)
+            && (self.table_trigger(&t, "OnInsert").is_some()
+                || self.table_trigger(&t, "OnModify").is_some()
+                || !self.ext_triggers(&t, "OnInsert").is_empty()
+                || !self.ext_triggers(&t, "OnModify").is_empty())
+        {
+            return unsupported(format!(
+                "XmlPort import into the temporary table element {} whose table has an insert or modify trigger (whether it runs is not pinned)",
+                n.xml_name
+            ));
+        }
         let cx = self.cx.clone();
         let pk = t.primary_key(&rec.borrow().fields);
         let stored = self
             .store_for(&rec)
             .get(&cx, &t, &pk)
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-        let modify = stored.is_some() && (n.auto_update || n.auto_replace);
+        if again && stored.is_none() {
+            return unsupported(format!(
+                "XmlPort import: the row of table element {} stored before its child rows is gone after them (not pinned)",
+                n.xml_name
+            ));
+        }
+        let modify = stored.is_some() && (again || n.auto_update || n.auto_replace);
         let (before, after) = if modify {
             ("onbeforemodifyrecord", "onaftermodifyrecord")
         } else {
@@ -1696,7 +1736,7 @@ impl Session {
             // A duplicate key raises the table's own error, as an AL Insert does.
             self.ret_used = false;
             let method = if modify { RecordOp::Modify } else { RecordOp::Insert };
-            self.record_op(method, &rec, &mut [Value::Boolean(true)])?;
+            self.record_op(method, &rec, &mut [Value::Boolean(run_triggers)])?;
         }
         // A Break after the insert ends the import with this record in (P112_Import_Break, afterIns2).
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
@@ -1826,7 +1866,7 @@ impl Session {
                     fields.len()
                 ));
             }
-            self.xp_save_record(inst, schema, table, &assigned)?;
+            self.xp_save_record(inst, schema, table, &assigned, false)?;
             if Self::xp_import_stopped(inst) {
                 break;
             }
