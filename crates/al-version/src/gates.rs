@@ -605,6 +605,11 @@ impl Gate {
                     file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
                     lines: "72",
                 },
+                // The four user-name system fields in the Field rows of a table (corpus bump 54).
+                Evidence {
+                    file: "types/lt-aj-probes/AjMisc.al",
+                    lines: "612,626,640",
+                },
             ],
             Gate::TableFilterEvaluateError => &[Evidence {
                 file: "records/W4PlatformAndMeta.al",

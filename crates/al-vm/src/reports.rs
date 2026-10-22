@@ -2560,7 +2560,7 @@ impl Session {
             }
             if self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) && self.compiled_table(79).is_some() {
                 return unsupported(format!(
-                    "Report.SaveAs in language {language} on BC 29 and later (the report caption and the company captions of the \
+                    "Report.SaveAs in language {language} with the company block in the header (the report caption and the company captions of the \
                      header in that language are not pinned)"
                 ));
             }
