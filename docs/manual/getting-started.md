@@ -48,9 +48,10 @@ dotnet tool install --global MSDyn365BC.AL.Runner
 that passed CI. A numbered alpha (`3.0.0-alpha.N`) is released by hand. Use a
 numbered alpha when you need a version you can name in a bug report.
 
-**The binaries are not signed.** On macOS, Gatekeeper blocks the file; run
+**Signing.** The Windows binary is signed with Azure Trusted Signing. The macOS
+and Linux binaries are not signed. On macOS, Gatekeeper blocks the file; run
 `xattr -d com.apple.quarantine ./al-runner` (the install script does this). On
-Windows, SmartScreen warns; choose "More info", then "Run anyway", or run
+Windows, if SmartScreen still warns, choose "More info", then "Run anyway", or run
 `Unblock-File .\al-runner.exe`.
 
 **Two commands named `al-runner`.** The .NET tool installs a command with the same

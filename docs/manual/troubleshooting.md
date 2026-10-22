@@ -73,8 +73,8 @@ of them is an old 2.x .NET tool, it runs the version 2 engine: update it with
 
 ## The binary is blocked
 
-The binaries are not signed. See [Getting started](getting-started.md#install) for
-the macOS and Windows steps.
+The macOS and Linux binaries are not signed. The Windows binary is signed. See
+[Getting started](getting-started.md#install) for the macOS and Windows steps.
 
 ## Something else
 
