@@ -57,6 +57,9 @@ pub struct MediaStore {
     /// Media a Modify or Delete of one holder removed from Tenant Media while a row of another table, or another field,
     /// still holds the id (media/TestMediaPngImport.al:441-674 QE_Media_*): that holder has no value any more.
     pub removed: Rc<RefCell<std::collections::HashSet<Id>>>,
+    /// Media imported into a field of a Media Resources row, which BC keeps out of Tenant Media
+    /// (platform/lt-platform-tables/PtCloudTables.al:352): their Tenant Media row is refused.
+    pub outside_tenant: Rc<RefCell<std::collections::HashSet<Id>>>,
 }
 
 type Out = Result<Value, Signal>;

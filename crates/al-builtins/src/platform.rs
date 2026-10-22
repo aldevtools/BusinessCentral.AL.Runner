@@ -223,6 +223,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_288, "Code Coverage Test Lookup", Provider::Stored),
     (2_000_000_289, "Code Coverage Tests Run", Provider::Stored),
     (2_000_000_184, "Tenant Media", Provider::Virtual(Virtual::TenantMedia)),
+    // An ordinary table: rows inserted, read by code (also lower case), duplicate Insert false, Count and DeleteAll
+    // (platform/lt-platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob). The rows a tenant
+    // holds before any AL runs (:269) and the Tenant Media row of its media (:352) are refused elsewhere.
+    (2_000_000_182, "Media Resources", Provider::Stored),
     (2_000_000_121, "User Property", Provider::Stored),
     (2_000_000_175, "Scheduled Task", Provider::Stored),
     (2_000_000_096, "API Webhook Notification", Provider::Stored),

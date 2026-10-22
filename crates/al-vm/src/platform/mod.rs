@@ -10,6 +10,9 @@
 //! the corpus line that pins it; a column or a shape nothing pins is refused, not guessed.
 
 mod apps;
+
+/// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
+pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 pub(crate) mod coverage;
 mod date;
 mod fields;
@@ -349,6 +352,14 @@ impl Providers {
                     return mat::Entry::poisoned(
                         row,
                         "a Tenant Media row of a media imported with a file name: its File Name, Description and Mime Type are not pinned".into(),
+                    );
+                }
+                if self.media.outside_tenant.borrow().contains(&id) {
+                    return mat::Entry::poisoned(
+                        row,
+                        "the Tenant Media row of a media of a Media Resources row: BC keeps none after the Insert \
+                         (PtCloudTables.al:352), before it is not pinned"
+                            .into(),
                     );
                 }
                 // ADR-044: the picture was never produced; its content, MIME type and size are unknown.

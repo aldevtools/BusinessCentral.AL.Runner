@@ -1662,13 +1662,30 @@ impl Session {
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:
         // BC counts 1 Company Information row and 36 Accounting Period rows (session/lt-company-information/
         // CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow, :89 QG_AccountingPeriod_CorpusRows); the runtime has
-        // only what install code wrote (ADR-047 rejected). A test that writes its own rows is answered.
+        // only what install code wrote (ADR-047 rejected). A test that writes its own rows is answered. Media Resources holds
+        // 46 rows there (platform/lt-platform-tables/PtCloudTables.al:269 QX_MediaResources_FreshTenantCodes, read with FindSet),
+        // so every read of it is refused before the session wrote to it.
         if !rec.borrow().temporary && self.engine.demo_tables.contains(&(t.object as usize)) {
             if method.writes() {
                 if !self.install_scope {
                     self.demo_written.insert(t.object);
                 }
-            } else if matches!(method, RecordOp::Count | RecordOp::IsEmpty) && !self.demo_written.contains(&t.object) {
+            } else if (matches!(method, RecordOp::Count | RecordOp::IsEmpty)
+                || (self.engine.program.objects[t.object as usize].id == Some(crate::platform::MEDIA_RESOURCES)
+                    && matches!(
+                        method,
+                        RecordOp::Find
+                            | RecordOp::FindFirst
+                            | RecordOp::FindLast
+                            | RecordOp::FindSet
+                            | RecordOp::Get
+                            | RecordOp::GetBySystemId
+                            | RecordOp::Next
+                            | RecordOp::CountApprox
+                            | RecordOp::CalcSums
+                    )))
+                && !self.demo_written.contains(&t.object)
+            {
                 return unsupported(format!(
                     "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
                     method.name(),

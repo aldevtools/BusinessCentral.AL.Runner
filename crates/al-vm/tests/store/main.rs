@@ -17,6 +17,7 @@ mod key_ties;
 mod lane_codeunit_run;
 mod linked_object;
 mod loadfields;
+mod media_resources;
 mod modify_all_unchanged;
 mod np_blockers;
 mod record_builtins;
