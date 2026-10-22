@@ -375,6 +375,13 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     duplicate_names(ws, &mut out);
     event_subscriptions(ws, &mut out);
+    // The files the parser did not accept (`parameter_names` skips them).
+    let unparsed: std::collections::HashSet<(usize, &str)> = ws
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "AR0000")
+        .map(|d| (d.app, d.file.as_str()))
+        .collect();
     for oi in 0..ws.objects.len() {
         let o = &ws.objects[oi];
         if ws.kinds[o.app] == AppKind::Dependency {
@@ -387,7 +394,9 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         subscriber_publishers(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
-        parameter_names(ws, o.file, obj.syntax(), &mut out);
+        if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) {
+            parameter_names(ws, o.file, obj.syntax(), &mut out);
+        }
         match o.kind {
             ObjKind::XmlPort => xmlport_elements(ws, o.file, obj.sections(), &mut out),
             ObjKind::PageExtension => {
@@ -877,21 +886,26 @@ const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 /// error here already. After `var`: AL0107 for every one of them.
 ///
 /// The three codes are not listed in [`IMPLEMENTED`]: they are general syntax-error codes, and this is the only shape
-/// that reports them. A file the parser did not accept is skipped: its nodes come from the parser's recovery (a
+/// that reports them. A file the parser did not accept is skipped (by the caller): its nodes come from the parser's recovery (a
 /// procedure without parentheses gives a parameter named `begin`), and its parse error stands for the file.
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
-    let path = &ws.files[file].path;
-    let app = ws.files[file].app;
-    if ws
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "AR0000" && d.app == app && &d.file == path)
-    {
-        return;
-    }
     const INVALID: &str =
         "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
-    for p in obj.descendants().filter(|n| n.kind() == SyntaxKind::Param) {
+    // Statement blocks and var sections hold no parameter list; they are most of the tree, so they are not entered.
+    let mut params = Vec::new();
+    let mut walk = obj.preorder();
+    while let Some(ev) = walk.next() {
+        let rowan::WalkEvent::Enter(n) = ev else { continue };
+        match n.kind() {
+            SyntaxKind::Block | SyntaxKind::VarSection => walk.skip_subtree(),
+            SyntaxKind::Param => {
+                params.push(n);
+                walk.skip_subtree();
+            }
+            _ => {}
+        }
+    }
+    for p in params {
         let toks: Vec<al_syntax::SyntaxToken> = p
             .children_with_tokens()
             .filter_map(|e| e.into_token())
