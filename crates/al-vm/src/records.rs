@@ -45,12 +45,41 @@ pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
 
 /// Whether two filter lists are the same filters, in any order.
 pub(crate) fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
-    let key = |f: &FieldFilter| format!("{}/{}/{:?}", f.group, f.field, f.expr);
-    let mut x: Vec<String> = a.iter().map(key).collect();
-    let mut y: Vec<String> = b.iter().map(key).collect();
-    x.sort();
-    y.sort();
-    x == y
+    a.len() == b.len()
+        && a.iter().all(|f| {
+            b.iter()
+                .any(|g| f.group == g.group && f.field == g.field && same_expr(&f.expr, &g.expr))
+        })
+        && b.iter().all(|g| {
+            a.iter()
+                .any(|f| f.group == g.group && f.field == g.field && same_expr(&f.expr, &g.expr))
+        })
+}
+
+fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
+    let v = |x: &Value, y: &Value| ops::compare(x, y).is_ok_and(|o| o.is_eq());
+    let ov = |x: &Option<Value>, y: &Option<Value>| match (x, y) {
+        (None, None) => true,
+        (Some(x), Some(y)) => v(x, y),
+        _ => false,
+    };
+    match (a, b) {
+        (FilterExpr::Range(a1, a2), FilterExpr::Range(b1, b2)) => ov(a1, b1) && ov(a2, b2),
+        (FilterExpr::Eq(x), FilterExpr::Eq(y))
+        | (FilterExpr::RangeSame(x), FilterExpr::RangeSame(y))
+        | (FilterExpr::Ne(x), FilterExpr::Ne(y))
+        | (FilterExpr::Lt(x), FilterExpr::Lt(y))
+        | (FilterExpr::Le(x), FilterExpr::Le(y))
+        | (FilterExpr::Gt(x), FilterExpr::Gt(y))
+        | (FilterExpr::Ge(x), FilterExpr::Ge(y)) => v(x, y),
+        (FilterExpr::Or(x), FilterExpr::Or(y)) | (FilterExpr::And(x), FilterExpr::And(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same_expr(x, y))
+        }
+        (FilterExpr::Like(x, i), FilterExpr::Like(y, j)) | (FilterExpr::NotLike(x, i), FilterExpr::NotLike(y, j)) => {
+            x == y && i == j
+        }
+        _ => false,
+    }
 }
 
 fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {

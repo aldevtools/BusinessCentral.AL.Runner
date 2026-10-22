@@ -423,7 +423,7 @@ pub struct PageState {
     pub open_rec_unpinned: Option<&'static str>,
     /// Set by the opener for the page's next open: the values an action's `RunPageLink` fills into Rec before OnOpenPage
     /// (field position, value), with the link's filters (`RecordState::run_page_link`). `None`: the link fills nothing pinned.
-    pub open_rec_fill: Option<(Vec<(usize, Value)>, Rc<Vec<crate::filter::FieldFilter>>)>,
+    pub open_rec_fill: Option<RunPageLinkFill>,
     /// A temporary Worksheet opened on the row in a key other than the primary key that was set before the open: it reads each
     /// row once more, as a list over a database table in such a key does (see `reads_once_more_in_its_key`).
     pub temp_reads_once_more: bool,
@@ -951,6 +951,10 @@ pub struct RecordState {
     /// carry them (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
 }
+
+/// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters
+/// (`PageState::open_rec_fill`).
+pub type RunPageLinkFill = (Vec<(usize, Value)>, Rc<Vec<crate::filter::FieldFilter>>);
 
 /// What `Record.IsDirty` compares a record variable's buffer with: a copy of the fields the variable last read or wrote
 /// (lt-ac/ACRecordIsDirty.al). BC compares values, not writes: a field set back to what was read is not dirty

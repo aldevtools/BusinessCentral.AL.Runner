@@ -204,13 +204,12 @@ impl Session {
     /// (handlers/TestActionRunPageLinkFilterGroup.al:292 QZ_RunPageLink_RecInOnOpenPage_List_Handler, :313 _List_Trap,
     /// :333 _Card_Trap, :354 _Const, :369 _NoHandler; `open code=P1 number=7 line=0 note=`). With it come the link's filters,
     /// which a by-value copy of Rec does not carry (`filters=`). `None`: another shape, whose Rec stays not pinned.
-    #[allow(clippy::type_complexity)]
     fn run_page_link_fill(
         &mut self,
         rec: &Rec,
         ro: &ir::RunObject,
         page_type: &str,
-    ) -> Result<Option<(Vec<(usize, Value)>, Rc<Vec<FieldFilter>>)>, Signal> {
+    ) -> Result<Option<al_builtins::value::RunPageLinkFill>, Signal> {
         let Some(link) = &ro.link else { return Ok(None) };
         if link.view.is_some() || !matches!(page_type, "list" | "card") {
             return Ok(None);
