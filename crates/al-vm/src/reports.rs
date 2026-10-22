@@ -8,6 +8,7 @@
 use crate::dataset::{self, Column, Dataset};
 use crate::pages::RequestClosed;
 use crate::transactions::{TxModel, al_error};
+use crate::ui::UiKind;
 use crate::{Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
@@ -784,6 +785,9 @@ impl Session {
             self.report
                 .rp_init_done
                 .retain(|w| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
+            self.report
+                .rp_init_by_handler
+                .retain(|w| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
         }
         self.ensure_initialized(inst);
         let object = inst.borrow().object as usize;
@@ -1133,6 +1137,11 @@ impl Session {
     /// confirming it is not a run, so a `SaveValues` page does not remember what was confirmed
     /// (handlers/TestReportRequestPageSaveValues.al:SourceReport_SaveValues_RunRequestPageReturnsTheValueWithoutSavingIt).
     fn report_request_only(&mut self, inst: &Inst, schema: &Schema, seed: Option<&str>) -> Result<String, Signal> {
+        // A [ReportHandler] answers RunRequestPage as well, and the parameters are empty
+        // (report/lt-ae-reporthandler/AeReportHandler.al:146-158 RunRequestPage_WithReportHandler).
+        if seed.is_none() && self.report_handler_answers(inst, schema)? {
+            return Ok(String::new());
+        }
         let run = self.report_prepare(inst, schema, false)?;
         let before = self.pages.saved_values.get(&(schema.object as u32)).cloned();
         let ext: Vec<(usize, Inst)> = run.exts.iter().map(|(i, e)| (*e, i.clone())).collect();
@@ -1358,6 +1367,9 @@ impl Session {
         shows_page: bool,
         save_as: Option<&str>,
     ) -> Result<bool, Signal> {
+        if shows_page && self.report_handler_answers(inst, schema)? {
+            return Ok(true);
+        }
         let mut run = self.report_prepare(inst, schema, !shows_page)?;
         run.dataset = save_as.is_some();
         if !shows_page {
@@ -1391,6 +1403,36 @@ impl Session {
         self.report_after_page(&run, schema)
     }
 
+    /// A run that would show the request page calls the test's `[ReportHandler]` for the report instead, when it bound one:
+    /// the request page's OnInit runs (not its OnOpenPage), then the handler gets the report, and the run ends there; what
+    /// the handler does with the report (Run, RunModal, SetTableView, SaveAs, UseRequestPage, an error) is its own
+    /// (report/lt-ae-reporthandler/AeReportHandler.al:31-158, AeReportHandlerCalls.al). Execute, SaveAs and a run without
+    /// the page do not call it (AeReportHandler.al:85, :121, :133). Pinned for a processing-only report with a request page
+    /// only; another report, and a test that binds a [RequestPageHandler] for the same report too, are refused.
+    fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
+        let object = schema.object as u32;
+        if !self.has_page_handler(UiKind::Report, object) {
+            return Ok(false);
+        }
+        if self.has_page_handler(UiKind::RequestPage, object) {
+            return unsupported(format!(
+                "a [ReportHandler] and a [RequestPageHandler] for report \"{}\" in one test (which one answers is not pinned)",
+                schema.name()
+            ));
+        }
+        if !schema.report().processing_only || self.engine.program.objects[schema.object].page.is_none() {
+            return unsupported(format!(
+                "a [ReportHandler] for report \"{}\", which is not a processing-only report with a request page (not pinned)",
+                schema.name()
+            ));
+        }
+        self.request_page_init_unshown(inst, schema, false)?;
+        self.report.rp_init_by_handler.push(Rc::downgrade(inst));
+        let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
+        self.call(o, r, hi, vec![Value::Codeunit(inst.clone())])?;
+        Ok(true)
+    }
+
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
     /// OnOpenPage does not: a SaveAs (misc/lt-probes-needed-2/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
     /// an Execute and a Run with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121). Not pinned,
@@ -1410,6 +1452,15 @@ impl Session {
         let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
             return Ok(());
         };
+        // It ran before the [ReportHandler] that runs the report now.
+        if self
+            .report
+            .rp_init_by_handler
+            .iter()
+            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        {
+            return Ok(());
+        }
         // It ran at the procedure that used the variable first (request-page-oninit-at-first-use).
         if self.request_page_init_done(inst) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
@@ -2173,6 +2224,12 @@ impl Session {
                 return unsupported(
                     "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
                 );
+            }
+            // The request page's OnInit follows, as in a run without the page (report/lt-ae-reporthandler/AeReportHandler.al:
+            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with
+            // parameters `request_page_init_unshown` refuses).
+            if format == "Xml" && at != 0 {
+                self.request_page_init_unshown(&inst, &schema, !parameters.is_empty())?;
             }
             if format == "Xml" && at == 0 && quit {
                 return unsupported(

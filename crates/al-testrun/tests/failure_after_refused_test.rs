@@ -53,8 +53,8 @@ codeunit 50300 "Tables"
     begin
         Error('boom');
     end;
-    [ReportHandler]
-    procedure H(var R: Report "R")
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
     begin
     end;
 }
@@ -77,8 +77,8 @@ codeunit 50320 "Reads Only"
     begin
         if W.IsEmpty() then Error('boom');
     end;
-    [ReportHandler]
-    procedure H(var R: Report "R")
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
     begin
     end;
 }
@@ -96,8 +96,8 @@ codeunit 50330 "Random"
     begin
         if Random(10) > 0 then Error('boom');
     end;
-    [ReportHandler]
-    procedure H(var R: Report "R")
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
     begin
     end;
 }
@@ -125,8 +125,8 @@ codeunit 50340 "Random Reached"
     begin
         Error('boom');
     end;
-    [ReportHandler]
-    procedure H(var R: Report "R")
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
     begin
     end;
 }
