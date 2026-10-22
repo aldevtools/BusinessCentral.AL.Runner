@@ -7709,6 +7709,7 @@
 70598 MaxIteration_StopsTheIntegerItem
 70604 LinkReference_Grandparent
 70613 Culture_FormatRegion_ChangesFormat
+70613 Culture_Language_ChangesFormat
 70613 Members_SaveAs
 70629 One_Extension_FullOrder_Execute_And_SaveAs
 70629 One_Extension_FullOrder_Run
@@ -13223,6 +13224,12 @@
 78601 Decimal_MoreThanEighteenFractionalDigits
 78603 Header_AddressLines_AsInCorpusDatabase
 78603 QV_Header_CompanyLogo_PictureVariants
+78603 RB_Header_AddressFormat_BlankCountryPerLocalFormat
+78603 RB_Header_AddressFormat_BlankLinePostCodeCity
+78603 RB_Header_AddressFormat_CityCountyPostCode
+78603 RB_Header_AddressFormat_CityPostCode
+78603 RB_Header_AddressFormat_CustomAndUnknownCode
+78603 RB_Header_AddressFormat_PostCodeCity
 78620 Close_AfterFailedDecimalConversion
 78620 Close_AfterFailedIntegerConversion
 78620 Close_AfterOnlyRefusedEdit
@@ -13638,6 +13645,7 @@
 80985 SystemId_Method_RoundTrip_Repro
 80985 SystemId_On_CollectedError
 81070 BdProperty_NotSet_DatasetAndFormat
+81070 BdSetterLanguage_1031_None_Run
 81070 BdSetterLanguage_1033_EnUS
 81070 BdSetter_EnUS
 81070 BdSetter_EnUS_Run

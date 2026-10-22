@@ -4661,7 +4661,10 @@
 67761 Preview_RequestPagePreviewAction
 67761 QV_Preview_RunRequestPage
 67761 QV_Preview_SaveAsXml_Column
+67761 RB_SaveAs_AfterGlobalLanguage1031
 67761 RB_SaveAs_NothingSet
+67761 RB_SaveAs_ReportVariableFormatRegionDeDE
+67761 RB_SaveAs_ReportVariableLanguage1031
 67762 Hyperlink_WithoutHandler
 67763 AddRecord_CopiesTheFiltersOfTheRecord
 67763 Errors_SameNameForASecondTable
@@ -7693,6 +7696,7 @@
 70598 MaxIteration_StopsTheIntegerItem
 70604 LinkReference_Grandparent
 70613 Culture_FormatRegion_ChangesFormat
+70613 Culture_Language_ChangesFormat
 70613 Members_SaveAs
 70629 One_Extension_FullOrder_Execute_And_SaveAs
 70629 One_Extension_FullOrder_Run
@@ -13599,6 +13603,7 @@
 80985 SystemId_Method_RoundTrip_Repro
 80985 SystemId_On_CollectedError
 81070 BdProperty_NotSet_DatasetAndFormat
+81070 BdSetterLanguage_1031_None_Run
 81070 BdSetterLanguage_1033_EnUS
 81070 BdSetter_EnUS
 81070 BdSetter_EnUS_Run

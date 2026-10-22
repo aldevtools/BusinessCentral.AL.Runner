@@ -4,8 +4,14 @@ impl al_builtins::format::FormatCtx for Session {
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    /// The report's language while a report runs (set by a trigger, or by the variable a SaveAs ran: report/
+    /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; report/lt-bd-format-region/BdRegionTests.al:1036 `mars` in a Run), else the
+    /// session's.
     fn language(&self) -> i32 {
-        self.global_language
+        self.report
+            .curr_report_language
+            .or(self.report.run_language)
+            .unwrap_or(self.global_language)
     }
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()

@@ -143,6 +143,14 @@ pub(crate) struct CoverageState {
     pub(crate) impact_on: bool,
 }
 
+/// `Language` and `FormatRegion` set on a report variable outside a run.
+pub(crate) struct VariableCulture {
+    pub(crate) inst: std::rc::Weak<std::cell::RefCell<al_builtins::value::Instance>>,
+    pub(crate) language: Option<i32>,
+    pub(crate) region: Option<String>,
+    pub(crate) spent: bool,
+}
+
 /// The report being run: language, trigger flow, dataset.
 pub(crate) struct ReportState {
     /// `Report.Run` on a variable: the variable gets a new instance when the run ends and the old one keeps its state for whoever holds it.
@@ -151,6 +159,14 @@ pub(crate) struct ReportState {
     pub(crate) curr_report_language: Option<i32>,
     /// `CurrReport.FormatRegion` of the report started by `Run` or `RunModal` (empty text until a trigger sets it).
     pub(crate) format_region: Option<String>,
+    /// `Language` and `FormatRegion` set on a report variable outside a run, by variable (`reports.rs` `variable_culture`):
+    /// the language, the region, and whether a SaveAs already used them.
+    pub(crate) variable_culture: Vec<VariableCulture>,
+    /// The language the running SaveAs got from its variable: `CurrReport.Language` reads it and `Format` follows it until a
+    /// trigger sets another.
+    pub(crate) run_language: Option<i32>,
+    /// The running SaveAs got its `format_region` from its variable: `CurrReport.FormatRegion` reads it.
+    pub(crate) variable_region: bool,
     /// The running SaveAs writes a report whose `FormatRegion` property is set: `CurrReport.FormatRegion` is not pinned there.
     pub(crate) region_property: bool,
     /// While `OnInitReport` of a report with the `FormatRegion` property runs: that region. Which culture `Format` uses there is
