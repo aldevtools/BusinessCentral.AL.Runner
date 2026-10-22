@@ -27,6 +27,10 @@ public static class Program
         CultureInfo.DefaultThreadCurrentUICulture = culture;
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
+        // BC's server answers the Windows and DOS code pages (1252, 850, 437) by number and by name; .NET 8 has them only
+        // through this provider (part of the shared framework, no NuGet). Pinned by corpus
+        // tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :244.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
         var protocolIn = Console.OpenStandardInput();
         var protocolOut = Console.OpenStandardOutput();

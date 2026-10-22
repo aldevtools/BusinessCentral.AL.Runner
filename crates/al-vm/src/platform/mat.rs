@@ -16,6 +16,18 @@ pub(crate) struct Entry {
     pub known: usize,
     /// Row positions (beyond the key) whose value in a poisoned row is real: a filter on them can rule the row out.
     pub known_cols: Vec<usize>,
+    /// A row that only a filter on this column for exactly its value finds (see [`Gate`]).
+    pub gate: Option<Gate>,
+}
+
+/// A row that a read finds only when it filters column `col` to exactly the row's value and the first primary key
+/// column to exactly the row's value, and on nothing else. A read without a filter on `col`, or with one the row's
+/// value does not pass, does not see it; a Get does not find it. Any other read that the row's value passes is refused
+/// with `why`. (The Field table's rowversion row, `fields.rs` `rowversion_row`.)
+#[derive(Clone)]
+pub(crate) struct Gate {
+    pub col: usize,
+    pub why: std::sync::Arc<str>,
 }
 
 impl Entry {
@@ -25,6 +37,7 @@ impl Entry {
             poison: None,
             known: usize::MAX,
             known_cols: Vec::new(),
+            gate: None,
         }
     }
     pub(crate) fn poisoned(key_only: Row, why: String) -> Entry {
@@ -33,6 +46,7 @@ impl Entry {
             poison: Some(why),
             known: usize::MAX,
             known_cols: Vec::new(),
+            gate: None,
         }
     }
     /// A poisoned row of which only the first `known` primary key columns are real: it stands for
@@ -43,11 +57,16 @@ impl Entry {
             poison: Some(why),
             known,
             known_cols: Vec::new(),
+            gate: None,
         }
     }
     /// The positions of the columns of a poisoned row that hold real values.
     pub(crate) fn with_known_cols(mut self, cols: Vec<usize>) -> Entry {
         self.known_cols = cols;
+        self
+    }
+    pub(crate) fn gated(mut self, gate: Gate) -> Entry {
+        self.gate = Some(gate);
         self
     }
 }
@@ -58,6 +77,9 @@ pub(crate) struct Mat {
     poison: Vec<Option<String>>,
     known: Vec<usize>,
     known_cols: Vec<Vec<usize>>,
+    gates: Vec<Option<Gate>>,
+    /// The columns some row is gated on.
+    gate_cols: Vec<usize>,
     /// No row is poisoned. Only then are the values of the key columns all real, so the rows are in the order of
     /// the key and the filters on its leading columns bound a scan (`band`).
     clean: bool,
@@ -164,6 +186,48 @@ fn unknown_filtered<'a>(row: &'a Row, filters: &[FieldFilter]) -> Option<&'a str
     (!left_out).then_some(why)
 }
 
+/// Whether a filter is exactly `v`: `SetRange(F, v)` or `F = v`.
+fn is_exactly(e: &al_builtins::filter::FilterExpr, v: &Value) -> bool {
+    use al_builtins::filter::FilterExpr as E;
+    // The same Integer, or the same text to the letter (a filter that differs in case is not pinned).
+    let same = |a: &Value| match (a, v) {
+        (Value::Integer(a), Value::Integer(b)) => a == b,
+        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) => a.as_ref() as &str == b.as_ref() as &str,
+        _ => false,
+    };
+    match e {
+        E::Eq(a) => same(a),
+        E::Range(Some(a), Some(b)) => same(a) && same(b),
+        _ => false,
+    }
+}
+
+/// Whether the read with `filters` sees the gated row `row` (see [`Gate`]).
+fn gate_sees(t: &TableDef, row: &Row, gate: &Gate, filters: &[FieldFilter]) -> Result<bool, StoreError> {
+    let on_col: Vec<&FieldFilter> = filters.iter().filter(|f| f.field == gate.col).collect();
+    if on_col.is_empty() {
+        return Ok(false);
+    }
+    let or_group = filters.iter().any(|f| f.group == al_builtins::filter::OR_GROUP);
+    // A filter on a column the row knows that it fails leaves it out (another table's row, another name).
+    if !or_group
+        && filters
+            .iter()
+            .any(|f| row[f.field].unknown().is_none() && !f.expr.matches(&row[f.field]))
+    {
+        return Ok(false);
+    }
+    let lead = t.keys[0][0];
+    let exact = !or_group
+        && on_col.len() == 1
+        && is_exactly(&on_col[0].expr, &row[gate.col])
+        && filters.iter().any(|f| f.field == lead)
+        && filters
+            .iter()
+            .all(|f| f.field == gate.col || (f.field == lead && is_exactly(&f.expr, &row[lead])));
+    if exact { Ok(true) } else { Err(refusal(t, &gate.why)) }
+}
+
 fn refusal(t: &TableDef, why: &str) -> StoreError {
     StoreError::Refused(format!("{}: {why}", t.name))
 }
@@ -179,19 +243,36 @@ impl Mat {
         let mut poison = Vec::new();
         let mut known = Vec::new();
         let mut known_cols = Vec::new();
+        let mut gates = Vec::new();
+        let mut gate_cols = Vec::new();
         for (_, e) in keyed {
             rows.push(e.row);
             poison.push(e.poison);
             known.push(e.known);
             known_cols.push(e.known_cols);
+            if let Some(g) = &e.gate {
+                if !gate_cols.contains(&g.col) {
+                    gate_cols.push(g.col);
+                }
+            }
+            gates.push(e.gate);
         }
         let clean = poison.iter().all(Option::is_none);
-        let unknown_cols = unknown_cols(t, &rows, &poison);
+        // A gated row is seen only by a read filtered on its key's first column and its gate column, exactly: its unknown
+        // columns are refused when read, and do not make the filters on them of every other read go row by row.
+        let ungated: Vec<Option<String>> = poison
+            .iter()
+            .zip(&gates)
+            .map(|(p, g)| if g.is_some() { Some(String::new()) } else { p.clone() })
+            .collect();
+        let unknown_cols = unknown_cols(t, &rows, &ungated);
         Mat {
             rows,
             poison,
             known,
             known_cols,
+            gates,
+            gate_cols,
             clean,
             unknown_cols,
             memo: Default::default(),
@@ -212,6 +293,8 @@ impl Mat {
             poison: self.poison.clone(),
             known: self.known.clone(),
             known_cols: self.known_cols.clone(),
+            gates: self.gates.clone(),
+            gate_cols: self.gate_cols.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
             memo: Default::default(),
@@ -220,6 +303,7 @@ impl Mat {
 
     pub(crate) fn get(&self, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
         Ok(match self.rows.binary_search_by(|r| key_cmp(&t.primary_key(r), pk)) {
+            Ok(i) if self.gates[i].is_some() => None,
             Ok(i) => match &self.poison[i] {
                 Some(why) => return Err(refusal(t, why)),
                 None => Some(self.rows[i].clone()),
@@ -249,7 +333,12 @@ impl Mat {
     /// filters; `None` for the first scan, for a small listing and for one with a poisoned row. The result is the
     /// same as testing each row: the listing never changes.
     fn passing(&self, filters: &[FieldFilter]) -> Option<std::sync::Arc<Vec<u32>>> {
-        if !self.clean || self.rows.len() < MEMO_MIN_ROWS || filters.is_empty() || self.filters_unknown(filters) {
+        if !self.clean
+            || self.rows.len() < MEMO_MIN_ROWS
+            || filters.is_empty()
+            || self.filters_unknown(filters)
+            || filters.iter().any(|f| self.gate_cols.contains(&f.field))
+        {
             return None;
         }
         let key = format!("{filters:?}");
@@ -269,7 +358,7 @@ impl Mat {
         }
         let idx: std::sync::Arc<Vec<u32>> = std::sync::Arc::new(
             (0..self.rows.len())
-                .filter(|&i| passes(&self.rows[i], filters))
+                .filter(|&i| self.gates[i].is_none() && passes(&self.rows[i], filters))
                 .map(|i| i as u32)
                 .collect(),
         );
@@ -305,6 +394,11 @@ impl Mat {
         let check_unknown = self.filters_unknown(filters);
         let at = |i: usize| -> Result<Option<Row>, StoreError> {
             let r = &self.rows[i];
+            if let Some(g) = &self.gates[i] {
+                if !gate_sees(t, r, g, filters)? {
+                    return Ok(None);
+                }
+            }
             match &self.poison[i] {
                 Some(why) if may_pass(t, r, self.known[i], &self.known_cols[i], filters) => Err(refusal(t, why)),
                 Some(_) => Ok(None),
@@ -377,6 +471,11 @@ impl Mat {
         let check_unknown = self.filters_unknown(scan.filters);
         let mut best: Option<(Vec<Value>, &Row)> = None;
         for (i, r) in self.rows.iter().enumerate() {
+            if let Some(g) = &self.gates[i] {
+                if !gate_sees(t, r, g, scan.filters)? {
+                    continue;
+                }
+            }
             // A row that passes the filters but whose place is not known: whether it comes later is not known either.
             if key_unknown
                 && self.poison[i].is_none()
@@ -423,6 +522,11 @@ impl Mat {
         let band = self.band(t, filters);
         let check_unknown = self.filters_unknown(filters);
         for (i, r) in self.rows.iter().enumerate().skip(band.start).take(band.len()) {
+            if let Some(g) = &self.gates[i] {
+                if !gate_sees(t, r, g, filters)? {
+                    continue;
+                }
+            }
             match &self.poison[i] {
                 Some(why) if may_pass(t, r, self.known[i], &self.known_cols[i], filters) => {
                     return Err(refusal(t, why));
@@ -780,6 +884,42 @@ mod tests {
             assert_eq!(back, want, "descending, {f:?}");
             assert!(matches!(m.count(t, f), Ok(n) if n == want.len()), "count, {f:?}");
         }
+    }
+
+    // A gated row is seen only by a read filtered exactly on the key's first column and the gate column
+    // (the Field table's timestamp row, types/lt-aj-probes/AjMisc.al QT_FieldTable_*).
+    #[test]
+    fn a_gated_row_is_seen_only_by_the_exact_filter() {
+        let t = table();
+        let gate = Gate {
+            col: 1,
+            why: "gated".into(),
+        };
+        let m = Mat::new(
+            &t,
+            vec![Entry::ok(row(1, "a")), Entry::ok(row(2, "ts")).gated(gate.clone())],
+        );
+        let flt = |field, expr| FieldFilter { field, expr, group: 0 };
+        let eq = |v: Value| FilterExpr::Range(Some(v.clone()), Some(v));
+        assert_eq!(m.count(&t, &[]).unwrap(), 1, "no filter on the gate column");
+        assert!(
+            m.get(&t, &[Value::Integer(2)]).unwrap().is_none(),
+            "Get does not find it"
+        );
+        let exact = [flt(0, eq(Value::Integer(2))), flt(1, eq(Value::Text("ts".into())))];
+        assert_eq!(m.count(&t, &exact).unwrap(), 1);
+        let other_name = [flt(0, eq(Value::Integer(2))), flt(1, eq(Value::Text("x".into())))];
+        assert_eq!(m.count(&t, &other_name).unwrap(), 0);
+        let no_key = [flt(1, eq(Value::Text("ts".into())))];
+        assert!(m.count(&t, &no_key).is_err(), "without the key filter: refused");
+        let pattern = [
+            flt(0, eq(Value::Integer(2))),
+            flt(1, FilterExpr::Like("t*".into(), false)),
+        ];
+        assert!(
+            m.count(&t, &pattern).is_err(),
+            "another filter shape that passes: refused"
+        );
     }
 }
 

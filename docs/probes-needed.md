@@ -1233,12 +1233,6 @@ whose OnOpenPage moves Rec stays under assumption `worksheet-temp-source-open-ro
 | Such a Worksheet with OnFindRecord, or in a key other than the primary key, whose `=>`/`=><` from Rec lands on the first row of the view | REFUSED | QT_TempWsFind with a key before the first row | pages/open.rs |
 | A temporary Worksheet or List without an OnOpenPage trigger whose row was set before the open | NOT REFUSED: opens on its first row, as before this bump (no corpus case pins it; the QT pages all declare OnOpenPage) | The QT pages without OnOpenPage | pages/open.rs `load_first_row` |
 
-## Field table row of SystemRowVersion (lane-np-runtime, 2026-10-22)
-
-| Behavior | Status | Probe wanted | Code |
-|---|---|---|---|
-| Whether the Field table lists SystemRowVersion (No. 0, FieldName `timestamp`) for a table that declares a key over SystemRowVersion, in its own keys or through a tableextension key. A table without such a key has no row (W6FieldKeyRows.al:263-270, TestFieldLenAndFeatureKeyContracts.al:107-116) | REFUSED: a Field read that could see that row (a FieldName filter of `timestamp`, a scan or count of the table's rows, a filter on any other column). A lookup by another field's name or number still answers | On a table with `key(Rv; SystemRowVersion)` and one through a tableextension over a Base Application table: `Field.SetRange(TableNo, ..); Field.SetRange(FieldName, 'timestamp'); FindFirst`, then Count and the list of No./FieldName/Type/Class, and `Data Type Management.FindFieldByName(RecRef, FldRef, 'timestamp')` with `FldRef.Number()` | `al-vm/src/platform/fields.rs` `rowversion_key_row` |
-
 ## The DemoTool company of the Legacy lane (lane-demotool, 2026-10-22)
 
 `--company-data demotool` runs the DemoTool's "Create Demo Data from Config" (codeunit 101899) after Company-Initialize,
@@ -1268,13 +1262,6 @@ license column, and the rows of languages other than the DemoTool's 54 codes.
 | A part's link value failing its validation as the host opens, on a part with only DelayedInsert or only AutoSplitKey, or under another host than a Document page | REFUSED. A part with both and one with neither are pinned (QjPartPropagation.al:3766, :3825). | The KeyValidateErrors steps on `LT QT Val Lines Delayed` and on a Card host. | pages/open.rs `part_open_link_validate_failed` |
 | Any call on such a part other than Last() and SetValue, and a host move that reads the part again | REFUSED. Last() answers No and runs nothing, SetValue raises TestRowNotFound (QjPartPropagation.al:3766). | After the failed open: First, Next, New, a Value read, and the host's Next onto a head that does not fail. | pages/pageops.rs, pages/controls.rs, pages/parts.rs `sync_part` |
 | The xRec a part's row triggers see when a host move other than Next takes the part from its blank line (shown for a host row without lines) onto a row | KEPT as before (the blank line). Next is pinned: the row the part held before its blank line (QjPartPropagation.al:2625, :4521). | Previous, First, Last and GoToKey from a head without lines onto one with lines, logging the part's OnAfterGetCurrRecord xRec. | pages/parts.rs `restore_held_xrec_of_empty_parts` |
-
-## Encoding.GetEncoding with a code page, and field attributes on export (lane-np-encoding, 2026-10-22)
-
-| Behavior | Status | Probe wanted | Code |
-|---|---|---|---|
-| `DotNet System.Text.Encoding.GetEncoding(CodePage)` for a Windows code page such as 1252, 850 or 437, directly or through System Application's `DotNet_Encoding.Encoding(CodePage)`. The runtime's .NET host has only the encodings .NET itself ships (UTF-8, UTF-16, UTF-32, ASCII, Latin-1) | REFUSED with "the runtime's .NET host has no code-page encodings" (no corpus test calls GetEncoding) | OnPrem DotNet: `Enc := Enc.GetEncoding(1252)`; observe `Enc.WebName`, `Enc.CodePage`, `Enc.GetBytes('ÆØÅ€')` as a byte list, `Enc.GetString` of bytes 128..159; the same for 850 and 437; GetEncoding(99999) error text and code; `DotNet_Encoding.Encoding(1252)` then a StreamWriter round trip | `al-vm/src/dotnet/mod.rs` (GetEncoding branch) |
-| Export of a `fieldattribute` declared `Occurrence = Optional` or `Required` whose field formats to an empty text | REFUSED (AgXmlPortImport.al:248 pins import only). A value that is not empty is written | Export a table element with an empty Text field on an Optional and on a Required field attribute: attribute left out or written as `attr=""` | `al-vm/src/xmlports.rs` `xp_export_content` |
 
 ## Cross-app objects (corpus multi-app fixtures, writer BW)
 

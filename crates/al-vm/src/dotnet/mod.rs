@@ -326,21 +326,29 @@ impl Session {
                         );
                     }
                 }
-                // The runtime's .NET host has only the encodings .NET ships, no code pages (1252 and the like). Whether
-                // BC's server provides them is not pinned (docs/probes-needed.md, "Encoding.GetEncoding with a code page"):
-                // the refusal says that, instead of a .NET exception BC may never raise.
-                if clr_type.eq_ignore_ascii_case("System.Text.Encoding")
-                    && member.eq_ignore_ascii_case("GetEncoding")
-                    && e.clr_type == "System.NotSupportedException"
-                {
-                    let page = match values.first() {
-                        Some(Value::Integer(n)) => format!(" (code page {n})"),
-                        _ => String::new(),
+                // Encoding.GetEncoding: the sidecar registers the code-page provider, as BC's server answers code pages
+                // (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
+                // Pinned failures: a code page out of range (ArgumentOutOfRange, :168 and :244, 99999) and an unknown
+                // name (Argument, :168). A code page in range that .NET has no data for (NotSupported) is not pinned.
+                if clr_type.eq_ignore_ascii_case("System.Text.Encoding") && member.eq_ignore_ascii_case("GetEncoding") {
+                    let code = match (e.clr_type.as_str(), values.first()) {
+                        ("System.ArgumentOutOfRangeException", Some(Value::Integer(_))) => {
+                            Some("DotNetInvoke:ArgumentOutOfRange")
+                        }
+                        ("System.ArgumentException", Some(Value::Text(_) | Value::Code(_))) => {
+                            Some("DotNetInvoke:Argument")
+                        }
+                        _ => None,
                     };
-                    return unsupported(format!(
-                        "DotNet {shown}: the runtime's .NET host has no code-page encodings{page}; whether Business Central \
-                         provides them is not pinned (docs/probes-needed.md)"
-                    ));
+                    if let Some(code) = code {
+                        return al_builtins::native::raise(
+                            format!(
+                                "A call to {clr_type}.GetEncoding failed with this message: {}",
+                                e.message
+                            ),
+                            code,
+                        );
+                    }
                 }
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();
                 unsupported(format!(
