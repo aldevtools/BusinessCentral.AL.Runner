@@ -179,6 +179,155 @@ pub fn git_fetch(url: &str, branch: &str, dest: &Path) -> Result<(), String> {
     std::fs::remove_dir_all(dest.join(".git")).map_err(|e| format!("{}: {e}", dest.display()))
 }
 
+/// Fetches the files that match `patterns` (git's non-cone sparse patterns, `/src/X/app.json` or `/src/X/`) of `branch`
+/// of the repository at `url` into the empty folder `dest`. Replaceable in tests.
+pub type SparseFetch<'a> = &'a dyn Fn(&str, &str, &[String], &Path) -> Result<(), String>;
+
+/// The cache folder of a release's app sources (the test apps the artifact does not hold, and their apps).
+pub fn sources_dir(cache_root: &Path, major: u32, minor: u32) -> PathBuf {
+    cache_root.join("bcapps").join(format!("{major}.{minor}-sources"))
+}
+
+/// The patterns already fetched into a sources folder, one per line.
+const FETCHED: &str = ".alrunner-fetched";
+
+/// Makes sure `patterns` of `branch` are in the sources folder `dir`: the ones not fetched before are fetched at once
+/// and merged into it, then recorded, so a pattern that matches nothing (a folder without app.json) is not asked again.
+pub fn ensure_sources(
+    dir: &Path,
+    patterns: &[String],
+    offline: bool,
+    url: &str,
+    branch: &str,
+    fetch: SparseFetch<'_>,
+) -> Result<(), String> {
+    let done: Vec<String> = std::fs::read_to_string(dir.join(FETCHED))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let mut todo: Vec<String> = patterns.iter().filter(|p| !done.contains(p)).cloned().collect();
+    todo.dedup();
+    if todo.is_empty() {
+        return Ok(());
+    }
+    if offline {
+        return Err(format!(
+            "{} source folder(s) of {branch} are not in the cache ({}) and --no-download forbids fetching them",
+            todo.len(),
+            dir.display()
+        ));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let tmp = dir.with_file_name(format!(
+        ".fetch-{}-{}",
+        dir.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let result = fetch(url, branch, &todo, &tmp)
+        .map_err(|e| format!("fetching {} source folder(s) of {branch} of {url}: {e}", todo.len()))
+        .and_then(|()| merge_into(&tmp, dir));
+    let _ = std::fs::remove_dir_all(&tmp);
+    result?;
+    let mut all = done;
+    all.extend(todo);
+    std::fs::write(dir.join(FETCHED), all.join("\n") + "\n").map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+/// Moves every file below `from` to the same place below `to`.
+fn merge_into(from: &Path, to: &Path) -> Result<(), String> {
+    let mut stack = vec![from.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))? {
+            let p = e.map_err(|e| e.to_string())?.path();
+            let rel = p.strip_prefix(from).map_err(|e| e.to_string())?;
+            if p.is_dir() {
+                std::fs::create_dir_all(to.join(rel)).map_err(|e| format!("{}: {e}", to.join(rel).display()))?;
+                stack.push(p);
+            } else {
+                std::fs::rename(&p, to.join(rel)).map_err(|e| format!("{}: {e}", to.join(rel).display()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The real sparse fetch: a shallow clone with no file contents, then only the files of `patterns` checked out; the
+/// `.git` folder is removed afterwards.
+pub fn git_sparse_fetch(url: &str, branch: &str, patterns: &[String], dest: &Path) -> Result<(), String> {
+    let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
+        let mut c = Command::new("git");
+        c.args(args).env("GIT_TERMINAL_PROMPT", "0");
+        if let Some(d) = cwd {
+            c.current_dir(d);
+        }
+        let out = c.output().map_err(|e| format!("cannot run git: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "git {}: {}",
+                args.first().copied().unwrap_or(""),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    };
+    let dest_text = dest.to_string_lossy();
+    run(
+        &[
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            "--filter=blob:none",
+            "--sparse",
+            "--branch",
+            branch,
+            url,
+            &dest_text,
+        ],
+        None,
+    )?;
+    // The project settings spell folders as Windows reads them, without case (`ForNav/Test` for `ForNAV/Test`); git's
+    // patterns are case-sensitive here, so each pattern takes the case of the folder in the branch's tree.
+    let out = Command::new("git")
+        .args(["ls-tree", "-r", "-d", "--name-only", "HEAD"])
+        .current_dir(dest)
+        .output()
+        .map_err(|e| format!("cannot run git: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git ls-tree: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let tree = String::from_utf8_lossy(&out.stdout);
+    let dirs: std::collections::HashMap<String, &str> = tree.lines().map(|d| (d.to_lowercase(), d)).collect();
+    let real: Vec<String> = patterns.iter().map(|p| real_case(p, &dirs)).collect();
+    let mut args = vec!["sparse-checkout", "set", "--no-cone"];
+    args.extend(real.iter().map(String::as_str));
+    run(&args, Some(dest))?;
+    std::fs::remove_dir_all(dest.join(".git")).map_err(|e| format!("{}: {e}", dest.display()))
+}
+
+/// `pattern` (`/dir/` or `/dir/file`) with the folder spelled as the tree spells it, when the tree has it without case.
+fn real_case(pattern: &str, dirs: &std::collections::HashMap<String, &str>) -> String {
+    let inner = pattern.trim_start_matches('/');
+    let (dir, file) = match inner.strip_suffix('/') {
+        Some(d) => (d, None),
+        None => match inner.rsplit_once('/') {
+            Some((d, f)) => (d, Some(f)),
+            None => return pattern.to_string(),
+        },
+    };
+    match dirs.get(&dir.to_lowercase()) {
+        Some(real) => match file {
+            Some(f) => format!("/{real}/{f}"),
+            None => format!("/{real}/"),
+        },
+        None => pattern.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +336,47 @@ mod tests {
     fn fake_fetch(dest: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dest.join("src/DisabledTests")).map_err(|e| e.to_string())?;
         std::fs::write(dest.join("src/DisabledTests/x.json"), "[]").map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_pattern_takes_the_case_of_the_folder_in_the_tree() {
+        let dirs: std::collections::HashMap<String, &str> =
+            [("src/apps/fornav/test".to_string(), "src/Apps/ForNAV/Test")]
+                .into_iter()
+                .collect();
+        assert_eq!(
+            real_case("/src/Apps/ForNav/Test/app.json", &dirs),
+            "/src/Apps/ForNAV/Test/app.json"
+        );
+        assert_eq!(real_case("/src/Apps/ForNav/Test/", &dirs), "/src/Apps/ForNAV/Test/");
+        assert_eq!(real_case("/src/Other/", &dirs), "/src/Other/");
+    }
+
+    #[test]
+    fn sources_are_fetched_once_per_pattern_and_merged_into_the_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = sources_dir(root.path(), 29, 0);
+        let calls = Cell::new(0);
+        let fetch = |_: &str, branch: &str, patterns: &[String], dest: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            assert_eq!(branch, "releases/29.0");
+            for p in patterns {
+                if p == "/src/A/app.json" {
+                    std::fs::create_dir_all(dest.join("src/A")).unwrap();
+                    std::fs::write(dest.join("src/A/app.json"), "{}").unwrap();
+                }
+            }
+            Ok(())
+        };
+        let want = vec!["/src/A/app.json".to_string(), "/src/Missing/app.json".to_string()];
+        ensure_sources(&dir, &want, false, "u", "releases/29.0", &fetch).unwrap();
+        assert!(dir.join("src/A/app.json").is_file());
+        // Fetched (or found absent) before: no second fetch, also offline.
+        ensure_sources(&dir, &want, true, "u", "releases/29.0", &fetch).unwrap();
+        assert_eq!(calls.get(), 1);
+        // A new pattern offline is refused with the reason.
+        let e = ensure_sources(&dir, &["/src/B/".to_string()], true, "u", "releases/29.0", &fetch).unwrap_err();
+        assert!(e.contains("--no-download"), "{e}");
     }
 
     #[test]
