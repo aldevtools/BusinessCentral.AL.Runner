@@ -1851,13 +1851,19 @@ fn subscribers_whose_app_order_the_corpus_does_not_pin_are_refused() {
 /// raise keeps the order the runtime had before the cross-app probe, ascending codeunit id across the apps. Refusing it
 /// loses baseline cases (System Application's `OnGetPerCompanyUpgradeTags` with subscribers in Business Foundation,
 /// whose lowest subscriber id is lower although it depends on System Application: 68391, 69971, 69973, 79851, 84835,
-/// 85446). An app under test in such a pair is still refused (above).
+/// 85446). The apps under test keep their pinned place; an app under test in such a pair is still refused (above).
 #[test]
 fn an_unpinned_order_among_dependency_apps_only_keeps_ascending_codeunit_id() {
     use al_sema::workspace::AppKind;
     let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61135, "A1"), order_sub(61150, "A2"));
     let b = order_sub(61115, "B");
-    let t = r#"codeunit 50100 T { procedure Run(): Text var P: Codeunit "Order Pub"; begin exit(P.Raise()); end; }"#;
+    // The app under test subscribes too, after both (it depends on both and has the highest id): its place is pinned.
+    let t = format!(
+        "{}{}",
+        r#"codeunit 50100 T { procedure Run(): Text var P: Codeunit "Order Pub"; begin exit(P.Raise()); end; }"#,
+        order_sub(83960, "T")
+    );
+    let t = t.as_str();
     let (ws, l) = al_sema::lower::compile_apps_with(
         vec![
             order_app("a", &[], &a),
@@ -1871,5 +1877,5 @@ fn an_unpinned_order_among_dependency_apps_only_keeps_ascending_codeunit_id() {
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let mut b = al_testkit::Built::new(l);
-    assert_eq!(text(b.run_in("T", "Run")), "B;A1;A2;");
+    assert_eq!(text(b.run_in("T", "Run")), "B;A1;A2;T;");
 }

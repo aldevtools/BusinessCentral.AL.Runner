@@ -414,36 +414,53 @@ impl Session {
                 .unwrap_or(false)
         };
         let dependency_app = |a: usize| program.apps.get(a).is_some_and(|x| x.dependency);
+        // Kept, not pinned: two dependency apps (Microsoft's) whose order is not pinned keep the order the runtime had
+        // before the cross-app probe, ascending codeunit id across them. Refusing it loses baseline cases: System
+        // Application's `OnGetPerCompanyUpgradeTags`, subscribed in Business Foundation (lower lowest id, depends on
+        // System Application) and in the corpus app, runs on ChangeCompany and company creation (68391, 69971, 69973,
+        // 79851, 84835, 85446). An app under test whose place among the others is not pinned is refused.
+        let mut kept = false;
         for (i, &(first, _)) in lowest.iter().enumerate() {
             for &(later, _) in &lowest[i + 1..] {
-                if !depends(later, first) {
-                    // Kept, not pinned: when every subscriber is in a dependency app (Microsoft's), the order the runtime
-                    // had before the cross-app probe, ascending codeunit id across the apps. Refusing it loses baseline
-                    // cases: System Application's `OnGetPerCompanyUpgradeTags`, subscribed in Business Foundation
-                    // (lower lowest id, depends on System Application), runs on ChangeCompany and company creation
-                    // (68391, 69971, 69973, 79851, 84835, 85446).
-                    if lowest.iter().all(|&(a, _)| dependency_app(a)) {
-                        targets.sort_by_key(|(s, _)| id_of(s));
-                        return Ok(targets);
-                    }
-                    let name = |a: usize| {
-                        program
-                            .apps
-                            .get(a)
-                            .map_or_else(|| format!("app {a}"), |x| x.name.clone())
-                    };
-                    return unsupported(format!(
-                        "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
-                         (the corpus pins app by app in dependency order only where each app depends on the apps \
-                         before it and also has the higher lowest subscriber codeunit id)",
-                        name(first),
-                        name(later)
-                    ));
+                if depends(later, first) {
+                    continue;
                 }
+                if dependency_app(first) && dependency_app(later) {
+                    kept = true;
+                    continue;
+                }
+                let name = |a: usize| {
+                    program
+                        .apps
+                        .get(a)
+                        .map_or_else(|| format!("app {a}"), |x| x.name.clone())
+                };
+                return unsupported(format!(
+                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
+                     (the corpus pins app by app in dependency order only where each app depends on the apps \
+                     before it and also has the higher lowest subscriber codeunit id)",
+                    name(first),
+                    name(later)
+                ));
             }
         }
-        let rank =
-            |s: &crate::events::Subscriber| lowest.iter().position(|&(a, _)| a == app_of(s)).unwrap_or(usize::MAX);
+        // One block per app in that order; with a kept pair, each run of dependency apps is one block in codeunit id order.
+        let mut blocks: Vec<(usize, usize)> = Vec::new();
+        for (i, &(app, _)) in lowest.iter().enumerate() {
+            let merge = kept && i > 0 && dependency_app(app) && dependency_app(lowest[i - 1].0);
+            let block = match blocks.last() {
+                Some(&(_, b)) if merge => b,
+                Some(&(_, b)) => b + 1,
+                None => 0,
+            };
+            blocks.push((app, block));
+        }
+        let rank = |s: &crate::events::Subscriber| {
+            blocks
+                .iter()
+                .find(|&&(a, _)| a == app_of(s))
+                .map_or(usize::MAX, |&(_, b)| b)
+        };
         targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
         Ok(targets)
     }
