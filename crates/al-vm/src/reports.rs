@@ -605,14 +605,10 @@ impl Session {
         }
     }
 
-    /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (handlers/TestReportOnInitReportTiming.al:50-60).
-    /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
     /// `CurrReport.Language := n` in a trigger of a SaveAs: the dataset names the language, `de-DE` for 1031, on its top data items
     /// and in its header (report/W3ReportObjectIdPreviewLanguage.al:605 Language_Set1031_FormatAndColumns `item language=de-DE`;
-    /// report/lt-bd-format-region/BdRegionTests.al:928 the header). Another language, a language set after the first data item
-    /// was written, and the Labels block or the BC 29 company captions in another language are not pinned: the dataset is refused
-    /// when it is written.
+    /// report/lt-bd-format-region/BdRegionTests.al:928 the header). Another language, another language set after the first data
+    /// item was written, and the Labels block in German are not pinned: the dataset is refused when it is written.
     fn saveas_language_set(&mut self, n: i32, running: &Inst) -> Result<(), Signal> {
         if self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::SaveAs) {
             return Ok(());
@@ -624,26 +620,32 @@ impl Session {
                 .items
                 .iter()
                 .any(|i| i.columns.iter().any(|c| c.include_caption));
-        let company =
-            self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) && self.compiled_table(79).is_some();
         let Some(ds) = self.report.dataset.as_mut() else {
             return Ok(());
         };
+        let target = match n {
+            1033 => None,
+            1031 => Some("de-DE"),
+            _ => {
+                ds.culture_unpinned.get_or_insert(format!(
+                    "the SaveAs dataset after CurrReport.Language := {n} (only 1031 is pinned)"
+                ));
+                return Ok(());
+            }
+        };
         let why = if ds.rows > 0 {
-            Some(format!(
-                "CurrReport.Language := {n} after the dataset's first data item was written"
-            ))
-        } else if n == 1033 {
-            ds.language = None;
-            None
-        } else if n != 1031 {
-            Some(format!("CurrReport.Language := {n} (only 1031 is pinned)"))
-        } else if labels || company {
-            ds.language = Some("de-DE".into());
-            Some("CurrReport.Language := 1031 with a Labels block or the BC 29 company captions (their texts in German are not pinned)".into())
+            // The same language again, row after row (handlers/TestReportCurrReportLanguage.al:44 sets 1031 in every
+            // OnAfterGetRecord), changes nothing.
+            (ds.language.as_deref() != target)
+                .then(|| format!("CurrReport.Language := {n} after the dataset's first data item was written"))
         } else {
-            ds.language = Some("de-DE".into());
-            None
+            ds.language = target.map(str::to_string);
+            // Kept, not pinned: on BC 29 the company captions of the header stay en-US (refusing them would lose
+            // handlers/TestReportCurrReportLanguage.al:44 TestReport_SettingCurrReportLanguage_RunsAndIsReadableBack, which does
+            // not read the dataset).
+            (labels && target.is_some()).then(|| {
+                "CurrReport.Language := 1031 with a Labels block (its texts in German are not pinned)".to_string()
+            })
         };
         if let Some(why) = why {
             ds.culture_unpinned
@@ -698,6 +700,9 @@ impl Session {
             })
     }
 
+    /// The report instance behind a receiver, initialised: the first use of a report variable
+    /// runs `OnInitReport` (handlers/TestReportOnInitReportTiming.al:50-60).
+    /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
     fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
         match receiver {
             Some(Value::Codeunit(rc)) => {

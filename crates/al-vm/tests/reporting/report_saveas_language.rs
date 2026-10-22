@@ -79,6 +79,26 @@ report 50994 "SL Fmt"
     end;
 }
 
+report 50996 "SL Rows"
+{
+    dataset
+    {
+        dataitem(N; "SL Row")
+        {
+            column(Num; Id) { }
+            trigger OnAfterGetRecord()
+            var
+                L: Codeunit "SL Log";
+            begin
+                if Id = 1 then
+                    CurrReport.Language := 1031
+                else
+                    CurrReport.Language := L.GetLang();
+            end;
+        }
+    }
+}
+
 report 50995 "SL Fmt Labels"
 {
     dataset { dataitem(T; "SL Row") { column(TId; Id) { } } }
@@ -262,6 +282,29 @@ codeunit 50993 "SL Tests"
         exit(Lines(B));
     end;
 
+    // CurrReport.Language := 1031 in the first row, then 1031 or another language in the second.
+    procedure RowsLanguage(Lang: Integer): Text
+    var
+        B: Record "SL Row";
+        L: Codeunit "SL Log";
+        Rpt: Report "SL Rows";
+        OutS: OutStream;
+    begin
+        L.SetMode('', Lang);
+        if not B.Get(2) then begin
+            B.Id := 2;
+            B.Insert();
+        end;
+        if not B.Get(1) then begin
+            B.Id := 1;
+            B.Insert();
+        end;
+        B.Data.CreateOutStream(OutS);
+        Rpt.SaveAs('', ReportFormat::Xml, OutS);
+        B.Modify();
+        exit(Lines(B));
+    end;
+
     procedure OtherRegion(): Text
     var
         L: Codeunit "SL Log";
@@ -390,6 +433,24 @@ fn a_language_a_trigger_sets_is_the_language_of_the_dataset() {
         vec![al_builtins::value::Value::Integer(1036)],
     ) {
         Err(Signal::Unsupported(m)) if m.contains("1036") => {}
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// handlers/TestReportCurrReportLanguage.al:44: the same language set again in every row changes nothing; another language after
+/// the first data item was written is refused when the dataset is written.
+#[test]
+fn the_same_language_set_in_every_row_keeps_the_dataset() {
+    use al_builtins::value::Value;
+    let rows =
+        |l: i32| al_testkit::run_with(FIXTURE, "SL Tests", "RowsLanguage", vec![Value::Integer(l)]).map(|(v, _)| v);
+    let lines = text(rows(1031));
+    assert!(
+        lines.contains("<DataItem language=\"de-DE\" formatRegion=\"en-US\" name=\"N\">"),
+        "{lines}"
+    );
+    match rows(1033) {
+        Err(Signal::Unsupported(m)) if m.contains("after the dataset's first data item") => {}
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
