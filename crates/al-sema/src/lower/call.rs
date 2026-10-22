@@ -70,6 +70,12 @@ impl Lowerer<'_> {
             return self.dotnet_member(node, callee, &name, op, args);
         }
         self.security_filtering_read_refusal(callee, args)?;
+        // A control add-in as an argument (`BusinessChartBuffer.UpdateChart(CurrPage.BusinessChart)`, by `var` or by value)
+        // refuses when the call runs, as a call of its methods does below: Base Application's chart pages make it on a path a
+        // flag guards. Control add-ins are not modelled; no corpus test passes one.
+        if let Some(why) = args.iter().find_map(|a| self.control_add_in(a)) {
+            return Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())));
+        }
         // `this.Proc(...)` calls on the running instance, as the bare call does.
         let receiver_node = (callee.kind() == SyntaxKind::MemberExpr)
             .then(|| callee.children().next())
