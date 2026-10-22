@@ -388,13 +388,12 @@ fn run_version(
         eprintln!("note: {note}");
     }
     let symbols = al_version::corpus_symbols(chosen.target.bc.major);
-    let corpus_tests = root
-        .join(&cfg.corpus_app)
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-    let fixture_dir = corpus_tests.join("al-language-internals-fixture");
-    let mut app_dirs = vec![fixture_dir.clone(), root.join(&cfg.corpus_app)];
+    // The corpus apps the main app depends on (the internals fixture, the cross-app fixtures), in dependency order,
+    // then the main app: CI publishes them in that order (corpus `.github/workflows/ci.yml`, `app_dirs`).
+    let corpus_deps = deps::corpus_source_dirs(&root.join(&cfg.corpus_app))?;
+    let main_app = corpus_deps.len();
+    let mut app_dirs = corpus_deps.clone();
+    app_dirs.push(root.join(&cfg.corpus_app));
     // The other test apps of this version follow the main app (before any dependency app), each
     // once however many runs use it. `app_index` is where the runtime finds its objects.
     let mut app_index: Vec<(&str, usize)> = Vec::new();
@@ -426,12 +425,7 @@ fn run_version(
             local_artifacts: None,
             country: String::new(),
         };
-        let deps = deps::load_with(
-            &root.join(&cfg.corpus_app),
-            &[fixture_dir],
-            &args.deps,
-            Some(&provision),
-        )?;
+        let deps = deps::load_with(&root.join(&cfg.corpus_app), &corpus_deps, &args.deps, Some(&provision))?;
         for line in &deps.log {
             eprintln!("{line}");
         }
@@ -548,7 +542,7 @@ fn run_version(
         runner: None,
     }];
     // The main run takes the corpus app's test codeunits only, as before.
-    runs[0].app = Some(1);
+    runs[0].app = Some(main_app);
     for suite in &version.suites {
         let app = app_index.iter().find(|(a, _)| *a == suite.app).map(|(_, i)| *i);
         runs.push(runtime::SuiteRun {
@@ -559,7 +553,7 @@ fn run_version(
     }
     // A selection roots the compile at the selected test codeunits (app index, object id).
     let only = selecting.then(|| {
-        let mut v: Vec<(usize, u32)> = cases.iter().map(|c| (1, c.id.codeunit)).collect();
+        let mut v: Vec<(usize, u32)> = cases.iter().map(|c| (main_app, c.id.codeunit)).collect();
         for (suite, cases) in version.suites.iter().zip(&suite_cases_all) {
             if let Some((_, app)) = app_index.iter().find(|(a, _)| *a == suite.app) {
                 v.extend(cases.iter().map(|c| (*app, c.id.codeunit)));

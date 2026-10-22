@@ -208,20 +208,24 @@ pub fn microsoft_calls(ws: &Workspace, checked: &CheckResult, catalog: &Catalog)
 }
 
 /// The corpus apps whose files count as the corpus's own: `al-language`, the OnPrem app and the
-/// OnPrem DotNet app (items only a `Target = OnPrem` app can name are pinned there), plus the fixture.
+/// OnPrem DotNet app (items only a `Target = OnPrem` app can name are pinned there), plus the corpus apps they depend on.
 pub const CORPUS_TEST_APPS: [&str; 3] = ["al-language", "al-language-onprem", "al-language-onprem-dotnet"];
 
-/// The workspace both coverage maps check: the fixture and every app of `CORPUS_TEST_APPS` as
-/// workspace apps, then the dependency apps of the corpus's `.alpackages`.
+/// The workspace both coverage maps check: the corpus apps `al-language` depends on (the fixture and the cross-app
+/// fixtures, in dependency order) and every app of `CORPUS_TEST_APPS` as workspace apps, then the dependency apps of
+/// the corpus's `.alpackages`.
 pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
     let tests = root.join("corpus/tests");
-    let fixture = tests.join("al-language-internals-fixture");
-    let mut apps = vec![crate::runtime::load_app(&fixture)?];
+    let corpus_deps = crate::deps::corpus_source_dirs(&tests.join("al-language"))?;
+    let mut apps = Vec::new();
+    for dir in &corpus_deps {
+        apps.push(crate::runtime::load_app(dir)?);
+    }
     for name in CORPUS_TEST_APPS {
         apps.push(crate::runtime::load_app(&tests.join(name))?);
     }
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
-    let dependencies = crate::deps::load(&tests.join("al-language"), &[fixture], &[])?;
+    let dependencies = crate::deps::load(&tests.join("al-language"), &corpus_deps, &[])?;
     kinds.extend(dependencies.apps.iter().map(|_| al_sema::AppKind::Dependency));
     apps.extend(dependencies.apps);
     Ok(Workspace::load_apps(

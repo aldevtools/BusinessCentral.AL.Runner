@@ -3327,6 +3327,39 @@ impl Session {
                         }
                     }
                 }
+                // The Blob fields another app's table extension adds to this table (a database record only).
+                let other_app_blobs: Vec<usize> = if rec.borrow().temporary {
+                    Vec::new()
+                } else {
+                    let program = &self.engine.program;
+                    let table_app = program.objects[t.object as usize].app;
+                    program.objects[t.object as usize]
+                        .table
+                        .as_ref()
+                        .map(|schema| {
+                            schema
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, f)| {
+                                    matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
+                                        && f.declared_in
+                                            .is_some_and(|o| program.objects[o as usize].app != table_app)
+                                })
+                                .map(|(i, _)| i)
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                };
+                // Pinned only for content saved by the Insert (tableextension/lt-bw-cross-app/BwCrossAppTests.al:89-115).
+                if other_app_blobs
+                    .iter()
+                    .any(|&i| matches!(&old[i], Value::Blob(b) if b.borrow().written))
+                {
+                    return unsupported(
+                        "Rename of a record with a write to a Blob field of another app's table extension after its last Insert or Modify: what the record and the row hold then is not pinned",
+                    );
+                }
                 // More values than the primary key has fields (recordref/lt-refs/RfTWrite.al:Rename_Variants `rename_too_many`).
                 if args.len() > t.keys[0].len() {
                     return Err(Signal::Error(Box::new(AlError {
@@ -3392,6 +3425,14 @@ impl Session {
                     RenameOutcome::Renamed => {
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
                         // after the last Insert or Modify (misc/lt-probes-needed-1/PnABlobAssignRename.al:RenameTemporary_* `A..E-rec-content`).
+                        // So does a database record for a Blob field another app's table extension adds, while the renamed row
+                        // keeps the bytes (tableextension/lt-bw-cross-app/BwCrossAppTests.al:89-115: `blob in variable after
+                        // rename = <none>`, `NEW blob = blob of OLD`). A Blob field of the table's own app keeps what it had,
+                        // as before (not pinned for a database record).
+                        for &i in &other_app_blobs {
+                            let empty = self.default_value(&t.fields[i].ty);
+                            rec.borrow_mut().fields[i] = empty;
+                        }
                         if rec.borrow().temp_id.is_some() {
                             let own: Vec<(usize, Value)> = rec
                                 .borrow()

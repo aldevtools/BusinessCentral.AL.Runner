@@ -1759,3 +1759,117 @@ codeunit 50324 C
 "#;
     assert_eq!(text(run(src, "F")), "Setup;dD(99);0");
 }
+
+// ---- subscriber order across apps -------------------------------------------------------
+
+fn order_app(id: &str, deps: &[&str], src: &str) -> AppSource {
+    AppSource {
+        id: id.into(),
+        name: format!("App {id}"),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.into())],
+    }
+}
+
+fn order_sub(id: u32, tag: &str) -> String {
+    format!(
+        r#"codeunit {id} "Sub {tag}"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Order Pub", 'OnOrder', '', false, false)]
+    local procedure H() var L: Codeunit "Order Log"; begin L.Add('{tag}'); end;
+}}
+"#
+    )
+}
+
+const ORDER_PUBLISHER: &str = r#"
+codeunit 61100 "Order Log"
+{
+    SingleInstance = true;
+    var Log: Text;
+    procedure Add(S: Text) begin Log += S + ';'; end;
+    procedure Get(): Text begin exit(Log); end;
+}
+codeunit 61101 "Order Pub"
+{
+    procedure Raise(): Text var L: Codeunit "Order Log"; begin OnOrder(); exit(L.Get()); end;
+    [IntegrationEvent(false, false)]
+    procedure OnOrder() begin end;
+}
+"#;
+
+fn raise_order(apps: Vec<AppSource>) -> Result<Value, Signal> {
+    let l = al_testkit::compile_apps(apps);
+    let mut b = al_testkit::Built::new(l);
+    b.run_in("Order Pub", "Raise")
+}
+
+/// Across apps, BC runs one event's subscribers app by app in dependency order (A, then B on A, then C on A and B, then
+/// M on all three), in ascending codeunit id inside each app; not in codeunit id across apps (corpus
+/// events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:52-56, `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on BC 27.5, 28.5, 29.0).
+#[test]
+fn subscribers_of_one_event_run_app_by_app_in_dependency_order() {
+    let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61105, "A1"), order_sub(61135, "A2"));
+    let b = format!("{}{}", order_sub(61115, "B1"), order_sub(61145, "B2"));
+    let c = format!("{}{}", order_sub(61125, "C1"), order_sub(61155, "C2"));
+    let m = format!("{}{}", order_sub(83960, "P"), order_sub(83961, "Q"));
+    // Declared in another order than the dependency order, so the app's position in the workspace does not decide.
+    let apps = vec![
+        order_app("m", &["a", "b", "c"], &m),
+        order_app("c", &["a", "b"], &c),
+        order_app("a", &[], &a),
+        order_app("b", &["a"], &b),
+    ];
+    assert_eq!(text(raise_order(apps)), "A1;A2;B1;B2;C1;C2;P;Q;");
+}
+
+/// The corpus cannot tell dependency order from "apps ordered by their lowest subscriber codeunit id"
+/// (BwSubscriberOrderTests.al:20-21): where the two disagree, the order is not pinned and the raise is refused.
+#[test]
+fn subscribers_whose_app_order_the_corpus_does_not_pin_are_refused() {
+    // B depends on A, but B's subscriber has the lower id.
+    let a = format!("{ORDER_PUBLISHER}{}", order_sub(61135, "A"));
+    let b = order_sub(61115, "B");
+    let r = raise_order(vec![order_app("a", &[], &a), order_app("b", &["a"], &b)]);
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("onorder") && m.contains("does not pin")),
+        "{r:?}"
+    );
+    // Two apps that do not depend on each other: dependency order does not decide (publish order may).
+    let x = order_sub(61115, "X");
+    let y = order_sub(61125, "Y");
+    let a = format!("{ORDER_PUBLISHER}");
+    let r = raise_order(vec![
+        order_app("a", &[], &a),
+        order_app("x", &["a"], &x),
+        order_app("y", &["a"], &y),
+    ]);
+    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+/// Kept, not pinned: where only dependency apps (Microsoft's) disagree on the two rules the corpus cannot tell apart, the
+/// raise keeps the order the runtime had before the cross-app probe, ascending codeunit id across the apps. Refusing it
+/// loses baseline cases (System Application's `OnGetPerCompanyUpgradeTags` with subscribers in Business Foundation,
+/// whose lowest subscriber id is lower although it depends on System Application: 68391, 69971, 69973, 79851, 84835,
+/// 85446). An app under test in such a pair is still refused (above).
+#[test]
+fn an_unpinned_order_among_dependency_apps_only_keeps_ascending_codeunit_id() {
+    use al_sema::workspace::AppKind;
+    let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61135, "A1"), order_sub(61150, "A2"));
+    let b = order_sub(61115, "B");
+    let t = r#"codeunit 50100 T { procedure Run(): Text var P: Codeunit "Order Pub"; begin exit(P.Raise()); end; }"#;
+    let (ws, l) = al_sema::lower::compile_apps_with(
+        vec![
+            order_app("a", &[], &a),
+            order_app("b", &["a"], &b),
+            order_app("t", &["a", "b"], t),
+        ],
+        vec![AppKind::Dependency, AppKind::Dependency, AppKind::Workspace],
+        &Default::default(),
+        None,
+        Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let mut b = al_testkit::Built::new(l);
+    assert_eq!(text(b.run_in("T", "Run")), "B;A1;A2;");
+}

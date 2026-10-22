@@ -27,25 +27,31 @@ fn root() -> PathBuf {
         .unwrap()
 }
 
-/// The bytes of corpus source the compile reads: every `.al` file of the two apps. Computed once, outside the measured
+/// The corpus app and the corpus apps it depends on (the internals fixture, the cross-app fixtures), dependencies first.
+fn corpus_app_dirs() -> Vec<std::path::PathBuf> {
+    let main = root().join("corpus/tests/al-language");
+    let mut dirs = al_test_cli::deps::corpus_source_dirs(&main).unwrap();
+    dirs.push(main);
+    dirs
+}
+
+/// The bytes of corpus source the compile reads: every `.al` file of those apps. Computed once, outside the measured
 /// region.
 fn corpus_bytes() -> u64 {
-    let tests = root().join("corpus/tests");
-    ["al-language-internals-fixture", "al-language"]
+    corpus_app_dirs()
         .iter()
         .map(|a| {
-            let app = runtime::load_app(&tests.join(a)).unwrap();
+            let app = runtime::load_app(a).unwrap();
             app.files.iter().map(|(_, text)| text.len() as u64).sum::<u64>()
         })
         .sum()
 }
 
 fn compile_corpus() -> usize {
-    let tests = root().join("corpus/tests");
-    let apps = vec![
-        runtime::load_app(&tests.join("al-language-internals-fixture")).unwrap(),
-        runtime::load_app(&tests.join("al-language")).unwrap(),
-    ];
+    let apps: Vec<_> = corpus_app_dirs()
+        .iter()
+        .map(|d| runtime::load_app(d).unwrap())
+        .collect();
     let symbols = al_version::corpus_symbols(27);
     let (_ws, lowered) = al_sema::lower::compile(apps, &symbols);
     lowered.program.objects.len()
@@ -186,21 +192,19 @@ fn with_apps_limit_instructions(bytes: u64) -> u64 {
     WITH_APPS_LIMIT_FIXED_INSTRUCTIONS + WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB * bytes / 1024
 }
 
-/// The bytes of corpus source the full run compiles: every `.al` file of the internals fixture, the corpus app and the
-/// suites of the `WITH_APPS_MAJOR` leg of `oracle/oracle.toml`.
+/// The bytes of corpus source the full run compiles: every `.al` file of the corpus app, the corpus apps it depends on
+/// and the suites of the `WITH_APPS_MAJOR` leg of `oracle/oracle.toml`.
 fn run_source_bytes() -> u64 {
     let root = root();
     let oracle = std::fs::read_to_string(root.join("oracle/oracle.toml")).unwrap();
     let oracle = al_test_cli::config::OracleFile::parse(&oracle).unwrap();
     let leg = oracle.select(Some(WITH_APPS_MAJOR)).unwrap();
-    let mut apps = vec![
-        "corpus/tests/al-language-internals-fixture".to_string(),
-        oracle.corpus_app.clone(),
-    ];
-    apps.extend(leg.suites.iter().map(|s| s.app.clone()));
+    let mut apps = al_test_cli::deps::corpus_source_dirs(&root.join(&oracle.corpus_app)).unwrap();
+    apps.push(root.join(&oracle.corpus_app));
+    apps.extend(leg.suites.iter().map(|s| root.join(&s.app)));
     apps.iter()
         .map(|a| {
-            let app = runtime::load_app(&root.join(a)).unwrap();
+            let app = runtime::load_app(a).unwrap();
             app.files.iter().map(|(_, text)| text.len() as u64).sum::<u64>()
         })
         .sum()

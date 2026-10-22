@@ -68,6 +68,9 @@ pub struct Registry {
     /// object, built at the first [`Registry::subscribers_of`]. The registry does not change once the engine holds it
     /// (ADR-001).
     by_publisher: std::sync::OnceLock<HashMap<usize, Vec<(usize, usize)>>>,
+    /// `depends[i][j]`: app `i` of the program depends on app `j`, directly or through other apps (by app id). The
+    /// subscriber order across apps reads it (`dispatch.rs`).
+    pub depends: Vec<Vec<bool>>,
 }
 
 /// A subscriber of a platform event the runtime does not raise.
@@ -102,6 +105,7 @@ impl Default for Registry {
             unraised: HashMap::new(),
             install_subscribers: Vec::new(),
             by_publisher: Default::default(),
+            depends: Vec::new(),
         }
     }
 }
@@ -147,6 +151,34 @@ pub const FILTER_HELPER_TRIGGERS: usize = usize::MAX - 3;
 /// before the install routines run there (install/lt-bf-install-probes/BfInstallTests.al:125-140, `company open calls`;
 /// ADR-046 amendment 1, A4 item 4; `al-testrun` `install.rs`).
 pub const COMPANY_TRIGGERS: usize = usize::MAX - 4;
+
+/// `out[i][j]`: app `i` depends on app `j`, directly or through other apps of `apps` (dependencies named by app id).
+fn app_dependencies(apps: &[ir::AppInfo]) -> Vec<Vec<bool>> {
+    let n = apps.len();
+    let mut out = vec![vec![false; n]; n];
+    for (i, a) in apps.iter().enumerate() {
+        for d in &a.dependencies {
+            for (j, b) in apps.iter().enumerate() {
+                if j != i && b.id.eq_ignore_ascii_case(d) {
+                    out[i][j] = true;
+                }
+            }
+        }
+    }
+    // Transitive closure (Floyd-Warshall); a program holds tens of apps.
+    for k in 0..n {
+        for i in 0..n {
+            if out[i][k] {
+                for j in 0..n {
+                    if out[k][j] {
+                        out[i][j] = true;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
 
 fn is_global_triggers(target: &str) -> bool {
     target.eq_ignore_ascii_case("Global Triggers") || target == "2000000002"
@@ -414,6 +446,7 @@ impl Registry {
                 subscriber: u.subscriber.clone(),
             });
         }
+        reg.depends = app_dependencies(&program.apps);
         reg
     }
 

@@ -185,6 +185,12 @@ fn a_baseline_case_that_does_not_pass_fails_the_run() {
 /// the run has a failing case whatever the real corpus holds today. The root has the layout the
 /// CLI reads (`oracle/oracle.toml`, a git repository for the corpus pin, an app folder).
 fn root_with_a_failing_test() -> tempfile::TempDir {
+    fake_root(|_| {})
+}
+
+/// [`root_with_a_failing_test`], with `extra` called on the corpus folder (`fixture/`) before the corpus commit, to
+/// add or overwrite files.
+fn fake_root(extra: impl Fn(&Path)) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let at = |p: &str| dir.path().join(p);
     std::fs::create_dir_all(at("fixture/tests/app")).unwrap();
@@ -278,6 +284,7 @@ fn root_with_a_failing_test() -> tempfile::TempDir {
         );
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
+    extra(&at("fixture"));
     git(&["init", "-q"]);
     git(&["add", "-A"]);
     git(&["commit", "-q", "-m", "fixture"]);
@@ -338,6 +345,89 @@ fn a_failing_case_outside_the_baseline_is_reported_but_does_not_fail_the_run() {
     let (code, _, err) = run("60900 Passes\n60900 FailsOnPurpose\n");
     assert_eq!(code, 1, "{err}");
     assert!(err.contains("60900 FailsOnPurpose"), "{err}");
+}
+
+/// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the
+/// cross-app fixtures A, B, C, where B depends on A). The CLI loads each from source before the app under test, in
+/// dependency order, whatever order the app declares them in: here the app declares B before A, and the test passes only
+/// when B's codeunit reaches A's.
+#[test]
+fn the_corpus_apps_the_app_under_test_depends_on_are_loaded_from_source() {
+    let root = fake_root(|corpus| {
+        let app = |name: &str, json: &str, al: &str| {
+            let d = corpus.join("tests").join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("app.json"), json).unwrap();
+            std::fs::write(d.join("Objects.al"), al).unwrap();
+        };
+        let dep =
+            |id: &str, name: &str| format!(r#"{{"id":"{id}","name":"{name}","publisher":"Test","version":"1.0.0.0"}}"#);
+        let a_id = "0a1b2c3d-0000-4000-8000-00000000000a";
+        let b_id = "0a1b2c3d-0000-4000-8000-00000000000b";
+        app(
+            "dep-a",
+            &format!(
+                r#"{{"id":"{a_id}","name":"Harness Dep A","publisher":"Test","version":"1.0.0.0","dependencies":[],"idRanges":[{{"from":61900,"to":61909}}],"runtime":"16.0","target":"Cloud"}}"#
+            ),
+            "codeunit 61900 \"Harness A\" { procedure Value(): Integer begin exit(7); end; }",
+        );
+        app(
+            "dep-b",
+            &format!(
+                r#"{{"id":"{b_id}","name":"Harness Dep B","publisher":"Test","version":"1.0.0.0","dependencies":[{}],"idRanges":[{{"from":61910,"to":61919}}],"runtime":"16.0","target":"Cloud"}}"#,
+                dep(a_id, "Harness Dep A")
+            ),
+            "codeunit 61910 \"Harness B\" { procedure Value(): Integer var A: Codeunit \"Harness A\"; begin exit(A.Value() * 2); end; }",
+        );
+        std::fs::write(
+            corpus.join("tests/app/app.json"),
+            format!(
+                r#"{{"id":"0a1b2c3d-0000-4000-8000-000000000001","name":"Harness Fixture","publisher":"Test","version":"1.0.0.0","platform":"27.0.0.0","application":"27.0.0.0","dependencies":[{},{}],"idRanges":[{{"from":60900,"to":60999}}],"runtime":"16.0","target":"Cloud"}}"#,
+                dep(b_id, "Harness Dep B"),
+                dep(a_id, "Harness Dep A")
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            corpus.join("tests/app/Fixture.al"),
+            r#"codeunit 60900 "Harness Fixture"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Passes()
+    var
+        B: Codeunit "Harness B";
+    begin
+        if B.Value() <> 14 then
+            Error('B answered %1', B.Value());
+    end;
+
+    [Test]
+    procedure FailsOnPurpose()
+    begin
+        Error('the harness fixture fails on purpose');
+    end;
+}
+"#,
+        )
+        .unwrap();
+    });
+    let out = root.path().join("r.json");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root.path())
+        .args(["--no-deps", "--no-ratchet", "--bc-version", "27", "--json"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&out).unwrap_or_else(|_| panic!("no report written; stderr:\n{err}")),
+    )
+    .unwrap();
+    assert_eq!(report["overall"]["pass"], 1, "{}\n{err}", report["overall"]);
+    assert_eq!(report["overall"]["fail"], 1, "{}\n{err}", report["overall"]);
 }
 
 #[test]

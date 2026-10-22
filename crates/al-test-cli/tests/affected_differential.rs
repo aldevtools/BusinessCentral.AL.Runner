@@ -457,13 +457,18 @@ fn the_affected_selection_misses_no_test_on_the_corpus_app() {
 
 fn corpus_differential() {
     let tests = root().join("corpus/tests");
-    let dirs = [tests.join("al-language-internals-fixture"), tests.join("al-language")];
-    assert!(dirs[1].join("app.json").exists(), "corpus submodule not checked out");
+    assert!(
+        tests.join("al-language/app.json").exists(),
+        "corpus submodule not checked out"
+    );
+    let mut dirs = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+    dirs.push(tests.join("al-language"));
+    let tested = dirs.len() - 1;
     let a = Apps {
         apps: dirs.iter().map(|d| runtime::load_app(d).unwrap()).collect(),
         manifests: dirs.iter().map(|d| runtime::load_manifest(d).unwrap()).collect(),
         symbols: al_version::corpus_symbols(newest_major()),
-        tested: 1,
+        tested,
     };
     let n = std::env::var("AL_AFFECTED_DIFF_EDITS")
         .ok()
