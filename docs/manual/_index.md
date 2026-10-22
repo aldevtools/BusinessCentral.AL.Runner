@@ -23,7 +23,8 @@ explains what a pass, a failure and "not run" each mean.
 - **[Writing tests](writing-tests.md)**: apps, test codeunits, selecting tests, isolation, test-first work.
 - **[Reading results](results.md)**: what you can trust, and how to find out why a test did not run.
 - **[Command line reference](cli-reference.md)**: every command and flag.
-- **[Test data and Microsoft's tests](test-data.md)**: the CRONUS demo company, other countries, Microsoft's recipe.
+- **[Test data](test-data.md)**: the CRONUS demo company, other countries, the RapidStart package company.
+- **[Running Microsoft's tests](microsoft-tests.md)**: `test-microsoft`, the recipe, and the Microsoft tests your extension can affect.
 - **[Continuous integration](ci.md)**: GitHub Actions, caching, exit codes.
 - **[Editor and tool integration](editor-tools.md)**: the `serve` protocol, coverage output.
 - **[Impact analysis](impact.md)**: what an extension changes in other apps' tests.
