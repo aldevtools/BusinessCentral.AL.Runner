@@ -1,6 +1,6 @@
 ---
 title: "Editor and tool integration"
-weight: 8
+weight: 9
 ---
 
 ## `al-runner serve`
@@ -52,6 +52,29 @@ the like. Options that select tests or write reports (`--filter`, `--junit`,
 The complete field list and the answers are in
 [Migrating tools to version 3](../integrations/migrating-tools-to-v3.md), section 4b.
 
+## Debugging
+
+`al-runner debug` is a Debug Adapter Protocol (DAP) server, and the replacement for
+version 2's `--dap`. It compiles the apps, waits for one client, runs the selected
+tests once with breakpoints, stepping, the call stack and the locals, and exits with
+the exit code of `test`.
+
+```bash
+al-runner debug --stdio ./MyApp ./MyApp.Test      # DAP on stdin and stdout
+al-runner debug --port 4711 ./MyApp ./MyApp.Test  # DAP on 127.0.0.1:4711
+```
+
+- `--port [N]` listens on `127.0.0.1` only (default 4711, `0` picks a free port and
+  prints it on stderr). It takes one client.
+- With `--stdio`, stdout carries only DAP frames.
+- The options of `test` work the same way, among them `--filter`, `--codeunit` and
+  `--bc-version`. `--output-json`, `--impact-of`, `--recipe` and `--explain` are refused.
+- Breakpoints and steps work in your apps and in dependency apps whose source is compiled,
+  Microsoft's apps included. A breakpoint on a statement no selected test reaches comes
+  back unverified, with the reason.
+
+The complete protocol is in [docs/debugging.md](../debugging.md).
+
 ## Coverage output
 
 `--coverage` counts how often each statement of your apps runs, per test.
@@ -74,5 +97,5 @@ did not run, so a tool can tell "refused" from "failed".
 ## Not available in version 3
 
 Watch mode is not part of AL Runner 3: it was rejected for 3.0.0, because `serve` already
-keeps the compile warm. The debugger is `al-runner debug` (see [debugging](../debugging.md)),
-and `--affected` test selection is a command line option and a `serve` field.
+keeps the compile warm. For re-running only what a change affects, use `--affected` (a
+command line option and a `serve` field).

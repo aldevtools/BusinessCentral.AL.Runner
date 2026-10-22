@@ -88,6 +88,7 @@ raised in (innermost first):
 | 0 | Every selected test passed. |
 | 1 | A test failed. |
 | 2 | Bad invocation, or the run could not start. |
+| 3 | The apps do not compile (an AL compiler error such as AL0118). No test ran. |
 | 6 | The selection matched no test. |
 | 7 | Some tests were not run (a refusal). |
 | 8 | Some tests were not run because the .NET helper could not be used. |
