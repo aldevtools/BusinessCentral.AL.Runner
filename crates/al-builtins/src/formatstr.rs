@@ -65,6 +65,8 @@ struct Numeric {
     precision: Option<(u32, u32)>,
     /// The precision was written as `<Precision,N>`: at most N decimals, how many at least is not pinned.
     precision_single: bool,
+    /// The precision code comes after a `<Standard Format,N>` code.
+    precision_after_std: bool,
 }
 
 const CODE_NAMES: [&str; 21] = [
@@ -404,13 +406,16 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)]) -> Result<Option<Numeric>, Str
         filler: ' ',
         precision: None,
         precision_single: false,
+        precision_after_std: false,
     };
     let mut seen_integer = false;
+    let mut seen_std = false;
     for (is_code, text) in pieces {
         if !is_code {
             continue;
         }
         seen_integer |= *text == "Integer" || text.starts_with("Integer,");
+        seen_std |= text.starts_with("Standard Format,");
         // `Filler Character 0` (a blank instead of the comma) is no code (Format_FormatStrings_Number).
         if text.starts_with("Filler Character") && !text.starts_with("Filler Character,") {
             return Err(INVALID_FORMAT_MARK.to_string());
@@ -426,6 +431,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)]) -> Result<Option<Numeric>, Str
                 n.filler = f;
             }
         } else if let Some(p) = text.strip_prefix("Precision,") {
+            n.precision_after_std = seen_std;
             // Letters are an invalid format; digits and colons are accepted and a form that is not `A:B` shows nothing
             // (P86FormatDecimal.al:Str_Mid_1 `<Precision,2>`, `<Precision,:2>`, Str_Mid_6 `<Precision,a:b>`).
             if !p.bytes().all(|b| b.is_ascii_digit() || b == b':') {
@@ -529,27 +535,7 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
         let std: i32 = std.trim().parse().map_err(|_| format!("code `<{code}>`"))?;
         // A Precision does not change an Integer (misc/lt-system-functions/RandomFormat.al:Format_Integer).
         if let (Some((min, max)), Value::Decimal(_)) = (n.precision, v) {
-            if std != 0 {
-                return refuse();
-            }
-            let rounded = n
-                .value
-                .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
-            let mut text = format_value(&Value::Decimal(rounded), 0, 0, ctx).map_err(fail)?;
-            let have = text.split_once('.').map_or(0, |(_, f)| f.len() as u32);
-            // `<Precision,N>` on a value with fewer than N decimals: whether it pads is not pinned.
-            if n.precision_single && have < max {
-                return Err(format!(
-                    "code `<Precision,{max}>` on a value with fewer decimals (not pinned)"
-                ));
-            }
-            if have < min {
-                if have == 0 {
-                    text.push('.');
-                }
-                text.push_str(&"0".repeat((min - have) as usize));
-            }
-            return Ok(text);
+            return precision_standard(n, (min, max), std, code, v, ctx);
         }
         return format_value(v, 0, std, ctx).map_err(fail);
     }
@@ -560,6 +546,70 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
         return Err(INVALID_FORMAT_MARK.to_string());
     }
     refuse()
+}
+
+/// `<Precision,A:B>` then `<Standard Format,N>` on a Decimal: the value rounded half away from zero to B decimals, written in
+/// standard format N, with zeros added up to A decimals (types/lt-format-precision-standard/FormatPrecStdEn.al:43-150, codeunit
+/// 71576, the same under GlobalLanguage 1031 in FormatPrecStdDe.al, codeunit 71577): format 0 groups thousands, 1, 2 and 9 do
+/// not, 3 and 4 are 0 and 1 with the sign behind the number (`1,234.50 `, `0.50-`), 5 to 8 raise the error of `Format(x, 0, N)`
+/// (:52-55); and types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:105-660 (QS_P22S*, QS_P2S* for formats 0, 1, 2, 9 on 18
+/// values). Other precisions under format 9: `0:0` gives `1235` and `-1`, `2:5` `1234.50`, `0:3` `1234.5`, `7:7` `0.0000001`
+/// (FormatPrecStdEn.al:154-191). `<Precision,N>` acts as `N:N`: N = 2 under formats 0, 1, 2, 9 (AtPrecisionStandardFormat2.al
+/// QS_P2S0/1/2/9, `0` gives `0.00`) and N = 3 under format 9 (FormatPrecStdEn.al:161 `1234.500`); another N or format with a
+/// value of fewer decimals is refused. A precision after the standard format code changes nothing under format 9 (:163
+/// `1234.5`); under another format that is refused. A negative value that rounds to zero is not pinned and is refused.
+fn precision_standard(
+    n: &Numeric,
+    (min, max): (u32, u32),
+    std: i32,
+    code: &str,
+    v: &Value,
+    ctx: &dyn FormatCtx,
+) -> Result<String, String> {
+    if n.precision_after_std {
+        if std == 9 {
+            return format_value(v, 0, std, ctx).map_err(fail);
+        }
+        return Err(format!("code `<{code}>` before a `<Precision,..>` code (not pinned)"));
+    }
+    if !(0..=9).contains(&std) {
+        return Err(format!("code `<{code}>` on {}", v.describe()));
+    }
+    if (5..=8).contains(&std) {
+        return format_value(v, 0, std, ctx).map_err(fail);
+    }
+    let rounded = n
+        .value
+        .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
+    if rounded.is_zero() && n.value.is_sign_negative() && !n.value.is_zero() {
+        return Err(format!(
+            "code `<{code}>` with a precision on a negative {} that rounds to zero (not pinned)",
+            v.describe()
+        ));
+    }
+    let mut text = format_value(&Value::Decimal(rounded), 0, std, ctx).map_err(fail)?;
+    // Formats 3 and 4 end with the sign (a blank or a minus): the decimals are padded before it.
+    let tail = if matches!(std, 3 | 4) { text.pop() } else { None };
+    let have = text.split_once('.').map_or(0, |(_, f)| f.len() as u32);
+    let min = if n.precision_single {
+        let pinned = (max == 2 && matches!(std, 0 | 1 | 2 | 9)) || (max == 3 && std == 9);
+        if !pinned && have < max {
+            return Err(format!(
+                "code `<Precision,{max}>` on a value with fewer decimals (not pinned)"
+            ));
+        }
+        max
+    } else {
+        min
+    };
+    if have < min {
+        if have == 0 {
+            text.push('.');
+        }
+        text.push_str(&"0".repeat((min - have) as usize));
+    }
+    text.extend(tail);
+    Ok(text)
 }
 
 /// Marks an error string as one to raise with its own code: `<mark><code>\u{2}<message>`.

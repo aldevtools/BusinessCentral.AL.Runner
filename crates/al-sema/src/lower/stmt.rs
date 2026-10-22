@@ -421,8 +421,10 @@ impl Lowerer<'_> {
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
     /// `AutoFormatExpression` (type 10), else the 2:2 of a blank-expression amount (type 1) or 2:5 of a unit amount (type 2)
     /// (pages/lt-page-autoformat-lookups/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/lt-page-presentation-properties/
-    /// P119Table.al:P119_DecimalPlaces). `None` for any other argument or field.
-    pub(crate) fn decimal_field_places(&mut self, arg: &SyntaxNode) -> Option<String> {
+    /// P119Table.al:P119_DecimalPlaces). An amount (type 1) without an `AutoFormatExpression` gives 2:2 from BC 28 only (the
+    /// `true` beside it: `Gate::AutoFormatAmountFieldRoundsFrom28`, types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:
+    /// 684-723); a unit amount (type 2) without one keeps every digit (:684 `1,234.5678`). `None` for any other argument or field.
+    pub(crate) fn decimal_field_places(&mut self, arg: &SyntaxNode) -> Option<(String, bool)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
@@ -438,7 +440,7 @@ impl Lowerer<'_> {
         };
         let digits = |p: &str| p.split(':').all(|x| x.trim().parse::<u32>().is_ok());
         if let Some(p) = prop("DecimalPlaces").filter(|p| digits(p)) {
-            return Some(p.replace(' ', ""));
+            return Some((p.replace(' ', ""), false));
         }
         let expr = prop("AutoFormatExpression");
         match prop("AutoFormatType").as_deref() {
@@ -446,10 +448,11 @@ impl Lowerer<'_> {
                 let text = expr?;
                 let rest = text.split("<Precision,").nth(1)?;
                 let p = rest.split('>').next()?.trim().to_string();
-                digits(&p).then_some(p)
+                digits(&p).then_some((p, false))
             }
-            Some("1") if expr.as_deref() == Some("''") => Some("2:2".into()),
-            Some("2") if expr.as_deref() == Some("''") => Some("2:5".into()),
+            Some("1") if expr.as_deref() == Some("''") => Some(("2:2".into(), false)),
+            Some("1") if expr.is_none() => Some(("2:2".into(), true)),
+            Some("2") if expr.as_deref() == Some("''") => Some(("2:5".into(), false)),
             _ => None,
         }
     }
@@ -1382,6 +1385,7 @@ impl Lowerer<'_> {
             t @ Ty::Code(_) => Some(t),
             _ => None,
         };
+        let option_selector = matches!(self.ty_of(&kids[0]), Ty::Option(_));
         let mut branches = Vec::new();
         let mut otherwise = Vec::new();
         for k in &kids[1..] {
@@ -1395,6 +1399,8 @@ impl Lowerer<'_> {
                             body.extend(self.stmt(p));
                         } else if let Some(code) = &code_selector {
                             labels.push(self.code_case_label(code, p)?);
+                        } else if option_selector && matches!(self.ty_of(p), Ty::Decimal) {
+                            labels.push(self.option_case_decimal_label(p)?);
                         } else {
                             labels.push(self.set_elem(p)?);
                         }
@@ -1427,6 +1433,33 @@ impl Lowerer<'_> {
             branches,
             otherwise,
         })
+    }
+
+    /// A Decimal label of a `case` with an Option selector: a Decimal variable that holds a whole number compares with the
+    /// ordinal (`case O of D:` with `D = 1` matches `O::Quantity`, types/PROptionInteger.al:308-322
+    /// QS_Case_OptionSelector_DecimalVariableLabel). A fraction is not pinned (the corpus notes an overflow error from the
+    /// Linux container for `D = 1.5`, :319-320) and is refused when it runs, and so is a value outside Integer. A label that is
+    /// not a plain name is refused (it would be evaluated twice); a Decimal literal does not compile (AL0398).
+    fn option_case_decimal_label(&mut self, n: &SyntaxNode) -> L<ir::SetElem> {
+        let e = self.expr(n)?;
+        if !matches!(e, ir::Expr::Load(_)) {
+            return Err("a case label of Decimal type other than a variable on an Option selector (not pinned)".into());
+        }
+        let bin = |op, a: ir::Expr, b: ir::Expr| ir::Expr::Binary(op, Box::new(a), Box::new(b));
+        let int = |i: i32| ir::Expr::Const(ir::Const::Integer(i));
+        let whole = bin(ir::BinOp::Eq, bin(ir::BinOp::Mod, e.clone(), int(1)), int(0));
+        let in_range = bin(
+            ir::BinOp::And,
+            bin(ir::BinOp::Ge, e.clone(), int(i32::MIN)),
+            bin(ir::BinOp::Le, e.clone(), int(i32::MAX)),
+        );
+        Ok(ir::SetElem::One(ir::Expr::Ternary(
+            Box::new(bin(ir::BinOp::And, whole, in_range)),
+            Box::new(e),
+            Box::new(ir::Expr::Refused(
+                "a case label of an Option holding a Decimal with a fraction or outside Integer (not pinned)".into(),
+            )),
+        )))
     }
 
     /// One label of a `case` with a Code selector (see `case`).

@@ -121,7 +121,8 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "unbound",
         ],
         ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound"],
-        ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound"],
+        // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
+        ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
         ir::XmlNodeKind::Text => &["xmlname", "minoccurs", "maxoccurs"],
     }
 }
@@ -306,6 +307,17 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                     .push(format!("property {pn} of {section_name} {name} is not supported yet"));
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
+            } else if pn == "occurrence" {
+                // Pinned for a text attribute of the root, of a container text element and of a table element below it
+                // (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441-560, QS_TextAttr_*; earlier on a table
+                // element below the root: report/lt-u-report-props/UPropertyTests.al:336). Below a field element it is not.
+                let value = p.value_text().trim().to_ascii_lowercase();
+                let parent_ok = parent.is_some_and(|i| matches!(out.nodes[i].kind, K::Text | K::Table));
+                if !parent_ok || !matches!(value.as_str(), "required" | "optional") {
+                    out.run_reasons.push(format!(
+                        "property occurrence = {value} of {section_name} {name} is not supported (not pinned)"
+                    ));
+                }
             }
         }
         for t in s.triggers() {
@@ -499,6 +511,10 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             auto_calc: layout.property(i, "AutoCalcField").and_then(|v| bool_prop(&v)),
             unbound: kind == ir::XmlNodeKind::Field
                 && layout.property(i, "Unbound").and_then(|v| bool_prop(&v)) == Some(true),
+            required: (kind == ir::XmlNodeKind::TextAttr)
+                .then(|| layout.property(i, "Occurrence"))
+                .flatten()
+                .map(|v| v.trim().eq_ignore_ascii_case("required")),
             triggers,
         };
         match kind {
@@ -527,8 +543,20 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                         raw.args.get(1).cloned().unwrap_or_default()
                     ));
                 }
-                if !node.auto_save && node.use_temporary {
-                    // A temporary buffer that is not saved never holds a row the triggers can read.
+                // UseTemporary with AutoSave = false: the triggers run as for a saved row and see the imported values, the temporary
+                // table holds only what a trigger inserts, the database is unchanged (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:519-600,
+                // QS_*_AutoSaveFalse*, and :447 XmlPort_UseTemporary_AutoSaveFalse_Import). Pinned for a table element right below the
+                // root, Xml and VariableText, without AutoUpdate or AutoReplace.
+                let below_root = raw
+                    .parent
+                    .is_some_and(|p| layout.nodes[p].kind == ir::XmlNodeKind::Text && layout.nodes[p].parent.is_none());
+                if !node.auto_save
+                    && node.use_temporary
+                    && (!below_root
+                        || node.auto_update
+                        || node.auto_replace
+                        || layout.format == ir::XmlFormat::FixedText)
+                {
                     reasons.push(format!(
                         "table element {}: UseTemporary with AutoSave = false",
                         raw.name

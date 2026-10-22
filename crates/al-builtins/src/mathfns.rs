@@ -121,7 +121,10 @@ fn power(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (Some(base), Some(exp)) = (dec(&a[0]), dec(&a[1])) else {
         return unsupported(format!("Power of {} and {}", a[0].describe(), a[1].describe()));
     };
-    if exp.fract() != Decimal::ZERO || exp.abs() > Decimal::from(10_000) {
+    // A fraction, a huge or a negative exponent goes through a double, 15 significant digits: `Power(3, -1)` is
+    // 0.333333333333333 (types/lt-decimal-digits/DecimalDigits.al:151,162), `Power(10, -10)` 0.0000000001
+    // (misc/lt-probes-needed-2/PnBDateFormat.al:425,439).
+    if exp.fract() != Decimal::ZERO || exp.abs() > Decimal::from(10_000) || exp.is_sign_negative() {
         use rust_decimal::prelude::ToPrimitive;
         let (Some(b), Some(e)) = (base.to_f64(), exp.to_f64()) else {
             return overflow();
@@ -142,12 +145,6 @@ fn power(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let mut result = Decimal::ONE;
     for _ in 0..n.unsigned_abs() {
         result = match result.checked_mul(base) {
-            Some(r) => r,
-            None => return overflow(),
-        };
-    }
-    if n < 0 {
-        result = match Decimal::ONE.checked_div(result) {
             Some(r) => r,
             None => return overflow(),
         };
@@ -247,6 +244,9 @@ mod tests {
         is_dec(p(1, 100), "1");
         is_dec(p(0, 0), "1");
         is_dec(p(2, -1), "0.5");
+        // A negative exponent goes through a double: 15 significant digits (types/lt-decimal-digits/DecimalDigits.al:151,162).
+        is_dec(p(3, -1), "0.333333333333333");
+        is_dec(p(10, -10), "0.0000000001");
         is_dec(p(2, 10), "1024");
         is_dec(call("System.Power#1", vec![d("1.5"), Value::Integer(2)]), "2.25");
     }
