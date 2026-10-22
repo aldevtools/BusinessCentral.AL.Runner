@@ -1,6 +1,6 @@
 ---
 title: "Migrating from version 2"
-weight: 11
+weight: 12
 ---
 
 Version 3 replaces version 2. Version 2 was written in C# on top of Business
@@ -27,7 +27,7 @@ If you maintain a tool that calls AL Runner, read
 | Command | `al-runner [FLAGS] DIR...` | `al-runner test [FLAGS] APP...` |
 | Input | A "bundle" folder | An app folder, a source archive or an `.app` with source. Name the app and its test app. |
 | Unsupported surface | The test fails with `RunnerOutOfScopeException` | The test is **not run**, with a reason. Exit code 7. |
-| Compile errors | Exit code 3 | What cannot be compiled becomes "not run" rows. There is no exit code 3. |
+| Compile errors | Exit code 3 | An AL compiler error (the ones the must-not-compile corpus pins) still exits 3. Source the parser does not accept becomes "not run" rows, with exit 7. |
 | Test data | `--test-data`, needs the `bcbak` reader | On by default with Microsoft's apps. `--no-test-data` turns it off. No separate reader to install. |
 | Failure text | May carry a .NET prefix such as `NavNCLDialogException:` | The Business Central message only. |
 | Stack trace | A .NET stack | The AL call stack. |
@@ -48,7 +48,7 @@ If you maintain a tool that calls AL Runner, read
 | `--output-junit PATH` | `--junit FILE` |
 | `--output-json` | `--output-json [FILE]`, same shape. With no FILE it is the only thing on stdout. |
 | `--coverage` | Same, plus `--coverage-out FILE` and `--coverage-json FILE`. |
-| `--tdd` | Same flag. Missing procedures and overloads are stubbed so far; missing fields, enum values and objects are not yet. |
+| `--tdd` | Same flag. Stubs missing procedures and overloads, fields, enum values, and missing codeunits, tables and enums. |
 | `--server` | `al-runner serve`, same protocol. |
 | `--define`, `--preprocessor-symbols` | Same. |
 | `--country` | Same. |
@@ -57,9 +57,10 @@ If you maintain a tool that calls AL Runner, read
 | `--seed N` | Not accepted. Version 3 prints no seed. |
 | `--jobs N` | Gone. Test codeunits run on worker threads automatically. |
 | `--watch` | Not available. |
-| `--dap [PORT]` | Not available yet. |
+| `--dap [PORT]`, `--dap stdio` | `al-runner debug [--port [N] \| --stdio]`, same DAP surface. See [Editor and tool integration](editor-tools.md#debugging). |
 | `--dump-csharp DIR` | Gone. There is no C# stage. |
-| `--affected`, `--include-failing`, `--strict-environment`, `--per-suite` | Refused with exit 2. `--affected` is planned. |
+| `--affected`, `--include-failing`, `--strict-environment` | Same flags. The strict behavior of `--strict-environment` is always on. See [Writing tests](writing-tests.md#running-only-what-a-change-affects). |
+| `--per-suite` | Refused with exit 2. |
 | `--auto-provision` | Accepted and ignored. Version 3 always downloads, unless `--no-download`. |
 | `--count-baseline`, `--expectations` | Gone. |
 
@@ -75,7 +76,7 @@ cache root, and the `AL_RUNNER_ARTIFACTS_ROOT`, `_CACHE_ROOT`, `_SYMBOLS_ROOT` a
 | 0 | All passed | All passed |
 | 1 | A test failed | A test failed |
 | 2 | A bundle could not execute | Bad invocation, or the run could not start |
-| 3 | A bundle could not compile | Not used |
+| 3 | A bundle could not compile | The apps do not compile (an AL compiler error). No test ran. |
 | 4, 5 | Baseline and expectations mismatches | Not used |
 | 6 | The selection matched no test | The selection matched no test |
 | 7 | Not used | Some tests were not run |

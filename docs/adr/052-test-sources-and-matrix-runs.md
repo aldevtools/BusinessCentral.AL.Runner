@@ -486,9 +486,10 @@ the serve refusal test in `args.rs`.
   contains `test` (any case): the platform artifact keeps test apps in `Test`, `Tests` and `Test Library` folders, a
   country artifact keeps all apps in one folder where only the file name says it. A candidate is a test app when its
   source holds a `Subtype = Test` codeunit; the others (test libraries, the test framework) are left out with a line.
-- **`_Exclude_` apps.** Test apps whose artifact name starts with `_Exclude_` (`_Exclude_APIV2_ Tests`) are left out
-  by default, with a line; `--app` runs them. The prefix marks apps Microsoft keeps apart; whether its own CI runs
-  them was not checked.
+- **`_Exclude_` apps.** Test apps whose artifact name starts with `_Exclude_` (`_Exclude_APIV2_ Tests`) run by
+  default, like every other test app. Checked on 2026-10-22: Microsoft's own CI runs them (BCApps `releases/29.x`,
+  run 39519586834, all five W1 test jobs: "Dispatching '_Exclude_APIV1_ Tests'"; 11 of the 129 dispatched test apps
+  carry the prefix). Until then (build step 1) they were left out unless `--app` named them.
 - **The Legacy lane's package.** The run fetches the platform artifact's RapidStart package
   (`ConfigurationPackages/*ENU.EXTENDED*.rapidstart`) into `<cache>/artifacts/<build>/packages/` once and gives it to
   every app's Legacy lane. Before this, `--recipe microsoft` found the package only in an extracted artifact on disk,
@@ -603,3 +604,27 @@ of Microsoft's BCApps CI for `releases/29.x` (run 39519586834). Three rules of t
 After the change no codeunit of the artifact is in another lane than Microsoft's job ran it in. The remaining count
 differences are the build (Microsoft's run is 29.1 from the branch, with 458 tests the 29.0 artifact lacks) and the
 test apps the artifact does not hold.
+
+## Decided without owner review (2026-10-22, test apps the artifact lacks)
+
+Microsoft's CI for BCApps `releases/29.x` (run 39519586834) dispatched 15 test apps the BC 29 artifact has no source
+archive of: AlCosting, BC14 Reimplementation Tool Tests, Business Central Cloud Migration - Previous Release Tests,
+Business Central Intelligent Cloud Tests, Intelligent Cloud Base Tests, E-Document Connector - Microsoft 365 Tests,
+`_Exclude_Connectivity Apps Tests`, `_Exclude_Onboarding Signals Tests`, Expense Agent Tests, Red Team Scan Test Library
+and the five `*-Internal` apps (TestRunner, Tests-DotNet, Tests-Integration, Tests-MOCKSERVICETESTS, Tests-NewObjects).
+All 15 are public in BCApps on the release branch, the `*-Internal` ones included.
+
+- **Which apps.** The test apps of a run are the artifact's, plus the `testFolders` of the projects that the country's
+  `Test Apps <COUNTRY>` project tests (`projectsToTest`) whose app the artifact does not hold. An `appFolders` app with
+  tests is not taken: Microsoft did not dispatch Agent Samples Tests, which is one.
+- **Same app in both.** Names are compared without case, punctuation, spaces or a final `s` (`FORNAV`/`ForNAV`,
+  `Subcontracting-Tests`/`Subcontracting Test`, `OnPrem Permissions Tests`/`Test`).
+- **Source and dependencies.** The branch is the recipe's (`releases/<major>.<minor>` of the build). First every
+  listed folder's `app.json` is fetched (one sparse clone, cached per pattern in `<cache>/bcapps/<major>.<minor>-sources`),
+  then the folders of the chosen test apps and of the dependencies the artifact lacks (Intelligent Cloud Base), which
+  the run gets as `--dep`. Dependencies the artifact has come from the artifact. The branch's source can be newer than
+  the artifact's build; Microsoft builds both from the branch.
+- **Spelling.** The settings spell folders as Windows reads them (`ForNav/Test` for `ForNAV/Test`); the fetch and the
+  reads match folders without case.
+- **Not public.** A test folder the settings list but the branch lacks is printed as `not in BCApps: <folder>`. For BC
+  29 there is none.

@@ -1,6 +1,6 @@
 ---
 title: "Continuous integration"
-weight: 7
+weight: 8
 ---
 
 AL Runner needs no Docker, no SQL Server and no license, so it runs on an ordinary
@@ -58,10 +58,13 @@ jobs:
 ## Microsoft's own test apps
 
 ```bash
-al-runner test Tests-ERM.Source.zip --junit erm.xml --allow-not-run
+al-runner test-microsoft --app Tests-ERM --junit erm --allow-not-run
+al-runner test ./MyApp ./MyApp.Test --affected-from microsoft --junit results.xml
 ```
 
-See [Test data](test-data.md) for the recipe that matches Microsoft's CI.
+See [Running Microsoft's tests](microsoft-tests.md). To skip tests your change
+cannot affect, restore and save the stored result of `--affected` between builds
+with `--affected-store FILE`; see [Writing tests](writing-tests.md#running-only-what-a-change-affects).
 
 ## AL-Go
 

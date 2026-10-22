@@ -1117,7 +1117,8 @@ fn a_stub_field_is_declared_on_each_request_and_the_real_field_ends_it() {
     s.line();
 }
 
-/// Issue 5604: a changed resource file is seen by the next request, which does not reuse the earlier compile.
+/// Issue 5604: a changed resource file is seen by the next request. Issue 5635: resources are run-time data, so the
+/// request reuses the earlier compile (`cached`).
 #[test]
 fn a_changed_resource_file_is_seen_by_the_next_request() {
     let d = tempfile::tempdir().unwrap();
@@ -1144,5 +1145,207 @@ fn a_changed_resource_file_is_seen_by_the_next_request() {
     write(&a, "ProbeResources/active.txt", "M0002");
     let lines = run(&mut s);
     assert!(lines[0]["message"].as_str().unwrap().contains("res=M0002"), "{lines:?}");
-    assert_eq!(lines.last().unwrap()["cached"], false, "{lines:?}");
+    assert_eq!(lines.last().unwrap()["cached"], true, "{lines:?}");
+}
+
+/// Issue 5635: the install code of a request that reuses the compile reads the resource files as they are now.
+#[test]
+fn install_code_reads_the_changed_resource_file_of_a_reused_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = d.path().join("res");
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000005635","name":"ResInstall","publisher":"Test","version":"1.0.0.0","dependencies":[],"resourceFolders":["ProbeResources"]}"#,
+    );
+    write(&a, "ProbeResources/active.txt", "M0001");
+    write(
+        &a,
+        "src/T.al",
+        "table 50651 \"Res Row\" { fields { field(1; PK; Code[10]) { } field(2; Val; Text[30]) { } } keys { key(PK; PK) { } } }
+codeunit 50652 \"Res Install\" { Subtype = Install; trigger OnInstallAppPerCompany() var R: Record \"Res Row\"; begin R.PK := 'A'; R.Val := NavApp.GetResourceAsText('active.txt'); R.Insert(); end; }
+codeunit 50653 \"Res Install Tests\" { Subtype = Test; [Test] procedure InstalledIs() var R: Record \"Res Row\"; begin R.Get('A'); Error('inst=%1', R.Val); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let run = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50653.InstalledIs"}));
+        s.until_summary()
+    };
+    let lines = run(&mut s);
+    assert!(
+        lines[0]["message"].as_str().unwrap().contains("inst=M0001"),
+        "{lines:?}"
+    );
+    write(&a, "ProbeResources/active.txt", "M0002");
+    let lines = run(&mut s);
+    assert!(
+        lines[0]["message"].as_str().unwrap().contains("inst=M0002"),
+        "{lines:?}"
+    );
+    assert_eq!(lines.last().unwrap()["cached"], true, "{lines:?}");
+}
+
+/// An app whose code reads its active mutant from a resource file (issue 5635), with a test that writes a row.
+fn mutant_app(d: &Path) -> std::path::PathBuf {
+    let a = d.join("mut");
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000056351","name":"Mut","publisher":"Test","version":"1.0.0.0","dependencies":[],"resourceFolders":["ProbeResources"]}"#,
+    );
+    write(&a, "ProbeResources/active.txt", "M0000");
+    write(&a, "ProbeResources/other.txt", "unchanged");
+    write(
+        &a,
+        "src/T.al",
+        "table 50660 \"Mut Row\" { fields { field(1; PK; Code[10]) { } } keys { key(PK; PK) { } } }
+codeunit 50661 \"Mut Tests\" { Subtype = Test;
+[Test] procedure Active() begin Error('active=%1 other=%2', NavApp.GetResourceAsText('active.txt'), NavApp.GetResourceAsText('other.txt')); end;
+[Test] procedure WritesARow() var R: Record \"Mut Row\"; begin if not R.IsEmpty() then Error('a row of another entry'); R.PK := 'A'; R.Insert(); end;
+[Test] procedure Passes() begin end; }",
+    );
+    a
+}
+
+/// Issue 5635: one runTests request with several entries, each with its own resource override and tests. The test lines
+/// carry the entry, each entry has its own summary, each starts from the same database, and one compile serves all.
+#[test]
+fn entries_run_their_own_tests_with_their_own_resources_on_one_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = mutant_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "m1", "resources": {"active.txt": "M0001"}, "test": "Codeunit50661.Active"},
+        {"id": "m2", "resources": {"active.txt": "M0002"}, "test": "Codeunit50661.", "excludeTests": ["Codeunit50661.Passes"]},
+        {"id": "plain", "test": "Codeunit50661.WritesARow"},
+    ]}));
+    let lines = s.until_summary();
+    let tests: Vec<(String, String, String, String)> = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            (
+                l["entry"].as_str().unwrap_or("?").to_string(),
+                l["name"].as_str().unwrap().to_string(),
+                l["status"].as_str().unwrap().to_string(),
+                l["message"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    let t = |entry: &str, name: &str| {
+        tests
+            .iter()
+            .find(|x| x.0 == entry && x.1 == name)
+            .unwrap_or_else(|| panic!("{entry} {name}: {lines:?}"))
+            .clone()
+    };
+    assert!(
+        t("m1", "Codeunit50661.Active")
+            .3
+            .contains("active=M0001 other=unchanged"),
+        "{lines:?}"
+    );
+    assert!(
+        t("m2", "Codeunit50661.Active")
+            .3
+            .contains("active=M0002 other=unchanged"),
+        "{lines:?}"
+    );
+    assert_eq!(t("m2", "Codeunit50661.WritesARow").2, "pass", "{lines:?}");
+    assert_eq!(
+        t("plain", "Codeunit50661.WritesARow").2,
+        "pass",
+        "a new database for each entry: {lines:?}"
+    );
+    assert_eq!(tests.len(), 4, "only the selected tests of each entry: {lines:?}");
+    let entry_summaries: Vec<&Value> = lines.iter().filter(|l| l["type"] == "entrySummary").collect();
+    assert_eq!(entry_summaries.len(), 3, "{lines:?}");
+    assert_eq!(entry_summaries[1]["entry"], "m2");
+    assert_eq!(entry_summaries[1]["total"], 2);
+    assert_eq!(entry_summaries[1]["failed"], 1);
+    assert_eq!(entry_summaries[1]["passed"], 1);
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["type"], "summary");
+    assert_eq!(summary["total"], 4, "{summary}");
+    assert_eq!(summary["passed"], 2, "{summary}");
+    assert_eq!(summary["failed"], 2, "{summary}");
+    // The resource files on disk are as they were: a second request sees them, on the same compile.
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50661.Active"}));
+    let lines = s.until_summary();
+    assert!(
+        lines[0]["message"].as_str().unwrap().contains("active=M0000"),
+        "{lines:?}"
+    );
+    assert_eq!(lines.last().unwrap()["cached"], true, "{lines:?}");
+}
+
+/// Issue 5635: what an entry may not say is an error of the request.
+#[test]
+fn entries_that_cannot_run_are_an_error_of_the_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = mutant_app(d.path());
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    for (request, says) in [
+        (json!({"entries": [{"resources": {"missing.txt": "x"}}]}), "missing.txt"),
+        (json!({"entries": [{"tests": "x"}]}), "unknown field `tests`"),
+        (json!({"entries": [{"resources": {"active.txt": 1}}]}), "resources"),
+        (json!({"entries": [], "test": "Codeunit50661."}), "`test`"),
+        (json!({"entries": [{}], "coverage": true}), "coverage"),
+        (json!({"entries": [{}], "affectedOnly": true}), "affectedOnly"),
+        (json!({"entries": "x"}), "entries"),
+    ] {
+        let mut r = request.as_object().unwrap().clone();
+        r.insert("command".into(), json!("runTests"));
+        r.insert("sourcePaths".into(), json!([a]));
+        s.send(Value::Object(r));
+        let lines = s.until_summary();
+        let e = lines.last().unwrap()["error"].as_str().unwrap_or_default().to_string();
+        assert!(e.contains(says), "{request}: {lines:?}");
+    }
+}
+
+/// Issue 5635: with no dependency app the install code runs in each test codeunit's session, so it reads the entry's
+/// resource texts (an install baseline that ran once is `al-testrun`'s `entries` test).
+#[test]
+fn the_install_code_of_an_app_without_dependencies_reads_the_resources_of_the_entry() {
+    let d = tempfile::tempdir().unwrap();
+    let a = d.path().join("res");
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000056352","name":"ResEntries","publisher":"Test","version":"1.0.0.0","dependencies":[],"resourceFolders":["ProbeResources"]}"#,
+    );
+    write(&a, "ProbeResources/active.txt", "M0001");
+    write(
+        &a,
+        "src/T.al",
+        "table 50670 \"Res Row\" { fields { field(1; PK; Code[10]) { } field(2; Val; Text[30]) { } } keys { key(PK; PK) { } } }
+codeunit 50671 \"Res Install\" { Subtype = Install; trigger OnInstallAppPerCompany() var R: Record \"Res Row\"; begin R.PK := 'A'; R.Val := NavApp.GetResourceAsText('active.txt'); R.Insert(); end; }
+codeunit 50672 \"Res Install Tests\" { Subtype = Test; [Test] procedure InstalledIs() var R: Record \"Res Row\"; begin R.Get('A'); Error('inst=%1', R.Val); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "own", "resources": {"active.txt": "M0002"}},
+        {"id": "plain"},
+    ]}));
+    let lines = s.until_summary();
+    let test = |entry: &str| {
+        lines
+            .iter()
+            .find(|l| l["type"] == "test" && l["entry"] == entry)
+            .unwrap_or_else(|| panic!("{entry}: {lines:?}"))
+            .clone()
+    };
+    assert!(
+        test("own")["message"].as_str().unwrap().contains("inst=M0002"),
+        "{lines:?}"
+    );
+    assert!(
+        test("plain")["message"].as_str().unwrap().contains("inst=M0001"),
+        "{lines:?}"
+    );
 }
