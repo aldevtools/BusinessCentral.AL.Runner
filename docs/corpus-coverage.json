@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "2be1140131dff704c735d0ce58a4eb21472d2d9b",
+  "corpus_commit": "381a4ee3d9523f5e75d0a9f205229ce00e981959",
   "language": {
     "bc": "27-29",
     "implemented": 1501,
@@ -11437,7 +11437,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(BigText, [Integer])",
-        "site": "types/lt-aj-probes/AjMisc.al:287",
+        "site": "types/lt-aj-probes/AjMisc.al:290",
         "state": "implemented",
         "type": "OutStream"
       },
@@ -32417,7 +32417,7 @@
           "id": "OutStream.Write#3",
           "pinned": true,
           "signature": "OutStream.Write inst (Value: BigText, ?Length: Integer) -> Integer?",
-          "site": "types/lt-aj-probes/AjMisc.al:287"
+          "site": "types/lt-aj-probes/AjMisc.al:290"
         },
         {
           "id": "OutStream.Write#4",
