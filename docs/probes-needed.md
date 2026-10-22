@@ -1210,3 +1210,9 @@ QR_List_OpenView_SetCurrentKeyGet. Code: `read_rec_in_its_key`, `open_on_rec_mov
 | A list in a key other than the primary key whose view has one row, or more rows than a window holds, at the open | REFUSED | QS_KeyAsc_List over 1 row and over 25 rows | pages/rows.rs |
 | A list over a temporary source, in a key OnOpenPage changed, opened on a row other than the first | REFUSED | QR_TempList with SetCurrentKey(Name) in OnOpenPage | pages/open.rs |
 | A Card or List in a key other than the primary key opened with TestPage OpenEdit | Runs as OpenView and Page.Run (read first, then the find); only OpenView, Page.Run and RunModal are pinned | QS_KeyAsc_Card and _List with OpenEdit | pages/open.rs |
+
+## Field table row of SystemRowVersion (lane-np-runtime, 2026-10-22)
+
+| Behavior | Status | Probe wanted | Code |
+|---|---|---|---|
+| Whether the Field table lists SystemRowVersion (No. 0, FieldName `timestamp`) for a table that declares a key over SystemRowVersion, in its own keys or through a tableextension key. A table without such a key has no row (W6FieldKeyRows.al:263-270, TestFieldLenAndFeatureKeyContracts.al:107-116) | REFUSED: a Field read that could see that row (a FieldName filter of `timestamp`, a scan or count of the table's rows, a filter on any other column). A lookup by another field's name or number still answers | On a table with `key(Rv; SystemRowVersion)` and one through a tableextension over a Base Application table: `Field.SetRange(TableNo, ..); Field.SetRange(FieldName, 'timestamp'); FindFirst`, then Count and the list of No./FieldName/Type/Class, and `Data Type Management.FindFieldByName(RecRef, FldRef, 'timestamp')` with `FldRef.Number()` | `al-vm/src/platform/fields.rs` `rowversion_key_row` |

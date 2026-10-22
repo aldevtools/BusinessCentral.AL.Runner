@@ -429,6 +429,17 @@ impl Lowerer<'_> {
                         Ok(p) => ir::Arg::Ref(p),
                         Err(_) => ir::Arg::Value(self.expr(r)?),
                     })),
+                    // `this.Run()` in a codeunit runs the codeunit's own instance: its globals see the run, an error is
+                    // returned when the result is used, and the record form hands the record to OnRun
+                    // (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:6-140, the ThisRun_* tests).
+                    None if sig.instance
+                        && id == "Codeunit.Run#1"
+                        && self.ws.objects[self.oi].kind == ObjKind::Codeunit
+                        && callee.kind() == SyntaxKind::MemberExpr
+                        && callee.children().next().is_some_and(|r| crate::check::is_this_keyword(&r)) =>
+                    {
+                        Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
+                    }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))

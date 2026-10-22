@@ -169,11 +169,42 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 }
             }
         }
+        if let Some(e) = rowversion_key_row(schema, t, &blank, tid, &o.name) {
+            out.push(e);
+        }
         if user_name_fields {
             out.extend(user_name_system_field_rows(t, &blank, tid));
         }
     }
     out
+}
+
+/// The Field row of the rowversion of a table that declares a key over SystemRowVersion (its own key or one a
+/// tableextension adds). A table without such a key has no row for it (metadata/W6FieldKeyRows.al:263-270,
+/// record/TestFieldLenAndFeatureKeyContracts.al:107-116); whether a table with one has a row is not pinned
+/// (docs/probes-needed.md). The row is poisoned: a read that might see it is refused. Its number is 0 and its name
+/// `timestamp`, the number and name of RecordRef.Field(FieldNo(SystemRowVersion))
+/// (record/TestRowVersionFieldNumberFieldActiveContracts.al:63-67). The name is kept as known so that a lookup by the name
+/// of another field (names are unique in a table) still answers.
+fn rowversion_key_row(schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32, table: &str) -> Option<Entry> {
+    let rv = schema.fields.iter().position(|f| f.id == 2_000_000_005)?;
+    if !schema.keys.iter().any(|k| k.contains(&rv)) {
+        return None;
+    }
+    let mut r = blank.row();
+    r[pos(t, 1)] = Value::Integer(tid as i32);
+    r[pos(t, 2)] = Value::Integer(0);
+    let name = pos(t, 4);
+    r[name] = Value::Text("timestamp".into());
+    Some(
+        Entry::poisoned(
+            r,
+            format!(
+                "the Field table row of SystemRowVersion of table '{table}', which declares a key over SystemRowVersion: whether such a table lists its rowversion in the Field table is not pinned (docs/probes-needed.md)"
+            ),
+        )
+        .with_known_cols(vec![name]),
+    )
 }
 
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class

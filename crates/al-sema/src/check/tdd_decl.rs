@@ -115,7 +115,7 @@ pub fn needs(ws: &Workspace, checked: &CheckResult) -> Vec<TddNeed> {
                     },
                 });
             }
-            (TddKind::EnumValue, _) => push(TddNeed::EnumValue {
+            (TddKind::EnumValue, TddRet::NoValue) => push(TddNeed::EnumValue {
                 app,
                 enum_name: ws.objects[site.object].name.clone(),
                 name: site.name.clone(),
@@ -652,6 +652,100 @@ enum 50101 "Color"
         );
         assert!(l.program.tdd_stubs.is_empty(), "{:?}", l.program.tdd_stubs);
         assert!(ws.apps[1].files.iter().all(|(p, _)| p != super::TDD_FILE));
+    }
+
+    /// v2 (`TddGeneration.cs`) takes a stub enum value from any `X::V` whose left side is of an enum type: a variable
+    /// (`K::Blue`) and the bare type name (`"Color"::Teal`), as `Enum::"Color"::V`.
+    #[test]
+    fn an_enum_value_through_a_variable_or_the_bare_type_name_is_a_stub_value() {
+        let (ws, l) = compile("K: Enum \"Color\";", "K := K::Blue; K := \"Color\"::Teal;", true);
+        assert!(reasons(&ws, &l).is_empty(), "{:?}", reasons(&ws, &l));
+        for want in [r#"Color: value "Blue""#, r#"Color: value "Teal""#] {
+            assert!(
+                l.program.tdd_stubs.contains(&want.to_string()),
+                "{want}: {:?}",
+                l.program.tdd_stubs
+            );
+        }
+    }
+
+    /// Compiles a dependency app holding `dep` and a test app (depending on it) whose test has `vars` and `body`.
+    fn compile_on_dependency(dep: &str, vars: &str, body: &str) -> (crate::Workspace, crate::lower::Lowered) {
+        let test = format!(
+            "codeunit 50110 \"T\"\n{{\n    Subtype = Test;\n    [Test]\n    procedure P()\n    var\n{vars}\n    begin\n{body}\n    end;\n}}\n"
+        );
+        crate::lower::compile_apps_with(
+            vec![
+                AppSource {
+                    id: "dep".into(),
+                    name: "dep".into(),
+                    dependencies: vec![],
+                    files: vec![("dep.al".into(), dep.into())],
+                },
+                AppSource {
+                    id: "a".into(),
+                    name: "a".into(),
+                    dependencies: vec!["dep".into()],
+                    files: vec![("test.al".into(), test)],
+                },
+            ],
+            vec![AppKind::Dependency, AppKind::Workspace],
+            &Default::default(),
+            None,
+            crate::check::Roots {
+                tdd: true,
+                tdd_id_ranges: [("a".to_string(), vec![(50100, 50119)])].into_iter().collect(),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// v2 (`TddGeneration.PackageMembers.cs`) refuses a stub value on a dependency enum that is not extensible and a
+    /// stub field on a dependency table with `Extensible = false`: the developer cannot add the member there, and an
+    /// extension of such an object does not compile in BC.
+    #[test]
+    fn a_dependency_enum_or_table_that_is_not_extensible_gets_no_stub_member() {
+        const DEP: &str = r#"
+table 50300 "Dep Item"
+{
+    Extensible = false;
+    fields { field(1; "No."; Code[20]) { } }
+}
+table 50301 "Dep Open Item"
+{
+    fields { field(1; "No."; Code[20]) { } }
+}
+enum 50302 "Dep Kind"
+{
+    value(0; Small) { }
+}
+enum 50303 "Dep Open Kind"
+{
+    Extensible = true;
+    value(0; Small) { }
+}
+"#;
+        let (ws, l) = compile_on_dependency(
+            DEP,
+            "        Item: Record \"Dep Item\";\n        K: Enum \"Dep Kind\";",
+            "Item.Weight := 7; K := Enum::\"Dep Kind\"::Large;",
+        );
+        let got = reasons(&ws, &l);
+        for want in [
+            "--tdd: the table \"Dep Item\" is not extensible: no stub field Item.Weight can be added to it",
+            "--tdd: the enum \"Dep Kind\" is not extensible: no stub value Large can be added to it",
+        ] {
+            assert!(got.iter().any(|r| r.contains(want)), "{want}: {got:?}");
+        }
+        assert!(l.program.tdd_stubs.is_empty(), "{:?}", l.program.tdd_stubs);
+        // The extensible ones get their stubs.
+        let (ws, l) = compile_on_dependency(
+            DEP,
+            "        Item: Record \"Dep Open Item\";\n        K: Enum \"Dep Open Kind\";",
+            "Item.Weight := 7; K := Enum::\"Dep Open Kind\"::Large;",
+        );
+        assert!(reasons(&ws, &l).is_empty(), "{:?}", reasons(&ws, &l));
+        assert_eq!(l.program.tdd_stubs.len(), 2, "{:?}", l.program.tdd_stubs);
     }
 
     #[test]

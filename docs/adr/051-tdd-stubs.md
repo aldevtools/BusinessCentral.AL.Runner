@@ -241,8 +241,35 @@ dependency extensions, free ids, flagging); 1 for output (text, JSON, serve, JUn
   test app, that is no field of the record's table and no local or global variable, is a stub field site, as `Rec.F`
   is. Its type comes from the value arguments by the Variant rule of decision 3 (`Validate(F, 5)` and
   `SetRange(F, 1, 10)` give Integer; `SetRange(F)` alone gives no type and is refused). The other methods that take a
-  field argument (`TestField`, `SetFilter`, `CalcFields`, `FieldNo`, ...) are not stub sites yet.
+  field argument followed (next section).
 - Test: `crates/alrunner-cli/tests/tdd.rs`, `a_field_named_by_validate_or_setrange_is_a_stub_field`.
+
+## Decided without owner review (2026-10-22, other field arguments and v2 parity)
+
+- **Other field-argument methods.** The field argument of `TestField`, `SetFilter`, `ModifyAll`, `FieldNo` and
+  `FieldCaption` (the first argument) and of `CalcFields` and `SetCurrentKey` (every argument) is a stub field site, as
+  for `Validate` and `SetRange`. The type comes from the value arguments only: the value of `Validate`, `TestField`
+  (an `ErrorInfo` argument is skipped) and `ModifyAll`, the bounds of `SetRange`, and the substitution values of
+  `SetFilter` (`SetFilter(F, '>%1', 5)` gives Integer; the filter text says nothing about the field's type). Values of
+  different types are refused; a value that is itself an untyped stub is refused as both sides unknown. A method without
+  a value (`FieldNo(F)`, `FieldCaption(F)`, `SetCurrentKey(F)`, `TestField(F)`, `SetFilter(F, 'RED')`) gives no type:
+  another use of the field in the test app must type it (the next compile then declares it and the method resolves to
+  the stub field, flagging the test), or the routine is refused with "cannot infer the type of the stub field".
+- **CalcFields.** `CalcFields` of a stub field is refused, also when another use typed and declared it: "--tdd:
+  CalcFields of the stub field Item.F: a stub field is not a FlowField". A stub field is a Normal field.
+- **Not extensible.** A stub value on a dependency enum that is not `Extensible = true`, and a stub field on a
+  dependency table with `Extensible = false`, are refused ("--tdd: the enum "E" is not extensible: no stub value V can
+  be added to it"), as v2 (`TddGeneration.PackageMembers.cs`). An object of the workspace always takes a stub: the
+  developer adds the member to the object itself.
+- **v2 kinds checked (branch `v2`).** v2 generates a subset of what AL Runner does (procedures only on codeunits,
+  fields only from an assignment, no Text or Code). Its `K::V` and `"E"::V` enum values were already stub sites
+  (unit test `an_enum_value_through_a_variable_or_the_bare_type_name_is_a_stub_value`). Not taken over: overloads keyed
+  by argument types (decision 2 keeps a same-count overload with other types a compile error), stub codeunits for
+  procedures of package objects (a stub here lives at the call site, decision 2), and generation into another source
+  bundle of a run (AL Runner compiles all apps of a run together).
+- Tests: `crates/alrunner-cli/tests/tdd.rs`, `a_field_named_by_other_field_methods_is_a_stub_field_and_calcfields_refuses`
+  (fixture `tdd/field-args-more`); `al-sema` `check::tdd_decl` tests
+  `a_dependency_enum_or_table_that_is_not_extensible_gets_no_stub_member`.
 
 ## Conformance
 

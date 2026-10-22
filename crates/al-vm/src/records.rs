@@ -1456,7 +1456,12 @@ impl Session {
             if let Value::Blob(b) = v {
                 let mut b = b.borrow_mut();
                 b.written = false;
-                b.fetched = true;
+                // A Blob the record read without CalcFields stays as stored by the save (record/lt-loadfields-pagesource-validate/
+                // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
+                // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
+                if b.loaded {
+                    b.fetched = true;
+                }
             }
         }
     }
