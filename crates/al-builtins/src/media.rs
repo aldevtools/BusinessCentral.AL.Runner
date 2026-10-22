@@ -45,6 +45,9 @@ pub enum FileColumn {
     Unpinned,
 }
 
+/// The Tenant Media MIME type of an imported .docx file (MediaFiles.al:503).
+const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 /// The eight bytes every PNG starts with.
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -270,6 +273,8 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         return unsupported("Media.ExportStream without an OutStream");
     };
     match &*h.borrow() {
+        // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
+        LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
@@ -393,6 +398,8 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
             ("image/png", size)
         }
+        // A Word package: MediaFiles.al:461-517 RD_Media_ImportFile_Docx (width and height 0).
+        ("docx", _, _) if bytes.starts_with(b"PK\x03\x04") => (DOCX_MIME, (0, 0)),
         _ => {
             return unsupported(format!(
                 "Media.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
@@ -400,6 +407,8 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         }
     };
     let description = text_arg(a, 1)?;
+    let pending = (mime == DOCX_MIME && c.gate(al_version::Gate::DocxMediaRezippedFrom29))
+        .then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
     let id = c.new_guid();
     store(c)?.objects.borrow_mut().insert(
         id,
@@ -411,7 +420,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             file_column: Some(FileColumn::Path(name)),
             width,
             height,
-            pending: None,
+            pending,
         },
     );
     if let Some(slot) = r {

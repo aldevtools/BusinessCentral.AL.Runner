@@ -67,6 +67,10 @@ thread_local! {
 /// (types/W7Media.al:141-151), and other content is not probed on those majors.
 pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 
+/// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
+/// does not pin (`Gate::DocxMediaRezippedFrom29`).
+pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
+
 /// The mark a stream write puts on a Blob of a record read without `CalcFields` while the stored content is longer than what
 /// was written: what the Blob holds then is not pinned (AL Runner issue 5681). A write that reaches the stored content's end
 /// clears it (`write_bytes`): both readings agree then (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:
@@ -85,6 +89,13 @@ pub fn render_pending_error(report: &str) -> Signal {
     if report == MEDIA_REENCODED {
         return Signal::Unsupported(
             "the bytes Media.ExportStream gives on a major that re-encodes an imported PNG (not pinned)".into(),
+        );
+    }
+    if report == MEDIA_DOCX_REZIPPED {
+        return Signal::Unsupported(
+            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on BC 29 (a re-zipped package on the Linux \
+             tier, not pinned: MediaFiles.al:505-509)"
+                .into(),
         );
     }
     // ADR-044 uses the same mark for the picture a `System.Drawing.Bitmap` was asked to save: the name is the .NET type.
