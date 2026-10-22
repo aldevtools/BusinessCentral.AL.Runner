@@ -65,6 +65,10 @@ The owner chose the warm design.
    database (item 4). The `test` lines carry `entry`, and one `entrySummary` line per entry comes before the summary.
    When the install baseline read a resource file, an entry with `resources` is not run (it would need a baseline of its
    own). Fields and answers: `docs/integrations/migrating-tools-to-v3.md`, section 4b.
+   Follow-ups (al-runner issues 5702 to 5704, 2026-10-22): `test` is one text, as in v2's protocol, and any other value
+   is an `error` (it was ignored, and every test ran); two entries with the same `id` are an `error`; each
+   `entrySummary` has its own `exitCode`, and an entry whose selection matches no test has exit code 6 and the reason
+   in `warnings`, the request's `warnings` name it and the request's exit code is 6.
 
 ## Measurements (release, 4 threads, 2026-10-15)
 

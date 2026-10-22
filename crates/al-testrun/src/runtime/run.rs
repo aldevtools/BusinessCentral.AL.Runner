@@ -312,7 +312,30 @@ pub(crate) fn run_codeunit_core(
             return all(Outcome::NotRun(format!("OnRun: {reason}")));
         }
         session.store_mut().watch(leak.clone());
+        // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
+        // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
+        // AL code observes.
+        session.clear_stop();
+        let watchdog = limit.map(|l| Watchdog::start_paused(session.stop_flag(), l, None, None));
+        session.start_sleep_budget(limit);
         let ran = session.call(object, on_run, instance.clone(), Vec::new());
+        let timed_out = watchdog.is_some_and(Watchdog::finish);
+        let slept_out = session.sleep_budget_passed();
+        let slept_ms = session.slept_in_test_ms();
+        session.end_sleep_budget();
+        // The reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s
+        // timeout.`); the rest names the trigger.
+        let ran = match ran {
+            Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+                "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+                limit.map_or(0, |l| l.as_secs())
+            ))),
+            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+                "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
+                limit.map_or(0, |l| l.as_secs())
+            ))),
+            r => r,
+        };
         if session.store_mut().watch_hit().is_some() {
             scratch.leak_hit = true;
         }
@@ -326,6 +349,9 @@ pub(crate) fn run_codeunit_core(
                 ));
             }
             Ok(_) => session.commit_transaction(),
+            Err(Signal::Unsupported(r)) if r.starts_with("the test used more than the time limit of ") => {
+                return all(Outcome::NotRun(r));
+            }
             Err(Signal::Unsupported(r)) => return all(Outcome::NotRun(format!("OnRun: {r}"))),
             Err(Signal::Error(e)) => {
                 return all(Outcome::NotRun(format!(
