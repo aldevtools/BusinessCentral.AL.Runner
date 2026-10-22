@@ -279,28 +279,38 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "PendingHasARow");
 }
 
-// A table without a key over SystemRowVersion has no Field row for it (metadata/W6FieldKeyRows.al:263-270,
-// record/TestFieldLenAndFeatureKeyContracts.al:107-116). Whether a table that declares such a key has one (No. 0,
-// named `timestamp` like RecordRef.Field(0): record/TestRowVersionFieldNumberFieldActiveContracts.al:63-67) is not
-// pinned, so a read that could see that row is refused; a read the row cannot touch still answers.
+// Every table has a Field row for its rowversion (No. 0, `timestamp`, BigInteger), which only a read filtered on TableNo
+// and FieldName = 'timestamp' finds; a scan by TableNo, a No. = 0 filter and Get(table, 0) do not see it, with a key over
+// SystemRowVersion or without (types/lt-aj-probes/AjMisc.al:468-510 QT_FieldTable_*, :609-637 RA_FieldTable_ScanByTableNo_*).
+// Another read the row's name passes is not pinned and refused.
 #[test]
-fn a_field_row_for_the_rowversion_of_a_table_with_a_rowversion_key_is_refused() {
+fn the_field_row_of_the_rowversion_answers_only_a_read_by_its_name() {
     let o = outcomes(
         r#"table 50003 "Rv Host" { fields { field(1; Id; Integer) { } field(2; Txt; Text[10]) { } }
   keys { key(PK; Id) { } key(Rv; SystemRowVersion) { } } }
 table 50004 "No Rv" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure FindsByName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then; end;
-  [Test] procedure CountsFields() var F: Record Field; begin F.SetRange(TableNo, 50003); if F.Count() = 0 then; end;
+  [Test] procedure FindsByName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); if (F."No." <> 0) or (F.Type <> F.Type::BigInteger) or (F.Len <> 8) then Error('wrong'); end;
+  [Test] procedure ScanSkipsIt() var F: Record Field; begin F.SetRange(TableNo, 50003); F.FindSet(); if F."No." <> 1 then Error('first %1', F."No."); F.SetRange("No.", 0); if not F.IsEmpty() then Error('No. = 0'); end;
+  [Test] procedure GetZeroNotFound() var F: Record Field; begin if F.Get(50003, 0) then Error('found'); end;
   [Test] procedure OtherName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'Txt'); F.FindFirst(); if F."No." <> 2 then Error('wrong'); end;
   [Test] procedure GetByNumber() var F: Record Field; begin F.Get(50003, 2); end;
-  [Test] procedure NoKeyNoRow() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then Error('listed'); end; }"#,
+  [Test] procedure NoKeyFindsIt() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); end;
+  [Test] procedure PatternRefused() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetFilter(FieldName, 'time*'); if F.FindFirst() then; end;
+  [Test] procedure NoTableNoRefused() var F: Record Field; begin F.SetRange(FieldName, 'timestamp'); if F.FindFirst() then; end; }"#,
     );
-    for t in ["FindsByName", "CountsFields"] {
+    for t in ["PatternRefused", "NoTableNoRefused"] {
         let why = not_run(&o, t);
         assert!(why.contains("SystemRowVersion"), "{t}: {why}");
     }
-    for t in ["OtherName", "GetByNumber", "NoKeyNoRow"] {
+    for t in [
+        "FindsByName",
+        "ScanSkipsIt",
+        "GetZeroNotFound",
+        "OtherName",
+        "GetByNumber",
+        "NoKeyFindsIt",
+    ] {
         passes(&o, t);
     }
 }
