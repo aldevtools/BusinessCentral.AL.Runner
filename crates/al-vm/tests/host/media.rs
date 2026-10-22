@@ -260,6 +260,17 @@ fn png() -> Vec<u8> {
 }
 
 fn import_file(body: &str) -> Result<String, Signal> {
+    import_file_on(None, body)
+}
+
+/// A Word package as far as the import looks at it: a zip local file header.
+fn docx() -> Vec<u8> {
+    let mut b = vec![b'P', b'K', 3, 4];
+    b.extend_from_slice(b"word/document.xml");
+    b
+}
+
+fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
     use al_host::FileSystem;
     let src = format!(
         "{TABLE}{TENANT_MEDIA}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; T: Record \"Tenant Media\"; id: Guid; {body} }}"
@@ -276,7 +287,12 @@ fn import_file(body: &str) -> Result<String, Signal> {
     files.write("\\TEMP\\b.png", &png()).unwrap();
     files.write("\\TEMP\\c.png", &jpeg()).unwrap();
     files.write("\\TEMP\\d.gif", &png()).unwrap();
-    let mut s = Session::with_host(al_testkit::engine(&l), al_host::Host::default().with_files(files));
+    files.write("\\TEMP\\E.PNG", &png()).unwrap();
+    files.write("\\TEMP\\t.docx", &docx()).unwrap();
+    files.write("\\TEMP\\u.docx", &jpeg()).unwrap();
+    let target = bc.map(|bc| al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap()));
+    let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), target);
+    let mut s = Session::with_host(engine, al_host::Host::default().with_files(files));
     let inst = s.instance(oi);
     match s.call(oi, ri, inst, vec![])?.0 {
         Value::Text(t) => Ok(t.to_string()),
@@ -315,7 +331,7 @@ fn import_file_of_other_content_or_a_media_set_stays_refused() {
     for body in [
         "begin Rec.Picture.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
         "begin Rec.Picture.ImportFile('\\TEMP\\d.gif', 'x'); exit(''); end;",
-        "begin Rec.Images.ImportFile('\\TEMP\\b.png', 'x'); exit(''); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\c.png', 'x'); exit(''); end;",
     ] {
         let r = import_file(body);
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
@@ -335,16 +351,83 @@ fn media_set_import_file_of_a_jpeg_fills_the_set() {
     assert_eq!(r.unwrap(), "1|Item picture|image/jpeg|3x2");
 }
 
+// onprem media/MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng: both ImportFile calls return the set's
+// id (MediaId, not an item's), a second file joins the set as Item(2) and a `.PNG` file holding a PNG is image/png with its
+// size; Count 2 and the order stay after Modify and Get.
 #[test]
-fn media_set_import_file_return_value_and_file_name_are_refused() {
+fn media_set_import_file_returns_the_set_id_and_a_png_joins_as_the_second_item() {
+    use al_builtins::assumptions::take_hits;
+    take_hits();
+    let r = import_file(
+        "id2: Guid; begin id := Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg item'); Rec.Code := 'A'; Rec.Insert(); \
+         id2 := Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png item'); Rec.Modify(); Rec.Get('A'); \
+         T.Get(Rec.Images.Item(2)); exit(Format(id = id2) + '|' + Format(id = Rec.Images.MediaId()) + '|' + \
+         Format(id = Rec.Images.Item(1)) + '|' + Format(Rec.Images.Count()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + \
+         Format(T.Width) + 'x' + Format(T.Height)); end;",
+    );
+    assert_eq!(r.unwrap(), "Yes|Yes|No|2|png item|image/png|4x5");
+    assert!(take_hits().is_empty());
+}
+
+#[test]
+fn media_set_import_file_file_name_and_a_third_member_are_refused() {
     for body in [
-        "begin id := Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); exit(Format(id)); end;",
         "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); T.Get(Rec.Images.Item(1)); exit(T.\"File Name\"); end;",
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); Rec.Images.ImportFile('\\TEMP\\E.PNG', 'y'); \
+         Rec.Images.ImportFile('\\TEMP\\a.jpg', 'z'); exit(''); end;",
     ] {
         let r = import_file(body);
         assert!(
             matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
             "{body}: {r:?}"
         );
+    }
+}
+
+// onprem media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
+// MIME type, width and height 0 and the path as File Name ('<tmp><name>'); on BC 27 and 28 the Tenant Media content and the
+// exported bytes are the file's. BC 29 on Linux stores a re-zipped package (a Linux suspect, :505-509 ignore it): there a look
+// at the row or at the export is refused.
+const DOCX_ROW: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(id = Rec.Picture.MediaId()) + '|' + \
+                        Format(Rec.Picture.HasValue()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + Format(T.Width) + 'x' + \
+                        Format(T.Height) + '|' + T.\"File Name\" + '|' + Format(T.Content.Length()));";
+
+#[test]
+fn import_file_of_a_docx_file_keeps_the_file_on_bc_28() {
+    let r = import_file_on(
+        Some("28.5"),
+        &format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
+    );
+    assert_eq!(
+        r.unwrap(),
+        "Yes|Yes|Template|application/vnd.openxmlformats-officedocument.wordprocessingml.document|0x0|\\TEMP\\t.docx|21"
+    );
+    let r = import_file_on(
+        Some("27.5"),
+        "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+         Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Src.CreateInStream(InS); \
+         InS.ReadText(t); exit(Format(B.Src.Length()) + '|' + CopyStr(t, 5, 4)); end;",
+    );
+    assert_eq!(r.unwrap(), "21|word");
+}
+
+#[test]
+fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
+    let ok = import_file_on(
+        Some("29.0"),
+        "begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); Rec.Code := 'A'; Rec.Insert(); \
+         exit(Format(Rec.Picture.HasValue())); end;",
+    );
+    assert_eq!(ok.unwrap(), "Yes");
+    for body in [
+        format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
+        "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+         B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); exit(Format(B.Src.Length())); end;"
+            .into(),
+        // A .docx name over content that is no zip package.
+        "begin Rec.Picture.ImportFile('\\TEMP\\u.docx', 'x'); exit(''); end;".into(),
+    ] {
+        let r = import_file_on(Some("29.0"), &body);
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
     }
 }

@@ -1131,22 +1131,43 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Tenant Web Service and Web Service take Insert, Modify and Delete from AL
-/// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds rows
-/// in Tenant Web Service that nothing pins (only the count, 64, in PtWebServiceRows.al:136), so a read that would
-/// count or scan them is refused, and a Get that finds nothing too.
+/// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds 64 Tenant Web Service rows, every
+/// column pinned (platform/lt-platform-rows-fresh/PlatformRowsWebService.al:66-199, count :215). Microsoft's DemoTool (Create
+/// Web Services) calls CreateTenantWebService for page 89, which finds 'Job List' (onprem platform/PtWebServiceRows.al:229).
 #[test]
-fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() {
+fn tenant_web_service_holds_the_rows_of_a_fresh_tenant_and_takes_writes() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Writes() var R: Record "Tenant Web Service"; W: Record "Web Service"; begin
     R.Init(); R."Object Type" := R."Object Type"::Page; R."Service Name" := 'Zed'; R.Insert();
     R."Object ID" := 21; R.Modify(); if not R.Get(R."Object Type"::Page, 'Zed') then Error('lost'); R.Delete();
     W.Init(); W."Object Type" := W."Object Type"::Page; W."Service Name" := 'Zed'; W.Insert(); W.Delete(); end;
-  [Test] procedure CountIsRefused() var R: Record "Tenant Web Service"; begin if R.Count() < 0 then; end;
-  [Test] procedure MissIsRefused() var R: Record "Tenant Web Service"; begin if R.Get(0, 'Nope') then; end; }"#,
+  [Test] procedure Rows() var R: Record "Tenant Web Service"; begin if R.Count() <> 64 then Error('count %1', R.Count());
+    R.FindFirst(); if (R."Object Type" <> R."Object Type"::Codeunit) or (R."Service Name" <> 'WorkflowActionResponse') or (R."Object ID" <> 1544) or not R.Published then Error('first');
+    if not R.Get(R."Object Type"::Page, 'Job List') then Error('89'); if (R."Object ID" <> 89) or R.ExcludeNonEditableFlowFields then Error('id');
+    if R.Get(R."Object Type"::Page, 'Nope') then Error('nope'); end; }"#,
     );
     passes(&o, "Writes");
-    for t in ["CountIsRefused", "MissIsRefused"] {
+    passes(&o, "Rows");
+}
+
+// A fresh tenant also holds 402 Tenant Web Service Columns and 29 Tenant Web Service OData rows (System Application tables 6711,
+// 6710; onprem platform/PtWebServiceRows.al:237 and :267, 'counts before' 17|64|402|29), which rows is not pinned: the runtime starts them
+// empty, so a read of rows the session did not write is refused, as for Tenant Web Service Filter (6712), whose rows nothing pins.
+#[test]
+fn tenant_web_service_columns_odata_and_filter_refuse_reads_of_rows_they_do_not_hold() {
+    let o = outcomes(
+        r#"table 6710 "Tenant Web Service OData" { fields { field(1; TenantWebServiceID; RecordId) { } } keys { key(PK; TenantWebServiceID) { } } }
+table 6711 "Tenant Web Service Columns" { fields { field(1; "Entry ID"; Integer) { } field(2; "Data Item"; Integer) { } } keys { key(PK; "Entry ID") { } } }
+table 6712 "Tenant Web Service Filter" { fields { field(1; "Entry ID"; Integer) { } } keys { key(PK; "Entry ID") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Writes() var C: Record "Tenant Web Service Columns"; begin C."Entry ID" := 7; C.Insert(); if not C.Get(7) then Error('lost'); C.Delete(); end;
+  [Test] procedure ColumnsCount() var C: Record "Tenant Web Service Columns"; begin if C.Count() < 0 then; end;
+  [Test] procedure ODataCount() var D: Record "Tenant Web Service OData"; begin if D.IsEmpty() then; end;
+  [Test] procedure FilterFind() var F: Record "Tenant Web Service Filter"; begin if F.FindFirst() then; end; }"#,
+    );
+    passes(&o, "Writes");
+    for t in ["ColumnsCount", "ODataCount", "FilterFind"] {
         let why = not_run(&o, t);
         assert!(why.contains("Tenant Web Service"), "{t}: {why}");
     }

@@ -209,6 +209,11 @@ pub enum Gate {
     /// CI's harness, not of the platform (codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 36-39). Consumed by
     /// `al-test-cli` (`RunOptions::required_isolation`).
     TestRunnerHubRequiredIsolationFrom28,
+    /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
+    /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
+    /// corpus ignores (al-language-onprem/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
+    /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
+    DocxMediaRezippedFrom29,
 }
 
 impl Gate {
@@ -267,6 +272,7 @@ impl Gate {
         Gate::HttpBlankHeaderNameIsFormatFrom29,
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::TestRunnerHubRequiredIsolationFrom28,
+        Gate::DocxMediaRezippedFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -302,7 +308,8 @@ impl Gate {
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
             | Gate::FrFrGroupSeparatorNoBreakSpaceFrom29
-            | Gate::HttpHandlerUnderDefaultPolicyFrom29 => 29,
+            | Gate::HttpHandlerUnderDefaultPolicyFrom29
+            | Gate::DocxMediaRezippedFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -339,6 +346,10 @@ impl Gate {
             Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 => &[Evidence {
                 file: "misc/lt-probes-needed-8/PnH4CurrReport.al",
                 lines: "247,311",
+            }],
+            Gate::DocxMediaRezippedFrom29 => &[Evidence {
+                file: "../al-language-onprem/media/MediaFiles.al",
+                lines: "506,511",
             }],
             Gate::HttpHandlerUnderDefaultPolicyFrom29 => &[Evidence {
                 file: "../al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al",

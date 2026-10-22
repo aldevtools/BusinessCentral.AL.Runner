@@ -3963,6 +3963,8 @@
 67107 EntityText_InsertModifyDelete
 67107 ObjectAccessIntentOverride_InsertModifyDelete
 67107 QX_ODataEdmType_RowsAndEdmXml
+67107 TenantWebService_Edges
+67107 TenantWebService_ExistingObject_InsertModifyDelete
 67115 CalcFields_ListsOnParentAndNestedChild
 67115 CalcFields_NoneSet
 67115 CalcFields_SingleFieldPerLevel
@@ -4288,6 +4290,12 @@
 67512 DateTimeInitValue_Table_UntouchedRecordRaisesOnReadNotOnInit
 67512 DateTimeInitValue_Table_ZeroDateTimeInitValueFailsInit
 67514 NavAppSetting_Content
+67514 TenantWebService_Content
+67514 TenantWebService_Rows_16_To_30
+67514 TenantWebService_Rows_1_To_15
+67514 TenantWebService_Rows_31_To_45
+67514 TenantWebService_Rows_46_To_60
+67514 TenantWebService_Rows_61_To_64
 67515 MinimumActiveRowVersion_NoWrite_Committed
 67515 MinimumActiveRowVersion_PrefixedCallEqualsBareCall
 67518 NavAppSetting_GetOrInsert
@@ -13166,6 +13174,15 @@
 78107 Validate_BlankNotFirst
 78107 Validate_Third
 78109 Count_TenantReportLayoutSelection
+78111 Count_TenantWebService
+78111 Rows_TenantWebService_01
+78111 Rows_TenantWebService_02
+78111 Rows_TenantWebService_03
+78111 Rows_TenantWebService_04
+78111 Rows_TenantWebService_05
+78111 Rows_TenantWebService_06
+78111 Rows_TenantWebService_07
+78111 Rows_TenantWebService_08
 78200 Execute_WithReportHandler
 78200 RunRequestPage_WithReportHandler
 78200 Run_StaticCall

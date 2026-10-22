@@ -68,6 +68,7 @@
 61261 PlatformTable_PrivacyNotice
 61261 PlatformTable_TenantLicenseState
 61261 PlatformTable_TenantReportLayoutSelection
+61261 PlatformTable_TenantWebService
 61261 PlatformTable_WebService
 61267 P110_CreateTwiceWithoutClose
 61267 P110_InvalidPaths
@@ -80,6 +81,7 @@
 61270 P110_CreateTempFile_ReuseVar
 61275 Erase_EmptyName_FullErrorText
 61276 Exists_Folder_And_Blank_Names
+61281 QX_CreateWebService_SalesOrderPage
 61281 WebService_Content
 61289 PSuperUser_DisableLastSuper
 61289 PSuperUser_RemoveLastSuperAssignment

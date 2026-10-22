@@ -19,6 +19,7 @@ pub(super) const ACCESS_CONTROL: u32 = 2_000_000_053;
 pub(super) const USER_PERSONALIZATION: u32 = 2_000_000_073;
 pub(super) const USER_PROPERTY: u32 = crate::usertable::USER_PROPERTY;
 pub(super) const WEB_SERVICE: u32 = 2_000_000_076;
+pub(super) const TENANT_WEB_SERVICE: u32 = 2_000_000_168;
 
 pub(super) const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
 pub(super) const ODATA_EDM_TYPE: u32 = 2_000_000_179;
@@ -94,6 +95,77 @@ const WEB_SERVICES: &[(i32, &str, i32)] = &[
     (9, "TopCustomerOverview", 100),
 ];
 
+/// The Tenant Web Service rows of a fresh tenant, every column (platform/lt-platform-rows-fresh/PlatformRowsWebService.al:66-199,
+/// 64 rows, count at :215): (Object Type ordinal, Service Name, Object ID). Published is Yes and both Exclude columns No on every
+/// row. Microsoft's DemoTool calls CreateTenantWebService for rows that exist and changes nothing (onprem
+/// platform/PtWebServiceRows.al:229, RD_CreateTenantWebService_DemoToolCalls).
+const TENANT_WEB_SERVICES: &[(i32, &str, i32)] = &[
+    (5, "WorkflowActionResponse", 1544),
+    (8, "Chart of Accounts", 16),
+    (8, "ExcelTemplateAgedAccountsPayable", 5500),
+    (8, "ExcelTemplateAgedAccountsReceivable", 5499),
+    (8, "ExcelTemplateBalanceSheet", 5501),
+    (8, "ExcelTemplateCashFlowStatement", 5493),
+    (8, "ExcelTemplateIncomeStatement", 5503),
+    (8, "ExcelTemplateRetainedEarnings", 5497),
+    (8, "ExcelTemplateTrialBalance", 5502),
+    (8, "ExcelTemplateViewCompanyInformation", 1320),
+    (8, "Job List", 89),
+    (8, "Job Planning Lines", 1007),
+    (8, "Job Task Lines", 1002),
+    (8, "Power BI Aged Acc. Payable", 6307),
+    (8, "Power BI Aged Acc. Receivable", 6308),
+    (8, "Power BI Aged Inventory Chart", 6309),
+    (8, "Power BI Job Act. v. Budg. Cost", 6312),
+    (8, "Power BI Job Act. v. Budg. Price", 6310),
+    (8, "Power BI Job Profitability", 6311),
+    (8, "Power BI Sales Pipeline", 6314),
+    (8, "Power BI Top 5 Opportunities", 6315),
+    (8, "Power BI WorkDate Calc.", 6313),
+    (8, "purchaseDocumentLines", 6405),
+    (8, "purchaseDocuments", 6404),
+    (8, "salesDocumentLines", 6403),
+    (8, "salesDocuments", 6402),
+    (8, "workflowCustomers", 6408),
+    (8, "workflowGenJournalBatches", 6406),
+    (8, "workflowGenJournalLines", 6407),
+    (8, "workflowItems", 6409),
+    (8, "workflowPurchaseDocumentLines", 6405),
+    (8, "workflowPurchaseDocuments", 6404),
+    (8, "workflowSalesDocumentLines", 6403),
+    (8, "workflowSalesDocuments", 6402),
+    (8, "workflowVendors", 6410),
+    (8, "workflowWebhookSubscriptions", 831),
+    (9, "BankAccountLedgerEntries", 264),
+    (9, "Cust.LedgerEntries", 262),
+    (9, "DimensionSetEntries", 260),
+    (9, "FALedgerEntries", 267),
+    (9, "G/LBudgetEntries", 270),
+    (9, "G/LEntries", 261),
+    (9, "ItemLedgerEntries", 265),
+    (9, "JobLedgerEntries", 268),
+    (9, "Power BI Cust. Item Ledg. Ent.", 61),
+    (9, "Power BI Cust. Ledger Entries", 62),
+    (9, "Power BI Customer List", 50),
+    (9, "Power BI GL Amount List", 53),
+    (9, "Power BI GL BudgetedAmount", 58),
+    (9, "Power BI Item Purchase List", 52),
+    (9, "Power BI Item Sales List", 57),
+    (9, "Power BI Jobs List", 54),
+    (9, "Power BI Purchase Hdr. Vendor", 64),
+    (9, "Power BI Purchase List", 56),
+    (9, "Power BI Sales Hdr. Cust.", 60),
+    (9, "Power BI Sales List", 55),
+    (9, "Power BI Top Cust. Overview", 59),
+    (9, "Power BI Vend. Item Ledg. Ent.", 65),
+    (9, "Power BI Vendor Ledger Entries", 63),
+    (9, "Power BI Vendor List", 51),
+    (9, "Res.LedgerEntries", 269),
+    (9, "SegmentLines", 106),
+    (9, "ValueEntries", 266),
+    (9, "VendorLedgerEntries", 263),
+];
+
 /// A text value for the field `id`, as a Code or a Text by the field's type.
 fn text(t: &TableDef, id: u32, s: &str) -> Value {
     match t.fields.iter().find(|f| f.id == id).map(|f| &f.ty) {
@@ -154,8 +226,13 @@ impl Session {
                     wrote = true;
                     continue;
                 }
-                WEB_SERVICE => {
-                    for &(object_type, name, object_id) in WEB_SERVICES {
+                WEB_SERVICE | TENANT_WEB_SERVICE => {
+                    let rows = if id == WEB_SERVICE {
+                        WEB_SERVICES
+                    } else {
+                        TENANT_WEB_SERVICES
+                    };
+                    for &(object_type, name, object_id) in rows {
                         let mut r = super::blank(t);
                         r[pos(t, 3)] = super::option(t, 3, object_type);
                         r[pos(t, 9)] = text(t, 9, name);
