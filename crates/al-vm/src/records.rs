@@ -958,6 +958,9 @@ impl Session {
     /// (record/TestRefusedWriteRowVersion.al).
     fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {
         let i = t.fields.iter().position(|f| f.id == 2_000_000_005)?;
+        if self.temp_never_stamps(t, rec) {
+            return None;
+        }
         self.next_row_version += 1;
         let old = std::mem::replace(
             &mut rec.borrow_mut().fields[i],
@@ -969,23 +972,20 @@ impl Session {
     /// A BigInteger field with `SQLTimestamp = true` reads the row version: above 0 after the Insert, greater after a Modify,
     /// the same without one, and an assignment to it is not stored (record/lt-x-table-props/XTablePropsTests.al:412-415).
     /// `stored` is the row before a Modify: the field gets its value back first, so an assignment to it is no change.
-    /// A temporary record is not pinned and is refused.
+    /// A temporary record never stamps (see `temp_never_stamps`).
     fn sql_timestamp_before(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
         let fields = &self.engine.table_facts[t.object as usize].sql_timestamp;
         if fields.is_empty() {
             return Ok(());
-        }
-        if rec.borrow().temporary {
-            return unsupported(format!(
-                "a write to a temporary {} record, whose table has an SQLTimestamp field: its value is not pinned",
-                t.name
-            ));
         }
         if t.fields.iter().all(|f| f.id != 2_000_000_005) {
             return unsupported(format!(
                 "an SQLTimestamp field of {}, a table without a row version",
                 t.name
             ));
+        }
+        if rec.borrow().temporary {
+            return Ok(());
         }
         if let Some(old) = stored {
             let mut r = rec.borrow_mut();
@@ -996,10 +996,18 @@ impl Session {
         Ok(())
     }
 
+    /// A temporary record of a table with an SQLTimestamp field never stamps: the field and SystemRowVersion keep what the buffer
+    /// holds through Insert, Modify and Rename (0 for a new row, the database row's values for a copy of one, a value code assigned
+    /// to the field), and Init keeps them (record/lt-qr-temp-sqltimestamp/QrTempTimestamp.al:76-85, :111-115, :160-170, :221-226).
+    /// A temporary record of a table without one is not pinned and keeps its own row versions.
+    fn temp_never_stamps(&self, t: &TableDef, rec: &Rec) -> bool {
+        rec.borrow().temporary && !self.engine.table_facts[t.object as usize].sql_timestamp.is_empty()
+    }
+
     /// The SQLTimestamp fields take the row version the write gives the row (see `sql_timestamp_before`).
     fn sql_timestamp_after(&self, t: &TableDef, rec: &Rec) {
         let fields = &self.engine.table_facts[t.object as usize].sql_timestamp;
-        if fields.is_empty() {
+        if fields.is_empty() || rec.borrow().temporary {
             return;
         }
         if let Some(v) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
@@ -1252,16 +1260,15 @@ impl Session {
             .any(|m| key_cmp(m, &pk) == std::cmp::Ordering::Equal)
     }
 
-    /// Refuses an explicit SystemId another row already holds. The wording after the pinned
-    /// fragments is docs/probes-needed.md (record/TestRecordSystemId.al:86-168, TestAutoIncrementEdges.al:282).
-    fn check_system_id_unique(&mut self, rec: &Rec, t: &TableDef) -> Result<(), Signal> {
+    /// Whether another row of the record's table holds the SystemId in its buffer.
+    fn system_id_taken(&mut self, rec: &Rec, t: &TableDef) -> Result<bool, Signal> {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
-            return Ok(());
+            return Ok(false);
         };
         let id = rec.borrow().fields[i].clone();
         let filters = [FieldFilter {
             field: i,
-            expr: FilterExpr::Eq(id.clone()),
+            expr: FilterExpr::Eq(id),
             group: 0,
         }];
         let cx = self.cx_for(rec, t)?;
@@ -1269,9 +1276,19 @@ impl Session {
             .store_for(rec)
             .count(&cx, t, &filters)
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-        if taken == 0 {
+        Ok(taken > 0)
+    }
+
+    /// Refuses an explicit SystemId another row already holds. The wording after the pinned
+    /// fragments is docs/probes-needed.md (record/TestRecordSystemId.al:86-168, TestAutoIncrementEdges.al:282).
+    fn check_system_id_unique(&mut self, rec: &Rec, t: &TableDef) -> Result<(), Signal> {
+        let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
+            return Ok(());
+        };
+        if !self.system_id_taken(rec, t)? {
             return Ok(());
         }
+        let id = rec.borrow().fields[i].clone();
         let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::Unsupported)?;
         Err(Signal::Error(Box::new(AlError {
             // record/TestSystemFieldStampsContracts.al:153 (SystemId_Duplicate_And_ModifyAll_Texts;
@@ -1828,7 +1845,18 @@ impl Session {
         }
         match method {
             RecordOp::Init => {
-                let fresh = self.initial_fields(t.object as usize);
+                let mut fresh = self.initial_fields(t.object as usize);
+                if self.temp_never_stamps(&t, rec) {
+                    // Init of a temporary record keeps the SQLTimestamp fields and SystemRowVersion
+                    // (record/lt-qr-temp-sqltimestamp/QrTempTimestamp.al:221-226, `shared copy insert`).
+                    let r = rec.borrow();
+                    let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
+                    for (i, f) in t.fields.iter().enumerate() {
+                        if f.id == 2_000_000_005 || facts.contains(&i) {
+                            fresh[i] = r.fields[i].clone();
+                        }
+                    }
+                }
                 let mut r = rec.borrow_mut();
                 r.assigned = false;
                 r.inserted = false;
@@ -1919,9 +1947,10 @@ impl Session {
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
                 self.assign_system_id(&t, rec, keep_id);
-                self.table_event(&t, "onbeforeinsertevent", rec, None, run, None)?;
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
+                // The id the platform gave the row, before any event or trigger could change it.
                 let assigned = id_slot.map(|i| rec.borrow().fields[i].clone());
+                self.table_event(&t, "onbeforeinsertevent", rec, None, run, None)?;
                 // xRec in the insert triggers is the buffer without the SystemId it was just given
                 // (record/TestXRecStampFields.al:38-52).
                 let insert_xrec = id_slot.map(|i| {
@@ -1938,6 +1967,8 @@ impl Session {
                     }
                     self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
                 }
+                // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
+                let set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
                 // The database event follows the table's triggers and precedes the write
                 // (record/TestTriggerDispatchOrder.al:TriggerOrder_Insert_RecordPipeline_IsStable).
                 self.global_trigger(&t, GlobalOp::Insert, rec, None)?;
@@ -1946,18 +1977,38 @@ impl Session {
                 if user_row {
                     self.user_before_insert(&t, rec)?;
                 }
-                // Only Insert(_, true) takes a SystemId the code put in the buffer; a trigger
-                // that sets one on any other insert changes nothing about the stored id.
-                if let (false, Some(i), Some(id)) = (keep_id, id_slot, assigned) {
-                    // A SystemId the code changed after the platform gave one (OnInsert: `SystemId := CreateGuid()`): whether BC
-                    // keeps it is not pinned (the corpus pins only a value set before Insert, events/TestProbeEventContracts.al:
-                    // SystemId_BeforeOnInsert_AndPresetBuffer). Refused, not guessed.
-                    if !matches!((&rec.borrow().fields[i], &id), (Value::Guid(a), Value::Guid(b)) if a == b) {
+                // A SystemId that an OnBeforeInsertEvent subscriber, the table's OnInsert or a table extension's OnBeforeInsert or
+                // OnInsert sets is kept in the variable and the stored row, without InsertWithSystemId, also through
+                // RecordRef.Insert and on a temporary record (record/lt-qr-systemid-insert-events/QrSystemIdTests.al:56-78, :150-196;
+                // record/lt-at-partner-gaps/AtSystemIdOnInsert.al:135-170; record/lt-af-record-events/AfSystemIdBeforeInsert.al).
+                if let (false, Some(i), Some(platform), Some(set)) = (keep_id, id_slot, assigned, set_by_code) {
+                    let same = |a: &Value, b: &Value| matches!((a, b), (Value::Guid(x), Value::Guid(y)) if x == y);
+                    // The database trigger and the platform's own User trigger changing it, and code clearing it, are not pinned.
+                    if !same(&rec.borrow().fields[i], &set)
+                        || (matches!(set, Value::Guid(g) if g == [0; 16]) && !same(&set, &platform))
+                    {
                         return unsupported(
-                            "a SystemId set by an Insert event or OnInsert without InsertWithSystemId: whether BC keeps it is not pinned (probe wanted, corpus issue 216 item 4)",
+                            "a SystemId set by the database trigger, or cleared by an Insert event or trigger, without InsertWithSystemId: whether BC keeps it is not pinned",
                         );
                     }
-                    rec.borrow_mut().fields[i] = id;
+                    if !same(&set, &platform) {
+                        // An id another row holds: Insert with a return value answers false and the variable does not keep it
+                        // (QrSystemIdTests.al:213-246, `caller has first id No`; which id it holds instead is not pinned, docs/probes-needed.md);
+                        // the statement form raises DB:RecordExists (:251-293).
+                        if rec.borrow().temporary {
+                            if self.system_id_taken(rec, &t)? {
+                                return unsupported(
+                                    "a SystemId an Insert trigger sets on a temporary record that another of its rows holds (not pinned)",
+                                );
+                            }
+                        } else if let Err(e) = self.check_system_id_unique(rec, &t) {
+                            if self.ret_used && matches!(e, Signal::Error(_)) {
+                                rec.borrow_mut().fields[i] = platform;
+                                return Ok(Value::Boolean(false));
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 if keep_id {
                     self.check_system_id_unique(rec, &t)?;

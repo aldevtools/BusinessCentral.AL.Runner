@@ -1021,6 +1021,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             auto_replace: _,
             use_temporary: _,
             min_zero: _,
+            max_unbounded: _,
             width: _,
             ns_prefix: _,
             auto_calc: _,

@@ -642,6 +642,9 @@ pub struct XmlNode {
     /// `MinOccurs = Zero`: the element may be missing from an imported document.
     #[serde(default)]
     pub min_zero: bool,
+    /// A declared `MaxOccurs`: `Some(true)` for `Unbounded`, `Some(false)` for `Once`; `None` when the node does not declare it.
+    #[serde(default)]
+    pub max_unbounded: Option<bool>,
     /// `Width` of a field element in a FixedText port.
     #[serde(default)]
     pub width: Option<usize>,

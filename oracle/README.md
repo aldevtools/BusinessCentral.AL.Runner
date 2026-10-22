@@ -8,16 +8,16 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `ff8a24aa97df74ebd50b3bed720e6aa655c58ddc` (the `corpus` submodule, master merge of corpus PR 704; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `62cf5d0e443f723d3862f9f552f8aad046d40690` (the `corpus` submodule, master merge of corpus PR 705; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `ff8a24a` (the pin) | 39637593521 | `junit-test-results-27.5` | 12366141350 | 17190 |
-| 28 | 28.5 | `ff8a24a` (the pin) | 39637593521 | `junit-test-results-28.5` | 12365681837 | 17286 (+26 `OnRun`) |
-| 29 | 29.0 | `ff8a24a` (the pin) | 39637593521 | `junit-test-results-29.0` | 12365636901 | 17380 (+26 `OnRun`) |
+| 27 | 27.5 | `62cf5d0` (the pin) | 39671926493 | `junit-test-results-27.5` | 12381379890 | 17268 |
+| 28 | 28.5 | `62cf5d0` (the pin) | 39671926493 | `junit-test-results-28.5` | 12381648297 | 17364 (+26 `OnRun`) |
+| 29 | 29.0 | `62cf5d0` (the pin) | 39671926493 | `junit-test-results-29.0` | 12382729210 | 17458 (+26 `OnRun`) |
 
-The files come from the green full run of corpus PR 704 ("Test selection: full run"), whose head `5d4631e` has the same tree
-(`73b0dbe4`) as the pin `ff8a24a`.
+The files come from the green full run of corpus PR 705 ("Test selection: full run"; one OnPrem DotNet 29.0 job was rerun), whose head `6bd389f` has the same tree
+(`eec93db7`) as the pin `62cf5d0`.
 Every file has 0 failures. Each run published two artifacts with the same name; the
 oracle is the large one (the main suite, `junit-al-language.xml`). The small one is
 the OnPrem suite (`junit-al-language-onprem.xml`, 72 cases): it is the oracle of the

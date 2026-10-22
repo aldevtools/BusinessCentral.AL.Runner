@@ -870,7 +870,7 @@ impl Session {
                 ir::XmlNodeKind::Table => {
                     let first = !linked.contains(&child);
                     linked.push(child);
-                    self.xp_import_record(inst, schema, child, ce, first)?;
+                    self.xp_import_record(inst, schema, child, ce, first, false)?;
                     if Self::xp_import_stopped(inst) {
                         return Ok(());
                     }
@@ -1309,11 +1309,20 @@ impl Session {
         node: usize,
         elem: &Elem,
         first_of_node: bool,
+        keep_key: bool,
     ) -> Result<(), Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
-        let fresh = self.initial_fields(table);
+        let mut fresh = self.initial_fields(table);
+        if keep_key {
+            // As Init: the primary key of the row before stays (see `xp_import_linked_container`).
+            let t = self.table(&rec)?;
+            let r = rec.borrow();
+            for &k in &t.keys[0] {
+                fresh[k] = r.fields[k].clone();
+            }
+        }
         rec.borrow_mut().fields = fresh;
         let mut assigned: Vec<usize> = Vec::new();
         // Nested table elements take their link fields from the record above
@@ -1378,7 +1387,18 @@ impl Session {
                     }
                     let first = !linked.contains(&child);
                     linked.push(child);
-                    self.xp_import_record(inst, schema, child, ce, first)?;
+                    self.xp_import_record(inst, schema, child, ce, first, false)?;
+                    if Self::xp_import_stopped(inst) {
+                        return Ok(());
+                    }
+                }
+                ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
+                    // The rows below are linked to this record, which is stored first, as for a table element right below it.
+                    if !saved {
+                        self.xp_save_record(inst, schema, node, &assigned)?;
+                        saved = true;
+                    }
+                    self.xp_import_linked_container(inst, schema, child, ce)?;
                     if Self::xp_import_stopped(inst) {
                         return Ok(());
                     }
@@ -1391,6 +1411,46 @@ impl Session {
             self.xp_save_record(inst, schema, node, &assigned)?;
         }
         Ok(())
+    }
+
+    /// A container text element inside a table element that holds only table elements linked to it
+    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:91-104, QR_Import_Present: `<lines>` in `<head>`).
+    /// Every row of the container is linked to the record above: `H1/10=5;H1/20=7;H2/10=1` (QR_Import_Present). Right below a
+    /// table element only the first row gets the link and a later one has 0 in a link field outside the primary key
+    /// (xmlport/TestXmlPortTriggersReplaceViewContracts.al:414). Both fit a link set once and kept by Init for the fields of the
+    /// primary key, which is what this does; a link field outside the primary key in a container is not pinned and is refused.
+    fn xp_import_linked_container(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        elem: &Elem,
+    ) -> Result<(), Signal> {
+        for c in schema.children(node) {
+            let n = schema.node(c);
+            let t = self.table(&self.xp_record(inst, n)?)?;
+            if n.link_fields.iter().any(|(own, _)| !t.keys[0].contains(own)) {
+                return unsupported(format!(
+                    "XmlPort import of the table element {} in a container text element with a link field outside its primary key (not pinned)",
+                    n.xml_name
+                ));
+            }
+        }
+        self.xp_import_attrs(inst, schema, node, elem, None)?;
+        let mut seq = Sequence::new(schema, node);
+        let mut linked: Vec<usize> = Vec::new();
+        for ce in elem.elements() {
+            let Some(child) = seq.accept(schema, ce)? else {
+                continue;
+            };
+            let first = !linked.contains(&child);
+            linked.push(child);
+            self.xp_import_record(inst, schema, child, ce, first, !first)?;
+            if Self::xp_import_stopped(inst) {
+                return Ok(());
+            }
+        }
+        seq.finish(schema)
     }
 
     /// The attributes and elements below field element `node`: its own text is the field's value, the attributes and the leaf
@@ -1882,7 +1942,9 @@ impl Session {
                     e.children.push(Node::Text(v));
                     out.children.push(Node::Elem(e));
                 }
-                ir::XmlNodeKind::Text if schema.node(node).kind == ir::XmlNodeKind::Table => {
+                ir::XmlNodeKind::Text
+                    if schema.node(node).kind == ir::XmlNodeKind::Table && !linked_container(schema, child, node) =>
+                {
                     return unsupported("XmlPort export of a text element with content inside a table element");
                 }
                 ir::XmlNodeKind::Text => {
@@ -2415,6 +2477,39 @@ fn parse_duration_text(t: &str) -> Option<i64> {
     any.then_some(total)
 }
 
+/// Whether text element `c` inside table element `table` is a container of table elements linked to it and nothing else,
+/// declared last in the table element: the shape xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:91-104 pins
+/// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
+fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let kids = schema.children(c);
+    let last = schema.children(table).into_iter().rfind(|&k| {
+        !matches!(
+            schema.node(k).kind,
+            ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr
+        )
+    });
+    schema.node(c).kind == ir::XmlNodeKind::Text
+        && schema.node(c).triggers.is_empty()
+        && last == Some(c)
+        && !kids.is_empty()
+        && kids.iter().all(|&k| {
+            let n = schema.node(k);
+            n.kind == ir::XmlNodeKind::Table && n.link_node == Some(table) && !n.link_fields.is_empty()
+        })
+}
+
+/// Whether node `c` may come more than once in a row: its `MaxOccurs`, else a table element and a leaf text element may
+/// (a leaf text element without MaxOccurs is read twice: xmlport/W7XmlPortTests.al:141,149, `required twice`), a field element
+/// and a container text element may not (as before the MaxOccurs pins).
+fn repeats(schema: &Schema, c: usize) -> bool {
+    let n = schema.node(c);
+    n.max_unbounded.unwrap_or(match n.kind {
+        ir::XmlNodeKind::Table => true,
+        ir::XmlNodeKind::Text => schema.children(c).is_empty(),
+        _ => false,
+    })
+}
+
 /// Checks the child elements of an imported element against the schema's sequence: the children
 /// in declaration order, each once (a table element any number of times) unless it is optional
 /// (`MinOccurs = Zero`). The messages are .NET's schema validation messages
@@ -2452,10 +2547,7 @@ impl Sequence {
             pos: 0,
             seen: 0,
             optional: decl.iter().map(|&c| schema.node(c).min_zero).collect(),
-            repeat: decl
-                .iter()
-                .map(|&c| schema.node(c).kind == ir::XmlNodeKind::Table)
-                .collect(),
+            repeat: decl.iter().map(|&c| repeats(schema, c)).collect(),
             names: decl.iter().map(|&c| doc_name(schema, c)).collect(),
             shown: decl
                 .iter()
@@ -2496,12 +2588,23 @@ impl Sequence {
         out
     }
 
+    /// Several possible elements are listed in one pair of quotes, `'Opt, Once'` (xmlport/W7XmlPortTests.al:129); with a
+    /// namespace among them the form is not pinned.
     fn list(&self, head: String) -> Result<String, Signal> {
         let expected = self.expected();
         match expected.len() {
             0 => Ok(head),
             1 => Ok(format!("{head} List of possible elements expected: {}.", expected[0])),
-            _ => unsupported("a schema error that lists several possible elements (the list form is not pinned)"),
+            _ if expected.iter().any(|e| e.contains(" in namespace ")) => unsupported(
+                "a schema error that lists several possible elements, one of them in a namespace (the list form is not pinned)",
+            ),
+            _ => {
+                let names: Vec<&str> = expected.iter().map(|e| e.trim_matches('\'')).collect();
+                Ok(format!(
+                    "{head} List of possible elements expected: '{}'.",
+                    names.join(", ")
+                ))
+            }
         }
     }
 

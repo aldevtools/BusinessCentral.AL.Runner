@@ -97,6 +97,30 @@ codeunit 69993 C
         Row.Get(1);
         exit(Format(First > 0) + Format(Second > First) + Format(Row.Stamp <> 5));
     end;
+
+    procedure TempStamp(): Text
+    var Temp: Record "SDT Row" temporary; s: Text;
+    begin
+        Temp.Init(); Temp.Id := 1; Temp.Insert();
+        s := Format(Temp.Stamp) + Format(Temp.SystemRowVersion);
+        Temp.Note := 'b'; Temp.Modify();
+        s += Format(Temp.Stamp) + Format(Temp.SystemRowVersion);
+        Temp.Rename(3); Temp.Get(3);
+        s += Format(Temp.Stamp) + Format(Temp.SystemRowVersion);
+        Temp.Stamp := 7; Temp.Modify(); Temp.Get(3);
+        s += '|' + Format(Temp.Stamp);
+        exit(s);
+    end;
+
+    procedure TempCopyOfDbRow(): Text
+    var Db: Record "SDT Row"; Temp: Record "SDT Row" temporary; Temp2: Record "SDT Row" temporary; V: BigInteger;
+    begin
+        Db.Init(); Db.Id := 1; Db.Insert(); Db.Get(1);
+        V := Db.SystemRowVersion;
+        Temp := Db; Temp.Insert(); Temp.Note := 'c'; Temp.Modify(); Temp.Get(1);
+        Temp2.Copy(Temp, true); Temp2.Get(1); Temp2.Init(); Temp2.Id := 2; Temp2.Insert();
+        exit(Format((Temp.Stamp = V) and (Temp.SystemRowVersion = V)) + Format((Temp2.Stamp = V) and (Temp2.SystemRowVersion = V)));
+    end;
 }
 "#;
 
@@ -148,4 +172,17 @@ fn unpinned_uses_of_an_integer_code_field_are_refused() {
 #[test]
 fn an_sql_timestamp_field_reads_the_row_version() {
     assert_eq!(text(run("Stamp")), "YesYesYes");
+}
+
+// record/lt-qr-temp-sqltimestamp/QrTempTimestamp.al:76-85 (stays 0 through Insert, Modify, Rename and Get), :111-115 (an assigned
+// value is kept).
+#[test]
+fn a_temporary_record_never_stamps_its_sql_timestamp_field() {
+    assert_eq!(text(run("TempStamp")), "000000|7");
+}
+
+// QrTempTimestamp.al:160-170 (a copy of a database row keeps its values), :221-226 (Init of the shared copy keeps them).
+#[test]
+fn a_temporary_copy_of_a_database_row_keeps_its_stamps() {
+    assert_eq!(text(run("TempCopyOfDbRow")), "YesYes");
 }
