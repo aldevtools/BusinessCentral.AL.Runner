@@ -383,3 +383,19 @@
 28 1580-pageext-protected-var-type-from-unreferenced-app
 29 1580-pageext-protected-var-type-from-unreferenced-app
 # corpus bump with the multi-app fixtures (writer QV case): AL0132 for JsonArray.Remove is not reported yet
+# corpus bump 53: ternary operator, AL0122 for branch types and a non-Boolean condition (handed off to the ternary work)
+27 2061-ternary-boolean-and-integer
+27 2064-ternary-secrettext-and-text
+27 2065-ternary-reference-types-of-different-kind
+27 2067-ternary-integer-condition
+27 2069-ternary-date-and-integer
+28 2061-ternary-boolean-and-integer
+28 2064-ternary-secrettext-and-text
+28 2065-ternary-reference-types-of-different-kind
+28 2067-ternary-integer-condition
+28 2069-ternary-date-and-integer
+29 2061-ternary-boolean-and-integer
+29 2064-ternary-secrettext-and-text
+29 2065-ternary-reference-types-of-different-kind
+29 2067-ternary-integer-condition
+29 2069-ternary-date-and-integer

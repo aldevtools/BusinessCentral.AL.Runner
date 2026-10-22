@@ -495,7 +495,7 @@ xmlport 60035 "ALT Raising XmlPort"
 xmlport 60036 "ALT Table Root XmlPort"
 {
     Direction = Both; Format = Xml; UseRequestPage = false;
-    schema { tableelement(Universal; "ALT Universal") { fieldelement(EntryNo; Universal."Entry No.") { } } }
+    schema { tableelement(Universal; "ALT Universal") { fieldelement(EntryNo; Universal."Entry No.") { MinOccurs = Zero; } } }
 }
 
 xmlport 60037 "ALT Empty Root XmlPort"
@@ -1315,7 +1315,9 @@ fn a_direction_mismatch_raises_the_pinned_text_and_code() {
     assert_eq!(c, "XmlPortImportDirection");
 }
 
-// The root of an importable document must be a text element with content.
+// The root of an importable document must be a text element with content, or a table element of the shape
+// platform/lt-ag-contoso/AgXmlPortImport.al:784-833 pins (plain field elements; xmlport_root_table.rs). An optional field
+// element below a table element root is not pinned.
 #[test]
 fn an_import_whose_root_is_not_a_text_element_with_content_is_refused() {
     let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; P: XmlPort \"ALT Table Root XmlPort\"; E: XmlPort \"ALT Empty Root XmlPort\";";
@@ -1482,7 +1484,7 @@ fn a_parent_is_stored_before_its_children_are_read() {
     assert_eq!(out, "P1;C10;C11;");
 }
 
-// The export root must be a text element with content, as for an import.
+// The export root must be a text element with content, or a pinned table element root, as for an import.
 #[test]
 fn an_export_whose_root_is_not_a_text_element_with_content_is_refused() {
     for id in [60036, 60037] {

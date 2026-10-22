@@ -87,6 +87,19 @@ pub fn serialize_as(root: &Elem, encoding: &str) -> String {
     out
 }
 
+/// A document of several root elements one after the other, as an xmlport whose root is a table element writes one root
+/// element per row (corpus platform/lt-ag-contoso/AgXmlPortImport.al:584 QX_RootTableElement_Export_TwoRows).
+pub fn serialize_roots(roots: &[Elem], encoding: &str) -> String {
+    let mut out = format!("<?xml version=\"1.0\" encoding=\"{encoding}\" standalone=\"no\"?>\r\n");
+    for (i, r) in roots.iter().enumerate() {
+        if i > 0 {
+            out.push_str("\r\n");
+        }
+        write_elem(r, 0, &mut out);
+    }
+    out
+}
+
 /// An element on one line with no indentation: `<Item><Id>1</Id></Item>`. `None` when an element has no text (how an
 /// empty value is written without indentation is not pinned) or holds attributes.
 pub fn compact(e: &Elem) -> Option<String> {

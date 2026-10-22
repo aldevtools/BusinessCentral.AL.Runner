@@ -625,7 +625,8 @@ impl Session {
                 "XmlPortInvalidNodeType",
             ));
         }
-        if xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty() {
+        let table_root = root_table_element(schema, top);
+        if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
         }
         // A table view filters the rows the xmlport reads; what it does to an import is not pinned.
@@ -684,6 +685,11 @@ impl Session {
         }
         if root.name != xp.nodes[top].xml_name {
             return Err(schema_error(format!("The '{}' element is not declared.", root.name)));
+        }
+        // A table element as the root is one row: its fields are validated and the row is inserted, an empty element
+        // fails the schema check (platform/lt-ag-contoso/AgXmlPortImport.al:514 QX_RootTableElement_Import).
+        if table_root {
+            return self.xp_import_record(inst, schema, top, &root, true, false);
         }
         self.xp_import_container(inst, schema, top, &root)
     }
@@ -1109,6 +1115,15 @@ impl Session {
             return Ok(());
         }
         let xp = schema.xp();
+        // A VariableText port with `DefaultFieldsValidation = false` does not validate a field element that does not say
+        // FieldValidate (platform/lt-ag-contoso/AgXmlPortImport.al:678, xmlport 87567: the Iso field's OnValidate never runs).
+        if xp.format == al_ir::XmlFormat::VariableText
+            && xp.no_default_fields_validation
+            && n.kind == al_ir::XmlNodeKind::Field
+            && n.field_validate.is_none()
+        {
+            return Ok(());
+        }
         if xp.format != al_ir::XmlFormat::Xml {
             return unsupported(format!(
                 "XmlPort import of {} into {}.{}, which has validation code: whether a port of a Format other than Xml validates it is not pinned",
@@ -1739,6 +1754,16 @@ impl Session {
             let fresh = self.initial_fields(tbl);
             rec.borrow_mut().fields = fresh;
             self.xp_run_trigger(inst, schema, table, "onafterinitrecord")?;
+            // Fields are read as the values come. Pinned for VariableText (AgXmlPortImport.al:678, xmlport 87567): a record that
+            // ends early leaves the field elements it lacks as initialized when each is `MinOccurs = Zero` ('crlf': `AUD;036;1;0.01`
+            // of 8 columns), and one value too many is left out ('too many columns'). Any other length is not pinned.
+            let lacking_optional = values.len() < fields.len()
+                && fields[values.len()..].iter().all(|&f| {
+                    let n = schema.node(f);
+                    n.kind == ir::XmlNodeKind::Field && n.min_zero
+                });
+            let length_pinned =
+                values.len() == fields.len() || (variable && (lacking_optional || values.len() == fields.len() + 1));
             let mut assigned = Vec::new();
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
@@ -1770,8 +1795,7 @@ impl Session {
                     break;
                 }
             }
-            // Fields are read as the values come; a record of another length is not pinned.
-            if !broke && values.len() != fields.len() {
+            if !broke && !length_pinned {
                 return unsupported(format!(
                     "a record with {} values for a port of {} fields (not pinned)",
                     values.len(),
@@ -1879,12 +1903,38 @@ impl Session {
             return unsupported("XmlPort export with more than one top-level element (not pinned)");
         };
         let table_top = xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table;
-        if !table_top && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
+        let table_root = root_table_element(schema, top);
+        if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
+        {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
         }
         let bytes = if xp.format == ir::XmlFormat::Xml {
             if xp.utf8 {
                 return unsupported("XmlPort export with TextEncoding = UTF8 (not pinned)");
+            }
+            // A table element as the root is written once per row, one root element after the other; with no row, once with
+            // the record as it stands (platform/lt-ag-contoso/AgXmlPortImport.al:557 QX_RootTableElement_Export, :584 _TwoRows).
+            if table_root {
+                if xp.inline_schema || !xp.namespaces.is_empty() {
+                    return unsupported(
+                        "XmlPort export of a table element root with InlineSchema or namespaces (not pinned)",
+                    );
+                }
+                let rows = match self.xp_export_table(inst, schema, top) {
+                    Err(Signal::Error(_)) if guarded => {
+                        return unsupported("an error inside an Export whose result is used (not pinned)");
+                    }
+                    other => other?,
+                };
+                let encoding = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
+                let text = al_builtins::xmlport::serialize_roots(&rows, encoding);
+                let bytes = if xp.xml_utf8 {
+                    text.into_bytes()
+                } else {
+                    al_builtins::xmlport::utf16_bom_bytes(&text)
+                };
+                al_builtins::stream::write_bytes(&blob, &bytes);
+                return Ok(if guarded { Value::Boolean(true) } else { Value::Null });
             }
             if xp.inline_schema {
                 let text = self.xp_export_inline(inst, schema, top)?;
@@ -2352,6 +2402,23 @@ fn for_each_row(
 /// A declared separator as the getter shows it: `<None>` is empty, `<CR/LF>`, `<LF>`, `<CR>` and `<Tab>` are their escapes, anything
 /// else is as written (P94XpDelim.al:Getters_Declared, Getters_DeclaredTwoTables). Other tokens are not pinned.
 /// The name of node `c` in the document: a field element with a `NamespacePrefix` is `prefix:Name`.
+/// A `Format = Xml` port whose root is a table element of plain field elements, without triggers, attributes, a link or
+/// a MinOccurs (xmlports 87562 and 87563 of platform/lt-ag-contoso/AgXmlPortImport.al:784-833, the DemoTool's xmlport
+/// 101899). Other shapes of a table element root are not pinned.
+fn root_table_element(schema: &Schema, top: usize) -> bool {
+    let n = schema.node(top);
+    schema.xp().format == ir::XmlFormat::Xml
+        && n.kind == ir::XmlNodeKind::Table
+        && n.triggers.is_empty()
+        && n.link_node.is_none()
+        && !n.min_zero
+        && !schema.children(top).is_empty()
+        && schema.children(top).into_iter().all(|c| {
+            let f = schema.node(c);
+            f.kind == ir::XmlNodeKind::Field && f.triggers.is_empty() && !f.min_zero && schema.children(c).is_empty()
+        })
+}
+
 fn doc_name(schema: &Schema, c: usize) -> String {
     let n = schema.node(c);
     match (&n.ns_prefix, n.kind) {

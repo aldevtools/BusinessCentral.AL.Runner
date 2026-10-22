@@ -279,14 +279,10 @@ pub fn layout(obj: &ast::Object) -> Layout {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
             // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
-            // nothing in it changes nothing for Import and Export. That the same holds with empty `layout` and
-            // `actions` sections inside it (the DemoTool's xmlport 101899) is not pinned: refused until probed
-            // (docs/probes-needed.md, "The DemoTool company").
-            "requestpage" if request_page_is_empty(&top) => {}
-            "requestpage" if request_page_has_only_empty_sections(&top) => out.run_reasons.push(
-                "an xmlport request page with an empty layout or actions section is not pinned (only `requestpage { }` is)"
-                    .into(),
-            ),
+            // nothing in it changes nothing for Import and Export. The same holds with empty `layout` and `actions`
+            // sections inside it, both or one alone (xmlports 87564-87566 at :835-912, imported and exported at
+            // :476-512; the DemoTool's xmlport 101899 has this shape).
+            "requestpage" if request_page_is_empty(&top) || request_page_has_only_empty_sections(&top) => {}
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -784,27 +780,21 @@ mod tests {
     }
 
     // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
-    // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. Empty `layout`
-    // and `actions` sections inside it (the DemoTool's xmlport 101899) are not pinned, nor is one with a control, an
-    // action, a property or a trigger.
+    // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. The same holds
+    // with empty `layout` and `actions` sections, both or one alone (xmlports 87564-87566 at :835-912,
+    // QX_RequestPage_EmptyLayoutAndActions_ImportAndExport at :476). One with a control, an action, a property or a
+    // trigger is not pinned.
     #[test]
     fn an_empty_request_page_runs_and_one_with_content_is_refused() {
         let schema = "schema { textelement(R) { } }";
-        let l = layout_of(&format!("xmlport 1 X {{ {schema} requestpage {{ }} }}"));
-        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
         for sub in [
+            "requestpage { }",
             "requestpage { layout { } actions { } }",
             "requestpage { layout { } }",
             "requestpage { actions { } }",
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ {schema} {sub} }}"));
-            assert!(
-                l.run_reasons
-                    .iter()
-                    .any(|r| r.contains("empty layout or actions section")),
-                "{sub}: {:?}",
-                l.run_reasons
-            );
+            assert!(l.run_reasons.is_empty(), "{sub}: {:?}", l.run_reasons);
         }
         for full in [
             "requestpage { layout { area(content) { field(F; F) { } } } }",
