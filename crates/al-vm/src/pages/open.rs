@@ -820,7 +820,7 @@ impl Session {
         let rec = self.page_rec(st);
         let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
         let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
-        // A Worksheet over a temporary source opens as a List does (assumption worksheet-temp-source-opens-on-rec-row, not
+        // A Worksheet over a temporary source opens as a List does (assumption worksheet-temp-source-open-row, not
         // pinned): Tests-SCM-Warehouse 137154 PickFromWarehouseShipmentReserveAgainstPurchaseOrder needs page 498 Reservation,
         // filled by SetReservSource before RunModal, to open on the entry summary Rec was left on. A Worksheet over a database
         // table stays refused below.
@@ -850,10 +850,12 @@ impl Session {
             return Ok(false);
         }
         if temp_worksheet {
+            // Both paths below make a choice no corpus test pins (which row a temporary Worksheet opens on), so both mark the
+            // assumption worksheet-temp-source-open-row.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpenRow);
             // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
             // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,
-            // past the purchase line's). Any other temporary Worksheet keeps the first row, as before this assumption (not
-            // pinned either; the Item Tracking Lines page, whose OnOpenPage changes the key, reaches it in many Microsoft tests).
+            // past the purchase line's). Any other temporary Worksheet keeps the first row, as before (the same assumption; the Item Tracking Lines page, whose OnOpenPage changes the key, reaches it in many Microsoft tests).
             if rec.borrow().key != 0 || st.borrow().lookup || self.declares(st, "onnextrecord") {
                 return Ok(false);
             }
@@ -871,7 +873,6 @@ impl Session {
             if first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
                 return Ok(false);
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpensOnRecRow);
             return Ok(true);
         }
         if !pinned_type || st.borrow().lookup || self.declares(st, "onnextrecord") {
