@@ -46,13 +46,35 @@ pub fn corpus() -> Workspace {
         root.join("al-language/app.json").exists(),
         "corpus submodule not checked out"
     );
-    Workspace::load(
-        vec![
-            app(&root.join("al-language-internals-fixture")),
-            app(&root.join("al-language")),
-        ],
-        &al_version::corpus_symbols(27),
-    )
+    Workspace::load(corpus_apps(&root), &al_version::corpus_symbols(27))
+}
+
+/// `al-language` and the corpus apps it depends on (the internals fixture and the cross-app fixtures), dependencies
+/// first, as CI publishes them (the same rule as `al_testrun::deps::corpus_source_dirs`, which al-sema cannot use).
+fn corpus_apps(root: &Path) -> Vec<AppSource> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.join("app.json").is_file())
+        .collect();
+    dirs.sort();
+    let neighbors: Vec<AppSource> = dirs.iter().map(|d| app(d)).collect();
+    fn visit(at: usize, all: &[AppSource], done: &mut Vec<usize>) {
+        if done.contains(&at) {
+            return;
+        }
+        for d in &all[at].dependencies {
+            if let Some(next) = all.iter().position(|a| a.id.eq_ignore_ascii_case(d)) {
+                visit(next, all, done);
+            }
+        }
+        done.push(at);
+    }
+    let main = dirs.iter().position(|d| d.ends_with("al-language")).unwrap();
+    let mut order = Vec::new();
+    visit(main, &neighbors, &mut order);
+    let mut neighbors: Vec<Option<AppSource>> = neighbors.into_iter().map(Some).collect();
+    order.into_iter().map(|i| neighbors[i].take().unwrap()).collect()
 }
 
 #[test]

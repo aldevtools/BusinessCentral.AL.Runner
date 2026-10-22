@@ -377,3 +377,12 @@
 29 1746-list-of-option
 29 1856-xmlport-namespaces-empty-prefix
 29 1857-xmlport-namespaces-string-form
+# corpus multi-app bump (writer BW): the case loads cross-app fixtures A and B from source now, but the workspace lets an app see
+# its dependencies' dependencies (BC does not without propagateDependencies), so TheBlah's fixture type resolves and AL0132 is missing
+27 1580-pageext-protected-var-type-from-unreferenced-app
+28 1580-pageext-protected-var-type-from-unreferenced-app
+29 1580-pageext-protected-var-type-from-unreferenced-app
+# corpus bump with the multi-app fixtures (writer QV case): AL0132 for JsonArray.Remove is not reported yet
+27 2048-jsonarray-remove-token
+28 2048-jsonarray-remove-token
+29 2048-jsonarray-remove-token

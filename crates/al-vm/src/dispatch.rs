@@ -387,11 +387,89 @@ impl Session {
                 targets.push((s.clone(), self.static_instance(s.object)?));
             }
         }
-        // Subscribers run in ascending codeunit id, a bound manual one among them (corpus
-        // record/TestTableEventSequenceContracts.al:Subscribers_RunInAscendingCodeunitIdOrder_...);
-        // the sort is stable, so one codeunit's subscribers keep their declaration order.
+        // Inside one app, subscribers run in ascending codeunit id, a bound manual one among them (corpus
+        // record/TestTableEventSequenceContracts.al:Subscribers_RunInAscendingCodeunitIdOrder_...;
+        // events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:66-67 for five codeunits whose names, namespaces and
+        // files predict other orders); the sort is stable, so one codeunit's subscribers keep their declaration order.
         let program = &engine.program;
-        targets.sort_by_key(|(s, _)| program.objects[s.object].id.unwrap_or(0));
+        let id_of = |s: &crate::events::Subscriber| program.objects[s.object].id.unwrap_or(0);
+        let app_of = |s: &crate::events::Subscriber| program.objects[s.object].app as usize;
+        if targets.windows(2).all(|w| app_of(&w[0].0) == app_of(&w[1].0)) {
+            targets.sort_by_key(|(s, _)| id_of(s));
+            return Ok(targets);
+        }
+        // Across apps, app by app (BwSubscriberOrderTests.al:52-56: `A1;A2;B1;B2;C1;C2;P;Q;R;S;T;` on BC 27.5, 28.5 and
+        // 29.0, where A, B, C and the main app depend on each other in that order). The probe cannot tell dependency order
+        // from "apps ordered by their lowest subscriber codeunit id" (BwSubscriberOrderTests.al:20-21), nor dependency
+        // order from publish order. So the order is known only when every two of the apps depend on each other and the
+        // app depended on also has the lower lowest subscriber id; otherwise the raise is refused.
+        let mut lowest: Vec<(usize, u32)> = Vec::new();
+        for (s, _) in &targets {
+            let (app, id) = (app_of(s), id_of(s));
+            match lowest.iter_mut().find(|(a, _)| *a == app) {
+                Some(l) => l.1 = l.1.min(id),
+                None => lowest.push((app, id)),
+            }
+        }
+        lowest.sort_by_key(|&(_, id)| id);
+        let depends = |a: usize, b: usize| {
+            engine
+                .events
+                .depends
+                .get(a)
+                .and_then(|r| r.get(b))
+                .copied()
+                .unwrap_or(false)
+        };
+        let dependency_app = |a: usize| program.apps.get(a).is_some_and(|x| x.dependency);
+        // Kept, not pinned: two dependency apps (Microsoft's) whose order is not pinned keep the order the runtime had
+        // before the cross-app probe, ascending codeunit id across them. Refusing it loses baseline cases: System
+        // Application's `OnGetPerCompanyUpgradeTags`, subscribed in Business Foundation (lower lowest id, depends on
+        // System Application) and in the corpus app, runs on ChangeCompany and company creation (68391, 69971, 69973,
+        // 79851, 84835, 85446). An app under test whose place among the others is not pinned is refused.
+        let mut kept = false;
+        for (i, &(first, _)) in lowest.iter().enumerate() {
+            for &(later, _) in &lowest[i + 1..] {
+                if depends(later, first) {
+                    continue;
+                }
+                if dependency_app(first) && dependency_app(later) {
+                    kept = true;
+                    continue;
+                }
+                let name = |a: usize| {
+                    program
+                        .apps
+                        .get(a)
+                        .map_or_else(|| format!("app {a}"), |x| x.name.clone())
+                };
+                return unsupported(format!(
+                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
+                     (the corpus pins app by app in dependency order only where each app depends on the apps \
+                     before it and also has the higher lowest subscriber codeunit id)",
+                    name(first),
+                    name(later)
+                ));
+            }
+        }
+        // One block per app in that order; with a kept pair, each run of dependency apps is one block in codeunit id order.
+        let mut blocks: Vec<(usize, usize)> = Vec::new();
+        for (i, &(app, _)) in lowest.iter().enumerate() {
+            let merge = kept && i > 0 && dependency_app(app) && dependency_app(lowest[i - 1].0);
+            let block = match blocks.last() {
+                Some(&(_, b)) if merge => b,
+                Some(&(_, b)) => b + 1,
+                None => 0,
+            };
+            blocks.push((app, block));
+        }
+        let rank = |s: &crate::events::Subscriber| {
+            blocks
+                .iter()
+                .find(|&&(a, _)| a == app_of(s))
+                .map_or(usize::MAX, |&(_, b)| b)
+        };
+        targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
         Ok(targets)
     }
 

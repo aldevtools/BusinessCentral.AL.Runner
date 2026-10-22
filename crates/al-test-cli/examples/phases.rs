@@ -48,18 +48,12 @@ fn main() {
     for _ in 0..runs {
         laps.lap = Instant::now();
         let tests = root.join("corpus/tests");
-        let mut apps = vec![
-            runtime::load_app(&tests.join("al-language-internals-fixture")).unwrap(),
-            runtime::load_app(&tests.join("al-language")).unwrap(),
-        ];
+        let corpus_deps = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+        let mut apps: Vec<_> = corpus_deps.iter().map(|d| runtime::load_app(d).unwrap()).collect();
+        apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
         let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
         if with_deps {
-            let deps = al_test_cli::deps::load(
-                &tests.join("al-language"),
-                &[tests.join("al-language-internals-fixture")],
-                &[],
-            )
-            .unwrap();
+            let deps = al_test_cli::deps::load(&tests.join("al-language"), &corpus_deps, &[]).unwrap();
             kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
             apps.extend(deps.apps);
         }

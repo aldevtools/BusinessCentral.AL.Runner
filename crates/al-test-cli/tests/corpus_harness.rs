@@ -91,7 +91,7 @@ impl AllVersions {
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.
     let r = all_versions().json("29");
-    assert_eq!(r["overall"]["total"], 17757);
+    assert_eq!(r["overall"]["total"], 17768);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 465);
     assert_eq!(r["areas"]["record"]["total"], 2273);
@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "403cc29e1cd474453560aaff2875f708a602eb81",
+            "3c0336cbbf499b1ab3495fb14f6d997ed209d947",
             "0000000000000000000000000000000000000000",
         ),
     )
@@ -185,6 +185,12 @@ fn a_baseline_case_that_does_not_pass_fails_the_run() {
 /// the run has a failing case whatever the real corpus holds today. The root has the layout the
 /// CLI reads (`oracle/oracle.toml`, a git repository for the corpus pin, an app folder).
 fn root_with_a_failing_test() -> tempfile::TempDir {
+    fake_root(|_| {})
+}
+
+/// [`root_with_a_failing_test`], with `extra` called on the corpus folder (`fixture/`) before the corpus commit, to
+/// add or overwrite files.
+fn fake_root(extra: impl Fn(&Path)) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let at = |p: &str| dir.path().join(p);
     std::fs::create_dir_all(at("fixture/tests/app")).unwrap();
@@ -278,6 +284,7 @@ fn root_with_a_failing_test() -> tempfile::TempDir {
         );
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
+    extra(&at("fixture"));
     git(&["init", "-q"]);
     git(&["add", "-A"]);
     git(&["commit", "-q", "-m", "fixture"]);
@@ -340,6 +347,89 @@ fn a_failing_case_outside_the_baseline_is_reported_but_does_not_fail_the_run() {
     assert!(err.contains("60900 FailsOnPurpose"), "{err}");
 }
 
+/// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the
+/// cross-app fixtures A, B, C, where B depends on A). The CLI loads each from source before the app under test, in
+/// dependency order, whatever order the app declares them in: here the app declares B before A, and the test passes only
+/// when B's codeunit reaches A's.
+#[test]
+fn the_corpus_apps_the_app_under_test_depends_on_are_loaded_from_source() {
+    let root = fake_root(|corpus| {
+        let app = |name: &str, json: &str, al: &str| {
+            let d = corpus.join("tests").join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("app.json"), json).unwrap();
+            std::fs::write(d.join("Objects.al"), al).unwrap();
+        };
+        let dep =
+            |id: &str, name: &str| format!(r#"{{"id":"{id}","name":"{name}","publisher":"Test","version":"1.0.0.0"}}"#);
+        let a_id = "0a1b2c3d-0000-4000-8000-00000000000a";
+        let b_id = "0a1b2c3d-0000-4000-8000-00000000000b";
+        app(
+            "dep-a",
+            &format!(
+                r#"{{"id":"{a_id}","name":"Harness Dep A","publisher":"Test","version":"1.0.0.0","dependencies":[],"idRanges":[{{"from":61900,"to":61909}}],"runtime":"16.0","target":"Cloud"}}"#
+            ),
+            "codeunit 61900 \"Harness A\" { procedure Value(): Integer begin exit(7); end; }",
+        );
+        app(
+            "dep-b",
+            &format!(
+                r#"{{"id":"{b_id}","name":"Harness Dep B","publisher":"Test","version":"1.0.0.0","dependencies":[{}],"idRanges":[{{"from":61910,"to":61919}}],"runtime":"16.0","target":"Cloud"}}"#,
+                dep(a_id, "Harness Dep A")
+            ),
+            "codeunit 61910 \"Harness B\" { procedure Value(): Integer var A: Codeunit \"Harness A\"; begin exit(A.Value() * 2); end; }",
+        );
+        std::fs::write(
+            corpus.join("tests/app/app.json"),
+            format!(
+                r#"{{"id":"0a1b2c3d-0000-4000-8000-000000000001","name":"Harness Fixture","publisher":"Test","version":"1.0.0.0","platform":"27.0.0.0","application":"27.0.0.0","dependencies":[{},{}],"idRanges":[{{"from":60900,"to":60999}}],"runtime":"16.0","target":"Cloud"}}"#,
+                dep(b_id, "Harness Dep B"),
+                dep(a_id, "Harness Dep A")
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            corpus.join("tests/app/Fixture.al"),
+            r#"codeunit 60900 "Harness Fixture"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Passes()
+    var
+        B: Codeunit "Harness B";
+    begin
+        if B.Value() <> 14 then
+            Error('B answered %1', B.Value());
+    end;
+
+    [Test]
+    procedure FailsOnPurpose()
+    begin
+        Error('the harness fixture fails on purpose');
+    end;
+}
+"#,
+        )
+        .unwrap();
+    });
+    let out = root.path().join("r.json");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root.path())
+        .args(["--no-deps", "--no-ratchet", "--bc-version", "27", "--json"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&out).unwrap_or_else(|_| panic!("no report written; stderr:\n{err}")),
+    )
+    .unwrap();
+    assert_eq!(report["overall"]["pass"], 1, "{}\n{err}", report["overall"]);
+    assert_eq!(report["overall"]["fail"], 1, "{}\n{err}", report["overall"]);
+}
+
 #[test]
 fn markdown_summary_is_written() {
     require_corpus();
@@ -347,7 +437,7 @@ fn markdown_summary_is_written() {
     let shared = all_versions();
     assert_eq!(shared.code, 0, "{}", shared.err);
     let md = std::fs::read_to_string(shared.file("pass-rate", "29", "md")).unwrap();
-    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 17757 ("), "{md}");
+    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 17768 ("), "{md}");
     assert_eq!(md.lines().count(), 1, "one line per version: {md}");
     // ... and `--markdown` of a single-version run writes the file it is given.
     let dir = tempfile::tempdir().unwrap();
@@ -412,7 +502,7 @@ fn every_bc_major_has_an_oracle_with_the_same_cases() {
     // 28 and 29 come from the hybrid runner: its OnRun pseudo-cases must be skipped, or the
     // run stops with exit 2 (ADR-015 1.6).
     // All three are recorded for the pinned corpus commit.
-    for (v, total) in [("27", 17566), ("28", 17662), ("29", 17757)] {
+    for (v, total) in [("27", 17577), ("28", 17673), ("29", 17768)] {
         let r = all_versions().json(v);
         assert_eq!(r["overall"]["total"], total, "BC {v}");
         assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "BC {v}");
@@ -457,12 +547,13 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bumps 33 and 34 make it 195. Six leave: the BC 27 only tests of 85660 and 85661 in
     // network/lt-http-send-failure/LtDaSendFailure.al are now compiled under `#if BC28PLUS and LT_HELD_BCLINUX_165`, which the
     // Linux CI does not define, so no major has them. Three come: PW_RaisedEvents_OtherFormats and PW_RaisedEvents_RunRunModal
-    // of 17757 (events/lt-platform-events-v/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
+    // of 17768 (events/lt-platform-events-v/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
     // CodeunitRun_ByQualifiedName (misc/lt-cu-odd-leads/CuWriteTxTests.al, hold LT_HELD_BCLINUX_159 lifted inside its BC28PLUS
-    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 17757 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
+    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 17768 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
     // inside the BC28PLUS guard) now runs on BC 28 and 29. Corpus bump 43 makes it 202: the six tests of 85660 and 85661 in
-    // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only. Corpus bump 52
-    // makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants (report/lt-ah-dataset-header/AhDatasetHeader.al, `#if BC29PLUS`).
+    // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only.
+    // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
+    // (report/lt-ah-dataset-header/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
     assert!(out.contains("oracle: 203 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
@@ -516,7 +607,7 @@ fn require_dotnet_turns_an_unusable_dotnet_into_a_setup_error() {
 #[test]
 fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     let r = all_versions().json("28");
-    assert_eq!(r["overall"]["total"], 17662);
+    assert_eq!(r["overall"]["total"], 17673);
     let suites = r["suites"].as_array().unwrap();
     let get = |n: &str| {
         suites

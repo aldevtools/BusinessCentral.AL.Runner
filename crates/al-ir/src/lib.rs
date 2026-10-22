@@ -675,8 +675,9 @@ pub struct XmlNode {
     /// (YXmlPortProps.al:712, BC's export of such a port does not end).
     #[serde(default)]
     pub unbound: bool,
-    /// `Occurrence` of a text attribute as declared: `Some(true)` Required, `Some(false)` Optional, `None` not declared
-    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests).
+    /// `Occurrence` of a text or field attribute as declared: `Some(true)` Required, `Some(false)` Optional, `None` not declared
+    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests; for a field attribute
+    /// platform/lt-ag-contoso/AgXmlPortImport.al:248).
     #[serde(default)]
     pub required: Option<bool>,
     /// `FieldValidate` of a field element as declared (`None`: not declared, the port's `DefaultFieldsValidation` decides).

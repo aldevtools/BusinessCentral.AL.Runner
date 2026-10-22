@@ -855,6 +855,13 @@ fn test_inner(
         }
         return Ok(6);
     }
+    // Al-runner issue 5704: an entry whose own selection matches no test gets the signal a whole request gets (exit
+    // code 6, the reason in `warnings`), and the request's exit code is 6 (section 5 of migrating-tools-to-v3.md ranks
+    // 6 over 1, 8 and 7). Decided from the tests found, not the results, so a cancelled entry is not counted as empty.
+    let empty_entries: Vec<bool> = entry_selections
+        .iter()
+        .map(|s| !found.iter().any(|f| f.tests.iter().any(|t| s.picks(f.id, t))))
+        .collect();
 
     // The target: --bc-version, else the floor of the first app (ADR-015 3.2).
     let requested = a
@@ -1998,6 +2005,9 @@ fn test_inner(
     if let Some(r) = &affected {
         code = r.exit_code(code);
     }
+    if empty_entries.contains(&true) {
+        code = 6;
+    }
     let verdict = match code {
         0 => "PASSED",
         1 => "FAILED",
@@ -2038,7 +2048,21 @@ fn test_inner(
             ))
             .map(|mut doc: serde_json::Value| {
                 if !entry_counts.is_empty() {
-                    doc["entries"] = serde_json::Value::Array(entry_counts.iter().map(output::json_counts).collect());
+                    doc["entries"] = entry_counts
+                        .iter()
+                        .zip(&empty_entries)
+                        .map(|(c, &empty)| {
+                            let mut line = output::json_counts(c);
+                            if empty {
+                                line["exitCode"] = 6.into();
+                                line["warnings"] = serde_json::json!(["the selection matches no test"]);
+                            } else if c.total > 0 {
+                                // An entry a cancel stopped before it ran has no exit code of its own.
+                                line["exitCode"] = output::exit_code(c, a.allow_not_run).into();
+                            }
+                            line
+                        })
+                        .collect();
                 }
                 doc
             })

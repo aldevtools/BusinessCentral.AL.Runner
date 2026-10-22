@@ -261,6 +261,7 @@ impl<'a> Checker<'a> {
         if sc.self_obj != sc.oi {
             c.extend(self.members[sc.oi].procedures_named(n).iter().map(|p| proc_cand(p)));
         }
+        self.same_signature_in_two_objects(sc, node, n, &mut c);
         // In the OnRun of a codeunit with TableNo a bare IsDirty() is Record.IsDirty (runtime 18.0), not the codeunit's own
         // IsDirty (events/lt-with-statement-scopes/WithStatementAmbiguous.al:277-279, codeunit 82156 at :412-434; on runtime
         // 16.1 and 17.1 BC refuses the call, must-not-compile case 1407). Only IsDirty and only OnRun are pinned: another
@@ -309,6 +310,55 @@ impl<'a> Checker<'a> {
             c = self.global_cands(n);
         }
         (!c.is_empty()).then_some(c)
+    }
+
+    /// A table and a table extension of another app may declare a procedure with the same name and parameter types (BC
+    /// compiles it with warning AL0523). A bare call in the code of one of them runs that object's own procedure: the
+    /// table's in the table's code, the extension's in the extension's (tableextension/lt-bw-cross-app/BwCrossAppTests.al:34-39,
+    /// fixtures tests/al-language-xapp-a/BwXaObjects.al:19-37 and tests/al-language-xapp-b/BwXbSameNames.al). In any other
+    /// object's code (a third extension) which one runs is not pinned: AR1006, and the lowering refuses the call.
+    fn same_signature_in_two_objects(&mut self, sc: &Scope, node: &SyntaxNode, n: &str, c: &mut Vec<Cand>) {
+        let object_of = |c: &Cand| match c.target {
+            Res::Proc { object, .. } => Some(object),
+            _ => None,
+        };
+        let mut i = 0;
+        while i < c.len() {
+            let twins: Vec<usize> = (0..c.len())
+                .filter(|&j| {
+                    c[j].param_tys == c[i].param_tys
+                        && object_of(&c[j]).is_some()
+                        && object_of(&c[j]) != object_of(&c[i])
+                })
+                .collect();
+            if twins.is_empty() || object_of(&c[i]).is_none() {
+                i += 1;
+                continue;
+            }
+            match std::iter::once(i)
+                .chain(twins.iter().copied())
+                .find(|&j| object_of(&c[j]) == Some(sc.oi))
+            {
+                Some(own) => {
+                    let keep = c[own].clone();
+                    c.retain(|x| x.param_tys != keep.param_tys || object_of(x).is_none());
+                    // At the position of the first of the twins, so the overload order stays as it was.
+                    c.insert(i.min(c.len()), keep);
+                    i += 1;
+                }
+                None => {
+                    self.diag(
+                        sc,
+                        node,
+                        "AR1006",
+                        format!(
+                            "`{n}` is declared with the same parameters by two objects other than the calling one (a table and an extension of another app): which one runs is not pinned"
+                        ),
+                    );
+                    return;
+                }
+            }
+        }
     }
 
     /// The resolution of global `key`: the base object's variable in an extension that sees it

@@ -26,6 +26,9 @@ pub struct Case {
     pub from: Option<u32>,
     pub until: Option<u32>,
     pub min_al: Option<u32>,
+    /// The source folders of the corpus apps `depends` names, with the corpus apps they depend on, in dependency
+    /// order (`read_cases` fills it; empty for a case parsed alone).
+    pub corpus_deps: Vec<PathBuf>,
 }
 
 /// Parses the header (the leading run of `//` lines) of a case.
@@ -41,6 +44,7 @@ pub fn parse_case(name: &str, text: &str) -> Result<Case, String> {
         from: None,
         until: None,
         min_al: None,
+        corpus_deps: Vec::new(),
     };
     for line in text.lines() {
         let l = line.trim();
@@ -113,12 +117,18 @@ pub fn read_cases(dir: &Path) -> Result<Vec<Case>, String> {
         .filter(|p| p.extension().is_some_and(|x| x == "al"))
         .collect();
     files.sort();
+    // The corpus apps sit next to the must-not-compile folder (`tests/al-language-xapp-a`, ...).
+    let tests = cases.parent().and_then(Path::parent);
     files
         .iter()
         .map(|p| {
             let name = p.file_stem().unwrap_or_default().to_string_lossy().into_owned();
             let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-            parse_case(&name, &text)
+            let mut case = parse_case(&name, &text)?;
+            if let Some(tests) = tests {
+                case.corpus_deps = crate::deps::corpus_apps_named(tests, &case.depends)?;
+            }
+            Ok(case)
         })
         .collect()
 }
@@ -198,15 +208,26 @@ pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
 /// checker and of the app context (unsorted).
 fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResult, Vec<Diagnostic>) {
     let major = u32::from(bc_major);
-    let ws = Workspace::load(
-        vec![AppSource {
-            id: "mnc".into(),
-            name: "Must Not Compile by AL Language".into(),
-            dependencies: Vec::new(),
-            files: vec![("src/case.al".into(), case.source.clone())],
-        }],
-        &al_version::corpus_symbols(bc_major),
-    );
+    // The case's app comes first (file 0 is the case); the corpus apps of `@depends` follow, from source. It depends
+    // on the named ones only: an app sees what it declares (`al_sema::workspace`).
+    let corpus_apps: Vec<AppSource> = case
+        .corpus_deps
+        .iter()
+        .filter_map(|d| crate::runtime::load_app(d).ok())
+        .collect();
+    let dependencies = corpus_apps
+        .iter()
+        .filter(|a| case.depends.iter().any(|n| n.trim().eq_ignore_ascii_case(&a.name)))
+        .map(|a| a.id.clone())
+        .collect();
+    let mut apps = vec![AppSource {
+        id: "mnc".into(),
+        name: "Must Not Compile by AL Language".into(),
+        dependencies,
+        files: vec![("src/case.al".into(), case.source.clone())],
+    }];
+    apps.extend(corpus_apps);
+    let ws = Workspace::load(apps, &al_version::corpus_symbols(bc_major));
     let members = al_sema::members::build(&ws);
     // The corpus apps' runtime on this leg (`oracle.toml` app_runtime): 16.1, 17.1, 18.0, unless `@appjson` names one.
     let runtime = case.appjson_runtime.or_else(|| {
@@ -233,7 +254,8 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
         .iter()
         .cloned()
         .chain(alcodes::check_context(&ws, 0, &ctx))
-        .filter(|d| d.code.starts_with("AL"))
+        // The case's own diagnostics: what the compiler says about the corpus apps is not the case's verdict.
+        .filter(|d| d.code.starts_with("AL") && d.app == 0)
         .collect();
     (ws, checked, diags)
 }
@@ -408,6 +430,47 @@ mod tests {
         let o = run_case(&parse_case("x", src).unwrap(), 27);
         assert_eq!(o.verdict, Verdict::Match);
         assert_eq!(o.text_notes.len(), 1, "{:?}", o.text_notes);
+    }
+
+    /// `@depends` may name corpus apps (the cross-app fixtures: corpus CONTRIBUTING.md "Multi-app fixtures",
+    /// must-not-compile 1580 and 1581). They are loaded from their source folders next to the must-not-compile folder,
+    /// with the corpus apps they depend on, and the case's app depends on the named ones only.
+    #[test]
+    fn a_case_that_depends_on_corpus_apps_compiles_against_their_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tests = tmp.path().join("tests");
+        let app = |dir: &str, json: &str, al: &str| {
+            let d = tests.join(dir);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("app.json"), json).unwrap();
+            std::fs::write(d.join("o.al"), al).unwrap();
+        };
+        app(
+            "xapp-a",
+            r#"{"id":"aaaaaaaa-0000-0000-0000-000000000001","name":"XApp A","publisher":"P","version":"1.0.0.0","dependencies":[]}"#,
+            r#"table 61101 "XA Base" { fields { field(1; "No."; Code[20]) { } } }"#,
+        );
+        app(
+            "xapp-b",
+            r#"{"id":"bbbbbbbb-0000-0000-0000-000000000002","name":"XApp B","publisher":"P","version":"1.0.0.0","dependencies":[{"id":"aaaaaaaa-0000-0000-0000-000000000001","name":"XApp A","publisher":"P","version":"1.0.0.0"}]}"#,
+            r#"codeunit 61110 "XB C" { }"#,
+        );
+        let cases = tests.join("must-not-compile/cases");
+        std::fs::create_dir_all(&cases).unwrap();
+        let case = |depends: &str| {
+            format!(
+                "// @expect AL0132 | 'Record \"XA Base\"' does not contain a definition for 'NoSuch'\n// @depends {depends}\n\
+                 codeunit 51580 C {{ procedure P() var R: Record \"XA Base\"; begin R.NoSuch := 1; end; }}\n"
+            )
+        };
+        std::fs::write(cases.join("1580-x.al"), case("XApp B")).unwrap();
+        let read = read_cases(&tests.join("must-not-compile")).unwrap();
+        assert_eq!(read[0].corpus_deps, [tests.join("xapp-a"), tests.join("xapp-b")]);
+        std::fs::write(cases.join("1580-x.al"), case("XApp A,XApp B")).unwrap();
+        let read = read_cases(&cases).unwrap();
+        let o = run_case(&read[0], 29);
+        assert_eq!(o.verdict, Verdict::Match, "{:?}", o.got);
+        assert!(o.text_notes.is_empty(), "{:?}", o.text_notes);
     }
 
     /// A case pins the builtin call on the line of the diagnostic it expects (corpus

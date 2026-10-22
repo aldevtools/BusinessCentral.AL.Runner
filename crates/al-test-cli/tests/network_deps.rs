@@ -31,17 +31,11 @@ fn provision(cache: &Path, download: bool) -> Provision {
 fn the_corpus_test_libraries_download_cache_and_load_offline() {
     let app = corpus_app();
     assert!(app.join("app.json").exists(), "corpus submodule not checked out");
-    let fixture = app.parent().unwrap().join("al-language-internals-fixture");
+    let corpus_deps = deps::corpus_source_dirs(&app).unwrap();
     let cache = tempfile::tempdir().unwrap();
 
     let t = Instant::now();
-    let cold = deps::load_with(
-        &app,
-        std::slice::from_ref(&fixture),
-        &[],
-        Some(&provision(cache.path(), true)),
-    )
-    .unwrap();
+    let cold = deps::load_with(&app, &corpus_deps, &[], Some(&provision(cache.path(), true))).unwrap();
     let cold_time = t.elapsed();
     let used = cold
         .build
@@ -66,13 +60,7 @@ fn the_corpus_test_libraries_download_cache_and_load_offline() {
     }
 
     let t = Instant::now();
-    let warm = deps::load_with(
-        &app,
-        std::slice::from_ref(&fixture),
-        &[],
-        Some(&provision(cache.path(), false)),
-    )
-    .unwrap();
+    let warm = deps::load_with(&app, &corpus_deps, &[], Some(&provision(cache.path(), false))).unwrap();
     println!("warm: {:?}", t.elapsed());
     let used = warm.build.as_ref().unwrap();
     assert_eq!(used.origin, Origin::Cache);

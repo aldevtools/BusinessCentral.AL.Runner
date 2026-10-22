@@ -11,6 +11,11 @@ files with the same 5147 cases. Regenerate the per-area numbers with
 |---|---:|---|
 | `tests/al-language` (Target = Cloud) | 1370 | The test app. Everything below refers to it. |
 | `tests/al-language-internals-fixture` | 8 | A dependency of the test app (CI publishes it first). Must be loaded as a second app: some `codeunit/` tests call its objects across the app boundary (`ALT Internal Codeunit`, `ALT Cross Compute`). |
+| `tests/al-language-xapp-a`, `-b`, `-c` | 3, 4, 2 | Cross-app fixtures (no tests) the test app depends on: B depends on the internals fixture and A, C on A and B. The tests in `events/lt-bw-subscriber-order` and `tableextension/lt-bw-cross-app` use them. |
+
+The runner loads every corpus app the test app depends on (directly or through another of them) from source, in
+dependency order, before the test app: `al_testrun::deps::corpus_source_dirs` reads the `app.json` files of the folders
+next to the test app. No list of folders is kept in the runtime.
 | `tests/al-language-onprem` (Target = OnPrem) | 10 | Not in the main oracle (a separate CI job and artifact). Run as the `onprem` suite against its own oracle (`oracle/README.md`). |
 | `tests/al-language-isolation-probe` | 5 | Only in the Windows nightly, under two custom test runners. Run as the `isolation-function` and `isolation-codeunit` suites (BC 28 only). |
 

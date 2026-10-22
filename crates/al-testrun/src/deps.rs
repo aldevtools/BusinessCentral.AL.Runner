@@ -65,6 +65,85 @@ fn app_json(dir: &Path) -> Result<AppJson, String> {
     parse_app_json(&text).map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// The source folders of the apps the app in `app_dir` depends on that sit next to it (a folder of the same parent
+/// holding an `app.json` whose id the app declares, directly or through another such folder), in dependency order:
+/// each app after the apps it depends on, apps that do not depend on each other in the order the app declares them.
+/// This is how the corpus's main app finds its corpus dependencies (the internals fixture and the cross-app fixtures),
+/// which CI publishes before it in that order (corpus `.github/workflows/ci.yml`, `app_dirs`). A dependency with no
+/// such folder (a Microsoft app) is not listed: [`load_with`] resolves it from packages.
+pub fn corpus_source_dirs(app_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let project = app_json(app_dir)?;
+    let parent = app_dir.parent().unwrap_or(Path::new("."));
+    let apps = neighbor_apps(parent, Some(app_dir))?;
+    let roots: Vec<usize> = project
+        .dependencies
+        .iter()
+        .filter_map(|d| apps.iter().position(|(_, j)| j.id.eq_ignore_ascii_case(&d.id)))
+        .collect();
+    in_dependency_order(&apps, &roots)
+}
+
+/// The source folders in `tests_dir` of the apps named `names` (the `name` of their `app.json`, any case) and of the
+/// apps there they depend on, in the order of [`corpus_source_dirs`]. A name no folder holds is left out (a Microsoft
+/// app). For the must-not-compile cases' `@depends` (corpus `tests/must-not-compile/README.md`).
+pub fn corpus_apps_named(tests_dir: &Path, names: &[String]) -> Result<Vec<PathBuf>, String> {
+    let apps = neighbor_apps(tests_dir, None)?;
+    let roots: Vec<usize> = names
+        .iter()
+        .filter_map(|n| apps.iter().position(|(_, j)| j.name.eq_ignore_ascii_case(n.trim())))
+        .collect();
+    in_dependency_order(&apps, &roots)
+}
+
+/// The folders of `parent` that hold an `app.json` (other than `exclude`), sorted by folder name, one per app id (the
+/// first by name wins, so a duplicate id resolves the same way on every machine). A folder whose `app.json` does not
+/// parse is no app here.
+fn neighbor_apps(parent: &Path, exclude: Option<&Path>) -> Result<Vec<(PathBuf, AppJson)>, String> {
+    let own = exclude.and_then(|e| e.canonicalize().ok());
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(parent)
+        .map_err(|e| format!("{}: {e}", parent.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.join("app.json").is_file())
+        .filter(|p| own.is_none() || p.canonicalize().ok() != own)
+        .collect();
+    entries.sort();
+    let mut apps: Vec<(PathBuf, AppJson)> = Vec::new();
+    for dir in entries {
+        let Ok(json) = app_json(&dir) else { continue };
+        if !apps.iter().any(|(_, j)| j.id.eq_ignore_ascii_case(&json.id)) {
+            apps.push((dir, json));
+        }
+    }
+    Ok(apps)
+}
+
+/// `roots` and the apps of `apps` they depend on, each after the apps it depends on: a depth-first post-order over the
+/// declared dependencies in declaration order, so a dependency comes before the first app that needs it.
+fn in_dependency_order(apps: &[(PathBuf, AppJson)], roots: &[usize]) -> Result<Vec<PathBuf>, String> {
+    fn visit(at: usize, apps: &[(PathBuf, AppJson)], state: &mut [u8], out: &mut Vec<usize>) -> Result<(), String> {
+        match state[at] {
+            2 => return Ok(()),
+            1 => return Err(format!("{}: dependency cycle", apps[at].0.display())),
+            _ => {}
+        }
+        state[at] = 1;
+        for d in &apps[at].1.dependencies {
+            if let Some(next) = apps.iter().position(|(_, j)| j.id.eq_ignore_ascii_case(&d.id)) {
+                visit(next, apps, state, out)?;
+            }
+        }
+        state[at] = 2;
+        out.push(at);
+        Ok(())
+    }
+    let mut state = vec![0u8; apps.len()];
+    let mut order = Vec::new();
+    for &r in roots {
+        visit(r, apps, &mut state, &mut order)?;
+    }
+    Ok(order.into_iter().map(|i| apps[i].0.clone()).collect())
+}
+
 /// Resolves and reads the dependencies of the app in `app_dir`. Apps in
 /// `source_dirs` are built from source by the caller and satisfy their own dependents.
 ///
@@ -248,6 +327,48 @@ mod tests {
             std::fs::write(dir.join(f), text).unwrap();
         }
         dir
+    }
+
+    fn json(id: &str, deps: &[&str]) -> String {
+        let deps: Vec<String> = deps
+            .iter()
+            .map(|d| format!(r#"{{"id":"{d}","name":"{d}","publisher":"X","version":"1.0.0.0"}}"#))
+            .collect();
+        format!(
+            r#"{{"id":"{id}","name":"{id}","publisher":"X","version":"1.0.0.0","dependencies":[{}]}}"#,
+            deps.join(",")
+        )
+    }
+
+    /// The corpus's main app depends on other corpus apps (the fixture, and cross-app fixtures A, B, C where B depends
+    /// on the fixture and A, C on A and B). They are the folders next to it whose app id the main app declares, directly
+    /// or through another of them; a Microsoft dependency is not a folder there. Dependencies come before their
+    /// dependents, and apps that do not depend on each other keep the order the main app declares them in.
+    #[test]
+    fn the_corpus_apps_a_corpus_app_depends_on_come_in_dependency_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tmp.path();
+        app_folder(t, "fixture", &json("f", &[]), &[]);
+        app_folder(t, "xapp-a", &json("a", &[]), &[]);
+        app_folder(t, "xapp-b", &json("b", &["f", "a"]), &[]);
+        app_folder(t, "xapp-c", &json("c", &["a", "b"]), &[]);
+        app_folder(t, "unrelated", &json("u", &[]), &[]);
+        // Declared in an order that is not a dependency order: C before B.
+        let main = app_folder(t, "main", &json("m", &["f", "c", "b", "a", "ms-system"]), &[]);
+        let dirs = corpus_source_dirs(&main).unwrap();
+        let names: Vec<String> = dirs
+            .iter()
+            .map(|d| d.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["fixture", "xapp-a", "xapp-b", "xapp-c"]);
+        // An app declared only through another corpus app is included too (C declares A before B, B the fixture).
+        let only_c = app_folder(t, "main2", &json("m2", &["c"]), &[]);
+        let names: Vec<String> = corpus_source_dirs(&only_c)
+            .unwrap()
+            .iter()
+            .map(|d| d.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["xapp-a", "fixture", "xapp-b", "xapp-c"]);
     }
 
     /// BC's test environment has Microsoft's Test Runner app installed although no test app declares it
