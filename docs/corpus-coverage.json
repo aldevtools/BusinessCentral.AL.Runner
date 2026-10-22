@@ -2,7 +2,7 @@
   "corpus_commit": "57c59078da0bd475e6625cda5a07c57e594b4c03",
   "language": {
     "bc": "27-29",
-    "implemented": 1499,
+    "implemented": 1501,
     "methods": [
       {
         "bc": [
@@ -17329,7 +17329,7 @@
         "scope": "",
         "sig": "()",
         "site": "session/TestMiscTypes.al:112",
-        "state": "refused",
+        "state": "implemented",
         "type": "SessionInformation"
       },
       {
@@ -17345,7 +17345,7 @@
         "scope": "",
         "sig": "()",
         "site": "session/TestMiscTypes.al:102",
-        "state": "refused",
+        "state": "implemented",
         "type": "SessionInformation"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 223,
+    "refused": 221,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

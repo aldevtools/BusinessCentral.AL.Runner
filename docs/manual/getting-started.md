@@ -30,7 +30,7 @@ curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/down
 & ([scriptblock]::Create((irm https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.ps1))) -Version edge
 ```
 
-Replace `edge` with `latest-alpha`, or with a tag such as `v3.0.0-alpha.3`, for a
+Replace `edge` with `latest-alpha`, or with a tag such as `v3.0.0-alpha.4`, for a
 numbered alpha. You can also download an archive from the releases page and check
 it against `SHA256SUMS`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.
@@ -48,9 +48,10 @@ dotnet tool install --global MSDyn365BC.AL.Runner
 that passed CI. A numbered alpha (`3.0.0-alpha.N`) is released by hand. Use a
 numbered alpha when you need a version you can name in a bug report.
 
-**The binaries are not signed.** On macOS, Gatekeeper blocks the file; run
+**Signing.** The Windows binary is signed with Azure Trusted Signing. The macOS
+and Linux binaries are not signed. On macOS, Gatekeeper blocks the file; run
 `xattr -d com.apple.quarantine ./al-runner` (the install script does this). On
-Windows, SmartScreen warns; choose "More info", then "Run anyway", or run
+Windows, if SmartScreen still warns, choose "More info", then "Run anyway", or run
 `Unblock-File .\al-runner.exe`.
 
 **Two commands named `al-runner`.** The .NET tool installs a command with the same

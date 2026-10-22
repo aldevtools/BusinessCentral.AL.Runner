@@ -160,6 +160,33 @@ pub enum Value {
     /// An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs) is
     /// the one exception: it sits in a by-value parameter, can be passed on by value, and any other use is refused.
     Unknown(std::sync::Arc<str>),
+    /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
+    /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
+    SqlCount(SqlCount),
+}
+
+/// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SqlCount {
+    /// The model's number.
+    pub n: i64,
+    pub form: SqlForm,
+}
+
+/// What a counter value is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlForm {
+    /// A read of one counter. Two reads of the same epoch have only classified segments between them.
+    Read { counter: SqlCounter, epoch: u32 },
+    /// The difference of two reads of one epoch, or a sum of such differences whose sign is certain.
+    Delta,
+}
+
+/// Which counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlCounter {
+    Statements,
+    RowsRead,
 }
 
 /// What a `Value::DotNet` refers to.
@@ -1733,6 +1760,8 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
+            // A BigInteger (session/lt-bl-sql-counters/SqlCounters.al:87-103).
+            Value::SqlCount(_) => k == "biginteger",
         }
     }
 }
