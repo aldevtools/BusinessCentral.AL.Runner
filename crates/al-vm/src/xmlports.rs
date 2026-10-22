@@ -1108,8 +1108,8 @@ impl Session {
         let xp = schema.xp();
         if xp.format != al_ir::XmlFormat::Xml {
             return unsupported(format!(
-                "XmlPort import of {} into {}.{}, which has validation code: whether a {:?} port validates it is not pinned",
-                n.name, t.name, field.name, xp.format
+                "XmlPort import of {} into {}.{}, which has validation code: whether a port of a Format other than Xml validates it is not pinned",
+                n.name, t.name, field.name
             ));
         }
         if n.kind != al_ir::XmlNodeKind::Field {
