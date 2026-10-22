@@ -3103,6 +3103,115 @@ impl Session {
         }
     }
 
+    /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Address,
+    /// Address 2, the city line, County and the name of the country, each empty one left out
+    /// (report/lt-ah-dataset-header/AhDatasetHeader.al:98-151). Without a country the city line is the post code, a space
+    /// and the city, leading spaces cut (`ZIP 12 Town`, `Town`, `ZIP 12 `: AhDatasetHeader.al:125-126, 152-153); with a
+    /// country of the address format City+Post Code (the InitValue of the Country/Region table, which both corpus
+    /// countries keep) it is the city, a comma and the post code (`Town, ZIP 12`: AhDatasetHeader.al:127-129, 104 for the
+    /// QK row). The corpus database has the General Ledger Setup's local format Post Code+City. Every other shape is not
+    /// pinned and refused: Name 2 set, an empty Name with address lines, another local or country format, a country with
+    /// only one of City and Post Code, a country without a row or without a name, country translations.
+    fn company_address_lines(&mut self, rec: &Rec, t: &al_data::TableDef) -> Result<Vec<String>, Signal> {
+        let get = |name: &str| -> String {
+            t.fields
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(name))
+                .and_then(|i| al_builtins::native::text_of(&rec.borrow().fields[i]).map(|v| v.to_string()))
+                .unwrap_or_default()
+        };
+        let refuse = |what: String| -> Result<Vec<String>, Signal> {
+            unsupported(format!(
+                "the company address lines of the dataset header: {what} (not pinned by AhDatasetHeader.al)"
+            ))
+        };
+        let name = get("Name");
+        let [address, address2, city, post_code, county, country] = [
+            "Address",
+            "Address 2",
+            "City",
+            "Post Code",
+            "County",
+            "Country/Region Code",
+        ]
+        .map(get);
+        if !get("Name 2").is_empty() {
+            return refuse("Company Information has \"Name 2\" set".into());
+        }
+        let mut country_name = String::new();
+        let city_line = if country.is_empty() {
+            if !(city.is_empty() && post_code.is_empty() && county.is_empty()) {
+                match self.header_row(98, None, 57)? {
+                    None => return refuse("the General Ledger Setup has no row".into()),
+                    Some(Value::Option(0, _)) => {}
+                    Some(_) => return refuse("a Local Address Format other than Post Code+City".into()),
+                }
+            }
+            format!("{post_code} {city}").trim_start().to_string()
+        } else {
+            match self.header_row(9, Some(Value::Code(country.clone().into())), 8)? {
+                Some(Value::Enum(_, 1)) => {}
+                Some(_) => {
+                    return refuse(format!(
+                        "country \"{country}\" has an Address Format other than City+Post Code"
+                    ));
+                }
+                None => return refuse(format!("country \"{country}\" has no row")),
+            }
+            country_name = match self.header_row(9, Some(Value::Code(country.clone().into())), 2)? {
+                Some(v) => al_builtins::native::text_of(&v).unwrap_or_default().to_string(),
+                None => String::new(),
+            };
+            if country_name.is_empty() {
+                return refuse(format!("country \"{country}\" has no name"));
+            }
+            if self.compiled_table(11).is_some() && self.header_row(11, None, 1)?.is_some() {
+                return refuse("Country/Region Translation has rows".into());
+            }
+            match (city.is_empty(), post_code.is_empty()) {
+                (true, true) => String::new(),
+                (false, false) => format!("{city}, {post_code}"),
+                _ => return refuse("a country with only one of City and Post Code".into()),
+            }
+        };
+        let rest: Vec<String> = [address, address2, city_line, county, country_name]
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect();
+        if name.is_empty() && !rest.is_empty() {
+            return refuse("an empty Name with address fields set".into());
+        }
+        Ok(std::iter::once(name).chain(rest).collect())
+    }
+
+    /// The value of field `field` of a row of table `table`: the row with primary key `key`, or the first row. `None` when
+    /// the table has no such row. A table that is not compiled is refused.
+    fn header_row(&mut self, table: u32, key: Option<Value>, field: u32) -> Result<Option<Value>, Signal> {
+        let Some(obj) = self.compiled_table(table) else {
+            return unsupported(format!(
+                "the company address lines of the dataset header need table {table}, which is not compiled"
+            ));
+        };
+        let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
+        let Some(pos) = t.fields.iter().position(|f| f.id == field) else {
+            return unsupported(format!(
+                "the company address lines of the dataset header: table {table} has no field {field}"
+            ));
+        };
+        let Value::Record(rec) = self.default_value(&al_builtins::value::RtType::Record(obj as u32, false)) else {
+            unreachable!("a record type defaults to a record")
+        };
+        let found = match key {
+            Some(k) => self.record_op(RecordOp::Get, &rec, &mut [k])?,
+            None => self.record_op(RecordOp::FindFirst, &rec, &mut [])?,
+        };
+        if !al_builtins::ops::truthy(&found)? {
+            return Ok(None);
+        }
+        let v = rec.borrow().fields[pos].clone();
+        Ok(Some(v))
+    }
+
     /// The header of the dataset: what the report, its app, the session and the clock say.
     fn dataset_header(&mut self, schema: &Schema) -> Result<dataset::Header, Signal> {
         let engine = &schema.engine;
@@ -3134,39 +3243,20 @@ impl Session {
                 &h[20..32]
             )
         };
-        // BC 29 and later: the first company address line of the header is the Name of the Company Information record, empty while
-        // the table has no row (report/W3ReportDataset.al:174 Header_CompanyInformation_NameAndAddress). The other lines are not
-        // pinned and stay empty (docs/probes-needed.md).
-        let mut company_line1 = String::new();
-        let mut company_line2 = String::new();
+        // BC 29 and later: the company address lines of the header, all empty while Company Information has no row
+        // (report/W3ReportDataset.al:174 Header_CompanyInformation_NameAndAddress); see `company_address_lines`.
+        let mut company_lines = Vec::new();
         let mut company_values: Vec<(&'static str, String)> = Vec::new();
         if self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) {
             if let Some(obj) = self.compiled_table(79) {
                 let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
-                if let Some(p) = t.fields.iter().position(|f| f.id == 2) {
+                if t.fields.iter().any(|f| f.id == 2) {
                     if let Value::Record(rec) =
                         self.default_value(&al_builtins::value::RtType::Record(obj as u32, false))
                     {
                         if al_builtins::ops::truthy(&self.record_op(RecordOp::FindFirst, &rec, &mut [])?)? {
-                            if let Some(n) = al_builtins::native::text_of(&rec.borrow().fields[p]) {
-                                company_line1 = n.to_string();
-                            }
-                            // The address fields fill the next lines in an order that depends on the country
-                            // (report/lt-ah-dataset-header/AhDatasetHeader.al:98-151); that is not built yet. Address is line 2
-                            // whenever it is set (AhDatasetHeader.al:120-124), so Address alone is written there
-                            // (report/W3ReportDataset.al:204 sets only Address); with any other field set it is refused.
-                            const OTHER: [&str; 5] =
-                                ["Address 2", "City", "Post Code", "County", "Country/Region Code"];
+                            company_lines = self.company_address_lines(&rec, &t)?;
                             let value = |i: usize| al_builtins::native::text_of(&rec.borrow().fields[i]);
-                            if let Some(i) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Address")) {
-                                if let Some(v) = value(i) {
-                                    company_line2 = v.to_string();
-                                }
-                            }
-                            let set = t.fields.iter().enumerate().find(|(i, f)| {
-                                OTHER.iter().any(|a| a.eq_ignore_ascii_case(&f.name))
-                                    && value(*i).is_some_and(|v| !v.is_empty())
-                            });
                             // The other elements write the value of their field (misc/lt-probes-needed-2/PnBReportSaveAs.al:568-592).
                             // The logo is the Picture field's bytes in base64 as they were written, a PNG and bytes that are no
                             // picture alike, with no line breaks; empty without a picture (report/lt-ah-dataset-header/
@@ -3203,21 +3293,13 @@ impl Session {
                                     company_values.push((element, v.to_string()));
                                 }
                             }
-                            if let Some((_, f)) = set {
-                                return unsupported(format!(
-                                    "the company address lines of the dataset header (Company Information has \"{}\" set; \
-                                     the address format of AhDatasetHeader.al is not built)",
-                                    f.name
-                                ));
-                            }
                         }
                     }
                 }
             }
         }
         Ok(dataset::Header {
-            company_line1,
-            company_line2,
+            company_lines,
             company_values,
             extension_id: app.map(|a| a.id.clone()).unwrap_or_default(),
             extension_name: app

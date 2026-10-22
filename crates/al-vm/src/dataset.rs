@@ -141,10 +141,8 @@ pub(crate) struct Header {
     /// BC 29 adds `ReportCaption` and the company information block
     /// (`al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock`).
     pub company_block: bool,
-    /// The first company address line: the name of the Company Information record.
-    pub company_line1: String,
-    /// The second line: the Address of the Company Information record when it is the only address field set.
-    pub company_line2: String,
+    /// The company address lines, at most eight; the elements after them are empty.
+    pub company_lines: Vec<String>,
     /// The values of the other company elements (`COMPANY_ELEMENTS`) that are not empty, by element name.
     pub company_values: Vec<(&'static str, String)>,
 }
@@ -268,11 +266,7 @@ impl Header {
                     out,
                     8,
                     &format!("CompanyAddressLine{n}"),
-                    match n {
-                        1 => &self.company_line1,
-                        2 => &self.company_line2,
-                        _ => "",
-                    },
+                    self.company_lines.get(n - 1).map_or("", String::as_str),
                 )?;
             }
             out.push_str("      </CompanyAddressLines>\r\n");
