@@ -439,6 +439,31 @@ report 68315 "Probe Caption Report"
     }
 }
 
+// IncludeCaption on a field written with a data item name: the own item named like its table, a child's field in the parent, the
+// parent's in the child, an earlier sibling's (errors/lt-ms-refusals-138/P138ColCaptionQualified.al:113, report 87352).
+report 68398 "Probe Caption Sources"
+{
+    ProcessingOnly = false;
+
+    dataset
+    {
+        dataitem("Probe Rep Parent"; "Probe Rep Parent")
+        {
+            column(IdOwn; "Probe Rep Parent".Id) { IncludeCaption = true; }
+            column(FromChild; Child.Code) { IncludeCaption = true; }
+            dataitem(Child; "Probe Rep Child")
+            {
+                DataItemLink = ParentId = field(Id);
+                column(FromParent; "Probe Rep Parent".Name) { IncludeCaption = true; }
+            }
+        }
+        dataitem(Sibling; "Probe Rep Child")
+        {
+            column(FromSibling; "Probe Rep Parent".Amt) { IncludeCaption = true; }
+        }
+    }
+}
+
 // Skip leaves a row out of the dataset.
 report 68316 "Probe Skip Report"
 {
@@ -1318,4 +1343,25 @@ fn the_save_as_of_a_report_with_the_format_region_property_is_refused_for_its_he
 fn format_in_oninitreport_of_a_report_with_the_format_region_property_is_refused() {
     let r = refusal("var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68394, ''); exit(All); end;");
     assert!(r.contains("OnInitReport") && r.contains("de-DE"), "{r}");
+}
+
+// P138ColCaptionQualified.al:QS_Labels_WhenNoRows: the label of a field written with the name of the own, the parent, a child or an
+// earlier top-level data item is the field's caption, in dataset order, also when no row is written. With rows the value of a
+// parent column that reads the child is refused (QS_Columns_DataItemNamedLikeTable: BC writes the child's first row).
+#[test]
+fn include_caption_of_a_field_written_with_a_data_item_name() {
+    assert!(
+        refusal(
+            "var H: Codeunit Helpers; begin H.Seed(); exit(H.Dataset(Report::\"Probe Caption Sources\", '')); end;"
+        )
+        .contains("column FromChild reads a field of the data item Child nested below its own")
+    );
+    let text = f(
+        "var H: Codeunit Helpers; P: Record \"Probe Rep Parent\"; C: Record \"Probe Rep Child\"; begin
+            P.DeleteAll(); C.DeleteAll(); exit(H.Dataset(Report::\"Probe Caption Sources\", '')); end;",
+    );
+    assert!(
+        text.contains("<Labels>|    <Label name=\"IdOwnCaption\">Id</Label>|    <Label name=\"FromChildCaption\">Code</Label>|    <Label name=\"FromParentCaption\">Name</Label>|    <Label name=\"FromSiblingCaption\">Amt</Label>|  </Labels>"),
+        "{text}"
+    );
 }

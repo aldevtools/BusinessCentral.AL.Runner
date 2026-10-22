@@ -1026,6 +1026,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             ns_prefix: _,
             auto_calc: _,
             unbound: _,
+            required: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
@@ -1078,11 +1079,16 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         field,
         item_field,
         include_caption: _,
+        caption_table,
+        caption_field,
+        value_unsupported: _,
         decimal_places: _,
         option_caption_ml: _,
     } = c;
     field_opt(v, field, table);
     field_opt(v, item_field, table);
+    field_opt(v, caption_field, TableOf::object(*caption_table));
+    object_opt(v, caption_table);
 }
 
 fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {

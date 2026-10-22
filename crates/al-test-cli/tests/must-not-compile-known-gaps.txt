@@ -330,7 +330,3 @@
 29 1872-ternary-date-true-datetime-false
 29 1873-one-char-literal-in-text-variable-range
 29 1874-one-char-literal-in-code-variable-range
-# corpus bump 49: new cases the front end does not decide yet (IncludeCaption on a global variable column)
-27 2010-includecaption-on-global-variable-column
-28 2010-includecaption-on-global-variable-column
-29 2010-includecaption-on-global-variable-column
