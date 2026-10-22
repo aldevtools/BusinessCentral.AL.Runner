@@ -2046,10 +2046,11 @@ fn an_import_checks_the_occurrence_of_field_attributes() {
     );
 }
 
-// The export of a field attribute with an explicit Occurrence and an empty value is not pinned (AgXmlPortImport.al pins import
-// only); it is refused. A value that is not empty is written as without the property.
+// The export of a field attribute with an explicit Occurrence: an Optional one whose text is empty is left out, a Required one
+// is written as `attr=""`, a value that is not empty is written as without the property (corpus
+// xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: `OptNum="0"`, no OptTxt).
 #[test]
-fn an_export_of_an_empty_field_attribute_with_an_occurrence_is_refused() {
+fn an_export_leaves_out_an_empty_optional_field_attribute() {
     let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; OutStr: OutStream; U: Record \"ALT Universal\";";
     let set = "U.\"Entry No.\" := 10; U.\"Text Field\" := 'ten'; U.\"Integer Field\" := 1; U.Insert();
                B.Code := 'X'; B.Insert(); B.Data.CreateOutStream(OutStr); XmlPort.Export(60101, OutStr); B.Modify(); exit(H.ReadAll(B));";
@@ -2060,8 +2061,8 @@ fn an_export_of_an_empty_field_attribute_with_an_occurrence_is_refused() {
     );
     let empty = set.replace("'ten'", "''");
     assert!(
-        refusal(vars, &empty).contains("Occurrence"),
+        text(vars, &empty).contains("<Row Id=\"10\" Num=\"1\" />"),
         "{}",
-        refusal(vars, &empty)
+        text(vars, &empty)
     );
 }

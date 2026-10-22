@@ -198,11 +198,13 @@ fn a_variable_text_record_of_another_length() {
     assert!(matches!(run(&short_src("A;1;x;e1;e2"), "F"), Err(Signal::Unsupported(r)) if r.contains("not pinned")));
 }
 
-/// A port whose fields arrive as attributes (corpus pages/lt-report-page-properties/06-xmlport-fvat.al:7-30, :107-152).
-fn attr_src(port_props: &str, txt_props: &str) -> String {
+/// A port whose fields arrive as attributes (corpus pages/lt-report-page-properties/06-xmlport-fvat.al:7-30, :107-152,
+/// and xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:185-405 for the field with a TableRelation).
+fn attr_src(port_props: &str, txt_props: &str, doc: &str) -> String {
     format!(
         r#"
 table 69980 "XA Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
+table 69985 "XA Rel" {{ fields {{ field(1; Code; Code[10]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
 table 69981 "XA Row"
 {{
     fields
@@ -210,6 +212,7 @@ table 69981 "XA Row"
         field(1; Id; Integer) {{ }}
         field(2; Txt; Text[20]) {{ trigger OnValidate() var L: Codeunit "XA Log"; begin L.Add('val Txt=' + Txt + ' xRec=' + xRec.Txt); end; }}
         field(3; Qty; Integer) {{ trigger OnValidate() var L: Codeunit "XA Log"; begin L.Add('val Qty=' + Format(Qty)); end; }}
+        field(4; Rel; Code[10]) {{ TableRelation = "XA Rel".Code; trigger OnValidate() var L: Codeunit "XA Log"; begin L.Add('val Rel=' + Rel); end; }}
     }}
     keys {{ key(PK; Id) {{ }} }}
 }}
@@ -224,8 +227,9 @@ xmlport 69983 "XA Port"
             tableelement(Row; "XA Row")
             {{
                 fieldattribute(Id; Row.Id) {{ }}
-                fieldattribute(Txt; Row.Txt) {{ {txt_props} }}
-                fieldattribute(Qty; Row.Qty) {{ FieldValidate = No; }}
+                fieldattribute(Txt; Row.Txt) {{ Occurrence = Optional; {txt_props} }}
+                fieldattribute(Qty; Row.Qty) {{ Occurrence = Optional; FieldValidate = No; }}
+                fieldattribute(Rel; Row.Rel) {{ Occurrence = Optional; }}
             }}
         }}
     }}
@@ -233,35 +237,86 @@ xmlport 69983 "XA Port"
 codeunit 69984 C
 {{
     procedure F(): Text
-    var B: Record "XA Blob" temporary; R: Record "XA Row"; L: Codeunit "XA Log"; OutS: OutStream; InS: InStream; T: Text;
+    var B: Record "XA Blob" temporary; Rel: Record "XA Rel"; R: Record "XA Row"; L: Codeunit "XA Log"; OutS: OutStream; InS: InStream; T: Text;
     begin
+        Rel.Code := 'R1'; Rel.Insert();
         B.Code := 'X'; B.Insert();
         B.Data.CreateOutStream(OutS);
-        OutS.WriteText('<Root><Row Id="21" Txt="t21" Qty="5"/></Root>');
+        OutS.WriteText('{doc}');
         B.Data.CreateInStream(InS);
-        Xmlport.Import(Xmlport::"XA Port", InS);
-        if R.FindSet() then repeat T += Format(R.Id) + ':' + R.Txt + ':' + Format(R.Qty) + ','; until R.Next() = 0;
+        if not TryImport(InS) then T := 'error ' + GetLastErrorText() + ' ' + GetLastErrorCode() + ';';
+        if R.FindSet() then repeat T += Format(R.Id) + ':' + R.Txt + ':' + Format(R.Qty) + ':' + R.Rel + ','; until R.Next() = 0;
         exit(L.Take() + T);
     end;
+    [TryFunction] local procedure TryImport(InS: InStream) begin Xmlport.Import(Xmlport::"XA Port", InS); end;
 }}
 "#
     )
 }
 
+const ATTR_DOC: &str = r#"<Root><Row Id="21" Txt="t21" Qty="5"/></Root>"#;
+
 #[test]
 fn a_field_attribute_is_validated_with_field_validate_yes_and_not_with_no() {
     // 06-xmlport-fvat.al:118-119: only Txt (FieldValidate = Yes) is validated, Qty (No) is stored as it is.
-    let r = run(&attr_src("", "FieldValidate = Yes;"), "F");
-    assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5,");
+    let r = run(&attr_src("", "FieldValidate = Yes;", ATTR_DOC), "F");
+    assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5:,");
 }
 
 #[test]
-fn a_field_attribute_without_field_validate_or_under_default_fields_validation_false_stays_refused() {
-    for (port, txt) in [("", ""), ("DefaultFieldsValidation = false;", "FieldValidate = Yes;")] {
-        let r = run(&attr_src(port, txt), "F");
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("field attribute Txt")),
-            "{port} {txt}: {r:?}"
-        );
+fn a_field_attribute_without_field_validate_follows_default_fields_validation() {
+    // BjXmlPortDefaultValidation.al:625 (AttrDef under DefaultFieldsValidation = true: validated), :657 (under false:
+    // stored as it is; AttrYes still validated).
+    for port in ["", "DefaultFieldsValidation = true;"] {
+        let r = run(&attr_src(port, "", ATTR_DOC), "F");
+        assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5:,", "{port}");
     }
+    let r = run(&attr_src("DefaultFieldsValidation = false;", "", ATTR_DOC), "F");
+    assert_eq!(al_testkit::text(r), "21:t21:5:,");
+    let r = run(
+        &attr_src("DefaultFieldsValidation = false;", "FieldValidate = Yes;", ATTR_DOC),
+        "F",
+    );
+    assert_eq!(al_testkit::text(r), "val Txt=t21 xRec=t21;21:t21:5:,");
+}
+
+#[test]
+fn a_validated_field_attribute_checks_the_table_relation() {
+    // BjXmlPortDefaultValidation.al:625, :689: R1 runs OnValidate, NOPE fails the import before any row is inserted.
+    let r = run(&attr_src("", "", r#"<Root><Row Id="1" Rel="R1"/></Root>"#), "F");
+    assert_eq!(al_testkit::text(r), "val Rel=R1;1::0:R1,");
+    let r = run(&attr_src("", "", r#"<Root><Row Id="1" Rel="NOPE"/></Root>"#), "F");
+    assert_eq!(
+        al_testkit::text(r),
+        "error The field Rel of table XA Row contains a value (NOPE) that cannot be found in the related table (XA Rel). DB:PrimRecordNotFound;"
+    );
+    let r = run(
+        &attr_src(
+            "DefaultFieldsValidation = false;",
+            "",
+            r#"<Root><Row Id="1" Rel="NOPE"/></Root>"#,
+        ),
+        "F",
+    );
+    assert_eq!(al_testkit::text(r), "1::0:NOPE,");
+}
+
+#[test]
+fn a_blank_field_attribute_with_a_table_relation_is_not_validated() {
+    // BjXmlPortDefaultValidation.al:625 ('AttrDef blank', 'AttrYes blank'): no OnValidate, the row is inserted.
+    let r = run(&attr_src("", "", r#"<Root><Row Id="1" Rel=""/></Root>"#), "F");
+    assert_eq!(al_testkit::text(r), "1::0:,");
+}
+
+#[test]
+fn a_blank_validated_field_attribute_without_a_table_relation_is_refused() {
+    // Only fields with a TableRelation are pinned for a blank attribute (BjXmlPortDefaultValidation.al:625).
+    let r = run(
+        &attr_src("", "FieldValidate = Yes;", r#"<Root><Row Id="1" Txt=""/></Root>"#),
+        "F",
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("blank field attribute Txt")),
+        "{r:?}"
+    );
 }

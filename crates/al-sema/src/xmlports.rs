@@ -350,16 +350,15 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             let pn = p.name().to_ascii_lowercase();
             if pn == "sourcetableview" && kind == K::Table {
                 // An import ignores the view: a row its filter leaves out is imported as any other (platform/lt-ag-contoso/
-                // AgXmlPortImport.al:62-80, :298-309, an element without a link). Not pinned: a filtered view on a linked
-                // element, and every export (which rows in which order; :312 sees a single row).
+                // AgXmlPortImport.al:62-80, :298-309, an element without a link); a filtered view on a linked element is refused
+                // on import when the port runs (not pinned). An export reads the rows in the view's order and through its
+                // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
+                // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
+                // is not pinned on export.
                 let linked = s.properties().any(|q| q.name().eq_ignore_ascii_case("linktable"));
-                if linked && p.value_text().to_ascii_lowercase().contains("where") {
-                    out.run_reasons.push(format!(
-                        "sourcetableview with a filter on the linked {section_name} {name} is not pinned"
-                    ));
-                } else {
+                if !linked && p.value_text().to_ascii_lowercase().contains("where") {
                     out.export_reasons.push(format!(
-                        "sourcetableview of {section_name} {name} is not supported yet on export"
+                        "sourcetableview with a filter on the {section_name} {name}, which is not linked, is not pinned on export"
                     ));
                 }
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
@@ -595,6 +594,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             auto_calc: layout.property(i, "AutoCalcField").and_then(|v| bool_prop(&v)),
             unbound: kind == ir::XmlNodeKind::Field
                 && layout.property(i, "Unbound").and_then(|v| bool_prop(&v)) == Some(true),
+            source_view: (kind == ir::XmlNodeKind::Table)
+                .then(|| layout.property(i, "SourceTableView"))
+                .flatten(),
             required: matches!(kind, ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr)
                 .then(|| layout.property(i, "Occurrence"))
                 .flatten()

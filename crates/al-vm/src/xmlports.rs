@@ -535,6 +535,19 @@ impl Session {
     // ---------------------------------------------------------------- import
 
     fn xp_import(&mut self, inst: &Inst, schema: &Schema, guarded: bool, static_form: bool) -> Result<Value, Signal> {
+        // An import ignores the SourceTableView of an element that is not linked (platform/lt-ag-contoso/AgXmlPortImport.al:62-80);
+        // a filter on a linked one is not pinned on import.
+        if let Some(n) = schema.xp().nodes.iter().find(|n| {
+            n.link_node.is_some()
+                && n.source_view
+                    .as_deref()
+                    .is_some_and(|v| v.to_ascii_lowercase().contains("where"))
+        }) {
+            return unsupported(format!(
+                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
+                n.name
+            ));
+        }
         if guarded {
             // A guarded import needs a transaction world of its own, which BC refuses to open
             // while the caller holds an uncommitted write; the static form turns the refusal
@@ -1075,7 +1088,7 @@ impl Session {
             self.xp_value(text, &ty, false)?
         };
         rec.borrow_mut().fields[pos] = value.clone();
-        self.xp_validate_field(schema, node, &rec, pos, value)?;
+        self.xp_validate_field(schema, node, &rec, pos, value, text.is_empty())?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
     }
@@ -1086,8 +1099,9 @@ impl Session {
     /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
-    /// format, a field attribute that does not say FieldValidate (or under DefaultFieldsValidation = false), and a validated element with an OnAfterAssignField trigger (which runs first is not
-    /// pinned).
+    /// format, a blank field attribute into a field without a TableRelation, and a validated element with an
+    /// OnAfterAssignField trigger (which runs first is not pinned). A field attribute follows the same rule as an element,
+    /// except that a blank one is not validated.
     fn xp_validate_field(
         &mut self,
         schema: &Schema,
@@ -1095,6 +1109,7 @@ impl Session {
         rec: &Rec,
         pos: usize,
         value: Value,
+        blank: bool,
     ) -> Result<(), Signal> {
         let n = schema.node(node);
         let t = self.table(rec)?;
@@ -1133,20 +1148,30 @@ impl Session {
                 n.name, t.name, field.name
             ));
         }
-        // A field attribute that says FieldValidate = Yes is validated, one that says No is not, on a port that leaves
-        // DefaultFieldsValidation as it is (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119, :149-151: xRec
-        // already holds the new value, as for a field element). Without FieldValidate, or with DefaultFieldsValidation =
-        // false, it is not pinned.
-        let pinned_attr =
-            n.kind == al_ir::XmlNodeKind::FieldAttr && n.field_validate.is_some() && !xp.no_default_fields_validation;
-        if n.kind != al_ir::XmlNodeKind::Field && !pinned_attr {
+        // A field attribute is validated as a field element is: FieldValidate = Yes always, No never, left out when
+        // DefaultFieldsValidation is true or left out (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119;
+        // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:625, :657, :689, :721: OnValidate runs with
+        // xRec already holding the new value, a value the related table lacks fails the import).
+        if !matches!(n.kind, al_ir::XmlNodeKind::Field | al_ir::XmlNodeKind::FieldAttr) {
             return unsupported(format!(
-                "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
+                "XmlPort import of {} into {}.{}, which has validation code: whether it is validated is not pinned",
                 n.name, t.name, field.name
             ));
         }
         if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {
             return Ok(());
+        }
+        // A blank field attribute is not validated, even with FieldValidate = Yes, where a blank field element is
+        // (BjXmlPortDefaultValidation.al:625 'AttrDef blank'/'AttrYes blank' against :641 'ElDef blank'). Pinned for a field
+        // with a TableRelation only.
+        if n.kind == al_ir::XmlNodeKind::FieldAttr && blank {
+            if field.relation {
+                return Ok(());
+            }
+            return unsupported(format!(
+                "XmlPort import of a blank field attribute {} into {}.{}, which has validation code and no TableRelation: whether it is validated is not pinned",
+                n.name, t.name, field.name
+            ));
         }
         if n.trigger("onafterassignfield").is_some() {
             return unsupported(format!(
@@ -1437,6 +1462,21 @@ impl Session {
             let r = rec.borrow();
             for &k in &t.keys[0] {
                 fresh[k] = r.fields[k].clone();
+            }
+        }
+        if !first_of_node && n.link_node.is_some() {
+            // A later row under the same parent keeps a link field of its primary key, as Init keeps the key (assumption
+            // xmlport-later-child-keeps-key-link; a link field outside the key is 0 there, pinned by
+            // xmlport/TestXmlPortTriggersReplaceViewContracts.al:414).
+            let t = self.table(&rec)?;
+            let r = rec.borrow();
+            for &(own, _) in &n.link_fields {
+                if t.keys[0].contains(&own) {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XmlportLaterChildKeepsKeyLink,
+                    );
+                    fresh[own] = r.fields[own].clone();
+                }
             }
         }
         rec.borrow_mut().fields = fresh;
@@ -1979,6 +2019,7 @@ impl Session {
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
         }
+        self.xp_apply_source_views(inst, schema)?;
         let bytes = if xp.format == ir::XmlFormat::Xml {
             if xp.utf8 {
                 return unsupported("XmlPort export with TextEncoding = UTF8 (not pinned)");
@@ -2030,6 +2071,47 @@ impl Session {
         };
         al_builtins::stream::write_bytes(&blob, &bytes);
         Ok(if guarded { Value::Boolean(true) } else { Value::Null })
+    }
+
+    /// The `SourceTableView` of each table element, before an export reads a row (xmlport/lt-ra-xmlport/RaXmlPortExport.al): the
+    /// view's sorting and order replace the key and direction a SetTableView gave the record (:654 `SetTableView sorting(Seq)`,
+    /// also descending, exports in the view's order) and its filters are added to the record's (:654 `SetTableView filter
+    /// only`; on a linked element to the link, :793 `where on the link field`: Def B has no line of Def A). A view without
+    /// sorting keeps the record's key and direction. Pinned for Format = Xml without InlineSchema; the rest is refused.
+    fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
+        let xp = schema.xp();
+        for (i, n) in xp.nodes.iter().enumerate() {
+            let Some(raw) = n.source_view.as_deref() else { continue };
+            if xp.format != ir::XmlFormat::Xml || xp.inline_schema {
+                return unsupported(format!(
+                    "XmlPort export with a SourceTableView on table element {} in a port of a Format other than Xml or with InlineSchema (not pinned)",
+                    n.name
+                ));
+            }
+            let view = crate::views::property_view(raw);
+            let rec = self.xp_record(inst, schema.node(i))?;
+            let t = self.table(&rec)?;
+            let kept = rec.borrow().filters.clone();
+            let kept_order = {
+                let r = rec.borrow();
+                (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
+            };
+            let lower = view.to_ascii_lowercase();
+            self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
+            let mut r = rec.borrow_mut();
+            if !lower.contains("sorting") {
+                (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
+            } else if !lower.contains("order") {
+                // A sorting without order is ascending, also after a SetTableView with Ascending(false) (:654 `SetTableView
+                // sorting(Seq) descending`).
+                r.ascending = true;
+                r.field_descending = 0;
+            }
+            let mut filters = kept;
+            filters.extend(r.filters.iter().filter(|f| f.group == XP_VIEW_GROUP).cloned());
+            r.filters = filters;
+        }
+        Ok(())
     }
 
     /// The export of a port with `InlineSchema = true`: the root, an XSD with a complex type for the table element and one
@@ -2132,13 +2214,11 @@ impl Session {
                 }
                 ir::XmlNodeKind::FieldAttr => {
                     let v = got!(self.xp_field_text(inst, schema, child));
-                    // AgXmlPortImport.al pins `Occurrence` of a field attribute on import only. Whether an empty value is
-                    // written or left out on export is not pinned (the text attribute's rule above is not assumed here).
-                    if v.is_empty() && c.required.is_some() {
-                        return unsupported(format!(
-                            "XmlPort export of the field attribute {} with Occurrence and an empty value (not pinned)",
-                            c.xml_name
-                        ));
+                    // An Optional field attribute whose text is empty is left out, a Required one is written as `attr=""`
+                    // (xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: Text, Code
+                    // and a blank Date left out or empty, `OptNum="0"` and `OptFlag="No"` written).
+                    if v.is_empty() && c.required == Some(false) {
+                        continue;
                     }
                     out.attrs.push((c.xml_name.clone(), v));
                 }
@@ -2758,6 +2838,9 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// Whether text element `c` inside table element `table` is a container of table elements linked to it and nothing else,
 /// declared last in the table element: the shape xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:91-104 pins
 /// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
+/// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
+const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
+
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
     let kids = schema.children(c);
     let last = schema.children(table).into_iter().rfind(|&k| {
