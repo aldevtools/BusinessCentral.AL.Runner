@@ -848,6 +848,29 @@ fn as_duration(s: &Scalar) -> Result<Value, Signal> {
     as_i64(s).map(Value::Duration)
 }
 
+fn all_digits(t: &str) -> bool {
+    !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `-?digits(.digits)?` with no blanks (AjScalars.al: "100.00", "-3.5").
+fn signed_point_number(t: &str) -> bool {
+    let t = t.strip_prefix('-').unwrap_or(t);
+    match t.split_once('.') {
+        Some((a, b)) => all_digits(a) && all_digits(b),
+        None => all_digits(t),
+    }
+}
+
+/// Digits with blanks around them (AjScalars.al: " 7 ").
+fn blank_padded_digits(t: &str) -> bool {
+    all_digits(t.trim_matches(' '))
+}
+
+/// `digits e digits` (AjScalars.al: "1e2").
+fn exponent_digits(t: &str) -> bool {
+    t.split_once('e').is_some_and(|(a, b)| all_digits(a) && all_digits(b))
+}
+
 fn as_decimal(s: &Scalar) -> Result<Value, Signal> {
     match s {
         Scalar::Val(Value::Decimal(d)) => Ok(Value::Decimal(*d)),
@@ -865,6 +888,16 @@ fn as_decimal(s: &Scalar) -> Result<Value, Signal> {
             .map(Value::Decimal)
             .or_else(|_| unsupported("a text of digits beyond the Decimal range read as Decimal")),
         Scalar::Val(Value::Text(t) | Value::Code(t)) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphabetic()) => {
+            Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
+        }
+        // types/lt-aj-probes/AjScalars.al:150-209: "100.00" reads 100, "-3.5" reads -3.5, " 7 " (blanks around digits) reads 7;
+        // "" and "1e2" raise the conversion error. Other shapes (blanks around a sign or a point, a plus sign) are not pinned.
+        Scalar::Val(Value::Text(t) | Value::Code(t)) if signed_point_number(t) || blank_padded_digits(t) => t
+            .trim_matches(' ')
+            .parse::<Decimal>()
+            .map(Value::Decimal)
+            .or_else(|_| unsupported("a numeric text beyond the Decimal range read as Decimal")),
+        Scalar::Val(Value::Text(t) | Value::Code(t)) if t.is_empty() || exponent_digits(t) => {
             Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18"))
         }
         other => unsupported(format!(
