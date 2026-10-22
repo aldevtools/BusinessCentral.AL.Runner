@@ -256,6 +256,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 
 ### alrunner-cli
 
+- `affected.rs` (570): `al-runner test --affected` and serve `affectedOnly` (ADR-050): the header of the run (runtime build, option hash, environment, workspace apps, `app.json` hashes), the stored result file (`<cache>/affected/<key>.json.gz` or `--affected-store`, gzip JSON, temporary file and rename), the narrow callback that applies `Stored::select`, and after the run the merged stored result and the `Report` (text lines, `selection` JSON, JUnit `<skipped>` rows, exit code). Entry: `Affected::prepare`, `Affected::narrow`, `Affected::finish`, `Report`, `with_selection`.
 - `apps.rs` (128): Reads the APPs given on the command line (folder, `*.Source.zip`, `.app`) and builds the project the dependency resolution works for. Entry: `load`, `combined_project`.
 - `args.rs` (262): Command-line parsing and the `--help` text of `al-runner`. Entry: `parse`, `HELP`.
 - `bcapps.rs` (330): Where the Microsoft recipe files come from: a sparse `git` checkout of BCApps `releases/<major>.<minor>` kept in `<cache>/bcapps/<major>.<minor>/`; a release without the BaseApp test recipe (before 29.0) uses `releases/29.0`. Entry: `resolve`, `git_fetch`, `has_recipe`.

@@ -204,7 +204,8 @@ This uses only section 3.1 rows L2 to L13, minus coverage. It also needs the ver
 | `CS####` compile errors and exit 3 | v3 has no C# stage. It refuses per routine. | LethAL's contract fact `compile-failure-not-scorable` (L13) needs a row-based answer. |
 | Dependency apps that ship only compiled code (DP-10) | No CLR. | Projects that depend on such apps stay on v2. |
 | Browser WASM debugging | The debugger needs a pause thread (ED-9). | No effect on these tools. |
-| `affectedOnly`, `includeFailing`, `strictEnvironment`, `tdd`, warm reload (ED-5) | Deferred by the owner (2026-10-13). | Neither tool sends them. A request that carries them should get a clear refusal. |
+| `affectedOnly`, `includeFailing`, `strictEnvironment` | Supported since ADR-050 (owner, 2026-10-21), as v2 without `environmentDrift`. | Neither tool sends them today. |
+| `tdd`, warm reload (ED-5) | `tdd`: ADR-051. Warm reload: deferred by the owner (2026-10-13). | Neither tool sends them. |
 
 ## 5. Plan
 

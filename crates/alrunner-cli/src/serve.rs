@@ -27,6 +27,9 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "serverUrl",
     "tdd",
     "runSelectedOnly",
+    "affectedOnly",
+    "includeFailing",
+    "strictEnvironment",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -41,8 +44,6 @@ const EXECUTE_FIELDS: &[&str] = &[
     "testIsolation",
     "announceStart",
 ];
-/// Fields v2 knows and v3 defers (ADR-016).
-const DEFERRED: &[&str] = &["affectedOnly", "includeFailing", "strictEnvironment"];
 /// Fields v2 reads for another command only: accepted, with a warning.
 const OTHER_COMMAND: &[&str] = &["code"];
 
@@ -177,10 +178,14 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
 
 /// The `al-runner test` options of the daemon, as the template of every request's.
 fn daemon_args(daemon: &[String]) -> Result<TestArgs, String> {
+    let (rest, store) = crate::args::split_affected_store(daemon)?;
     let mut probe = vec!["test".to_string(), "APP".to_string()];
-    probe.extend(daemon.iter().cloned());
+    probe.extend(rest);
     match crate::args::parse(probe)? {
-        Command::Test(t) => Ok(*t),
+        Command::Test(t) => Ok(TestArgs {
+            affected_store: store,
+            ..*t
+        }),
         _ => Err("al-runner serve: options of `al-runner test` only".into()),
     }
 }
@@ -212,11 +217,6 @@ fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
 fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArgs, Vec<String>), String> {
     let mut warnings = Vec::new();
     for key in fields.keys() {
-        if DEFERRED.contains(&key.as_str()) {
-            return Err(format!(
-                "`{key}` is deferred in v3 (ADR-016): it only hides run cost and waits until it is measured to matter"
-            ));
-        }
         if OTHER_COMMAND.contains(&key.as_str()) {
             warnings.push(format!("`{key}` is read by `execute` only; `runTests` ignores it"));
         } else if !RUN_TESTS_FIELDS.contains(&key.as_str()) {
@@ -262,6 +262,33 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 5611: only the selected tests of a codeunit run, as `--run-selected-only`.
     if !matches!(fields.get("runSelectedOnly"), None | Some(Value::Null)) {
         a.run_selected_only = flag(fields, "runSelectedOnly")?;
+    }
+    // ADR-050 decision 1: `affectedOnly` runs the test codeunits a change since the stored result can affect.
+    a.affected = flag(fields, "affectedOnly")?;
+    a.include_failing = flag(fields, "includeFailing")?;
+    a.strict_environment = flag(fields, "strictEnvironment")?;
+    if a.affected {
+        for (set, field) in [
+            (!a.filters.is_empty(), "test"),
+            (!a.excludes.is_empty(), "excludeTests"),
+        ] {
+            if set {
+                return Err(format!(
+                    "`{field}` cannot be combined with `affectedOnly`: it selects the test codeunits itself, from the stored result of the last run"
+                ));
+            }
+        }
+    } else {
+        for (set, field) in [
+            (a.include_failing, "includeFailing"),
+            (a.strict_environment, "strictEnvironment"),
+        ] {
+            if set {
+                warnings.push(format!("`{field}` has no effect without `affectedOnly`"));
+            }
+        }
+        a.include_failing = false;
+        a.strict_environment = false;
     }
     a.quiet = true;
     Ok((a, warnings))
@@ -327,7 +354,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 summary["cancelled"] = json!(true);
             }
             // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`.
-            for key in ["stubbed", "generatedStubs", "compilationErrors"] {
+            for key in ["stubbed", "generatedStubs", "compilationErrors", "selection"] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();
                 }
@@ -427,11 +454,6 @@ fn inline_app(code: &str, with_microsoft: bool, bc_version: Option<&str>) -> Res
 fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flags: &Flags) {
     let mut warnings = Vec::new();
     for key in fields.keys() {
-        if DEFERRED.contains(&key.as_str()) {
-            return error(format!(
-                "`{key}` is deferred in v3 (ADR-016): it only hides run cost and waits until it is measured to matter"
-            ));
-        }
         if !EXECUTE_FIELDS.contains(&key.as_str()) {
             if RUN_TESTS_FIELDS.contains(&key.as_str()) {
                 warnings.push(format!("`{key}` is read by `runTests` only; `execute` ignores it"));
@@ -669,13 +691,19 @@ mod tests {
     }
 
     #[test]
-    fn fields_are_checked_deferred_ones_refused_and_the_other_commands_warned_about() {
+    fn fields_are_checked_and_the_other_commands_warned_about() {
         let run = |v: Value| request_args(&base(), &fields(v));
         assert!(run(json!({"command": "runTests"})).unwrap_err().contains("sourcePaths"));
+        // ADR-050: `affectedOnly` is `--affected`; `includeFailing` alone changes nothing and says so.
+        let (a, w) = run(json!({"sourcePaths": ["/a"], "affectedOnly": true, "includeFailing": true})).unwrap();
+        assert!(a.affected && a.include_failing && w.is_empty(), "{w:?}");
+        let (a, w) = run(json!({"sourcePaths": ["/a"], "includeFailing": true})).unwrap();
+        assert!(!a.affected && !a.include_failing, "{w:?}");
+        assert!(w[0].contains("includeFailing"), "{w:?}");
         assert!(
-            run(json!({"sourcePaths": ["/a"], "includeFailing": true}))
+            run(json!({"sourcePaths": ["/a"], "affectedOnly": true, "excludeTests": ["X"]}))
                 .unwrap_err()
-                .contains("deferred")
+                .contains("cannot be combined")
         );
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": true})).unwrap().0.tdd);
         assert!(run(json!({"sourcePaths": ["/a"], "tdd": 1})).is_err());
