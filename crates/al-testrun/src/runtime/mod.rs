@@ -216,6 +216,8 @@ pub struct CorpusRuntime {
     tdd_stubs: Vec<String>,
     /// The compile errors of the apps under test (`compile_errors`).
     compile_errors: Vec<CompileError>,
+    /// With `RunOptions::entries`: the results of each entry, as a range of `results`, in the order of the entries.
+    pub entries: Vec<std::ops::Range<usize>>,
 }
 
 /// An error in the code of an app under test: one the AL compiler gives (an `AL` code from `al_sema::alcodes` or the
@@ -590,6 +592,7 @@ fn run_unit(
             coverage,
             captured: None,
             stubs: Vec::new(),
+            entry: None,
             slept_ms: 0,
         };
         match &result {

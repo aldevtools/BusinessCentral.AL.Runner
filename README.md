@@ -596,7 +596,9 @@ each test app with Microsoft's recipe (`--recipe microsoft`: the company of each
 disabled tests skipped). `--app NAME` (repeatable) runs only the named test apps, by their name in the
 artifact (`Tests-ERM`, `Data Search Tests`). Apps without a test codeunit (test libraries) are loaded as
 dependencies, not run; apps whose artifact name starts with `_Exclude_` run only when `--app` names
-them. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
+them. Test apps that Microsoft's CI runs but the artifact does not hold (for BC 29: AlCosting, the
+Intelligent Cloud tests, the `*-Internal` apps and others) run from their source in BCApps, fetched
+sparsely into the cache with the apps they need that the artifact lacks. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
 not run, total, codeunits of a lane the runner cannot build yet, exit code) and a total. `--junit FILE`
 writes one file per test app and lane (`FILE.Tests-ERM.legacy.xml`). The exit code is the worst test
 app's.
