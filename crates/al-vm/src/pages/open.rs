@@ -4,6 +4,8 @@ use al_builtins::record_op::RecordOp;
 /// The filter group of the cut that hides the rows below indentation 0 of a tree repeater.
 pub(super) const TREE_GROUP: i32 = 6;
 
+/// Key index, ascending, filters (as text) and primary key of a temporary page's Rec (`temp_rec_position`).
+type TempRecPosition = (usize, bool, String, Vec<Value>);
 impl Session {
     pub(super) fn page_open(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
         // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened.
@@ -213,6 +215,8 @@ impl Session {
             s.window_eof = false;
             s.window_whole = false;
             s.opened_on_moved_rec = false;
+            s.onopenpage_kept_rec = false;
+            s.temp_reads_once_more = false;
             s.reads_once_more_in = None;
             s.focus = None;
             s.focus_in_row = false;
@@ -452,9 +456,17 @@ impl Session {
             }
             self.restore_page_values(st);
             self.check_page_events(st)?;
+            // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
+            let before_open = if has_source { self.temp_rec_position(st)? } else { None };
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
             opened?;
+            if let Some(before) = before_open {
+                let kept = self.temp_rec_position(st)?.is_some_and(|now| {
+                    now.0 == before.0 && now.1 == before.1 && now.2 == before.2 && Self::same_key(&now.3, &before.3)
+                });
+                st.borrow_mut().onopenpage_kept_rec = kept;
+            }
             self.page_event(st, "onopenpageevent", None, None)?;
             if has_source {
                 self.drop_or_group(st)?;
@@ -796,7 +808,7 @@ impl Session {
             }
         } else if st.borrow().host.is_none()
             && self.declares(st, "onopenpage")
-            && !self.declares(st, "onfindrecord")
+            && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
             self.read_rec_in_its_key(st)?;
@@ -876,11 +888,12 @@ impl Session {
         let rec = self.page_rec(st);
         let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
         let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
-        // A Worksheet over a temporary source opens as a List does (assumption worksheet-temp-source-open-row, not
-        // pinned): Tests-SCM-Warehouse 137154 PickFromWarehouseShipmentReserveAgainstPurchaseOrder needs page 498 Reservation,
-        // filled by SetReservSource before RunModal, to open on the entry summary Rec was left on. A Worksheet over a database
-        // table stays refused below.
+        let list_type = matches!(page_type, Some(al_ir::PageType::List));
+        // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below); one whose
+        // OnOpenPage moved Rec opens as a List does under assumption worksheet-temp-source-open-row. A Worksheet over a
+        // database table stays refused below.
         let temp_worksheet = rec.borrow().temporary && matches!(page_type, Some(al_ir::PageType::Worksheet));
+        let set_before = temp_worksheet && st.borrow().onopenpage_kept_rec;
         if rec.borrow().temporary && !pinned_type && !temp_worksheet {
             return Ok(false);
         }
@@ -905,9 +918,41 @@ impl Session {
         if first.as_ref().is_some_and(|f| Self::same_key(f, &key)) {
             return Ok(false);
         }
+        if set_before {
+            // A temporary Worksheet whose row was set before the open (a procedure of the page variable filled it and left Rec
+            // on a row; OnOpenPage left Rec as it was) opens on that row as a List does, `=><` from Rec (corpus
+            // pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2410 QT_TempWs_RunModal_B `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`,
+            // :2426 _BB_Between `C`, :2442 _E_PastLast `D`, :2490 QT_TempWs_Lookup_B, :2506 _Lookup_BB_Between, :2665
+            // QT_TempWs_Run_B, :2679 _Run_BB_Between). With OnNextRecord it opens there too, run modally, in lookup mode or not
+            // (:2538 QT_TempWsNext_RunModal_B, :2554 _BB_Between, :2570 QT_TempWsNext_Lookup_B); with OnFindRecord and
+            // OnNextRecord, run modally outside lookup mode, it is asked `=>` (:2586 QT_TempWsFind_RunModal_B `F:=>>B`, :2602).
+            // In a key other than the primary key it is pinned run modally outside lookup mode, without either trigger (:2458
+            // QT_TempWs_RunModal_ByName_B). The other forms are past the pins.
+            let (modal, lookup) = {
+                let s = st.borrow();
+                (s.modal, s.lookup)
+            };
+            let next = self.declares(st, "onnextrecord");
+            let find = self.declares(st, "onfindrecord");
+            let in_pk = rec.borrow().key == 0;
+            let pinned = match (in_pk, next, find) {
+                (true, false, false) => modal || !lookup,
+                (true, true, false) => modal,
+                (true, true, true) => modal && !lookup,
+                (false, false, false) => modal && !lookup,
+                _ => false,
+            };
+            if !pinned {
+                return unsupported(
+                    "a temporary Worksheet whose row was set before it opened, in this mode, key or with these find triggers (which row it opens on is not pinned)",
+                );
+            }
+            return Ok(true);
+        }
         if temp_worksheet {
-            // Both paths below make a choice no corpus test pins (which row a temporary Worksheet opens on), so both mark the
-            // assumption worksheet-temp-source-open-row.
+            // A temporary Worksheet whose OnOpenPage moved Rec or changed its key, its order or its filters: both paths below
+            // make a choice no corpus test pins (which row it opens on), so both mark the assumption
+            // worksheet-temp-source-open-row.
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetTempSourceOpenRow);
             // Only a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` reaches a row other
             // than the first of the view, takes the assumed path (page 498 leaves Rec on an entry summary it did not insert,
@@ -931,12 +976,43 @@ impl Session {
             }
             return Ok(true);
         }
-        if !pinned_type || st.borrow().lookup || self.declares(st, "onnextrecord") {
+        // A temporary List whose row was set before the open opens on that row in lookup mode too (QrMovedTests.al:2650
+        // QT_TempList_Lookup_B `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`); a List whose OnOpenPage moved Rec, in lookup mode, is not
+        // pinned.
+        let pinned_lookup = st.borrow().lookup
+            && st.borrow().modal
+            && rec.borrow().temporary
+            && rec.borrow().key == 0
+            && st.borrow().onopenpage_kept_rec
+            && list_type;
+        if !pinned_type || (st.borrow().lookup && !pinned_lookup) || self.declares(st, "onnextrecord") {
             return unsupported(
                 "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",
             );
         }
         Ok(true)
+    }
+
+    /// The key, order, filters (as text) and primary key of a temporary page's Rec (None for a database source): what tells a row set before
+    /// the open from one OnOpenPage set.
+    fn temp_rec_position(&self, st: &St) -> Result<Option<TempRecPosition>, Signal> {
+        let rec = self.page_rec(st);
+        if !rec.borrow().temporary {
+            return Ok(None);
+        }
+        let pk = self.row_key(&rec)?;
+        let r = rec.borrow();
+        Ok(Some((r.key, r.ascending, format!("{:?}", r.filters), pk)))
+    }
+
+    /// A Worksheet page over a temporary source whose OnOpenPage left Rec as it stood before the open.
+    pub(super) fn temp_worksheet_set_before_open(&self, st: &St) -> bool {
+        st.borrow().onopenpage_kept_rec
+            && self.page_rec(st).borrow().temporary
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Worksheet)
+            )
     }
 
     /// Opens a Card or List on the row OnOpenPage left Rec on (see `rec_moved_by_onopenpage`): `=><` from Rec, so a Rec outside
@@ -950,7 +1026,24 @@ impl Session {
         // list is refused.
         let temp_key = rec.borrow().key != 0 && rec.borrow().temporary;
         let list = self.is_list(st);
-        if temp_key && list {
+        // A temporary Worksheet in a key set before the open (`rec_moved_by_onopenpage` lets only the pinned form through) reads
+        // as a list over a database table in such a key does: the row of Rec's primary key first, then each row once more
+        // (QrMovedTests.al:2458 QT_TempWs_RunModal_ByName_B `O:B;R:B;R:B;R:A;R:B;R:C;R:D;R:B;R:B;R:B;C:B;`, next `R:A;R:A;R:A;C:A;`,
+        // as :345 QR_List_OpenView_SetCurrentKeyGet).
+        let temp_ws_key = temp_key && self.temp_worksheet_set_before_open(st);
+        if temp_ws_key {
+            let mut pk = self.row_key(&rec)?;
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true)) {
+                return unsupported(
+                    "a temporary Worksheet opened in a key other than the primary key on a primary key no row has (not pinned)",
+                );
+            }
+            self.populate_current(st)?;
+            st.borrow_mut().temp_reads_once_more = true;
+        }
+        let find = self.declares(st, "onfindrecord");
+        if temp_key && list && !temp_ws_key {
             return unsupported(
                 "a list over a temporary source opened without a record whose OnOpenPage changed its key and left Rec on a row other than the first of its view (not pinned)",
             );
@@ -966,7 +1059,9 @@ impl Session {
         } else {
             None
         };
-        if !self.nav_find(st, "=><")? {
+        // A temporary Worksheet with OnFindRecord whose row was set before the open is asked `=>` (QrMovedTests.al:2586
+        // QT_TempWsFind_RunModal_B `O:B;F:=>>B;...`, :2602 _BB_Between `F:=>>C`).
+        if !self.nav_find(st, if find { "=>" } else { "=><" })? {
             return unsupported(
                 "a page opened without a record whose OnOpenPage left Rec where its view has no row (not pinned)",
             );
@@ -976,9 +1071,14 @@ impl Session {
         // QS_KeyWhere_List_GetD `O:D;R:D;R:C;R:B;R:A;R:C;R:C;R:C;C:C;`).
         let landed = self.row_key(&rec)?;
         if list && first.as_ref().is_some_and(|f| Self::same_key(f, &landed)) {
+            if find || temp_ws_key {
+                return unsupported(
+                    "a temporary Worksheet whose row was set before it opened, landing on the first row of its view from a row outside it (not pinned)",
+                );
+            }
             return self.page_first_row(st);
         }
-        if temp_key {
+        if temp_key && !temp_ws_key {
             self.populate_current(st)?;
         }
         {

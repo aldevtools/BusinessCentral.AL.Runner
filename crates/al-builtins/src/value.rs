@@ -388,6 +388,12 @@ pub struct PageState {
     pub open_reads_above: bool,
     /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
     pub opened_on_moved_rec: bool,
+    /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
+    /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
+    pub onopenpage_kept_rec: bool,
+    /// A temporary Worksheet opened on the row in a key other than the primary key that was set before the open: it reads each
+    /// row once more, as a list over a database table in such a key does (see `reads_once_more_in_its_key`).
+    pub temp_reads_once_more: bool,
     /// The list opened in a key other than the primary key (key index, ascending) and read its row once more for it; it reads
     /// each row once more at Next and Previous while Rec stays in that key and order (see `reads_once_more_in_its_key`).
     pub reads_once_more_in: Option<(usize, bool)>,
@@ -681,6 +687,8 @@ impl PageState {
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,
+            onopenpage_kept_rec: false,
+            temp_reads_once_more: false,
             reads_once_more_in: None,
             open_read: false,
             blank_on_open: false,
