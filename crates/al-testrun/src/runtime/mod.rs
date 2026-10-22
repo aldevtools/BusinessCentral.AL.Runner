@@ -448,6 +448,10 @@ pub(crate) struct Unit {
     impact: bool,
     /// See `RunOptions::run_only`.
     run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// See `Scratch::hub`.
+    hub: bool,
+    /// See `Scratch::leak`.
+    leak: Option<Arc<std::collections::BTreeSet<u32>>>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -475,6 +479,12 @@ pub(crate) struct Scratch {
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
     run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
+    /// The isolation is the codeunit's `RequiredTestIsolation` under BC's TestRunnerHub (`RunOptions::required_isolation`).
+    hub: bool,
+    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one sets `leak_hit`.
+    leak: Option<Arc<std::collections::BTreeSet<u32>>>,
+    /// A test or the `OnRun` trigger read or wrote one of `leak`.
+    leak_hit: bool,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -551,6 +561,8 @@ fn run_unit(
             clock_start,
             trace: u.impact,
             run_only: u.run_only.clone(),
+            hub: u.hub,
+            leak: u.leak.clone(),
             ..Default::default()
         };
         if u.coverage {

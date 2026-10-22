@@ -103,12 +103,17 @@ impl Selection {
 }
 
 /// `--disabled-tests DIR`: every `*.json` below DIR, as Microsoft's list of disabled tests.
-fn load_disabled(a: &TestArgs) -> Result<Option<Arc<al_testrun::disabled::DisabledTests>>, String> {
+pub(crate) fn load_disabled(a: &TestArgs) -> Result<Option<Arc<al_testrun::disabled::DisabledTests>>, String> {
     let Some(dir) = &a.disabled_tests_dir else {
         return Ok(None);
     };
     let mut d = al_testrun::disabled::DisabledTests::default();
-    let mut stack = vec![dir.clone()];
+    let restricted = !a.disabled_tests_apps.is_empty();
+    let mut stack = if restricted {
+        app_disabled_folders(dir, &a.disabled_tests_apps)?
+    } else {
+        vec![dir.clone()]
+    };
     let mut seen_any = false;
     while let Some(p) = stack.pop() {
         let meta = std::fs::metadata(&p).map_err(|e| format!("--disabled-tests {}: {e}", p.display()))?;
@@ -126,10 +131,36 @@ fn load_disabled(a: &TestArgs) -> Result<Option<Arc<al_testrun::disabled::Disabl
                 .map_err(|e| format!("--disabled-tests {}: {e}", p.display()))?;
         }
     }
-    if !seen_any {
+    if !seen_any && !restricted {
         return Err(format!("--disabled-tests {}: no *.json file below it", dir.display()));
     }
     Ok(Some(Arc::new(d)))
+}
+
+/// The folders below BCApps' `src/DisabledTests` that Microsoft's recipe reads for `apps`: one per app, named after
+/// the app with `_` for each space, matched without case (BCApps `build/scripts/RunTestsInBcContainer.ps1`,
+/// `Get-DisabledTests -AppName`, releases/29.0; it runs on Windows). An app without a folder has no disabled tests.
+fn app_disabled_folders(dir: &Path, apps: &[String]) -> Result<Vec<PathBuf>, String> {
+    let kids: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| format!("--disabled-tests {}: {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for app in apps {
+        let want = app.replace(' ', "_");
+        for k in &kids {
+            if k.file_name()
+                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&want))
+                && !out.contains(k)
+            {
+                out.push(k.clone());
+            }
+        }
+    }
+    out.sort();
+    out.reverse();
+    Ok(out)
 }
 
 /// The line about the tests Microsoft turns off: how they came out, or how many `--parity` left out.
@@ -1236,6 +1267,9 @@ fn test_inner(
             n => Some(std::time::Duration::from_secs(n)),
         },
         isolation: a.isolation,
+        // AL Runner runs every test codeunit as Microsoft's runner 130450 does (TestIsolation = Codeunit unless
+        // --isolation says otherwise); RequiredTestIsolation on a codeunit has no effect there, as on BC.
+        required_isolation: false,
         coverage: a.coverage,
         execute: a.execute,
         capture: a.capture,

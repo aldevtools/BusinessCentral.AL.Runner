@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "57c59078da0bd475e6625cda5a07c57e594b4c03",
+  "corpus_commit": "381a4ee3d9523f5e75d0a9f205229ce00e981959",
   "dimensions": [
     {
       "catalog": 190,
@@ -51,7 +51,7 @@
           "site": "_fixtures/pages/ALTPageEvtRows.al:54"
         },
         {
-          "corpus_uses": 196,
+          "corpus_uses": 197,
           "group": "codeunit",
           "ms_uses": 1252,
           "name": "OnRun",
@@ -1912,7 +1912,7 @@
           "site": "errors/lt-ms-refusals-129/P129FormatFieldRef.al:53"
         },
         {
-          "corpus_uses": 1625,
+          "corpus_uses": 1626,
           "group": "table/key",
           "ms_uses": 1769,
           "name": "Clustered",
@@ -2299,7 +2299,7 @@
           "site": "metadata/W6TableCodeunitMetadata.al:26"
         },
         {
-          "corpus_uses": 43,
+          "corpus_uses": 44,
           "group": "codeunit",
           "ms_uses": 510,
           "name": "TableNo",
@@ -3595,7 +3595,7 @@
           "site": "_fixtures/xmlports/ALTUniversalManualXmlPort.al:21"
         },
         {
-          "corpus_uses": 2814,
+          "corpus_uses": 2822,
           "group": "codeunit",
           "ms_uses": 59,
           "name": "Subtype",
@@ -11389,16 +11389,16 @@
           "site": "pages/lt-report-page-properties/06-xmlport-linkforce.al:24"
         },
         {
-          "corpus_uses": 4,
+          "corpus_uses": 10,
           "group": "codeunit",
           "ms_uses": 0,
           "name": "RequiredTestIsolation",
           "pinned": true,
           "runtime_reads": true,
-          "site": "codeunit/lt-x-object-props/XObjectProps.al:13"
+          "site": "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:257"
         },
         {
-          "corpus_uses": 2684,
+          "corpus_uses": 2692,
           "group": "codeunit",
           "ms_uses": 0,
           "name": "TestPermissions",
@@ -14940,7 +14940,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 813823,
+          "corpus_uses": 814707,
           "group": "expression",
           "ms_uses": 1809637,
           "name": "NameRef",
@@ -14949,7 +14949,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 297922,
+          "corpus_uses": 298270,
           "group": "expression",
           "ms_uses": 475470,
           "name": "MemberExpr",
@@ -14958,7 +14958,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 353818,
+          "corpus_uses": 354251,
           "group": "expression",
           "ms_uses": 389686,
           "name": "CallExpr",
@@ -14967,7 +14967,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 250121,
+          "corpus_uses": 250483,
           "group": "statement",
           "ms_uses": 248561,
           "name": "ExprStmt",
@@ -14976,7 +14976,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 38887,
+          "corpus_uses": 38940,
           "group": "statement",
           "ms_uses": 188839,
           "name": "Block",
@@ -14985,7 +14985,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 35482,
+          "corpus_uses": 35490,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -14994,7 +14994,7 @@
           "site": "ALTInternalCodeunit.al:19"
         },
         {
-          "corpus_uses": 5817,
+          "corpus_uses": 5818,
           "group": "statement",
           "ms_uses": 101593,
           "name": "IfStmt",
@@ -15003,7 +15003,7 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 6785,
+          "corpus_uses": 6787,
           "group": "statement",
           "ms_uses": 81177,
           "name": "ExitStmt",
@@ -15012,7 +15012,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 53990,
+          "corpus_uses": 53994,
           "group": "expression",
           "ms_uses": 77744,
           "name": "Literal:Integer",
@@ -15021,7 +15021,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 8464,
+          "corpus_uses": 8467,
           "group": "expression",
           "ms_uses": 71175,
           "name": "ScopeExpr",
@@ -15030,7 +15030,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 316335,
+          "corpus_uses": 316906,
           "group": "expression",
           "ms_uses": 54387,
           "name": "Literal:StringLit",
@@ -15111,7 +15111,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 30555,
+          "corpus_uses": 30606,
           "group": "expression",
           "ms_uses": 15888,
           "name": "BinExpr +",
@@ -15489,7 +15489,7 @@
           "site": null
         },
         {
-          "corpus_uses": 4493,
+          "corpus_uses": 4496,
           "group": "statement",
           "ms_uses": 0,
           "name": "AssertErrorStmt",
@@ -15568,7 +15568,7 @@
           "site": "_fixtures/ALTTryFunctionNoExitProbe.al:43"
         },
         {
-          "corpus_uses": 2802,
+          "corpus_uses": 2803,
           "group": "procedure",
           "ms_uses": 603,
           "name": "TryFunction",
@@ -15757,7 +15757,7 @@
           "site": "errors/lt-ms-refusals-133/P133MessageInHandlers.al:100"
         },
         {
-          "corpus_uses": 17961,
+          "corpus_uses": 17998,
           "group": "procedure",
           "ms_uses": 0,
           "name": "Test",
@@ -18703,7 +18703,7 @@
         "owner": "Codeunit",
         "pinned": true,
         "scope": "",
-        "site": "codeunit/lt-x-object-props/XObjectProps.al:13",
+        "site": "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:257",
         "state": "implemented"
       },
       {

@@ -601,7 +601,10 @@ Intelligent Cloud tests, the `*-Internal` apps and others) run from their source
 sparsely into the cache with the apps they need that the artifact lacks. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
 not run, total, codeunits of a lane the runner cannot build yet, exit code) and a total. `--junit FILE`
 writes one file per test app and lane (`FILE.Tests-ERM.legacy.xml`). The exit code is the worst test
-app's.
+app's. `--list-lanes` prints, without compiling or running, the lane of Microsoft's CI (Default,
+IntegrationTests, UncategorizedTests, LegacyTestsBucket1, ...) each test app's codeunits run in, with the
+counts of tests, of tests Microsoft disables and of tests that would run; `--verbose` adds one line per
+codeunit.
 
 `al-runner test-microsoft MYEXT` runs only the Microsoft tests your extension can affect: each Microsoft
 test app, lane by lane with the recipe, as an impact run of `MYEXT` (with and without it; see
