@@ -79,7 +79,7 @@ pub enum Gate {
     JsonSelectTokensListFrom28,
     /// The system table Windows Language has 212 rows from BC 29 (208 before) (platform/lt-ag-contoso/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
     WindowsLanguageRowsFrom29,
-    /// The platform table Language Selection has the row ff-NG and other rows from BC 29 (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al, corpus bump 26). Not consumed yet.
+    /// The platform table Language Selection has the row ff-NG and other rows from BC 29 (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al, corpus bump 26). Consumed by the Language Selection provider (al-vm platform/host_tables.rs).
     LanguageSelectionRowsFrom29,
     /// The report dataset header has the CompanyAddressLine1..8 elements from BC 29 (report/lt-ah-dataset-header/AhDatasetHeader.al, corpus bump 26). Not consumed yet.
     DatasetHeaderCompanyAddressLinesFrom29,
@@ -604,6 +604,11 @@ impl Gate {
                 Evidence {
                     file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
                     lines: "72",
+                },
+                // The four user-name system fields in the Field rows of a table (corpus bump 54).
+                Evidence {
+                    file: "types/lt-aj-probes/AjMisc.al",
+                    lines: "612,626,640",
                 },
             ],
             Gate::TableFilterEvaluateError => &[Evidence {

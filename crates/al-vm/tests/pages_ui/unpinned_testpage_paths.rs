@@ -78,3 +78,44 @@ codeunit 69968 C
     assert!(al_testkit::run_in(src, "C", "OnCard").is_ok());
     refused(al_testkit::run_in(src, "C", "OnDoc"), "empty text");
 }
+
+/// A list whose repeater (not the page) says `Editable = false`: whether it shows the blank new-row line is not pinned (the
+/// corpus pins only page-level `Editable = false`, handlers/TestPageNewRowLine_Tests.al). Tests-ERM 139846
+/// ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries (repeater Editable = false) and
+/// expects no blank line; landing on it is refused. Walking the data rows still works.
+#[test]
+fn the_blank_line_of_a_list_whose_repeater_is_read_only_is_refused() {
+    let src = r#"
+table 69969 "RR Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 69970 "RR List"
+{
+    PageType = List; SourceTable = "RR Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(R) { Editable = false; field(Id; Rec.Id) { } } } }
+}
+codeunit 69971 C
+{
+    procedure Walk(): Text
+    var R: Record "RR Row"; P: TestPage "RR List"; T: Text;
+    begin
+        R.Id := 1; R.Insert();
+        R.Id := 2; R.Insert();
+        P.OpenEdit();
+        P.First();
+        T := P.Id.Value();
+        P.Next();
+        T += P.Id.Value();
+        exit(T);
+    end;
+    procedure PastTheEnd(): Boolean
+    var R: Record "RR Row"; P: TestPage "RR List";
+    begin
+        R.Id := 1; R.Insert();
+        P.OpenEdit();
+        P.First();
+        exit(P.Next());
+    end;
+}
+"#;
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "Walk")), "12");
+    refused(al_testkit::run_in(src, "C", "PastTheEnd"), "repeater");
+}

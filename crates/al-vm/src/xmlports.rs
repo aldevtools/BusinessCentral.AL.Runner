@@ -452,8 +452,12 @@ impl Session {
         if let Some(why) = schema.xp().run_unsupported.first() {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
-        // SourceTableView is pinned for a table element below the root of a Format = Xml port (see `xp_rows_in_view`).
-        if let Some(n) = schema.xp().nodes.iter().find(|n| n.source_view.is_some()) {
+        if let (Dir::Export, Some(why)) = (dir, schema.xp().export_unsupported.first()) {
+            return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
+        }
+        // SourceTableView is pinned on export for a table element below the root of a Format = Xml port (see
+        // `xp_rows_in_view`); an import ignores it (al-sema xmlports.rs, AgXmlPortImport.al:298-309).
+        if let (Dir::Export, Some(n)) = (dir, schema.xp().nodes.iter().find(|n| n.source_view.is_some())) {
             if schema.xp().format != ir::XmlFormat::Xml || n.parent.is_none() {
                 return unsupported(format!(
                     "XmlPort \"{}\": SourceTableView of the table element {} in this port shape (not pinned)",
@@ -1093,7 +1097,7 @@ impl Session {
     /// already holding the new value and a TableRelation is checked, per field in document order before the insert; not
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
-    /// format, a field attribute, and a validated element with an OnAfterAssignField trigger (which runs first is not
+    /// format, a field attribute that does not say FieldValidate (or under DefaultFieldsValidation = false), and a validated element with an OnAfterAssignField trigger (which runs first is not
     /// pinned).
     fn xp_validate_field(
         &mut self,
@@ -1140,7 +1144,13 @@ impl Session {
                 n.name, t.name, field.name
             ));
         }
-        if n.kind != al_ir::XmlNodeKind::Field {
+        // A field attribute that says FieldValidate = Yes is validated, one that says No is not, on a port that leaves
+        // DefaultFieldsValidation as it is (pages/lt-report-page-properties/06-xmlport-fvat.al:118-119, :149-151: xRec
+        // already holds the new value, as for a field element). Without FieldValidate, or with DefaultFieldsValidation =
+        // false, it is not pinned.
+        let pinned_attr =
+            n.kind == al_ir::XmlNodeKind::FieldAttr && n.field_validate.is_some() && !xp.no_default_fields_validation;
+        if n.kind != al_ir::XmlNodeKind::Field && !pinned_attr {
             return unsupported(format!(
                 "XmlPort import of field attribute {} into {}.{}, which has validation code: whether it is validated is not pinned",
                 n.name, t.name, field.name
@@ -1461,6 +1471,7 @@ impl Session {
         self.xp_run_trigger(inst, schema, node, "onafterinitrecord")?;
         self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
         let mut saved = false;
+        let mut saved_before_tables = false;
         let table_children: Vec<usize> = schema
             .children(node)
             .into_iter()
@@ -1499,8 +1510,9 @@ impl Session {
                     // PersistentChild_Import_*, with LinkTable and no LinkFields). Without LinkTable the elements below are imported first and
                     // the record is stored after them (same file, NoLinkTable_Import_OneParentOneChild, _TwoParents).
                     if save_first && !saved {
-                        self.xp_save_record(inst, schema, node, &assigned)?;
+                        self.xp_save_record(inst, schema, node, &assigned, false)?;
                         saved = true;
+                        saved_before_tables = true;
                     }
                     let first = !linked.contains(&child);
                     linked.push(child);
@@ -1512,7 +1524,7 @@ impl Session {
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
-                        self.xp_save_record(inst, schema, node, &assigned)?;
+                        self.xp_save_record(inst, schema, node, &assigned, false)?;
                         saved = true;
                     }
                     self.xp_import_linked_container(inst, schema, child, ce)?;
@@ -1525,7 +1537,19 @@ impl Session {
         }
         seq.finish(schema)?;
         if !saved {
-            self.xp_save_record(inst, schema, node, &assigned)?;
+            self.xp_save_record(inst, schema, node, &assigned, false)?;
+        } else if saved_before_tables {
+            // A parent stored before its linked child rows is modified again after them, with its OnBefore/OnAfterModifyRecord and
+            // the table's OnModify: with AutoReplace (XmlPortTriggerFlow.al:374 Import_TriggerOrder_NewRows `Par.BeforeModifyRecord=1/one`
+            // after the child rows, :399 Import_TriggerOrder_ExistingRows) and without it (:452 NoAutoReplace_NewParentTwoChildren,
+            // trace :462; on three levels each row after its own children, :535 ThreeLevels_NoAutoReplace). A parent without child
+            // rows is not modified again (same traces). With AutoSave = false or AutoUpdate it is not pinned.
+            if !n.auto_save || n.auto_update {
+                return unsupported(
+                    "XmlPort import of a table element with AutoUpdate or AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
+                );
+            }
+            self.xp_save_record(inst, schema, node, &assigned, true)?;
         }
         Ok(())
     }
@@ -1621,17 +1645,65 @@ impl Session {
     /// :Import_AutoUpdate_ChangesOnlyTheCarriedFields_KeepsSystemId, corpus: .
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
     /// leaves the storing to them (xmlport/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
-    fn xp_save_record(&mut self, inst: &Inst, schema: &Schema, node: usize, assigned: &[usize]) -> Result<(), Signal> {
+    /// `again`: the second save of a row stored before its linked child rows, a Modify (see `xp_import_record`).
+    fn xp_save_record(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        assigned: &[usize],
+        again: bool,
+    ) -> Result<(), Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
+        let temporary = rec.borrow().temporary;
+        if again
+            && !temporary
+            && self
+                .tx
+                .deferred_insert
+                .as_ref()
+                .is_some_and(|(o, _)| *o == t.object as usize)
+        {
+            // The insert of a row whose key already existed fails after the row's child rows and before its second
+            // OnBeforeModifyRecord, with the table's "already exists" error (XmlPortTriggerFlow.al:468
+            // NoAutoReplace_ExistingParentWithChild: trace ends at `C.ai=10`, then DB:RecordExists).
+            let (_, e) = self.tx.deferred_insert.take().expect("checked");
+            self.tx.deferred_raised += 1;
+            return Err(Signal::Error(Box::new(e)));
+        }
+        // A temporary table element saves without the table's triggers: pinned for a nested one with AutoReplace
+        // (XmlPortTriggerFlow.al:551 TempChild_AutoReplace, trace :561: no `tC+` or `tC~`). Elsewhere the triggers of a temporary
+        // table element are not pinned: refused where the table has one.
+        let nested = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+        let run_triggers = !(temporary && nested && n.auto_replace);
+        if temporary
+            && n.auto_save
+            && !(nested && n.auto_replace)
+            && (self.table_trigger(&t, "OnInsert").is_some()
+                || self.table_trigger(&t, "OnModify").is_some()
+                || !self.ext_triggers(&t, "OnInsert").is_empty()
+                || !self.ext_triggers(&t, "OnModify").is_empty())
+        {
+            return unsupported(format!(
+                "XmlPort import into the temporary table element {} whose table has an insert or modify trigger (whether it runs is not pinned)",
+                n.xml_name
+            ));
+        }
         let cx = self.cx.clone();
         let pk = t.primary_key(&rec.borrow().fields);
         let stored = self
             .store_for(&rec)
             .get(&cx, &t, &pk)
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-        let modify = stored.is_some() && (n.auto_update || n.auto_replace);
+        if again && stored.is_none() {
+            return unsupported(format!(
+                "XmlPort import: the row of table element {} stored before its child rows is gone after them (not pinned)",
+                n.xml_name
+            ));
+        }
+        let modify = stored.is_some() && (again || n.auto_update || n.auto_replace);
         let (before, after) = if modify {
             ("onbeforemodifyrecord", "onaftermodifyrecord")
         } else {
@@ -1682,7 +1754,7 @@ impl Session {
             // A duplicate key raises the table's own error, as an AL Insert does.
             self.ret_used = false;
             let method = if modify { RecordOp::Modify } else { RecordOp::Insert };
-            self.record_op(method, &rec, &mut [Value::Boolean(true)])?;
+            self.record_op(method, &rec, &mut [Value::Boolean(run_triggers)])?;
         }
         // A Break after the insert ends the import with this record in (P112_Import_Break, afterIns2).
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
@@ -1812,7 +1884,7 @@ impl Session {
                     fields.len()
                 ));
             }
-            self.xp_save_record(inst, schema, table, &assigned)?;
+            self.xp_save_record(inst, schema, table, &assigned, false)?;
             if Self::xp_import_stopped(inst) {
                 break;
             }
@@ -2311,6 +2383,9 @@ impl Session {
         let n = schema.node(node);
         let mut out = Vec::new();
         let mut rows = Vec::new();
+        // A linked element is filtered to its parent's row before OnPreXmlItem: it counts the parent's rows only
+        // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:325 `Chi.PreXmlItem count=2`, then `count=1`).
+        self.xp_link_filter(inst, schema, node)?;
         // A Break in OnPreXmlItem leaves the element without rows and without the empty pass (P112_Export_Break, preItem1); a Quit
         // leaves what was written so far.
         match self.xp_site(inst, schema, node, "onprexmlitem") {
@@ -2337,7 +2412,22 @@ impl Session {
                 Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
                 other => other?,
             }
+        } else if rows.is_empty() && n.link_node.is_some() {
+            // An optional linked element without rows passes no field (XmlPortTriggerFlow.al:353 Export_TriggerOrder_EmptyTables:
+            // `Chi.PreXmlItem count=0` and no `Chi.Id.BeforePassField`).
         } else if rows.is_empty() {
+            // P94XpPathFlow.al:Export_PathsNoRows pins the empty pass for an element that is not optional only; for an optional
+            // element that is not linked, whether its fields are passed is not pinned.
+            let passes = schema.children(node).into_iter().any(|c| {
+                let k = schema.node(c);
+                matches!(k.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
+                    && k.trigger("onbeforepassfield").is_some()
+            });
+            if passes {
+                return unsupported(
+                    "XmlPort export of an optional table element without rows whose fields have OnBeforePassField (not pinned)",
+                );
+            }
             for child in schema.children(node) {
                 if matches!(
                     schema.node(child).kind,
@@ -2463,19 +2553,26 @@ impl Session {
         r
     }
 
+    /// Filters linked table element `node` to the row its LinkTable holds.
+    fn xp_link_filter(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<(), Signal> {
+        let n = schema.node(node);
+        let Some(link) = n.link_node else { return Ok(()) };
+        let rec = self.xp_record(inst, n)?;
+        let parent = self.xp_record(inst, schema.node(link))?;
+        for &(own, other) in &n.link_fields {
+            let v = parent.borrow().fields[other].clone();
+            self.ret_used = false;
+            self.record_op(RecordOp::SetRange, &rec, &mut [Value::Integer(own as i32), v])?;
+        }
+        Ok(())
+    }
+
     /// The rows of table element `node` in export order.
     fn xp_rows(&mut self, inst: &Inst, schema: &Schema, node: usize, rows: &mut Vec<Vec<Value>>) -> Result<(), Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
-        if let Some(link) = n.link_node {
-            let parent = self.xp_record(inst, schema.node(link))?;
-            for &(own, other) in &n.link_fields {
-                let v = parent.borrow().fields[other].clone();
-                self.ret_used = false;
-                self.record_op(RecordOp::SetRange, &rec, &mut [Value::Integer(own as i32), v])?;
-            }
-        }
+        self.xp_link_filter(inst, schema, node)?;
         let (key, asc) = {
             let r = rec.borrow();
             (r.key, r.ascending)

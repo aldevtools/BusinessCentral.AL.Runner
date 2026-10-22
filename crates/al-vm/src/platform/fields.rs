@@ -169,7 +169,9 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 }
             }
         }
-        out.push(rowversion_row(t, &blank, tid));
+        if let Some(e) = rowversion_row(o, schema, t, &blank, tid) {
+            out.push(e);
+        }
         if user_name_fields {
             out.extend(user_name_system_field_rows(t, &blank, tid));
         }
@@ -177,18 +179,20 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     out
 }
 
-/// The Field row of the rowversion (No. 0, `timestamp`, BigInteger, Normal, Len 8, Enabled), which every table has and
-/// only a read filtered on TableNo and FieldName = 'timestamp' finds: a scan by TableNo, a filter on No. = 0, on Type =
-/// BigInteger or on FieldName = 'SystemRowVersion', and Get(table, 0) do not. Pinned for tables with a key over
-/// SystemRowVersion (own or from a tableextension) and without one (corpus tests/al-language/types/lt-aj-probes/
-/// AjMisc.al:468, :482, :496, :510 QT_FieldTable_*, :609, :623, :637 RA_FieldTable_ScanByTableNo_*). Any other read
-/// that the row's name passes (another filter shape on FieldName, more filters, no TableNo filter) is refused, and so is
-/// a read of a column the corpus does not show (`mat::Gate`).
-fn rowversion_row(t: &TableDef, blank: &Blank, tid: u32) -> Entry {
+/// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
+/// FieldName filter finds it, on a table with a key over SystemRowVersion (own key, or one a tableextension adds) and on
+/// one without (types/lt-aj-probes/AjMisc.al:466-521, helper QtFieldTableAnswers :414-429, QtRowVersionRows :400-412;
+/// FieldTable_Customer_RowVersionField :336-348). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter
+/// on another name and a TableNo-only scan do not see it (same helper; RaFieldScan :613-641;
+/// metadata/W6FieldKeyRows.al:263-270). The other columns are not pinned: reading one refuses. Pinned on normal tables
+/// of the workspace and the Base Application only: for another kind of table the row refuses where it could be found.
+fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32) -> Option<Entry> {
+    schema.fields.iter().find(|f| f.id == 2_000_000_005)?;
     static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
     let why = WHY
         .get_or_init(|| {
-            "the Field table row of SystemRowVersion (No. 0, timestamp): only a read filtered on TableNo and on FieldName = 'timestamp', and nothing else, is pinned (AjMisc.al QT_FieldTable_*)".into()
+            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only TableNo, No., FieldName, Type, Len, Class and Enabled are pinned (types/lt-aj-probes/AjMisc.al:409)"
+                .into()
         })
         .clone();
     let mut r = blank.row();
@@ -199,12 +203,24 @@ fn rowversion_row(t: &TableDef, blank: &Blank, tid: u32) -> Entry {
     }
     r[pos(t, 1)] = Value::Integer(tid as i32);
     r[pos(t, 2)] = Value::Integer(0);
-    r[pos(t, 4)] = Value::Text("timestamp".into());
+    let name = pos(t, 4);
+    r[name] = Value::Text("timestamp".into());
     r[pos(t, 5)] = blank.option(t, 5, 17);
     r[pos(t, 6)] = Value::Integer(8);
     r[pos(t, 7)] = blank.option(t, 7, 0);
     r[pos(t, 8)] = Value::Boolean(true);
-    Entry::ok(r).gated(super::mat::Gate { col: pos(t, 4), why })
+    let normal = tid < 2_000_000_000
+        && !o
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal"));
+    let refuse = (!normal).then(|| {
+        format!(
+            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/lt-aj-probes/AjMisc.al:466-521)",
+            o.name
+        )
+    });
+    Some(Entry::ok(r).by_name_only(name, refuse))
 }
 
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class

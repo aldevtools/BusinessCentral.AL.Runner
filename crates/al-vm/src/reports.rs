@@ -121,6 +121,29 @@ impl Session {
             // positive is not pinned. A language nobody set reads as the session's, 1033. The runtime's culture
             // is fixed (en-US): the language is kept and changes no formatting (dates and decimals read
             // the same after 1031, ibid.).
+            // `Language` of a report variable outside a run: kept with the variable, read back, and the language of its SaveAs
+            // (report/W3ReportObjectIdPreviewLanguage.al:893 RB_SaveAs_ReportVariableLanguage1031, `read before run=1031`).
+            ids::REPORT_LANGUAGE_1 if self.variable_outside_run(&receiver).is_some() => {
+                let inst = self.variable_outside_run(&receiver).expect("checked");
+                let i = self.variable_culture(&inst)?;
+                match args.first() {
+                    None => Ok(Value::Integer(
+                        self.report.variable_culture[i].language.unwrap_or(self.global_language),
+                    )),
+                    Some(Value::Integer(0)) => Err(crate::transactions::al_error_code(
+                        "Invalid language ID supplied: 0.",
+                        "Argument",
+                    )),
+                    Some(Value::Integer(n)) if *n > 0 && *n <= 0xFFFF => {
+                        self.report.variable_culture[i].language = Some(*n);
+                        Ok(Value::Null)
+                    }
+                    Some(other) => unsupported(format!(
+                        "Language := {} on a report variable (only a language id from 1 to 65535 is pinned there)",
+                        other.describe()
+                    )),
+                }
+            }
             ids::REPORT_LANGUAGE_1 => match args.first() {
                 Some(Value::Integer(0)) => Err(crate::transactions::al_error_code(
                     "Invalid language ID supplied: 0.",
@@ -128,6 +151,7 @@ impl Session {
                 )),
                 Some(Value::Integer(n)) if *n > 0 && *n <= 0xFFFF => {
                     self.report.curr_report_language = Some(*n);
+                    self.saveas_language_set(*n, &running)?;
                     Ok(Value::Null)
                 }
                 // Only 99999 is pinned as an unsupported language (misc/lt-probes-needed-3/PnC06ReportLanguage.al:Language_Invalid);
@@ -148,7 +172,10 @@ impl Session {
                     "CurrReport.Language set to {n} after a language was set: whether a negative language keeps it is not pinned (docs/probes-needed.md)"
                 )),
                 None => Ok(Value::Integer(
-                    self.report.curr_report_language.unwrap_or(self.global_language),
+                    self.report
+                        .curr_report_language
+                        .or(self.report.run_language)
+                        .unwrap_or(self.global_language),
                 )),
                 Some(other) => unsupported(format!("CurrReport.Language with {}", other.describe())),
             },
@@ -221,6 +248,33 @@ impl Session {
             // reads back, and `Format` of a date and a decimal follows it (misc/lt-probes-needed-3/PnC06ReportLanguage.al:
             // Language_SetAndRead, `region0:|region1:de-DE|date2:05.03.24|num2:1.234,5`).
             // A report whose FormatRegion property is set: neither the getter nor the setter is measured there.
+            // `FormatRegion` of a report variable outside a run: `de-DE` is kept with the variable, read back, and the region of its
+            // SaveAs (report/W3ReportObjectIdPreviewLanguage.al:912 RB_SaveAs_ReportVariableFormatRegionDeDE). Another region is
+            // not pinned there.
+            ids::REPORT_FORMATREGION_1 if self.variable_outside_run(&receiver).is_some() => {
+                let inst = self.variable_outside_run(&receiver).expect("checked");
+                let i = self.variable_culture(&inst)?;
+                match args.first() {
+                    None => Ok(Value::Text(
+                        self.report.variable_culture[i]
+                            .region
+                            .clone()
+                            .unwrap_or_default()
+                            .into(),
+                    )),
+                    Some(Value::Text(t) | Value::Code(t)) if t.as_str() == "de-DE" => {
+                        self.report.variable_culture[i].region = Some(t.to_string());
+                        Ok(Value::Null)
+                    }
+                    Some(other) => unsupported(format!(
+                        "FormatRegion := {} on a report variable (only 'de-DE' is pinned there)",
+                        match other {
+                            Value::Text(t) | Value::Code(t) => format!("'{t}'"),
+                            other => other.describe(),
+                        }
+                    )),
+                }
+            }
             ids::REPORT_FORMATREGION_1 if self.report.region_property => {
                 unsupported("CurrReport.FormatRegion in a report whose FormatRegion property is set (not pinned)")
             }
@@ -245,6 +299,10 @@ impl Session {
                     }
                     Ok(Value::Null)
                 }
+                // A SaveAs that has the region of its variable: setting another one there is not pinned.
+                Some(_) if self.report.variable_region => unsupported(
+                    "CurrReport.FormatRegion := in a SaveAs whose report variable set FormatRegion (not pinned)",
+                ),
                 // Outside a report started by Run a region changes the formats and the dataset of a SaveAs
                 // (report/W3ReportObjectIdPreviewLanguage.al:559-570 FormatRegion_SetDeDE_FormatAndColumns), which is not built;
                 // the session's own region changes nothing.
@@ -255,6 +313,11 @@ impl Session {
                 None if self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run) => Ok(
                     Value::Text(self.report.format_region.clone().unwrap_or_default().into()),
                 ),
+                // The region a SaveAs got from its variable reads back in its triggers (W3ReportObjectIdPreviewLanguage.al:912
+                // `pre ... region=[de-DE]`).
+                None if self.report.variable_region => Ok(Value::Text(
+                    self.report.format_region.clone().unwrap_or_default().into(),
+                )),
                 None => Ok(Value::Text(String::new().into())),
                 Some(other) => unsupported(format!("CurrReport.FormatRegion with {}", other.describe())),
             },
@@ -540,6 +603,101 @@ impl Session {
             }
             other => unsupported(format!("builtin {other}")),
         }
+    }
+
+    /// `CurrReport.Language := n` in a trigger of a SaveAs: the dataset names the language, `de-DE` for 1031, on its top data items
+    /// and in its header (report/W3ReportObjectIdPreviewLanguage.al:605 Language_Set1031_FormatAndColumns `item language=de-DE`;
+    /// report/lt-bd-format-region/BdRegionTests.al:928 the header). Another language, another language set after the first data
+    /// item was written, and the Labels block in German are not pinned: the dataset is refused when it is written.
+    fn saveas_language_set(&mut self, n: i32, running: &Inst) -> Result<(), Signal> {
+        if self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::SaveAs) {
+            return Ok(());
+        }
+        let schema = self.report_schema(running)?;
+        let labels = !schema.report().labels.is_empty()
+            || schema
+                .report()
+                .items
+                .iter()
+                .any(|i| i.columns.iter().any(|c| c.include_caption));
+        let Some(ds) = self.report.dataset.as_mut() else {
+            return Ok(());
+        };
+        let target = match n {
+            1033 => None,
+            1031 => Some("de-DE"),
+            _ => {
+                ds.culture_unpinned.get_or_insert(format!(
+                    "the SaveAs dataset after CurrReport.Language := {n} (only 1031 is pinned)"
+                ));
+                return Ok(());
+            }
+        };
+        let why = if ds.rows > 0 {
+            // The same language again, row after row (handlers/TestReportCurrReportLanguage.al:44 sets 1031 in every
+            // OnAfterGetRecord), changes nothing.
+            (ds.language.as_deref() != target)
+                .then(|| format!("CurrReport.Language := {n} after the dataset's first data item was written"))
+        } else {
+            ds.language = target.map(str::to_string);
+            // Kept, not pinned: on BC 29 the company captions of the header stay en-US (refusing them would lose
+            // handlers/TestReportCurrReportLanguage.al:44 TestReport_SettingCurrReportLanguage_RunsAndIsReadableBack, which does
+            // not read the dataset).
+            (labels && target.is_some()).then(|| {
+                "CurrReport.Language := 1031 with a Labels block (its texts in German are not pinned)".to_string()
+            })
+        };
+        if let Some(why) = why {
+            ds.culture_unpinned
+                .get_or_insert(format!("the SaveAs dataset after {why}"));
+        }
+        Ok(())
+    }
+
+    /// The report variable `receiver` when no report runs: `Language` and `FormatRegion` are kept with it.
+    fn variable_outside_run(&self, receiver: &Option<Value>) -> Option<Inst> {
+        match receiver {
+            Some(Value::Codeunit(rc)) if self.report.report_preview_pinned.is_empty() => Some(rc.clone()),
+            _ => None,
+        }
+    }
+
+    /// The index of `inst` in `variable_culture`, added when missing. A variable whose language or region a SaveAs already
+    /// used is refused: what it keeps after that run is not pinned.
+    fn variable_culture(&mut self, inst: &Inst) -> Result<usize, Signal> {
+        self.report.variable_culture.retain(|c| c.inst.strong_count() > 0);
+        if let Some(i) = self
+            .report
+            .variable_culture
+            .iter()
+            .position(|c| c.inst.upgrade().is_some_and(|x| Rc::ptr_eq(&x, inst)))
+        {
+            if self.report.variable_culture[i].spent {
+                return unsupported(
+                    "Language or FormatRegion of a report variable after a SaveAs that used them (not pinned)",
+                );
+            }
+            return Ok(i);
+        }
+        self.report.variable_culture.push(crate::state::VariableCulture {
+            inst: Rc::downgrade(inst),
+            language: None,
+            region: None,
+            spent: false,
+        });
+        Ok(self.report.variable_culture.len() - 1)
+    }
+
+    /// The language and region set on report variable `inst` outside a run, if any.
+    fn variable_culture_of(&self, inst: &Inst) -> Option<(usize, Option<i32>, Option<String>)> {
+        self.report
+            .variable_culture
+            .iter()
+            .position(|c| c.inst.upgrade().is_some_and(|x| Rc::ptr_eq(&x, inst)))
+            .map(|i| {
+                let c = &self.report.variable_culture[i];
+                (i, c.language, c.region.clone())
+            })
     }
 
     /// The report instance behind a receiver, initialised: the first use of a report variable
@@ -1121,6 +1279,14 @@ impl Session {
         window: bool,
         enters: bool,
     ) -> Result<(), Signal> {
+        // Only a SaveAs of a variable with a language or region is pinned (report/W3ReportObjectIdPreviewLanguage.al:893, :912).
+        if let Some((_, language, region)) = self.variable_culture_of(inst) {
+            if language.is_some() || region.is_some() {
+                return unsupported(
+                    "Run or Execute of a report variable whose Language or FormatRegion was set (only its SaveAs is pinned)",
+                );
+            }
+        }
         let shows_page = entry == Entry::Run && window;
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
@@ -2332,8 +2498,72 @@ impl Session {
                 schema.name()
             ));
         }
-        if self.global_language != 1033 {
-            return unsupported("Report.SaveAs with a session language other than en-US (only en-US is pinned)");
+        // The language and region of the run: the session's, or what the variable set (report/W3ReportObjectIdPreviewLanguage.al:
+        // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
+        // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
+        // region changes both. Every other combination is refused.
+        let (variable_language, variable_region) = match self.variable_culture_of(&inst) {
+            Some((i, language, region)) => {
+                if language.is_some() || region.is_some() {
+                    self.report.variable_culture[i].spent = true;
+                }
+                (language, region)
+            }
+            None => (None, None),
+        };
+        let language = variable_language.unwrap_or(self.global_language);
+        let pinned = matches!(
+            (self.global_language, variable_language, variable_region.as_deref()),
+            (1033, None | Some(1033), None | Some("de-DE")) | (1031, None, None) | (1033, Some(1031), None)
+        );
+        if !pinned {
+            return unsupported(format!(
+                "Report.SaveAs with the session language {}, the report variable's Language {} and FormatRegion {} (only en-US, \
+                 GlobalLanguage 1031, Language := 1031 and FormatRegion := 'de-DE' on the variable are pinned)",
+                self.global_language,
+                variable_language.map_or("not set".to_string(), |l| l.to_string()),
+                variable_region.as_deref().unwrap_or("not set")
+            ));
+        }
+        if (language != 1033 || variable_region.is_some())
+            && (format != "Xml" || schema.report().format_region.is_some())
+        {
+            return unsupported(format!(
+                "Report.SaveAs as {format} in language {language} or with the variable's FormatRegion of a report{} (only the Xml \
+                 dataset of a report without the FormatRegion property is pinned)",
+                if schema.report().format_region.is_some() {
+                    " with the FormatRegion property"
+                } else {
+                    ""
+                }
+            ));
+        }
+        if language != 1033 {
+            // What the dataset writes in German beyond the values: labels and captions (the Labels block, and on BC 29 the report
+            // caption and the company captions of the header) are not pinned.
+            let labels = !schema.report().labels.is_empty()
+                || schema
+                    .report()
+                    .items
+                    .iter()
+                    .any(|i| i.columns.iter().any(|c| c.include_caption))
+                || schema.report().extensions.iter().any(|&e| {
+                    self.engine.program.objects[e]
+                        .report_ext
+                        .as_ref()
+                        .is_some_and(|x| !x.labels.is_empty())
+                });
+            if labels {
+                return unsupported(format!(
+                    "Report.SaveAs in language {language} of a report with a Labels block (its texts in that language are not pinned)"
+                ));
+            }
+            if self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) && self.compiled_table(79).is_some() {
+                return unsupported(format!(
+                    "Report.SaveAs in language {language} with the company block in the header (the report caption and the company captions of the \
+                     header in that language are not pinned)"
+                ));
+            }
         }
         // The FormatRegion property sets the culture of the Xml dataset and of Format in the triggers that write it, for the
         // five regions report/lt-y-report-props/YReportPropsTests.al:34-148 measures; any other region is refused.
@@ -2350,6 +2580,14 @@ impl Session {
                 ));
             }
         };
+        let region = region.or_else(|| {
+            variable_region.as_deref().map(|r| {
+                (
+                    r.to_string(),
+                    al_builtins::format::Region::parse(r).expect("de-DE is a region"),
+                )
+            })
+        });
         let quit = if at == 0 { quit } else { self.report_init(&inst)? };
         if quit {
             return unsupported("CurrReport.Quit in OnInitReport of a SaveAs (what the dataset holds is not pinned)");
@@ -2363,6 +2601,7 @@ impl Session {
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();
         fresh.region = region.clone();
+        fresh.language = (language == 1031).then(|| "de-DE".to_string());
         let outer = self.report.dataset.replace(fresh);
         if let Err(e) = self.dataset_labels(&schema) {
             self.report.dataset = outer;
@@ -2372,15 +2611,22 @@ impl Session {
             .report_preview_pinned
             .push(crate::state::ReportStart::SaveAs);
         let outer_region = std::mem::replace(&mut self.report.format_region, region.as_ref().map(|(r, _)| r.clone()));
-        let outer_property = std::mem::replace(&mut self.report.region_property, region.is_some());
+        let outer_property = std::mem::replace(
+            &mut self.report.region_property,
+            schema.report().format_region.is_some(),
+        );
         // Each SaveAs starts with no language set, whatever an earlier run set (report/W3ReportObjectIdPreviewLanguage.al:572-583
         // LanguageAndFormatRegion_BothSet_Columns `language before set equals GlobalLanguage=Yes` after the run of :546-557;
         // report/lt-bd-format-region/BdRegionTests.al:1045-1056 BdSetterLanguage_1033_EnUS `before=... language=1033`).
         let outer_language = self.report.curr_report_language.take();
+        let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
+        let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
         let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
+        self.report.run_language = outer_run_language;
+        self.report.variable_region = outer_variable_region;
         self.report.report_preview_pinned.pop();
         let written = std::mem::replace(&mut self.report.dataset, outer);
         match ran {
@@ -3031,6 +3277,22 @@ impl Session {
         let mut attribute = None;
         let mut schema_type = None;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
+        // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
+        // (report/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
+        // An Option column of a German session shows the DEU caption (record/lt-x-table-props/XTablePropsTests.al:783); in a
+        // language only the report has (its variable or a trigger set it) that is not pinned.
+        let report_language = self.report.curr_report_language.or(self.report.run_language);
+        if let Some(l) = self.report.dataset.as_ref().and_then(|d| d.language.clone()) {
+            if matches!(value, Value::Option(..) | Value::Enum(..))
+                && report_language.is_some_and(|r| r != self.global_language)
+            {
+                return unsupported(format!(
+                    "report column {} holds {} in a dataset in {l} (not pinned)",
+                    c.name,
+                    value.describe()
+                ));
+            }
+        }
         let text = match &value {
             // A Date, DateTime or Decimal column in the report's FormatRegion (YReportPropsTests.al:34-148); other shapes are refused.
             Value::Date(..) | Value::DateTime(_) | Value::Decimal(_) | Value::Time(_) if region.is_some() => {
@@ -3168,6 +3430,11 @@ impl Session {
     ) -> Result<String, Signal> {
         {
             let buf = b.borrow();
+            if buf.render_pending.as_deref() == Some(al_builtins::stream::UNLOADED_WRITE) {
+                return Err(al_builtins::stream::render_pending_error(
+                    al_builtins::stream::UNLOADED_WRITE,
+                ));
+            }
             if buf.render_pending.is_some() {
                 return unsupported(format!(
                     "report column {} holds a Blob a report was saved to in a rendered format (ADR-040)",
@@ -3210,15 +3477,24 @@ impl Session {
         }
     }
 
-    /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Address,
-    /// Address 2, the city line, County and the name of the country, each empty one left out
-    /// (report/lt-ah-dataset-header/AhDatasetHeader.al:98-151). Without a country the city line is the post code, a space
-    /// and the city, leading spaces cut (`ZIP 12 Town`, `Town`, `ZIP 12 `: AhDatasetHeader.al:125-126, 152-153); with a
-    /// country of the address format City+Post Code (the InitValue of the Country/Region table, which both corpus
-    /// countries keep) it is the city, a comma and the post code (`Town, ZIP 12`: AhDatasetHeader.al:127-129, 104 for the
-    /// QK row). The corpus database has the General Ledger Setup's local format Post Code+City. Every other shape is not
-    /// pinned and refused: Name 2 set, an empty Name with address lines, another local or country format, a country with
-    /// only one of City and Post Code, a country without a row or without a name, country translations.
+    /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
+    /// Address, Address 2, the city line, County and the name of the country, each empty one left out; the Contact Person is
+    /// never written (report/lt-ah-dataset-header/AhDatasetHeader.al:98-151, writer RB :260-460).
+    ///
+    /// The city line follows the address format: of the Country/Region row, of the General Ledger Setup's Local Address Format
+    /// without a country (:390-430, no country line then), and City+Post Code for a code without a row, whose country line is the
+    /// code (:366-388). With City and Post Code both set:
+    /// - Post Code+City and Blank Line+Post Code+City: the post code, a space and the city, no blank line (:309, :345);
+    /// - City+Post Code: the city, a comma and the post code (:327);
+    /// - City+County+Post Code: the city, a comma, the county, a space and the post code, and no County line; without a county
+    ///   the city, a comma and the post code (:335);
+    /// - County is a line of its own in every other format;
+    /// - Custom with the rows Validate writes from City+Post Code: the city, a space and the post code, no County (:366-380).
+    ///
+    /// With only one of City and Post Code, or neither, only these are pinned: no country and the local format Post Code+City
+    /// (the post code, a space and the city, leading spaces cut: :125-126, :152-153), and a country of the City+Post Code format
+    /// with neither (:155). Everything else is refused: other partial addresses, Custom rows of another shape, an empty Name with
+    /// address lines, a country row without a name, country translations.
     fn company_address_lines(&mut self, rec: &Rec, t: &al_data::TableDef) -> Result<Vec<String>, Signal> {
         let get = |name: &str| -> String {
             t.fields
@@ -3233,7 +3509,8 @@ impl Session {
             ))
         };
         let name = get("Name");
-        let [address, address2, city, post_code, county, country] = [
+        let [name2, address, address2, city, post_code, county, country] = [
+            "Name 2",
             "Address",
             "Address 2",
             "City",
@@ -3242,53 +3519,156 @@ impl Session {
             "Country/Region Code",
         ]
         .map(get);
-        if !get("Name 2").is_empty() {
-            return refuse("Company Information has \"Name 2\" set".into());
-        }
-        let mut country_name = String::new();
-        let city_line = if country.is_empty() {
-            if !(city.is_empty() && post_code.is_empty() && county.is_empty()) {
+        const POST_CODE_CITY: i32 = 0;
+        const CITY_POST_CODE: i32 = 1;
+        const CITY_COUNTY_POST_CODE: i32 = 2;
+        const BLANK_LINE_POST_CODE_CITY: i32 = 3;
+        const CUSTOM: i32 = 13;
+        let (format, country_line) =
+            if country.is_empty() && city.is_empty() && post_code.is_empty() && county.is_empty() {
+                // Nothing the format places: no city line in any format, as before the local format was read (AhDatasetHeader.al:
+                // 155-156 `all_empty`, `only_country`).
+                (POST_CODE_CITY, None)
+            } else if country.is_empty() {
                 match self.header_row(98, None, 57)? {
                     None => return refuse("the General Ledger Setup has no row".into()),
-                    Some(Value::Option(0, _)) => {}
-                    Some(_) => return refuse("a Local Address Format other than Post Code+City".into()),
+                    Some(Value::Option(n, _)) if (0..=3).contains(&n) => (n, None),
+                    Some(v) => return refuse(format!("the Local Address Format {}", v.describe())),
                 }
-            }
-            format!("{post_code} {city}").trim_start().to_string()
-        } else {
-            match self.header_row(9, Some(Value::Code(country.clone().into())), 8)? {
-                Some(Value::Enum(_, 1)) => {}
-                Some(_) => {
-                    return refuse(format!(
-                        "country \"{country}\" has an Address Format other than City+Post Code"
-                    ));
+            } else {
+                let key = || Some(Value::Code(country.clone().into()));
+                match self.header_row(9, key(), 8)? {
+                    // A code without a row: Country/Region's InitValue City+Post Code, the code as the country line (:382-388).
+                    None => (CITY_POST_CODE, Some(country.clone())),
+                    Some(Value::Enum(_, n)) if [0, 1, 2, 3, CUSTOM].contains(&n) => {
+                        let country_name = match self.header_row(9, key(), 2)? {
+                            Some(v) => al_builtins::native::text_of(&v).unwrap_or_default().to_string(),
+                            None => String::new(),
+                        };
+                        if country_name.is_empty() {
+                            return refuse(format!("country \"{country}\" has no name"));
+                        }
+                        if self.compiled_table(11).is_some() && self.header_row(11, None, 1)?.is_some() {
+                            return refuse("Country/Region Translation has rows".into());
+                        }
+                        (n, Some(country_name))
+                    }
+                    Some(v) => return refuse(format!("country \"{country}\" has the Address Format {}", v.describe())),
                 }
-                None => return refuse(format!("country \"{country}\" has no row")),
-            }
-            country_name = match self.header_row(9, Some(Value::Code(country.clone().into())), 2)? {
-                Some(v) => al_builtins::native::text_of(&v).unwrap_or_default().to_string(),
-                None => String::new(),
             };
-            if country_name.is_empty() {
-                return refuse(format!("country \"{country}\" has no name"));
+        let both = !city.is_empty() && !post_code.is_empty();
+        let partial_pinned = match format {
+            POST_CODE_CITY => country_line.is_none(),
+            CITY_POST_CODE => country_line.is_some() && city.is_empty() && post_code.is_empty(),
+            _ => false,
+        };
+        if !both && !partial_pinned {
+            return refuse(format!(
+                "the address format {format} with City \"{city}\" and Post Code \"{post_code}\" (only both set is pinned)"
+            ));
+        }
+        let (city_line, county_line) = match format {
+            POST_CODE_CITY | BLANK_LINE_POST_CODE_CITY => {
+                (format!("{post_code} {city}").trim_start().to_string(), county)
             }
-            if self.compiled_table(11).is_some() && self.header_row(11, None, 1)?.is_some() {
-                return refuse("Country/Region Translation has rows".into());
-            }
-            match (city.is_empty(), post_code.is_empty()) {
-                (true, true) => String::new(),
-                (false, false) => format!("{city}, {post_code}"),
-                _ => return refuse("a country with only one of City and Post Code".into()),
+            CITY_POST_CODE if both => (format!("{city}, {post_code}"), county),
+            CITY_POST_CODE => (String::new(), county),
+            CITY_COUNTY_POST_CODE if county.is_empty() => (format!("{city}, {post_code}"), String::new()),
+            CITY_COUNTY_POST_CODE => (format!("{city}, {county} {post_code}"), String::new()),
+            _ => {
+                self.custom_address_format_pinned(&country)?;
+                (format!("{city} {post_code}"), String::new())
             }
         };
-        let rest: Vec<String> = [address, address2, city_line, county, country_name]
-            .into_iter()
-            .filter(|l| !l.is_empty())
-            .collect();
+        let rest: Vec<String> = [
+            name2,
+            address,
+            address2,
+            city_line,
+            county_line,
+            country_line.unwrap_or_default(),
+        ]
+        .into_iter()
+        .filter(|l| !l.is_empty())
+        .collect();
         if name.is_empty() && !rest.is_empty() {
             return refuse("an empty Name with address fields set".into());
         }
         Ok(std::iter::once(name).chain(rest).collect())
+    }
+
+    /// The Custom Address Format rows of `country` are the ones Validate("Address Format", Custom) writes for a country of the
+    /// City+Post Code format (AhDatasetHeader.al:366-380): lines 1-7 Name, Name 2, Contact Person, Address, Address 2, a line of
+    /// City and Post Code without separators, and the country. Any other shape is refused.
+    fn custom_address_format_pinned(&mut self, country: &str) -> Result<(), Signal> {
+        let refuse = || {
+            unsupported(format!(
+                "the company address lines of the dataset header: the Custom Address Format rows of country \"{country}\" are not the ones Validate writes from City+Post Code (not pinned by AhDatasetHeader.al)"
+            ))
+        };
+        let int = |v: &Value| match v {
+            Value::Integer(i) => Some(*i),
+            Value::Option(i, _) => Some(*i),
+            _ => None,
+        };
+        let code = |v: &Value| al_builtins::native::text_of(v).unwrap_or_default().to_string();
+        // Field ids of Company Information: Name 2, 3 Name 2, 51 Contact Person, 4 Address, 5 Address 2, 6 City, 30 Post Code,
+        // 36 Country/Region Code.
+        let mut lines: Vec<(i32, i32, i32)> = self
+            .header_rows(725, &[1, 2, 4, 5])?
+            .iter()
+            .filter(|r| code(&r[0]).eq_ignore_ascii_case(country))
+            .filter_map(|r| Some((int(&r[1])?, int(&r[2])?, int(&r[3])?)))
+            .collect();
+        lines.sort();
+        let fields: Vec<i32> = lines.iter().map(|l| l.2).collect();
+        if lines.iter().map(|l| l.0).ne(0..7) || fields != [2, 3, 51, 4, 5, 0, 36] {
+            return refuse();
+        }
+        let line_no = lines[5].1;
+        let mut parts: Vec<(i32, i32, String)> = self
+            .header_rows(726, &[1, 7, 3, 5, 4])?
+            .iter()
+            .filter(|r| code(&r[0]).eq_ignore_ascii_case(country) && int(&r[1]) == Some(line_no))
+            .filter_map(|r| Some((int(&r[2])?, int(&r[3])?, code(&r[4]))))
+            .collect();
+        parts.sort();
+        if parts != [(0, 6, String::new()), (1, 30, String::new())] {
+            return refuse();
+        }
+        Ok(())
+    }
+
+    /// The values of fields `fields` of every row of table `table`, in key order. A table that is not compiled is refused.
+    fn header_rows(&mut self, table: u32, fields: &[u32]) -> Result<Vec<Vec<Value>>, Signal> {
+        let Some(obj) = self.compiled_table(table) else {
+            return unsupported(format!(
+                "the company address lines of the dataset header need table {table}, which is not compiled"
+            ));
+        };
+        let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
+        let mut pos = Vec::with_capacity(fields.len());
+        for field in fields {
+            let Some(p) = t.fields.iter().position(|f| f.id == *field) else {
+                return unsupported(format!(
+                    "the company address lines of the dataset header: table {table} has no field {field}"
+                ));
+            };
+            pos.push(p);
+        }
+        let Value::Record(rec) = self.default_value(&al_builtins::value::RtType::Record(obj as u32, false)) else {
+            unreachable!("a record type defaults to a record")
+        };
+        let mut rows = Vec::new();
+        if al_builtins::ops::truthy(&self.record_op(RecordOp::FindSet, &rec, &mut [])?)? {
+            loop {
+                rows.push(pos.iter().map(|&p| rec.borrow().fields[p].clone()).collect());
+                if matches!(self.record_op(RecordOp::Next, &rec, &mut [])?, Value::Integer(0)) {
+                    break;
+                }
+            }
+        }
+        Ok(rows)
     }
 
     /// The value of field `field` of a row of table `table`: the row with primary key `key`, or the first row. `None` when
@@ -3377,6 +3757,11 @@ impl Session {
                                     let logo = match &rec.borrow().fields[i] {
                                         Value::Blob(b) => {
                                             let b = b.borrow();
+                                            if let Some(what) = b.render_pending.as_deref()
+                                                && what == al_builtins::stream::UNLOADED_WRITE
+                                            {
+                                                return Err(al_builtins::stream::render_pending_error(what));
+                                            }
                                             if b.render_pending.is_some() {
                                                 return unsupported(
                                                     "the CompanyLogo of the dataset header: the Picture holds content that was never produced",

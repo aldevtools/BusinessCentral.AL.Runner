@@ -2142,8 +2142,61 @@ fn only_an_open_after_the_last_row_is_flagged() {
 }
 
 // The lowering can mark a statement as resting on an assumption (`Lowerer::assume`, `Stmt::Assume`): the test is flagged only when the
-// statement runs. The last user of that path, `chained-array-index`, is retired (misc/lt-chained-array-index/ChainedArrayIndex.al pins it), so no registered assumption
-// is marked at compile time and the test that drove it with that id is gone. The next lowering-level assumption adds one back.
+// statement runs. A Text[80] true branch with a longer Text false branch outside the pinned target shape (QxTernarySized.al:142-155)
+// rests on `ternary-longer-text-false-branch-fits` (Base App AccScheduleLine.Table.al:113); the exact-target shape does not.
+const TERNARY_LONGER_FALSE: &str = "codeunit 60170 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure IntoALongerTarget()
+    var
+        T80: Text[80];
+        T100: Text[100];
+        R: Text[100];
+    begin
+        T100 := 'abc';
+        R := T80 = '' ? T80 : T100;
+        R := T80 <> '' ? T80 : T100;
+        if R <> 'abc' then Error('R %1', R);
+    end;
+
+    [Test]
+    procedure IntoTheTrueBranchType()
+    var
+        T80: Text[80];
+        T100: Text[100];
+        R: Text[80];
+    begin
+        T100 := 'abc';
+        R := T80 <> '' ? T80 : T100;
+    end;
+
+    [Test]
+    procedure NotRun()
+    var
+        T80: Text[80];
+        T100: Text[100];
+        R: Text[100];
+        B: Boolean;
+    begin
+        if B then
+            R := T80 <> '' ? T80 : T100;
+    end;
+}";
+
+#[test]
+fn a_longer_text_false_branch_outside_the_pinned_target_is_flagged_only_when_its_statement_runs() {
+    let hits = assumptions_of(TERNARY_LONGER_FALSE);
+    let of = |n: &str| hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone());
+    assert_eq!(
+        of("IntoALongerTarget"),
+        Some(vec!["ternary-longer-text-false-branch-fits"]),
+        "{hits:?}"
+    );
+    assert_eq!(of("IntoTheTrueBranchType"), None, "{hits:?}");
+    assert_eq!(of("NotRun"), None, "{hits:?}");
+}
 
 const TODAY: &str = "codeunit 60160 T
 {
@@ -2481,6 +2534,32 @@ codeunit 50130 \"Build Company\" {{
     assert_eq!(outcome("Built"), Outcome::Pass);
     assert_eq!(outcome("Order"), Outcome::Pass);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// Orchestrator decision (2026-10-22): BCApps' CI runs the DemoTool's codeunit 101899 without a client
+// (Invoke-LegacyDemoDataTool), and 101900 ends with a Message (CreateDemonstrationData.Codeunit.al:133). While the company
+// is built, a Message is accepted and written to the run log; Confirm and StrMenu stay refused.
+#[test]
+fn a_message_while_the_company_is_built_is_accepted_and_a_confirm_is_not() {
+    let main = "codeunit 50001 \"T\" { Subtype = Test; [Test] procedure Plain() begin end; }";
+    let dep = format!(
+        "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'demo'; L.Insert(); Message('Built %1', 1); end; }}"
+    );
+    let outcome = with_company_data(main, &dep, demo_company(None));
+    assert_eq!(outcome("Plain"), Outcome::Pass);
+    for ui in ["if Confirm('Sure?') then;", "if StrMenu('A,B') = 0 then;"] {
+        let dep = format!(
+            "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() begin {ui} end; }}"
+        );
+        let Outcome::NotRun(why) = with_company_data(main, &dep, demo_company(None))("Plain") else {
+            panic!("{ui}")
+        };
+        assert!(why.starts_with(crate::company_data::BLOCKED_NOTE), "{ui}: {why}");
+    }
 }
 
 #[test]

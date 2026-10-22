@@ -437,8 +437,9 @@ pub(crate) enum AuxSite {
         stub: String,
         ty: Option<al_builtins::value::RtType>,
     },
-    /// `--tdd` (ADR-051 decision 10): the value, unless it is a text longer than `max` (`ir::Expr::TddFit`).
-    TddFit {
+    /// The value, unless it is a text longer than `max` (`ir::Expr::TddFit` under `--tdd`, ADR-051 decision 10, and
+    /// `ir::Expr::FitOrRefuse`). It notes nothing as reached.
+    Fit {
         max: u32,
         why: String,
     },

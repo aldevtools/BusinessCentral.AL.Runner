@@ -9,6 +9,7 @@ mod last_error;
 pub mod policy;
 pub mod registry;
 pub mod server_classes;
+mod staged_dir;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -264,6 +265,20 @@ impl Session {
                     return r;
                 }
             }
+        }
+
+        // 1c. A folder AL Runner staged itself for the company build (the DemoTool's resources): Create Getting Started
+        // Data lists `TemporaryPath() + '..\WalkMeTour'` through File Management.GetServerDirectoryFilesList. Which
+        // files the folder holds is a detail of the host's set-up that no test sees, so the listing is answered from the
+        // staged folder, as Windows BC answers it (windows-check-results 2026-10-22 QX item 14: the files, without case,
+        // in name order). Every other folder stays refused by the policy below.
+        if let (Target::Static(d), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
+            (&target, kind, values.as_slice())
+            && d.name.eq_ignore_ascii_case("System.IO.Directory")
+            && member.eq_ignore_ascii_case("GetFiles")
+            && let Some(files) = self.host.files.staged_folder_files(p)
+        {
+            return self.staged_file_array(files, &shown);
         }
 
         // 2. The host provider, after the policy (ADR-014 section 8).
@@ -707,6 +722,34 @@ impl Session {
 
     /// Makes the host ready for a call: asks `availability()` once, opens the session at the
     /// first call, and flushes the release queue (ADR-014 sections 2 and 6).
+    /// The `string[]` .NET returns from `Directory.GetFiles` for `files`, made by .NET itself (`Regex.Split` of the
+    /// paths joined with a line feed), so its members are .NET's.
+    fn staged_file_array(&mut self, files: Vec<String>, shown: &str) -> Result<Value, Signal> {
+        if files.is_empty() || files.iter().any(|f| f.contains('\n')) {
+            return unsupported(format!(
+                "DotNet {shown}: a staged folder that is empty or holds a name with a line feed"
+            ));
+        }
+        self.dotnet_ready("System.Text.RegularExpressions.Regex")?;
+        let decl = DotNetType {
+            assembly: "System.Text.RegularExpressions".into(),
+            version: None,
+            culture: None,
+            public_key_token: None,
+            name: "System.Text.RegularExpressions.Regex".into(),
+        };
+        let args = [files.join("\n"), "\n".to_string()]
+            .into_iter()
+            .map(|s| DotNetArg {
+                value: DotNetValue::Str(s),
+                by_ref: false,
+            })
+            .collect();
+        let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
+        let reply = session.invoke(DotNetTarget::Static(decl), "Split", args);
+        self.type_reply(reply, shown)
+    }
+
     fn dotnet_ready(&mut self, clr_type: &str) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let avail = self

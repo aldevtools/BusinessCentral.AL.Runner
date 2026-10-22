@@ -235,12 +235,21 @@ pub fn run_traced(
             session.set_company("");
         }
         session.clear_fault_site();
+        // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
+        if company_root == Some(k) {
+            session.capture_messages();
+        }
         let called = if is_install(&objs[oi]) || keep_prefix {
             let inst = session.instance(oi);
             session.call(oi, ri, inst, Vec::new()).map(|_| ())
         } else {
             session.call_parameterless_subscriber(oi, ri)
         };
+        if company_root == Some(k) {
+            for m in session.stop_capturing_messages() {
+                notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
+            }
+        }
         let why = match called {
             Ok(_) => None,
             // Where it stopped: the innermost routine and its source position.
@@ -333,7 +342,9 @@ pub fn run_traced(
 /// wrote to it is refused, the shape those two tests read (install code may have written a row with other values). Other reads stay answered: refusing every read of those tables lost 116 BC 29
 /// baseline cases (reports and pages that read Company Information without asserting its values). General Ledger Setup holds
 /// one demo row there too (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow `count` 1, :815).
-/// Object indexes of the dependency tables 50, 79 and 98.
+/// The platform table Media Resources holds 46 rows there (platform/lt-platform-tables/PtCloudTables.al:269
+/// QX_MediaResources_FreshTenantCodes); al-vm records.rs refuses every read of it, not only Count and IsEmpty.
+/// Object indexes of the dependency tables 50, 79, 98 and 2000000182.
 pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
     let objs = &lowered.program.objects;
     (0..objs.len())
@@ -345,6 +356,7 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
                     (Some(50), "Accounting Period")
                         | (Some(79), "Company Information")
                         | (Some(98), "General Ledger Setup")
+                        | (Some(2_000_000_182), "Media Resources")
                 )
         })
         .collect()
@@ -400,7 +412,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
             match e {
                 Expr::Const(_) | Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
                 Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
-                Expr::TddFit { inner, .. } => self.expr(inner),
+                Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
                 Expr::Load(p) => self.place(p),
                 Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                     self.expr(a)

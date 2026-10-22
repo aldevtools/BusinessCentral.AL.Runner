@@ -629,6 +629,10 @@ pub struct XmlPort {
     /// is not: a construct the corpus does not pin, which most callers never reach.
     #[serde(default)]
     pub run_unsupported: Vec<String>,
+    /// Why an Export of it is refused; an Import is not (for example `SourceTableView`, which no corpus test pins for an
+    /// export).
+    #[serde(default)]
+    pub export_unsupported: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1520,6 +1524,13 @@ pub enum Expr {
     /// `--tdd` (ADR-051 decision 10): the value of `inner`, written to a stub Text or Code field whose real length is
     /// not known. A text longer than `max` raises `Signal::Unsupported` with `why` instead of a length error.
     TddFit {
+        max: u32,
+        why: String,
+        inner: Box<Expr>,
+    },
+    /// The value of `inner`; a text longer than `max` raises `Signal::Unsupported` with `why`. Not `--tdd`: a text whose
+    /// conversion to a shorter type is not pinned when it would not fit (a conditional expression's false branch).
+    FitOrRefuse {
         max: u32,
         why: String,
         inner: Box<Expr>,

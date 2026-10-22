@@ -36,6 +36,8 @@ pub enum Virtual {
     PageControlField,
     TimeZone,
     WindowsLanguage,
+    /// Every row of a fresh tenant is pinned (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al).
+    LanguageSelection,
     /// Two rows are pinned (platform/lt-platform-tables/PtCloudTables.al:60-76); any other read is refused.
     LicensePermission,
     NavAppInstalledApp,
@@ -116,6 +118,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         2_000_000_045,
         "Windows Language",
         Provider::Virtual(Virtual::WindowsLanguage),
+    ),
+    (
+        2_000_000_050,
+        "Language Selection",
+        Provider::Virtual(Virtual::LanguageSelection),
     ),
     (
         2_000_000_043,
@@ -225,6 +232,10 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_288, "Code Coverage Test Lookup", Provider::Stored),
     (2_000_000_289, "Code Coverage Tests Run", Provider::Stored),
     (2_000_000_184, "Tenant Media", Provider::Virtual(Virtual::TenantMedia)),
+    // An ordinary table: rows inserted, read by code (also lower case), duplicate Insert false, Count and DeleteAll
+    // (platform/lt-platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob). The rows a tenant
+    // holds before any AL runs (:269) and the Tenant Media row of its media (:352) are refused elsewhere.
+    (2_000_000_182, "Media Resources", Provider::Stored),
     (2_000_000_121, "User Property", Provider::Stored),
     (2_000_000_175, "Scheduled Task", Provider::Stored),
     (2_000_000_096, "API Webhook Notification", Provider::Stored),
@@ -248,14 +259,18 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         "Intelligent Cloud",
         Provider::Virtual(Virtual::IntelligentCloud),
     ),
+    // Ordinary tables that a fresh tenant fills with pinned rows (al-vm `platform/seed.rs`): Insert(true) of an existing key
+    // answers false and Modify(true) true (platform/lt-platform-tables/PtCloudTables.al:378-432 and :435-492).
+    (2_000_000_233, "Tenant Report Layout Selection", Provider::Stored),
+    (2_000_000_179, "OData Edm Type", Provider::Stored),
 ];
 
-/// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Web Service and
-/// Tenant Web Service: not empty, PZPlatformSurvey.al:178-187; 64 rows in W4PlatformAndMeta.al:93,
-/// depending on the apps). The runtime starts them empty, so it treats them as unseeded
-/// (`Engine::unseeded`): writes work, and a read of rows that were not written, or a `Get` that
-/// finds nothing, is refused.
-pub const UNSEEDED_ROWS: &[u32] = &[2_000_000_076, 2_000_000_168];
+/// Stored platform tables that a fresh tenant fills with rows no corpus test pins (Tenant Web Service: not empty,
+/// PZPlatformSurvey.al:178-187; 64 rows in W4PlatformAndMeta.al:93 and PtWebServiceRows.al:136, which rows is not
+/// pinned). The runtime starts them empty, so it treats them as unseeded (`Engine::unseeded`): writes work, and a read
+/// of rows that were not written, or a `Get` that finds nothing, is refused. Web Service is seeded with its pinned
+/// rows instead (al-vm `platform/seed.rs`).
+pub const UNSEEDED_ROWS: &[u32] = &[2_000_000_168];
 
 /// Platform tables that only the System app of a later major declares (the registry above is checked against the System app
 /// of the first major the corpus pins, `tests/platform_tables.rs`). Ordinary stored tables here, written by install code:

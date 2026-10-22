@@ -563,7 +563,7 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
-        Expr::TddFit { inner, .. } => walk_expr(inner, v),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => walk_expr(inner, v),
         Expr::TddStub { stub: _, args, ty } => {
             if let Some(t) = ty {
                 walk_rt(t, v);
@@ -1004,6 +1004,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         destination_slot: _,
         unsupported: _,
         run_unsupported: _,
+        export_unsupported: _,
     } = x;
     let tables: Vec<Option<usize>> = nodes.iter().map(|n| n.table).collect();
     for n in nodes {

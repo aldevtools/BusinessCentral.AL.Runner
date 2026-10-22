@@ -10,6 +10,9 @@
 //! the corpus line that pins it; a column or a shape nothing pins is refused, not guessed.
 
 mod apps;
+
+/// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
+pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 pub(crate) mod coverage;
 mod date;
 mod fields;
@@ -351,6 +354,14 @@ impl Providers {
                         "a Tenant Media row of a media imported with a file name: its File Name, Description and Mime Type are not pinned".into(),
                     );
                 }
+                if self.media.outside_tenant.borrow().contains(&id) {
+                    return mat::Entry::poisoned(
+                        row,
+                        "the Tenant Media row of a media of a Media Resources row: BC keeps none after the Insert \
+                         (PtCloudTables.al:352), before it is not pinned"
+                            .into(),
+                    );
+                }
                 // ADR-044: the picture was never produced; its content, MIME type and size are unknown.
                 if let Some(what) = &o.pending {
                     let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what) else {
@@ -365,6 +376,19 @@ impl Providers {
                 row[pos(t, 4)] = Value::Text(o.mime.clone().into());
                 row[pos(t, 5)] = Value::Integer(o.height);
                 row[pos(t, 6)] = Value::Integer(o.width);
+                if let (Some(file), Some(p)) = (
+                    &o.file_column,
+                    t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("File Name")),
+                ) {
+                    row[p] = match file {
+                        al_builtins::media::FileColumn::Path(name) => Value::Text(name.clone().into()),
+                        al_builtins::media::FileColumn::Unpinned => Value::Unknown(
+                            "the File Name of the Tenant Media row of a MediaSet.ImportFile is not pinned \
+                             (onprem media/MediaFiles.al:340 ignores it)"
+                                .into(),
+                        ),
+                    };
+                }
                 // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
                 if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Company Name")) {
                     row[p] = Value::Text(self.ident.company.clone().into());
@@ -404,6 +428,13 @@ impl Providers {
                 t,
                 reports::layout_list_rows(self, t),
             ))));
+        }
+        // The Name of a language is pinned for a session in 1033 only (PlatformRowsLanguageSelection.al runs in it).
+        if kind == Virtual::LanguageSelection && self.language() != 1033 {
+            return Err(refused(format!(
+                "Language Selection: the rows in session language {} are not pinned (only those in 1033 are)",
+                self.language()
+            )));
         }
         if let Some(m) = self.listed.borrow().get(&kind) {
             return Ok(m.clone());
@@ -484,6 +515,7 @@ impl Providers {
             Virtual::PageControlField => pages::page_control_field_rows(self, t),
             Virtual::Field => fields::field_rows(self, t),
             Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
+            Virtual::LanguageSelection => host_tables::language_selection_rows(t, self.engine().target.as_ref()),
             Virtual::Key => fields::key_rows(self, t),
             Virtual::IntelligentCloud => Vec::new(),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {

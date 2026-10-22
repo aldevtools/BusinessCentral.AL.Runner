@@ -2,6 +2,7 @@
 
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
+mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod companies;
 mod delete_all_cascade;
@@ -17,6 +18,7 @@ mod key_ties;
 mod lane_codeunit_run;
 mod linked_object;
 mod loadfields;
+mod media_resources;
 mod modify_all_unchanged;
 mod np_blockers;
 mod record_builtins;

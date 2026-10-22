@@ -569,8 +569,6 @@ impl Lowerer<'_> {
 
     /// Notes that the lowering of the statement being lowered rests on assumption `a`: the statement is
     /// preceded by `Stmt::Assume(a)`, so a test that runs it is reported as flagged.
-    // No lowering-level assumption is registered at the moment; the next one calls this.
-    #[allow(dead_code)]
     pub(crate) fn assume(&mut self, a: al_builtins::assumptions::Assumption) {
         if let Some(frame) = self.assumed.last_mut() {
             if !frame.contains(&a) {
@@ -1206,7 +1204,18 @@ impl Lowerer<'_> {
         }
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
-        let rhs = self.expr(&kids[1])?;
+        let plain = !sig_tokens(n).into_iter().any(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+            )
+        });
+        if plain && kids[1].kind() == SyntaxKind::TernaryExpr {
+            self.ternary_target = Some(target_ty.clone());
+        }
+        let rhs = self.expr(&kids[1]);
+        self.ternary_target = None;
+        let rhs = rhs?;
         let rhs = self.tdd_fit(&kids[0], &target_ty, rhs);
         let op = sig_tokens(n).into_iter().find(|t| {
             matches!(

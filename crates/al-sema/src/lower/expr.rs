@@ -533,11 +533,13 @@ impl Lowerer<'_> {
                 Err("indexing a DotNet value is not lowered yet (call get_Item / GetValue instead)".into())
             }
             TernaryExpr => {
+                // Only the conditional expression itself is the right side of the assignment, not one nested in it.
+                let target = self.ternary_target.take();
                 let cond = self.expr(&kids[0])?;
                 let yes = self.expr(&kids[1])?;
                 let no = self.expr(&kids[2])?;
                 let (t, f) = (self.ty_of(&kids[1]), self.ty_of(&kids[2]));
-                let no = self.ternary_false_branch(&t, &f, no)?;
+                let no = self.ternary_false_branch(&t, &f, no, target.as_ref())?;
                 Ok(ir::Expr::Ternary(Box::new(cond), Box::new(yes), Box::new(no)))
             }
             CallExpr => {

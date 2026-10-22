@@ -713,7 +713,7 @@ impl Session {
             // lt-record-conversion-assumptions/RecordResultField.al).
             AuxSite::FieldOf { pos } => self.read_record_field(v, *pos)?,
             AuxSite::QueryColumn { column } => self.query_column(v, *column)?,
-            AuxSite::TddFit { max, why } => match &v {
+            AuxSite::Fit { max, why } => match &v {
                 Value::Text(s) | Value::Code(s) if Value::text_len(s) > *max as usize => {
                     return Err(Signal::Unsupported(why.clone()));
                 }
@@ -979,6 +979,30 @@ impl Session {
         Ok(())
     }
 
+    /// A media imported into a field of a Media Resources row: BC keeps no Tenant Media row for it once the row is
+    /// inserted (platform/lt-platform-tables/PtCloudTables.al:352 'tenant media' = 'no tenant media row'); before the
+    /// Insert it is not pinned. So the runtime's Tenant Media row of that media is refused (`MediaStore::outside_tenant`).
+    fn note_media_resources_import(&mut self, site: &BuiltinSite, id: [u8; 16], f: &mut Frame) -> Result<(), Signal> {
+        use al_builtins::builtin_id::ids;
+        if !matches!(
+            site.id,
+            ids::MEDIA_IMPORTSTREAM_1 | ids::MEDIA_IMPORTSTREAM_2 | ids::MEDIA_IMPORTFILE_1
+        ) || id == [0; 16]
+        {
+            return Ok(());
+        }
+        let Some(ir::Arg::Ref(ir::Place::Field(rec, _))) = &site.receiver_arg else {
+            return Ok(());
+        };
+        if let Value::Record(r) = self.read(rec, f)? {
+            let table = r.borrow().table;
+            if self.engine.program.objects[table as usize].id == Some(crate::platform::MEDIA_RESOURCES) {
+                self.media.outside_tenant.borrow_mut().insert(id);
+            }
+        }
+        Ok(())
+    }
+
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
         let recv = site.receiver.map(|r| take(f, r, nl));
         let mut values = if site.arg_regs.is_empty() {
@@ -1116,6 +1140,9 @@ impl Session {
         );
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
+        }
+        if let Ok(Value::Guid(id)) = &result {
+            self.note_media_resources_import(site, *id, f)?;
         }
         // Name the builtin whose argument was not the text it takes.
         result.map_err(|e| Self::name_builtin_refusal(site, e))
