@@ -925,6 +925,10 @@ fn test_inner(
     // `--company-data demotool`: the DemoTool of the release is one more dependency app, and its codeunit builds the
     // company in the install baseline (`demotool.rs`).
     let company_data = if a.company_demotool {
+        // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
         let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
         let dt = crate::demotool::resolve(
             a.demotool_dir.as_deref(),

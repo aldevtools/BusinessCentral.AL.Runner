@@ -56,11 +56,17 @@ from the package needs `--server-url` for `Company-Initialize`.
 al-runner test Tests-SCM-Warehouse.Source.zip --company-data demotool
 ```
 
-The BC 29 artifact has no RapidStart package. Microsoft's CI builds the Legacy
-lane's company there with the DemoTool: a new company, `Company-Initialize`, then
-the action "Create Demo Data from Config" of page 101900 "Demonstration Data Tool".
-`--company-data demotool` does the same without a page: it runs that action's
-codeunit 101899 in the install baseline, after `Company-Initialize`.
+Microsoft's CI builds the Legacy lane's company with the DemoTool on every BC
+version (BCApps `Invoke-LegacyDemoDataTool`): it installs only the base apps,
+creates a new company (`Company-Initialize`), runs the action "Create Demo Data
+from Config" of page 101900 "Demonstration Data Tool", and installs the other
+apps after that. The container is on-prem. `--company-data demotool` does the
+same without a page: it runs that action's codeunit 101899 in the install
+baseline, after `Company-Initialize`, on an on-prem server. Only the apps of
+BCApps' groups `Base`, `TestFramework` and `LocalBaseExtensions` (from
+`build/groups.json`) and the DemoTool are installed before it; the install code
+of the other apps runs after it, and their event subscribers do not run before
+that. The tests themselves keep `--environment`.
 
 The DemoTool is not in the artifact. Its AL source and its W1 resource files
 (`DemoDataConfig.xml`, pictures, text files) come from Microsoft's BCApps
@@ -68,6 +74,9 @@ repository, branch `releases/<major>.<minor>`. They are fetched once with git in
 `<cache dir>/bcapps-demotool/<major>.<minor>/`. `--demotool DIR` names a BCApps
 checkout instead. The app is compiled with the Microsoft apps. The codeunit reads
 the resource files through the `File` type, matched without case as on Windows.
+A path that climbs out of `TemporaryPath()` (`TemporaryPath() + '..\X'`) names
+the folder of the resource files, as BCApps copies them into the folder above the
+server's temporary folder.
 
 No backup is restored. If the codeunit does not run to its end, no test runs: each
 test is not run, with the place where the codeunit stopped. The run also lists
