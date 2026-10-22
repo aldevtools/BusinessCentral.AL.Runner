@@ -605,6 +605,10 @@ impl Gate {
                     file: "recordref/lt-recordref-fieldref-members/P92Fields.al",
                     lines: "72",
                 },
+                Evidence {
+                    file: "types/lt-aj-probes/AjMisc.al",
+                    lines: "612,626,640",
+                },
             ],
             Gate::TableFilterEvaluateError => &[Evidence {
                 file: "records/W4PlatformAndMeta.al",
