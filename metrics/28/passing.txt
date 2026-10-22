@@ -1783,6 +1783,11 @@
 60193 BN_Ternary_Code20TrueBranch
 60193 BN_Ternary_IntegerAndDecimalBranches
 60193 BN_Ternary_VariantBranch
+60193 QW_Ternary_Contexts
+60193 QW_Ternary_OnlyChosenBranchEvaluates
+60193 QW_Ternary_ReferenceTypeBranches
+60193 QW_Ternary_SecretTextPair
+60193 QW_Ternary_TargetConversions
 60193 Ternary_BothBranches_Differ
 60193 Ternary_FalseCondition_ReturnsSecondBranch
 60193 Ternary_FlipBoolean
@@ -14592,3 +14597,12 @@
 87448 QU_N05_WriteTxAroundCommit
 87448 QU_N06_CodeunitRunAfterCommit
 87449 QU_N11_NextCodeunitSees
+87503 QW_TernaryColumn_BooleanOptionEnum
+87503 QW_TernaryColumn_DecimalIntegerDate
+87503 QW_TernaryColumn_ExtDecimalEnum
+87503 QW_TernaryColumn_FieldOrEmpty
+87503 QW_TernaryColumn_FieldOrField
+87503 QW_TernaryColumn_LabelOrLabel
+87503 QW_TernaryColumn_TwoLiterals
+87573 QX_Ternary_CodeAndTextMixes
+87573 QX_Ternary_SizedFieldTarget
