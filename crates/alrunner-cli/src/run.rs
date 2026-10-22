@@ -439,13 +439,32 @@ pub fn warm(a: &TestArgs) -> Result<(), String> {
     Ok(())
 }
 
-/// The test time limit in seconds: `--test-timeout-secs`, else `ALRUNNER_TEST_TIMEOUT`, else AL Runner v2's
-/// `AL_RUNNER_TEST_TIMEOUT_SEC`, else 20.
+/// The environment variables that set the test time limit when `--test-timeout-secs` is not given, in order.
+const TEST_TIMEOUT_VARS: [&str; 2] = ["ALRUNNER_TEST_TIMEOUT", "AL_RUNNER_TEST_TIMEOUT_SEC"];
+
+/// The test time limit of a run that names none: 20 s (owner decision 2026-10-22: the implicit default stays).
+pub const DEFAULT_TEST_TIMEOUT_SECS: u64 = 20;
+
+/// The test time limit a run of Microsoft's recipe sets for itself (`--recipe microsoft`, `test-microsoft`,
+/// `--affected-from microsoft`) when neither `--test-timeout-secs` nor an environment variable names one: Microsoft's
+/// test codeunits are larger than a partner's (owner decision 2026-10-22).
+pub const RECIPE_TEST_TIMEOUT_SECS: u64 = 60;
+
+/// Whether an environment variable sets the test time limit.
+pub fn test_timeout_env_set() -> bool {
+    TEST_TIMEOUT_VARS
+        .iter()
+        .any(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()))
+}
+
+/// The test time limit in seconds: `--test-timeout-secs` (a recipe lane sets it, see
+/// [`RECIPE_TEST_TIMEOUT_SECS`]), else `ALRUNNER_TEST_TIMEOUT`, else AL Runner v2's `AL_RUNNER_TEST_TIMEOUT_SEC`,
+/// else [`DEFAULT_TEST_TIMEOUT_SECS`].
 fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
     if let Some(n) = a.test_timeout_secs {
         return Ok(n);
     }
-    for var in ["ALRUNNER_TEST_TIMEOUT", "AL_RUNNER_TEST_TIMEOUT_SEC"] {
+    for var in TEST_TIMEOUT_VARS {
         if let Some(v) = std::env::var(var).ok().filter(|v| !v.trim().is_empty()) {
             return v
                 .trim()
@@ -453,7 +472,7 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
                 .map_err(|_| format!("{var} needs a number of seconds, got `{v}`"));
         }
     }
-    Ok(20)
+    Ok(DEFAULT_TEST_TIMEOUT_SECS)
 }
 
 pub fn test(a: &TestArgs) -> Result<u8, String> {

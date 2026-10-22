@@ -92,8 +92,8 @@ Windows (PowerShell):
 
 Replace `edge` with `latest-alpha` or a tag such as `v3.0.0-alpha.4` for a numbered alpha.
 The binary goes to `~/.local/bin` (Linux, macOS) or `%LOCALAPPDATA%\alrunner\bin` (Windows).
-Add that folder to your `PATH` if the script says so. More about builds and about the
-unsigned binaries is in "Try the alpha" below.
+Add that folder to your `PATH` if the script says so. More about builds and about
+signing is in "Try the alpha" below.
 
 ## Getting started with your own project
 
@@ -154,7 +154,8 @@ company of each test codeunit (the Legacy test apps get the package company, a c
 summary and JUnit file. The BCApps files (MIT) are fetched sparsely with `git` into the cache once;
 `--bcapps DIR` names a checkout, `--no-download` uses the cache only. The two Contoso lanes
 (IntegrationTest and the codeunits with no TestType) are not run yet: the runner does not build the
-Contoso company, and says so.
+Contoso company, and says so. The recipe's time limit per test is 60 s of CPU time (20 s for other
+runs); `--test-timeout-secs N` or `ALRUNNER_TEST_TIMEOUT` sets another.
 `al-runner test-microsoft` runs all of Microsoft's test apps of a BC build this way, with nothing to
 download or collect by hand: it reads the list of test apps from the build's artifact, fetches the
 ones it runs, and runs each by the recipe (see "Microsoft's test buckets" below).
@@ -435,12 +436,13 @@ You can also download an archive from the releases page, check it against
 `README.txt`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.
 
-**The binaries are not signed.** Your system may warn you.
+**Signing.** The Windows binary is signed (Authenticode, Azure Trusted Signing). The macOS
+and Linux binaries are not signed.
 
 - macOS: Gatekeeper blocks the file. Run `xattr -d com.apple.quarantine ./al-runner`
   (the install script does this for you).
-- Windows: SmartScreen shows "Windows protected your PC". Click "More info", then
-  "Run anyway". Or run `Unblock-File .\al-runner.exe` in PowerShell.
+- Windows: `Get-AuthenticodeSignature .\al-runner.exe` shows the signature. If SmartScreen
+  still warns, click "More info", then "Run anyway", or run `Unblock-File .\al-runner.exe`.
 
 **Run**
 
@@ -594,7 +596,9 @@ each test app with Microsoft's recipe (`--recipe microsoft`: the company of each
 disabled tests skipped). `--app NAME` (repeatable) runs only the named test apps, by their name in the
 artifact (`Tests-ERM`, `Data Search Tests`). Apps without a test codeunit (test libraries) are loaded as
 dependencies, not run; apps whose artifact name starts with `_Exclude_` run only when `--app` names
-them. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
+them. Test apps that Microsoft's CI runs but the artifact does not hold (for BC 29: AlCosting, the
+Intelligent Cloud tests, the `*-Internal` apps and others) run from their source in BCApps, fetched
+sparsely into the cache with the apps they need that the artifact lacks. Each test app is a run of its own; the end of the output is one row per test app (passed, failed,
 not run, total, codeunits of a lane the runner cannot build yet, exit code) and a total. `--junit FILE`
 writes one file per test app and lane (`FILE.Tests-ERM.legacy.xml`). The exit code is the worst test
 app's.

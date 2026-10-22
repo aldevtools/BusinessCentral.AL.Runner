@@ -47,6 +47,19 @@ pub fn candidates<'a>(platform: &[&'a str], country: &[&'a str]) -> Vec<&'a str>
     out
 }
 
+/// The app names of every `*.Source.zip` of the platform and country entries, sorted and without repeats.
+pub fn source_apps(platform: &[&str], country: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = country
+        .iter()
+        .chain(platform)
+        .filter(|e| e.to_ascii_lowercase().ends_with(".source.zip"))
+        .map(|e| app_name(e).to_string())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// The package the Legacy lane uses among the artifact's `ConfigurationPackages/*.rapidstart` entries: the Extended
 /// English one (the DemoTool's Legacy data, as `--company-data package` picks it), else the first.
 pub fn pick_package<'a>(names: &[&'a str]) -> Option<&'a str> {
@@ -90,6 +103,8 @@ pub struct Listing<S> {
     /// Lines for the log: the build chosen and warnings.
     pub log: Vec<String>,
     items: Vec<Candidate>,
+    /// The app name (file name without `.Source.zip`) of every source archive of the build, test apps or not, sorted.
+    pub source_apps: Vec<String>,
     /// The `ConfigurationPackages` folder of an extracted artifact.
     local_packages: Option<PathBuf>,
     platform: Option<(String, RemoteZip<S>, BuildDir)>,
@@ -273,6 +288,7 @@ pub fn list<C: Cdn>(fetch: &Fetch, cdn: &C) -> Result<Listing<C::Src>, String> {
         .map(|(cz, _)| cz.entries.iter().map(|e| e.name.as_str()).collect())
         .unwrap_or_default();
     let in_country: HashSet<&str> = country_names.iter().copied().collect();
+    let source_apps = source_apps(&platform_names, &country_names);
     let items: Vec<Candidate> = candidates(&platform_names, &country_names)
         .into_iter()
         .map(|e| Candidate {
@@ -296,6 +312,7 @@ pub fn list<C: Cdn>(fetch: &Fetch, cdn: &C) -> Result<Listing<C::Src>, String> {
         from,
         log,
         items,
+        source_apps,
         local_packages: None,
         platform: Some((url, zip, bd)),
         country_zip,
@@ -319,6 +336,7 @@ fn local_listing<S>(
     files.extend(local_platform_files(root, &build));
     let country_names: Vec<&str> = files[..n_country].iter().map(|(n, _)| n.as_str()).collect();
     let platform_names: Vec<&str> = files[n_country..].iter().map(|(n, _)| n.as_str()).collect();
+    let source_apps = source_apps(&platform_names, &country_names);
     let items = candidates(&platform_names, &country_names)
         .into_iter()
         .filter_map(|e| {
@@ -338,6 +356,7 @@ fn local_listing<S>(
         country,
         log,
         items,
+        source_apps,
         platform: None,
         country_zip: None,
     }
@@ -350,6 +369,21 @@ mod tests {
     use crate::remote::{FileSource, RemoteError};
     use crate::zip::testutil::Builder;
     use std::cell::Cell;
+
+    #[test]
+    fn every_source_archive_names_an_app_test_or_not() {
+        assert_eq!(
+            source_apps(
+                &[
+                    "Applications/BaseApp/Source/Base Application.Source.zip",
+                    "Applications/BaseApp/Test/Tests-ERM.Source.zip",
+                    "ModernDev/System.app"
+                ],
+                &["Applications.US/Base Application.Source.zip"],
+            ),
+            vec!["Base Application".to_string(), "Tests-ERM".to_string()]
+        );
+    }
 
     #[test]
     fn test_apps_are_the_source_archives_whose_path_names_a_test() {

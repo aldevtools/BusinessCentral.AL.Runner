@@ -8,8 +8,11 @@ two differ, trust `--help`. This page groups the same options by purpose.
 
 ```
 al-runner test [OPTIONS] APP...
+al-runner test-microsoft [OPTIONS] [APP...]
 al-runner serve [--protocol 2] [OPTIONS]
+al-runner debug [--stdio | --port [N]] [OPTIONS] APP...
 al-runner impact-index build|check-static [OPTIONS] APP...
+al-runner impact-index build --from microsoft [--microsoft-app NAME ...] [OPTIONS]
 al-runner cache clear|prune|info [--cache-dir DIR]
 al-runner warm [PATH.bak] [OPTIONS]
 al-runner --list-assumptions [--cache-dir DIR]
@@ -29,7 +32,7 @@ or an `.app` that carries its source.
 | `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). |
 | `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime`. |
 | `--country CODE` | The Business Central country version (`us`, `gb`, `de`, ...). Default `w1`. See [Test data](test-data.md). |
-| `--define SYMBOL` | A preprocessor symbol for `#if SYMBOL`. Repeatable. `--preprocessor-symbols A,B` names several. |
+| `--define SYMBOL` | A preprocessor symbol for `#if SYMBOL`. Repeatable. `--preprocessor-symbols A,B` names several. Like the AL compiler, AL Runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`). |
 
 Lookup order: `--dep`, `--package-cache`, each APP's `.alpackages`, then Microsoft's
 feed. A build named exactly (four numbers) that is in `~/.bcartifacts.cache/sandbox`
@@ -65,14 +68,38 @@ files older than a day are removed.
 | `--filter TEXT`, `--test TEXT` | Tests whose name contains TEXT, any case. With a dot, matched against `Codeunit<ID>.<Method>`; without, against the method name. Repeatable. |
 | `--test-exact NAME` | The test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable. |
 | `--exclude-test TEXT` | Leaves out the tests TEXT matches. Wins over every selecting option. Repeatable. |
+| `--run-selected-only` | Run only the selected tests of each codeunit, as Business Central's test tool runs only the enabled test methods. The other tests do not run, so their globals, rows, time and refusals do not reach the selected ones. The codeunit's `OnRun` still runs first. In `serve`: the `runTests` field `runSelectedOnly`. |
 | `--explain TEST` | Run one test and print its outcome and, for a failure or refusal, the routines and source lines. |
 
+`--filter` together with `--test-exact` selects only the tests both match. A test
+name is its AL name as written, without quotes (`Codeunit50100.Space Step`).
+
+## Affected tests
+
+| Flag | Effect |
+|---|---|
+| `--affected` | Run only the test codeunits a change since the last `--affected` run can affect. The others keep their stored outcome and are counted as skipped. See [Writing tests](writing-tests.md#running-only-what-a-change-affects). |
+| `--affected-store FILE` | Read and write the stored result at FILE (for CI). Default `<cache dir>/affected/<key>.json.gz`. |
+| `--include-failing` | With `--affected`: also run every codeunit with a test that did not pass last time. |
+| `--strict-environment` | With `--affected`: accepted for version 2's tools. The strict behavior is always on. |
+
+## Test sources and matrix runs
+
+| Flag | Effect |
+|---|---|
+| `--affected-from SOURCE` | `microsoft`, or the path of an ISV test app. Also run the tests of that source that your extension can affect. Repeatable. See [Running Microsoft's tests](microsoft-tests.md). |
+| `--bc-version A,B`, `--country X,Y` | A list runs every combination, one cell each. |
+| `--matrix 28.5:w1,29.0:us` | Run only the named cells. A version alone means `w1`. Not with `--bc-version` or `--country`. |
+| `--matrix-parallel N` | At most N cells at once. Default 1. |
+| `--matrix-memory GB` | Keep the expected peaks of the cells running at once within GB. |
+
+See [Writing tests](writing-tests.md#several-versions-and-countries).
 ## Isolation and limits
 
 | Flag | Effect |
 |---|---|
-| `--isolation MODE`, `--test-isolation MODE` | `codeunit` (default), or `test` (also `function`, `method`). `disabled` is not supported: every test is reported as not run. |
-| `--test-timeout-secs N`, `--test-timeout N` | CPU-time limit per test, default 20. `0` is no limit. A hung test is stopped at 10 times N of wall time. |
+| `--isolation MODE`, `--test-isolation MODE` | `codeunit` (default), or `test` (also `function`, `method`). Under `test`, a test that calls `Commit()` is reported as not run, because whether Business Central keeps the committed rows for the next test is not pinned yet. `disabled` is not supported yet: every test is reported as not run. |
+| `--test-timeout-secs N`, `--test-timeout N` | CPU-time limit per test, default 20; 60 with `--recipe microsoft`, `test-microsoft` and `--affected-from microsoft`. `0` is no limit. A hung test is stopped at 10 times N of wall time. `Sleep` does not wait, but the time it asks for counts toward N. |
 | `--allow-not-run` | Exit 0 instead of 7 or 8. |
 
 ## Output
@@ -90,9 +117,6 @@ files older than a day are removed.
 | `--output-json [FILE]`, `--output-json=FILE` | JSON in the shape of AL Runner version 2. See [Reading results](results.md). |
 | `--timings` | Compile phases and the slowest test codeunits. |
 | `--list-assumptions` | Print the registry of unprobed assumptions with the counts of the last run. Use it alone. |
-
-The short forms `-v` and `-q` appear in `--help` but are not accepted in
-`3.0.0-alpha.3`: they are read as app paths. Use `--verbose` and `--quiet`.
 
 ## Coverage
 
@@ -116,7 +140,7 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 | `--demotool DIR` | A BCApps checkout with `src/DemoTool` and `src/Layers/W1/DemoTool`. Implies `--company-data demotool`. |
 | `--disabled-tests DIR` | Microsoft's list of disabled tests (BCApps `src/DisabledTests`, or one app's folder). Those tests still run and are marked `disabled_by_microsoft`. |
 | `--parity` | With `--disabled-tests`: do not run those tests. |
-| `--recipe microsoft` | Run the way Microsoft's CI does. See [Test data](test-data.md). |
+| `--recipe microsoft` | Run the way Microsoft's CI does. See [Running Microsoft's tests](microsoft-tests.md). |
 | `--bcapps DIR` | With `--recipe`: use this BCApps checkout instead of the cache. |
 | `al-runner warm [PATH.bak]` | Open the demo backup and keep its page map and catalog in the cache. |
 
@@ -146,6 +170,17 @@ and `al-runner impact-index`. See [Impact analysis](impact.md).
 `--dotnet-timeout-secs N` and `--require-dotnet` control the optional .NET helper.
 See [What works](what-works.md#dotnet).
 
+## Test-microsoft
+
+`al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS] [APP...]`
+runs Microsoft's test apps of a build with `--recipe microsoft`. `--app NAME` (also
+`--microsoft-app NAME`) names a test app. See [Running Microsoft's tests](microsoft-tests.md).
+
+## Debugging
+
+`al-runner debug [--stdio | --port [N]] [OPTIONS] APP...` starts a Debug Adapter
+Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -153,11 +188,12 @@ See [What works](what-works.md#dotnet).
 | 0 | Every selected test passed. |
 | 1 | A test failed. |
 | 2 | Bad invocation, or the run could not start. |
+| 3 | The apps do not compile: an error the AL compiler gives (its code, such as AL0118). No test ran. |
 | 6 | The selection matched no test. |
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
 | 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET 8 runtime). `--allow-not-run` makes this 0. |
 
-Order when several apply: 2, 6, 1, 8, 7. An impact run has its own codes; see
+Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the must-not-compile corpus pins, not all of them. Source the parser does not accept is not such an error: the tests that need the file are not run (exit 7), with the parse error as the reason. An impact run has its own codes; see
 [Impact analysis](impact.md).
 
 ## Environment variables
@@ -170,6 +206,6 @@ Order when several apply: 2, 6, 1, 8, 7. An impact run has its own codes; see
 | `ALRUNNER_NO_CACHE_PRUNE=1` | Turn off the automatic cache cleanup. |
 | `ALRUNNER_BCAPPS_URL` | The address `--recipe` fetches BCApps from. |
 | `ALRUNNER_NO_PATH_NOTE=1` | No note about another `al-runner` on the `PATH`, and no list of them under `--version`. |
-| `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given. The second is version 2's name. |
+| `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given (also for Microsoft's recipe). The second is version 2's name. |
 | `AL_CHECK_THREADS`, `AL_LOWER_THREADS`, `AL_TEST_THREADS` | Worker threads of the check, the lowering and the test codeunits. Default: one per core. |
 | `NO_COLOR` | No color with `--color auto`. |

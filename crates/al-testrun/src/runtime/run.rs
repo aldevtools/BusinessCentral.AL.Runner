@@ -389,6 +389,7 @@ pub(crate) fn run_codeunit_core(
                 Err(reason) => Outcome::NotRun(reason),
                 Ok(()) => {
                     began = true;
+                    session.store_mut().watch(company_open.tables.clone());
                     session.last_error = Default::default();
                     al_builtins::assumptions::clear_hits();
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
@@ -570,6 +571,13 @@ pub(crate) fn run_codeunit_core(
         // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
         // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
         let drew = session.inherited_random_draws() > draws_before;
+        // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
+        // (al-runner issue 5641): what it found there is not pinned.
+        let outcome = match session.store_mut().watch_hit() {
+            Some(t) if began => Outcome::NotRun(company_open.touched(t, lowered)),
+            _ => outcome,
+        };
+        session.store_mut().watch(Default::default());
         let outcome = match outcome {
             Outcome::Fail(m) if !unfinished.is_empty() => {
                 let engine = session.engine.clone();

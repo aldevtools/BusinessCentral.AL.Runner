@@ -2,6 +2,8 @@ name: Build packages
 
 # Builds al-runner for the three alpha targets, smoke tests each binary, packages it and attests it.
 # Used by release-tag.yml (numbered alphas, and the dry run) and edge.yml (the rolling edge build).
+# The Windows binary is Authenticode-signed with Azure Trusted Signing before it is packaged; the
+# Linux and macOS binaries are not signed.
 # Output: the artifact "packages" holding the archives and one SHA256SUMS. Nothing of Microsoft's
 # is built in or downloaded here: the smoke test runs a fixture project of this repository.
 
@@ -40,6 +42,11 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    # Only the Windows job signs, and only it needs the environment "release": the Entra federated
+    # credential trusts the OIDC subject
+    # repo:aldevtools@326818346/BusinessCentral.AL.Runner@1206772003:environment:release
+    # (this repository uses immutable subjects). An empty name means no environment.
+    environment: ${{ matrix.target == 'x86_64-pc-windows-msvc' && 'release' || '' }}
     permissions:
       contents: read
       id-token: write
@@ -88,6 +95,67 @@ jobs:
           exe=target/${{ matrix.target }}/release/al-runner
           [ "${{ matrix.ext }}" = zip ] && exe="$exe.exe"
           release/smoke.sh "$exe"
+      - name: Fetch a federated OIDC token for the signing service
+        # azure/artifact-signing-action authenticates with Azure.Identity's workload identity
+        # credential. That credential reads AZURE_FEDERATED_TOKEN_FILE, a file holding a GitHub
+        # OIDC token with the audience api://AzureADTokenExchange. Nothing writes that file by
+        # itself, so this step does. No client secret is involved (same setup as v2's publish.yml).
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const token = await core.getIDToken('api://AzureADTokenExchange');
+            const tokenPath = path.join(process.env.RUNNER_TEMP, 'azure-federated-token.txt');
+            fs.writeFileSync(tokenPath, token);
+            core.exportVariable('AZURE_FEDERATED_TOKEN_FILE', tokenPath);
+      - name: List the file to sign
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $exe = Join-Path '${{ github.workspace }}' 'target\${{ matrix.target }}\release\al-runner.exe'
+          if (-not (Test-Path $exe)) { Write-Error "Missing $exe"; exit 1 }
+          # The action resolves each catalog line against the catalog's own folder, so the catalog
+          # sits next to the exe and names it without a path.
+          $catalog = Join-Path (Split-Path $exe) 'sign-catalog.txt'
+          Set-Content -Path $catalog -Value 'al-runner.exe'
+          "SIGN_CATALOG=$catalog" >> $env:GITHUB_ENV
+          "SIGN_EXE=$exe" >> $env:GITHUB_ENV
+      - name: Sign al-runner.exe with Azure Trusted Signing
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.SIGNING_CERT_PROFILE_NAME }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          exclude-workload-identity-credential: false
+          files-catalog: ${{ env.SIGN_CATALOG }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify the signature
+        # Get-AuthenticodeSignature checks the chain of trust, not only that a signature exists.
+        # Anything but Valid fails the build, so an unsigned or badly signed exe never ships.
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature $env:SIGN_EXE
+          Write-Host "$($env:SIGN_EXE) -> $($sig.Status) $($sig.StatusMessage)"
+          Write-Host "Signer: $($sig.SignerCertificate.Subject)"
+          Write-Host "Timestamp: $($sig.TimeStamperCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') {
+            Write-Error "al-runner.exe is not validly signed: $($sig.Status) $($sig.StatusMessage)"
+            exit 1
+          }
+          if ($null -eq $sig.TimeStamperCertificate) {
+            Write-Error "al-runner.exe has no RFC 3161 timestamp"
+            exit 1
+          }
+          & $env:SIGN_EXE --version
+          if ($LASTEXITCODE -ne 0) { Write-Error "The signed al-runner.exe does not run"; exit 1 }
       - name: Package
         shell: bash
         run: |

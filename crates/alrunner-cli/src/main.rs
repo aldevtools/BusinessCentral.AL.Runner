@@ -4,6 +4,7 @@ mod affected;
 mod apps;
 mod args;
 mod bcapps;
+mod bcapps_apps;
 mod capture;
 mod coverage;
 mod debug;

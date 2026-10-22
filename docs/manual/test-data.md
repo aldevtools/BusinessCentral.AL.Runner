@@ -1,5 +1,5 @@
 ---
-title: "Test data and Microsoft's tests"
+title: "Test data"
 weight: 6
 ---
 
@@ -75,46 +75,8 @@ every refused routine the codeunit can reach (`--verbose`). The company is kept
 with the install baseline in the compile cache, so the next run of the same
 program reads it. w1 only.
 
-## Running Microsoft's test apps
+## Microsoft's test apps
 
-```bash
-al-runner test Tests-ERM.Source.zip
-```
-
-Microsoft's test archives run directly. The apps, `System.app` and the CRONUS data
-are fetched, and the build is the build of the tests when it is still available.
-
-For a parity report against Microsoft's own list of disabled tests:
-
-```bash
-al-runner test Tests-ERM.Source.zip --disabled-tests path/to/BCApps/src/DisabledTests
-```
-
-Those tests still run and are marked `disabled_by_microsoft` in the summary and the
-JUnit file. Add `--parity` to skip them.
-
-`--recipe microsoft` does all of this the way Microsoft's CI does. BCApps' own
-settings decide the company of each test codeunit, which they call a lane:
-
-| Test codeunit | Company |
-|---|---|
-| Legacy test apps | The RapidStart package company; the DemoTool company when the artifact has no package (BC 29) |
-| `TestType = UnitTest` | An empty company |
-| `IntegrationTest` | The Contoso setup company (not run yet) |
-| The rest | The Contoso company with all demo data (not run yet) |
-
-Each lane has its own summary and, with `--junit FILE`, its own file
-(`FILE.<lane>.xml`). Microsoft's disabled tests are skipped and counted. The BCApps
-files (MIT) of the release are fetched sparsely with `git` into
-`<cache dir>/bcapps/<major>.<minor>/` once. `--bcapps DIR` names a checkout, and
-`--no-download` uses the cache only. The two Contoso lanes are not run yet, because
-AL Runner does not build the Contoso company, and the output says so. The recipe
-cannot be combined with the company and disabled-test options.
-
-Microsoft's recipe sets no time limit per test, so the recipe keeps AL Runner's
-default of 20 s. A Microsoft test whose `Sleep` calls ask for more time than that
-(Tests-Dimension `TestGetShortcutDimCached` sleeps 60.5 s) is reported as a timeout.
-Give a larger `--test-timeout` to run it.
-
-For the measurements of Microsoft's Base Application test buckets, see
-[docs/alrunner-buckets.md](../alrunner-buckets.md).
+To run Microsoft's own tests, with the right company for each test codeunit and
+Microsoft's disabled tests skipped, see
+[Running Microsoft's tests](microsoft-tests.md).

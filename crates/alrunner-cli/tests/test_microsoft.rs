@@ -361,3 +361,94 @@ fn the_microsoft_source_writes_one_impact_json_entry_per_test_app_and_lane_and_r
     assert_eq!(o.status.code(), Some(0), "{out}");
     assert!(!out.contains("no longer match"), "{out}");
 }
+
+/// BCApps' W1 app project for the fixture: the Test Apps project tests `build/projects/Apps W1`, whose folders hold
+/// `Tests-Fake-A` (also in the artifact), `Hidden App Tests` and its app `Hidden App` (only in BCApps, as AlCosting or
+/// Intelligent Cloud Base Tests are for BC 29), and a folder that has no app.json.
+fn bcapps_project(root: &Path) {
+    let bcapps = root.join("bcapps");
+    let test_settings = bcapps.join("build/projects/Test Apps W1/.AL-Go/settings.json");
+    let text = std::fs::read_to_string(&test_settings).unwrap();
+    std::fs::write(
+        &test_settings,
+        text.replacen('{', r#"{"projectsToTest":["build/projects/Apps W1"],"#, 1),
+    )
+    .unwrap();
+    let project = bcapps.join("build/projects/Apps W1/.AL-Go");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("settings.json"),
+        r#"{"appFolders":["../../../src/Apps/W1/Hidden/app","../../../src/Apps/W1/Hidden/apptest"],
+            "testFolders":["../../../src/Apps/W1/hidden/Test","../../../src/Tests/FakeA","../../../src/Missing/test"]}"#,
+    )
+    .unwrap();
+    let write = |rel: &str, text: &str| {
+        let p = bcapps.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/Apps/W1/Hidden/app/app.json",
+        r#"{"id":"b0000000-0000-0000-0000-000000000001","name":"Hidden App","publisher":"Microsoft","version":"29.0.0.0","idRanges":[{"from":50000,"to":59999}]}"#,
+    );
+    write(
+        "src/Apps/W1/Hidden/app/src/Hidden.Codeunit.al",
+        "codeunit 50850 \"Hidden\"\n{\n    procedure Answer(): Integer\n    begin\n        exit(42);\n    end;\n}\n",
+    );
+    write(
+        "src/Apps/W1/Hidden/test/app.json",
+        r#"{"id":"b0000000-0000-0000-0000-000000000002","name":"Hidden App Tests","publisher":"Microsoft","version":"29.0.0.0","idRanges":[{"from":50000,"to":59999}],
+            "dependencies":[{"id":"b0000000-0000-0000-0000-000000000001","name":"Hidden App","publisher":"Microsoft","version":"29.0.0.0"}]}"#,
+    );
+    write(
+        "src/Apps/W1/Hidden/test/src/HiddenTests.Codeunit.al",
+        "codeunit 50851 \"Hidden Tests\"\n{\n    Subtype = Test;\n    TestType = UnitTest;\n\n    [Test]\n    procedure AnswerIs42()\n    var\n        H: Codeunit Hidden;\n    begin\n        if H.Answer() <> 42 then\n            Error('wrong');\n    end;\n}\n",
+    );
+    write(
+        "src/Tests/FakeA/app.json",
+        r#"{"id":"a0000000-0000-0000-0000-000000000001","name":"Tests-Fake-A","publisher":"Fixture","version":"1.0.0.0"}"#,
+    );
+    std::fs::create_dir_all(bcapps.join("src/Missing/test")).unwrap();
+    // A test app among the `appFolders`: Microsoft's CI does not dispatch it (Agent Samples Tests in BC 29).
+    write(
+        "src/Apps/W1/Hidden/apptest/app.json",
+        r#"{"id":"b0000000-0000-0000-0000-000000000003","name":"Hidden App Samples Tests","publisher":"Microsoft","version":"29.0.0.0"}"#,
+    );
+    write(
+        "src/Apps/W1/Hidden/apptest/src/T.Codeunit.al",
+        "codeunit 50852 \"Hidden Samples\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure S()\n    begin\n    end;\n}\n",
+    );
+}
+
+#[test]
+fn a_test_app_microsoft_runs_that_the_artifact_lacks_runs_from_its_bcapps_source() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), false);
+    bcapps_project(dir.path());
+    let o = run(dir.path(), &[]);
+    let out = text(&o);
+    assert!(
+        out.contains(&format!("Microsoft tests: BC {BUILD} w1, 3 test app(s)")),
+        "{out}"
+    );
+    assert!(
+        out.contains("  from BCApps (not in the artifact): Hidden App Tests"),
+        "{out}"
+    );
+    assert!(
+        out.contains("  not in BCApps: src/Missing/test (a test folder of build/projects/Apps W1 without app.json)"),
+        "{out}"
+    );
+    // The settings spell a folder without case (`hidden/Test` for `Hidden/test`), as Windows reads them; an app among
+    // the `appFolders` is not one of Microsoft's test apps.
+    assert!(!out.contains("Hidden App Samples Tests"), "{out}");
+    // Tests-Fake-A is in the artifact: it runs from there, once.
+    assert_eq!(out.matches("== test app Tests-Fake-A").count(), 1, "{out}");
+    // Its app comes from BCApps too: the artifact has no Hidden App.
+    assert_eq!(row(&out, "Hidden App Tests"), "1 0 0 1 0 0", "{out}");
+    assert_eq!(o.status.code(), Some(0), "{out}");
+    // --app names it like an artifact app.
+    let o = run(dir.path(), &["--app", "hidden app tests"]);
+    let out = text(&o);
+    assert_eq!(row(&out, "Hidden App Tests"), "1 0 0 1 0 0", "{out}");
+}

@@ -586,3 +586,27 @@ items 18-27 except 21's version-specific runtime behavior, see below), unit test
   version-specific runtime behavior) is covered by two builds whose test apps differ (`Tests-Fake-B` fails in one,
   `Tests-Fake-C` exists in one only); the fixture apps have no behavior that differs by BC version in the runtime.
 - `ALRUNNER_MATRIX_TEST_ABORT=<build>` makes a cell of that build abort (tests of a cell the system kills, item 23).
+
+## Decided without owner review (2026-10-22, test apps the artifact lacks)
+
+Microsoft's CI for BCApps `releases/29.x` (run 39519586834) dispatched 15 test apps the BC 29 artifact has no source
+archive of: AlCosting, BC14 Reimplementation Tool Tests, Business Central Cloud Migration - Previous Release Tests,
+Business Central Intelligent Cloud Tests, Intelligent Cloud Base Tests, E-Document Connector - Microsoft 365 Tests,
+`_Exclude_Connectivity Apps Tests`, `_Exclude_Onboarding Signals Tests`, Expense Agent Tests, Red Team Scan Test Library
+and the five `*-Internal` apps (TestRunner, Tests-DotNet, Tests-Integration, Tests-MOCKSERVICETESTS, Tests-NewObjects).
+All 15 are public in BCApps on the release branch, the `*-Internal` ones included.
+
+- **Which apps.** The test apps of a run are the artifact's, plus the `testFolders` of the projects that the country's
+  `Test Apps <COUNTRY>` project tests (`projectsToTest`) whose app the artifact does not hold. An `appFolders` app with
+  tests is not taken: Microsoft did not dispatch Agent Samples Tests, which is one.
+- **Same app in both.** Names are compared without case, punctuation, spaces or a final `s` (`FORNAV`/`ForNAV`,
+  `Subcontracting-Tests`/`Subcontracting Test`, `OnPrem Permissions Tests`/`Test`).
+- **Source and dependencies.** The branch is the recipe's (`releases/<major>.<minor>` of the build). First every
+  listed folder's `app.json` is fetched (one sparse clone, cached per pattern in `<cache>/bcapps/<major>.<minor>-sources`),
+  then the folders of the chosen test apps and of the dependencies the artifact lacks (Intelligent Cloud Base), which
+  the run gets as `--dep`. Dependencies the artifact has come from the artifact. The branch's source can be newer than
+  the artifact's build; Microsoft builds both from the branch.
+- **Spelling.** The settings spell folders as Windows reads them (`ForNav/Test` for `ForNAV/Test`); the fetch and the
+  reads match folders without case.
+- **Not public.** A test folder the settings list but the branch lacks is printed as `not in BCApps: <folder>`. For BC
+  29 there is none.
