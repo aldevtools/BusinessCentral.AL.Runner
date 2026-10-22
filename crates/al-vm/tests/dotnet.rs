@@ -121,6 +121,9 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Byte\"; \"ClrByte\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
+    type(\"System.IO.DirectoryInfo\"; \"DirectoryInfo\") { }
+    type(\"System.IO.FileInfo\"; \"FileInfo\") { }
+    type(\"System.Collections.IEnumerator\"; \"IEnumerator\") { }
     type(\"System.Array\"; \"Array\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
@@ -1399,6 +1402,8 @@ fn the_declared_result_types_match_the_registry() {
             "GetCurrentUser" | "GetTenantDetail" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
             "AddEffectivePermissionSet" => continue,
+            // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.
+            "DirectoryInfo" | "Exists" | "GetFiles" | "GetEnumerator" | "MoveNext" | "Current" | "Length" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));
@@ -1687,6 +1692,97 @@ fn directory_get_files_of_any_other_folder_stays_refused_and_never_reaches_the_h
         let host = split_script();
         let r = run_staged(&host, path, files);
         assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));
+        assert!(host.calls().is_empty(), "{:?}", host.calls());
+    }
+}
+
+/// A staged folder as the DemoTool's PostingExchangeDefinitions: XML files in mixed case, files the pattern leaves out,
+/// and an empty one.
+struct StagedDefs;
+
+const DEFS: &str = "\\TEMP\\\\..\\PostingExchangeDefinitions";
+
+impl al_host::FileSystem for StagedDefs {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        match path.rsplit('\\').next()? {
+            "b.XML" => Some(b"<b/>".to_vec()),
+            "c.xml" => Some(b"<cc/>".to_vec()),
+            "Empty.xml" => Some(Vec::new()),
+            _ => None,
+        }
+    }
+    fn write(&mut self, _: &str, _: &[u8]) -> Result<(), String> {
+        Err("read only".into())
+    }
+    fn exists(&self, _: &str) -> bool {
+        false
+    }
+    fn remove(&mut self, _: &str) -> bool {
+        false
+    }
+    fn staged_folder_files(&self, dir: &str) -> Option<Vec<String>> {
+        (dir == DEFS).then(|| {
+            ["b.XML", "c.xml", "c.xml.bak", "d.txt", "Empty.xml"]
+                .iter()
+                .map(|n| format!("{dir}/{n}"))
+                .collect()
+        })
+    }
+}
+
+const ENUMERATE_XML: &str = "DirectoryInfo := DirectoryInfo.DirectoryInfo(Path);
+    if not DirectoryInfo.Exists then exit('missing');
+    Enumerator := DirectoryInfo.GetFiles(Pattern).GetEnumerator();
+    while Enumerator.MoveNext() do begin
+        FileInfo := Enumerator.Current();
+        R += FileInfo.FullName + '=' + Format(FileInfo.Length) + ';';
+    end;
+    exit(R);";
+
+fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let (program, blocked, oi, ri) = compile(
+        "DirectoryInfo: DotNet DirectoryInfo; FileInfo: DotNet FileInfo; Enumerator: DotNet IEnumerator; Path: Text; Pattern: Text; R: Text;",
+        &format!("Path := '{path}'; Pattern := '{pattern}'; {ENUMERATE_XML}"),
+        ": Text",
+    );
+    let engine = Engine::with_dotnet(program, blocked, cfg(&host));
+    let h = al_host::Host::default();
+    let mut s = Session::with_host(engine, if files { h.with_files(StagedDefs) } else { h });
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    (
+        Ran {
+            result,
+            session: Some(s),
+        },
+        host,
+    )
+}
+
+#[test]
+fn directory_info_of_a_folder_staged_for_the_company_build_lists_its_xml_files_in_windows_order() {
+    // Windows BC: '*.xml' selects a.xml, b.XML, c.xml without case and leaves out e.xml.bak and d.txt, in name order
+    // (windows-check-results 2026-10-22 QX 14, corpus QxDotNetDemoShapes.al:73); FullName joins with a backslash.
+    let (r, host) = run_staged_defs(DEFS, "*.xml", true);
+    assert_eq!(text(r), format!("{DEFS}\\b.XML=4;{DEFS}\\c.xml=5;{DEFS}\\Empty.xml=0;"));
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
+}
+
+#[test]
+fn directory_info_of_any_other_folder_or_pattern_stays_refused_and_never_reaches_the_host() {
+    for (path, pattern, files) in [
+        ("\\TEMP\\..\\Other", "*.xml", true),
+        (DEFS, "*.xml", false),
+        (DEFS, "*.txt", true),
+        (DEFS, "*", true),
+    ] {
+        let (r, host) = run_staged_defs(path, pattern, files);
+        assert!(
+            unsupported(&r).contains("System.IO.DirectoryInfo"),
+            "{}",
+            unsupported(&r)
+        );
         assert!(host.calls().is_empty(), "{:?}", host.calls());
     }
 }

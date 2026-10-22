@@ -1720,6 +1720,19 @@ impl Session {
             && !flag_denied(&engine, object, "InsertAllowed")?)
     }
 
+    /// Whether a repeater of the page declares `Editable` with anything but the literal `true`.
+    fn repeater_says_editable(&self, st: &St) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).controls.iter().any(|c| {
+            c.kind == ir::ControlKind::Repeater
+                && match c.prop("editable") {
+                    Some(ir::PropVal::Lit(v)) => !v.trim().eq_ignore_ascii_case("true"),
+                    Some(_) => true,
+                    None => false,
+                }
+        })
+    }
+
     // ---- rows ---------------------------------------------------------------------------
 
     /// Whether the page declares trigger `name` (lower case) of its own.
@@ -1994,6 +2007,15 @@ impl Session {
     }
 
     pub(super) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
+        // The corpus pins the blank line's absence only for `Editable = false` on the page (handlers/TestPageNewRowLine_Tests.al
+        // RO arm). Whether a repeater that says Editable (false, or an expression) shows it is not pinned: Tests-ERM 139846
+        // ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks Job Queue Entries, whose repeater says
+        // `Editable = false`, and expects no blank line, so landing on it is refused rather than run.
+        if self.repeater_says_editable(st) {
+            return unsupported(
+                "the blank new-row line of a list whose repeater says Editable (whether it shows is not pinned)",
+            );
+        }
         st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;

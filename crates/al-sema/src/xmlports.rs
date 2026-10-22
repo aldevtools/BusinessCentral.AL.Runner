@@ -54,6 +54,8 @@ pub struct Layout {
     pub reasons: Vec<String>,
     /// Reasons only running the port refuses (see `ir::XmlPort::run_unsupported`).
     pub run_reasons: Vec<String>,
+    /// Reasons only an export refuses (see `ir::XmlPort::export_unsupported`).
+    pub export_reasons: Vec<String>,
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
@@ -123,7 +125,15 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "fieldvalidate",
         ],
         // `occurrence` is checked in `visit`: Required or Optional on a field attribute of a table element.
-        ir::XmlNodeKind::FieldAttr => &["xmlname", "namespaceprefix", "autocalcfield", "unbound", "occurrence"],
+        // `FieldValidate` on a field attribute: Yes validates, No does not (pages/lt-report-page-properties/06-xmlport-fvat.al:118).
+        ir::XmlNodeKind::FieldAttr => &[
+            "xmlname",
+            "namespaceprefix",
+            "autocalcfield",
+            "unbound",
+            "occurrence",
+            "fieldvalidate",
+        ],
         // `occurrence` is checked in `visit`: Required or Optional on a text attribute of a text or table element.
         ir::XmlNodeKind::TextAttr => &["xmlname", "namespaceprefix", "width", "unbound", "occurrence"],
         ir::XmlNodeKind::Text => &["xmlname", "minoccurs", "maxoccurs"],
@@ -153,6 +163,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         no_default_fields_validation: false,
         reasons: Vec::new(),
         run_reasons: Vec::new(),
+        export_reasons: Vec::new(),
     };
     for p in obj.properties() {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
@@ -337,7 +348,21 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
         let mut xml_name = name.clone();
         for p in s.properties() {
             let pn = p.name().to_ascii_lowercase();
-            if !allowed_properties(kind).contains(&pn.as_str()) {
+            if pn == "sourcetableview" && kind == K::Table {
+                // An import ignores the view: a row its filter leaves out is imported as any other (platform/lt-ag-contoso/
+                // AgXmlPortImport.al:62-80, :298-309, an element without a link). Not pinned: a filtered view on a linked
+                // element, and every export (which rows in which order; :312 sees a single row).
+                let linked = s.properties().any(|q| q.name().eq_ignore_ascii_case("linktable"));
+                if linked && p.value_text().to_ascii_lowercase().contains("where") {
+                    out.run_reasons.push(format!(
+                        "sourcetableview with a filter on the linked {section_name} {name} is not pinned"
+                    ));
+                } else {
+                    out.export_reasons.push(format!(
+                        "sourcetableview of {section_name} {name} is not supported yet on export"
+                    ));
+                }
+            } else if !allowed_properties(kind).contains(&pn.as_str()) {
                 // Refused when the port runs, not when it is declared: Base App's xmlport 1 sets
                 // MinOccurs, MaxOccurs, Occurrence and SourceTableView, and tests reach it only
                 // through a request page they cancel (handlers/TestReqPageBoundVisibility.al:172).
@@ -482,9 +507,19 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         K::Text if root => (&[], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
-        // Below a table element (a nested table element) neither is pinned: its trigger order is not yet what BC does
-        // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, Import_TriggerOrder_NewRows).
-        K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => (&[], &[]),
+        // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent with
+        // AutoReplace = true that saves (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, :188, tests :293-399). Below a
+        // parent without AutoReplace on import, and MaxOccurs, are not pinned.
+        K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => {
+            let p = raw.parent.expect("checked above");
+            let flag = |name: &str| layout.property(p, name).and_then(|v| bool_prop(&v));
+            let replaces = flag("AutoReplace") == Some(true) && flag("AutoSave") != Some(false);
+            if layout.direction == ir::XmlDirection::Export || replaces {
+                (&["zero"], &[])
+            } else {
+                (&[], &[])
+            }
+        }
         K::Table => (&["zero"], &["unbounded"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
@@ -752,6 +787,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         destination_slot: cx.destination_slot,
         unsupported: reasons,
         run_unsupported: run_reasons,
+        export_unsupported: layout.export_reasons.clone(),
     }
 }
 
@@ -842,6 +878,37 @@ mod tests {
             ),
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));
+            let all = l.run_reasons.join("; ");
+            assert!(all.contains(want), "{src}: {all}");
+        }
+    }
+
+    // XmlPortTriggerFlow.al:74959-74960 (tests :293-399): a nested table element with MinOccurs = Zero runs on export, and on
+    // import below a parent with AutoReplace = true. Below a parent without AutoReplace on import, and any MaxOccurs, stay refused.
+    #[test]
+    fn a_nested_optional_table_element_runs_on_export_and_below_an_auto_replace_parent() {
+        for src in [
+            "Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+            "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoReplace = true; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {src} }}"));
+            assert!(l.run_reasons.is_empty(), "{src}: {:?}", l.run_reasons);
+        }
+        for (src, want) in [
+            (
+                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+                "minoccurs = zero of tableelement C",
+            ),
+            (
+                "Direction = Import; schema { textelement(R) { tableelement(H; Cust) { AutoReplace = true; AutoSave = false; tableelement(C; Cust) { MinOccurs = Zero; } } } }",
+                "minoccurs = zero of tableelement C",
+            ),
+            (
+                "Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MaxOccurs = Unbounded; } } } }",
+                "maxoccurs = unbounded of tableelement C",
+            ),
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {src} }}"));
             let all = l.run_reasons.join("; ");
             assert!(all.contains(want), "{src}: {all}");
         }

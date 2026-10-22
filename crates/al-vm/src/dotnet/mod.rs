@@ -9,6 +9,7 @@ mod last_error;
 pub mod policy;
 pub mod registry;
 pub mod server_classes;
+mod staged_dir;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;

@@ -459,6 +459,7 @@ pub fn types() -> Vec<RegistryType> {
     let mut all = super::compression::types();
     all.extend(super::last_error::types());
     all.extend(super::drawing::types());
+    all.extend(super::staged_dir::types());
     all.extend(own_types());
     all
 }

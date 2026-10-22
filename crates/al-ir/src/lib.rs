@@ -629,6 +629,10 @@ pub struct XmlPort {
     /// is not: a construct the corpus does not pin, which most callers never reach.
     #[serde(default)]
     pub run_unsupported: Vec<String>,
+    /// Why an Export of it is refused; an Import is not (for example `SourceTableView`, which no corpus test pins for an
+    /// export).
+    #[serde(default)]
+    pub export_unsupported: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

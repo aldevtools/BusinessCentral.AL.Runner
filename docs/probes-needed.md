@@ -1278,6 +1278,12 @@ license column, and the rows of languages other than the DemoTool's 54 codes.
 | `DotNet System.Text.Encoding.GetEncoding(CodePage)` for a Windows code page such as 1252, 850 or 437, directly or through System Application's `DotNet_Encoding.Encoding(CodePage)`. The runtime's .NET host has only the encodings .NET itself ships (UTF-8, UTF-16, UTF-32, ASCII, Latin-1) | REFUSED with "the runtime's .NET host has no code-page encodings" (no corpus test calls GetEncoding) | OnPrem DotNet: `Enc := Enc.GetEncoding(1252)`; observe `Enc.WebName`, `Enc.CodePage`, `Enc.GetBytes('ÆØÅ€')` as a byte list, `Enc.GetString` of bytes 128..159; the same for 850 and 437; GetEncoding(99999) error text and code; `DotNet_Encoding.Encoding(1252)` then a StreamWriter round trip | `al-vm/src/dotnet/mod.rs` (GetEncoding branch) |
 | Export of a `fieldattribute` declared `Occurrence = Optional` or `Required` whose field formats to an empty text | REFUSED (AgXmlPortImport.al:248 pins import only). A value that is not empty is written | Export a table element with an empty Text field on an Optional and on a Required field attribute: attribute left out or written as `attr=""` | `al-vm/src/xmlports.rs` `xp_export_content` |
 
+## Blank line of a list whose repeater is read-only (stage2-53e, 2026-10-22)
+
+| Behavior | Status | Probe wanted | Code |
+|---|---|---|---|
+| The blank new-row line of a List page whose repeater (not the page) says `Editable = false` or an Editable expression, opened with OpenEdit and with `Page.Run(Id, Rec)`; also a List with a `CardPageId` run by `Page.Run` | REFUSED when a TestPage would land on the blank line (handlers/TestPageNewRowLine_Tests.al pins only page-level `Editable = false`). Tests-ERM 139846 ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected (Job Queue Entries, repeater Editable = false, CardPageId set, run by Page.Run) expects no blank line | List with repeater `Editable = false`, two rows: OpenEdit, First, Next, Next answers? Same page through `Page.Run(Id, Rec)` in a PageHandler; the same with `Editable = Flag` (Flag false, then true); an editable list with CardPageId through Page.Run | `al-vm/src/pages/open.rs` `land_on_new_line` |
+
 ## Cross-app objects (corpus multi-app fixtures, writer BW)
 
 | Area | Refused until a probe pins it | Probe wanted |
