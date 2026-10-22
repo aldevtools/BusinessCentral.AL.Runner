@@ -7,6 +7,7 @@ mod bcapps;
 mod capture;
 mod coverage;
 mod debug;
+mod demotool;
 mod impact;
 mod impact_index;
 mod matrix;

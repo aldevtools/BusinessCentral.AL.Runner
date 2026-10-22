@@ -13,6 +13,7 @@
 //! engine's `unseeded` set, so that a `Get` that finds nothing in dependency code is refused for
 //! exactly those tables instead of answered.
 
+use crate::company_data::CompanyData;
 use al_builtins::native::Signal;
 use al_sema::lower::Lowered;
 use al_vm::{Baseline, Engine, Session};
@@ -96,12 +97,21 @@ pub fn assumption_ids(notes: &[String]) -> Vec<String> {
 }
 
 /// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
-pub fn run(engine: &Arc<Engine>, lowered: &Lowered) -> Option<BaselineRun> {
-    run_traced(engine, lowered, false)
+pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
+    run_traced(engine, lowered, false, company)
 }
 
 /// [`run`], and with `trace` what the install code raised and touched (`BaselineRun::trace`, ADR-043 step 2).
-pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Option<BaselineRun> {
+///
+/// With `company`, the `OnRun` of its codeunit runs last of the dependency roots, after `Company-Initialize`, with the
+/// files of its resource folder (`company_data.rs`). When it does not run to its end, or the program has no such
+/// codeunit, the notes say why under [`crate::company_data::BLOCKED_NOTE`].
+pub fn run_traced(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    trace: bool,
+    company: Option<&CompanyData>,
+) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
     // (object, routine, keep what it wrote when it stops early, no company chosen)
     //
@@ -129,12 +139,50 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
             roots.push((oi, ri, true, false));
         }
     }
-    if roots.is_empty() {
+    // The codeunit that builds the company's data, after Company-Initialize (BCApps' CI: `Invoke-LegacyDemoDataTool`
+    // runs codeunit 2, then the DemoTool's action).
+    let mut company_root: Option<usize> = None;
+    let mut company_missing: Option<String> = None;
+    if let Some(c) = company {
+        let found = (0..objs.len()).find(|&oi| {
+            lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(c.codeunit)
+        });
+        match found.map(|oi| {
+            (
+                oi,
+                objs[oi].name.eq_ignore_ascii_case(&c.name),
+                trigger(&objs[oi], "OnRun"),
+            )
+        }) {
+            Some((oi, true, Some(ri))) => {
+                company_root = Some(roots.len());
+                roots.push((oi, ri, false, false));
+            }
+            Some((oi, true, None)) => {
+                company_missing = Some(format!("codeunit {} \"{}\" has no OnRun", c.codeunit, objs[oi].name))
+            }
+            Some((oi, false, _)) => {
+                company_missing = Some(format!(
+                    "codeunit {} is \"{}\", not \"{}\"",
+                    c.codeunit, objs[oi].name, c.name
+                ))
+            }
+            None => company_missing = Some(format!("no dependency app has codeunit {} \"{}\"", c.codeunit, c.name)),
+        }
+    }
+    if roots.is_empty() && company_missing.is_none() {
         return None;
     }
 
     crate::install::ensure_facts(engine, lowered);
-    let mut session = Session::with_host(engine.clone(), crate::host::system_host());
+    let host = crate::host::system_host();
+    // The company data codeunit reads its resource files through `File`; the rest of the install code sees them too,
+    // as every session of BCApps' CI server does once the files are in the user folder.
+    let host = match company.and_then(|c| c.resources.clone()) {
+        Some(dir) => host.with_files(crate::company_data::ResourceFiles::new(dir)),
+        None => host,
+    };
+    let mut session = Session::with_host(engine.clone(), host);
     session.set_install_scope(true);
     if trace {
         session.enable_impact_trace();
@@ -147,7 +195,10 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
     al_builtins::assumptions::clear_hits();
     let company = session.set_company("");
     session.set_company(&company);
-    for &(oi, ri, keep_prefix, no_company) in &roots {
+    if let Some(why) = &company_missing {
+        notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
+    }
+    for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
         if no_company {
             session.set_company("");
@@ -184,14 +235,21 @@ pub fn run_traced(engine: &Arc<Engine>, lowered: &Lowered, trace: bool) -> Optio
                 } else {
                     session.rollback_transaction();
                 }
-                notes.push(format!(
-                    "{label} did not run to its end{}: {why}",
-                    if keep_prefix {
-                        " (the rows before it are kept)"
-                    } else {
-                        ""
-                    }
-                ));
+                if company_root == Some(k) {
+                    notes.push(format!(
+                        "{}{label} did not run to its end: {why}",
+                        crate::company_data::BLOCKED_NOTE
+                    ));
+                } else {
+                    notes.push(format!(
+                        "{label} did not run to its end{}: {why}",
+                        if keep_prefix {
+                            " (the rows before it are kept)"
+                        } else {
+                            ""
+                        }
+                    ));
+                }
                 touched.extend(tables_written(lowered, oi, ri));
             }
         }

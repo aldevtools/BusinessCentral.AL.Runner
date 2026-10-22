@@ -342,7 +342,9 @@ from the package and read Company Information."Country/Region Code"). Until then
 2. The lane of a test codeunit: a test app in `TestConfiguration.json` (`LegacyTests-Bucket1`, `-Bucket2`) is Legacy,
    whatever the codeunit says. For any other app the AL property `TestType` of the codeunit decides:
    `UnitTest`, `IntegrationTest`, none or `Uncategorized`; `AITest` is in no build mode and is left out.
-3. Company per lane: Legacy runs `--company-data package` (company name from the settings, CRONUS International Ltd.);
+3. Company per lane: Legacy runs `--company-data package` (company name from the settings, CRONUS International Ltd.),
+   or `--company-data demotool` when the platform artifact has no RapidStart package (BC 29: BCApps' CI runs the
+   DemoTool's "Create Demo Data from Config" after Company-Initialize there, `Invoke-LegacyDemoDataTool`);
    UnitTest runs without demo data (Company-Initialize and the installs only). IntegrationTest and Uncategorized need
    Microsoft's Contoso Demo Tool (`CreateSetupDemoData`, `CreateAllDemoData`, then the tenant data codeunit 5691, which also
    creates the Web Service rows). The runner does not run it yet, so those lanes print `NOT RUN` with the reason and the

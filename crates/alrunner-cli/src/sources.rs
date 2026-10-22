@@ -143,6 +143,8 @@ fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) ->
     let mut t = a.clone();
     // The Legacy lane's company comes from this package (`recipe_run::lane_args` turns `company_package` on there).
     t.package_path = package.map(Path::to_path_buf);
+    // Without one (BC 29's artifact has none) the Legacy lane runs the DemoTool, as BCApps' CI does there.
+    t.legacy_demotool = package.is_none() && al_deps::artifact::is_w1(a.country());
     t.apps = vec![app.path.clone()];
     t.microsoft_apps.clear();
     t.recipe = true;

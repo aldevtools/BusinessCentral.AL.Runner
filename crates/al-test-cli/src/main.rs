@@ -574,6 +574,7 @@ fn run_version(
         trace: explained.is_some(),
         // The corpus has no test data: its oracle is a database the cases fill themselves.
         test_data: None,
+        company_data: None,
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),

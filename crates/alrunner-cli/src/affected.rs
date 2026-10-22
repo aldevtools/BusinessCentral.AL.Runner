@@ -142,6 +142,11 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     );
     let mut h = Sha256::new();
     h.update(text.as_bytes());
+    // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
+    if a.company_demotool {
+        h.update(b"company-data demotool ");
+        h.update(name(&a.demotool_dir).unwrap_or_default().as_bytes());
+    }
     for (path, flag) in [
         (&a.test_data_path, "--test-data"),
         (&a.package_path, "--package"),

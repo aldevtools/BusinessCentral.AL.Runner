@@ -172,6 +172,9 @@ pub struct Roots {
     /// The install baseline: the install codeunits of the dependency apps and Base Application's
     /// `Company-Initialize` (codeunit 2).
     pub baseline: bool,
+    /// With `baseline`: dependency codeunits (by id) whose `OnRun` the install baseline runs after `Company-Initialize`
+    /// to build the company's data (`--company-data demotool`: the DemoTool's `Create Demo Data from Config`). Empty: none.
+    pub company_data: Vec<u32>,
     /// A test selection (`al-test-cli --codeunit ...`): the test codeunits to run, as (app index,
     /// object id). Every other test codeunit of a workspace app is neither checked nor compiled
     /// (its routines are stubs that refuse), so the demand starts from the selected tests and the
@@ -318,7 +321,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
                 .collect();
             let started = std::time::Instant::now();
             if roots.baseline {
-                c.reach_baseline();
+                c.reach_baseline(&roots.company_data);
             }
             // Install code of an app under test that runs: an install codeunit, or a subscriber to the install events
             // of `Extension Triggers` (ADR-046 decision 1), that the selection keeps.

@@ -350,16 +350,18 @@ impl Checker<'_> {
     }
 
     /// The install baseline's roots (ADR-013 decision 5): every install codeunit of a dependency
-    /// app, with its install triggers, and Base Application's `Company-Initialize`.
-    pub(super) fn reach_baseline(&self) {
+    /// app, with its install triggers, Base Application's `Company-Initialize`, and the `OnRun` of every dependency
+    /// codeunit in `company_data` (the codeunits that build the company's data after it).
+    pub(super) fn reach_baseline(&self, company_data: &[u32]) {
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if !self.ws.is_dependency(i) || o.kind != ObjKind::Codeunit {
                 continue;
             }
             // Cheap facts first: `usable` parses the object's file, and most codeunits are no root.
-            let company_initialize =
-                o.id == Some(COMPANY_INITIALIZE) && o.name.eq_ignore_ascii_case("Company-Initialize");
+            let company_initialize = (o.id == Some(COMPANY_INITIALIZE)
+                && o.name.eq_ignore_ascii_case("Company-Initialize"))
+                || o.id.is_some_and(|id| company_data.contains(&id));
             if !(o.install || company_initialize) || !self.ws.usable(i) {
                 continue;
             }

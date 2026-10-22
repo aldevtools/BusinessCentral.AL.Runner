@@ -264,6 +264,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for top in obj.sections() {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
+            // platform/lt-ag-contoso/AgXmlPortImport.al:77-97, :312-327: an empty request page changes nothing for
+            // Import and Export. Empty `layout` and `actions` sections hold nothing either (the DemoTool's xmlport 101899).
+            "requestpage" if request_page_is_empty(&top) => {}
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -276,6 +279,20 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     out
+}
+
+/// A `requestpage` section with nothing in it: no property, trigger or variable, and at most empty `layout` and
+/// `actions` sections.
+fn request_page_is_empty(rp: &ast::Section) -> bool {
+    let bare = |s: &ast::Section| {
+        s.properties().next().is_none() && s.triggers().next().is_none() && s.var_decls().next().is_none()
+    };
+    bare(rp)
+        && rp.sections().all(|s| {
+            matches!(s.name().to_ascii_lowercase().as_str(), "layout" | "actions")
+                && bare(&s)
+                && s.sections().next().is_none()
+        })
 }
 
 fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
@@ -729,6 +746,31 @@ mod tests {
         );
     }
 
+    // platform/lt-ag-contoso/AgXmlPortImport.al:77-97, :312-327 (RequestPage_EmptySection_ImportAndExport): a request page
+    // section with nothing in it changes nothing for Xmlport.Import and Export. The DemoTool's xmlport 101899 writes it
+    // as empty layout and actions sections. One with a control, an action, a property or a trigger is not pinned.
+    #[test]
+    fn an_empty_request_page_runs_and_one_with_content_is_refused() {
+        let schema = "schema { textelement(R) { } }";
+        for empty in ["requestpage { }", "requestpage { layout { } actions { } }"] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {empty} }}"));
+            assert!(l.run_reasons.is_empty(), "{empty}: {:?}", l.run_reasons);
+        }
+        for full in [
+            "requestpage { layout { area(content) { field(F; F) { } } } }",
+            "requestpage { actions { area(processing) { action(A) { } } } }",
+            "requestpage { SaveValues = true; }",
+            "requestpage { trigger OnOpenPage() begin end; }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {full} }}"));
+            assert!(
+                l.run_reasons.iter().any(|r| r.contains("request pages")),
+                "{full}: {:?}",
+                l.run_reasons
+            );
+        }
+    }
+
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
     // a nested table element's MinOccurs (XmlPortTriggerFlow.al:93) and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
@@ -768,7 +810,7 @@ mod tests {
     #[test]
     fn what_the_corpus_does_not_pin_becomes_a_reason() {
         let l = layout_of(
-            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { } }",
+            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { SaveValues = true; } }",
         );
         let all = [l.reasons.clone(), l.run_reasons.clone()].concat().join("; ");
         assert!(all.contains("Format = binary"), "{all}");

@@ -206,6 +206,11 @@ pub(crate) fn run_codeunit_core(
             .map(|&r| (obj.routines[r].name.clone(), o.clone()))
             .collect::<Vec<_>>()
     };
+    // The company the tests run in is not the one asked for (`--company-data demotool` whose codeunit stopped): no test
+    // runs against a part of it.
+    if let Some(why) = &engine.company_refusal {
+        return all(Outcome::NotRun(why.clone()));
+    }
     // Nothing pins what a runner with TestIsolation = Disabled leaves behind, within a codeunit or
     // for the next one (docs/probes-needed.md), so it is refused (hard rule 4).
     if isolation == TestIsolation::Disabled {

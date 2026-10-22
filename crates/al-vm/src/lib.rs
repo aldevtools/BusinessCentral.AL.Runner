@@ -94,6 +94,9 @@ pub struct Engine {
     /// Tables whose demo rows the corpus database holds and the runtime does not (ADR-047 rejected): a `Count` or `IsEmpty`
     /// of one that the session's own code has not written to is refused (`al_testrun::baseline::demo_row_tables`).
     pub demo_tables: std::collections::HashSet<usize>,
+    /// Why the company the tests run in could not be built (`al_testrun::company_data`): every test codeunit is then not
+    /// run, with this reason. `None`: the company is as the install baseline left it.
+    pub company_refusal: Option<String>,
     /// Rows of a restored company, read when a session first touches a table (ADR-020). `None`: a
     /// run without test data.
     pub test_data: Option<al_host::testdata::TestData>,
@@ -350,6 +353,7 @@ impl Engine {
             unseeded: Default::default(),
             platform_unseeded: unseeded,
             demo_tables: Default::default(),
+            company_refusal: None,
             test_data: None,
             unevaluable_init,
             table_facts,

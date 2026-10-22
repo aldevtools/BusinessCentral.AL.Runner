@@ -455,3 +455,81 @@ pub fn report(ws: &Workspace, lowered: &Lowered) -> String {
     let _ = (&heads, &install);
     out
 }
+
+/// The routines that lowering refuses among what `roots` reach through their calls (the call graph of the compile,
+/// not stopping at a refused routine), grouped by their folded reason ([`crate::refusals::normalise_reason`]), the
+/// reason with the most routines first, then by reason. What the company data codeunit could stop at
+/// (`--company-data demotool`): a run stops at the first one it meets, this lists them all at once.
+pub fn refused_reached_from(lowered: &Lowered, roots: &[(usize, usize)]) -> Vec<(String, Vec<String>)> {
+    let g = build(lowered);
+    let from: Vec<usize> = roots
+        .iter()
+        .filter(|&&(o, r)| o < lowered.program.objects.len() && r < lowered.program.objects[o].routines.len())
+        .map(|&(o, r)| g.id(o, r))
+        .collect();
+    let skip = vec![false; g.at.len()];
+    group_refused(lowered, &g, closure(&g, &from, &skip, false))
+}
+
+/// The refused routines of app `app` (index in the program), grouped as [`refused_reached_from`] groups them. For a
+/// compile that took the app from the compile cache, whose call graph is not recorded.
+pub fn refused_in_app(lowered: &Lowered, app: u32) -> Vec<(String, Vec<String>)> {
+    let g = build(lowered);
+    let all = (0..g.at.len())
+        .filter(|&i| lowered.program.objects[g.at[i].0].app == app)
+        .collect();
+    group_refused(lowered, &g, all)
+}
+
+fn group_refused(lowered: &Lowered, g: &Graph, routines: Vec<usize>) -> Vec<(String, Vec<String>)> {
+    let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for i in routines {
+        if !g.refused[i] {
+            continue;
+        }
+        let (o, r) = g.at[i];
+        let reason = lowered.unsupported[o][r].first().cloned().unwrap_or_default();
+        by.entry(crate::refusals::normalise_reason(&reason))
+            .or_default()
+            .push(label(lowered, g, i));
+    }
+    let mut out: Vec<(String, Vec<String>)> = by.into_iter().collect();
+    for (_, v) in &mut out {
+        v.sort();
+    }
+    out.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_refused_routines_a_root_reaches_are_listed_by_reason() {
+        let src = r#"
+codeunit 50130 "Build" { trigger OnRun() begin A(); B(); end;
+  local procedure A() begin SerialNumber(); end;
+  local procedure B() begin C(); end;
+  local procedure C() begin SerialNumber(); end; }
+codeunit 50131 "Other" { trigger OnRun() begin SerialNumber(); end; }
+"#;
+        let (_, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src.into())],
+            }],
+            &Default::default(),
+        );
+        let oi = l.program.objects.iter().position(|o| o.name == "Build").unwrap();
+        let ri = l.program.objects[oi]
+            .routines
+            .iter()
+            .position(|r| r.name == "OnRun")
+            .unwrap();
+        let got = super::refused_reached_from(&l, &[(oi, ri)]);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].1.len(), 2, "A and C, not codeunit Other: {got:?}");
+        assert!(got[0].1.iter().all(|r| r.contains("\"Build\"")), "{got:?}");
+    }
+}

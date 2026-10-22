@@ -1216,3 +1216,14 @@ QR_List_OpenView_SetCurrentKeyGet. Code: `read_rec_in_its_key`, `open_on_rec_mov
 | Behavior | Status | Probe wanted | Code |
 |---|---|---|---|
 | Whether the Field table lists SystemRowVersion (No. 0, FieldName `timestamp`) for a table that declares a key over SystemRowVersion, in its own keys or through a tableextension key. A table without such a key has no row (W6FieldKeyRows.al:263-270, TestFieldLenAndFeatureKeyContracts.al:107-116) | REFUSED: a Field read that could see that row (a FieldName filter of `timestamp`, a scan or count of the table's rows, a filter on any other column). A lookup by another field's name or number still answers | On a table with `key(Rv; SystemRowVersion)` and one through a tableextension over a Base Application table: `Field.SetRange(TableNo, ..); Field.SetRange(FieldName, 'timestamp'); FindFirst`, then Count and the list of No./FieldName/Type/Class, and `Data Type Management.FindFieldByName(RecRef, FldRef, 'timestamp')` with `FldRef.Number()` | `al-vm/src/platform/fields.rs` `rowversion_key_row` |
+
+## The DemoTool company of the Legacy lane (lane-demotool, 2026-10-22)
+
+`--company-data demotool` runs the DemoTool's "Create Demo Data from Config" (codeunit 101899) after Company-Initialize,
+as BCApps' CI builds the BC 29 Legacy company. Every refusal it meets blocks the company (no test runs). In run order:
+
+| Behavior | Status | Probe wanted | Code |
+|---|---|---|---|
+| An XMLport whose request page has empty `layout` and `actions` sections (xmlport 101899 "Demo Data Configuration") imported from code | RUNS as an empty request page: `requestpage { }` is pinned for Xmlport.Import and Export (platform/lt-ag-contoso/AgXmlPortImport.al:77-97, :312-327); empty sub-sections hold no control, action, property or trigger | The same fixture with `requestpage { layout { } actions { } }`, imported with a variable's SetSource and Import | al-sema/src/xmlports.rs request_page_is_empty |
+| A `Format = Xml` XMLport whose schema root is a `tableelement` (no text element around it), imported (xmlport 101899 "Demo Data Configuration": `<DemoDataSetup>` is the table element; also xmlport "Currency Demo Data" next) | REFUSED (blocks the DemoTool company) | Import of `<Row><Id>1</Id></Row>` into such a port: rows written, a second root element, a document whose root name differs | al-vm/src/xmlports.rs xp_import |
+| `Blob.Import(Path)` of a file path (Create Attachments, Create Company Information, Create Getting Started Data) | REFUSED (static, not implemented) | Import of a server file into a Blob field: CalcFields, Length, the file name kept | builtin catalog |

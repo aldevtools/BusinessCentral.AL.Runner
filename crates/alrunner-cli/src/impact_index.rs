@@ -253,6 +253,10 @@ pub fn key(a: &TestArgs) -> Result<String, String> {
         &a.company_name,
     )
         .hash(&mut h);
+    // The DemoTool company (`--company-data demotool`); a run without it keeps the key it had.
+    if a.company_demotool {
+        ("company-data demotool", &a.demotool_dir).hash(&mut h);
+    }
     a.isolation.hash(&mut h);
     a.defines.hash(&mut h);
     a.environment.as_ref().map(std::mem::discriminant).hash(&mut h);
