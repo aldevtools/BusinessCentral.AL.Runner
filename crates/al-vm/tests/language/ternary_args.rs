@@ -302,12 +302,12 @@ codeunit 69901 TS
         exit('ok|' + Format(StrLen(T80)));
     end;
 
-    procedure BiggerTarget(): Text
+    procedure BiggerTarget(Len: Integer): Text
     var T80: Text[80]; T100: Text[100]; Big: Text[100];
     begin
-        T100 := PadStr('', 90, 'x');
+        T100 := PadStr('', Len, 'x');
         Big := false ? T80 : T100;
-        exit(Big);
+        exit(Format(StrLen(Big)));
     end;
 }
 "#;
@@ -337,11 +337,21 @@ fn a_longer_text_false_branch_into_the_true_branch_type_fits_or_fails_its_length
     );
 }
 
-// Not pinned: the same branches into a target longer than the true branch (BC may convert the false branch to Text[80] or not).
+// Into a target longer than the true branch (Base App Acc. Schedule Line, `Description := Description = '' ? GLAccCategory.Description
+// : Description`): whether BC converts the false branch to Text[80] is not pinned. A value that fits Text[80] is the same either
+// way; a longer one is refused when it is taken.
 #[test]
-fn a_longer_text_false_branch_into_another_target_stays_refused() {
-    assert!(matches!(
-        run_in(SIZED, "TS", "BiggerTarget"),
-        Err(Signal::Unsupported(_))
-    ));
+fn a_longer_text_false_branch_into_another_target_passes_what_fits_and_refuses_the_rest() {
+    let run = |len: i32| {
+        al_testkit::run_with(
+            SIZED,
+            "TS",
+            "BiggerTarget",
+            vec![al_builtins::value::Value::Integer(len)],
+        )
+        .map(|(v, _)| v)
+    };
+    assert_eq!(text(run(80)), "80");
+    let r = run(81);
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }

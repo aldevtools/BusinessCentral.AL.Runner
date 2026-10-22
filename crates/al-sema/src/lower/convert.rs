@@ -355,6 +355,18 @@ impl<'a> Lowerer<'a> {
             _ => false,
         };
         if !pinned {
+            // A longer Text or Code false branch anywhere else: a value no longer than the true branch is the same whether
+            // BC converts it or not; a longer one is refused when the branch is taken (the Base App's Acc. Schedule Line
+            // `Description := Description = '' ? GLAccCategory.Description : Description`, Text[80] and Text[100]).
+            if let (Ty::Text(Some(n)), Ty::Text(Some(_)) | Ty::Code(Some(_))) = (t, f) {
+                return Ok(ir::Expr::TddFit {
+                    max: *n,
+                    why: format!(
+                        "a conditional expression whose false branch ({f}) holds a value longer than its true branch ({t}): whether BC converts it is not pinned"
+                    ),
+                    inner: Box::new(value),
+                });
+            }
             return Err(format!(
                 "a conditional expression whose branches have different types ({t} and {f}): the conversion of the false branch is not pinned"
             ));
