@@ -1244,7 +1244,8 @@ impl<'a> Checker<'a> {
     /// hands `Report::"X"` to a helper that runs it
     /// (handlers/TestReportDatasetHelpLink.al:RenderDataset(Report::"G/L Register")), so the call that
     /// runs it names no constant: code of the workspace that passes a report's id to a call may run it. A
-    /// dependency's mention (a report id in a setup table) does not.
+    /// dependency's mention (a report id in a setup table) does not, except in the app of a company data codeunit, which
+    /// the install baseline runs as a root (the DemoTool's `RunReport(Report::"Create Conts. from Customers")`).
     pub(crate) fn reach_named_object(&self, sc: &Scope, node: &SyntaxNode, k: ObjKind, i: usize) {
         if k == ObjKind::Codeunit {
             self.reach_run(i);
@@ -1253,7 +1254,8 @@ impl<'a> Checker<'a> {
         }
         // Only as an argument of a call; `I := Report::"X"` just names the id (check/demand.rs pins that).
         let is_argument = node.parent().is_some_and(|p| p.kind() == SyntaxKind::ArgList);
-        if k == ObjKind::Report && is_argument && !self.ws.is_dependency(sc.oi) {
+        let reaches = !self.ws.is_dependency(sc.oi) || self.company_data_apps.contains(&self.ws.objects[sc.oi].app);
+        if k == ObjKind::Report && is_argument && reaches {
             self.touch_full(i);
         }
     }

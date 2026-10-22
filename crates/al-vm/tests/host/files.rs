@@ -181,3 +181,64 @@ fn is_path_temporary_refuses_the_forms_where_windows_and_linux_differ() {
         );
     }
 }
+
+// Blob.Import(Name) (al-language-onprem/lt-o-system-onprem/OBlobAndSession.al:27-58, :74-103): the blob holds the file's
+// bytes; a missing file raises FileNotFound (its text names the server's path: only its start and end are pinned) and the
+// blob keeps what it held. The returned name is pinned only by its end, so a call that uses it is refused.
+#[test]
+fn blob_import_reads_the_file_into_the_blob() {
+    let table = "table 50101 R { fields { field(1; K; Integer) { } field(2; Data; Blob) { } } }";
+    let run = |body: &str| {
+        let mut fs = MemFileSystem::default();
+        al_host::FileSystem::write(&mut fs, "\\TEMP\\in.bin", b"blob content 123").unwrap();
+        let src = format!(
+            "procedure F(): Text var Row: Record R; I: InStream; O: OutStream; T: Text; N: Text; begin {body} end;"
+        );
+        let (ws, l) = al_sema::lower::compile(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), format!("{table} codeunit 50100 C {{ {src} }}"))],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let blocked: Vec<Vec<Option<String>>> = l
+            .unsupported
+            .iter()
+            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .collect();
+        let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+        let mut s = Session::with_host(Engine::new(l.program, blocked), Host::deterministic().with_files(fs));
+        call(&mut s, oi)
+    };
+    let got = run(
+        "Row.Data.Import(TemporaryPath() + 'in.bin'); Row.Data.CreateInStream(I); I.ReadText(T); exit(Format(Row.Data.Length()) + ':' + T);",
+    );
+    assert_eq!(
+        match &got {
+            Ok(Value::Text(t)) => Some(t.to_string()),
+            _ => None,
+        }
+        .as_deref(),
+        Some("16:blob content 123")
+    );
+    let got = run(
+        "Row.Data.CreateOutStream(O); O.WriteText('x'); if not TryImport(Row) then T := GetLastErrorCode(); exit(T + ':' + Format(Row.Data.Length())); end; \
+         [TryFunction] local procedure TryImport(var Row: Record R) begin Row.Data.Import(TemporaryPath() + 'missing.bin');",
+    );
+    assert_eq!(
+        match &got {
+            Ok(Value::Text(t)) => Some(t.to_string()),
+            _ => None,
+        }
+        .as_deref(),
+        Some("FileNotFound:1")
+    );
+    let got = run("N := Row.Data.Import(TemporaryPath() + 'in.bin'); exit(N);");
+    assert!(
+        matches!(got, Err(Signal::Unsupported(r)) if r.contains("Blob.Import")),
+        "the name it returns is not pinned"
+    );
+}

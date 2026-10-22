@@ -147,12 +147,8 @@ pub fn app_file(path: &Path, app: &str) -> PathBuf {
 }
 
 /// The arguments of one test app's recipe run.
-fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) -> TestArgs {
+fn app_args(a: &TestArgs, app: &TestApp, build: &str) -> TestArgs {
     let mut t = a.clone();
-    // The Legacy lane's company comes from this package (`recipe_run::lane_args` turns `company_package` on there).
-    t.package_path = package.map(Path::to_path_buf);
-    // Without one (BC 29's artifact has none) the Legacy lane runs the DemoTool, as BCApps' CI does there.
-    t.legacy_demotool = package.is_none() && al_deps::artifact::is_w1(a.country());
     t.apps = vec![app.path.clone()];
     t.deps.extend(app.deps.iter().cloned());
     t.microsoft_apps.clear();
@@ -166,17 +162,17 @@ fn app_args(a: &TestArgs, app: &TestApp, build: &str, package: Option<&Path>) ->
     t
 }
 
-/// The `microsoft` source of a run: the build, its test apps and the Legacy lane's package.
+/// The `microsoft` source of a run: the build and its test apps.
 struct Microsoft {
     build: String,
     country: String,
     set: MicrosoftApps,
-    package: Option<PathBuf>,
     /// Where the listing came from (`the artifact feed`, a local artifact).
     from: String,
 }
 
-/// Lists the Microsoft test apps of the run's build and country (ADR-052 1.3) and fetches the Legacy lane's package.
+/// Lists the Microsoft test apps of the run's build and country (ADR-052 1.3). The Legacy lane builds its company with
+/// the DemoTool (`recipe_run::lane_args`), so no RapidStart package is fetched.
 fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
     let fetch = Fetch {
         cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
@@ -191,14 +187,10 @@ fn microsoft(a: &TestArgs) -> Result<Microsoft, String> {
     }
     let extra = bcapps_apps_of(a, &listing);
     let set = test_apps_of(&listing, &a.microsoft_apps, &extra)?;
-    // The Legacy lane builds its company from the artifact's RapidStart package; it is fetched once here, so that a run
-    // from the artifact feed does not depend on an extracted artifact on disk.
-    let package = listing.rapidstart_package()?;
     Ok(Microsoft {
         build: listing.build.to_string(),
         country: listing.country.to_string(),
         set,
-        package,
         from: listing.from.to_string(),
     })
 }
@@ -356,7 +348,7 @@ pub fn test_microsoft(a: &TestArgs) -> Result<u8, String> {
     let mut results: Vec<AppResult> = Vec::new();
     for (i, app) in ms.set.apps.iter().enumerate() {
         eprintln!("== test app {} ({} of {}) ==", app.name, i + 1, ms.set.apps.len());
-        let outcome = match recipe_run::run_lanes(&app_args(a, app, &ms.build, ms.package.as_deref())) {
+        let outcome = match recipe_run::run_lanes(&app_args(a, app, &ms.build)) {
             Ok(run) => {
                 for line in recipe_run::summary_lines(&run.results, run.unrun) {
                     println!("{line}");
@@ -407,7 +399,7 @@ fn list_lanes(a: &TestArgs, ms: &Microsoft) -> Result<u8, String> {
     let mut totals: Vec<(String, [usize; 3])> = Vec::new();
     let mut code = 0;
     for app in &ms.set.apps {
-        let planned = match recipe_run::plan_lanes(&app_args(a, app, &ms.build, ms.package.as_deref())) {
+        let planned = match recipe_run::plan_lanes(&app_args(a, app, &ms.build)) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("error: test app {}: {e}", app.name);
@@ -1154,7 +1146,7 @@ fn microsoft_source(a: &TestArgs, extension: &[PathBuf]) -> SourceOut {
     let base = source_base(a);
     let mut notes: Vec<String> = Vec::new();
     for app in &ms.set.apps {
-        let planned = match recipe_run::plan_lanes(&app_args(&base, app, &ms.build, ms.package.as_deref())) {
+        let planned = match recipe_run::plan_lanes(&app_args(&base, app, &ms.build)) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("error: test app {}: {e}", app.name);
@@ -1215,7 +1207,7 @@ pub fn build_index(a: &TestArgs) -> Result<u8, String> {
     let ms = microsoft(a)?;
     let mut codes = Vec::new();
     for app in &ms.set.apps {
-        let planned = recipe_run::plan_lanes(&app_args(&source_base(a), app, &ms.build, ms.package.as_deref()))?;
+        let planned = recipe_run::plan_lanes(&app_args(&source_base(a), app, &ms.build))?;
         eprintln!("{}", planned.how);
         for lane in planned.lanes {
             let name = lane.lane.test_type();

@@ -160,9 +160,6 @@ pub struct TestArgs {
     pub company_demotool: bool,
     /// `--demotool DIR`: a BCApps checkout holding `src/DemoTool` and `src/Layers/W1/DemoTool`; else the cache or a fetch.
     pub demotool_dir: Option<PathBuf>,
-    /// Set by `test-microsoft` when the build's artifact has no RapidStart package: the Legacy lane of `--recipe` builds
-    /// its company with the DemoTool. Not a command-line option.
-    pub legacy_demotool: bool,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
     /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
@@ -655,7 +652,7 @@ TEST DATA
                          the summary and the JUnit file mark them (property disabled_by_microsoft).
     --parity             With --disabled-tests: do not run those tests.
     --recipe microsoft   Run the way Microsoft's CI does. BCApps' settings decide the company of each test
-                         codeunit (a lane): the Legacy test apps get the RapidStart package company, a codeunit
+                         codeunit (a lane): the Legacy test apps get the DemoTool company, a codeunit
                          with TestType = UnitTest an empty company, IntegrationTest the Contoso setup company,
                          the rest the Contoso company with all demo data. One run per lane, each with its own
                          summary and, with --junit FILE, its own file (FILE.<lane>.xml). Microsoft's disabled

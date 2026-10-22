@@ -27,6 +27,12 @@ pub struct CompanyData {
     /// What the company depends on beyond the program, for the key of the kept baseline (the source of the codeunit's
     /// app and its resources, as the caller describes them).
     pub identity: String,
+    /// The kind of server the company is built on, if not the run's own (`--environment`): the dependency installs,
+    /// `Company-Initialize` and the codeunit run on it, the tests and the install code of the apps under test do not.
+    pub environment: Option<al_host::Environment>,
+    /// The names of the apps installed before the company is built (matched without case), if not every app: the
+    /// install code of the other apps runs after the codeunit, and their event subscribers do not run before that.
+    pub installed_first: Option<Vec<String>>,
 }
 
 /// The id of the DemoTool's `Create Demo Data from Config` (BCApps `src/Layers/W1/DemoTool/CreateDemoDatafromConfig.Codeunit.al`).
@@ -70,7 +76,24 @@ impl ResourceFiles {
     }
 
     fn key(path: &str) -> String {
-        path.replace('/', "\\").to_lowercase()
+        Self::from_user_folder(path).replace('/', "\\").to_lowercase()
+    }
+
+    /// `path` relative to the user folder. BCApps copies the resources into the session's user folder, the folder above
+    /// `TemporaryPath()` (`\TEMP\` here, al-vm hostvalues.rs), after the page opens (build/scripts/
+    /// ImportTestDataInBcContainer.ps1, `Invoke-LegacyDemoDataTool`), and the DemoTool reads them as
+    /// `TemporaryPath() + '..\WalkMeTour'` or `TemporaryPath() + '\..\' + 'PostingExchangeDefinitions'`. So a path that
+    /// climbs out of the temporary folder names the user folder. Only the lookup changes: the text AL code holds is left
+    /// as it is (File.IsPathTemporary refuses such a path, al-builtins file.rs).
+    fn from_user_folder(path: &str) -> std::borrow::Cow<'_, str> {
+        let mut parts = path.split(['\\', '/']).filter(|p| !p.is_empty());
+        let rooted = path.starts_with(['\\', '/']);
+        match (parts.next(), parts.next()) {
+            (Some(t), Some("..")) if rooted && t.eq_ignore_ascii_case("TEMP") => {
+                parts.collect::<Vec<_>>().join("\\").into()
+            }
+            _ => path.into(),
+        }
     }
 
     /// The file of the folder that `path` names, matched part by part without case.
@@ -78,7 +101,7 @@ impl ResourceFiles {
         if self.removed.contains(&Self::key(path)) {
             return None;
         }
-        let rel = path.replace('\\', "/");
+        let rel = Self::from_user_folder(path).replace('\\', "/");
         let mut out = self.root.clone();
         let mut any = false;
         for c in Path::new(&rel).components() {
@@ -177,6 +200,34 @@ mod tests {
         assert!(take_hits().is_empty(), "an exact name takes no assumption");
         assert!(fs.read("CurrencyData.txt").is_some());
         assert_eq!(take_hits(), vec![Assumption::ResourceFileNameCase]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // BCApps copies the resources into the session's user folder, the folder above TemporaryPath()
+    // (ImportTestDataInBcContainer.ps1, Invoke-LegacyDemoDataTool), and the DemoTool reads them as
+    // `TemporaryPath() + '..\WalkMeTour'` and `TemporaryPath() + '\..\' + 'PostingExchangeDefinitions'`.
+    #[test]
+    fn a_path_that_climbs_out_of_the_temporary_folder_names_a_resource() {
+        let dir = std::env::temp_dir().join(format!("alr-restemp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("WalkMeTour")).unwrap();
+        std::fs::write(dir.join("WalkMeTour").join("a.txt"), b"a").unwrap();
+        let fs = ResourceFiles::new(dir.clone());
+        assert_eq!(fs.read("\\TEMP\\..\\WalkMeTour\\a.txt").as_deref(), Some(&b"a"[..]));
+        assert!(
+            fs.exists("\\TEMP\\\\..\\WalkMeTour\\a.txt"),
+            "the doubled separator of `TemporaryPath() + '\\..\\'`"
+        );
+        assert!(
+            !fs.exists("\\TEMP\\..\\..\\WalkMeTour\\a.txt"),
+            "no climbing above the user folder"
+        );
+        assert!(!fs.exists("\\Other\\..\\WalkMeTour\\a.txt"));
+        assert!(
+            !fs.exists("\\TEMP\\WalkMeTour\\a.txt"),
+            "the temporary folder holds no resource"
+        );
+        assert!(!fs.exists("WalkMeTour\\..\\WalkMeTour\\a.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

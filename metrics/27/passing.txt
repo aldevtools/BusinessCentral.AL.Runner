@@ -9835,6 +9835,7 @@
 72129 P121_RequestPage
 72131 P121_RequestPage
 72134 P121_RequestPage
+72150 P121_Import
 72168 P121_Export
 72170 P121_Export
 72170 P121_Import
@@ -13608,6 +13609,12 @@
 81450 C_TrapsAnErrorForTheNextCodeunit
 81451 FirstTest_LastErrorIsEmpty
 81666 RequestPage_DrillDownPageId
+81676 XmlPort_DefaultFieldsValidation_False
+81676 XmlPort_DefaultFieldsValidation_False_InOrder
+81676 XmlPort_DefaultFieldsValidation_True
+81676 XmlPort_DefaultFieldsValidation_True_InOrder
+81676 XmlPort_DefaultFieldsValidation_Unset
+81676 XmlPort_DefaultFieldsValidation_Unset_InOrder
 81861 Counters_NotNegative
 81861 Counters_NothingBetween
 81861 Counters_TableOperations

@@ -293,6 +293,16 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     let mut timings = CheckTimings::default();
     let mut c = Checker::new(ws, members, catalog, system_enums(catalog), demand_mode);
     c.tdd_apps = roots.tdd.then(|| std::sync::Arc::new(tdd::test_apps(ws)));
+    if roots.baseline {
+        c.company_data_apps = (0..ws.objects.len())
+            .filter(|&oi| {
+                ws.is_dependency(oi)
+                    && ws.objects[oi].kind == ObjKind::Codeunit
+                    && ws.objects[oi].id.is_some_and(|id| roots.company_data.contains(&id))
+            })
+            .map(|oi| ws.objects[oi].app)
+            .collect();
+    }
     // The files of the dependency objects the checker reaches are parsed ahead on other
     // threads; parsing is a third of the cost and the checker only waits for what is not ready.
     let demand = if demand_mode {
@@ -777,6 +787,9 @@ pub(crate) struct Checker<'a> {
     /// Check the routines a selection left out as unreached too (`Workspace::routine_unreached`): the check of what a
     /// selection leaves out, for its compile errors only (`left_out_diagnostics`).
     all_routines: bool,
+    /// The apps (indexes) of the company data codeunits (`Roots::company_data`): their code reaches the reports it
+    /// hands to a call, as workspace code does (`reach_named_object`).
+    company_data_apps: Vec<usize>,
 }
 
 /// Names resolved so far, by (file, kind) and then name; see [`Checker::resolved`].

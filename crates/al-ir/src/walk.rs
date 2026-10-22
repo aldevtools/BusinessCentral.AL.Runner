@@ -997,6 +997,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         xml_v11: _,
         format_evaluate_xml: _,
         format_evaluate_declared: _,
+        no_default_fields_validation: _,
         nodes,
         source_slot: _,
         destination_slot: _,
@@ -1027,6 +1028,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             auto_calc: _,
             unbound: _,
             required: _,
+            field_validate: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));

@@ -2177,6 +2177,57 @@ mod tests {
         assert!(compiled(&passed, "Rep", "OnPreReport"));
     }
 
+    // The company data codeunit's app (`--company-data demotool`) hands its reports' ids to a procedure that runs them
+    // (the DemoTool's Interface Relationship Mgt.RunReport(Report::"Create Conts. from Customers")): its app counts as
+    // reaching them, as workspace code does. Another dependency app's mention does not.
+    #[test]
+    fn the_company_data_codeunits_app_reaches_the_reports_it_hands_to_a_call() {
+        let dep = [
+            ("r.al", "report 40 Rep { trigger OnPreReport() begin end; }"),
+            (
+                "b.al",
+                "codeunit 50 Build { trigger OnRun() begin Show(Report::Rep); end; procedure Show(Id: Integer) begin Report.Run(Id); end; }",
+            ),
+        ];
+        let build = |company_data: Vec<u32>| {
+            let app = |id: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
+                id: id.into(),
+                name: id.into(),
+                dependencies: deps.iter().map(|d| d.to_string()).collect(),
+                files,
+            };
+            crate::lower::compile_apps_with(
+                vec![
+                    app("main", &["dep"], vec![("main.al".into(), "codeunit 1 Main { }".into())]),
+                    app(
+                        "dep",
+                        &[],
+                        dep.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+                    ),
+                ],
+                vec![AppKind::Workspace, AppKind::Dependency],
+                &Default::default(),
+                None,
+                crate::check::Roots {
+                    baseline: true,
+                    company_data,
+                    ..Default::default()
+                },
+            )
+            .1
+        };
+        assert!(compiled(&build(vec![50]), "Rep", "OnPreReport"));
+        let other = build(vec![]);
+        let o = object(&other, "Rep");
+        assert!(
+            other.program.objects[o]
+                .routines
+                .iter()
+                .all(|r| r.name != "OnPreReport")
+                || !compiled(&other, "Rep", "OnPreReport")
+        );
+    }
+
     #[test]
     fn the_triggers_before_and_after_a_table_trigger_that_an_extension_declares_are_reached() {
         let dep = [

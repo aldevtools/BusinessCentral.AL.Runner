@@ -35,7 +35,7 @@ const TABLE: &[(&str, Kind)] = &[
     ("Blob.CreateOutStream", Produces),
     ("Blob.Export", Refused),
     ("Blob.HasValue", Guard),
-    ("Blob.Import", Refused),
+    ("Blob.Import", Guard),
     ("Blob.Length", Guard),
     ("File.Close", Produces),
     ("File.Copy", Guard),

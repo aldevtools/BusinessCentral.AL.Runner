@@ -613,6 +613,10 @@ pub struct XmlPort {
     /// (xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:Import_OneItem; an export writes the display text).
     #[serde(default)]
     pub format_evaluate_declared: bool,
+    /// `DefaultFieldsValidation = false`: an import validates only the field elements that say `FieldValidate = Yes`
+    /// (xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:274-283).
+    #[serde(default)]
+    pub no_default_fields_validation: bool,
     /// Schema nodes in source order; `parent` makes the tree. Top-level nodes have no parent.
     pub nodes: Vec<XmlNode>,
     /// Global slots of the source `InStream` and destination `OutStream` set by
@@ -675,6 +679,9 @@ pub struct XmlNode {
     /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441, the QS_TextAttr_* tests).
     #[serde(default)]
     pub required: Option<bool>,
+    /// `FieldValidate` of a field element as declared (`None`: not declared, the port's `DefaultFieldsValidation` decides).
+    #[serde(default)]
+    pub field_validate: Option<bool>,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }
