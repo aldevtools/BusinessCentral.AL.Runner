@@ -1659,3 +1659,42 @@ codeunit 50112 C
         "Decimal(17)"
     );
 }
+
+/// `filter(<> 0D)`, `filter(<>0D)` and `filter(0D)` on a Date field of the source table match the dated and the empty rows
+/// (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:45,93-103 and :119-128).
+#[test]
+fn a_calcformula_filter_on_the_empty_date_literal_counts_dated_and_empty_rows() {
+    let src = r#"
+table 69950 "DL Row"
+{
+    fields { field(1; "Entry No."; Integer) { } field(2; "Owner No."; Code[10]) { } field(3; "Posting Date"; Date) { } }
+    keys { key(PK; "Entry No.") { } }
+}
+table 69951 "DL Owner"
+{
+    fields
+    {
+        field(1; "No."; Code[10]) { }
+        field(2; "Has Dated"; Boolean) { FieldClass = FlowField; CalcFormula = exist("DL Row" where("Owner No." = field("No."), "Posting Date" = filter(<> 0D))); }
+        field(3; "Dated"; Integer) { FieldClass = FlowField; CalcFormula = count("DL Row" where("Owner No." = field("No."), "Posting Date" = filter(<>0D))); }
+        field(4; "Empty"; Integer) { FieldClass = FlowField; CalcFormula = count("DL Row" where("Owner No." = field("No."), "Posting Date" = filter(0D))); }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 69952 C
+{
+    procedure F(): Text
+    var O: Record "DL Owner"; R: Record "DL Row"; Before: Text;
+    begin
+        O."No." := 'O1'; O.Insert();
+        R."Entry No." := 1; R."Owner No." := 'O1'; R.Insert();
+        O.CalcFields("Has Dated", Dated, Empty);
+        Before := Format(O."Has Dated") + Format(O.Dated) + Format(O.Empty);
+        R."Entry No." := 2; R."Posting Date" := 20260101D; R.Insert();
+        O.CalcFields("Has Dated", Dated, Empty);
+        exit(Before + '|' + Format(O."Has Dated") + Format(O.Dated) + Format(O.Empty));
+    end;
+}
+"#;
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "No01|Yes11");
+}
