@@ -388,6 +388,11 @@ pub struct PageState {
     pub open_reads_above: bool,
     /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
     pub opened_on_moved_rec: bool,
+    /// The list opened in a key other than the primary key (key index, ascending) and read its row once more for it; it reads
+    /// each row once more at Next and Previous while Rec stays in that key and order (see `reads_once_more_in_its_key`).
+    pub reads_once_more_in: Option<(usize, bool)>,
+    /// The page is reading the first row it shows as it opens (`load_first_row` from the open, not a later refill).
+    pub open_read: bool,
     /// The page opened for edit over an empty view and ran its new-record triggers on a blank record; it shows no row and its
     /// field controls are not editable.
     pub blank_on_open: bool,
@@ -676,6 +681,8 @@ impl PageState {
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,
+            reads_once_more_in: None,
+            open_read: false,
             blank_on_open: false,
             read_backwards: None,
             selection_on_rec: false,
