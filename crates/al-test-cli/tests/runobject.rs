@@ -181,6 +181,7 @@ page 61043 "RO Reader Host"
     actions { area(Processing) {
         action(Read) { RunObject = Page "RO Lines Reader"; RunPageLink = "Head No." = field("No."); }
         action(ReadOp) { RunObject = Page "RO Lines Op Reader"; RunPageLink = "Head No." = field("No."); }
+        action(ReadFiltered) { RunObject = Page "RO Lines Reader"; RunPageLink = "Head No." = filter('H1'); }
     } }
 }
 page 61044 "RO Lines Op Reader"
@@ -198,8 +199,12 @@ page 61044 "RO Lines Op Reader"
             'Count': P.SetGroups(Format(Rec.Count()));
             'IsEmpty': P.SetGroups(Format(Rec.IsEmpty()));
             'FindFirst': P.SetGroups(Format(Rec.FindFirst()));
+            'CopyFilters': P.SetGroups(CopyFilters(Rec));
+            'CopyCount': P.SetGroups(CopyCount(Rec));
         end;
     end;
+    local procedure CopyFilters(L: Record "RO Line"): Text begin exit(L."Head No." + '|' + L.GetFilters()); end;
+    local procedure CopyCount(L: Record "RO Line"): Text begin exit(Format(L.Count())); end;
 }
 "#;
 
@@ -546,18 +551,47 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
     assert!(why("UnknownMode").contains("RunPageMode = strange"), "{got:?}");
 }
 
-// What `Rec` holds in the OnOpenPage of a page opened through `RunPageLink` is not pinned (only the filter groups are,
-// handlers/TestActionRunPageLinkFilterGroup.al:119): a read of a field of Rec there refuses; reading the filters runs
-// (run_page_link_filters_the_target_in_filter_group_zero). Probe queued in the corpus repo (issue 712).
+// Real BC fills the linked fields of Rec in the OnOpenPage of a page opened through `RunPageLink` = field(..) or const(..)
+// (handlers/TestActionRunPageLinkFilterGroup.al:292-369): a read of a field of Rec there gives the host's value. A filter(..)
+// link fills nothing pinned: the read refuses.
 #[test]
-fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_is_refused() {
+fn a_field_read_of_rec_in_onopenpage_of_a_run_page_link_target_reads_the_linked_value() {
+    passes(
+        "[Test] [HandlerFunctions('Handler')] procedure Read() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.Read.Invoke();
+            if P.GetSeen() <> 'H1' then Error('got <%1>', P.GetSeen()); end;
+        [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
+    );
     let got = not_run(
         "[Test] [HandlerFunctions('Handler')] procedure Read() var H: Record \"RO Head\"; L: Record \"RO Line\"; Host: TestPage \"RO Reader Host\"; begin
             H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
-            Host.OpenEdit(); Host.GoToRecord(H); Host.Read.Invoke(); end;
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadFiltered.Invoke(); end;
         [PageHandler] procedure Handler(var P: TestPage \"RO Lines Reader\") begin P.Close(); end;",
     );
     assert!(got[0].1.contains("RunPageLink"), "{got:?}");
+}
+
+// A by-value copy of that Rec holds its fields and no link filter: its GetFilters reads '' in OnOpenPage
+// (handlers/TestActionRunPageLinkFilterGroup.al:292, `filters=`); whether it reads rows without the link is not pinned.
+#[test]
+fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
+    passes(
+        "[Test] [HandlerFunctions('Handler')] procedure Copy() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.DeleteAll(); L.DeleteAll(); P.SetSeen('CopyFilters');
+            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadOp.Invoke();
+            if P.GetGroups() <> 'H1|' then Error('got <%1>', P.GetGroups()); end;
+        [PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;",
+    );
+    let got = not_run(
+        "[Test] [HandlerFunctions('Handler')] procedure CopyCount() var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
+            P.Reset(); H.DeleteAll(); L.DeleteAll(); P.SetSeen('CopyCount');
+            H.\"No.\" := 'H1'; H.Insert(); L.\"Head No.\" := 'H1'; L.\"Line No.\" := 1; L.Insert();
+            Host.OpenEdit(); Host.GoToRecord(H); Host.ReadOp.Invoke(); end;
+        [PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;",
+    );
+    assert!(got[0].1.contains("by-value copy"), "{got:?}");
 }
 
 // Real BC fills the linked fields of Rec in that OnOpenPage, and GetFilters() of a copy of Rec reads '' (corpus issue 712, writer
@@ -588,7 +622,7 @@ fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refu
     let got = not_run(&tests);
     assert_eq!(got.len(), ops.len(), "{got:?}");
     for (n, why) in &got {
-        assert!(why.contains("RunPageLink") && why.contains("712"), "{n}: {why}");
+        assert!(why.contains("RunPageLink"), "{n}: {why}");
     }
     passes(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;

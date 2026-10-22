@@ -29,6 +29,30 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
+/// [`RUN_PAGE_LINK_OPEN`] in the shape the corpus pins (see `run_page_link_fill`, pages/runobject.rs): the linked fields are
+/// filled and the fields of Rec read; the other uses are as narrow as with [`RUN_PAGE_LINK_OPEN`].
+pub(crate) const RUN_PAGE_LINK_OPEN_FILLED: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC hands a by-value copy of Rec no filters (pinned), what Rec itself answers is not pinned";
+
+/// The `RecordState::unpinned_buffer` reason of a by-value copy of Rec of a page an action opened through `RunPageLink`
+/// (`RecordState::run_page_link`): the copy holds Rec's fields and no link filter; only its fields and `GetFilters` are pinned
+/// (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `Describe(Child: Record ...)` in QzRunPageLinkOnOpen.al).
+pub(crate) const RUN_PAGE_LINK_COPY: &str = "a by-value copy of Rec of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
+
+/// Whether field reads of a record whose buffer has the reason `why` run.
+pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
+    why == RUN_PAGE_LINK_OPEN_FILLED || why == RUN_PAGE_LINK_COPY
+}
+
+/// Whether two filter lists are the same filters, in any order.
+pub(crate) fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    let key = |f: &FieldFilter| format!("{}/{}/{:?}", f.group, f.field, f.expr);
+    let mut x: Vec<String> = a.iter().map(key).collect();
+    let mut y: Vec<String> = b.iter().map(key).collect();
+    x.sort();
+    y.sort();
+    x == y
+}
+
 fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     match args.get(i) {
         None => Ok(false),
@@ -1545,8 +1569,11 @@ impl Session {
     /// ([`RUN_PAGE_LINK_OPEN`]) is narrower, see [`Self::run_page_link_open_op`].
     fn unpinned_buffer_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let why = rec.borrow().unpinned_buffer.unwrap_or_default();
-        if why == RUN_PAGE_LINK_OPEN {
+        if why == RUN_PAGE_LINK_OPEN || why == RUN_PAGE_LINK_OPEN_FILLED {
             return self.run_page_link_open_op(method, rec, args);
+        }
+        if why == RUN_PAGE_LINK_COPY {
+            return self.run_page_link_copy_op(method, rec, args);
         }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
@@ -1623,13 +1650,32 @@ impl Session {
                 | RecordOp::SecurityFiltering
         );
         if !runs {
-            return unsupported(format!("Rec.{}() {RUN_PAGE_LINK_OPEN}", method.name()));
+            let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
+            return unsupported(format!("Rec.{}() {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
         if !(method == RecordOp::Get && matches!(r, Ok(Value::Boolean(true)))) {
             rec.borrow_mut().unpinned_buffer = flag;
         }
+        r
+    }
+
+    /// A record method on a by-value copy of Rec of a page an action opened through `RunPageLink` ([`RUN_PAGE_LINK_COPY`]):
+    /// `GetFilters` of a copy that holds no filter reads '' (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=`),
+    /// the names of its table run, and every other method refuses.
+    fn run_page_link_copy_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let runs = match method {
+            RecordOp::GetFilters => rec.borrow().filters.is_empty(),
+            RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
+            _ => false,
+        };
+        if !runs {
+            return unsupported(format!("Rec.{}() on {RUN_PAGE_LINK_COPY}", method.name()));
+        }
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        rec.borrow_mut().unpinned_buffer = flag;
         r
     }
 
