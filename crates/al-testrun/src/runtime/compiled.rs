@@ -24,6 +24,11 @@ pub struct RunOptions {
     /// `al-runner test --isolation`: the isolation of every test codeunit, instead of the runner's property (`None`: the runner's,
     /// else Codeunit).
     pub isolation: Option<TestIsolation>,
+    /// Each test codeunit of a suite without a runner runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub
+    /// runs a test codeunit that has no handlers: the corpus CI on BC 28 and later. Off: under Codeunit isolation, as
+    /// Microsoft's runner 130450 runs every codeunit (the corpus CI on BC 27), whatever the property says
+    /// (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+    pub required_isolation: bool,
     /// Count how often each statement of the workspace's apps runs, per test (`al-runner test --coverage`).
     /// Off, a run pays one branch per statement.
     pub coverage: bool,

@@ -7,7 +7,13 @@
 //! |---|---|---|
 //! | `Codeunit` | kept, and undone when the codeunit ends | the whole corpus runs under it (Microsoft's `Test Runner - Isol. Codeunit`, 130450); `T5` of the isolation probe fails under it |
 //! | `Function` | returned to its state after `OnRun` | isolation probe `T5` and `T6` |
-//! | `Disabled` | nothing is undone, not even across codeunits | not pinned: refused |
+//! | `Disabled` | nothing is undone, not even across codeunits | not pinned for a runner: refused |
+//!
+//! BC's TestRunnerHub (the corpus CI on BC 28 and later, for a codeunit without handlers) takes the isolation from the
+//! test codeunit's `RequiredTestIsolation` instead (`RunOptions::required_isolation`). There a `Commit()` inside a test
+//! is an inner commit: Function still returns the next test to the start, Codeunit still undoes everything when the
+//! codeunit ends, and Disabled keeps everything for the later codeunits (corpus
+//! codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:25-39).
 //!
 //! Under every value the test codeunit's instance is reused across its methods: AL globals and
 //! single-instance codeunits keep their values from one test to the next (probe `T2` to `T4`), and
