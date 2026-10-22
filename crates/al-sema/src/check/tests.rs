@@ -675,3 +675,80 @@ fn statements_are_walked() {
             .collect::<Vec<_>>()
     );
 }
+
+/// Parameter names the AL compiler rejects (30.0.42.60748-beta, the corpus CI's compiler; measured 2026-10-22 with one
+/// probe file per word, `procedure P1(<word>: Integer)` and `procedure P1(var <word>: Integer)`): the first diagnostic
+/// alc gives for each, at the name. A quoted name, and every other keyword (`local`, `if`, `fields`, ...), compiles.
+#[test]
+fn keywords_alc_rejects_as_parameter_names() {
+    let one = |params: &str| diags(&[&cu(&format!("procedure P1({params}) begin end;"))]);
+    for w in ["begin", "procedure", "trigger"] {
+        assert_eq!(
+            one(&format!("{w}: Integer")),
+            vec!["AL0104 Syntax error, ')' expected"],
+            "{w}"
+        );
+    }
+    for w in [
+        "end",
+        "of",
+        "true",
+        "false",
+        "event",
+        "key",
+        "area",
+        "actions",
+        "chartpart",
+        "cuegroup",
+        "extends",
+        "fieldattribute",
+        "fieldelement",
+        "fieldgroups",
+        "pageextension",
+        "profileextension",
+        "tableelement",
+        "tableextension",
+        "textattribute",
+        "textelement",
+    ] {
+        assert_eq!(
+            one(&format!("{w}: Integer")),
+            vec![format!("AL0105 Syntax error, identifier expected; '{w}' is a keyword")],
+            "{w}"
+        );
+    }
+    // The word is named in lower case whatever its case in the source.
+    assert_eq!(
+        one("Key: Integer"),
+        vec!["AL0105 Syntax error, identifier expected; 'key' is a keyword"]
+    );
+    let invalid =
+        "AL0107 Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+    for w in [
+        "begin",
+        "end",
+        "of",
+        "var",
+        "procedure",
+        "trigger",
+        "true",
+        "key",
+        "textelement",
+    ] {
+        assert_eq!(one(&format!("var {w}: Integer")), vec![invalid], "var {w}");
+    }
+    // Accepted by alc: quoted names, `local`, and the other keywords.
+    for params in [
+        "\"key\": Integer; \"begin\": Integer",
+        "local: Integer",
+        "var local: Integer",
+        "if: Integer",
+        "exit: Integer",
+        "fields: Integer",
+        "layout: Integer",
+        "keys: Integer",
+        "var x: Integer; y: Integer",
+    ] {
+        assert_eq!(one(params), Vec::<String>::new(), "{params}");
+    }
+}
