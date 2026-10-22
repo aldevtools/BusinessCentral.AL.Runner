@@ -32,6 +32,7 @@ mod filtergroup_assign;
 mod format_auto_format_field;
 mod format_precision_standard;
 mod format_variant_number;
+mod guid_max_str_len;
 mod impact_trace;
 mod in_precedence;
 mod interfaces;

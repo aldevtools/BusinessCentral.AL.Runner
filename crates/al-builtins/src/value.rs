@@ -415,6 +415,12 @@ pub struct PageState {
     pub open_reads_above: bool,
     /// The list opened on the row its OnOpenPage left Rec on (see `open_on_rec_moved_by_onopenpage`).
     pub opened_on_moved_rec: bool,
+    /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
+    /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
+    pub onopenpage_kept_rec: bool,
+    /// A temporary Worksheet opened on the row in a key other than the primary key that was set before the open: it reads each
+    /// row once more, as a list over a database table in such a key does (see `reads_once_more_in_its_key`).
+    pub temp_reads_once_more: bool,
     /// The list opened in a key other than the primary key (key index, ascending) and read its row once more for it; it reads
     /// each row once more at Next and Previous while Rec stays in that key and order (see `reads_once_more_in_its_key`).
     pub reads_once_more_in: Option<(usize, bool)>,
@@ -529,6 +535,12 @@ pub struct PageState {
     /// (pages/lt-qj-part-propagation/QjPartPropagation.al:1346 QL_PartLastNew_NoLines `x=3 x.ln=30000`, the row the part stood on
     /// for the host row before).
     pub empty_part_xrec: Option<Vec<Value>>,
+    /// The part stands on the blank line its Last() ran on a view without rows: a part without DelayedInsert and AutoSplitKey
+    /// inserts that line at the first write to a field outside the key (pages/lt-qj-part-propagation/QjPartPropagation.al:3696).
+    pub blank_after_empty_last: bool,
+    /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
+    /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
+    pub link_validate_failed: bool,
     /// The client's rows were read again from the row a list settled on after an action's filter left its row, with no row before
     /// it: First stays on that row and reads nothing (pages/lt-ai-list-order/AiListOrderTests.al:339, :373 `after_first` empty).
     /// Also set by the refresh of CurrPage.Update on a list with OnFindRecord and OnNextRecord that ends on the first row (:174,
@@ -708,6 +720,8 @@ impl PageState {
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,
+            onopenpage_kept_rec: false,
+            temp_reads_once_more: false,
             reads_once_more_in: None,
             open_read: false,
             blank_on_open: false,
@@ -752,6 +766,8 @@ impl PageState {
             save_after_first_read: false,
             walk_synced_parts: false,
             empty_part_xrec: None,
+            blank_after_empty_last: false,
+            link_validate_failed: false,
             settled_first_row: false,
             caption_assigned_closed: false,
             draft_stored: false,

@@ -410,6 +410,7 @@ impl Session {
         if !self.has_source(st) {
             return unsupported("a new record on a page without a source table");
         }
+        st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);
         let part_xrec = if keep_focus { self.part_new_xrec(st)? } else { None };
         self.set_xrec(st);
@@ -467,7 +468,11 @@ impl Session {
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
         rec.borrow_mut().fields = fresh;
-        self.stamp_from_filters(st, true)?;
+        // New() on a part that shows no row validates the link value with the blank xRec the part held (`stamp_from_filters_seen_as`).
+        match part_xrec.as_ref().and_then(|x| self.blank_held_xrec(st, x)) {
+            Some(before) => self.stamp_from_filters_seen_as(st, before)?,
+            None => self.stamp_from_filters(st, true)?,
+        }
         let engine = self.engine();
         let page = page_of(&engine, st);
         let first = page.controls.iter().position(|c| c.kind == ir::ControlKind::Field);
