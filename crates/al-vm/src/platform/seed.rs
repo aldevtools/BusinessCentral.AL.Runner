@@ -205,9 +205,8 @@ impl Session {
                         r[pos(t, 2)] = text(t, 2, layout);
                         // The Base Application's id on every row (platform/lt-platform-rows-fresh/PlatformRowsLayoutSelection.al:82-85,
                         // BC 27, 28 and 29).
-                        r[pos(t, 3)] = Value::Guid(
-                            al_builtins::ops::parse_guid(BASE_APPLICATION_APP_ID).expect("a literal guid"),
-                        );
+                        r[pos(t, 3)] =
+                            Value::Guid(al_builtins::ops::parse_guid(BASE_APPLICATION_APP_ID).expect("a literal guid"));
                         self.insert_seed(t, r);
                     }
                     wrote = true;

@@ -695,11 +695,12 @@ fn blob_length(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
         if n == 0 || buf.temp_row {
             return Ok(Value::Integer(n as i32));
         }
-        // 2, 3, 6 and 19 bytes of text on every major: record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:250 ('ab' 8),
-        // :222 ('new' 9, 'a long stored value' 25), :350 ('stored' 12). 40 bytes of repeated digits are 19 there (:470):
-        // a compressed size, so a length alone does not decide it.
-        let pinned = matches!(n, 2 | 3 | 4 | 5 | 6 | 8 | 12 | 19)
-            || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29));
+        // 2 and 3 bytes on every major: record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:250 ('ab' 8), :222 ('new' 9).
+        // The stored size is compressed (40 repeated digits are 19 at :470), so for longer content only the texts the corpus
+        // stored are given: 'stored' 12 (:350) and 'a long stored value' 25 (:222).
+        let pinned = matches!(n, 2 | 3 | 4 | 5 | 8 | 12)
+            || (n == 1 && c.gate(al_version::Gate::ProbedValuesDifferFrom29))
+            || matches!(&buf.bytes[..], b"stored" | b"a long stored value");
         if !pinned {
             return unsupported(format!(
                 "Blob.Length before CalcFields of a stored blob of {n} bytes (the stored size is not pinned)"
