@@ -93,7 +93,7 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
-            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on BC 29 (a re-zipped package on the Linux \
+            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on this major (a re-zipped package on the Linux \
              tier, not pinned: MediaFiles.al:505-509)"
                 .into(),
         );
