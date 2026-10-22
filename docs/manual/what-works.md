@@ -1,6 +1,6 @@
 ---
 title: "What works and what is refused"
-weight: 10
+weight: 11
 ---
 
 The goal is the whole AL language. How much runs today is in the status table in
@@ -105,7 +105,7 @@ a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 
 ## Not available yet
 
-- Watch mode and the debugger. See [Editor and tool integration](editor-tools.md).
+- Watch mode. It was rejected for 3.0.0, because `serve` keeps the compile warm and `--affected` skips unaffected tests. See [Editor and tool integration](editor-tools.md).
 - The two Contoso lanes of `--recipe microsoft`.
 - Builds for platforms other than Linux x64, Windows x64 and macOS arm64.
 
