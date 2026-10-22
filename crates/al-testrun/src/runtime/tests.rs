@@ -2328,6 +2328,99 @@ fn company_triggers_run_once_in_the_test_session_before_the_first_test() {
     );
 }
 
+/// [`with_baseline`] whose baseline also runs a company data codeunit (`--company-data demotool`, `company_data.rs`).
+fn with_company_data(main: &str, dep: &str, company: crate::company_data::CompanyData) -> impl Fn(&str) -> Outcome {
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.into())],
+    };
+    let opts = RunOptions {
+        company_data: Some(company),
+        ..Default::default()
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![app("main", &["dep"], main), app("dep", &[], dep)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    );
+    move |name: &str| {
+        rt.first_outcome(&CaseId {
+            codeunit: 50001,
+            name: name.into(),
+        })
+    }
+}
+
+fn demo_company(resources: Option<std::path::PathBuf>) -> crate::company_data::CompanyData {
+    crate::company_data::CompanyData {
+        codeunit: 50130,
+        name: "Build Company".into(),
+        resources,
+        identity: "test".into(),
+    }
+}
+
+#[test]
+fn a_company_data_codeunit_runs_after_company_initialize_and_every_test_starts_from_what_it_wrote() {
+    // BCApps' CI for the Legacy lane: Company-Initialize, then the DemoTool's action (`Invoke-LegacyDemoDataTool`). The
+    // codeunit reads its resource file through `File`, by a relative path, matched without case.
+    let dir = std::env::temp_dir().join(format!("alr-company-data-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("Config.XML"), b"from-file").unwrap();
+    let dep = format!(
+        "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() var S: Record \"Setup\"; L: Record \"Order Log\"; F: File; I: InStream; T: Text; begin
+    F.Open('config.xml'); F.CreateInStream(I); I.ReadText(T); F.Close();
+    S.Get(); S.Value := S.Value + '+' + T; S.Modify();
+    L.What := 'demo'; L.Insert(); end; }}"
+    );
+    let outcome = with_company_data(
+        "codeunit 50001 \"T\" { Subtype = Test; var L: Codeunit \"Lib\"; \
+             [Test] procedure Built() begin if L.ReadSetup() <> 'installed+initialized+from-file' then Error(L.ReadSetup()); end; \
+             [Test] procedure Order() var O: Record \"Order Log\"; T: Text; begin \
+               O.FindSet(); repeat T += O.What + ';'; until O.Next() = 0; \
+               if T <> 'A-company;B-company;init;demo;' then Error(T); end; }",
+        &dep,
+        demo_company(Some(dir.clone())),
+    );
+    assert_eq!(outcome("Built"), Outcome::Pass);
+    assert_eq!(outcome("Order"), Outcome::Pass);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_company_data_codeunit_that_does_not_run_to_its_end_leaves_every_test_not_run() {
+    let dep = format!(
+        "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'demo'; L.Insert(); SerialNumber(); end; }}"
+    );
+    let main = "codeunit 50001 \"T\" { Subtype = Test; [Test] procedure Plain() begin end; }";
+    let outcome = with_company_data(main, &dep, demo_company(None));
+    let Outcome::NotRun(why) = outcome("Plain") else {
+        panic!("{:?}", outcome("Plain"))
+    };
+    assert!(
+        why.starts_with(crate::company_data::BLOCKED_NOTE) && why.contains("Build Company.OnRun"),
+        "{why}"
+    );
+    // A codeunit the program does not have blocks the company too.
+    let outcome = with_company_data(main, SETUP_DEP, demo_company(None));
+    let Outcome::NotRun(why) = outcome("Plain") else {
+        panic!("{:?}", outcome("Plain"))
+    };
+    assert!(why.contains("no dependency app has codeunit 50130"), "{why}");
+}
+
 // al-runner issue 5641: code in a company-open subscriber's static reach that does not run (a routine refused at lowering
 // for a `[RunOnClient]` variable, a run by an id known only at run time, behind a branch that is not taken) refused every
 // test of the run. The subscriber runs to its end before the first test, so what it wrote is known: the tables it wrote at

@@ -49,7 +49,17 @@ fn release(a: &TestArgs, inputs: &[apps::AppInput]) -> Result<(u32, u32), String
 
 /// The arguments of one lane's run: a copy of the command line with the lane's codeunits, its company, Microsoft's
 /// disabled tests skipped, and its own output files.
-pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], recipe: &Recipe) -> TestArgs {
+///
+/// `demotool`: the Legacy lane's company is built by the DemoTool (`--company-data demotool`) instead of the artifact's
+/// RapidStart package, which BC 29's artifact does not have (see [`legacy_uses_demotool`]).
+pub fn lane_args(
+    base: &TestArgs,
+    lane: Lane,
+    company: &str,
+    codeunits: &[u32],
+    recipe: &Recipe,
+    demotool: bool,
+) -> TestArgs {
     let mut a = base.clone();
     a.recipe = false;
     a.bcapps_dir = None;
@@ -69,6 +79,11 @@ pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], 
     a.disabled_tests_dir = Some(recipe.disabled_tests_dir());
     a.parity = true;
     match lane {
+        // BCApps' CI on BC 29: a new company, Company-Initialize, then the DemoTool (`Invoke-LegacyDemoDataTool`).
+        Lane::Legacy if demotool => {
+            a.company_demotool = true;
+            a.company_name = Some(company.to_string());
+        }
         Lane::Legacy => {
             a.company_package = true;
             a.test_data_company = Some(company.to_string());
@@ -86,6 +101,42 @@ pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], 
         other => other.clone(),
     };
     a
+}
+
+/// Whether the Legacy lane builds its company with the DemoTool: no package is named (`--package`, or the one
+/// `test-microsoft` fetched) and the platform artifact of the test apps holds no RapidStart package. The artifact is the
+/// one an APP lies in (`.../<build>/platform/Applications/...`), else the extracted artifact of the build on disk. When
+/// neither is on disk (the apps came from the feed's cache, which keeps no platform folder), no package can be read and
+/// the DemoTool builds the company: BCApps' `ImportTestDataInBcContainer.ps1` builds the Legacy company with the
+/// DemoTool on every release (`Invoke-LegacyDemoDataTool`), the package is only its exported data.
+pub fn legacy_uses_demotool(a: &TestArgs, inputs: &[apps::AppInput]) -> bool {
+    if a.package_path.is_some() {
+        return false;
+    }
+    if a.legacy_demotool {
+        return true;
+    }
+    let from_path = a.apps.iter().find_map(|p| {
+        p.ancestors()
+            .find(|d| d.file_name().is_some_and(|n| n == "platform") && d.join("Applications").is_dir())
+            .map(Path::to_path_buf)
+    });
+    let platform = from_path.or_else(|| {
+        let root = al_deps::cache::bcartifacts_sandbox_from_env()?;
+        let build = apps::own_build(inputs)?;
+        Some(root.join(build.to_string()).join("platform")).filter(|p| p.is_dir())
+    });
+    platform.is_none_or(|p| !has_rapidstart(&p.join("ConfigurationPackages")))
+}
+
+fn has_rapidstart(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|rd| {
+        rd.filter_map(|e| e.ok()).any(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("rapidstart"))
+        })
+    })
 }
 
 /// `FILE.<lane>.xml` for `FILE.xml`: a file for every lane, since the runs are separate.
@@ -230,10 +281,11 @@ pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
         });
     }
     let plan = recipe::plan(&recipe, &units);
+    let demotool = legacy_uses_demotool(a, &inputs);
     let mut lanes = Vec::new();
     for (lane, ids) in &plan.lanes {
         let company = recipe.company_name(*lane).unwrap_or("").to_string();
-        let mut args = lane_args(a, *lane, &company, ids, &recipe);
+        let mut args = lane_args(a, *lane, &company, ids, &recipe, demotool);
         // Microsoft reads the disabled tests of the app it runs only (`Get-DisabledTests -AppName`).
         args.disabled_tests_apps = inputs.iter().map(|i| i.json.name.clone()).collect();
         if args.codeunits.is_empty() {
@@ -342,7 +394,14 @@ mod tests {
 
     #[test]
     fn the_legacy_lane_gets_the_package_company_and_skips_the_disabled_tests() {
-        let a = lane_args(&base(), Lane::Legacy, "CRONUS International Ltd.", &[5, 6], &recipe());
+        let a = lane_args(
+            &base(),
+            Lane::Legacy,
+            "CRONUS International Ltd.",
+            &[5, 6],
+            &recipe(),
+            false,
+        );
         assert!(a.company_package && !a.no_test_data && !a.recipe);
         assert_eq!(a.test_data_company.as_deref(), Some("CRONUS International Ltd."));
         assert_eq!(a.codeunits, vec![5, 6]);
@@ -352,8 +411,61 @@ mod tests {
     }
 
     #[test]
+    fn without_a_package_the_legacy_lane_builds_its_company_with_the_demotool() {
+        let a = lane_args(
+            &base(),
+            Lane::Legacy,
+            "CRONUS International Ltd.",
+            &[5, 6],
+            &recipe(),
+            true,
+        );
+        assert!(a.company_demotool && !a.company_package && !a.recipe);
+        assert!(!a.wants_test_data(), "no backup");
+        assert_eq!(a.company_name.as_deref(), Some("CRONUS International Ltd."));
+        assert!(a.test_data_company.is_none());
+        // The DemoTool only for the Legacy lane.
+        let u = lane_args(&base(), Lane::UnitTest, "Empty Company", &[7], &recipe(), true);
+        assert!(!u.company_demotool);
+    }
+
+    #[test]
+    fn an_artifact_without_rapidstart_packages_makes_the_legacy_lane_use_the_demotool() {
+        let root = tempfile::tempdir().unwrap();
+        let platform = root.path().join("29.0.1.2").join("platform");
+        let zip = platform
+            .join("Applications")
+            .join("BaseApp")
+            .join("Test")
+            .join("Tests-X.Source.zip");
+        std::fs::create_dir_all(zip.parent().unwrap()).unwrap();
+        let mut a = base();
+        a.apps = vec![zip.clone()];
+        assert!(legacy_uses_demotool(&a, &[]), "no ConfigurationPackages folder");
+        std::fs::create_dir_all(platform.join("ConfigurationPackages")).unwrap();
+        std::fs::write(
+            platform
+                .join("ConfigurationPackages")
+                .join("NAV29.W1.ENU.EXTENDED.rapidstart"),
+            b"x",
+        )
+        .unwrap();
+        assert!(!legacy_uses_demotool(&a, &[]), "the artifact has a package");
+        a.package_path = Some("p.rapidstart".into());
+        assert!(!legacy_uses_demotool(&a, &[]));
+        let mut b = base();
+        b.legacy_demotool = true;
+        assert!(legacy_uses_demotool(&b, &[]), "test-microsoft found no package");
+        // An APP outside an extracted artifact, with no artifact of its build on disk (the feed's apps cache): no
+        // package can be read, and Microsoft's CI builds the Legacy company with the DemoTool.
+        let mut c = base();
+        c.apps = vec![root.path().join("apps").join("Tests-X.Source.zip")];
+        assert!(legacy_uses_demotool(&c, &[]), "no artifact on disk");
+    }
+
+    #[test]
     fn the_unit_test_lane_runs_without_demo_data() {
-        let a = lane_args(&base(), Lane::UnitTest, "Empty Company", &[7], &recipe());
+        let a = lane_args(&base(), Lane::UnitTest, "Empty Company", &[7], &recipe(), false);
         assert!(a.no_test_data && !a.company_package);
         assert_eq!(a.company_name.as_deref(), Some("Empty Company"));
         assert_eq!(a.junit, Some(PathBuf::from("out/r.unittest.xml")));
@@ -361,14 +473,14 @@ mod tests {
 
     #[test]
     fn a_lane_gets_the_recipe_time_limit_unless_the_command_line_names_one() {
-        let a = lane_args(&base(), Lane::Legacy, "C", &[5], &recipe());
+        let a = lane_args(&base(), Lane::Legacy, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(60));
         let mut b = base();
         b.test_timeout_secs = Some(5);
-        let a = lane_args(&b, Lane::UnitTest, "C", &[5], &recipe());
+        let a = lane_args(&b, Lane::UnitTest, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(5));
         b.test_timeout_secs = Some(0);
-        let a = lane_args(&b, Lane::Legacy, "C", &[5], &recipe());
+        let a = lane_args(&b, Lane::Legacy, "C", &[5], &recipe(), false);
         assert_eq!(a.test_timeout_secs, Some(0), "0 (no limit) is kept");
     }
 
@@ -376,7 +488,7 @@ mod tests {
     fn a_codeunit_selection_on_the_command_line_narrows_the_lane() {
         let mut b = base();
         b.codeunits = vec![6, 99];
-        let a = lane_args(&b, Lane::Legacy, "C", &[5, 6], &recipe());
+        let a = lane_args(&b, Lane::Legacy, "C", &[5, 6], &recipe(), false);
         assert_eq!(a.codeunits, vec![6]);
     }
 

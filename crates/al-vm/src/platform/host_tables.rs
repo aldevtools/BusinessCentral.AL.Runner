@@ -183,8 +183,33 @@ fn num(v: &Value) -> Option<i64> {
     }
 }
 
+/// The columns of a Windows Language row the corpus pins: Language ID, Primary Language ID, Name, Abbreviated Name,
+/// Primary CodePage and Language Tag (record/TestWindowsLanguageTable.al:9-13 asserts only the columns of the culture;
+/// the license and translation columns, such as "Globally Enabled" and "STX File Exist", depend on the installation
+/// and are left out on purpose). Every other column is not known: a read of it, or a filter on it, is refused.
+const LANGUAGE_PINNED: [u32; 6] = [1, 2, 10, 11, 30, 35];
+
+/// Why a filter on a column of Windows Language that no test pins is refused, if one is.
+fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), StoreError> {
+    match filters
+        .iter()
+        .find(|f| !LANGUAGE_PINNED.contains(&t.fields[f.field].id))
+    {
+        Some(f) => Err(refused(format!(
+            "Windows Language: a filter on {}, a column no corpus test pins (it depends on the installation)",
+            t.fields[f.field].name
+        ))),
+        None => Ok(()),
+    }
+}
+
 fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: &str, tag: &str) -> Row {
     let mut r = blank(t);
+    for f in &t.fields {
+        if !LANGUAGE_PINNED.contains(&f.id) && f.id < al_builtins::platform::SYSTEM_OBJECT_BASE {
+            r[pos(t, f.id)] = super::unknown(t, f.id, &format!("language {lcid}"));
+        }
+    }
     r[pos(t, 1)] = Value::Integer(lcid);
     // The primary language is the low ten bits of the LCID.
     r[pos(t, 2)] = Value::Integer(lcid & 0x3FF);
@@ -244,6 +269,7 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
 }
 
 pub(super) fn windows_language_next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+    language_filter_refusal(t, scan.filters)?;
     let set = language_set(t, scan.filters)?;
     if let Some(id) = unknown_in(&set) {
         return Err(refused(format!(
@@ -264,6 +290,7 @@ pub(super) fn windows_language_next(t: &TableDef, scan: &Scan) -> Result<Option<
 }
 
 pub(super) fn windows_language_count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+    language_filter_refusal(t, filters)?;
     let set = language_set(t, filters)?;
     if let Some(id) = unknown_in(&set) {
         return Err(refused(format!(

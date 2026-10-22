@@ -97,6 +97,9 @@ pub struct Engine {
     /// Tables whose demo rows the corpus database holds and the runtime does not (ADR-047 rejected): a `Count` or `IsEmpty`
     /// of one that the session's own code has not written to is refused (`al_testrun::baseline::demo_row_tables`).
     pub demo_tables: std::collections::HashSet<usize>,
+    /// Why the company the tests run in could not be built (`al_testrun::company_data`): every test codeunit is then not
+    /// run, with this reason. `None`: the company is as the install baseline left it.
+    pub company_refusal: Option<String>,
     /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
     /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
@@ -358,6 +361,7 @@ impl Engine {
             unseeded: Default::default(),
             platform_unseeded: unseeded,
             demo_tables: Default::default(),
+            company_refusal: None,
             resource_overrides: Default::default(),
             resources_read: Default::default(),
             test_data: None,

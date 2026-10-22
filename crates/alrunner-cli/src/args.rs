@@ -155,6 +155,14 @@ pub struct TestArgs {
     pub company_package: bool,
     /// `--package PATH`: the `.rapidstart` file; else the one of the artifact that holds the backup.
     pub package_path: Option<PathBuf>,
+    /// `--company-data demotool`: build the company by running the DemoTool's "Create Demo Data from Config" after
+    /// Company-Initialize, as Microsoft's Legacy test lane does on BC 29 and later (`demotool.rs`). No backup is restored.
+    pub company_demotool: bool,
+    /// `--demotool DIR`: a BCApps checkout holding `src/DemoTool` and `src/Layers/W1/DemoTool`; else the cache or a fetch.
+    pub demotool_dir: Option<PathBuf>,
+    /// Set by `test-microsoft` when the build's artifact has no RapidStart package: the Legacy lane of `--recipe` builds
+    /// its company with the DemoTool. Not a command-line option.
+    pub legacy_demotool: bool,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
     /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
@@ -211,7 +219,7 @@ impl TestArgs {
 
     /// Whether the run restores a company: unless `--no-test-data` says otherwise.
     pub fn wants_test_data(&self) -> bool {
-        !self.no_test_data
+        !self.no_test_data && !self.company_demotool
     }
 
     /// Whether the command line asked for test data (a backup or `--test-data`), so a failure to
@@ -627,12 +635,21 @@ TEST DATA
                          company, else 'CRONUS International Ltd.'.
     The summary says what was loaded and every exclusion: tables the runtime could not rebuild,
     tables the reader failed on (with its text), and columns left out.
-    --company-data bak|package  `bak` (default) restores the CRONUS company of the backup. `package`
+    --company-data bak|package|demotool  `bak` (default) restores the CRONUS company of the backup. `package`
                          builds the company the way Microsoft's Legacy test lane does: a fresh
                          company, Company-Initialize, then the RapidStart package of the artifact
                          (platform/ConfigurationPackages/*.rapidstart, the DemoTool's Extended data).
-                         Opt-in; nothing else changes.
+                         `demotool` builds it as that lane does on a release whose artifact has
+                         no package: a fresh company, Company-Initialize, then the DemoTool's
+                         \"Create Demo Data from Config\" (codeunit 101899), compiled from BCApps' source
+                         of the release with the W1 resource files (fetched with git, sparse, into
+                         <cache dir>/bcapps-demotool/<major>.<minor>/ once). No backup is restored. If
+                         the codeunit does not run to its end, no test runs and the reason says where
+                         it stopped. The company is kept with the install baseline in the compile cache.
+                         w1 only. Opt-in; nothing else changes.
     --package PATH       The .rapidstart file to use (implies --company-data package).
+    --demotool DIR       A BCApps checkout holding src/DemoTool and src/Layers/W1/DemoTool (implies
+                         --company-data demotool).
     --disabled-tests DIR  Microsoft's list of disabled tests: BCApps' src/DisabledTests, or one
                          app's folder (every *.json below DIR is read). Those tests still run and
                          the summary and the JUnit file mark them (property disabled_by_microsoft).
@@ -1160,14 +1177,33 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--company-data" => {
                 let v = text()?;
                 match v.as_str() {
-                    "bak" | "backup" => a.company_package = false,
-                    "package" | "rapidstart" => a.company_package = true,
-                    other => return Err(format!("--company-data takes `bak` or `package`, not `{other}`")),
+                    "bak" | "backup" => {
+                        a.company_package = false;
+                        a.company_demotool = false;
+                    }
+                    "package" | "rapidstart" => {
+                        a.company_package = true;
+                        a.company_demotool = false;
+                    }
+                    "demotool" => {
+                        a.company_demotool = true;
+                        a.company_package = false;
+                    }
+                    other => {
+                        return Err(format!(
+                            "--company-data takes `bak`, `package` or `demotool`, not `{other}`"
+                        ));
+                    }
                 }
             }
             "--package" => {
                 a.package_path = Some(text()?.into());
                 a.company_package = true;
+            }
+            "--demotool" => {
+                a.demotool_dir = Some(text()?.into());
+                a.company_demotool = true;
+                a.company_package = false;
             }
             "--disabled-tests" => a.disabled_tests_dir = Some(text()?.into()),
             "--parity" => a.parity = true,
@@ -1255,12 +1291,21 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
     }
+    if a.company_demotool {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
+        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
+            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
     if a.recipe {
         for (given, flag) in [
             (a.company_package, "--company-data package / --package"),
+            (a.company_demotool, "--company-data demotool / --demotool"),
             (a.test_data_asked_for(), "--test-data"),
             (a.no_test_data, "--no-test-data"),
             (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1494,6 +1539,7 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (!a.affected_from.is_empty(), "--affected-from"),
         (a.recipe, "--recipe"),
         (a.company_package, "--company-data package / --package"),
+        (a.company_demotool, "--company-data demotool / --demotool"),
         (a.test_data_asked_for(), "--test-data"),
         (a.no_test_data, "--no-test-data"),
         (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1863,6 +1909,25 @@ mod tests {
         for needle in ["--company-data", "--package", "--disabled-tests", "--parity"] {
             assert!(HELP.contains(needle), "{needle}");
         }
+    }
+
+    #[test]
+    fn company_data_demotool_builds_the_company_without_a_backup() {
+        let a = test_args("test A --company-data demotool");
+        assert!(a.company_demotool && !a.company_package);
+        assert!(!a.wants_test_data(), "no backup is restored under the DemoTool company");
+        let a = test_args("test A --demotool d");
+        assert!(a.company_demotool && a.demotool_dir == Some(PathBuf::from("d")));
+        assert!(!test_args("test A --company-data demotool --company-data bak").company_demotool);
+        for bad in [
+            "test A --company-data demotool --test-data x.bak",
+            "test A --company-data demotool --no-test-data",
+            "test A --company-data demotool --country us",
+            "test A --company-data demotool --recipe microsoft",
+        ] {
+            assert!(p(bad).is_err(), "{bad}");
+        }
+        assert!(HELP.contains("--company-data bak|package|demotool") && HELP.contains("--demotool DIR"));
     }
 
     #[test]

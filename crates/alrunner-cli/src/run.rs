@@ -880,7 +880,7 @@ fn test_inner(
     }
 
     // Dependencies: --dep, --package-cache, each folder APP's .alpackages, then the feed.
-    let project = apps::combined_project(&inputs);
+    let mut project = apps::combined_project(&inputs);
     let workspace: Vec<WorkspaceApp> = inputs
         .iter()
         .map(|i| WorkspaceApp {
@@ -922,6 +922,29 @@ fn test_inner(
     let mut build_rule = choice.rule;
     let preferred = choice.preferred;
     let preferred_build = preferred.clone();
+    // `--company-data demotool`: the DemoTool of the release is one more dependency app, and its codeunit builds the
+    // company in the install baseline (`demotool.rs`).
+    let company_data = if a.company_demotool {
+        let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
+        let dt = crate::demotool::resolve(
+            a.demotool_dir.as_deref(),
+            u32::from(chosen.target.bc.major),
+            u32::from(chosen.target.bc.minor),
+            &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+            a.no_download,
+            &url,
+            &crate::demotool::git_fetch,
+        )
+        .map_err(|e| format!("--company-data demotool: {e}"))?;
+        eprintln!("company data: {}", dt.how);
+        if !project.dependencies.iter().any(|d| d.id == dt.app.id) {
+            project.dependencies.push(dt.dependency());
+        }
+        search.insert(0, dt.app_dir.clone());
+        Some(dt.company_data())
+    } else {
+        None
+    };
     let provision = Provision {
         cache_dir: a.cache_dir.clone(),
         download: !a.no_download,
@@ -1296,6 +1319,7 @@ fn test_inner(
             )
         }),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
+        company_data: company_data.clone(),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
                 a.cache_dir.as_deref(),

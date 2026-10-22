@@ -264,6 +264,15 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for top in obj.sections() {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
+            // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
+            // nothing in it changes nothing for Import and Export. That the same holds with empty `layout` and
+            // `actions` sections inside it (the DemoTool's xmlport 101899) is not pinned: refused until probed
+            // (docs/probes-needed.md, "The DemoTool company").
+            "requestpage" if request_page_is_empty(&top) => {}
+            "requestpage" if request_page_has_only_empty_sections(&top) => out.run_reasons.push(
+                "an xmlport request page with an empty layout or actions section is not pinned (only `requestpage { }` is)"
+                    .into(),
+            ),
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -276,6 +285,25 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     out
+}
+
+fn section_is_bare(s: &ast::Section) -> bool {
+    s.properties().next().is_none() && s.triggers().next().is_none() && s.var_decls().next().is_none()
+}
+
+/// A `requestpage` section with nothing in it: no property, trigger, variable or section.
+fn request_page_is_empty(rp: &ast::Section) -> bool {
+    section_is_bare(rp) && rp.sections().next().is_none()
+}
+
+/// A `requestpage` section that holds only empty `layout` and `actions` sections (and at least one of them).
+fn request_page_has_only_empty_sections(rp: &ast::Section) -> bool {
+    section_is_bare(rp)
+        && rp.sections().all(|s| {
+            matches!(s.name().to_ascii_lowercase().as_str(), "layout" | "actions")
+                && section_is_bare(&s)
+                && s.sections().next().is_none()
+        })
 }
 
 fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
@@ -729,6 +757,44 @@ mod tests {
         );
     }
 
+    // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
+    // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. Empty `layout`
+    // and `actions` sections inside it (the DemoTool's xmlport 101899) are not pinned, nor is one with a control, an
+    // action, a property or a trigger.
+    #[test]
+    fn an_empty_request_page_runs_and_one_with_content_is_refused() {
+        let schema = "schema { textelement(R) { } }";
+        let l = layout_of(&format!("xmlport 1 X {{ {schema} requestpage {{ }} }}"));
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        for sub in [
+            "requestpage { layout { } actions { } }",
+            "requestpage { layout { } }",
+            "requestpage { actions { } }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {sub} }}"));
+            assert!(
+                l.run_reasons
+                    .iter()
+                    .any(|r| r.contains("empty layout or actions section")),
+                "{sub}: {:?}",
+                l.run_reasons
+            );
+        }
+        for full in [
+            "requestpage { layout { area(content) { field(F; F) { } } } }",
+            "requestpage { actions { area(processing) { action(A) { } } } }",
+            "requestpage { SaveValues = true; }",
+            "requestpage { trigger OnOpenPage() begin end; }",
+        ] {
+            let l = layout_of(&format!("xmlport 1 X {{ {schema} {full} }}"));
+            assert!(
+                l.run_reasons.iter().any(|r| r.contains("request pages")),
+                "{full}: {:?}",
+                l.run_reasons
+            );
+        }
+    }
+
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
     // a nested table element's MinOccurs (XmlPortTriggerFlow.al:93) and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
@@ -768,7 +834,7 @@ mod tests {
     #[test]
     fn what_the_corpus_does_not_pin_becomes_a_reason() {
         let l = layout_of(
-            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { } }",
+            "xmlport 1 X { Format = Binary; schema { textelement(Root) { MinOccurs = Zero; trigger OnPreXmlItem() begin end; } } requestpage { SaveValues = true; } }",
         );
         let all = [l.reasons.clone(), l.run_reasons.clone()].concat().join("; ");
         assert!(all.contains("Format = binary"), "{all}");

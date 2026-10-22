@@ -60,7 +60,7 @@ which they call a lane:
 
 | Test codeunit | Company |
 |---|---|
-| Legacy test apps | The RapidStart package company |
+| Legacy test apps | The RapidStart package company; the DemoTool company when the artifact has no package (BC 29, see [Test data](test-data.md#the-demotool-company)) |
 | `TestType = UnitTest`, or no `TestType` | An empty company |
 | `IntegrationTest` | The Contoso setup company (not run yet) |
 | `Uncategorized` | The Contoso company with all demo data (not run yet) |

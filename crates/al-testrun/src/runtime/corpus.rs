@@ -214,6 +214,8 @@ impl CorpusRuntime {
         let try_skip = baseline_wanted
             && std::env::var_os("AL_FORCE_BASELINE").is_none()
             && !opts.execute
+            // A company built by a codeunit in the baseline is the company every test runs in.
+            && opts.company_data.is_none()
             && suites.iter().all(|s| s.runner.is_none());
         let compile_started = std::time::Instant::now();
         // The compile cache holds the dependency apps, which come first in the program (ADR-022).
@@ -301,6 +303,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
+            company_data: opts.company_data.iter().map(|c| c.codeunit).collect(),
             only_tests: only.clone(),
             tdd: opts.tdd,
             object_hashes: opts.object_hashes,
@@ -497,8 +500,18 @@ impl CorpusRuntime {
                 eprintln!("compile: error {} {}: {}", d.code, d.file, d.message);
             }
         }
-        if std::env::var_os("AL_REACH_REPORT").is_some() {
-            eprintln!("{}", crate::reach::report(&ws, &lowered));
+        if let Some(how) = std::env::var_os("AL_REACH_REPORT") {
+            if how == "tests" {
+                for (test, refused) in crate::reach::refused_by_test(&lowered) {
+                    let n: usize = refused.iter().map(|(_, v)| v.len()).sum();
+                    eprintln!("reach: {test}: {n} refused routines, {} reasons", refused.len());
+                    for (reason, routines) in &refused {
+                        eprintln!("reach:   {:>4}  {reason}  [{}]", routines.len(), routines.join("; "));
+                    }
+                }
+            } else {
+                eprintln!("{}", crate::reach::report(&ws, &lowered));
+            }
         }
         // Nothing else holds the program yet, so this does not copy it.
         for (app, m) in std::sync::Arc::make_mut(&mut lowered.program)
@@ -728,7 +741,12 @@ impl CorpusRuntime {
                 .flatten();
             let run = if baseline {
                 kept.or_else(|| {
-                    crate::baseline::run_traced(&engine, lowered, opts.impact_trace || opts.narrow.is_some())
+                    crate::baseline::run_traced(
+                        &engine,
+                        lowered,
+                        opts.impact_trace || opts.narrow.is_some(),
+                        opts.company_data.as_ref(),
+                    )
                 })
             } else {
                 None
@@ -787,9 +805,80 @@ impl CorpusRuntime {
                 e.unseeded = unseeded;
             }
         }
+        // A company built by a codeunit in the baseline (`company_data.rs`): when the codeunit did not run to its end, or
+        // the baseline did not run, no test runs.
+        let company_refusal = opts.company_data.as_ref().and_then(|c| match &baseline_run {
+            Some(b) => crate::company_data::blocked(&b.notes),
+            None => Some(format!(
+                "{}the install baseline that runs codeunit {} \"{}\" did not run",
+                crate::company_data::BLOCKED_NOTE,
+                c.codeunit,
+                c.name
+            )),
+        });
+        if let Some(why) = &company_refusal {
+            // A baseline that ran printed it with its notes.
+            if baseline_run.is_none() || opts.quiet_baseline {
+                eprintln!("baseline: {why}");
+            }
+            // Everything the codeunit could stop at, not only where it stopped: the routines lowering refuses that it
+            // reaches through its calls.
+            if let Some(c) = &opts.company_data {
+                let objs = &lowered.program.objects;
+                let root = (0..objs.len())
+                    .find(|&oi| {
+                        lowered.dependency[oi]
+                            && objs[oi].is_kind(al_ir::ObjKind::Codeunit)
+                            && objs[oi].id == Some(c.codeunit)
+                    })
+                    .and_then(|oi| Some((oi, crate::baseline::trigger(&objs[oi], "OnRun")?)));
+                if let Some(root) = root {
+                    // A codeunit whose app came from the compile cache has no recorded calls: its whole app is listed.
+                    let (refused, what) = if lowered.provided.get(root.0).copied().unwrap_or(false) {
+                        (
+                            crate::reach::refused_in_app(lowered, objs[root.0].app),
+                            "'s app (from the compile cache) holds",
+                        )
+                    } else {
+                        (crate::reach::refused_reached_from(lowered, &[root]), " reaches")
+                    };
+                    let n: usize = refused.iter().map(|(_, v)| v.len()).sum();
+                    eprintln!(
+                        "baseline: codeunit {} \"{}\"{what} {n} routines that are refused, for {} reasons{}",
+                        c.codeunit,
+                        c.name,
+                        refused.len(),
+                        if opts.quiet_baseline {
+                            " (--verbose lists them)"
+                        } else {
+                            ":"
+                        }
+                    );
+                    if !opts.quiet_baseline {
+                        for (reason, routines) in &refused {
+                            eprintln!(
+                                "baseline:   {:>4}  {}  [{}{}]",
+                                routines.len(),
+                                crate::refusals::clip(reason, 200),
+                                routines.iter().take(3).cloned().collect::<Vec<_>>().join("; "),
+                                if routines.len() > 3 { "; ..." } else { "" }
+                            );
+                        }
+                    }
+                }
+            }
+            match Arc::get_mut(&mut engine) {
+                Some(e) => e.company_refusal = Some(why.clone()),
+                None => panic!("the test engine is shared before the tests start"),
+            }
+        }
         // Without test data the tests run against the corpus database's company, whose demo rows the runtime does not
         // have (ADR-047 rejected): a Count or IsEmpty of one of those tables before the test wrote to it is refused (`demo_row_tables`).
-        if opts.test_data.is_none() {
+        // A company the baseline built (`--company-data demotool`) holds the rows its codeunit wrote, not the corpus
+        // database's. The refusal is off there because nothing is missing: every row comes from Microsoft's own code
+        // (Company-Initialize and the DemoTool, compiled from their source and run to their end, else no test runs),
+        // so a Count or IsEmpty answers from the rows real BC would hold after the same code.
+        if opts.test_data.is_none() && opts.company_data.is_none() {
             let demo = crate::baseline::demo_row_tables(lowered);
             if !demo.is_empty() {
                 match Arc::get_mut(&mut engine) {
@@ -1139,7 +1228,10 @@ impl CorpusRuntime {
                                         .as_deref()
                                         .and_then(al_vm::Baseline::from_bytes)
                                         .map(|b| b.backed_by(e))
-                                        .or_else(|| crate::baseline::run(e, lowered).map(|b| b.baseline))
+                                        .or_else(|| {
+                                            crate::baseline::run(e, lowered, opts.company_data.as_ref())
+                                                .map(|b| b.baseline)
+                                        })
                                 });
                                 pull(own.as_ref())
                             });
@@ -1559,6 +1651,11 @@ fn baseline_key(
         },
     );
     key.bytes("runtime_build", &crate::compile_cache::runtime_build());
+    // The codeunit that builds the company, and what its files and its app's source are.
+    match &opts.company_data {
+        Some(c) => key.text("company_data", &format!("{} {} {}", c.codeunit, c.name, c.identity)),
+        None => key.text("company_data", ""),
+    };
     key.text("dependencies", &report.file.file_name()?.to_string_lossy());
     for (i, app) in ws.apps.iter().enumerate() {
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {

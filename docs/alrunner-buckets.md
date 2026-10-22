@@ -344,7 +344,9 @@ from the package and read Company Information."Country/Region Code"). Until then
    `UnitTest` or none, `IntegrationTest`, `Uncategorized`; `AITest` is in no build mode and is left out. A codeunit
    without the property runs in the UnitTest lane: checked 2026-10-22 against Microsoft's CI (BCApps `releases/29.x`,
    run 39519586834), where the Default job ran 242 such codeunits and the UncategorizedTests job none.
-3. Company per lane: Legacy runs `--company-data package` (company name from the settings, CRONUS International Ltd.);
+3. Company per lane: Legacy runs `--company-data package` (company name from the settings, CRONUS International Ltd.),
+   or `--company-data demotool` when the platform artifact has no RapidStart package (BC 29: BCApps' CI runs the
+   DemoTool's "Create Demo Data from Config" after Company-Initialize there, `Invoke-LegacyDemoDataTool`);
    UnitTest runs without demo data (Company-Initialize and the installs only). IntegrationTest and Uncategorized need
    Microsoft's Contoso Demo Tool (`CreateSetupDemoData`, `CreateAllDemoData`, then the tenant data codeunit 5691, which also
    creates the Web Service rows). The runner does not run it yet, so those lanes print `NOT RUN` with the reason and the

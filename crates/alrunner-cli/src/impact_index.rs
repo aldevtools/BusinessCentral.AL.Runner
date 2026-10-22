@@ -253,6 +253,10 @@ pub fn key(a: &TestArgs) -> Result<String, String> {
         &a.company_name,
     )
         .hash(&mut h);
+    // The DemoTool company (`--company-data demotool`); a run without it keeps the key it had.
+    if a.company_demotool {
+        ("company-data demotool", &a.demotool_dir).hash(&mut h);
+    }
     a.isolation.hash(&mut h);
     // `--isolation required` (off, the hash is the one it was before the option existed).
     if a.required_isolation {
