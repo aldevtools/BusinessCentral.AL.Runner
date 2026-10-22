@@ -4450,6 +4450,15 @@
           "site": "handlers/SrlLayoutReport.Report.al:40"
         },
         {
+          "corpus_uses": 10,
+          "group": "xmlport/fieldelement",
+          "ms_uses": 16,
+          "name": "FieldValidate",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-report-page-properties/06-xmlport-fvel.al:22"
+        },
+        {
           "corpus_uses": 6,
           "group": "controladdin",
           "ms_uses": 16,
@@ -4466,15 +4475,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "handlers/ProbePageMetadataFixtures.al:125"
-        },
-        {
-          "corpus_uses": 10,
-          "group": "xmlport/fieldelement",
-          "ms_uses": 16,
-          "name": "FieldValidate",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-report-page-properties/06-xmlport-fvel.al:22"
         },
         {
           "corpus_uses": 2,
@@ -5089,6 +5089,15 @@
           "site": "metadata/W6TableCodeunitMetadata.al:25"
         },
         {
+          "corpus_uses": 4,
+          "group": "xmlport/fieldattribute",
+          "ms_uses": 7,
+          "name": "FieldValidate",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-report-page-properties/06-xmlport-fvat.al:22"
+        },
+        {
           "corpus_uses": 1,
           "group": "controladdin",
           "ms_uses": 7,
@@ -5141,15 +5150,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-presentation-properties/P119Labels.al:38"
-        },
-        {
-          "corpus_uses": 4,
-          "group": "xmlport/fieldattribute",
-          "ms_uses": 7,
-          "name": "FieldValidate",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-report-page-properties/06-xmlport-fvat.al:22"
         },
         {
           "corpus_uses": 1,
@@ -6430,6 +6430,15 @@
           "site": "pageext/lt-page-ext-properties/TableFieldValuesAllowed.al:23"
         },
         {
+          "corpus_uses": 3,
+          "group": "xmlport",
+          "ms_uses": 2,
+          "name": "DefaultFieldsValidation",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "report/lt-u-report-props/UReportObjects.al:142"
+        },
+        {
           "corpus_uses": 8,
           "group": "xmlport",
           "ms_uses": 2,
@@ -6689,15 +6698,6 @@
           "pinned": false,
           "runtime_reads": false,
           "site": null
-        },
-        {
-          "corpus_uses": 3,
-          "group": "xmlport",
-          "ms_uses": 2,
-          "name": "DefaultFieldsValidation",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "report/lt-u-report-props/UReportObjects.al:142"
         },
         {
           "corpus_uses": 0,
@@ -16135,7 +16135,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 651,
+        "line": 686,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16144,7 +16144,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 815,
+        "line": 850,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16153,7 +16153,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 980,
+        "line": 1015,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16162,7 +16162,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1012,
+        "line": 1047,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16342,7 +16342,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1331,
+        "line": 1353,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -28202,7 +28202,7 @@
         "pinned": true,
         "scope": "",
         "site": "report/lt-u-report-props/UReportObjects.al:142",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -28607,7 +28607,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-report-page-properties/06-xmlport-fvat.al:22",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -28712,7 +28712,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-report-page-properties/06-xmlport-fvel.al:22",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
