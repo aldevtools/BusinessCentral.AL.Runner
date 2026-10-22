@@ -438,8 +438,8 @@ item references, so `Color already exists` and `Vendor Item No. already exists` 
 The Contoso lanes run on an empty company (`--no-test-data`, as BCApps does). Run that way, with the scratch cuts listed below,
 the real order (all Setup, then Master, Transactional, Historical) stops at, in order:
 
-1. `Windows Language`: the Contoso language setup filters the table by "Abbreviated Name"; only 1031, 1033 and 2057 are pinned.
-   Needs a probe that lists the whole table on real BC.
+1. `Windows Language`: the Contoso language setup filters the table by "Abbreviated Name". Since corpus bump 53 the rows of the
+   DemoTool's 54 codes are pinned (platform/lt-ag-contoso/AgWindowsLanguage.al); a code outside them still needs a probe.
 2. XmlPort `Imp / Exp Data Exch Def & Map` (1225), imported for 7 data exchange definitions from the Contoso resources:
    `Encoding = UTF8` (export is pinned by xmlport/W7XmlPortTests.al:345-364, import is not), `MinOccurs` on a `tableelement`,
    `Occurrence = Optional` on 53 field attributes (no corpus test uses `Occurrence`), `FieldValidate`, `SourceTableView`, and an

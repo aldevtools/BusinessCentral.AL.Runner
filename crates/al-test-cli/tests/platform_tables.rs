@@ -384,22 +384,39 @@ fn date_and_time_zone_and_windows_language_answer_from_their_pins() {
     }
 }
 
-// Windows Language: record/TestWindowsLanguageTable.al:9-13 pins only the columns of the culture (Language ID, Primary Language
-// ID, Name, Abbreviated Name, Primary CodePage, Language Tag) and leaves the license and translation columns out on purpose
-// ("Globally Enabled", "STX File Exist", ...). A read or a filter of one of those is refused, not answered with a blank
+// Windows Language: record/TestWindowsLanguageTable.al:9-13 pins the columns of the culture (Language ID, Primary Language
+// ID, Name, Abbreviated Name, Primary CodePage, Language Tag). platform/lt-ag-contoso/AgWindowsLanguage.al pins more: the row
+// of each of the DemoTool's 54 codes, found by Abbreviated Name with a count of 1 (QX_WindowsLanguage_ByAbbreviatedName_Part1-3),
+// "Globally Enabled" true on every row (its count is the table's, :116-118) and "STX File Exist" true for 1030, 1031, 1033,
+// 1036 and 2057 (:110-114), "Localization Exist" true for 1031, 1033, 1036, 1040 and 2057
+// (errors/lt-ms-refusals-128/P128WindowsLanguage.al:46-50). Any other column, and "STX File Exist" of any other row, is refused, not answered with a blank
 // (the DemoTool's Demo Data Setup."Data Language ID" TableRelation filters on both).
 #[test]
-fn windows_language_refuses_the_columns_no_test_pins() {
+fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure PinnedColumns() var W: Record "Windows Language"; begin W.SetFilter("Language ID", '1031|1033|2057'); W.SetRange("Abbreviated Name", 'ENU'); if not W.FindFirst() then Error('no ENU'); if W."Language ID" <> 1033 then Error('id'); end;
-  [Test] procedure FilterOnGloballyEnabled() var W: Record "Windows Language"; begin W.SetRange("Language ID", 1033); W.SetRange("Globally Enabled", true); if W.FindFirst() then; end;
-  [Test] procedure ReadOfSTXFileExist() var W: Record "Windows Language"; begin W.Get(1033); if W."STX File Exist" then; end; }"#,
+  [Test] procedure FilterOnGloballyEnabledAndStx() var W: Record "Windows Language"; begin W.SetRange("Language ID", 1033); W.SetRange("Globally Enabled", true); W.SetRange("STX File Exist", true); if not W.FindFirst() then Error('no 1033'); if not W."STX File Exist" then Error('stx'); end;
+  [Test] procedure ByAbbreviatedName() var W: Record "Windows Language"; N: Integer; begin W.SetCurrentKey("Abbreviated Name"); W.SetFilter("Abbreviated Name", 'NOR'); if W.Count() <> 1 then Error('count'); W.FindSet(); repeat N += 1; until W.Next() = 0; if N <> 1 then Error('walk'); if W."Language ID" <> 1044 then Error('id'); if W.Name <> 'Norwegian Bokmål (Norway)' then Error('name'); if W."Primary CodePage" <> '850' then Error('cp'); if W."Language Tag" <> 'nb-NO' then Error('tag'); end;
+  [Test] procedure ReadOfSTXFileExistOfAnotherRow() var W: Record "Windows Language"; begin W.Get(3079); if W."STX File Exist" then; end;
+  [Test] procedure FilterOnEnabled() var W: Record "Windows Language"; begin W.SetRange("Language ID", 1033); W.SetRange(Enabled, true); if W.FindFirst() then; end;
+  [Test] procedure StxCountOfAKnownRange() var W: Record "Windows Language"; begin W.SetFilter("Language ID", '1031|3079'); W.SetRange("STX File Exist", true); if W.Count() = 0 then; end;
+  [Test] procedure LocalizationOf1040() var W: Record "Windows Language"; begin W.Get(1040); if not W."Localization Exist" then Error('loc'); end;
+  [Test] procedure LocalizationOf1030() var W: Record "Windows Language"; begin W.Get(1030); if W."Localization Exist" then; end;
+  [Test] procedure AnAbbreviationNotPinned() var W: Record "Windows Language"; begin W.SetFilter("Abbreviated Name", 'ARA'); if W.FindFirst() then; end; }"#,
     );
-    passes(&o, "PinnedColumns");
-    for t in ["FilterOnGloballyEnabled", "ReadOfSTXFileExist"] {
+    for t in ["PinnedColumns", "FilterOnGloballyEnabledAndStx", "ByAbbreviatedName", "LocalizationOf1040"] {
+        passes(&o, t);
+    }
+    for t in [
+        "ReadOfSTXFileExistOfAnotherRow",
+        "FilterOnEnabled",
+        "StxCountOfAKnownRange",
+        "AnAbbreviationNotPinned",
+        "LocalizationOf1030",
+    ] {
         let why = not_run(&o, t);
-        assert!(why.contains("Windows Language"), "{t}: {why}");
+        assert!(why.contains("Windows Language") || why.contains("not pinned"), "{t}: {why}");
     }
 }
 

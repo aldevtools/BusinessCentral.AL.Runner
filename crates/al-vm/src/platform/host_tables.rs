@@ -159,22 +159,96 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
 // ---- Windows Language -----------------------------------------------------------------------------
 
 use super::{option, ranges, refused};
-use al_builtins::filter::FieldFilter;
+use al_builtins::filter::{FieldFilter, FilterExpr};
+use super::mat::Mat;
 use al_data::{Row, Scan, StoreError};
 
-/// The languages the corpus pins, as (LCID, name, abbreviated name, primary code page, tag). The table
-/// lists every language of the host, which is not pinned beyond these three rows
-/// (record/TestWindowsLanguageTable.al:19-60); a read that would have to answer for any other language
-/// of the Windows range is refused.
+/// The languages the corpus pins, as (LCID, name, abbreviated name, primary code page, tag). The table lists every
+/// language of the host (212 rows on BC 29, 208 before: platform/lt-ag-contoso/AgWindowsLanguage.al:61-68), of which these
+/// are pinned: 1031, 1033 and 2057 (record/TestWindowsLanguageTable.al:19-60), 1025, the first row
+/// (AgWindowsLanguage.al:65), and the row of each of the DemoTool's 54 codes (AgWindowsLanguage.al:167-184, 209-226,
+/// 251-268, QX_WindowsLanguage_ByAbbreviatedName_Part1-3, the same on every version). A read that would have to answer
+/// for any other language of the Windows range is refused.
 const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
+    (1025, "Arabic (Saudi Arabia)", "ARA", "720", "ar-SA"),
+    (1026, "Bulgarian (Bulgaria)", "BGR", "866", "bg-BG"),
+    (1029, "Czech (Czechia)", "CSY", "852", "cs-CZ"),
+    (1030, "Danish (Denmark)", "DAN", "850", "da-DK"),
     (1031, "German (Germany)", "DEU", "850", "de-DE"),
+    (1032, "Greek (Greece)", "ELL", "737", "el-GR"),
     (1033, "English (United States)", "ENU", "437", "en-US"),
+    (1034, "Spanish (Spain, Sort Order=tradnl)", "ESP", "850", "es-ES"),
+    (1035, "Finnish (Finland)", "FIN", "850", "fi-FI"),
+    (1036, "French (France)", "FRA", "850", "fr-FR"),
+    (1038, "Hungarian (Hungary)", "HUN", "852", "hu-HU"),
+    (1039, "Icelandic (Iceland)", "ISL", "850", "is-IS"),
+    (1040, "Italian (Italy)", "ITA", "850", "it-IT"),
+    (1041, "Japanese (Japan)", "JPN", "932", "ja-JP"),
+    (1042, "Korean (South Korea)", "KOR", "949", "ko-KR"),
+    (1043, "Dutch (Netherlands)", "NLD", "850", "nl-NL"),
+    (1044, "Norwegian Bokmål (Norway)", "NOR", "850", "nb-NO"),
+    (1045, "Polish (Poland)", "PLK", "852", "pl-PL"),
+    (1046, "Portuguese (Brazil)", "PTB", "850", "pt-BR"),
+    (1048, "Romanian (Romania)", "ROM", "852", "ro-RO"),
+    (1049, "Russian (Russia)", "RUS", "866", "ru-RU"),
+    (1050, "Croatian (Croatia)", "HRV", "852", "hr-HR"),
+    (1051, "Slovak (Slovakia)", "SKY", "852", "sk-SK"),
+    (1053, "Swedish (Sweden)", "SVE", "850", "sv-SE"),
+    (1054, "Thai (Thailand)", "THA", "874", "th-TH"),
+    (1055, "Turkish (Türkiye)", "TRK", "857", "tr-TR"),
+    (1057, "Indonesian (Indonesia)", "IND", "850", "id-ID"),
+    (1058, "Ukrainian (Ukraine)", "UKR", "866", "uk-UA"),
+    (1060, "Slovenian (Slovenia)", "SLV", "852", "sl-SI"),
+    (1061, "Estonian (Estonia)", "ETI", "775", "et-EE"),
+    (1062, "Latvian (Latvia)", "LVI", "775", "lv-LV"),
+    (1063, "Lithuanian (Lithuania)", "LTH", "775", "lt-LT"),
+    (1086, "Malay (Malaysia)", "MSL", "850", "ms-MY"),
+    (2052, "Chinese (China)", "CHS", "936", "zh-CN"),
+    (2055, "German (Switzerland)", "DES", "850", "de-CH"),
     (2057, "English (United Kingdom)", "ENG", "850", "en-GB"),
+    (2058, "Spanish (Mexico)", "ESM", "850", "es-MX"),
+    (2060, "French (Belgium)", "FRB", "850", "fr-BE"),
+    (2064, "Italian (Switzerland)", "ITS", "850", "it-CH"),
+    (2067, "Dutch (Belgium)", "NLB", "850", "nl-BE"),
+    (2068, "Norwegian Nynorsk (Norway)", "NON", "850", "nn-NO"),
+    (2070, "Portuguese (Portugal)", "PTG", "850", "pt-PT"),
+    (3079, "German (Austria)", "DEA", "850", "de-AT"),
+    (3081, "English (Australia)", "ENA", "850", "en-AU"),
+    (3082, "Spanish (Spain)", "ESN", "850", "es-ES"),
+    (3084, "French (Canada)", "FRC", "850", "fr-CA"),
+    (4105, "English (Canada)", "ENC", "850", "en-CA"),
+    (4108, "French (Switzerland)", "FRS", "850", "fr-CH"),
+    (5129, "English (New Zealand)", "ENZ", "850", "en-NZ"),
+    (6153, "English (Ireland)", "ENI", "850", "en-IE"),
+    (9226, "Spanish (Colombia)", "ESO", "850", "es-CO"),
+    (10250, "Spanish (Peru)", "ESR", "850", "es-PE"),
+    (11274, "Spanish (Argentina)", "ESS", "850", "es-AR"),
+    (11290, "Serbian (Latin, Montenegro)", "SRP", "852", "sr-Latn-ME"),
+    (13321, "English (Philippines)", "ENP", "437", "en-PH"),
 ];
+/// The abbreviated names a filter may name alone: the table holds exactly one row with each (`count=1` at
+/// AgWindowsLanguage.al:167-268), so a filter on one of them takes in no language beyond the row listed.
+/// Every listed row but 1025 (ARA, whose count is not pinned).
+fn unique_abbreviation(abbr: &str) -> Option<i64> {
+    LANGUAGES
+        .iter()
+        .find(|l| l.2 == abbr && l.0 != 1025)
+        .map(|l| i64::from(l.0))
+}
+/// "STX File Exist" is pinned true for these rows (AgWindowsLanguage.al:110-114); for every other row it is not known.
+const STX_FILE_EXISTS: [i32; 5] = [1030, 1031, 1033, 1036, 2057];
+/// "Localization Exist" is pinned true for these rows (errors/lt-ms-refusals-128/P128WindowsLanguage.al:46-50); for every
+/// other row it is not known.
+const LOCALIZATION_EXISTS: [i32; 5] = [1031, 1033, 1036, 1040, 2057];
 /// The ids a culture can have: a number above this is no language (TestWindowsLanguageTable.al:63-70
 /// asks for 999999 and expects no row).
 const MAX_LCID: i64 = 0xFFFF;
 const LANGUAGE_ID: u32 = 1;
+const ABBREVIATED_NAME: u32 = 11;
+/// "Globally Enabled" is true on every row: a filter on it keeps the whole table (AgWindowsLanguage.al:116-118).
+const GLOBALLY_ENABLED: u32 = 21;
+const STX_FILE_EXIST: u32 = 31;
+const LOCALIZATION_EXIST: u32 = 34;
 
 fn num(v: &Value) -> Option<i64> {
     match v {
@@ -184,12 +258,13 @@ fn num(v: &Value) -> Option<i64> {
 }
 
 /// The columns of a Windows Language row the corpus pins: Language ID, Primary Language ID, Name, Abbreviated Name,
-/// Primary CodePage and Language Tag (record/TestWindowsLanguageTable.al:9-13 asserts only the columns of the culture;
-/// the license and translation columns, such as "Globally Enabled" and "STX File Exist", depend on the installation
-/// and are left out on purpose). Every other column is not known: a read of it, or a filter on it, is refused.
-const LANGUAGE_PINNED: [u32; 6] = [1, 2, 10, 11, 30, 35];
+/// Primary CodePage and Language Tag (record/TestWindowsLanguageTable.al:9-13), "Globally Enabled" and, for some rows,
+/// "STX File Exist" and "Localization Exist" (see above). Every other license and translation column depends on the installation and is not
+/// known: a read of it, or a filter on it, is refused.
+const LANGUAGE_PINNED: [u32; 9] = [1, 2, 10, 11, 21, 30, 31, 34, 35];
 
-/// Why a filter on a column of Windows Language that no test pins is refused, if one is.
+/// Why a filter on a column of Windows Language that no test pins is refused, if one is. A filter on "STX File Exist" or
+/// "Localization Exist" passes here; the listing refuses it for a row whose value is not known.
 fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), StoreError> {
     match filters
         .iter()
@@ -215,6 +290,17 @@ fn language_row(t: &TableDef, lcid: i32, name: &str, abbr: &str, code_page: &str
     r[pos(t, 2)] = Value::Integer(lcid & 0x3FF);
     r[pos(t, 10)] = Value::Text(name.into());
     r[pos(t, 11)] = Value::Text(abbr.into());
+    r[pos(t, GLOBALLY_ENABLED)] = Value::Boolean(true);
+    r[pos(t, STX_FILE_EXIST)] = if STX_FILE_EXISTS.contains(&lcid) {
+        Value::Boolean(true)
+    } else {
+        super::unknown(t, STX_FILE_EXIST, &format!("language {lcid}"))
+    };
+    r[pos(t, LOCALIZATION_EXIST)] = if LOCALIZATION_EXISTS.contains(&lcid) {
+        Value::Boolean(true)
+    } else {
+        super::unknown(t, LOCALIZATION_EXIST, &format!("language {lcid}"))
+    };
     r[pos(t, 30)] = Value::Text(code_page.into());
     r[pos(t, 35)] = Value::Text(tag.into());
     let _ = option;
@@ -252,6 +338,47 @@ fn language_set(t: &TableDef, filters: &[FieldFilter]) -> Result<ranges::Set, St
         .map_err(|e| refused(format!("Windows Language: {e}")))
 }
 
+/// The one language a filter on "Abbreviated Name" equal to a code of [`unique_abbreviation`] can take in.
+fn abbreviated_name_row(t: &TableDef, filters: &[FieldFilter]) -> Option<i64> {
+    let at = pos(t, ABBREVIATED_NAME);
+    filters
+        .iter()
+        .filter(|f| f.field == at && f.group != al_builtins::filter::OR_GROUP)
+        .find_map(|f| {
+            let text = |v: &Value| match v {
+                Value::Text(s) | Value::Code(s) => Some(s.to_string()),
+                _ => None,
+            };
+            let code = match &f.expr {
+                FilterExpr::Eq(v) | FilterExpr::RangeSame(v) => text(v)?,
+                FilterExpr::Range(Some(a), Some(b)) if text(a)? == text(b)? => text(a)?,
+                _ => return None,
+            };
+            unique_abbreviation(&code)
+        })
+}
+
+/// The rows a read with `filters` may take in, listed; refused when the filters take in a language whose row is not pinned.
+fn language_listing(t: &TableDef, filters: &[FieldFilter]) -> Result<Mat, StoreError> {
+    language_filter_refusal(t, filters)?;
+    let set = language_set(t, filters)?;
+    let only = abbreviated_name_row(t, filters);
+    if only.is_none() {
+        if let Some(id) = unknown_in(&set) {
+            return Err(refused(format!(
+                "Windows Language: the filter takes in language {id}, whose row is not pinned (only the rows of AgWindowsLanguage.al are)"
+            )));
+        }
+    }
+    let rows = LANGUAGES
+        .iter()
+        .filter(|l| only.is_none_or(|id| id == i64::from(l.0)))
+        .filter_map(|l| known(t, i64::from(l.0)))
+        .map(Entry::ok)
+        .collect();
+    Ok(Mat::new(t, rows))
+}
+
 pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
     let id = pk
         .first()
@@ -263,45 +390,17 @@ pub(super) fn windows_language_get(t: &TableDef, pk: &[Value]) -> Result<Option<
     match known(t, id) {
         Some(r) => Ok(Some(r)),
         None => Err(refused(format!(
-            "Windows Language: whether language {id} is a row is not pinned (only 1031, 1033 and 2057 are)"
+            "Windows Language: whether language {id} is a row is not pinned (only the rows of AgWindowsLanguage.al are)"
         ))),
     }
 }
 
 pub(super) fn windows_language_next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
-    language_filter_refusal(t, scan.filters)?;
-    let set = language_set(t, scan.filters)?;
-    if let Some(id) = unknown_in(&set) {
-        return Err(refused(format!(
-            "Windows Language: the filter takes in language {id}, whose row is not pinned (only 1031, 1033 and 2057 are)"
-        )));
-    }
-    let after = scan.after.and_then(|a| a.first()).and_then(num);
-    let mut cur = after;
-    while let Some(id) = ranges::step(&set, cur, scan.ascending) {
-        if let Some(r) = known(t, id) {
-            if scan.filters.iter().all(|f| f.expr.matches(&r[f.field])) {
-                return Ok(Some(r));
-            }
-        }
-        cur = Some(id);
-    }
-    Ok(None)
+    language_listing(t, scan.filters)?.next(t, scan)
 }
 
 pub(super) fn windows_language_count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
-    language_filter_refusal(t, filters)?;
-    let set = language_set(t, filters)?;
-    if let Some(id) = unknown_in(&set) {
-        return Err(refused(format!(
-            "Windows Language: the filter takes in language {id}, whose row is not pinned (only 1031, 1033 and 2057 are)"
-        )));
-    }
-    Ok(LANGUAGES
-        .iter()
-        .filter_map(|l| known(t, i64::from(l.0)))
-        .filter(|r| filters.iter().all(|f| f.expr.matches(&r[f.field])))
-        .count())
+    language_listing(t, filters)?.count(t, filters)
 }
 
 // ---- License Permission ---------------------------------------------------------------------------
