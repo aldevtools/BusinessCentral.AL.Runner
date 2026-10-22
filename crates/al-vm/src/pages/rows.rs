@@ -558,6 +558,8 @@ impl Session {
         let mut walked = 0;
         let mut end_reached = false;
         let opening = std::mem::take(&mut st.borrow_mut().landing_first);
+        // The list opens on a row its OnOpenPage left Rec on (`open_on_rec_moved_by_onopenpage`).
+        let moved_open = st.borrow().open_reads_above;
         let backwards = st.borrow_mut().read_backwards.take();
         if let Some(why) = backwards
             && self.populate_window_backwards(st, start.clone(), why)?
@@ -725,15 +727,21 @@ impl Session {
         if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
             // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
             // `O:A;R:A;R:A;R:B;R:C;R:D;R:A;R:A;R:A;C:A;`).
-            if !end_reached || st.borrow().window.len() < 2 {
+            if end_reached && st.borrow().window.len() >= 2 {
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+                let rec = self.page_rec(st);
+                let at = (rec.borrow().key, rec.borrow().ascending);
+                st.borrow_mut().reads_once_more_in = Some(at);
+            } else if moved_open {
+                // A list on the row OnOpenPage left Rec on, in such a key, whose view has one row or more than a window: not pinned.
                 return unsupported(
-                    "the rows a list reads in a key other than the primary key, other than at an open whose view of more than one row ends inside the window (not pinned)",
+                    "the open read of a list on the row its OnOpenPage left Rec on, in a key other than the primary key, with one row or more rows than a window holds (not pinned)",
                 );
+            } else {
+                // Any other open in such a key (one row, or more rows than a window) keeps the reads of the primary key: not
+                // pinned (assumed; Tests-ERM O365 Correct Sales Invoice and Payments using Creditor Number open such lists).
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOtherKeyOtherMoves);
             }
-            self.page_trigger(st, "onaftergetrecord", vec![])?;
-            let rec = self.page_rec(st);
-            let at = (rec.borrow().key, rec.borrow().ascending);
-            st.borrow_mut().reads_once_more_in = Some(at);
         }
         Ok(())
     }
