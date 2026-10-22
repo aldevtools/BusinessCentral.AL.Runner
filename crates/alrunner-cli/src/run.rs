@@ -1040,9 +1040,10 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     if a.required_isolation && !hub {
         eprintln!(
-            "note: --isolation required: BC {} runs every test codeunit under TestIsolation = Codeunit, whatever its \
-             RequiredTestIsolation says (that property is honored from BC 28); the tests run that way",
-            chosen.target.bc.major
+            "note: --isolation required: Business Central {} runs every test codeunit under TestIsolation = Codeunit, \
+             whatever its RequiredTestIsolation says (that property is honored from version {}); the tests run that way",
+            chosen.target.bc.major,
+            al_version::Gate::TestRunnerHubRequiredIsolationFrom28.since_bc()
         );
     }
 

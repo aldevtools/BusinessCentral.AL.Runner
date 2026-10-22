@@ -539,8 +539,9 @@ ISOLATION
                          is reported as not run: whether BC keeps the committed rows for the next
                          test is not pinned yet; run that codeunit with `codeunit`. `disabled`:
                          not pinned yet, so every test is reported as not run. `required`: each
-                         test codeunit runs under its own RequiredTestIsolation, as BC 28 and
-                         later runs it without a test runner codeunit (BC 27: as `codeunit`).
+                         test codeunit runs under its own RequiredTestIsolation, as Business
+                         Central runs it without a test runner codeunit from version 28 (on
+                         version 27 as `codeunit`).
 
 EXIT CODES
     0  every selected test passed

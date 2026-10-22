@@ -1992,7 +1992,11 @@ fn isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
         row(&json_of(&o), "Codeunit50670.B_NextTestSeesNothing")["message"],
         "kept"
     );
-    assert!(text(&o).contains("BC 27"), "{}", text(&o));
+    assert!(
+        text(&o).contains("Business Central 27 runs every test codeunit under TestIsolation = Codeunit"),
+        "{}",
+        text(&o)
+    );
     // The old values stay refused: a Commit() under --isolation test.
     let o = run(&["--isolation", "test"]);
     let m = row(&json_of(&o), "Codeunit50670.A_CommitCall")["message"]
