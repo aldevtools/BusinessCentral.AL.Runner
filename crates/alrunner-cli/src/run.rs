@@ -1173,6 +1173,8 @@ fn test_inner(
     let host = Arc::new(SidecarHost::new(SidecarConfig {
         sidecar: a.dotnet_sidecar.clone(),
         source_root: source_root(),
+        // Under the same cache root as the apps when the user chose one (issue 5747).
+        cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
         // ADR-014 section 3, step 2: after the user's folders, the service tier of the platform artifact in use.
         assembly_dirs: al_testrun::dotnet::probe_dirs(
             &a.dotnet_assembly_dirs,

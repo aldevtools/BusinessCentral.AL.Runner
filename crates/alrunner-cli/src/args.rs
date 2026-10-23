@@ -280,8 +280,11 @@ DEPENDENCIES
     application and platform versions of app.json; else the newest published build of the
     target major at or above those versions. The target major is that of app.json's application
     version, else the newest BC major the runtime is verified against. --verbose prints the rule.
-    --cache-dir DIR      Where downloaded artifacts and the compile cache are kept. Else
-                         $ALRUNNER_CACHE, else $XDG_CACHE_HOME/al-runtime, else ~/.cache/al-runtime.
+    --cache-dir DIR      Where downloaded artifacts, the compile cache and the .NET helper are kept.
+                         Else $ALRUNNER_CACHE, else $XDG_CACHE_HOME/al-runtime, else ~/.cache/al-runtime
+                         (on Windows %USERPROFILE%\\.cache\\al-runtime). Without --cache-dir or
+                         $ALRUNNER_CACHE, Linux and macOS keep the .NET helper in
+                         $XDG_CACHE_HOME/al-runtime-rs/dotnet-sidecar or ~/.cache/al-runtime-rs/dotnet-sidecar.
 
 COMPILE CACHE
     The Microsoft apps and the other dependency apps are compiled completely once, and the result

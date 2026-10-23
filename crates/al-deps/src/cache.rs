@@ -19,25 +19,34 @@ use std::path::{Path, PathBuf};
 /// `AL_RUNTIME_CACHE` (the name ADR-013 first drafted), `AL_RUNNER_CACHE_ROOT` plus `v3`
 /// (AL Runner v2's variable; v3 keeps its data in a subfolder, ADR-016), and `~/.cache/al-runtime`.
 pub fn cache_root(flag: Option<&Path>, env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
+    chosen_cache_root(flag, env)
+        .or_else(|| default_cache_root(env))
+        .unwrap_or_else(|| PathBuf::from(".cache").join("al-runtime"))
+}
+
+/// The cache root the user chose: `--cache-dir` or one of the cache variables of [`cache_root`]; `None` when
+/// neither is given.
+pub fn chosen_cache_root(flag: Option<&Path>, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
     let var = |k: &str| env(k).filter(|v| !v.trim().is_empty());
     if let Some(f) = flag {
-        return f.to_path_buf();
+        return Some(f.to_path_buf());
     }
     if let Some(v) = var("ALRUNNER_CACHE").or_else(|| var("AL_RUNTIME_CACHE")) {
-        return PathBuf::from(v);
+        return Some(PathBuf::from(v));
     }
-    if let Some(v) = var("AL_RUNNER_CACHE_ROOT") {
-        return PathBuf::from(v).join("v3");
-    }
-    let base = var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            var("HOME")
-                .or_else(|| var("USERPROFILE"))
-                .map(|h| PathBuf::from(h).join(".cache"))
-        })
-        .unwrap_or_else(|| PathBuf::from(".cache"));
-    base.join("al-runtime")
+    var("AL_RUNNER_CACHE_ROOT").map(|v| PathBuf::from(v).join("v3"))
+}
+
+/// The default cache root of [`cache_root`]: `$XDG_CACHE_HOME/al-runtime`, else `.cache/al-runtime` under `HOME`
+/// or, on Windows, which sets no `HOME`, `USERPROFILE`. `None` when none of the three is set.
+pub fn default_cache_root(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let var = |k: &str| env(k).filter(|v| !v.trim().is_empty());
+    let base = var("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| {
+        var("HOME")
+            .or_else(|| var("USERPROFILE"))
+            .map(|h| PathBuf::from(h).join(".cache"))
+    })?;
+    Some(base.join("al-runtime"))
 }
 
 /// `cache_root` over the process environment.

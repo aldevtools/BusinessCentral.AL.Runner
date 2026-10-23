@@ -30,7 +30,7 @@ pub struct SidecarConfig {
     pub sidecar: Option<PathBuf>,
     /// The repository root, for `tools/dotnet-sidecar` (the source the cache is built from).
     pub source_root: Option<PathBuf>,
-    /// Where a built sidecar is cached; default `~/.cache/al-runtime-rs/dotnet-sidecar`.
+    /// Where a built sidecar is cached; default [`sidecar_cache_dir_from_env`] with no `--cache-dir`.
     pub cache_dir: Option<PathBuf>,
     /// `--dotnet-assembly-dir DIR` (repeatable): searched for assemblies the runtime does not
     /// ship, after the platform package folders (ADR-014 section 3, step 3).
@@ -519,12 +519,41 @@ fn embedded_hash() -> u64 {
     hash_files(EMBEDDED.iter().map(|(n, c)| (*n, c.as_bytes())))
 }
 
-fn default_cache_dir() -> Option<PathBuf> {
-    if let Ok(x) = std::env::var("XDG_CACHE_HOME") {
-        return Some(Path::new(&x).join("al-runtime-rs/dotnet-sidecar"));
+/// Where a built sidecar is cached, first match wins (issue 5747):
+/// 1. the cache root the user chose for the apps (`--cache-dir`, `ALRUNNER_CACHE`, ...,
+///    [`al_deps::cache::chosen_cache_root`]), plus `dotnet-sidecar`;
+/// 2. `$XDG_CACHE_HOME/al-runtime-rs/dotnet-sidecar`, else `~/.cache/al-runtime-rs/dotnet-sidecar` (the folder
+///    Linux and macOS have always used, kept so a helper built there is reused);
+/// 3. the default app cache root plus `dotnet-sidecar` ([`al_deps::cache::default_cache_root`]): on Windows, which sets
+///    neither variable, `%USERPROFILE%\.cache\al-runtime\dotnet-sidecar`.
+///
+/// `None` when no folder can be found: the caller says which variable to set ([`no_cache_message`]).
+pub fn sidecar_cache_dir(flag: Option<&Path>, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    const SUB: &str = "dotnet-sidecar";
+    if let Some(root) = al_deps::cache::chosen_cache_root(flag, env) {
+        return Some(root.join(SUB));
     }
-    let home = std::env::var("HOME").ok()?;
-    Some(Path::new(&home).join(".cache/al-runtime-rs/dotnet-sidecar"))
+    let var = |k: &str| env(k).filter(|v| !v.trim().is_empty());
+    if let Some(x) = var("XDG_CACHE_HOME") {
+        return Some(Path::new(&x).join("al-runtime-rs").join(SUB));
+    }
+    if let Some(h) = var("HOME") {
+        return Some(Path::new(&h).join(".cache").join("al-runtime-rs").join(SUB));
+    }
+    al_deps::cache::default_cache_root(env).map(|r| r.join(SUB))
+}
+
+/// The error when [`sidecar_cache_dir`] finds no folder to build the helper in.
+fn no_cache_message() -> String {
+    format!(
+        "{NOT_BUILT} (no cache folder to build it in: none of HOME, XDG_CACHE_HOME or USERPROFILE is set; \
+         set ALRUNNER_CACHE or pass --cache-dir)"
+    )
+}
+
+/// [`sidecar_cache_dir`] over the process environment.
+pub fn sidecar_cache_dir_from_env(flag: Option<&Path>) -> Option<PathBuf> {
+    sidecar_cache_dir(flag, &|k| std::env::var(k).ok())
 }
 
 const NOT_BUILT: &str = "sidecar not built; run 'dotnet publish tools/dotnet-sidecar -c Release -o <dir> --disable-build-servers' and pass --dotnet-sidecar <dir>/AlDotNetSidecar.dll";
@@ -561,8 +590,11 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
         Some(dir) => source_hash(dir),
         None => Some(embedded_hash()),
     };
-    let (Some(hash), Some(cache)) = (hash, cfg.cache_dir.clone().or_else(default_cache_dir)) else {
+    let Some(hash) = hash else {
         return Err(NOT_BUILT.into());
+    };
+    let Some(cache) = cfg.cache_dir.clone().or_else(|| sidecar_cache_dir_from_env(None)) else {
+        return Err(no_cache_message());
     };
     let dir = cache.join(format!("{hash:016x}"));
     let dll = dir.join("AlDotNetSidecar.dll");
@@ -1282,6 +1314,74 @@ mod tests {
             Some(embedded_hash()),
             "the binary's copy hashes like the folder, so one cache entry serves both"
         );
+    }
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn the_helper_cache_follows_the_cache_root_the_user_chose() {
+        // Issue 5747: `--cache-dir` and `ALRUNNER_CACHE` set the helper's cache too, under the same root as the apps.
+        let e = env(&[("ALRUNNER_CACHE", "/a"), ("XDG_CACHE_HOME", "/x"), ("HOME", "/h")]);
+        assert_eq!(
+            sidecar_cache_dir(Some(Path::new("/flag")), &e),
+            Some(PathBuf::from("/flag/dotnet-sidecar"))
+        );
+        assert_eq!(sidecar_cache_dir(None, &e), Some(PathBuf::from("/a/dotnet-sidecar")));
+        let e = env(&[("AL_RUNNER_CACHE_ROOT", "/c"), ("HOME", "/h")]);
+        assert_eq!(sidecar_cache_dir(None, &e), Some(PathBuf::from("/c/v3/dotnet-sidecar")));
+    }
+
+    #[test]
+    fn without_a_chosen_root_linux_and_macos_keep_the_helper_folder_they_had() {
+        let e = env(&[("XDG_CACHE_HOME", "/x"), ("HOME", "/h")]);
+        assert_eq!(
+            sidecar_cache_dir(None, &e),
+            Some(PathBuf::from("/x/al-runtime-rs/dotnet-sidecar"))
+        );
+        let e = env(&[("HOME", "/h"), ("USERPROFILE", "/u")]);
+        assert_eq!(
+            sidecar_cache_dir(None, &e),
+            Some(PathBuf::from("/h/.cache/al-runtime-rs/dotnet-sidecar"))
+        );
+        // An empty variable is unset.
+        let e = env(&[("XDG_CACHE_HOME", " "), ("HOME", "/h")]);
+        assert_eq!(
+            sidecar_cache_dir(None, &e),
+            Some(PathBuf::from("/h/.cache/al-runtime-rs/dotnet-sidecar"))
+        );
+    }
+
+    #[test]
+    fn on_windows_without_home_the_helper_goes_under_the_app_cache_root() {
+        // Issue 5747: Windows sets neither HOME nor XDG_CACHE_HOME; the app cache then uses USERPROFILE.
+        let e = env(&[
+            ("USERPROFILE", r"C:\Users\me"),
+            ("LOCALAPPDATA", r"C:\Users\me\AppData\Local"),
+        ]);
+        assert_eq!(
+            sidecar_cache_dir(None, &e),
+            Some(
+                PathBuf::from(r"C:\Users\me")
+                    .join(".cache")
+                    .join("al-runtime")
+                    .join("dotnet-sidecar")
+            )
+        );
+        assert_eq!(
+            sidecar_cache_dir(None, &e).map(|d| d.parent().map(Path::to_path_buf)),
+            Some(Some(al_deps::cache::cache_root(None, &e)))
+        );
+    }
+
+    #[test]
+    fn with_no_cache_folder_the_message_says_which_variable_to_set() {
+        let e = env(&[]);
+        assert_eq!(sidecar_cache_dir(None, &e), None);
+        let m = no_cache_message();
+        assert!(m.starts_with("sidecar not built"), "{m}");
+        assert!(m.contains("ALRUNNER_CACHE") && m.contains("--cache-dir"), "{m}");
     }
 
     #[test]

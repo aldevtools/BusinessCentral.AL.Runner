@@ -649,6 +649,11 @@ test codeunit, extends Base Application), for nothing. Now:
   `~/.cache/al-runtime-rs/dotnet-sidecar/<hash of the sources>`, so a copied binary reuses a helper the repository
   build made, and otherwise builds it once from the built-in sources when a .NET 8 SDK is present. A test keeps
   the built-in list equal to the folder.
+- Cache folder of the helper (issue 5747, tooling): `--cache-dir`, `ALRUNNER_CACHE` and the other cache variables of
+  the app cache put it in `<cache root>/dotnet-sidecar`. Without them Linux and macOS keep the folder above; a
+  machine with neither `XDG_CACHE_HOME` nor `HOME` (Windows) uses the default app cache root,
+  `%USERPROFILE%\.cache\al-runtime\dotnet-sidecar`. With no folder at all, "sidecar not built" names the variable
+  to set (`al-testrun/src/dotnet.rs`, `sidecar_cache_dir`).
 - A run whose tests were stopped by an unusable helper (reason `dotnet-unavailable`) prints
   `WARNING: DotNet unavailable: N test(s) not run ...` before the results and again after the summary line, ends
   with `Result: DOTNET UNAVAILABLE (exit 8)`, and exits 8 (before 7; `--allow-not-run` still makes it 0). Why: on
