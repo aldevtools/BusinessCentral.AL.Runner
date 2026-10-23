@@ -33,7 +33,108 @@ pub struct CompanyData {
     /// The names of the apps installed before the company is built (matched without case), if not every app: the
     /// install code of the other apps runs after the codeunit, and their event subscribers do not run before that.
     pub installed_first: Option<Vec<String>>,
+    /// The routine of [`CompanyData::codeunit`] that runs, if not its `OnRun`: a method without parameters, as
+    /// `Invoke-NavContainerCodeunit -MethodName` calls it (the Contoso Demo Tool's `CreateAllDemoData`).
+    pub method: Option<String>,
+    /// The steps that run after it, each in a transaction of its own (BCApps runs each step of the Contoso company as a
+    /// separate `Invoke-NavContainerCodeunit`). The company is built when every step ran to its end; after a step that
+    /// did not, the later steps do not run.
+    pub more_steps: Vec<CompanyStep>,
+    /// Whether the company is built in a session without a client: `GuiAllowed` answers false from `Company-Initialize`
+    /// to the last step (BCApps runs every step of the Contoso company through `Invoke-NavContainerCodeunit`).
+    pub no_client: bool,
+    /// Whether the company is an evaluation company: its row of the Company table has `Evaluation Company` Yes
+    /// (BCApps' `New-TestCompany -EvaluationCompany` for the Uncategorized lane).
+    pub evaluation_company: bool,
 }
+
+/// One step of building a company: a codeunit, and the method of it that runs (`None`: its `OnRun`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyStep {
+    pub codeunit: u32,
+    /// The codeunit's name, checked as [`CompanyData::name`] is.
+    pub name: String,
+    pub method: Option<String>,
+}
+
+impl CompanyStep {
+    fn new(codeunit: u32, name: &str, method: Option<&str>) -> CompanyStep {
+        CompanyStep {
+            codeunit,
+            name: name.to_string(),
+            method: method.map(String::from),
+        }
+    }
+
+    /// `Name.Method`, or the name and `OnRun`.
+    pub fn label(&self) -> String {
+        format!("{}.{}", self.name, self.method.as_deref().unwrap_or("OnRun"))
+    }
+}
+
+impl CompanyData {
+    /// Every step, in the order they run.
+    pub fn steps(&self) -> Vec<CompanyStep> {
+        let mut out = vec![CompanyStep {
+            codeunit: self.codeunit,
+            name: self.name.clone(),
+            method: self.method.clone(),
+        }];
+        out.extend(self.more_steps.iter().cloned());
+        out
+    }
+
+    /// The company of Microsoft's IntegrationTest lane (`all` false: setup data only) or Uncategorized lane (`all`:
+    /// every level of demo data, in an evaluation company), as BCApps' CI builds it
+    /// (build/scripts/ImportTestDataInBcContainer.ps1 of releases/29.0, `Invoke-ContosoDemoTool` :307-326, called from
+    /// `Invoke-DemoDataGeneration` :884-907): after `Install-AllApps` and `New-TestCompany` (`-EvaluationCompany` for
+    /// Uncategorized, :903), codeunit 2 `Company-Initialize` (:314), then codeunit 5193 "Contoso Demo Tool"
+    /// `CreateSetupDemoData` (:318), or `CreateAllDemoData` (:321) and codeunit 5140 "Warehouse Module"
+    /// `DeleteWarehouseEmployee` (:322), then codeunit 5691 "Create Contoso Tenant Data" (:325). Every step is a
+    /// separate `Invoke-NavContainerCodeunit`: a session of its own, without a client, that commits at its end.
+    /// `identity`: where the Contoso app came from.
+    pub fn contoso(all: bool, identity: &str) -> CompanyData {
+        let mut more_steps = Vec::new();
+        if all {
+            more_steps.push(CompanyStep::new(
+                CONTOSO_WAREHOUSE_MODULE,
+                CONTOSO_WAREHOUSE_MODULE_NAME,
+                Some("DeleteWarehouseEmployee"),
+            ));
+        }
+        more_steps.push(CompanyStep::new(CONTOSO_TENANT_DATA, CONTOSO_TENANT_DATA_NAME, None));
+        CompanyData {
+            codeunit: CONTOSO_DEMO_TOOL,
+            name: CONTOSO_DEMO_TOOL_NAME.to_string(),
+            resources: None,
+            identity: format!("contoso {} {identity}", if all { "all" } else { "setup" }),
+            environment: None,
+            // `Install-AllApps` runs before the company is created (:886, :898).
+            installed_first: None,
+            method: Some(
+                if all {
+                    "CreateAllDemoData"
+                } else {
+                    "CreateSetupDemoData"
+                }
+                .to_string(),
+            ),
+            more_steps,
+            no_client: true,
+            evaluation_company: all,
+        }
+    }
+}
+
+/// The Contoso Demo Tool (Contoso Coffee Demo Dataset, `DemoTool/ContosoDemoTool.Codeunit.al`).
+pub const CONTOSO_DEMO_TOOL: u32 = 5193;
+pub const CONTOSO_DEMO_TOOL_NAME: &str = "Contoso Demo Tool";
+/// `DemoData/Warehousing/WarehouseModule.Codeunit.al`.
+pub const CONTOSO_WAREHOUSE_MODULE: u32 = 5140;
+pub const CONTOSO_WAREHOUSE_MODULE_NAME: &str = "Warehouse Module";
+/// `DemoData/Foundation/TenantData/CreateContosoTenantData.Codeunit.al`.
+pub const CONTOSO_TENANT_DATA: u32 = 5691;
+pub const CONTOSO_TENANT_DATA_NAME: &str = "Create Contoso Tenant Data";
 
 /// The id of the DemoTool's `Create Demo Data from Config` (BCApps `src/Layers/W1/DemoTool/CreateDemoDatafromConfig.Codeunit.al`).
 pub const DEMOTOOL_CODEUNIT: u32 = 101_899;

@@ -86,7 +86,18 @@ pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], 
             a.no_test_data = true;
             a.company_name = Some(company.to_string());
         }
-        Lane::Integration | Lane::Uncategorized => a.company_name = Some(company.to_string()),
+        // BCApps' CI: Install-AllApps, a new company ("My Company"; for Uncategorized an evaluation company), then
+        // `Invoke-ContosoDemoTool` (ImportTestDataInBcContainer.ps1:884-907): setup data, or all demo data.
+        Lane::Integration | Lane::Uncategorized => {
+            a.company_contoso = Some(if lane == Lane::Integration {
+                crate::args::ContosoData::Setup
+            } else {
+                crate::args::ContosoData::All
+            });
+            a.company_package = false;
+            a.package_path = None;
+            a.company_name = Some(company.to_string());
+        }
     }
     a.junit = base.junit.as_deref().map(|p| lane_file(p, lane));
     a.output_json = match &base.output_json {
@@ -109,20 +120,11 @@ pub fn lane_file(path: &Path, lane: Lane) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// Why the runner cannot build a lane's company, if it cannot.
-pub fn company_refusal(lane: Lane) -> Option<String> {
-    match lane {
-        Lane::Legacy | Lane::UnitTest => None,
-        Lane::Integration | Lane::Uncategorized => Some(format!(
-            "the {} company is built by Microsoft's Contoso Demo Tool ({}); the runner cannot run it yet (the Contoso steps stop at later refusals; see docs/alrunner-buckets.md), so these tests are not run rather than run against a different company",
-            lane.test_type(),
-            if lane == Lane::Integration {
-                "setup data"
-            } else {
-                "all demo data"
-            }
-        )),
-    }
+/// Why the runner cannot build a lane's company, if it cannot. Every lane's company is built now: the Legacy lane's by
+/// the DemoTool, the IntegrationTest and Uncategorized lanes' by the Contoso Demo Tool (`--company-data contoso-*`). A
+/// company build that stops makes the lane's tests not run, with the reason, in the lane's own run.
+pub fn company_refusal(_lane: Lane) -> Option<String> {
+    None
 }
 
 /// The lines under the lane runs.
@@ -398,12 +400,34 @@ mod tests {
         assert_eq!(a.codeunits, vec![6]);
     }
 
+    // BCApps build/scripts/ImportTestDataInBcContainer.ps1 (releases/29.0) :884-907: IntegrationTest gets the Contoso
+    // setup data, Uncategorized all demo data; neither restores a backup.
     #[test]
-    fn the_contoso_lanes_are_refused_with_a_reason_not_run_on_another_company() {
-        assert!(company_refusal(Lane::Legacy).is_none());
-        assert!(company_refusal(Lane::UnitTest).is_none());
-        assert!(company_refusal(Lane::Integration).unwrap().contains("Contoso"));
-        assert!(company_refusal(Lane::Uncategorized).unwrap().contains("all demo data"));
+    fn the_contoso_lanes_build_their_company_with_the_contoso_demo_tool() {
+        use crate::args::ContosoData;
+        let mut b = base();
+        b.package_path = Some("p.rapidstart".into());
+        let i = lane_args(&b, Lane::Integration, "My Company", &[8], &recipe());
+        assert_eq!(i.company_contoso, Some(ContosoData::Setup));
+        assert!(!i.wants_test_data() && !i.company_demotool && !i.company_package && i.package_path.is_none());
+        assert_eq!(i.company_name.as_deref(), Some("My Company"));
+        let u = lane_args(&b, Lane::Uncategorized, "CRONUS International Ltd.", &[9], &recipe());
+        assert_eq!(u.company_contoso, Some(ContosoData::All));
+        assert!(!u.wants_test_data());
+        // Contoso only for those two lanes.
+        assert!(
+            lane_args(&b, Lane::Legacy, "C", &[5], &recipe())
+                .company_contoso
+                .is_none()
+        );
+        assert!(
+            lane_args(&b, Lane::UnitTest, "C", &[5], &recipe())
+                .company_contoso
+                .is_none()
+        );
+        for lane in [Lane::Legacy, Lane::UnitTest, Lane::Integration, Lane::Uncategorized] {
+            assert!(company_refusal(lane).is_none(), "{lane:?}");
+        }
     }
 
     #[test]

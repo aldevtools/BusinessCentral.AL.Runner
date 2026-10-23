@@ -349,8 +349,12 @@ from the package and read Company Information."Country/Region Code"). Until then
    (`Invoke-LegacyDemoDataTool`, 27.5, 28.5 and 29.0); the RapidStart package is not used (owner decision 2026-10-22);
    UnitTest runs without demo data (Company-Initialize and the installs only). IntegrationTest and Uncategorized need
    Microsoft's Contoso Demo Tool (`CreateSetupDemoData`, `CreateAllDemoData`, then the tenant data codeunit 5691, which also
-   creates the Web Service rows). The runner does not run it yet, so those lanes print `NOT RUN` with the reason and the
-   exit code is 7.
+   creates the Web Service rows). They run `--company-data contoso-setup` and `contoso-all` (al-testrun
+   `CompanyData::contoso`): Company-Initialize, then each step of BCApps' `Invoke-ContosoDemoTool`
+   (ImportTestDataInBcContainer.ps1:307-326) in a transaction of its own, without a client (GuiAllowed false while the
+   company is built, owner decision 2026-10-23, assumption `contoso-build-no-client`); Uncategorized in an evaluation
+   company (:903). A step that stops leaves the lane's tests not run, with the reason. Not modelled: CI installs every
+   W1 app (`Install-AllApps`) before the build, a lane run only the test app's dependency closure plus the Contoso app.
    A codeunit with `RequiredTestIsolation = Disabled` runs only in the UnitTest lane: BCApps
    `build/scripts/RunTestsInBcContainer.ps1` runs a second pass with `requiredTestIsolation = Disabled` (test runner
    130451) for `UnitTest` only, and in run 39519586834 the IntegrationTests job ran none of its 13 such codeunits.

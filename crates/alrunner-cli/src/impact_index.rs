@@ -257,6 +257,10 @@ pub fn key(a: &TestArgs) -> Result<String, String> {
     if a.company_demotool {
         ("company-data demotool", &a.demotool_dir).hash(&mut h);
     }
+    // The Contoso company (`--company-data contoso-*`); a run without it keeps the key it had.
+    if let Some(c) = a.company_contoso {
+        ("company-data contoso", c).hash(&mut h);
+    }
     a.isolation.hash(&mut h);
     // `--isolation required` (off, the hash is the one it was before the option existed).
     if a.required_isolation {

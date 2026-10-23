@@ -491,6 +491,8 @@ pub struct Session {
     install_scope: bool,
     /// The company data codeunit (Microsoft's DemoTool) builds the company (`set_company_build`).
     company_build: bool,
+    /// The code runs in a session without a client (`set_no_client`).
+    no_client: bool,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
@@ -807,6 +809,7 @@ impl Session {
             isolated_set_in_test: Default::default(),
             install_scope: false,
             company_build: false,
+            no_client: false,
             company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,
@@ -1202,6 +1205,13 @@ impl Session {
     /// (owner decision 2026-10-22: `Report.SaveAsPdf` to a file runs the report and writes no file, reports.rs).
     pub fn set_company_build(&mut self, on: bool) {
         self.company_build = on;
+    }
+
+    /// The code runs in a session without a client, as a step of the Contoso company build does (al-testrun baseline.rs,
+    /// `CompanyData::no_client`; owner decision 2026-10-23): `GuiAllowed` answers false and marks
+    /// `contoso-build-no-client`. Nothing else changes: Message is captured and Confirm refused as in any company build.
+    pub fn set_no_client(&mut self, on: bool) {
+        self.no_client = on;
     }
 
     /// Whether an install routine runs (`set_install_scope`).

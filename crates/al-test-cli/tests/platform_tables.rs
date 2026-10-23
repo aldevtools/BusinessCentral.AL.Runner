@@ -485,20 +485,23 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
     }
 }
 
-// License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins. Any other object is refused,
-// because the table lists the permissions of the license and nothing pins them (Cash Flow Wksh.-Register Batch reads
-// Codeunit 'Update Analysis View', which is not pinned).
+// License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
+// platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
+// Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
+// the permissions of the license and nothing pins them.
 #[test]
 fn license_permission_answers_its_two_pinned_rows_and_refuses_the_rest() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure FirstRow() var L: Record "License Permission"; begin if not L.FindFirst() then Error('empty'); if (L."Object Type" <> L."Object Type"::TableData) or (L."Object Number" <> 0) or (L."Read Permission" <> L."Read Permission"::" ") then Error('first'); end;
   [Test] procedure PinnedTableRow() var L: Record "License Permission"; begin L.SetRange("Object Type", L."Object Type"::Table); L.SetRange("Object Number", 99999); if L.Count() <> 1 then Error('count'); if not L.FindFirst() then Error('find'); if (L."Read Permission" <> L."Read Permission"::Yes) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('perms'); if not L.Get(L."Object Type"::Table, 99999) then Error('get'); end;
-  [Test] procedure ACodeunitIsNotPinned() var L: Record "License Permission"; begin L.Get(L."Object Type"::Codeunit, 410); end;
+  [Test] procedure PinnedCodeunitRows() var L: Record "License Permission"; begin if not L.Get(L."Object Type"::Codeunit, 410) then Error('410'); if (L."Read Permission" <> L."Read Permission"::Yes) or (L."Insert Permission" <> L."Insert Permission"::Yes) or (L."Modify Permission" <> L."Modify Permission"::Yes) or (L."Delete Permission" <> L."Delete Permission"::Yes) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('perms'); if not L.Get(L."Object Type"::Page, 21) then Error('page'); if not L.Get(L."Object Type"::System, 1) then Error('system'); end;
+  [Test] procedure ACodeunitIsNotPinned() var L: Record "License Permission"; begin L.Get(L."Object Type"::Codeunit, 411); end;
   [Test] procedure ACountOfEverythingIsNotPinned() var L: Record "License Permission"; begin if L.Count() = 0 then; end; }"#,
     );
     passes(&o, "FirstRow");
     passes(&o, "PinnedTableRow");
+    passes(&o, "PinnedCodeunitRows");
     for t in ["ACodeunitIsNotPinned", "ACountOfEverythingIsNotPinned"] {
         let why = not_run(&o, t);
         assert!(why.contains("License Permission"), "{t}: {why}");

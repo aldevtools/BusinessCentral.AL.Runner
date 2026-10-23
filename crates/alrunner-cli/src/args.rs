@@ -42,6 +42,15 @@ pub enum Command {
     ImpactIndexCheckStatic(Box<TestArgs>),
 }
 
+/// What the Contoso Demo Tool builds (`--company-data contoso-setup|contoso-all`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ContosoData {
+    /// Setup data only (`CreateSetupDemoData`): Microsoft's IntegrationTest lane.
+    Setup,
+    /// Every level of demo data (`CreateAllDemoData`) in an evaluation company: the Uncategorized lane.
+    All,
+}
+
 /// `al-runner test`.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TestArgs {
@@ -160,6 +169,9 @@ pub struct TestArgs {
     pub company_demotool: bool,
     /// `--demotool DIR`: a BCApps checkout holding `src/DemoTool` and `src/Layers/W1/DemoTool`; else the cache or a fetch.
     pub demotool_dir: Option<PathBuf>,
+    /// `--company-data contoso-setup|contoso-all`: build the company with the Contoso Demo Tool after Company-Initialize,
+    /// as Microsoft's IntegrationTest (setup data) and Uncategorized (all demo data) test lanes do. No backup is restored.
+    pub company_contoso: Option<ContosoData>,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
     /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
@@ -216,7 +228,7 @@ impl TestArgs {
 
     /// Whether the run restores a company: unless `--no-test-data` says otherwise.
     pub fn wants_test_data(&self) -> bool {
-        !self.no_test_data && !self.company_demotool
+        !self.no_test_data && !self.company_demotool && self.company_contoso.is_none()
     }
 
     /// Whether the command line asked for test data (a backup or `--test-data`), so a failure to
@@ -636,7 +648,7 @@ TEST DATA
                          company, else 'CRONUS International Ltd.'.
     The summary says what was loaded and every exclusion: tables the runtime could not rebuild,
     tables the reader failed on (with its text), and columns left out.
-    --company-data bak|package|demotool  `bak` (default) restores the CRONUS company of the backup. `package`
+    --company-data bak|package|demotool|contoso-setup|contoso-all  `bak` (default) restores the CRONUS company of the backup. `package`
                          builds the company the way Microsoft's Legacy test lane does: a fresh
                          company, Company-Initialize, then the RapidStart package of the artifact
                          (platform/ConfigurationPackages/*.rapidstart, the DemoTool's Extended data).
@@ -647,7 +659,11 @@ TEST DATA
                          <cache dir>/bcapps-demotool/<major>.<minor>/ once). No backup is restored. If
                          the codeunit does not run to its end, no test runs and the reason says where
                          it stopped. The company is kept with the install baseline in the compile cache.
-                         w1 only. Opt-in; nothing else changes.
+                         w1 only. Opt-in; nothing else changes. `contoso-setup` and `contoso-all` build it
+                         as Microsoft's IntegrationTest and Uncategorized lanes do: Company-Initialize, then
+                         the Contoso Demo Tool of the artifact's Contoso Coffee Demo Dataset app (setup data,
+                         or all demo data in an evaluation company), then its tenant data, each step without
+                         a client (GuiAllowed false while the company is built). w1 only.
     --package PATH       The .rapidstart file to use (implies --company-data package).
     --demotool DIR       A BCApps checkout holding src/DemoTool and src/Layers/W1/DemoTool (implies
                          --company-data demotool).
@@ -1183,18 +1199,30 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     "bak" | "backup" => {
                         a.company_package = false;
                         a.company_demotool = false;
+                        a.company_contoso = None;
                     }
                     "package" | "rapidstart" => {
                         a.company_package = true;
                         a.company_demotool = false;
+                        a.company_contoso = None;
                     }
                     "demotool" => {
                         a.company_demotool = true;
                         a.company_package = false;
+                        a.company_contoso = None;
+                    }
+                    "contoso-setup" | "contoso-all" => {
+                        a.company_contoso = Some(if v == "contoso-all" {
+                            ContosoData::All
+                        } else {
+                            ContosoData::Setup
+                        });
+                        a.company_demotool = false;
+                        a.company_package = false;
                     }
                     other => {
                         return Err(format!(
-                            "--company-data takes `bak`, `package` or `demotool`, not `{other}`"
+                            "--company-data takes `bak`, `package`, `demotool`, `contoso-setup` or `contoso-all`, not `{other}`"
                         ));
                     }
                 }
@@ -1207,6 +1235,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.demotool_dir = Some(text()?.into());
                 a.company_demotool = true;
                 a.company_package = false;
+                a.company_contoso = None;
             }
             "--disabled-tests" => a.disabled_tests_dir = Some(text()?.into()),
             "--parity" => a.parity = true,
@@ -1302,6 +1331,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
         }
     }
+    if a.company_contoso.is_some() {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err(
+                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
+            );
+        }
+        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
+            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
@@ -1309,6 +1348,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         for (given, flag) in [
             (a.company_package, "--company-data package / --package"),
             (a.company_demotool, "--company-data demotool / --demotool"),
+            (a.company_contoso.is_some(), "--company-data contoso-setup|contoso-all"),
             (a.test_data_asked_for(), "--test-data"),
             (a.no_test_data, "--no-test-data"),
             (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1543,6 +1583,7 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (a.recipe, "--recipe"),
         (a.company_package, "--company-data package / --package"),
         (a.company_demotool, "--company-data demotool / --demotool"),
+        (a.company_contoso.is_some(), "--company-data contoso-setup|contoso-all"),
         (a.test_data_asked_for(), "--test-data"),
         (a.no_test_data, "--no-test-data"),
         (a.disabled_tests_dir.is_some(), "--disabled-tests"),
@@ -1911,6 +1952,35 @@ mod tests {
         assert!(test_args("test A --company-data package").test_data_asked_for());
         for needle in ["--company-data", "--package", "--disabled-tests", "--parity"] {
             assert!(HELP.contains(needle), "{needle}");
+        }
+    }
+
+    #[test]
+    fn company_data_contoso_builds_the_company_without_a_backup() {
+        let a = test_args("test A --company-data contoso-setup");
+        assert_eq!(a.company_contoso, Some(ContosoData::Setup));
+        assert!(!a.wants_test_data() && !a.company_demotool);
+        assert_eq!(
+            test_args("test A --company-data contoso-all").company_contoso,
+            Some(ContosoData::All)
+        );
+        assert!(
+            test_args("test A --company-data contoso-all --company-data bak")
+                .company_contoso
+                .is_none()
+        );
+        assert!(
+            test_args("test A --company-data contoso-all --company-data demotool")
+                .company_contoso
+                .is_none()
+        );
+        for bad in [
+            "test A --company-data contoso-setup --test-data x.bak",
+            "test A --company-data contoso-all --no-test-data",
+            "test A --company-data contoso-all --country us",
+            "test A --company-data contoso-all --recipe microsoft",
+        ] {
+            assert!(p(bad).is_err(), "{bad}");
         }
     }
 

@@ -6,6 +6,7 @@ mod args;
 mod bcapps;
 mod bcapps_apps;
 mod capture;
+mod contoso;
 mod coverage;
 mod debug;
 mod demotool;

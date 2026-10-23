@@ -77,6 +77,10 @@ impl DemoTool {
             // "OnPrem"`); only the company build runs so, the tests keep `--environment`.
             environment: Some(al_host::Environment::OnPrem),
             installed_first: Some(self.installed_first.clone()),
+            method: None,
+            more_steps: Vec::new(),
+            no_client: false,
+            evaluation_company: false,
         }
     }
 }

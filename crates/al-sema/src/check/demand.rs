@@ -355,7 +355,7 @@ impl Checker<'_> {
     /// The install baseline's roots (ADR-013 decision 5): every install codeunit of a dependency
     /// app, with its install triggers, Base Application's `Company-Initialize`, and the `OnRun` of every dependency
     /// codeunit in `company_data` (the codeunits that build the company's data after it).
-    pub(super) fn reach_baseline(&self, company_data: &[u32]) {
+    pub(super) fn reach_baseline(&self, company_data: &[u32], company_methods: &[(u32, String)]) {
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if !self.ws.is_dependency(i) || o.kind != ObjKind::Codeunit {
@@ -380,6 +380,13 @@ impl Checker<'_> {
                 }
             } else if company_initialize {
                 self.reach_run(i);
+                for (_, m) in company_methods.iter().filter(|(id, _)| o.id == Some(*id)) {
+                    for r in self.routines_of(i).iter() {
+                        if !r.is_trigger() && r.name().eq_ignore_ascii_case(m) {
+                            self.reach(i, usize::from(r.syntax().text_range().start()));
+                        }
+                    }
+                }
             }
         }
     }

@@ -303,7 +303,18 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
-            company_data: opts.company_data.iter().map(|c| c.codeunit).collect(),
+            company_data: opts
+                .company_data
+                .iter()
+                .flat_map(|c| c.steps())
+                .map(|s| s.codeunit)
+                .collect(),
+            company_methods: opts
+                .company_data
+                .iter()
+                .flat_map(|c| c.steps())
+                .filter_map(|s| Some((s.codeunit, s.method?)))
+                .collect(),
             only_tests: only.clone(),
             tdd: opts.tdd,
             object_hashes: opts.object_hashes,
@@ -825,13 +836,8 @@ impl CorpusRuntime {
             // reaches through its calls.
             if let Some(c) = &opts.company_data {
                 let objs = &lowered.program.objects;
-                let root = (0..objs.len())
-                    .find(|&oi| {
-                        lowered.dependency[oi]
-                            && objs[oi].is_kind(al_ir::ObjKind::Codeunit)
-                            && objs[oi].id == Some(c.codeunit)
-                    })
-                    .and_then(|oi| Some((oi, crate::baseline::trigger(&objs[oi], "OnRun")?)));
+                // The first step (the codeunit's method or `OnRun`).
+                let root = crate::baseline::step_routine(lowered, &c.steps()[0]).ok();
                 if let Some(root) = root {
                     // A codeunit whose app came from the compile cache has no recorded calls: its whole app is listed.
                     let (refused, what) = if lowered.provided.get(root.0).copied().unwrap_or(false) {

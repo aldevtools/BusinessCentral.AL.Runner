@@ -295,7 +295,7 @@ fn an_app_with_tests_in_test_microsoft_or_no_extension_at_all_exits_2() {
 }
 
 #[test]
-fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_reason() {
+fn a_codeunit_of_a_contoso_lane_whose_company_is_not_built_is_not_verified_with_the_reason() {
     let dir = tempfile::tempdir().unwrap();
     let (ext, _, lib) = source_fixture(dir.path());
     let tests = impact_fixture("tests");
@@ -326,13 +326,18 @@ fn a_codeunit_of_a_lane_the_runner_cannot_build_is_not_verified_with_the_lane_re
     .unwrap();
     let o = run(dir.path(), &[&ext, "--app", "Tests-Imp-Uncategorized", "--dep", &lib]);
     let out = text(&o);
+    // The lane runs with the Contoso company (`--company-data contoso-all`); the fake artifact has no Contoso app, so the
+    // company is not built and every test is not verified, with the reason.
     assert!(
-        out.contains("Tests-Imp-Uncategorized lane Uncategorized: 2 codeunit(s) not verified: lane not run yet: the Uncategorized company is built by Microsoft's Contoso Demo Tool"),
+        out.contains("-- Tests-Imp-Uncategorized lane Uncategorized: 2 codeunits --"),
         "{out}"
     );
-    assert!(out.contains("microsoft: no impact run;"), "{out}");
-    // Nothing ran, nothing reached the extension's code: a source that selects nothing gives 0, not a pass count.
-    assert_eq!(source_row(&out, "microsoft"), "0 0 0 0 0 0 0", "{out}");
+    assert!(
+        out.contains("the company data was not built: no dependency app has codeunit 5193 \"Contoso Demo Tool\""),
+        "{out}"
+    );
+    // Nothing ran, nothing reached the extension's code.
+    assert_eq!(source_row(&out, "microsoft"), "4 0 0 0 0 4 0", "{out}");
     assert_eq!(o.status.code(), Some(0), "{out}");
 }
 

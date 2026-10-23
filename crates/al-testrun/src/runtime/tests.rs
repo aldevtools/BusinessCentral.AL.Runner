@@ -2426,6 +2426,21 @@ fn with_company_data_apps(
     deps: &[(&str, &[&str], &str)],
     company: crate::company_data::CompanyData,
 ) -> impl Fn(&str) -> Outcome + use<> {
+    let rt = company_data_runtime(main, deps, company);
+    move |name: &str| {
+        rt.first_outcome(&CaseId {
+            codeunit: 50001,
+            name: name.into(),
+        })
+    }
+}
+
+/// The run of [`with_company_data_apps`].
+fn company_data_runtime(
+    main: &str,
+    deps: &[(&str, &[&str], &str)],
+    company: crate::company_data::CompanyData,
+) -> CorpusRuntime {
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
         id: id.into(),
         name: id.into(),
@@ -2443,7 +2458,7 @@ fn with_company_data_apps(
         apps.push(app(name, on, src));
         kinds.push(al_sema::AppKind::Dependency);
     }
-    let rt = CorpusRuntime::run_suites_with(
+    CorpusRuntime::run_suites_with(
         apps,
         kinds,
         &[],
@@ -2452,13 +2467,7 @@ fn with_company_data_apps(
         Default::default(),
         &[SuiteRun::everything()],
         &opts,
-    );
-    move |name: &str| {
-        rt.first_outcome(&CaseId {
-            codeunit: 50001,
-            name: name.into(),
-        })
-    }
+    )
 }
 
 fn demo_company(resources: Option<std::path::PathBuf>) -> crate::company_data::CompanyData {
@@ -2469,6 +2478,10 @@ fn demo_company(resources: Option<std::path::PathBuf>) -> crate::company_data::C
         identity: "test".into(),
         environment: None,
         installed_first: None,
+        method: None,
+        more_steps: Vec::new(),
+        no_client: false,
+        evaluation_company: false,
     }
 }
 
@@ -2560,6 +2573,101 @@ codeunit 50130 \"Build Company\" {{
         };
         assert!(why.starts_with(crate::company_data::BLOCKED_NOTE), "{ui}: {why}");
     }
+}
+
+/// A company built in steps, as BCApps builds the Contoso company (`CompanyData::contoso`): a method of the first
+/// codeunit, then the `OnRun` of the next, each committed on its own, without a client, in an evaluation company.
+fn stepped_company() -> crate::company_data::CompanyData {
+    let mut c = demo_company(None);
+    c.method = Some("Setup".into());
+    c.more_steps = vec![crate::company_data::CompanyStep {
+        codeunit: 50131,
+        name: "Tenant Step".into(),
+        method: None,
+    }];
+    c.no_client = true;
+    c.evaluation_company = true;
+    c
+}
+
+const COMPANY_TABLE: &str = r#"
+table 2000000006 Company { DataPerCompany = false;
+  fields { field(1; Name; Text[30]) { } field(2; "Evaluation Company"; Boolean) { } field(3; "Display Name"; Text[250]) { } field(8000; Id; Guid) { } }
+  keys { key(PK; Name) { } } }
+"#;
+
+// BCApps build/scripts/ImportTestDataInBcContainer.ps1 (releases/29.0) :307-326: Company-Initialize, then each Contoso step
+// through Invoke-NavContainerCodeunit, a session without a client (GuiAllowed false; owner decision 2026-10-23) that
+// commits at its end; the Uncategorized company is created with -EvaluationCompany (:903).
+#[test]
+fn a_company_built_in_steps_runs_each_step_without_a_client_in_an_evaluation_company() {
+    let dep = format!(
+        "{SETUP_DEP}{COMPANY_TABLE}
+codeunit 50130 \"Build Company\" {{
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'onrun'; L.Insert(); end;
+  procedure Setup() var L: Record \"Order Log\"; C: Record Company; begin
+    L.What := 'setup gui:' + Format(GuiAllowed()); L.Insert();
+    C.Get(CompanyName()); L.\"No.\" := 0; L.What := 'eval:' + Format(C.\"Evaluation Company\"); L.Insert(); end; }}
+codeunit 50131 \"Tenant Step\" {{
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'tenant gui:' + Format(GuiAllowed()); L.Insert(); end; }}"
+    );
+    let main = "codeunit 50001 \"T\" { Subtype = Test; \
+         [Test] procedure Order() var O: Record \"Order Log\"; T: Text; begin \
+           O.FindSet(); repeat T += O.What + ';'; until O.Next() = 0; \
+           if T <> 'A-company;B-company;init;setup gui:No;eval:Yes;tenant gui:No;' then Error(T); end; \
+         [Test] procedure TestsHaveAClient() begin if not GuiAllowed() then Error('no client'); end; \
+         [Test] procedure Evaluation() var C: Record Company; begin C.Get(CompanyName()); if not C.\"Evaluation Company\" then Error('not evaluation'); end; }";
+    let rt = company_data_runtime(main, &[("dep", &[], &dep)], stepped_company());
+    let outcome = |n: &str| {
+        rt.first_outcome(&CaseId {
+            codeunit: 50001,
+            name: n.into(),
+        })
+    };
+    assert_eq!(outcome("Order"), Outcome::Pass);
+    assert_eq!(outcome("TestsHaveAClient"), Outcome::Pass);
+    assert_eq!(outcome("Evaluation"), Outcome::Pass);
+    // The build relied on the session without a client: the run lists the assumption with the baseline.
+    assert!(
+        rt.phases
+            .baseline_assumptions
+            .iter()
+            .any(|a| a == "contoso-build-no-client"),
+        "{:?}",
+        rt.phases.baseline_assumptions
+    );
+}
+
+#[test]
+fn a_step_that_does_not_run_to_its_end_blocks_the_company() {
+    let dep = format!(
+        "{SETUP_DEP}
+table 50103 \"Tenant Log\" {{ DataPerCompany = false; fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
+codeunit 50130 \"Build Company\" {{
+  procedure Setup() var L: Record \"Order Log\"; begin L.What := 'setup'; L.Insert(); SerialNumber(); end; }}
+codeunit 50131 \"Tenant Step\" {{
+  trigger OnRun() var T: Record \"Tenant Log\"; begin T.K := 1; T.Insert(); end; }}"
+    );
+    let main = "codeunit 50001 \"T\" { Subtype = Test; [Test] procedure Plain() begin end; }";
+    let mut company = stepped_company();
+    company.evaluation_company = false;
+    let Outcome::NotRun(why) = with_company_data(main, &dep, company.clone())("Plain") else {
+        panic!("not blocked")
+    };
+    assert!(
+        why.starts_with(crate::company_data::BLOCKED_NOTE) && why.contains("Build Company.Setup"),
+        "{why}"
+    );
+    // A step's method the codeunit does not have blocks the company too.
+    let dep = format!(
+        "{SETUP_DEP}
+codeunit 50130 \"Build Company\" {{ procedure Other() begin end; }}
+codeunit 50131 \"Tenant Step\" {{ trigger OnRun() begin end; }}"
+    );
+    let Outcome::NotRun(why) = with_company_data(main, &dep, company)("Plain") else {
+        panic!("not blocked")
+    };
+    assert!(why.contains("has no method Setup"), "{why}");
 }
 
 #[test]

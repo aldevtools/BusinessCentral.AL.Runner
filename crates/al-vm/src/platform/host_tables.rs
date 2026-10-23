@@ -805,11 +805,31 @@ pub(super) fn language_selection_rows(t: &TableDef, target: Option<&al_version::
 
 // ---- License Permission ---------------------------------------------------------------------------
 
-/// The rows the corpus pins (platform/lt-platform-tables/PtCloudTables.al:60-76, LicensePermission_InsertModifyDelete):
-/// the first row of the table, `TableData` 0 with every permission blank, and `Table` 99999 with Read, Insert, Modify, Delete
-/// and Execute `Yes` and Limited Usage blank. The table lists the permissions of the license, which no test pins beyond
-/// these two rows: a read that would have to answer for any other object is refused.
-const LICENSE_ROWS: &[(i32, i32, i32)] = &[(0, 0, 0), (1, 99999, 1)];
+/// The rows the corpus pins: the first row of the table, `TableData` 0 with every permission blank, and `Table` 99999 with
+/// Read, Insert, Modify, Delete and Execute `Yes` and Limited Usage blank (platform/lt-platform-tables/PtCloudTables.al:60-76,
+/// LicensePermission_InsertModifyDelete); and, read by key, the rows of platform/lt-ag-contoso/AgLicensePermission.al:43-67
+/// (LicensePermission_CodeunitRows_ByKey), every one with the same permissions: Codeunit 410 "Update Analysis View"
+/// (:43, :55; Cash Flow Wksh.-Register Batch reads it while the Contoso company is built), Codeunit 1, 80 and 99999999,
+/// the probe app's own Codeunit 78401, Table 18, TableData 18, Page 21, Report 1, XMLport 1, Query 1 and System 1. The
+/// table lists the permissions of the license, which no test pins beyond these rows: a read that would have to answer for
+/// any other object is refused. (object type ordinal: TableData 0, Table 1, Report 3, Codeunit 5, XMLport 6, Page 8,
+/// Query 9, System 10.)
+const LICENSE_ROWS: &[(i32, i32, i32)] = &[
+    (0, 0, 0),
+    (1, 99999, 1),
+    (5, 410, 1),
+    (5, 1, 1),
+    (5, 80, 1),
+    (5, 99_999_999, 1),
+    (5, 78401, 1),
+    (1, 18, 1),
+    (0, 18, 1),
+    (8, 21, 1),
+    (3, 1, 1),
+    (6, 1, 1),
+    (9, 1, 1),
+    (10, 1, 1),
+];
 const LICENSE_OBJECT_TYPE: u32 = 1;
 const LICENSE_OBJECT_NUMBER: u32 = 2;
 const LICENSE_PERMISSIONS: [u32; 5] = [10, 11, 12, 13, 14];
@@ -841,7 +861,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only TableData 0 and Table 99999 are)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are)"
     ))
 }
 

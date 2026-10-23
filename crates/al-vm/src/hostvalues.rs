@@ -134,6 +134,11 @@ impl Session {
             },
             ids::DATABASE_SERVICEINSTANCEID_1 => Ok(Value::Integer(self.host.identity.service_instance_id())),
             ids::DATABASE_TENANTID_1 => Ok(Value::Text(self.host.identity.tenant_id().into())),
+            // A step of the Contoso company build runs without a client (`set_no_client`).
+            ids::SYSTEM_GUIALLOWED_1 if self.no_client => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ContosoBuildNoClient);
+                Ok(Value::Boolean(false))
+            }
             ids::SYSTEM_GUIALLOWED_1 => Ok(Value::Boolean(self.host.identity.gui_allowed())),
             ids::SYSTEM_ISSERVICETIER_1 => Ok(Value::Boolean(self.host.identity.is_service_tier())),
             // The folder AL code writes scratch files to. BC's answer ends with `TEMP\` on the Linux tier

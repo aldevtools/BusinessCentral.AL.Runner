@@ -146,6 +146,27 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
+    /// Marks the session company as an evaluation company: its row of the Company table gets `Evaluation Company` Yes
+    /// (field 2), committed. BCApps' CI creates the Uncategorized lane's company so (`New-CompanyInBcContainer
+    /// -evaluationCompany`, build/scripts/ImportTestDataInBcContainer.ps1:903, :954); a recipe fact, not a language rule.
+    /// Without the Company table, or without the session company's row, nothing changes.
+    pub fn mark_evaluation_company(&mut self) {
+        let Some(t) = self.company_table() else { return };
+        let Some(at) = t.fields.iter().position(|f| f.id == 2) else {
+            return;
+        };
+        let Ok(key) = ops::convert(Value::Text(self.cx.company.to_string().into()), &t.fields[0].ty) else {
+            return;
+        };
+        let Ok(Some(mut row)) = self.store.get(&self.cx, &t, &[key]) else {
+            return;
+        };
+        row[at] = Value::Boolean(true);
+        if self.store.modify(&self.cx, &t, row).is_ok() {
+            self.commit_transaction();
+        }
+    }
+
     /// Before a Company row goes: the session company's row stays (not pinned). A company deleted
     /// with triggers takes its data with it and a new company of the name starts empty
     /// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:170-212); without triggers what happens

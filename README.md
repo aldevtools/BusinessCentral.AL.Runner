@@ -153,8 +153,9 @@ company of each test codeunit (the Legacy test apps get the package company, a c
 `TestType = UnitTest` an empty one), the disabled tests are skipped, and each lane has its own
 summary and JUnit file. The BCApps files (MIT) are fetched sparsely with `git` into the cache once;
 `--bcapps DIR` names a checkout, `--no-download` uses the cache only. The two Contoso lanes
-(IntegrationTest and the codeunits with no TestType) are not run yet: the runner does not build the
-Contoso company, and says so. The recipe's time limit per test is 60 s of CPU time (20 s for other
+(IntegrationTest and the codeunits with no TestType) get the company Microsoft's Contoso Demo Tool
+builds (`--company-data contoso-setup` and `contoso-all`): setup data in "My Company", or all demo
+data in an evaluation company. The recipe's time limit per test is 60 s of CPU time (20 s for other
 runs); `--test-timeout-secs N` or `ALRUNNER_TEST_TIMEOUT` sets another.
 `al-runner test-microsoft` runs all of Microsoft's test apps of a BC build this way, with nothing to
 download or collect by hand: it reads the list of test apps from the build's artifact, fetches the

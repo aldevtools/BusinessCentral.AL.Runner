@@ -953,6 +953,34 @@ fn test_inner(
         }
         search.insert(0, dt.app_dir.clone());
         Some(dt.company_data())
+    } else if let Some(level) = a.company_contoso {
+        // `--company-data contoso-*`: the artifact's Contoso Coffee Demo Dataset app is one more dependency app (it is
+        // a Microsoft app of the artifact, found as the test apps' own dependencies are), and its steps build the
+        // company in the install baseline (`CompanyData::contoso`).
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err(
+                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
+            );
+        }
+        let contoso = crate::contoso::dependency();
+        if !project
+            .dependencies
+            .iter()
+            .any(|d| d.id.eq_ignore_ascii_case(&contoso.id))
+        {
+            project.dependencies.push(contoso);
+        }
+        let all = level == crate::args::ContosoData::All;
+        eprintln!(
+            "company data: the Contoso Demo Tool ({}) of the artifact's {} app",
+            if all {
+                "all demo data, evaluation company"
+            } else {
+                "setup data"
+            },
+            crate::contoso::APP_NAME
+        );
+        Some(al_testrun::company_data::CompanyData::contoso(all, "artifact"))
     } else {
         None
     };

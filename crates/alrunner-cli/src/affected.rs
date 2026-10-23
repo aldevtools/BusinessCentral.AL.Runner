@@ -151,6 +151,13 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
         h.update(b"company-data demotool ");
         h.update(name(&a.demotool_dir).unwrap_or_default().as_bytes());
     }
+    // The Contoso company (`--company-data contoso-*`); a run without it keeps the hash it had.
+    if let Some(c) = a.company_contoso {
+        h.update(match c {
+            crate::args::ContosoData::Setup => b"company-data contoso-setup".as_slice(),
+            crate::args::ContosoData::All => b"company-data contoso-all".as_slice(),
+        });
+    }
     for (path, flag) in [
         (&a.test_data_path, "--test-data"),
         (&a.package_path, "--package"),

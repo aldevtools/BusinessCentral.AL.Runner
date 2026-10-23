@@ -96,6 +96,44 @@ pub fn assumption_ids(notes: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The dependency routine a company step runs: the codeunit by id, checked by name, and its method or `OnRun`.
+pub(crate) fn step_routine(
+    lowered: &Lowered,
+    step: &crate::company_data::CompanyStep,
+) -> Result<(usize, usize), String> {
+    let objs = &lowered.program.objects;
+    let Some(oi) = (0..objs.len()).find(|&oi| {
+        lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(step.codeunit)
+    }) else {
+        return Err(format!(
+            "no dependency app has codeunit {} \"{}\"",
+            step.codeunit, step.name
+        ));
+    };
+    if !objs[oi].name.eq_ignore_ascii_case(&step.name) {
+        return Err(format!(
+            "codeunit {} is \"{}\", not \"{}\"",
+            step.codeunit, objs[oi].name, step.name
+        ));
+    }
+    match &step.method {
+        None => trigger(&objs[oi], "OnRun")
+            .map(|ri| (oi, ri))
+            .ok_or_else(|| format!("codeunit {} \"{}\" has no OnRun", step.codeunit, objs[oi].name)),
+        Some(m) => objs[oi]
+            .routines
+            .iter()
+            .position(|r| !r.is_trigger && r.name.eq_ignore_ascii_case(m) && r.params == 0)
+            .map(|ri| (oi, ri))
+            .ok_or_else(|| {
+                format!(
+                    "codeunit {} \"{}\" has no method {m} without parameters",
+                    step.codeunit, objs[oi].name
+                )
+            }),
+    }
+}
+
 /// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
 pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
     run_traced(engine, lowered, false, company)
@@ -152,42 +190,40 @@ pub fn run_traced(
             && objs[oi].id == Some(2)
             && objs[oi].name.eq_ignore_ascii_case("Company-Initialize")
     });
+    let mut company_initialize_root: Option<usize> = None;
     if let Some(oi) = company_initialize {
         if let Some(ri) = trigger(&objs[oi], "OnRun") {
+            company_initialize_root = Some(roots.len());
             roots.push((oi, ri, true, false));
         }
     }
-    // The codeunit that builds the company's data, after Company-Initialize (BCApps' CI: `Invoke-LegacyDemoDataTool`
-    // runs codeunit 2, then the DemoTool's action).
-    let mut company_root: Option<usize> = None;
+    // The steps that build the company's data, after Company-Initialize (BCApps' CI: `Invoke-LegacyDemoDataTool` runs
+    // codeunit 2, then the DemoTool's action; `Invoke-ContosoDemoTool` runs codeunit 2, then each Contoso step).
+    let mut company_roots: Vec<usize> = Vec::new();
     let mut company_missing: Option<String> = None;
-    if let Some(c) = company {
-        let found = (0..objs.len()).find(|&oi| {
-            lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(c.codeunit)
-        });
-        match found.map(|oi| {
-            (
-                oi,
-                objs[oi].name.eq_ignore_ascii_case(&c.name),
-                trigger(&objs[oi], "OnRun"),
-            )
-        }) {
-            Some((oi, true, Some(ri))) => {
-                company_root = Some(roots.len());
+    for step in company.map(CompanyData::steps).unwrap_or_default() {
+        match step_routine(lowered, &step) {
+            Ok((oi, ri)) => {
+                company_roots.push(roots.len());
                 roots.push((oi, ri, false, false));
             }
-            Some((oi, true, None)) => {
-                company_missing = Some(format!("codeunit {} \"{}\" has no OnRun", c.codeunit, objs[oi].name))
+            Err(why) => {
+                company_missing = Some(why);
+                break;
             }
-            Some((oi, false, _)) => {
-                company_missing = Some(format!(
-                    "codeunit {} is \"{}\", not \"{}\"",
-                    c.codeunit, objs[oi].name, c.name
-                ))
-            }
-            None => company_missing = Some(format!("no dependency app has codeunit {} \"{}\"", c.codeunit, c.name)),
         }
     }
+    if company_missing.is_some() {
+        // No step runs when one is missing: the company could not be built.
+        for &k in company_roots.iter().rev() {
+            roots.remove(k);
+        }
+        company_roots.clear();
+    }
+    // Without a client (`CompanyData::no_client`): from Company-Initialize to the last step.
+    let no_client = company.is_some_and(|c| c.no_client);
+    let no_client_from = company_initialize_root.or(company_roots.first().copied());
+    let no_client_to = company_roots.last().copied();
     // Where the apps installed after the company is built begin.
     let late_from = late_apps.as_ref().map(|_| roots.len());
     roots.extend(late_roots);
@@ -213,7 +249,6 @@ pub fn run_traced(
     let mut notes = Vec::new();
     let mut touched = BTreeSet::new();
     let mut ran = 0;
-    let mut company_built = false;
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
     let company_name = session.set_company("");
@@ -227,17 +262,35 @@ pub fn run_traced(
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
+    // The company is an evaluation company (`New-TestCompany -EvaluationCompany`) from the start, before any install code.
+    if company.is_some_and(|c| c.evaluation_company) {
+        session.mark_evaluation_company();
+    }
+    let mut steps_built = 0;
+    let mut step_failed = false;
     for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
         if late_from == Some(k) {
             session.set_apps_not_installed(None);
         }
+        let is_step = company_roots.contains(&k);
+        if is_step && step_failed {
+            // BCApps' script stops at the step that failed; the company is blocked already.
+            continue;
+        }
+        if is_step && company_roots.first() != Some(&k) {
+            // Each step is a session of its own (`Invoke-NavContainerCodeunit`): SingleInstance state starts again.
+            session.reset_single_instances();
+        }
+        let without_client =
+            no_client && no_client_from.is_some_and(|f| f <= k) && no_client_to.is_some_and(|t| k <= t);
+        session.set_no_client(without_client);
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
         if no_company {
             session.set_company("");
         }
         session.clear_fault_site();
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
-        if company_root == Some(k) {
+        if is_step {
             session.capture_messages();
             session.set_company_build(true);
         }
@@ -247,7 +300,8 @@ pub fn run_traced(
         } else {
             session.call_parameterless_subscriber(oi, ri)
         };
-        if company_root == Some(k) {
+        session.set_no_client(false);
+        if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {
                 notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
@@ -270,7 +324,7 @@ pub fn run_traced(
         match why {
             None => {
                 ran += 1;
-                company_built |= company_root == Some(k);
+                steps_built += usize::from(is_step);
                 session.commit_transaction();
             }
             Some(why) => {
@@ -279,7 +333,8 @@ pub fn run_traced(
                 } else {
                     session.rollback_transaction();
                 }
-                if company_root == Some(k) {
+                if is_step {
+                    step_failed = true;
                     notes.push(format!(
                         "{}{label} did not run to its end: {why}",
                         crate::company_data::BLOCKED_NOTE
@@ -298,6 +353,7 @@ pub fn run_traced(
             }
         }
     }
+    let company_built = !company_roots.is_empty() && steps_built == company_roots.len();
     session.set_apps_not_installed(None);
     session.set_environment(run_environment);
     session.trace_faults(false);
