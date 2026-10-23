@@ -64,13 +64,3 @@ fn a_json_text_value_reads_as_a_decimal_when_it_is_digits() {
     );
     assert!(r.starts_with("error:Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavJsonValue to Microsoft.Dynamics.Nav.Runtime.Decimal18."), "{r}");
 }
-
-// Not pinned: a point in the text stays refused.
-#[test]
-fn a_json_text_value_with_a_point_is_refused() {
-    let r = text(
-        "J: JsonValue; D: Decimal;",
-        "J.SetValue('100.00'); D := J.AsDecimal(); exit('no');",
-    );
-    assert!(r.starts_with("unsupported:reading Text"), "{r}");
-}

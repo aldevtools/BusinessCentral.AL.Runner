@@ -39,5 +39,8 @@ codeunit 50100 C
 
 #[test]
 fn json_string_as_decimal() {
-    assert_eq!(text(run(SRC, "Read")), "ok 100|ok -3.5|ok 7|Conversion|Conversion|Conversion|");
+    assert_eq!(
+        text(run(SRC, "Read")),
+        "ok 100|ok -3.5|ok 7|Conversion|Conversion|Conversion|"
+    );
 }

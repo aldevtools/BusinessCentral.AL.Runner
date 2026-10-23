@@ -3,8 +3,8 @@
 //! declared as System.app declares them; a second Microsoft app ("sysapp") wraps the access check the way "Agent Task Builder" does.
 
 use al_builtins::native::Signal;
-use al_testkit::{Built, text};
 use al_sema::workspace::AppSource;
+use al_testkit::{Built, text};
 
 const SYS: &str = r#"
 codeunit 2000000020 "Feature Access Management"
@@ -113,7 +113,11 @@ fn built() -> Built {
         app("partner", &["sys", "sysapp"], PARTNER),
     ]);
     for a in &mut std::sync::Arc::make_mut(&mut l.program).apps {
-        a.publisher = if a.id.starts_with("sys") { "Microsoft".into() } else { "Partner".into() };
+        a.publisher = if a.id.starts_with("sys") {
+            "Microsoft".into()
+        } else {
+            "Partner".into()
+        };
     }
     Built::new(l)
 }
