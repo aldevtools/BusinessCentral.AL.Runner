@@ -93,6 +93,8 @@ impl Session {
             ids::SYSTEM_RANDOM_1 => self.random_op(args),
             ids::SYSTEM_RANDOMIZE_1 => match args.first() {
                 // `new Random(seed)` (ALSystemNumeric.ALRandomize(int)); the sequence is .NET's.
+                // The sequence is the session's: the next test of the codeunit goes on with it, no reset per test
+                // (types/TestRandomSeededContracts.al:112-129).
                 Some(Value::Integer(seed)) => {
                     self.reseeded_in_test = true;
                     self.rng = al_host::random::NetRandom::new(*seed);
