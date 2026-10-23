@@ -317,6 +317,9 @@ impl Checker<'_> {
             V::PageMetadata | V::PageControlField => &[ObjKind::Page, ObjKind::Table],
             V::PageAction => &[ObjKind::Page, ObjKind::Table, ObjKind::Codeunit],
             V::EventSubscription => &[ObjKind::Codeunit],
+            // The Metadata of a query's row feeds Microsoft's QueryMetadataReader, which reads the query's columns and
+            // their tables (lt-re-dotnet/ReQueryMetadataShapes.al:171, Base Application's query 51 by id).
+            V::ApplicationObjectMetadata => &[ObjKind::Query],
             _ => return,
         };
         for &kind in kinds {
@@ -549,6 +552,18 @@ impl Checker<'_> {
                 self.activate_page_events(i);
             }
             ObjKind::Query => {
+                // The shape of a query is its data items' tables (a query only Application Object Metadata
+                // lists is lowered to its columns, `touch_object_catalog`).
+                let file = self.ws.objects[i].file;
+                for sec in ast::sections_in(self.ws.object_ast(i).syntax()) {
+                    if sec.name().eq_ignore_ascii_case("dataitem") {
+                        if let Some(t) = crate::types::section_object_name(&sec, 1)
+                            .and_then(|table| self.resolve_quiet(file, ObjKind::Table, &table))
+                        {
+                            self.touch_schema(t);
+                        }
+                    }
+                }
                 if level == FULL {
                     self.reach_triggers(i);
                 }
