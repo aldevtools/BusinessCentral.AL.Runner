@@ -286,27 +286,23 @@ impl Session {
         // (ConfigXMLExchange.Codeunit.al:1505-1522) lists the Media folder MediaSet.ExportFile wrote into. Windows BC 29.0
         // lists those files, full path with no extension (windows-check-results 2026-10-23 RJ item B; corpus
         // tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
-        // image lists none (bc-linux issue 181), so no corpus test pins it. The Microsoft-test exception (CLAUDE.md rule 3):
-        // every Microsoft Legacy test needs the DemoTool company. Only a folder whose creation order and name order agree is
-        // listed (that run could not tell them apart); an empty one is refused (not measured).
+        // image listed none (bc-linux issue 181). Windows BC 29.0 lists in name order without case, never in creation order
+        // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder); the bc-linux image now does the same and
+        // corpus bump 62 pins it (the next stage 2 swaps this assumption for that pin). Until then the Microsoft-test exception
+        // (CLAUDE.md rule 3): every Microsoft Legacy test needs the DemoTool company. An empty folder is refused (not measured).
         if let (Target::Static(d), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
             (&target, kind, values.as_slice())
             && d.name.eq_ignore_ascii_case("System.IO.Directory")
             && member.eq_ignore_ascii_case("GetFiles")
             && let Some(listed) = self.host.files.temp_folder_files(p)
         {
-            return match listed {
-                Ok(files) if !files.is_empty() => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::CompanyBuildFolderListingNameOrder,
-                    );
-                    self.staged_file_array(files, &shown)
-                }
-                Ok(_) => unsupported(format!(
+            if listed.is_empty() {
+                return unsupported(format!(
                     "DotNet {shown}: an empty folder of the company build's temporary folder (not measured on real BC)"
-                )),
-                Err(why) => unsupported(format!("DotNet {shown}: {why}")),
-            };
+                ));
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CompanyBuildFolderListingNameOrder);
+            return self.staged_file_array(listed, &shown);
         }
 
         // 1d. The company build's temporary folder (owner rule 2026-10-22: folder access only inside the company build).
@@ -385,7 +381,20 @@ impl Session {
                 let v = self.apply_reply(r, &book, &places, &shown, f)?;
                 if let Some((path, blob)) = save_to {
                     let bytes = blob.borrow().bytes.clone();
-                    if let Err(why) = self.host.files.write(&path, &bytes) {
+                    // A document holding content carried unread (owner decision 2026-10-23 "Carry bytes unread": the
+                    // DemoTool's RapidStart package with a re-encoded or re-zipped media) is saved as a marked file.
+                    let wrote = if self.company_build && holds_carried_text(&bytes) {
+                        self.host.files.write(&path, &[]).map(|()| {
+                            self.render_pending_files.insert(
+                                crate::ctx::pending_key(&path),
+                                al_builtins::stream::PACKAGE_CARRIED.into(),
+                            );
+                        })
+                    } else {
+                        self.render_pending_files.remove(&crate::ctx::pending_key(&path));
+                        self.host.files.write(&path, &bytes)
+                    };
+                    if let Err(why) = wrote {
                         return unsupported(format!("DotNet {shown}: {why}"));
                     }
                 }
@@ -684,7 +693,7 @@ impl Session {
         count: Option<i64>,
     ) -> Result<(), Signal> {
         let engine = self.engine.clone();
-        if let Some(r) = compression::write_into(out, src, count) {
+        if let Some(r) = compression::write_into(out, src, count, self.company_build) {
             return r;
         }
         let host_stream = |v: &Value| -> Result<Option<(DotNetHandle, String)>, Signal> {
@@ -1283,4 +1292,16 @@ pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
         (_, T::DotNet(_)) => Ok(v),
         _ => ops::convert(v, t),
     }
+}
+
+/// Whether saved bytes hold `CARRIED_TEXT_MARK` (U+FDD1) in UTF-8, UTF-16 little endian or UTF-16 big endian.
+fn holds_carried_text(bytes: &[u8]) -> bool {
+    let mut utf8 = [0u8; 3];
+    let utf8 = al_builtins::native::CARRIED_TEXT_MARK
+        .encode_utf8(&mut utf8)
+        .as_bytes()
+        .to_vec();
+    let unit = al_builtins::native::CARRIED_TEXT_MARK as u32 as u16;
+    let (le, be) = (unit.to_le_bytes(), unit.to_be_bytes());
+    bytes.windows(3).any(|w| w == utf8.as_slice()) || bytes.windows(2).any(|w| w == le || w == be)
 }

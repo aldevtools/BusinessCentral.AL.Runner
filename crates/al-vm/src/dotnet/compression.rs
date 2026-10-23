@@ -19,7 +19,7 @@ use crate::Session;
 use al_builtins::dotnet_sigs::{COMPRESSION_MODE, GZIP_STREAM};
 use al_builtins::native::Signal;
 use al_builtins::stream::{drain_in, new_blob, write_bytes, write_raw_bytes};
-use al_builtins::value::{DotNetKind, DotNetObject, Value};
+use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use flate2::{Decompress, FlushDecompress, Status};
@@ -207,6 +207,18 @@ fn gzip_dispose(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
     let Value::Blob(buffer) = state.borrow()[S_BUFFER].clone() else {
         return unsupported("GZipStream without its buffer");
     };
+    // An opaque copy (`write_into`) packs to an opaque package in the wrapped stream.
+    if let Some(mark) = buffer.borrow().render_pending.clone() {
+        let target = state.borrow()[S_STREAM].clone();
+        let Value::Library(_, h) = &target else {
+            return unsupported("GZipStream over a stream that is not an OutStream");
+        };
+        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+            return unsupported("GZipStream over a stream that is not an OutStream");
+        };
+        al_builtins::stream::mark_carried(blob, mark);
+        return Ok(Value::Null);
+    }
     let raw = buffer.borrow().bytes.clone();
     // Empty input gives no bytes at all, not even a header (PZGzip.al: GZip_EmptyInput).
     if raw.is_empty() {
@@ -224,8 +236,20 @@ fn gzip_dispose(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
     Ok(Value::Null)
 }
 
+/// `Close`: as `Dispose` for a compressing stream. Measured on Windows BC 29.0 (probe cu 61289
+/// SC_GZipStream_Close_ConfigPackageShape, the shape of Config. Pckg. Compression Mgt.ProcessGZip,
+/// ConfigPckgCompressionMgt.Codeunit.al:80: no error, the bytes start 1F 8B 08 00, GZipDecompress gives the source back); no
+/// corpus test pins it yet, so it marks `gzipstream-close-is-dispose`. Close of a decompressing stream is not measured.
+fn gzip_close(s: &mut Session, this: Option<&Rc<DotNetObject>>, a: &[Value]) -> Result<Value, Signal> {
+    if mode_of(state_of(this)?) != COMPRESS {
+        return unsupported("GZipStream.Close of a decompressing stream (not pinned)");
+    }
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GZipStreamCloseIsDispose);
+    gzip_dispose(s, this, a)
+}
+
 /// `CopyStream(GZipStream, InStream)`: the bytes wait in the stream until `Dispose` packs them.
-pub(super) fn write_into(out: &Value, src: &Value, count: Option<i64>) -> Option<Result<(), Signal>> {
+pub(super) fn write_into(out: &Value, src: &Value, count: Option<i64>, carry: bool) -> Option<Result<(), Signal>> {
     let Value::DotNet(o) = out else { return None };
     let DotNetKind::Internal { type_name, state } = &o.kind else {
         return None;
@@ -243,10 +267,16 @@ pub(super) fn write_into(out: &Value, src: &Value, count: Option<i64>) -> Option
         if !matches!(src, Value::Library(al_builtins::library_kind::LibraryKind::InStream, _)) {
             return unsupported("CopyStream into a GZipStream from something that is not an InStream");
         }
-        let bytes = drain_in(&mut src.clone())?;
         let Value::Blob(buffer) = state.borrow()[S_BUFFER].clone() else {
             return unsupported("GZipStream without its buffer");
         };
+        // Content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): the stream holds an
+        // opaque copy, and Dispose writes an opaque package.
+        if carry && let Some(mark) = al_builtins::stream::carried_mark_of_in(src) {
+            al_builtins::stream::mark_carried(&buffer, mark);
+            return Ok(());
+        }
+        let bytes = drain_in(&mut src.clone())?;
         write_bytes(&buffer, &bytes);
         Ok(())
     })())
@@ -284,6 +314,7 @@ pub fn types() -> Vec<RegistryType> {
                 },
                 call("CopyTo", gzip_copy_to),
                 call("Dispose", gzip_dispose),
+                call("Close", gzip_close),
             ],
         },
     ]

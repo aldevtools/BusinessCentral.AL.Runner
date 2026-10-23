@@ -4,6 +4,9 @@ impl al_builtins::format::FormatCtx for Session {
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn carries_unread(&self) -> bool {
+        self.company_build
+    }
     /// The report's language while a report runs (set by a trigger, or by the variable a SaveAs ran: report/
     /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; report/lt-bd-format-region/BdRegionTests.al:1036 `mars` in a Run), else the
     /// session's.
@@ -148,7 +151,10 @@ impl al_builtins::native::Ctx for Session {
         Session::collect_error(self, info)
     }
     fn fs_exists(&mut self, path: &str) -> Result<bool, Signal> {
-        self.refuse_pending_file(path)?;
+        // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread").
+        if self.fs_carried_mark(path).is_none() {
+            self.refuse_pending_file(path)?;
+        }
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
@@ -163,8 +169,30 @@ impl al_builtins::native::Ctx for Session {
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
-        self.refuse_pending_file(path)?;
+        if self.fs_carried_mark(path).is_some() {
+            self.render_pending_files.remove(&pending_key(path));
+        } else {
+            self.refuse_pending_file(path)?;
+        }
         Ok(self.host.files.remove(path))
+    }
+    fn company_build(&self) -> bool {
+        self.company_build
+    }
+    fn calling_object(&self) -> Option<(String, String)> {
+        let obj = *self.frames.last()?;
+        let o = &self.engine.program.objects[obj];
+        let app = self.module_of_app(o.app as usize)?.name;
+        Some((app, o.name.to_string()))
+    }
+    fn fs_carried_mark(&self, path: &str) -> Option<Arc<str>> {
+        if !self.company_build || self.render_pending_files.is_empty() {
+            return None;
+        }
+        self.render_pending_files
+            .get(&pending_key(path))
+            .filter(|m| al_builtins::stream::is_carried_mark(m))
+            .cloned()
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
         self.host.files.write(path, &[])?;

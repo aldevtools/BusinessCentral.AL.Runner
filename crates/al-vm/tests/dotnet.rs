@@ -1464,7 +1464,7 @@ fn the_declared_result_types_match_the_registry() {
             "GetEnvironmentApplicationSetting" => vec![Value::Text("x".into())],
             "GetEffectivePermissionForObject" => continue, // needs a Guid; the AL test above runs it
             // Need streams; tests/gzip.rs runs them.
-            "GZipStream" | "CopyTo" | "Dispose" => continue,
+            "GZipStream" | "CopyTo" | "Dispose" | "Close" => continue,
             // Need other runtime objects; tests/host/bitmap.rs runs them.
             "Bitmap" | "Save" | "FromImage" | "FillEllipse" | "FromHtml" | "SolidBrush" => continue,
             // Need an exception object; tests/host/last_error_object.rs runs them.
@@ -1795,10 +1795,10 @@ impl al_host::FileSystem for TempListed {
     fn remove(&mut self, _: &str) -> bool {
         false
     }
-    fn temp_folder_files(&self, dir: &str) -> Option<Result<Vec<String>, String>> {
+    fn temp_folder_files(&self, dir: &str) -> Option<Vec<String>> {
         match dir {
-            "\\TEMP\\pkg/Media" => Some(Ok(vec![format!("{dir}/{{A}}-1"), format!("{dir}/{{B}}-1")])),
-            "\\TEMP\\mixed" => Some(Err("creation order and name order differ".into())),
+            "\\TEMP\\pkg/Media" => Some(vec![format!("{dir}/{{A}}-1"), format!("{dir}/{{B}}-1")]),
+            "\\TEMP\\empty" => Some(vec![]),
             _ => None,
         }
     }
@@ -1844,8 +1844,8 @@ fn directory_get_files_of_a_company_build_temporary_folder_lists_its_files_and_m
 }
 
 #[test]
-fn directory_get_files_where_creation_and_name_order_differ_is_refused_without_reaching_the_host() {
-    for path in ["\\TEMP\\mixed", "\\TEMP\\other"] {
+fn directory_get_files_of_an_empty_or_unknown_temporary_folder_is_refused_without_reaching_the_host() {
+    for path in ["\\TEMP\\empty", "\\TEMP\\other"] {
         let host = Fake::new(|r| panic!("unexpected request {r:?}"));
         let r = run_temp_listed(&host, path);
         assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));

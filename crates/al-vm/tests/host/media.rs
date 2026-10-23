@@ -251,6 +251,13 @@ fn jpeg() -> Vec<u8> {
     b
 }
 
+/// `jpeg()` with the JFIF header of the DemoTool's pictures: units 1 (dots per inch), density 300 x 300.
+fn jpeg_300dpi() -> Vec<u8> {
+    let mut b = jpeg();
+    b[13..18].copy_from_slice(&[0x01, 0x01, 0x2C, 0x01, 0x2C]);
+    b
+}
+
 /// A PNG of 4 x 5 pixels as far as its size goes.
 fn png() -> Vec<u8> {
     let mut b = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
@@ -284,6 +291,7 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
         .unwrap();
     let mut files = al_host::MemFileSystem::default();
     files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
+    files.write("\\TEMP\\dpi.jpg", &jpeg_300dpi()).unwrap();
     files.write("\\TEMP\\p.jpg", &png()).unwrap();
     files.write("\\TEMP\\b.png", &png()).unwrap();
     files.write("\\TEMP\\c.png", &jpeg()).unwrap();
@@ -458,6 +466,33 @@ fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
 // onprem media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
 // (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
 // (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
+// Windows BC 29.0 probe (winprobe-wc6 cu 61288 SC_DemoTool_Media_ExportStream, case JD): Media.ExportStream of a JPEG that
+// Media.ImportFile read, with a JFIF header of units 1 and density 300 x 300 (the DemoTool's Person and item pictures), gives the
+// file's bytes. A JFIF header of units 0 is rewritten (case JS), so it stays refused, as on BC 28.
+#[test]
+fn export_stream_of_a_300_dpi_jfif_jpeg_gives_the_file_bytes_on_bc_29() {
+    let body = |file: &str| {
+        format!(
+            "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin Rec.Picture.ImportFile('\\TEMP\\{file}', 'x'); \
+             B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); B.Get('B'); \
+             B.CalcFields(Src); B.Src.CreateInStream(InS); exit(Format(InS.Length)); end;"
+        )
+    };
+    al_builtins::assumptions::take_hits();
+    assert_eq!(
+        import_file_on(Some("29.0"), &body("dpi.jpg")).unwrap(),
+        jpeg_300dpi().len().to_string()
+    );
+    assert!(
+        al_builtins::assumptions::take_hits()
+            .contains(&al_builtins::assumptions::Assumption::MediaExportStreamJfif300DpiKept)
+    );
+    for (bc, file) in [("29.0", "a.jpg"), ("28.0", "dpi.jpg")] {
+        let r = import_file_on(Some(bc), &body(file));
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc} {file}: {r:?}");
+    }
+}
+
 #[test]
 fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused() {
     let ok = import_file_on(
@@ -506,6 +541,10 @@ impl al_host::FileSystem for BuildFolder {
 }
 
 fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
+    export_file_in(bc, serve, false, body)
+}
+
+fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Result<String, Signal> {
     use al_host::FileSystem;
     let src = format!(
         "{TABLE}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; P: Text; n: Integer; {body} {LEN} }}"
@@ -532,6 +571,7 @@ fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
         host.with_files(files)
     };
     let mut s = Session::with_host(engine, host);
+    s.set_company_build(company_build);
     let inst = s.instance(oi);
     match s.call(oi, ri, inst, vec![])?.0 {
         Value::Text(t) => Ok(t.to_string()),
@@ -591,6 +631,46 @@ fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_th
     }
 }
 
+// Owner decision 2026-10-23 "Carry bytes unread": in the company build, the file of a re-encoded item moves unread through
+// File.Exists, File.Open and CreateInStream, CopyStream, a Blob field and a file written from it (Config. XML Exchange.
+// ImportMediaSetFromFile via File Management.BLOBImportFromServerFile, FileManagement.Codeunit.al:444; the package export).
+// Any read of its bytes, length or text is still refused with the mark.
+#[test]
+fn a_re_encoded_export_file_moves_unread_through_file_stream_and_blob_in_the_company_build() {
+    let png = "G: File; H: File; Ins: InStream; Outs: OutStream; Q: Text; \
+               begin Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+               P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); Q := P + '-1'; \
+               if not Exists(Q) then exit('missing'); \
+               G.Open(Q); G.CreateInStream(Ins); Rec.Src.CreateOutStream(Outs); CopyStream(Outs, Ins); G.Close(); \
+               Rec.Modify(); Clear(Rec); Rec.Get('A'); Rec.CalcFields(Src); Rec.Src.CreateInStream(Ins); \
+               H.Create(P + '-copy'); H.CreateOutStream(Outs); CopyStream(Outs, Ins); H.Close(); ";
+    let ok = |body: &str| export_file_in("29.0", true, true, &format!("{png}{body} end;"));
+    assert_eq!(ok("exit(Format(Exists(P + '-copy')));").unwrap(), "Yes");
+    // Never empty (assumption company-build-carried-content-not-empty): HasValue Yes, Format `*`.
+    assert_eq!(
+        ok("exit(Format(Rec.Src.HasValue()) + Format(Rec.Src));").unwrap(),
+        "Yes*"
+    );
+    for look in [
+        "exit(Format(Len(Q)));",
+        "exit(Format(Len(P + '-copy')));",
+        "Rec.Src.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
+        "exit(Format(Ins.Length));",
+        "exit(Format(Ins.EOS));",
+        "G.Open(P + '-copy'); G.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
+    ] {
+        let r = ok(look);
+        let why = match &r {
+            Err(Signal::Unsupported(why)) => why.clone(),
+            other => panic!("{look}: {other:?}"),
+        };
+        assert!(why.contains("MediaSet.ExportFile"), "{look}: {why}");
+    }
+    // Outside the company build nothing changes: File.Exists of the file is refused.
+    let r = export_file_in("29.0", true, false, &format!("{png}exit('ran'); end;"));
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
 // Not pinned, so refused: what a file system outside the company build's gets, a folder that does not exist, an empty
 // prefix, an empty set and an item a stream import read.
 #[test]
@@ -613,4 +693,18 @@ fn media_set_export_file_that_is_not_pinned_is_refused() {
         let r = export_file_on(bc, serve, &body);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc} {serve} {body}: {r:?}");
     }
+}
+
+// media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow: the Delete of a row removes the Tenant Media rows of
+// the items still in its MediaSet ('kept_item_after_delete' No) and keeps an item removed from the set earlier
+// ('removed_item_after_delete' Yes).
+#[test]
+fn delete_of_a_row_removes_the_tenant_media_rows_of_the_items_still_in_its_media_set() {
+    let r = import_file(
+        "i1: Guid; i2: Guid; begin Rec.Code := 'A'; Rec.Insert(); Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); \
+         Rec.Images.ImportFile('\\TEMP\\E.PNG', 'two'); Rec.Modify(); Rec.Get('A'); i1 := Rec.Images.Item(1); \
+         i2 := Rec.Images.Item(2); Rec.Images.Remove(i1); Rec.Modify(); Rec.Get('A'); Rec.Delete(); \
+         exit(Format(T.Get(i1)) + '|' + Format(T.Get(i2))); end;",
+    );
+    assert_eq!(r.unwrap(), "Yes|No");
 }

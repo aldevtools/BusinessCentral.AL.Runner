@@ -73,10 +73,8 @@ pub struct ResourceFiles {
     removed: BTreeSet<String>,
     /// The folders AL code created in the temporary folder (`key` form, no closing separator).
     dirs: BTreeSet<String>,
-    /// Per written file (`key` form): when it was created (a counter; a rewrite keeps it, as NTFS keeps a file's creation time)
-    /// and the path as AL code first spelled it.
-    created: std::collections::BTreeMap<String, (u64, String)>,
-    next_created: u64,
+    /// Per written file (`key` form): the path as AL code first spelled it (a rewrite keeps the first spelling).
+    created: std::collections::BTreeMap<String, String>,
 }
 
 /// The temporary folder, in `key` form without the closing separator: what `TemporaryPath()` names (`\TEMP\`, al-vm
@@ -92,7 +90,6 @@ impl ResourceFiles {
             removed: BTreeSet::new(),
             dirs: BTreeSet::new(),
             created: Default::default(),
-            next_created: 0,
         }
     }
 
@@ -183,10 +180,7 @@ impl FileSystem for ResourceFiles {
     fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         let k = Self::key(path);
         self.removed.remove(&k);
-        if !self.created.contains_key(&k) {
-            self.next_created += 1;
-            self.created.insert(k.clone(), (self.next_created, path.to_string()));
-        }
+        self.created.entry(k.clone()).or_insert_with(|| path.to_string());
         self.written.write(&k, bytes)
     }
     fn exists(&self, path: &str) -> bool {
@@ -223,32 +217,29 @@ impl FileSystem for ResourceFiles {
         let dir = dir.trim_end_matches(['\\', '/']);
         Some(names.into_iter().map(|n| format!("{dir}/{n}")).collect())
     }
-    /// Only a folder AL code created in the temporary folder: the files written directly in it, in name order without case
-    /// (NTFS lists by name), each as the folder joined with `/` to the file name as first written (the same join as
-    /// `staged_folder_files`, for the runtime's .NET System.IO.Path). Windows BC 29.0 lists the files MediaSet.ExportFile wrote
-    /// there (windows-check-results 2026-10-23 RJ item B; corpus tests/al-language-onprem/media/MediaFiles.al:772,
-    /// RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); in that run creation order and name order agreed, so a folder
-    /// where they differ is an `Err` (the caller refuses it). The caller marks `company-build-folder-listing-name-order`.
-    fn temp_folder_files(&self, dir: &str) -> Option<Result<Vec<String>, String>> {
+    /// Only a folder AL code created in the temporary folder: the files written directly in it, in name order without case,
+    /// each as the folder joined with `/` to the file name as first written (the same join as `staged_folder_files`, for the
+    /// runtime's .NET System.IO.Path). Windows BC 29.0 lists the files MediaSet.ExportFile wrote there (windows-check-results
+    /// 2026-10-23 RJ item B; corpus tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape,
+    /// cu 61286) and lists every folder in name order without case, never in creation order (windows-check-results 2026-10-23
+    /// listing order, cu 61287 LO_ListingOrder: created a,C,b lists a,b,C; B,a lists a,B). The names compare upper-cased, as
+    /// NTFS orders its entries. Corpus bump 62 pins this order; until it lands the caller marks
+    /// `company-build-folder-listing-name-order`.
+    fn temp_folder_files(&self, dir: &str) -> Option<Vec<String>> {
         let k = Self::dir_key(dir);
         if !self.dirs.contains(&k) {
             return None;
         }
         let prefix = format!("{k}\\");
-        let mut files: Vec<(&u64, String)> = self
+        let mut files: Vec<String> = self
             .created
             .iter()
             .filter(|(key, _)| key.strip_prefix(&prefix).is_some_and(|rest| !rest.contains('\\')))
-            .map(|(_, (n, path))| (n, path.rsplit(['\\', '/']).next().unwrap_or_default().to_string()))
+            .map(|(_, path)| path.rsplit(['\\', '/']).next().unwrap_or_default().to_string())
             .collect();
-        files.sort_by_key(|(_, name)| name.to_uppercase());
-        if !files.is_sorted_by_key(|(n, _)| **n) {
-            return Some(Err(
-                "the files' creation order and name order differ (which one Windows BC lists by is not pinned)".into(),
-            ));
-        }
+        files.sort_by_cached_key(|name| name.to_uppercase());
         let dir = dir.trim_end_matches(['\\', '/']);
-        Some(Ok(files.into_iter().map(|(_, name)| format!("{dir}/{name}")).collect()))
+        Some(files.into_iter().map(|name| format!("{dir}/{name}")).collect())
     }
     /// The temporary folder and what is in it, a folder staged in the user folder, and the empty text (Directory.Exists('')
     /// is No: QxDotNetDemoShapes.al:281). Any other path (another drive, a relative one) is not served.
@@ -510,37 +501,50 @@ mod tests {
     // Config. XML Exchange.UpdateConfigPackageMediaSet (ConfigXMLExchange.Codeunit.al:1505-1522) lists the Media folder the
     // DemoTool's MediaSet.ExportFile wrote into (File Management.GetServerDirectoryFilesList, DotNet Directory.GetFiles). Windows
     // BC 29.0 lists the files written there, the full path with no extension (windows-check-results 2026-10-23 RJ item B, cu 61286
-    // RJ_MediaSet_ExportFile_ConfigPackageShape); its run could not tell creation order from name order, so only a folder where the
-    // two agree is listed (`company-build-folder-listing-name-order`).
+    // RJ_MediaSet_ExportFile_ConfigPackageShape), in name order without case, never in creation order (windows-check-results
+    // 2026-10-23 listing order, cu 61287 LO_ListingOrder: c,b,a -> a,b,c; a,C,b -> a,b,C; B,a -> a,B; two MediaSet.ExportFile
+    // sets whose Guids sort against creation order -> name order; 10 shuffled -> ascending). Corpus bump 62 pins it.
     #[test]
-    fn a_folder_created_in_the_temporary_folder_lists_its_files_only_while_creation_and_name_order_agree() {
+    fn a_folder_created_in_the_temporary_folder_lists_its_files_in_name_order_without_case() {
         let dir = std::env::temp_dir().join(format!("alr-restmplist-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut fs = ResourceFiles::new(dir.clone());
         let media = "\\TEMP\\pkg/Media";
         fs.create_dir(media).unwrap();
-        assert_eq!(fs.temp_folder_files(media), Some(Ok(vec![])), "an empty folder");
-        fs.write("\\TEMP\\pkg/Media\\{A1}-1", b"a").unwrap();
+        assert_eq!(fs.temp_folder_files(media), Some(vec![]), "an empty folder");
         fs.write("\\TEMP\\pkg/Media\\{B2}-1", b"b").unwrap();
+        fs.write("\\TEMP\\pkg/Media\\{A1}-1", b"a").unwrap();
         fs.write("\\TEMP\\pkg/Media\\{a1}-1", b"again").unwrap();
         fs.write("\\TEMP\\pkg/Media\\Sub\\x", b"x").unwrap();
         fs.write("\\TEMP\\pkg/other", b"o").unwrap();
         assert_eq!(
             fs.temp_folder_files("\\TEMP\\pkg/Media\\"),
-            Some(Ok(vec![
+            Some(vec![
                 "\\TEMP\\pkg/Media/{A1}-1".to_string(),
                 "\\TEMP\\pkg/Media/{B2}-1".to_string()
-            ])),
-            "the files in name order, as written first, not those of a folder below"
+            ]),
+            "name order, not creation order; the file as written first; not those of a folder below"
         );
-        fs.write("\\TEMP\\pkg/Media\\{0}-1", b"z").unwrap();
-        assert!(
-            matches!(fs.temp_folder_files(media), Some(Err(_))),
-            "created last, first by name: the order is not pinned"
-        );
-        assert!(fs.remove("\\TEMP\\pkg/Media\\{0}-1"));
-        assert_eq!(fs.temp_folder_files(media).map(|r| r.map(|f| f.len())), Some(Ok(2)));
+        assert!(fs.remove("\\TEMP\\pkg/Media\\{A1}-1"));
+        assert!(fs.remove("\\TEMP\\pkg/Media\\{B2}-1"));
+        let names = |fs: &ResourceFiles| -> Vec<String> {
+            let files = fs.temp_folder_files(media).unwrap();
+            files
+                .iter()
+                .map(|f| f.rsplit('/').next().unwrap().to_string())
+                .collect()
+        };
+        for n in ["a.txt", "C.txt", "b.txt"] {
+            fs.write(&format!("{media}\\{n}"), b"x").unwrap();
+        }
+        assert_eq!(names(&fs), ["a.txt", "b.txt", "C.txt"], "a,C,b -> a,b,C");
+        fs.remove_dir(media, true).unwrap();
+        fs.create_dir(media).unwrap();
+        for n in ["B.txt", "a.txt"] {
+            fs.write(&format!("{media}\\{n}"), b"x").unwrap();
+        }
+        assert_eq!(names(&fs), ["a.txt", "B.txt"], "B,a -> a,B");
         for other in [
             "\\TEMP\\",
             "\\TEMP\\missing",

@@ -73,6 +73,15 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
     None
 }
 
+/// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
+/// then units at byte 13 and the two densities.
+fn jfif_300_dpi(b: &[u8]) -> bool {
+    b.len() > 18
+        && b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0])
+        && &b[6..11] == b"JFIF\0"
+        && b[13..18] == [1, 0x01, 0x2C, 0x01, 0x2C]
+}
+
 /// The size a PNG header gives (`IHDR` at byte 16: width and height, big endian).
 /// A media whose name made it `image/jpeg` while it holds a PNG (ReMediaJpgHoldingPng.al:108): BC stores the picture
 /// re-encoded (111 bytes on Linux, other bytes on Windows, the test ignores both), so its Tenant Media Content is not pinned.
@@ -292,6 +301,19 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
         LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
+        // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
+        // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
+        // under the Microsoft-test exception (CLAUDE.md rule 3).
+        LibraryValue::OutStream(blob, _)
+            if obj.mime == "image/jpeg"
+                && obj.file_column.is_some()
+                && jfif_300_dpi(&obj.bytes)
+                && jpeg_size(&obj.bytes).is_some()
+                && c.gate(al_version::Gate::JpegMediaSetKeptFrom29) =>
+        {
+            crate::assumptions::assume(crate::assumptions::Assumption::MediaExportStreamJfif300DpiKept);
+            crate::stream::write_bytes(blob, &obj.bytes)
+        }
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself

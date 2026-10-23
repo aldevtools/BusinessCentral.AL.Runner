@@ -22,10 +22,13 @@ pub struct Baseline {
     /// publishing an app does, not once per test codeunit): the tables of those that could not run, and why.
     /// `None`: they did not run here and each test codeunit's session runs them.
     pub workspace_installs: Option<Vec<(std::collections::BTreeSet<u32>, String)>>,
+    /// The company data codeunit (Microsoft's DemoTool) built the company to its end before this capture: its setup rows
+    /// (General Ledger Setup) are the ones BC's own build writes.
+    pub company_built: bool,
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x01";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x02";
 
 impl Baseline {
     /// The baseline as bytes, to keep on disk or to hand to another thread (a `Baseline` holds `Rc`s and cannot go
@@ -100,6 +103,7 @@ impl Baseline {
                 }
             }
         }
+        put_u8(&mut out, self.company_built as u8);
         Some(out)
     }
 
@@ -165,6 +169,7 @@ impl Baseline {
                 Some(list)
             }
         };
+        let company_built = r.u8()? != 0;
         if !r.is_empty() {
             return None;
         }
@@ -178,6 +183,7 @@ impl Baseline {
             sequences,
             last_stamp,
             workspace_installs,
+            company_built,
         })
     }
 
@@ -229,6 +235,7 @@ impl Session {
             sequences: self.sequences.clone(),
             last_stamp: self.last_stamp,
             workspace_installs: None,
+            company_built: false,
         }
     }
 
@@ -269,6 +276,7 @@ impl Session {
         // Insert_StampsBothFieldsWithTheUtcClock_SystemIdIsSetBeforeOnInsert).
         self.last_stamp = b.last_stamp.min(self.now_millis());
         self.baseline_rows = b.nonempty_tables();
+        self.company_built = b.company_built;
     }
 }
 
@@ -313,6 +321,7 @@ mod tests {
             .collect(),
             last_stamp: 639_277_389_274_520,
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
+            company_built: true,
         }
     }
 
@@ -339,6 +348,19 @@ mod tests {
         let back = Baseline::from_bytes(&bytes).expect("what to_bytes wrote reads back");
         assert_eq!(summary(&back), summary(&b));
         assert_eq!(back.to_bytes().as_deref(), Some(&bytes[..]), "the bytes are stable");
+    }
+
+    // A company the DemoTool built stays known to the test sessions of other threads (their General Ledger Setup is BC's).
+    #[test]
+    fn whether_the_company_was_built_survives_the_bytes() {
+        for built in [true, false] {
+            let mut b = sample();
+            b.company_built = built;
+            assert_eq!(
+                Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap().company_built,
+                built
+            );
+        }
     }
 
     #[test]

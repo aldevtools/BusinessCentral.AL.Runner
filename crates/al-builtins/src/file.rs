@@ -144,12 +144,23 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = path(a, 0)?;
     let enc = Encoding::from_arg(a)?;
     already_open_or_nameless(r.as_deref(), &name)?;
-    let Some(bytes) = c.fs_read(&name)? else {
-        return fs_failure(c, &format!("File.Open of the missing file {name}"));
+    // A file of content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): the open file is
+    // an opaque buffer, so its streams only move it on (CopyStream) and any look at it is refused.
+    let carried = c.fs_carried_mark(&name);
+    let bytes = match &carried {
+        Some(_) => Vec::new(),
+        None => match c.fs_read(&name)? {
+            Some(bytes) => bytes,
+            None => return fs_failure(c, &format!("File.Open of the missing file {name}")),
+        },
     };
     with_file(r, |s| {
         let blob = new_blob();
         blob.borrow_mut().bytes = bytes;
+        if let Some(mark) = carried {
+            crate::stream::mark_carried(&blob, mark);
+            blob.borrow_mut().written = false;
+        }
         s.name = name;
         s.blob = blob;
         s.enc = enc;
@@ -189,10 +200,18 @@ fn create_temp(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let pending = with_file(r, |s| {
         let was = std::mem::take(&mut s.open);
-        Ok((was && s.writable && !s.temp).then(|| (s.name.clone(), s.blob.borrow().bytes.clone())))
+        Ok((was && s.writable && !s.temp).then(|| {
+            let b = s.blob.borrow();
+            (s.name.clone(), b.bytes.clone(), b.render_pending.clone())
+        }))
     })?;
-    if let Some((name, bytes)) = pending {
-        if let Err(e) = c.fs_write(&name, &bytes) {
+    if let Some((name, bytes, mark)) = pending {
+        // Content carried unread in the company build stays unread in the file it is written to.
+        let wrote = match mark.filter(|m| c.company_build() && crate::stream::is_carried_mark(m)) {
+            Some(mark) => c.fs_write_unproduced(&name, &mark),
+            None => c.fs_write(&name, &bytes),
+        };
+        if let Err(e) = wrote {
             return unsupported(format!("File.Close({name}): {e}"));
         }
     }
@@ -204,6 +223,7 @@ fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 fn write(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     with_file(r, |s| {
         open_file_needed(s, "File.Write")?;
+        s.blob.borrow().observe()?;
         if !s.writable {
             return unsupported("File.Write on a file opened without WriteMode (error text not pinned)");
         }
@@ -225,6 +245,8 @@ fn write(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn len(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_file(r, |s| {
         open_file_needed(s, "File.Len")?;
+        // The length of content carried unread (`stream::is_carried_mark`) is a look at it.
+        s.blob.borrow().observe()?;
         Ok(Value::Integer(s.blob.borrow().bytes.len() as i32))
     })
 }

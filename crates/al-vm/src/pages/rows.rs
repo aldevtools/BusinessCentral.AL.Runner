@@ -92,7 +92,14 @@ impl Session {
                 _ => false,
             }
         };
-        if self.engine.test_data.is_none() && matches!(area.trim(), "1" | "101") && caption != text && !written {
+        // In a company the DemoTool built, General Ledger Setup is the row BC's own build writes (the DemoTool runs the same
+        // code on BC), so the premise of this refusal does not hold there (`Baseline::company_built`).
+        if self.engine.test_data.is_none()
+            && !self.company_built
+            && matches!(area.trim(), "1" | "101")
+            && caption != text
+            && !written
+        {
             return unsupported(format!(
                 "CaptionClass `{text}`: Base Application resolves area {area} from General Ledger Setup, whose corpus database row the runtime's database does not hold"
             ));

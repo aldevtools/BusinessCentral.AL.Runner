@@ -334,6 +334,20 @@ pub trait Ctx: FormatCtx {
     fn fs_write_unproduced(&mut self, _path: &str, _mark: &str) -> Result<(), String> {
         Err("this context has no file system".into())
     }
+    /// Whether the company data codeunit (Microsoft's DemoTool) is building the company: only there content behind a carried
+    /// mark (`stream::is_carried_mark`) moves unread.
+    fn company_build(&self) -> bool {
+        false
+    }
+    /// In the company build, the carried mark (`stream::is_carried_mark`) of a file written with content the runtime does not
+    /// know (`fs_write_unproduced`): File.Open gives an opaque buffer instead of refusing.
+    fn fs_carried_mark(&self, _path: &str) -> Option<std::sync::Arc<str>> {
+        None
+    }
+    /// The app name and object name of the AL routine that made the current call.
+    fn calling_object(&self) -> Option<(String, String)> {
+        None
+    }
     /// Whether `path` lies in the company build's file system, which also answers folder questions (al-host
     /// `FileSystem::serves_path`; owner rule 2026-10-22: folder access only inside the company build).
     fn fs_serves_path(&self, _path: &str) -> bool {
@@ -960,6 +974,11 @@ fn int_arg(args: &[Value], i: usize) -> Option<i64> {
 /// reserves U+FDD0 to U+FDEF for internal use): real code puts private-use characters in texts (a barcode font's glyphs
 /// are U+E000 and up), so the marks may not be private-use characters.
 pub const CALL_STACK_MARK: char = '\u{FDD0}';
+
+/// The text Base64 Convert gives for content carried unread in the company build (`stream::is_carried_mark`, owner decision
+/// 2026-10-23 "Carry bytes unread"): no text function reads it (`Txt::has_marker`), it moves between Text slots and into .NET,
+/// and a file .NET saves with it is marked (`stream::PACKAGE_CARRIED`).
+pub const CARRIED_TEXT_MARK: char = '\u{FDD1}';
 
 /// Stands for a call stack that exists in BC but is not tracked here.
 pub const UNTRACKED_CALL_STACK: &str = "\u{FDD0}";

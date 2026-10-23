@@ -101,6 +101,51 @@ pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields,
 /// FromStream, and the reader is not null: QxDotNetDemoShapes.al:174-181).
 pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a query";
 
+/// Whether the content behind a mark moves unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): a file
+/// MediaSet.ExportFile wrote for an item BC re-encodes (PNG and the like; its bytes differ by platform, 103 on Windows BC 29.0
+/// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
+/// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
+/// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
+/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC of the newest major re-zips it too, probe cu
+/// 61288 case DX) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
+pub fn is_carried_mark(what: &str) -> bool {
+    what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
+}
+
+/// The mark of a file .NET saved (XmlDocument.Save) with content carried unread in it, and of what is made from it (a GZip
+/// package): the RapidStart package the DemoTool exports.
+pub const PACKAGE_CARRIED: &str = "a file holding content carried unread";
+
+/// Whether the AL routine that asked is System Application's "Base64 Convert Impl.": its ToBase64(InStream) only tests the
+/// stream for content (`Length < 1`, `EOS`) and for more than 10 MB (a telemetry warning) before the platform encodes it
+/// (Base64ConvertImpl.Codeunit.al:75-79). For content carried unread those tests come out the same on every platform (a
+/// re-encoded picture or a re-zipped package is never empty and far below 10 MB), and the number never reaches other code.
+fn base64_impl_asks(ctx: &dyn Ctx) -> bool {
+    ctx.company_build()
+        && ctx
+            .calling_object()
+            .is_some_and(|(app, object)| app == "System Application" && object == "Base64 Convert Impl.")
+}
+
+/// Makes `blob` an opaque copy of content behind `mark`: no bytes, and any look refused with the mark.
+pub fn mark_carried(blob: &BlobRef, mark: std::sync::Arc<str>) {
+    let mut buf = blob.borrow_mut();
+    buf.bytes.clear();
+    buf.write_pos = 0;
+    buf.loaded = true;
+    buf.written = true;
+    buf.render_pending = Some(mark);
+}
+
+/// The carried mark (`is_carried_mark`) of the buffer an InStream value reads, if it reads one.
+pub fn carried_mark_of_in(v: &Value) -> Option<std::sync::Arc<str>> {
+    let Value::Library(_, h) = v else { return None };
+    match &*h.borrow() {
+        LibraryValue::InStream(s) => s.render_pending().filter(|m| is_carried_mark(m)),
+        _ => None,
+    }
+}
+
 /// Whether a mark is one of the two unpinned Blob writes above (they refuse any look, not only a report column).
 pub fn is_unloaded_write_mark(what: &str) -> bool {
     what == UNLOADED_WRITE || what == UNLOADED_THEN_LOADED
@@ -120,6 +165,11 @@ pub fn render_pending_error(report: &str) -> Signal {
             "a Blob written through a stream created before CalcFields loaded it, after a read without CalcFields \
              (whether the write replaces the content is not pinned)"
                 .into(),
+        );
+    }
+    if report == PACKAGE_CARRIED {
+        return Signal::Unsupported(
+            "a file .NET saved with content carried unread in it (a re-encoded or re-zipped media whose bytes are not pinned)".into(),
         );
     }
     if report == MEDIA_SET_FILE_REENCODED {
@@ -631,11 +681,14 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     Ok(Value::Null)
 }
 
-fn blob_create_in(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let enc = Encoding::from_arg(a)?;
     let b = blob_of(r)?;
-    // A query's metadata is only handed to QueryMetadataReader.FromStream; a read of the stream refuses (`with_data`).
-    if b.borrow().render_pending.as_deref() != Some(QUERY_METADATA) {
+    // A query's metadata is only handed to QueryMetadataReader.FromStream; a read of the stream refuses (`with_data`). Content
+    // carried unread in the company build (`is_carried_mark`) gives a stream that only CopyStream moves on.
+    let pending = b.borrow().render_pending.clone();
+    let carried = ctx.company_build() && pending.as_deref().is_some_and(is_carried_mark);
+    if pending.as_deref() != Some(QUERY_METADATA) && !carried {
         b.borrow().observe()?;
     }
     set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
@@ -665,11 +718,16 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
     )
 }
 
-fn blob_has_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue: true after Get without CalcFields.
     let b = blob_of(r)?;
     let buf = b.borrow();
     if buf.render_pending.as_deref() == Some(QUERY_METADATA) {
+        return Ok(Value::Boolean(true));
+    }
+    // Content carried unread in the company build is never empty (Temp Blob.FromFieldRef asks, TempBlobImpl.Codeunit.al:76).
+    if ctx.company_build() && buf.render_pending.as_deref().is_some_and(is_carried_mark) {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::Boolean(true));
     }
     buf.observe()?;
@@ -859,7 +917,18 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
     })
 }
 
-fn in_eos(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn in_eos(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = r.as_deref()
+        && carried_mark_of_in(v).is_some()
+        && base64_impl_asks(ctx)
+    {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+        return Ok(Value::Boolean(false));
+    }
+    in_eos_plain(r, a)
+}
+
+fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // A stream HttpContent.WriteFrom took is not at its end (network/lt-db-http-leads/DbHttpContentLeads.al:310): its position
     // did not move.
     with_in_of(r, true, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
@@ -872,7 +941,16 @@ fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
     })
 }
 
-fn in_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    // Only for "Base64 Convert Impl." (`base64_impl_asks`): content carried unread answers 1, which passes its two tests as the
+    // real length does on every platform and goes nowhere else.
+    if let Some(v) = r.as_deref()
+        && carried_mark_of_in(v).is_some()
+        && base64_impl_asks(ctx)
+    {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+        return Ok(Value::BigInteger(1));
+    }
     with_in_of(r, false, true, |s| Ok(Value::BigInteger(s.len() as i64)))
 }
 
@@ -1510,6 +1588,15 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     }
     if a.len() > 2 {
         return unsupported("CopyStream with a byte count (not pinned)");
+    }
+    // Content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread", `is_carried_mark`): the
+    // target becomes an opaque copy; the source has no bytes to drain.
+    if ctx.company_build()
+        && let Some(mark) = carried_mark_of_in(&a[1])
+    {
+        let (out, _) = out_buf(Some(&mut a[0]))?;
+        mark_carried(&out, mark);
+        return Ok(Value::Boolean(true));
     }
     let (out, _) = out_buf(Some(&mut a[0]))?;
     let bytes = with_in(Some(&mut a[1]), |s| Ok(s.drain()))?;
