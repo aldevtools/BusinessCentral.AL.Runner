@@ -33,7 +33,8 @@ fn dec(v: &Value) -> Option<Decimal> {
 ///
 /// A Duration rounds its milliseconds the same way and gives a Decimal (types/lt-bc-round-duration/BcRoundDuration.al:51-143: zero,
 /// positive and negative durations by 1, 1000 with each direction, 0.5 and 60000; no precision; the result type). Its errors are
-/// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109).
+/// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109). On a Decimal the invalid
+/// directions `x`, `` and `>>` raise (misc/lt-system-functions/Round.al:118-138); any other invalid text is refused.
 fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let duration = matches!(a[0], Value::Duration(_));
     let number = match &a[0] {
@@ -77,7 +78,10 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         "=" => RoundingStrategy::MidpointAwayFromZero,
         ">" => RoundingStrategy::AwayFromZero,
         "<" => RoundingStrategy::ToZero,
-        "x" if duration => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
+        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection) pins `x`, `` and `>>` on a Decimal;
+        // BcRoundDuration.al:91-109 pins `x` on a Duration. Other invalid texts (`q`) are not measured.
+        "x" => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
+        "" | ">>" if !duration => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
         other => return unsupported(format!("Round with direction `{other}` (not pinned)")),
     };
     let Some(steps) = number.checked_div(precision) else {
@@ -200,7 +204,24 @@ mod tests {
 
     #[test]
     fn round_refuses_what_the_corpus_does_not_pin() {
-        refused(call("System.Round#1", vec![d("2.5"), Value::Integer(1), t("x")]));
+        // Only `x`, `` and `>>` are pinned as invalid directions; `q` is not.
+        refused(call("System.Round#1", vec![d("2.5"), Value::Integer(1), t("q")]));
+        refused(call(
+            "System.Round#1",
+            vec![Value::Duration(1500), Value::Integer(1000), t("")],
+        ));
+    }
+
+    #[test]
+    fn round_raises_for_the_pinned_invalid_directions() {
+        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection).
+        for dir in ["x", "", ">>"] {
+            raised(
+                call("System.Round#1", vec![d("2.5"), Value::Integer(1), t(dir)]),
+                "The supplied value is not valid.",
+                "InvalidValue",
+            );
+        }
     }
 
     fn raised(r: Result<Value, Signal>, message: &str, code: &str) {

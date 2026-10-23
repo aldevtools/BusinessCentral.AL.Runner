@@ -15955,7 +15955,16 @@
         "code": "InvalidValue",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 80,
+        "line": 83,
+        "pinned": true,
+        "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
+        "template": "The supplied value is not valid."
+      },
+      {
+        "code": "InvalidValue",
+        "file": "crates/al-builtins/src/mathfns.rs",
+        "generic": false,
+        "line": 84,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."
@@ -15964,7 +15973,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 111,
+        "line": 115,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBErrorsCollections.al:467",
         "template": "Value was either too large or too small for a Decimal."
@@ -16564,8 +16573,8 @@
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 80,
-    "sites": 81
+    "pinned": 81,
+    "sites": 82
   },
   "language": {
     "bc": "27-29",
