@@ -198,7 +198,10 @@ fn caller_is_microsoft(ctx: &dyn Ctx) -> Option<bool> {
 /// Called from a non-Microsoft app, the access checks of "Feature Access Management" (System.app 2000000020) raise this
 /// whatever ThrowError says (al-language-onprem/platform/lt-rh-agent-natives/RhAgentNatives.al:104, :126, :156-178).
 fn not_microsoft<T>() -> Result<T, Signal> {
-    raise("Feature availability can only be checked by Microsoft applications.", "InvalidOperation")
+    raise(
+        "Feature availability can only be checked by Microsoft applications.",
+        "InvalidOperation",
+    )
 }
 
 // AgentManagementAllowed / AgentTaskManagementPreviewEnabled. From the System Application with ThrowError true it returns
@@ -209,7 +212,9 @@ fn fam_agent_management_allowed(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: 
     match (caller_is_microsoft(ctx), args.first()) {
         (Some(false), _) => not_microsoft(),
         (Some(true), Some(Value::Boolean(true))) => Ok(Value::Boolean(true)),
-        _ => unsupported("Feature Access Management.AgentManagementAllowed called by Microsoft code without ThrowError (not pinned)"),
+        _ => unsupported(
+            "Feature Access Management.AgentManagementAllowed called by Microsoft code without ThrowError (not pinned)",
+        ),
     }
 }
 
@@ -226,7 +231,9 @@ fn fam_microsoft_only(ctx: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value])
 fn fam_is_sandbox(ctx: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Out {
     match caller_is_microsoft(ctx) {
         Some(false) => Ok(Value::Boolean(true)),
-        _ => unsupported("Feature Access Management.IsSandboxEnvironment called by Microsoft code (what it answers is not pinned)"),
+        _ => unsupported(
+            "Feature Access Management.IsSandboxEnvironment called by Microsoft code (what it answers is not pinned)",
+        ),
     }
 }
 

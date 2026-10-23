@@ -1479,16 +1479,17 @@ impl Session {
             return Ok(());
         }
         let object = &self.engine.program.objects[t.object as usize];
-        let platform = self
-            .engine
-            .program
-            .apps
-            .get(object.app as usize)
-            .is_some_and(|a| a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id()));
+        let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
+            a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
+        });
         // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
         let microsoft = self.frames.last().is_some_and(|o| {
             let app = self.engine.program.objects[*o].app as usize;
-            self.engine.program.apps.get(app).is_some_and(|a| a.publisher == "Microsoft")
+            self.engine
+                .program
+                .apps
+                .get(app)
+                .is_some_and(|a| a.publisher == "Microsoft")
         });
         if !platform || object.id != Some(2000000262) || !microsoft {
             return Ok(());

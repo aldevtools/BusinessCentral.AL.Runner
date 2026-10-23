@@ -207,7 +207,12 @@ impl al_builtins::native::Ctx for Session {
     fn calling_app_publisher(&self) -> Option<String> {
         let objects = &self.engine.program.objects;
         let inner = objects[*self.frames.last()?].app;
-        let caller = self.frames.iter().rev().map(|o| objects[*o].app).find(|a| *a != inner)?;
+        let caller = self
+            .frames
+            .iter()
+            .rev()
+            .map(|o| objects[*o].app)
+            .find(|a| *a != inner)?;
         Some(self.engine.program.apps.get(caller as usize)?.publisher.clone())
     }
     fn module_callstack(&self, skip: usize) -> Vec<al_builtins::value::ModuleInfoState> {

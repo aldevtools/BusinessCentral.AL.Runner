@@ -1233,7 +1233,11 @@ impl Session {
             let s = st.borrow();
             s.modal && !s.lookup && self.engine.object_facts[object].page_type_lower() == "card"
         };
-        let action = if ok_type && (!st.borrow().modal || modal_card) { "OK" } else { "Cancel" };
+        let action = if ok_type && (!st.borrow().modal || modal_card) {
+            "OK"
+        } else {
+            "Cancel"
+        };
         st.borrow_mut().close_error = false;
         self.pages.test_close = true;
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));

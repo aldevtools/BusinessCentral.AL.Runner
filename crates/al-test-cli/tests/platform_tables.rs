@@ -141,7 +141,11 @@ fn outcomes_bc(app_id: &str, main: &str, roots: al_sema::check::Roots, bc: &str)
         a.version = "1.0.0.0".into();
     }
     // An app id that starts with `ms-` stands for a Microsoft app (the System Application).
-    for a in program.apps.iter_mut().filter(|a| a.id == app_id && app_id.starts_with("ms-")) {
+    for a in program
+        .apps
+        .iter_mut()
+        .filter(|a| a.id == app_id && app_id.starts_with("ms-"))
+    {
         a.publisher = "Microsoft".into();
     }
     let engine = Engine::with_target(
@@ -1845,7 +1849,11 @@ fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
   end;
   [Test] procedure TaskCount() var AgentTask: Record "Agent Task"; begin if AgentTask.Count() = 0 then; end; }"#;
     let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
-    assert_eq!(o.iter().find(|(n, _)| n == "TaskExists").map(|(_, o)| o), Some(&Outcome::Pass), "{o:?}");
+    assert_eq!(
+        o.iter().find(|(n, _)| n == "TaskExists").map(|(_, o)| o),
+        Some(&Outcome::Pass),
+        "{o:?}"
+    );
     assert!(not_run(&o, "TaskCount").contains("has no provider"));
     let partner = outcomes(src);
     assert!(not_run(&partner, "TaskExists").contains("has no provider"));

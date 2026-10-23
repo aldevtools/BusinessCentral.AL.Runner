@@ -2798,7 +2798,10 @@ impl Session {
     fn refuse_unpinned_modal_veto(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let ext_query = page_of(&engine, st).ext_triggers.iter().any(|(n, _, _)| n == "onqueryclosepage");
+        let ext_query = page_of(&engine, st)
+            .ext_triggers
+            .iter()
+            .any(|(n, _, _)| n == "onqueryclosepage");
         if ext_query || engine.events.is_subscribed(object, "onqueryclosepageevent") {
             return unsupported(
                 "a modal page whose close was refused, with an extension's OnQueryClosePage or a subscriber to its close event (not pinned)",
