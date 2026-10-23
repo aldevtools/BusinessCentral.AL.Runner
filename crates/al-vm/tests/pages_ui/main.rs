@@ -19,6 +19,7 @@ mod goto_next_call;
 mod gotokey_walk_parts;
 mod host_save_record_parts;
 mod list_caption_filter;
+
 mod no_source_card;
 mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;
@@ -34,6 +35,7 @@ mod qi_host_save_parts;
 mod qi_row_page_var;
 mod qj_part_propagation;
 mod ql_part_counts;
+mod qz_setvalue_shapes;
 mod row_window;
 mod run_record_group2;
 mod trap_reopen;

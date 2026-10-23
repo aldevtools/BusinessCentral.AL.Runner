@@ -487,6 +487,24 @@ pub trait FileSystem {
     fn staged_folder_files(&self, _dir: &str) -> Option<Vec<String>> {
         None
     }
+    /// Whether .NET's static `System.IO.Directory` and `System.IO.File` calls on `path` are answered by this file system
+    /// instead of being refused: only the company build's (al-testrun company_data.rs, owner rule 2026-10-22: folder
+    /// access only inside the company build) for its temporary folder and its staged folders.
+    fn serves_path(&self, _path: &str) -> bool {
+        false
+    }
+    /// Whether the folder exists (for a path [`FileSystem::serves_path`] accepts).
+    fn dir_exists(&self, _path: &str) -> bool {
+        false
+    }
+    /// Creates the folder and the folders above it.
+    fn create_dir(&mut self, _path: &str) -> Result<(), String> {
+        Err("this file system has no folders".into())
+    }
+    /// Removes the folder; with `recursive` also what it holds.
+    fn remove_dir(&mut self, _path: &str, _recursive: bool) -> Result<(), String> {
+        Err("this file system has no folders".into())
+    }
 }
 
 /// Files kept in memory, by path. Matching is exact and case sensitive (the directory-backed

@@ -46,6 +46,8 @@ pub enum Virtual {
     PublishedApplication,
     /// Known to exist, not pinned: lowers, and every read is refused.
     ApiWebhookEntity,
+    /// No rows: an OnPrem tenant is not set up for the cloud (al-language-onprem/platform/PtOnPremTables.al:248).
+    IntelligentCloud,
     /// Media live in the session's media store (ADR-017); the table is not a view of it yet.
     TenantMedia,
     MetadataPermissionSet,
@@ -64,6 +66,9 @@ pub enum Virtual {
     EventSubscription,
     PageAction,
     TableRelations,
+    /// One row per object; only a query's Metadata Blob is pinned, as the input of Microsoft's `QueryMetadataReader`
+    /// (al-vm `platform/objects.rs`, `application_object_metadata_rows`).
+    ApplicationObjectMetadata,
     /// A table of the platform app that is not in [`REGISTRY`]: it lowers, a temporary record of it is
     /// an ordinary temporary table, and every read or write of its persistent rows is refused.
     Unprovided,
@@ -226,6 +231,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         "Table Relations Metadata",
         Provider::Virtual(Virtual::TableRelations),
     ),
+    (
+        2_000_000_207,
+        "Application Object Metadata",
+        Provider::Virtual(Virtual::ApplicationObjectMetadata),
+    ),
     (2_000_000_049, "Code Coverage", Provider::Stored),
     (2_000_000_288, "Code Coverage Test Lookup", Provider::Stored),
     (2_000_000_289, "Code Coverage Tests Run", Provider::Stored),
@@ -249,6 +259,14 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     // Empty on a fresh tenant and ordinary to Insert, Modify and Delete, with several rows and a blank App ID (platform/lt-platform-tables/
     // PtServicesAppSetting.al: NavAppSetting_Content `count` 0, NavAppSetting_InsertModifyDelete, NavAppSetting_SeveralRowsAndBlankGuid).
     (2_000_000_201, "NAV App Setting", Provider::Stored),
+    // Read from an OnPrem app: IsEmpty Yes, Count 0, Get and FindFirst No, inside a TryFunction too without an error
+    // (al-language-onprem/platform/PtOnPremTables.al:248, QZ_IntelligentCloud_Read). Writes are not pinned: a virtual
+    // table refuses them.
+    (
+        2_000_000_146,
+        "Intelligent Cloud",
+        Provider::Virtual(Virtual::IntelligentCloud),
+    ),
     // Ordinary tables that a fresh tenant fills with pinned rows (al-vm `platform/seed.rs`): Insert(true) of an existing key
     // answers false and Modify(true) true (platform/lt-platform-tables/PtCloudTables.al:378-432 and :435-492).
     (2_000_000_233, "Tenant Report Layout Selection", Provider::Stored),
@@ -300,6 +318,7 @@ pub const PINNED_COLUMNS: &[(u32, &[u32])] = crate::pinned_columns::GENERATED;
 
 /// The platform tables whose columns `PINNED_COLUMNS` lists.
 pub const PINNED_TABLES: &[u32] = &[
+    2_000_000_207,
     2_000_000_038,
     2_000_000_058,
     2_000_000_137,
@@ -342,6 +361,13 @@ pub const PINNED_TABLES: &[u32] = &[
 /// gives, as file:line under `corpus/tests/`). Where the provider answers only some rows (a declared property
 /// that no test pins), the other rows hold `Value::Unknown`, and the comment says so.
 pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
+    // Application Object Metadata. Metadata of a query: present, and what QueryMetadataReader.FromStream reads from it
+    // (System Application through Base Application's ODataUtility.GetTenantWebServiceMetadata). Its bytes stay opaque.
+    (
+        2_000_000_207,
+        "6",
+        "al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:173-181; lt-re-dotnet/ReQueryMetadataShapes.al:116-140",
+    ),
     // Field. IsPartOfPrimaryKey of own and Base Application fields.
     (
         2_000_000_041,

@@ -83,6 +83,12 @@ pub const STAGED_FILE_ARRAY: &str = "<FileInfo[] of a staged folder>";
 pub const STAGED_FILE_ENUMERATOR: &str = "<enumerator of a staged folder listing>";
 pub const STAGED_FILE_INFO: &str = "<FileInfo of a staged folder>";
 
+/// Microsoft's reader of a query's metadata (al-vm dotnet/query_metadata.rs), the list its `Fields()` answers (no real CLR
+/// type name, so no object of the .NET host takes its members), and one entry of it.
+pub const QUERY_METADATA_READER: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader";
+pub const QUERY_FIELDS_LIST: &str = "<fields of a query metadata reader>";
+pub const QUERY_FIELDS: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields";
+
 pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GraphQuery", Ret::Object),
     (GRAPH_QUERY, "IsM365CollaborationEnabled", Ret::Boolean),
@@ -197,6 +203,13 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (STAGED_FILE_ENUMERATOR, "Current", Ret::Object),
     (STAGED_FILE_INFO, "FullName", Ret::Text),
     (STAGED_FILE_INFO, "Length", Ret::Object),
+    (QUERY_METADATA_READER, "FromStream", Ret::Object),
+    (QUERY_METADATA_READER, "Fields", Ret::Object),
+    (QUERY_FIELDS_LIST, "Count", Ret::Integer),
+    (QUERY_FIELDS_LIST, "Item", Ret::Object),
+    (QUERY_FIELDS, "FieldNo", Ret::Integer),
+    (QUERY_FIELDS, "TableNo", Ret::Integer),
+    (QUERY_FIELDS, "FieldName", Ret::Text),
 ];
 
 /// The declared result of `member` on `clr_type`, if the runtime provides that member.

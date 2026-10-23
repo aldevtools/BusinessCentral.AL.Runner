@@ -29,6 +29,77 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
+/// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
+/// xmlports.rs `xp_export_table`). The export order is pinned (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474,
+/// platform/lt-ag-contoso/AgXmlPortImport.al:312); the key, order, filters and position the record has afterwards are not,
+/// so every read of them refuses until `Reset` or `SetView` gives the record a view of its own ([`XP_BUFFER_AFTER_EXPORT`]
+/// then). Its methods in [`Session::xp_view_after_export_op`].
+pub(crate) const XP_VIEW_AFTER_EXPORT: &str = "the table element record's view after an export under SourceTableView is not pinned (its key, order, filters and position)";
+
+/// The `RecordState::unpinned_buffer` reason of that record after `Reset` or `SetView`: the buffer still holds the row the export
+/// left there, which is not pinned either (generic unpinned buffer rules, [`Session::unpinned_buffer_op`]).
+pub(crate) const XP_BUFFER_AFTER_EXPORT: &str = "the table element record's buffer after an export under SourceTableView is not pinned (the row the export left there)";
+
+/// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
+pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
+    rec.borrow()
+        .unpinned_buffer
+        .filter(|w| *w == XP_VIEW_AFTER_EXPORT || *w == XP_BUFFER_AFTER_EXPORT)
+}
+
+/// [`RUN_PAGE_LINK_OPEN`] in the shape the corpus pins (see `run_page_link_fill`, pages/runobject.rs): the linked fields are
+/// filled and the fields of Rec read; the other uses are as narrow as with [`RUN_PAGE_LINK_OPEN`].
+pub(crate) const RUN_PAGE_LINK_OPEN_FILLED: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC hands a by-value copy of Rec no filters (pinned), what Rec itself answers is not pinned";
+
+/// The `RecordState::unpinned_buffer` reason of a by-value copy of Rec of a page an action opened through `RunPageLink`
+/// (`RecordState::run_page_link`): the copy holds Rec's fields and no link filter; only its fields and `GetFilters` are pinned
+/// (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `Describe(Child: Record ...)` in QzRunPageLinkOnOpen.al).
+pub(crate) const RUN_PAGE_LINK_COPY: &str = "a by-value copy of Rec of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
+
+/// Whether field reads of a record whose buffer has the reason `why` run.
+pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
+    why == RUN_PAGE_LINK_OPEN_FILLED || why == RUN_PAGE_LINK_COPY
+}
+
+/// Whether two filter lists are the same filters, in any order.
+pub(crate) fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|f| {
+            b.iter()
+                .any(|g| f.group == g.group && f.field == g.field && same_expr(&f.expr, &g.expr))
+        })
+        && b.iter().all(|g| {
+            a.iter()
+                .any(|f| f.group == g.group && f.field == g.field && same_expr(&f.expr, &g.expr))
+        })
+}
+
+fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
+    let v = |x: &Value, y: &Value| ops::compare(x, y).is_ok_and(|o| o.is_eq());
+    let ov = |x: &Option<Value>, y: &Option<Value>| match (x, y) {
+        (None, None) => true,
+        (Some(x), Some(y)) => v(x, y),
+        _ => false,
+    };
+    match (a, b) {
+        (FilterExpr::Range(a1, a2), FilterExpr::Range(b1, b2)) => ov(a1, b1) && ov(a2, b2),
+        (FilterExpr::Eq(x), FilterExpr::Eq(y))
+        | (FilterExpr::RangeSame(x), FilterExpr::RangeSame(y))
+        | (FilterExpr::Ne(x), FilterExpr::Ne(y))
+        | (FilterExpr::Lt(x), FilterExpr::Lt(y))
+        | (FilterExpr::Le(x), FilterExpr::Le(y))
+        | (FilterExpr::Gt(x), FilterExpr::Gt(y))
+        | (FilterExpr::Ge(x), FilterExpr::Ge(y)) => v(x, y),
+        (FilterExpr::Or(x), FilterExpr::Or(y)) | (FilterExpr::And(x), FilterExpr::And(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same_expr(x, y))
+        }
+        (FilterExpr::Like(x, i), FilterExpr::Like(y, j)) | (FilterExpr::NotLike(x, i), FilterExpr::NotLike(y, j)) => {
+            x == y && i == j
+        }
+        _ => false,
+    }
+}
+
 fn arg_bool(args: &[Value], i: usize) -> Result<bool, Signal> {
     match args.get(i) {
         None => Ok(false),
@@ -1599,8 +1670,14 @@ impl Session {
     /// ([`RUN_PAGE_LINK_OPEN`]) is narrower, see [`Self::run_page_link_open_op`].
     fn unpinned_buffer_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let why = rec.borrow().unpinned_buffer.unwrap_or_default();
-        if why == RUN_PAGE_LINK_OPEN {
+        if why == RUN_PAGE_LINK_OPEN || why == RUN_PAGE_LINK_OPEN_FILLED {
             return self.run_page_link_open_op(method, rec, args);
+        }
+        if why == XP_VIEW_AFTER_EXPORT {
+            return self.xp_view_after_export_op(method, rec, args);
+        }
+        if why == RUN_PAGE_LINK_COPY {
+            return self.run_page_link_copy_op(method, rec, args);
         }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
@@ -1634,7 +1711,21 @@ impl Session {
                 | RecordOp::ReadIsolation
                 | RecordOp::SecurityFiltering
         );
-        if !refill && !independent {
+        // After Reset or SetView the view of a table element record is the code's own again; only its buffer is unpinned
+        // ([`XP_BUFFER_AFTER_EXPORT`]).
+        let own_view = why == XP_BUFFER_AFTER_EXPORT
+            && matches!(
+                method,
+                RecordOp::CurrentKey
+                    | RecordOp::GetFilter
+                    | RecordOp::GetFilters
+                    | RecordOp::GetRangeMin
+                    | RecordOp::GetRangeMax
+                    | RecordOp::GetView
+                    | RecordOp::HasFilter
+                    | RecordOp::SetView
+            );
+        if !refill && !independent && !own_view {
             return unsupported(why);
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
@@ -1677,13 +1768,55 @@ impl Session {
                 | RecordOp::SecurityFiltering
         );
         if !runs {
-            return unsupported(format!("Rec.{}() {RUN_PAGE_LINK_OPEN}", method.name()));
+            let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
+            return unsupported(format!("Rec.{}() {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
         if !(method == RecordOp::Get && matches!(r, Ok(Value::Boolean(true)))) {
             rec.borrow_mut().unpinned_buffer = flag;
         }
+        r
+    }
+
+    /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]): `Reset`
+    /// and `SetView` give it a view of its own (its buffer stays unpinned, [`XP_BUFFER_AFTER_EXPORT`]), the table's names
+    /// and `FieldNo` run, every other method reads or builds on the unpinned view and refuses.
+    fn xp_view_after_export_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let resets = matches!(method, RecordOp::Reset | RecordOp::SetView);
+        let runs = resets
+            || matches!(
+                method,
+                RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption
+            );
+        if !runs {
+            return unsupported(format!("Record.{}(): {XP_VIEW_AFTER_EXPORT}", method.name()));
+        }
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        rec.borrow_mut().unpinned_buffer = if resets && r.is_ok() {
+            Some(XP_BUFFER_AFTER_EXPORT)
+        } else {
+            flag
+        };
+        r
+    }
+
+    /// A record method on a by-value copy of Rec of a page an action opened through `RunPageLink` ([`RUN_PAGE_LINK_COPY`]):
+    /// `GetFilters` of a copy that holds no filter reads '' (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=`),
+    /// the names of its table run, and every other method refuses.
+    fn run_page_link_copy_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let runs = match method {
+            RecordOp::GetFilters => rec.borrow().filters.is_empty(),
+            RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
+            _ => false,
+        };
+        if !runs {
+            return unsupported(format!("Rec.{}() on {RUN_PAGE_LINK_COPY}", method.name()));
+        }
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        rec.borrow_mut().unpinned_buffer = flag;
         r
     }
 
@@ -1722,6 +1855,13 @@ impl Session {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
             return self.unpinned_buffer_op(method, rec, args);
+        }
+        // Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView
+        // would carry its unpinned view or buffer over.
+        if let Some(Value::Record(src)) = args.first() {
+            if let Some(why) = xp_export_marked(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
         }
         let t = self.table(rec)?;
         // A table declared ObsoleteState = Moved is not in the runtime app: AllObj has no row for it and RecordRef.Open
@@ -3467,39 +3607,21 @@ impl Session {
                         }
                     }
                 }
-                // The Blob fields another app's table extension adds to this table (a database record only).
-                let other_app_blobs: Vec<usize> = if rec.borrow().temporary {
+                // Every Blob field of a database record: the variable shows no value in any of them after a Rename, the
+                // table's own field and other apps' extension fields alike, while the renamed row holds the variable's
+                // content from before the Rename, also a write since the last Insert or Modify
+                // (tableextension/lt-bw-cross-app/BwCrossAppTests.al:89-115, :234, :258, :282; a table of the caller's
+                // own app: :309).
+                let database_blobs: Vec<usize> = if rec.borrow().temporary {
                     Vec::new()
                 } else {
-                    let program = &self.engine.program;
-                    let table_app = program.objects[t.object as usize].app;
-                    program.objects[t.object as usize]
-                        .table
-                        .as_ref()
-                        .map(|schema| {
-                            schema
-                                .fields
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, f)| {
-                                    matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
-                                        && f.declared_in
-                                            .is_some_and(|o| program.objects[o as usize].app != table_app)
-                                })
-                                .map(|(i, _)| i)
-                                .collect()
-                        })
-                        .unwrap_or_default()
+                    t.fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| matches!(old.get(*i), Some(Value::Blob(_))))
+                        .map(|(i, _)| i)
+                        .collect()
                 };
-                // Pinned only for content saved by the Insert (tableextension/lt-bw-cross-app/BwCrossAppTests.al:89-115).
-                if other_app_blobs
-                    .iter()
-                    .any(|&i| matches!(&old[i], Value::Blob(b) if b.borrow().written))
-                {
-                    return unsupported(
-                        "Rename of a record with a write to a Blob field of another app's table extension after its last Insert or Modify: what the record and the row hold then is not pinned",
-                    );
-                }
                 // More values than the primary key has fields (recordref/lt-refs/RfTWrite.al:Rename_Variants `rename_too_many`).
                 if args.len() > t.keys[0].len() {
                     return Err(Signal::Error(Box::new(AlError {
@@ -3573,12 +3695,16 @@ impl Session {
                     RenameOutcome::Renamed => {
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
                         // after the last Insert or Modify (misc/lt-probes-needed-1/PnABlobAssignRename.al:RenameTemporary_* `A..E-rec-content`).
-                        // So does a database record for a Blob field another app's table extension adds, while the renamed row
-                        // keeps the bytes (tableextension/lt-bw-cross-app/BwCrossAppTests.al:89-115: `blob in variable after
-                        // rename = <none>`, `NEW blob = blob of OLD`). A Blob field of the table's own app keeps what it had,
-                        // as before (not pinned for a database record).
-                        for &i in &other_app_blobs {
+                        // So does a database record for every Blob field, while the renamed row keeps the bytes
+                        // (BwCrossAppTests.al:89-115: `blob in variable after rename = <none>`, `NEW blob = blob of OLD`;
+                        // :234-309: `variable = <none>;<none>;<none>;`, own field and both extension fields).
+                        // CalcFields on the variable then reads the renamed row (BwCrossAppTests.al:234-309, `variable
+                        // after CalcFields`), as for a row read with Get.
+                        for &i in &database_blobs {
                             let empty = self.default_value(&t.fields[i].ty);
+                            if let Value::Blob(b) = &empty {
+                                b.borrow_mut().fetched = false;
+                            }
                             rec.borrow_mut().fields[i] = empty;
                         }
                         if rec.borrow().temp_id.is_some() {

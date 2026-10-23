@@ -481,6 +481,7 @@ pub fn types() -> Vec<RegistryType> {
     all.extend(super::last_error::types());
     all.extend(super::drawing::types());
     all.extend(super::staged_dir::types());
+    all.extend(super::query_metadata::types());
     all.extend(own_types());
     all
 }

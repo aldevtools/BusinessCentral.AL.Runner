@@ -48,7 +48,7 @@ fn main() {
     for _ in 0..runs {
         laps.lap = Instant::now();
         let tests = root.join("corpus/tests");
-        let corpus_deps = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+        let corpus_deps = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
         let mut apps: Vec<_> = corpus_deps.iter().map(|d| runtime::load_app(d).unwrap()).collect();
         apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
         let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];

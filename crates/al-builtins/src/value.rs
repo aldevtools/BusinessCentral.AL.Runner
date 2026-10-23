@@ -421,6 +421,9 @@ pub struct PageState {
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
+    /// Set by the opener for the page's next open: the values an action's `RunPageLink` fills into Rec before OnOpenPage
+    /// (field position, value), with the link's filters (`RecordState::run_page_link`). `None`: the link fills nothing pinned.
+    pub open_rec_fill: Option<RunPageLinkFill>,
     /// A temporary Worksheet opened on the row in a key other than the primary key that was set before the open: it reads each
     /// row once more, as a list over a database table in such a key does (see `reads_once_more_in_its_key`).
     pub temp_reads_once_more: bool,
@@ -729,6 +732,7 @@ impl PageState {
             opened_on_moved_rec: false,
             onopenpage_kept_rec: false,
             open_rec_unpinned: None,
+            open_rec_fill: None,
             temp_reads_once_more: false,
             reads_once_more_in: None,
             open_read: false,
@@ -949,7 +953,14 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
+    /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
+    /// carry them (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
+    pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
 }
+
+/// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters
+/// (`PageState::open_rec_fill`).
+pub type RunPageLinkFill = (Vec<(usize, Value)>, Rc<Vec<crate::filter::FieldFilter>>);
 
 /// What `Record.IsDirty` compares a record variable's buffer with: a copy of the fields the variable last read or wrote
 /// (lt-ac/ACRecordIsDirty.al). BC compares values, not writes: a field set back to what was read is not dirty

@@ -216,7 +216,7 @@ pub const CORPUS_TEST_APPS: [&str; 3] = ["al-language", "al-language-onprem", "a
 /// the corpus's `.alpackages`.
 pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
     let tests = root.join("corpus/tests");
-    let corpus_deps = crate::deps::corpus_source_dirs(&tests.join("al-language"))?;
+    let corpus_deps = crate::deps::corpus_publish_dirs(&tests.join("al-language"))?;
     let mut apps = Vec::new();
     for dir in &corpus_deps {
         apps.push(crate::runtime::load_app(dir)?);

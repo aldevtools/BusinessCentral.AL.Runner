@@ -90,10 +90,40 @@ codeunit 83952 TC
     );
 }
 
+/// A third table extension in the app of the extension that declares the twin (app B's 61114 next to its 61113): a bare
+/// call and one through `Rec` run that app's extension body (BwCrossAppTests.al:214, `extension of app B` for both).
+#[test]
+fn a_call_in_a_third_extension_of_the_twin_extensions_app_runs_that_extension() {
+    let third = r#"
+tableextension 61114 "XB Base Third Ext" extends "XA Base"
+{
+    procedure Bare(): Text begin exit(BwSame()); end;
+    procedure ViaRec(): Text begin exit(Rec.BwSame()); end;
+}
+"#;
+    let caller = r#"
+codeunit 83954 T3
+{
+    procedure Bare(): Text var B: Record "XA Base"; begin exit(B.Bare()); end;
+    procedure ViaRec(): Text var B: Record "XA Base"; begin exit(B.ViaRec()); end;
+}
+"#;
+    let mut b = al_testkit::Built::new(al_testkit::compile_apps(vec![
+        app("a", &[], BASE),
+        app("b", &["a"], &format!("{EXT}{third}")),
+        app("m", &["a", "b"], caller),
+    ]));
+    let (bare, via_rec) = (text(b.run_in("T3", "Bare")), text(b.run_in("T3", "ViaRec")));
+    assert_eq!(
+        (bare.as_str(), via_rec.as_str()),
+        ("extension of app B", "extension of app B")
+    );
+}
+
 const RENAME_TABLE: &str = r#"
 table 61102 "XA Rename Blob"
 {
-    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } }
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } field(3; "XA Blob"; Blob) { } }
     keys { key(PK; "No.") { Clustered = true; } }
 }
 "#;
@@ -124,14 +154,25 @@ codeunit 83953 R
         Fresh.Get('NEW'); Fresh.CalcFields("BW XB Blob");
         exit(BlobText(Row) + '|' + BlobText(Fresh));
     end;
+    procedure OwnText(var Row: Record "XA Rename Blob"): Text
+    var InS: InStream; T: Text;
+    begin
+        if not Row."XA Blob".HasValue() then exit('<none>');
+        Row."XA Blob".CreateInStream(InS); InS.ReadText(T); exit(T);
+    end;
     procedure WrittenAfterInsert(): Text
-    var Row: Record "XA Rename Blob"; OutS: OutStream;
+    var Row: Record "XA Rename Blob"; Fresh: Record "XA Rename Blob"; OutS: OutStream; R: Text;
     begin
         Row."No." := 'OLD';
         Row.Insert();
         Row."BW XB Blob".CreateOutStream(OutS); OutS.WriteText('late');
+        Row."XA Blob".CreateOutStream(OutS); OutS.WriteText('own late');
         Row.Rename('NEW');
-        exit(BlobText(Row));
+        R := BlobText(Row) + ',' + OwnText(Row);
+        Row.CalcFields("BW XB Blob", "XA Blob");
+        R += '|' + BlobText(Row) + ',' + OwnText(Row);
+        Fresh.Get('NEW'); Fresh.CalcFields("BW XB Blob", "XA Blob");
+        exit(R + '|' + BlobText(Fresh) + ',' + OwnText(Fresh) + '|' + Format(Fresh.Count()));
     end;
 }
 "#;
@@ -155,12 +196,13 @@ fn a_rename_leaves_no_value_in_another_apps_extension_blob_of_the_variable() {
     );
 }
 
-/// Written after the last Insert or Modify, nothing pins what the variable or the row hold after the Rename: refused.
+/// Every Blob of the variable, the table's own and another app's extension's alike, has no value right after a Rename,
+/// also after a write since the last Insert; CalcFields and the row read the variable's content from before the Rename,
+/// the unsaved write included (BwCrossAppTests.al:234, :258, :282; a table of the caller's own app: :309).
 #[test]
-fn a_rename_after_an_unsaved_write_to_another_apps_extension_blob_is_refused() {
-    let r = rename_built().run_in("R", "WrittenAfterInsert");
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("Rename")),
-        "{r:?}"
+fn a_rename_after_an_unsaved_blob_write_saves_it_and_clears_every_blob_of_the_variable() {
+    assert_eq!(
+        text(rename_built().run_in("R", "WrittenAfterInsert")),
+        "<none>,<none>|late,own late|late,own late|1"
     );
 }

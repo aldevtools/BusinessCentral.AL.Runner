@@ -935,6 +935,14 @@ impl Session {
             } else if schema.stored {
                 plan.scan[c.item].push(FieldFilter { field, expr, group: 0 });
             } else {
+                // A filter() element over a FlowField is pinned for a query of one data item without a Method column
+                // (query/lt-cg-query-leads/CgQueryLeads.al:759,792): with a join or a grouping, which rows it is calculated
+                // on is not pinned.
+                if c.filter_element && (def.items.len() > 1 || def.columns.iter().any(|c| c.method.is_some())) {
+                    return unsupported(
+                        "a filter() element over a FlowField in a query with a join or a Method column (not pinned)",
+                    );
+                }
                 plan.post.push((ci, expr));
             }
         }
@@ -1072,8 +1080,9 @@ impl Session {
     fn project(&mut self, def: &ir::Query, plan: &Plan, joined: &[Vec<Value>]) -> Result<Vec<Value>, Signal> {
         let engine = self.engine.clone();
         let mut out = Vec::with_capacity(def.columns.len());
-        for c in &def.columns {
-            if c.filter_element || c.method.is_some() {
+        for (ci, c) in def.columns.iter().enumerate() {
+            // A filter() element over a FlowField is calculated for its filter only (`plan.post`).
+            if c.method.is_some() || (c.filter_element && !plan.post.iter().any(|(p, _)| *p == ci)) {
                 out.push(Value::Null);
                 continue;
             }

@@ -461,7 +461,7 @@ fn corpus_differential() {
         tests.join("al-language/app.json").exists(),
         "corpus submodule not checked out"
     );
-    let mut dirs = al_test_cli::deps::corpus_source_dirs(&tests.join("al-language")).unwrap();
+    let mut dirs = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
     dirs.push(tests.join("al-language"));
     let tested = dirs.len() - 1;
     let a = Apps {
@@ -474,7 +474,10 @@ fn corpus_differential() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(8);
-    let edits = edits(&a.apps[1], n);
+    // The edits come from the tested app itself, the last of `dirs`. Its dependencies come first, and since the
+    // multi-app fixtures (corpus 3c0336c) there are several of them, so a fixed index named a fixture app: its file
+    // texts were written over the tested app's files, every edit broke the compile, and every selection was a full run.
+    let edits = edits(&a.apps[tested], n);
     let started = std::time::Instant::now();
     let found = differential(&a, &edits, the_rule());
     println!(

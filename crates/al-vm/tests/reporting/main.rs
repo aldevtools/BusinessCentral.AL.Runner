@@ -31,4 +31,5 @@ mod xmlport_nested_flow;
 mod xmlport_nested_import;
 mod xmlport_root_table;
 mod xmlport_source_table_view;
+mod xmlport_view_after_export;
 mod xmlports;

@@ -35,13 +35,16 @@ impl Clone for Inner {
     }
 }
 
-/// How many times a text was scanned for the call-stack mark (the first `has_marker` of a text the flag is not known
-/// of). A loop that builds a text must not scan the whole text each round; the test of the append counts this.
-static MARKER_SCANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+// How many times a text was scanned for the call-stack mark (the first `has_marker` of a text the flag is not known
+// of). A loop that builds a text must not scan the whole text each round; the test of the append counts this. Counted
+// per thread, so tests that run in parallel in one binary do not add to each other's count.
+thread_local! {
+    static MARKER_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
-/// The number of scans so far (see `MARKER_SCANS`).
+/// The number of scans so far on this thread (see `MARKER_SCANS`).
 pub fn marker_scans() -> u64 {
-    MARKER_SCANS.load(Relaxed)
+    MARKER_SCANS.with(|c| c.get())
 }
 
 /// A shared, copy-on-write text.
@@ -81,7 +84,7 @@ impl Txt {
             1 => true,
             2 => false,
             _ => {
-                MARKER_SCANS.fetch_add(1, Relaxed);
+                MARKER_SCANS.with(|c| c.set(c.get() + 1));
                 let m = self.0.s.contains(crate::native::CALL_STACK_MARK);
                 self.0.marked.store(if m { 1 } else { 2 }, Relaxed);
                 m

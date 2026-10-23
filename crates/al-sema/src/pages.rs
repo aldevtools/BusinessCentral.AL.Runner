@@ -966,6 +966,52 @@ impl Tree {
                 self.list_mut(id).splice(at..at, fresh);
                 Ok(true)
             }
+            // movefirst / movelast into a group, moveafter / movebefore next to a control, of one control of the layout, inside one
+            // group and from one group into another (record/TestPageControlFieldPageExtension.al:104
+            // QZ_PageExtMoves_PageOpensAndControlsWork, :134 QZ_PageExtMoves_PageControlFieldRows, fixtures QzPageExtMoves.al).
+            // Several controls in one move, a move into an area and a move of actions are not pinned.
+            "movefirst" | "movelast" | "moveafter" | "movebefore" => {
+                let args = op.section.args();
+                let [_, moved] = args.as_slice() else {
+                    return Err(format!("{kind}({target}) of other than one control is not pinned"));
+                };
+                if op.in_actions || moved.contains(',') {
+                    return Err(format!(
+                        "{kind}({target}; {moved}) of actions or of several controls is not pinned"
+                    ));
+                }
+                let (Some(anchor), Some(m)) = (self.find_node(&target), self.find_node(moved)) else {
+                    return Ok(false);
+                };
+                if anchor == m {
+                    return Err(format!("{kind}({target}; {moved}) moves a control next to itself"));
+                }
+                let Some((from, at)) = self.parent_list(m) else {
+                    return Ok(false);
+                };
+                if kind == "movefirst" || kind == "movelast" {
+                    if self.nodes[anchor].kind != al_ir::ControlKind::Group {
+                        return Err(format!(
+                            "{kind}({target}; {moved}) into other than a group is not pinned"
+                        ));
+                    }
+                    self.list_mut(from).remove(at);
+                    let list = self.list_mut(ListId::Node(anchor));
+                    if kind == "movefirst" {
+                        list.insert(0, m);
+                    } else {
+                        list.push(m);
+                    }
+                } else {
+                    self.list_mut(from).remove(at);
+                    let Some((id, at)) = self.parent_list(anchor) else {
+                        return Err(format!("{kind}({target}; {moved}): `{target}` is in no list"));
+                    };
+                    let at = if kind == "moveafter" { at + 1 } else { at };
+                    self.list_mut(id).insert(at, m);
+                }
+                Ok(true)
+            }
             other => Err(format!("`{other}` in a page extension is not supported yet")),
         }
     }
@@ -1229,6 +1275,18 @@ pub fn parse_run_object(text: &str) -> Result<(al_ir::RunKind, Vec<String>), Str
 /// Parses the value of a `SubPageLink` property: `A = field(B), C = const(x), D = filter(y | z)`.
 /// `Err` names the part it does not understand.
 pub fn parse_sub_page_link(text: &str) -> Result<Vec<(String, LinkRhs)>, String> {
+    Ok(parse_link_kinds(text)?
+        .into_iter()
+        .map(|(left, rhs, _)| (left, rhs))
+        .collect())
+}
+
+/// `parse_run_page_link` with, per entry, whether it is written `const(...)` (not `field(...)` or `filter(...)`).
+pub fn parse_run_page_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> {
+    parse_link_kinds(text).map_err(|e| e.replace("SubPageLink", "RunPageLink"))
+}
+
+fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> {
     let mut out = Vec::new();
     for item in crate::scan::split_trimmed(text, ',') {
         let eq = {
@@ -1280,7 +1338,7 @@ pub fn parse_sub_page_link(text: &str) -> Result<Vec<(String, LinkRhs)>, String>
             }
             other => return Err(format!("SubPageLink with {other}(...)")),
         };
-        out.push((left, parsed));
+        out.push((left, parsed, kind == "const"));
     }
     Ok(out)
 }
@@ -1493,6 +1551,18 @@ mod tests {
             assert!(l.reasons.is_empty(), "{:?}", l.reasons);
             assert_eq!(names(&l), ["A", "Extra", "Extra>Inner"]);
         }
+    }
+
+    // record/TestPageControlFieldPageExtension.al:134 QZ_PageExtMoves_PageControlFieldRows: B, Id, C | E, D, A.
+    #[test]
+    fn moves_of_an_extension_reorder_the_controls_inside_and_across_groups() {
+        let base = "page 50100 P { layout { area(Content) { group(G) { field(Id; Rec.Id) { } field(A; Rec.A) { } field(B; Rec.B) { } } group(D2) { field(C; Rec.C) { } field(D; Rec.D) { } field(E; Rec.E) { } } } } }";
+        let e = "pageextension 50101 E extends P { layout { movefirst(G; B) movelast(G; C) moveafter(D; A) movebefore(D; E) } }";
+        let l = merged(base, &[e]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(names(&l), ["G", "G>B", "G>Id", "G>C", "D2", "D2>E", "D2>D", "D2>A"]);
+        let several = "pageextension 50102 E2 extends P { layout { movefirst(G; B, A) } }";
+        assert!(merged(base, &[several]).reasons.iter().any(|r| r.contains("several")));
     }
 
     #[test]

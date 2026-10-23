@@ -479,6 +479,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// An install codeunit is running.
     install_scope: bool,
+    /// The company data codeunit (Microsoft's DemoTool) builds the company (`set_company_build`).
+    company_build: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to.
     demo_written: std::collections::HashSet<u32>,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
@@ -791,6 +793,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             install_scope: false,
+            company_build: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
@@ -1051,6 +1054,7 @@ impl Session {
                     last_modify: None,
                     globals: Default::default(),
                     unpinned_buffer: None,
+                    run_page_link: None,
                 })))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
@@ -1178,6 +1182,12 @@ impl Session {
     /// back while the company is built.
     pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
         self.events.not_installed_apps = apps;
+    }
+
+    /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply
+    /// (owner decision 2026-10-22: `Report.SaveAsPdf` to a file runs the report and writes no file, reports.rs).
+    pub fn set_company_build(&mut self, on: bool) {
+        self.company_build = on;
     }
 
     /// Whether an install routine runs (`set_install_scope`).
@@ -1329,6 +1339,20 @@ impl Session {
         let mut st = rc.borrow().clone();
         if st.temporary {
             st.temp_id = Some(self.new_temp_id());
+        }
+        // A copy of Rec of a page an action opened through `RunPageLink` holds Rec's fields and not the link's filters
+        // (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord); what else it
+        // answers is not pinned (`records::RUN_PAGE_LINK_COPY`). Filters Rec's own code added stay and refuse GetFilters.
+        if let Some(link) = st.run_page_link.take() {
+            if crate::records::same_filters(&st.filters, &link) {
+                st.filters.clear();
+            }
+            if st
+                .unpinned_buffer
+                .is_none_or(|w| w == crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+            {
+                st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_COPY);
+            }
         }
         Value::Record(Rc::new(RefCell::new(st)))
     }

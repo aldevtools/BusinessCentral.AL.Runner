@@ -454,3 +454,26 @@ fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
     }
 }
+
+// onprem media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
+// (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
+// (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
+#[test]
+fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused() {
+    let ok = import_file_on(
+        Some("29.0"),
+        "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+         B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); exit('ran'); end;",
+    );
+    assert_eq!(ok.unwrap(), "ran");
+    let r = import_file_on(
+        Some("29.0"),
+        "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+         B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); B.Get('B'); \
+         B.CalcFields(Src); B.Src.CreateInStream(InS); InS.ReadText(t); exit(t); end;",
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains(".docx")),
+        "{r:?}"
+    );
+}

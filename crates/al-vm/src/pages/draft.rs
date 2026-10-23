@@ -623,6 +623,14 @@ impl Session {
                     "a page saves a row that code changed after the page read it (whether the client reads the row again first is not pinned)",
                 );
             }
+            // A changed row that is no longer stored (an asserterror rolled its insert back, code deleted it): real BC closes a
+            // list in that state without an error (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:4054
+            // QZ_NotBlankEnum_SetValueBlank_List), but whether it writes the row is not pinned.
+            if e.code == "DB:RecordNotFound" {
+                return unsupported(
+                    "a page saves a changed row that is no longer stored (whether the client writes it is not pinned)",
+                );
+            }
         }
         modified?;
         st.borrow_mut().dirty = false;

@@ -293,7 +293,12 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // nothing in it changes nothing for Import and Export. The same holds with empty `layout` and `actions`
             // sections inside it, both or one alone (xmlports 87564-87566 at :835-912, imported and exported at
             // :476-512; the DemoTool's xmlport 101899 has this shape).
-            "requestpage" if request_page_is_empty(&top) || request_page_has_only_empty_sections(&top) => {}
+            // xmlport/lt-ra-xmlport/RaXmlPortExport.al:356 (xmlport 87744): a Caption, with empty layout and actions,
+            // changes nothing either (static and instance Import and Export).
+            "requestpage"
+                if request_page_is_empty(&top)
+                    || request_page_has_only_empty_sections(&top)
+                    || request_page_is_caption_with_empty_layout_and_actions(&top) => {}
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -325,6 +330,22 @@ fn request_page_has_only_empty_sections(rp: &ast::Section) -> bool {
                 && section_is_bare(&s)
                 && s.sections().next().is_none()
         })
+}
+
+/// A `requestpage` with one property, `Caption`, and exactly an empty `layout` and an empty `actions` section.
+fn request_page_is_caption_with_empty_layout_and_actions(rp: &ast::Section) -> bool {
+    let props: Vec<_> = rp.properties().collect();
+    let names: Vec<String> = rp.sections().map(|s| s.name().to_ascii_lowercase()).collect();
+    props.len() == 1
+        && props[0].name().eq_ignore_ascii_case("caption")
+        && rp.triggers().next().is_none()
+        && rp.var_decls().next().is_none()
+        && names.len() == 2
+        && names.contains(&"layout".to_string())
+        && names.contains(&"actions".to_string())
+        && rp
+            .sections()
+            .all(|s| section_is_bare(&s) && s.sections().next().is_none())
 }
 
 fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {

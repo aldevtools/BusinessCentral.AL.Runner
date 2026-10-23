@@ -523,6 +523,51 @@ pub(super) fn all_obj_with_caption_rows(p: &Providers, t: &TableDef) -> Vec<Entr
     )
 }
 
+// ---- Application Object Metadata -------------------------------------------------------------------
+
+/// One row per object, keyed as AllObj names it (Runtime Package ID, Object Type, Object ID) and Emit Version 0: Microsoft's
+/// ODataUtility.GetTenantWebServiceMetadata finds a query's row with `Get(AllObj."App Runtime Package ID", type, id)`, the
+/// missing Emit Version taking its blank value (tests/al-language-onprem-dotnet/lt-qx-dotnet/QxDotNetDemoShapes.al:173-181,
+/// lt-re-dotnet/ReQueryMetadataShapes.al:116-140: the reader it builds is not null). Only a query's Metadata is pinned, and
+/// only as the input of QueryMetadataReader.FromStream: the Blob holds the query's id under the mark
+/// `stream::QUERY_METADATA`, which refuses any other look. The other columns are unknown (`mark_unpinned`), and the row of
+/// any other object type is refused: nothing pins what it holds.
+pub(super) fn application_object_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
+    let engine = p.engine();
+    let c = Catalog::new(&engine);
+    entries(
+        &c,
+        t,
+        |o| {
+            let (Some(id), Some(ty)) = (o.id, object_type(o.kind)) else {
+                return None;
+            };
+            // Profiles are not a member of this table's Object Type; a moved table has no AllObj row either.
+            if ty == 18 || moved(o) {
+                return None;
+            }
+            Some(vec![
+                (1, Value::Guid(runtime_package_id(&c, o))),
+                (3, option(t, 3, ty)),
+                (4, Value::Integer(id as i32)),
+            ])
+        },
+        |o, r| {
+            if o.kind != al_ir::ObjKind::Query {
+                return Err(format!(
+                    "the Application Object Metadata row of {} '{}' (only a query's Metadata is pinned)",
+                    o.kind, o.name
+                ));
+            }
+            let blob = al_builtins::stream::new_blob();
+            al_builtins::stream::write_bytes(&blob, &o.id.unwrap_or(0).to_le_bytes());
+            blob.borrow_mut().render_pending = Some(al_builtins::stream::QUERY_METADATA.into());
+            r[pos(t, 6)] = Value::Blob(blob);
+            Ok(())
+        },
+    )
+}
+
 // ---- CodeUnit Metadata ----------------------------------------------------------------------------
 
 pub(super) fn codeunit_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {

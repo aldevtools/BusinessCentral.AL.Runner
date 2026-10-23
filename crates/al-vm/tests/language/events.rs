@@ -1823,19 +1823,121 @@ fn subscribers_of_one_event_run_app_by_app_in_dependency_order() {
     assert_eq!(text(raise_order(apps)), "A1;A2;B1;B2;C1;C2;P;Q;");
 }
 
-/// The corpus cannot tell dependency order from "apps ordered by their lowest subscriber codeunit id"
-/// (BwSubscriberOrderTests.al:20-21): where the two disagree, the order is not pinned and the raise is refused.
+/// Dependency order, not the apps' lowest subscriber codeunit ids: B depends on A but has the lower ids and still runs
+/// after A (corpus events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:150, `A;B1;B2;C;M;` on BC 27.5, 28.5, 29.0).
 #[test]
-fn subscribers_whose_app_order_the_corpus_does_not_pin_are_refused() {
-    // B depends on A, but B's subscriber has the lower id.
-    let a = format!("{ORDER_PUBLISHER}{}", order_sub(61135, "A"));
-    let b = order_sub(61115, "B");
-    let r = raise_order(vec![order_app("a", &[], &a), order_app("b", &["a"], &b)]);
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("onorder") && m.contains("does not pin")),
-        "{r:?}"
+fn a_dependent_app_with_lower_subscriber_ids_runs_after_the_app_it_depends_on() {
+    let a = format!("{ORDER_PUBLISHER}{}", order_sub(61138, "A"));
+    let b = format!("{}{}", order_sub(61117, "B1"), order_sub(61147, "B2"));
+    let c = order_sub(61127, "C");
+    let m = order_sub(87620, "M");
+    let apps = vec![
+        order_app("a", &[], &a),
+        order_app("b", &["a"], &b),
+        order_app("c", &["a", "b"], &c),
+        order_app("m", &["a", "b", "c"], &m),
+    ];
+    assert_eq!(text(raise_order(apps)), "A;B1;B2;C;M;");
+}
+
+/// An app outside every other app's dependencies: corpus app D depends on A only, nothing depends on it, it is published
+/// right after A, and its subscriber runs last, after the main app (BwSubscriberOrderTests.al, last test,
+/// `A;B1;B2;C;M;D;` on BC 27.5, 28.5, 29.0). `apps` in publish order, named and with ids as in the corpus.
+fn outside_app_shape(d_id: &str, d_name: &str, d_deps: &[&str], d_after: bool) -> Vec<AppSource> {
+    let named = |id: &str, name: &str, deps: &[&str], src: String| AppSource {
+        name: name.into(),
+        ..order_app(id, deps, &src)
+    };
+    let a_id = "cd6a4292-f27b-4af9-89bc-15a5956f5c71";
+    let b_id = "c87ced6d-11a6-4ad2-87c7-ac10083d0a2f";
+    let c_id = "0df0fadc-d339-4b0f-a1d5-51dc51f10900";
+    let m_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    let d = named(d_id, d_name, d_deps, order_sub(61160, "D"));
+    let mut apps = vec![
+        named(
+            a_id,
+            "AL Language XApp A",
+            &[],
+            format!("{ORDER_PUBLISHER}{}", order_sub(61138, "A")),
+        ),
+        named(
+            b_id,
+            "AL Language XApp B",
+            &[a_id],
+            format!("{}{}", order_sub(61117, "B1"), order_sub(61147, "B2")),
+        ),
+        named(c_id, "AL Language XApp C", &[a_id, b_id], order_sub(61127, "C")),
+        named(
+            m_id,
+            "AL Language Coverage Tests",
+            &[a_id, b_id, c_id],
+            order_sub(87620, "M"),
+        ),
+    ];
+    if d_after {
+        apps.push(d);
+    } else {
+        apps.insert(1, d);
+    }
+    apps
+}
+
+const A_ID: &str = "cd6a4292-f27b-4af9-89bc-15a5956f5c71";
+const D_ID: &str = "e92be076-de11-44ed-895e-17031341df29";
+
+#[test]
+fn an_app_no_other_app_depends_on_runs_after_the_others() {
+    let apps = outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], false);
+    assert_eq!(text(raise_order(apps)), "A;B1;B2;C;M;D;");
+}
+
+/// The pin does not tell "the outside app last" from a dependency order that breaks ties by app id, by app name or by
+/// the app published last: where any of them puts the outside app elsewhere, the raise is refused.
+#[test]
+fn an_outside_app_whose_place_the_pin_does_not_decide_is_refused() {
+    let refused = |apps: Vec<AppSource>, why: &str| {
+        let r = raise_order(apps);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("onorder") && m.contains(why)),
+            "{why}: {r:?}"
+        );
+    };
+    // A lower app id than the main app's.
+    refused(
+        outside_app_shape(
+            "01000000-0000-0000-0000-000000000000",
+            "AL Language XApp D",
+            &[A_ID],
+            false,
+        ),
+        "app id",
     );
-    // Two apps that do not depend on each other: dependency order does not decide (publish order may).
+    // A name before the main app's.
+    refused(outside_app_shape(D_ID, "AA Probe", &[A_ID], false), "name");
+    // Published after the main app.
+    refused(
+        outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], true),
+        "published",
+    );
+    // Another app depends on it.
+    let mut apps = outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], false);
+    apps.push(order_app("e", &[D_ID], ""));
+    refused(apps, "another app depends on");
+    // Two apps outside.
+    let mut apps = outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], false);
+    apps.insert(
+        2,
+        AppSource {
+            name: "AL Language XApp E".into(),
+            ..order_app("f92be076-de11-44ed-895e-17031341df29", &[A_ID], &order_sub(61170, "E"))
+        },
+    );
+    refused(apps, "does not pin");
+}
+
+/// Two apps that do not depend on each other and nothing else: neither rule decides.
+#[test]
+fn two_unrelated_apps_under_test_are_refused() {
     let x = order_sub(61115, "X");
     let y = order_sub(61125, "Y");
     let a = ORDER_PUBLISHER.to_string();
@@ -1847,35 +1949,44 @@ fn subscribers_whose_app_order_the_corpus_does_not_pin_are_refused() {
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-/// Kept, not pinned: where only dependency apps (Microsoft's) disagree on the two rules the corpus cannot tell apart, the
-/// raise keeps the order the runtime had before the cross-app probe, ascending codeunit id across the apps. Refusing it
-/// loses baseline cases (System Application's `OnGetPerCompanyUpgradeTags` with subscribers in Business Foundation,
-/// whose lowest subscriber id is lower although it depends on System Application: 68391, 69971, 69973, 79851, 84835,
-/// 85446). The apps under test keep their pinned place; an app under test in such a pair is still refused (above).
+/// Dependency apps (Microsoft's) that depend on each other run in dependency order too, whatever their lowest subscriber
+/// ids (BwSubscriberOrderTests.al:150 pins dependency order over lower subscriber ids). Kept, not pinned: dependency apps
+/// that do not depend on each other keep the order the runtime had before the cross-app probe, ascending codeunit id
+/// across them. The apps under test keep their pinned place; an app under test in such a pair is still refused (above).
 #[test]
-fn an_unpinned_order_among_dependency_apps_only_keeps_ascending_codeunit_id() {
+fn dependency_apps_run_in_dependency_order_and_unrelated_ones_keep_ascending_codeunit_id() {
     use al_sema::workspace::AppKind;
-    let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61135, "A1"), order_sub(61150, "A2"));
-    let b = order_sub(61115, "B");
-    // The app under test subscribes too, after both (it depends on both and has the highest id): its place is pinned.
+    let run = |apps: Vec<AppSource>| {
+        let n = apps.len();
+        let mut kinds = vec![AppKind::Dependency; n - 1];
+        kinds.push(AppKind::Workspace);
+        let (ws, l) = al_sema::lower::compile_apps_with(apps, kinds, &Default::default(), None, Default::default());
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let mut b = al_testkit::Built::new(l);
+        text(b.run_in("T", "Run"))
+    };
     let t = format!(
         "{}{}",
         r#"codeunit 50100 T { procedure Run(): Text var P: Codeunit "Order Pub"; begin exit(P.Raise()); end; }"#,
         order_sub(83960, "T")
     );
-    let t = t.as_str();
-    let (ws, l) = al_sema::lower::compile_apps_with(
-        vec![
-            order_app("a", &[], &a),
-            order_app("b", &["a"], &b),
-            order_app("t", &["a", "b"], t),
-        ],
-        vec![AppKind::Dependency, AppKind::Dependency, AppKind::Workspace],
-        &Default::default(),
-        None,
-        Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let mut b = al_testkit::Built::new(l);
-    assert_eq!(text(b.run_in("T", "Run")), "B;A1;A2;T;");
+    // B depends on A and has the lower subscriber id.
+    let a = format!("{ORDER_PUBLISHER}{}{}", order_sub(61135, "A1"), order_sub(61150, "A2"));
+    let b = order_sub(61115, "B");
+    let apps = vec![
+        order_app("a", &[], &a),
+        order_app("b", &["a"], &b),
+        order_app("t", &["a", "b"], &t),
+    ];
+    assert_eq!(run(apps), "A1;A2;B;T;");
+    // X and Y depend on A only.
+    let x = format!("{}{}", order_sub(61140, "X1"), order_sub(61120, "X2"));
+    let y = order_sub(61130, "Y");
+    let apps = vec![
+        order_app("a", &[], ORDER_PUBLISHER),
+        order_app("x", &["a"], &x),
+        order_app("y", &["a"], &y),
+        order_app("t", &["a", "x", "y"], &t),
+    ];
+    assert_eq!(run(apps), "X2;Y;X1;T;");
 }

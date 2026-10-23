@@ -2,7 +2,7 @@
   "corpus_commit": "5ef0f046ddfdbdcece105ccf17d0e76e77d8bec7",
   "language": {
     "bc": "27-29",
-    "implemented": 1509,
+    "implemented": 1510,
     "methods": [
       {
         "bc": [
@@ -23509,7 +23509,7 @@
         "scope": "",
         "sig": "(Text, Text, var XmlAttribute)",
         "site": "xml/XmlAttributes.al:40",
-        "state": "refused",
+        "state": "implemented",
         "type": "XmlAttributeCollection"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 213,
+    "refused": 212,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

@@ -492,6 +492,7 @@ impl Providers {
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),
             Virtual::TableRelations => metadata::table_relations_rows(self, t),
+            Virtual::ApplicationObjectMetadata => objects::application_object_metadata_rows(self, t),
             Virtual::QueryMetadata => metadata::query_metadata_rows(self, t),
             Virtual::ReportLayoutList => reports::layout_list_rows(self, t),
             Virtual::ReportMetadata => reports::report_metadata_rows(self, t),
@@ -520,6 +521,7 @@ impl Providers {
             Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
             Virtual::LanguageSelection => host_tables::language_selection_rows(t, self.engine().target.as_ref()),
             Virtual::Key => fields::key_rows(self, t),
+            Virtual::IntelligentCloud => Vec::new(),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {
                 unreachable!("generated, never listed")
             }

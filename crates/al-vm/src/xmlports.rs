@@ -1989,6 +1989,15 @@ impl Session {
         inst.borrow_mut().xp_text.push((6, String::new()));
         let result = self.xp_export_inner(inst, schema, guarded);
         inst.borrow_mut().xp_text.retain(|(k, _)| *k != 6 && *k != 7);
+        // What a table element record's key, order, filters and position are after an export under SourceTableView is not
+        // pinned: every later read of them refuses (records.rs `XP_VIEW_AFTER_EXPORT`).
+        for (i, n) in schema.xp().nodes.iter().enumerate() {
+            if n.source_view.is_some() {
+                if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
+                    rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+                }
+            }
+        }
         result
     }
 

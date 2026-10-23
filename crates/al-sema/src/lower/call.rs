@@ -440,12 +440,14 @@ impl Lowerer<'_> {
                     })),
                     // `this.Run()` in a codeunit runs the codeunit's own instance: its globals see the run, an error is
                     // returned when the result is used, and the record form hands the record to OnRun
-                    // (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:6-140, the ThisRun_* tests).
+                    // (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:6-140, the ThisRun_* tests). The bare `Run()` / `Run(Rec)`
+                    // does the same (AjRunAndXmlPort.al:170,194,215, the QZ_BareRun* tests).
                     None if sig.instance
                         && id == "Codeunit.Run#1"
                         && self.ws.objects[self.oi].kind == ObjKind::Codeunit
-                        && callee.kind() == SyntaxKind::MemberExpr
-                        && callee.children().next().is_some_and(|r| crate::check::is_this_keyword(&r)) =>
+                        && (callee.kind() == SyntaxKind::NameRef
+                            || callee.kind() == SyntaxKind::MemberExpr
+                                && callee.children().next().is_some_and(|r| crate::check::is_this_keyword(&r))) =>
                     {
                         Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
                     }

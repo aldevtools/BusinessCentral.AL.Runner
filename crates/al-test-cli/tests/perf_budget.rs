@@ -30,7 +30,7 @@ fn root() -> PathBuf {
 /// The corpus app and the corpus apps it depends on (the internals fixture, the cross-app fixtures), dependencies first.
 fn corpus_app_dirs() -> Vec<std::path::PathBuf> {
     let main = root().join("corpus/tests/al-language");
-    let mut dirs = al_test_cli::deps::corpus_source_dirs(&main).unwrap();
+    let mut dirs = al_test_cli::deps::corpus_publish_dirs(&main).unwrap();
     dirs.push(main);
     dirs
 }
@@ -199,7 +199,7 @@ fn run_source_bytes() -> u64 {
     let oracle = std::fs::read_to_string(root.join("oracle/oracle.toml")).unwrap();
     let oracle = al_test_cli::config::OracleFile::parse(&oracle).unwrap();
     let leg = oracle.select(Some(WITH_APPS_MAJOR)).unwrap();
-    let mut apps = al_test_cli::deps::corpus_source_dirs(&root.join(&oracle.corpus_app)).unwrap();
+    let mut apps = al_test_cli::deps::corpus_publish_dirs(&root.join(&oracle.corpus_app)).unwrap();
     apps.push(root.join(&oracle.corpus_app));
     apps.extend(leg.suites.iter().map(|s| root.join(&s.app)));
     apps.iter()

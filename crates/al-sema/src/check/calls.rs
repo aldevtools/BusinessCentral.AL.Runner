@@ -274,6 +274,24 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // A bare `Init()` in a table that declares Init(A; B) is the built-in on Rec, `Init(5, 'inner')` the procedure; a
+        // procedure with the built-in's own signature hides it (record/lt-record-write/RcBInit.al:445, :475, fixtures
+        // QzInitOverload.al). Only Init is pinned.
+        if !c.is_empty()
+            && sc.rec_unqualified
+            && n.eq_ignore_ascii_case("init")
+            && self.ws.objects[sc.oi].kind == ObjKind::Table
+            && sc.self_obj == sc.oi
+            && let Some(rec @ Ty::Record { .. }) = sc.rec.clone()
+        {
+            let platform = self.catalog_cands("Record", n, true, &rec);
+            let arities: Vec<(usize, usize)> = c.iter().map(|p| (p.min, p.max)).collect();
+            c.extend(
+                platform
+                    .into_iter()
+                    .filter(|b| !arities.iter().any(|(lo, hi)| *lo <= b.max && b.min <= *hi)),
+            );
+        }
         if c.is_empty() && sc.rec_unqualified {
             if let Some(rec) = sc.rec.clone() {
                 if let Some(recv) = receiver_of(&rec) {
@@ -335,9 +353,19 @@ impl<'a> Checker<'a> {
                 i += 1;
                 continue;
             }
-            match std::iter::once(i)
-                .chain(twins.iter().copied())
+            let group: Vec<usize> = std::iter::once(i).chain(twins.iter().copied()).collect();
+            // A third table extension in the app of the extension twin runs that extension's body (`same_app_ext_twin`).
+            let mut objects: Vec<usize> = group.iter().filter_map(|&j| object_of(&c[j])).collect();
+            objects.sort_unstable();
+            objects.dedup();
+            let same_app_twin = self
+                .same_app_ext_twin(sc, &objects)
+                .and_then(|own| group.iter().copied().find(|&j| object_of(&c[j]) == Some(own)));
+            match group
+                .iter()
+                .copied()
                 .find(|&j| object_of(&c[j]) == Some(sc.oi))
+                .or(same_app_twin)
             {
                 Some(own) => {
                     let keep = c[own].clone();
@@ -359,6 +387,28 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+    }
+
+    /// Of two objects that declare a procedure with the same name and parameters (a table and a table extension of
+    /// another app), the one a call in a third table extension runs when that extension is in the app of the extension
+    /// twin: app B's 61114, next to its twin 61113, the other twin table 61101 of app A, runs B's extension body, bare
+    /// and through `Rec` (tableextension/lt-bw-cross-app/BwCrossAppTests.al:214, fixture
+    /// tests/al-language-xapp-b/QyXbObjects.al:38). From a third app the same calls do not compile (AL0196,
+    /// must-not-compile 2071). Any other shape: `None`.
+    pub(crate) fn same_app_ext_twin(&self, sc: &Scope, objects: &[usize]) -> Option<usize> {
+        let app_of = |o: usize| self.ws.objects.get(o).map(|x| x.app);
+        let kind = |o: usize| self.ws.objects.get(o).map(|x| x.kind);
+        let own_app = app_of(sc.oi)?;
+        let &[x, y] = objects else { return None };
+        if kind(sc.oi) != Some(ObjKind::TableExtension) || objects.contains(&sc.oi) {
+            return None;
+        }
+        let (own, other) = if app_of(x) == Some(own_app) { (x, y) } else { (y, x) };
+        (app_of(own) == Some(own_app)
+            && app_of(other) != Some(own_app)
+            && kind(own) == Some(ObjKind::TableExtension)
+            && kind(other) == Some(ObjKind::Table))
+        .then_some(own)
     }
 
     /// The resolution of global `key`: the base object's variable in an extension that sees it
@@ -547,6 +597,16 @@ impl<'a> Checker<'a> {
         }
         if !base.is_empty() {
             return Some(E::Callable(base));
+        }
+        // A bare `Run()` / `Run(Rec)` in a codeunit's own code is `this.Run()`: the instance method on the running
+        // codeunit (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:170,194,215, fixtures QzBareRun.al). An own procedure
+        // or variable named Run resolved above.
+        if key == "run" && self.ws.objects[sc.oi].kind == ObjKind::Codeunit && sc.self_obj == sc.oi {
+            let me = Ty::Object(ObjKind::Codeunit, self.ws.objects[sc.oi].name.as_str().into());
+            let c = self.catalog_cands("Codeunit", "Run", true, &me);
+            if !c.is_empty() {
+                return Some(E::Callable(c));
+            }
         }
         let globals: Vec<Cand> = self.global_cands(&n);
         if !globals.is_empty() {

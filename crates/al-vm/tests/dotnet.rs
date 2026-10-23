@@ -125,6 +125,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.IO.FileInfo\"; \"FileInfo\") { }
     type(\"System.Collections.IEnumerator\"; \"IEnumerator\") { }
     type(\"System.Array\"; \"Array\") { }
+    type(\"System.Xml.XmlDocument\"; \"XmlDocument\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
@@ -957,30 +958,73 @@ fn a_dotnet_exception_is_unsupported_with_the_clr_type_message_and_inner_excepti
     assert!(why.contains("not pinned"), "{why}");
 }
 
-// The runtime's .NET host has only the encodings .NET itself ships (no code pages such as 1252). Whether BC's server
-// answers Encoding.GetEncoding(1252) with an encoding is not pinned (docs/probes-needed.md, "Encoding.GetEncoding with a
-// code page"), so the refusal says that, not the host's NotSupportedException as if BC raised it.
-#[test]
-fn get_encoding_of_a_code_page_the_host_lacks_is_refused_as_not_pinned() {
-    let host = Fake::new(|_| {
+fn get_encoding_failure(clr_type: &'static str, message: &'static str) -> Fake {
+    Fake::new(move |_| {
         Err(DotNetFailure::Exception(DotNetException {
-            clr_type: "System.NotSupportedException".into(),
-            message: "No data is available for encoding 1252. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.".into(),
+            clr_type: clr_type.into(),
+            message: message.into(),
             inner: vec![],
         }))
-    });
+    })
+}
+
+// An out-of-range code page: BC raises the .NET message with code DotNetInvoke:ArgumentOutOfRange
+// (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:168, :244).
+#[test]
+fn get_encoding_of_an_out_of_range_code_page_raises_argument_out_of_range() {
+    let host = get_encoding_failure(
+        "System.ArgumentOutOfRangeException",
+        "Valid values are between 0 and 65535, inclusive. (Parameter 'codepage')",
+    );
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding; T: Text;",
+        "asserterror X := E.GetEncoding(99999); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Text.Encoding.GetEncoding failed with this message: Valid values are between 0 and 65535, \
+         inclusive. (Parameter 'codepage')#DotNetInvoke:ArgumentOutOfRange"
+    );
+}
+
+// An unknown encoding name: code DotNetInvoke:Argument (RaEncodingCodePages.al:168).
+#[test]
+fn get_encoding_of_an_unknown_name_raises_argument() {
+    let host = get_encoding_failure(
+        "System.ArgumentException",
+        "'x' is not a supported encoding name. (Parameter 'name')",
+    );
+    let r = run(
+        &host,
+        "E: DotNet Encoding; X: DotNet Encoding; T: Text;",
+        "asserterror X := E.GetEncoding('x'); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Text.Encoding.GetEncoding failed with this message: 'x' is not a supported encoding name. \
+         (Parameter 'name')#DotNetInvoke:Argument"
+    );
+}
+
+// A code page in range that .NET has no data for (none pinned): still refused, the error BC raises is not pinned.
+#[test]
+fn get_encoding_of_a_code_page_without_data_is_refused_as_not_pinned() {
+    let host = get_encoding_failure(
+        "System.NotSupportedException",
+        "No data is available for encoding 12345.",
+    );
     let r = run(
         &host,
         "E: DotNet Encoding; X: DotNet Encoding;",
-        "X := E.GetEncoding(1252);",
+        "X := E.GetEncoding(12345);",
         "",
     );
     let why = unsupported(&r);
-    assert_eq!(
-        why,
-        "DotNet System.Text.Encoding.GetEncoding: the runtime's .NET host has no code-page encodings (code page 1252); \
-         whether Business Central provides them is not pinned (docs/probes-needed.md)"
-    );
+    assert!(why.contains("System.Text.Encoding.GetEncoding"), "{why}");
+    assert!(why.contains("not pinned"), "{why}");
 }
 
 #[test]
@@ -1439,6 +1483,9 @@ fn the_declared_result_types_match_the_registry() {
             "AddEffectivePermissionSet" => continue,
             // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.
             "DirectoryInfo" | "Exists" | "GetFiles" | "GetEnumerator" | "MoveNext" | "Current" | "Length" => continue,
+            // Need a query's Application Object Metadata; al-test-cli tests/platform_tables.rs
+            // (application_object_metadata_of_a_query_*) runs them.
+            "FromStream" | "Fields" | "Count" | "Item" | "FieldNo" | "TableNo" | "FieldName" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));
@@ -1820,4 +1867,131 @@ fn directory_info_of_any_other_folder_or_pattern_stays_refused_and_never_reaches
         );
         assert!(host.calls().is_empty(), "{:?}", host.calls());
     }
+}
+
+// ---- the temporary folder of the company build ----------------------------------------------------
+
+/// A file system that, like the company build's (al-testrun company_data.rs), serves static System.IO calls on the
+/// temporary folder: one folder `\TEMP\d` holding `\TEMP\d\f.txt`.
+#[derive(Default)]
+struct TempFolder {
+    files: std::collections::BTreeMap<String, Vec<u8>>,
+    dir: bool,
+}
+
+impl al_host::FileSystem for TempFolder {
+    fn read(&self, p: &str) -> Option<Vec<u8>> {
+        self.files.get(p).cloned()
+    }
+    fn write(&mut self, p: &str, b: &[u8]) -> Result<(), String> {
+        self.files.insert(p.into(), b.to_vec());
+        Ok(())
+    }
+    fn exists(&self, p: &str) -> bool {
+        self.files.contains_key(p)
+    }
+    fn remove(&mut self, p: &str) -> bool {
+        self.files.remove(p).is_some()
+    }
+    fn serves_path(&self, p: &str) -> bool {
+        p.starts_with("\\TEMP\\")
+    }
+    fn dir_exists(&self, p: &str) -> bool {
+        self.dir && p == "\\TEMP\\d"
+    }
+    fn create_dir(&mut self, p: &str) -> Result<(), String> {
+        self.dir |= p == "\\TEMP\\d";
+        Ok(())
+    }
+    fn remove_dir(&mut self, p: &str, recursive: bool) -> Result<(), String> {
+        if p != "\\TEMP\\d" || !self.dir || (!recursive && !self.files.is_empty()) {
+            return Err("no".into());
+        }
+        self.dir = false;
+        self.files.clear();
+        Ok(())
+    }
+}
+
+fn run_temp(host: &Fake, vars: &str, body: &str, files: Option<TempFolder>) -> Ran {
+    let (program, blocked, oi, ri) = compile(vars, body, ": Text");
+    let engine = Engine::with_dotnet(program, blocked, cfg(host));
+    let h = al_host::Host::default();
+    let mut s = Session::with_host(
+        engine,
+        match files {
+            Some(f) => h.with_files(f),
+            None => h,
+        },
+    );
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+const TEMP_OPS: &str = "R := Format(Directory.Exists('\\TEMP\\d'));
+    Directory.CreateDirectory('\\TEMP\\d');
+    R += Format(Directory.Exists('\\TEMP\\d'));
+    F.TextMode(true); F.Create('\\TEMP\\d\\f.txt'); F.Write('x'); F.Close();
+    R += Format(File.Exists('\\TEMP\\d\\f.txt'));
+    File.Delete('\\TEMP\\d\\f.txt');
+    R += Format(File.Exists('\\TEMP\\d\\f.txt'));
+    Directory.Delete('\\TEMP\\d', true);
+    R += Format(Directory.Exists('\\TEMP\\d'));
+    exit(R);";
+
+// QxDotNetDemoShapes.al:265-346 (RD_DirectoryExists_Static, RD_FileManagement_ServerFolderOperations): in the company build
+// only (owner rule 2026-10-22), never through the .NET host.
+#[test]
+fn static_directory_and_file_calls_on_the_temporary_folder_are_served_by_the_company_build_file_system() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let vars = "Directory: DotNet Directory; File: DotNet File; F: File; R: Text;";
+    let r = run_temp(&host, vars, TEMP_OPS, Some(TempFolder::default()));
+    assert_eq!(text(r), "NoYesYesNoNo");
+    let r = run_temp(&host, vars, TEMP_OPS, None);
+    assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
+}
+
+#[test]
+fn a_directory_delete_the_file_system_cannot_do_is_refused() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run_temp(
+        &host,
+        "Directory: DotNet Directory; R: Text;",
+        "Directory.Delete('\\TEMP\\d', true); exit('ran');",
+        Some(TempFolder::default()),
+    );
+    assert!(unsupported(&r).contains("Directory.Delete"), "{}", unsupported(&r));
+}
+
+// QxDotNetDemoShapes.al:370-377 (RD_ServerTempFileName_XmlSave_Compress): XmlDocument.Save of a server file writes what .NET
+// writes to a stream; in the company build the bytes go to its file system.
+#[test]
+fn xml_document_save_to_a_file_of_the_temporary_folder_saves_into_a_stream_and_writes_the_bytes() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        Req::Invoke(DotNetTarget::Instance(4), m, a) if m == "Save" => {
+            assert_eq!(a.len(), 1);
+            assert_eq!(a[0].value, DotNetValue::OutStream);
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    bridges: vec![(0, 9)],
+                    written: vec![(9, b"<a />".to_vec())],
+                    ..Default::default()
+                },
+            })
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    let body = "X := X.XmlDocument(); X.Save('\\TEMP\\1.tmp');
+        F.Open('\\TEMP\\1.tmp'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
+    let vars = "X: DotNet XmlDocument; F: File; I: InStream; T: Text;";
+    let r = run_temp(&host, vars, body, Some(TempFolder::default()));
+    assert_eq!(text(r), "<a />");
 }

@@ -1085,7 +1085,11 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc.borrow().unpinned_buffer {
+                if let Some(why) = rc
+                    .borrow()
+                    .unpinned_buffer
+                    .filter(|w| !crate::records::run_page_link_fields_read(w))
+                {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::Unsupported(format!("a read of a field of Rec {why}")));
                     }
@@ -1175,6 +1179,11 @@ impl Session {
                         })));
                     }
                     if !Rc::ptr_eq(src, &dst) {
+                        // The source's buffer after an export under SourceTableView is not pinned (records.rs
+                        // `XP_VIEW_AFTER_EXPORT`).
+                        if let Some(why) = crate::records::xp_export_marked(src) {
+                            return Err(Signal::Unsupported(format!("an assignment from a record: {why}")));
+                        }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
                         // does not tell a copy from a shared Blob (record/TestFormatRecordContracts.al
                         // only formats the copy): docs/probes-needed.md.

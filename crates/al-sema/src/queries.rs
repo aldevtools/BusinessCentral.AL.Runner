@@ -433,6 +433,10 @@ impl Builder<'_> {
             match (&class, filter_element) {
                 (FieldClass::Normal, _) | (FieldClass::FlowFilter, true) => {}
                 (FieldClass::FlowField, false) if method.is_none() => {}
+                // A filter() element over a FlowField of the data item: its ColumnFilter or run-time filter keeps the rows
+                // whose calculated value matches (query/lt-cg-query-leads/CgQueryLeads.al:759,792, fixtures
+                // QzQueryFlowFieldFilter.al). The VM refuses it in a query with more than one data item or a Method column.
+                (FieldClass::FlowField, true) if method.is_none() => {}
                 // Sum, Average, Min and Max add up the values calculated per row; Base Application's "Cust. Ledg. Entry
                 // Remain. Amt." sums "Remaining Amt. (LCY)" (assumption query-method-over-flowfield).
                 (FieldClass::FlowField, false)

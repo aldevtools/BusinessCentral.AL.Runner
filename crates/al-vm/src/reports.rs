@@ -2440,6 +2440,11 @@ impl Session {
                 return Ok(Value::Boolean(false));
             }
             "Pdf" | "Html" | "Word" | "Excel" if self.output_is_ignored(&schema) => discard = true,
+            // Owner decision 2026-10-22 ("Run triggers, no file"): while Microsoft's DemoTool builds the company, SaveAsPdf to a
+            // file runs the report, triggers and data, and writes no file (MakeCorrections.Codeunit.al:62, PostRevaluation.
+            // Codeunit.al:82, RunPostInventoryCosttoGL.Codeunit.al:17 write a PDF under TemporaryPath that nothing reads). The
+            // file is marked as for a listed report, so a look at it is refused. Outside the company build it stays refused.
+            "Pdf" if self.company_build && matches!(target, SaveTarget::File(_)) => discard = true,
             other => {
                 return unsupported(format!(
                     "Report.SaveAs of \"{}\" as {other}: only the Xml dataset is produced (a rendered format needs a layout \
