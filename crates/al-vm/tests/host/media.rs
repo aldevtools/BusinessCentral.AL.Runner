@@ -571,20 +571,35 @@ fn media_set_export_file_of_two_jpegs_writes_them_in_media_id_order() {
     assert_eq!(r.unwrap(), format!("2|{j}|{}", j + 3));
 }
 
-// Not pinned, so refused: BC 27 and 28 re-encode a JPEG (MediaFiles.al:897-901), every major re-encodes a PNG
-// (W7Media.al:141-145), what a file system outside the company build's gets, and a folder that does not exist.
+// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (MediaFiles.al:897-901):
+// the count and the name are pinned, the bytes are not, so the file is written with a mark and any look at it is refused.
+#[test]
+fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_the_file() {
+    let png = "begin Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+               P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); ";
+    let jpeg = "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+               P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); ";
+    for (bc, set) in [("29.0", png), ("28.0", jpeg)] {
+        assert_eq!(export_file_on(bc, true, &format!("{set}exit(Format(n)); end;")).unwrap(), "1", "{bc}");
+        let r = export_file_on(bc, true, &format!("{set}exit(Format(Len(P + '-1'))); end;"));
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc}: {r:?}");
+    }
+}
+
+// Not pinned, so refused: what a file system outside the company build's gets, a folder that does not exist, an empty
+// prefix, an empty set and an item a stream import read.
 #[test]
 fn media_set_export_file_that_is_not_pinned_is_refused() {
     let jpeg_set = "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); ";
     let cases = [
-        ("28.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;")),
         ("29.0", false, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;")),
         ("29.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\N\\x'))); end;")),
         ("29.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile(''))); end;")),
         (
             "29.0",
             true,
-            "begin Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png'); exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;"
+            "ins: InStream; outs: OutStream; begin Rec.Src.CreateOutStream(outs); outs.Write('x'); Rec.Src.CreateInStream(ins); \
+             Rec.Images.ImportStream(ins, 'stream'); exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;"
                 .to_string(),
         ),
         ("29.0", true, "begin exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;".to_string()),

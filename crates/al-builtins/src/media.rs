@@ -512,10 +512,9 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 /// media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
 /// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
 /// row of the set in primary key order (ID, Media ID), not Item(n). Only the company build's file system is served (owner rule
-/// 2026-10-22), and only items whose content is pinned: a .jpg file holding a JPEG read by `MediaSet.ImportFile` keeps its
-/// bytes from BC 29 (`Gate::JpegMediaSetKeptFrom29`). Refused: a PNG (re-encoded on every major, W7Media.al:141-145), a JPEG
-/// on BC 27 and 28 (re-encoded), any other item, an empty set, an empty prefix and a folder that does not exist (the errors
-/// are not pinned).
+/// 2026-10-22), and only items `MediaSet.ImportFile` read: a .jpg file holding a JPEG keeps its bytes from BC 29
+/// (`Gate::JpegMediaSetKeptFrom29`); an item BC re-encodes is written as a file a look at is refused. Refused: any other
+/// item, an empty set, an empty prefix and a folder that does not exist (the errors are not pinned).
 fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let set = id_of(&r)?;
     let prefix = text_arg(a, 0)?;
@@ -537,30 +536,54 @@ fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
         return unsupported("MediaSet.ExportFile of an empty set (not pinned)");
     }
     items.sort();
+    // `None`: BC re-encodes the item (a PNG on every major, W7Media.al:141-145; a .jpg holding a PNG, ReMediaJpgHoldingPng.al:108;
+    // a JPEG before BC 29, MediaFiles.al:897-901), so the file is written with the mark of a re-encoded media and a look at it is
+    // refused (as Media.ExportStream does).
     let kept = c.gate(al_version::Gate::JpegMediaSetKeptFrom29);
-    let mut contents = Vec::with_capacity(items.len());
+    let mut contents: Vec<Option<Vec<u8>>> = Vec::with_capacity(items.len());
     for id in &items {
         let obj = store(c)?.objects.borrow().get(id).cloned();
         match obj {
-            Some(o)
-                if kept
-                    && o.pending.is_none()
-                    && o.mime == "image/jpeg"
-                    && jpeg_size(&o.bytes).is_some()
-                    && matches!(o.file_column, Some(FileColumn::Unpinned)) =>
-            {
-                contents.push(o.bytes)
+            Some(o) if o.pending.is_none() && matches!(o.file_column, Some(FileColumn::Unpinned)) => {
+                let is_jpeg = o.mime == "image/jpeg" && jpeg_size(&o.bytes).is_some();
+                let is_png = png_size(&o.bytes).is_some() && matches!(o.mime.as_str(), "image/jpeg" | "image/png");
+                contents.push(match (is_jpeg, is_png) {
+                    (true, _) if kept => Some(o.bytes),
+                    (true, _) | (_, true) => None,
+                    _ => {
+                        return unsupported(format!(
+                            "MediaSet.ExportFile of an item of type `{}` holding neither a JPEG nor a PNG (not pinned)",
+                            o.mime
+                        ));
+                    }
+                });
             }
-            _ => {
-                return unsupported(
-                    "MediaSet.ExportFile of an item whose Tenant Media content is not pinned (only a JPEG MediaSet.ImportFile read is, on the releases of Gate::JpegMediaSetKeptFrom29)",
-                );
+            other => {
+                let what = match &other {
+                    None => "an item the session does not hold".to_string(),
+                    Some(o) if o.pending.is_some() => "an item whose content was never produced".to_string(),
+                    Some(o) => format!(
+                        "an item of type `{}` read by {}",
+                        o.mime,
+                        match o.file_column {
+                            Some(_) => "Media.ImportFile",
+                            None => "a stream import",
+                        }
+                    ),
+                };
+                return unsupported(format!(
+                    "MediaSet.ExportFile of {what}: its Tenant Media content is not pinned (only a MediaSet.ImportFile read is)"
+                ));
             }
         }
     }
     for (n, bytes) in contents.iter().enumerate() {
         let name = format!("{prefix}-{}", n + 1);
-        if let Err(why) = c.fs_write(&name, bytes) {
+        let wrote = match bytes {
+            Some(b) => c.fs_write(&name, b),
+            None => c.fs_write_unproduced(&name, crate::stream::MEDIA_SET_FILE_REENCODED),
+        };
+        if let Err(why) = wrote {
             return unsupported(format!("MediaSet.ExportFile could not write `{name}`: {why}"));
         }
     }
