@@ -477,3 +477,120 @@ fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused
         "{r:?}"
     );
 }
+
+// ---- MediaSet.ExportFile in the company build ----------------------------------------------------------------------
+
+/// The company build's file system as far as ExportFile asks it (al-testrun company_data.rs): `\TEMP\` is served, the
+/// folder `\TEMP\M` exists.
+struct BuildFolder(al_host::MemFileSystem);
+
+impl al_host::FileSystem for BuildFolder {
+    fn read(&self, p: &str) -> Option<Vec<u8>> {
+        self.0.read(p)
+    }
+    fn write(&mut self, p: &str, b: &[u8]) -> Result<(), String> {
+        self.0.write(p, b)
+    }
+    fn exists(&self, p: &str) -> bool {
+        self.0.exists(p)
+    }
+    fn remove(&mut self, p: &str) -> bool {
+        self.0.remove(p)
+    }
+    fn serves_path(&self, p: &str) -> bool {
+        p.starts_with("\\TEMP\\")
+    }
+    fn dir_exists(&self, p: &str) -> bool {
+        p == "\\TEMP\\M"
+    }
+}
+
+fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
+    use al_host::FileSystem;
+    let src = format!(
+        "{TABLE}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; P: Text; n: Integer; {body} {LEN} }}"
+    );
+    let l = al_testkit::compile(&src);
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .unwrap();
+    let mut files = al_host::MemFileSystem::default();
+    files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
+    let mut longer = jpeg();
+    longer.extend_from_slice(&[0, 0, 0]);
+    files.write("\\TEMP\\a2.jpg", &longer).unwrap();
+    files.write("\\TEMP\\E.PNG", &png()).unwrap();
+    let target = Some(al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap()));
+    let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), target);
+    let host = al_host::Host::default();
+    let host = if serve { host.with_files(BuildFolder(files)) } else { host.with_files(files) };
+    let mut s = Session::with_host(engine, host);
+    let inst = s.instance(oi);
+    match s.call(oi, ri, inst, vec![])?.0 {
+        Value::Text(t) => Ok(t.to_string()),
+        other => panic!("{other:?}"),
+    }
+}
+
+const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin if not Exists(Name) then exit(-1); \
+                   G.Open(Name); exit(G.Len()); end;";
+
+// onprem media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
+// returns the number of items and writes <prefix>-1 with no extension; a JPEG's bytes are kept on BC 29.
+#[test]
+fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
+    let r = export_file_on(
+        "29.0",
+        true,
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg item'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+         P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); \
+         exit(Format(n) + '|' + Format(Len(P + '-1')) + '|' + Format(Len(P)) + '|' + Format(Len(P + '-1.jpg')) + '|' + \
+         Format(Len(P + '-2'))); end;",
+    );
+    let r = r.map(|t| t.replace(&jpeg().len().to_string(), "<jpeg>"));
+    assert_eq!(r.unwrap(), "1|<jpeg>|-1|-1|-1");
+}
+
+// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row of the set in primary key order (ID, Media ID), not Item(n).
+#[test]
+fn media_set_export_file_of_two_jpegs_writes_them_in_media_id_order() {
+    let r = export_file_on(
+        "29.0",
+        true,
+        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); Rec.Code := 'A'; Rec.Insert(); \
+         Rec.Images.ImportFile('\\TEMP\\a2.jpg', 'two'); Rec.Modify(); Rec.Get('A'); \
+         P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); \
+         if Format(Rec.Images.Item(1)) < Format(Rec.Images.Item(2)) then \
+             exit(Format(n) + '|' + Format(Len(P + '-1')) + '|' + Format(Len(P + '-2'))); \
+         exit(Format(n) + '|' + Format(Len(P + '-2')) + '|' + Format(Len(P + '-1'))); end;",
+    );
+    let j = jpeg().len();
+    assert_eq!(r.unwrap(), format!("2|{j}|{}", j + 3));
+}
+
+// Not pinned, so refused: BC 27 and 28 re-encode a JPEG (MediaFiles.al:897-901), every major re-encodes a PNG
+// (W7Media.al:141-145), what a file system outside the company build's gets, and a folder that does not exist.
+#[test]
+fn media_set_export_file_that_is_not_pinned_is_refused() {
+    let jpeg_set = "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); ";
+    let cases = [
+        ("28.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;")),
+        ("29.0", false, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;")),
+        ("29.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile('\\TEMP\\N\\x'))); end;")),
+        ("29.0", true, format!("{jpeg_set}exit(Format(Rec.Images.ExportFile(''))); end;")),
+        (
+            "29.0",
+            true,
+            "begin Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png'); exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;"
+                .to_string(),
+        ),
+        ("29.0", true, "begin exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;".to_string()),
+    ];
+    for (bc, serve, body) in cases {
+        let r = export_file_on(bc, serve, &body);
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc} {serve} {body}: {r:?}");
+    }
+}

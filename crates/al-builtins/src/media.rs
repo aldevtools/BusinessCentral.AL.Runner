@@ -508,7 +508,67 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
     Ok(Value::Guid(set))
 }
 
+/// `MediaSet.ExportFile(Prefix)` as Config. XML Exchange.ExportMediaSet calls it in the company build (onprem
+/// media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
+/// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
+/// row of the set in primary key order (ID, Media ID), not Item(n). Only the company build's file system is served (owner rule
+/// 2026-10-22), and only items whose content is pinned: a .jpg file holding a JPEG read by `MediaSet.ImportFile` keeps its
+/// bytes from BC 29 (`Gate::JpegMediaSetKeptFrom29`). Refused: a PNG (re-encoded on every major, W7Media.al:141-145), a JPEG
+/// on BC 27 and 28 (re-encoded), any other item, an empty set, an empty prefix and a folder that does not exist (the errors
+/// are not pinned).
+fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let set = id_of(&r)?;
+    let prefix = text_arg(a, 0)?;
+    let folder = prefix.rfind(['\\', '/']).map(|i| &prefix[..i]).unwrap_or_default();
+    if prefix.is_empty() || !c.fs_serves_path(&prefix) {
+        return unsupported(
+            "MediaSet.ExportFile outside the company build's temporary folder (what it writes to the server's file system is served only there)",
+        );
+    }
+    if !c.fs_dir_exists(folder) {
+        return unsupported("MediaSet.ExportFile into a folder that does not exist (the error is not pinned)");
+    }
+    let mut items = if set == [0; 16] {
+        Vec::new()
+    } else {
+        store(c)?.sets.borrow().get(&set).cloned().unwrap_or_default()
+    };
+    if items.is_empty() {
+        return unsupported("MediaSet.ExportFile of an empty set (not pinned)");
+    }
+    items.sort();
+    let kept = c.gate(al_version::Gate::JpegMediaSetKeptFrom29);
+    let mut contents = Vec::with_capacity(items.len());
+    for id in &items {
+        let obj = store(c)?.objects.borrow().get(id).cloned();
+        match obj {
+            Some(o)
+                if kept
+                    && o.pending.is_none()
+                    && o.mime == "image/jpeg"
+                    && jpeg_size(&o.bytes).is_some()
+                    && matches!(o.file_column, Some(FileColumn::Unpinned)) =>
+            {
+                contents.push(o.bytes)
+            }
+            _ => {
+                return unsupported(
+                    "MediaSet.ExportFile of an item whose Tenant Media content is not pinned (only a JPEG MediaSet.ImportFile read is, on the releases of Gate::JpegMediaSetKeptFrom29)",
+                );
+            }
+        }
+    }
+    for (n, bytes) in contents.iter().enumerate() {
+        let name = format!("{prefix}-{}", n + 1);
+        if let Err(why) = c.fs_write(&name, bytes) {
+            return unsupported(format!("MediaSet.ExportFile could not write `{name}`: {why}"));
+        }
+    }
+    Ok(Value::Integer(contents.len() as i32))
+}
+
 pub const REGISTRY: &[(&str, NativeFn)] = &[
+    ("MediaSet.ExportFile#1", set_export_file),
     ("Media.ImportFile#1", import_file),
     ("MediaSet.ImportFile#1", set_import_file),
     ("Media.HasValue#1", has_value),
