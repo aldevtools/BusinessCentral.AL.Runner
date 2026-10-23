@@ -432,9 +432,13 @@ fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: 
     Ok(Value::Null)
 }
 
-fn to_base64_stream(_: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+fn to_base64_stream(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     // The line breaks flag changes nothing for a stream (corpus types/PVBase64.al: a 100 byte stream).
     flag(&a[1])?;
+    // Content carried unread in the company build gives the carried text (owner decision 2026-10-23 "Carry bytes unread").
+    if c.company_build() && crate::stream::carried_mark_of_in(&a[0]).is_some() {
+        return Ok(Value::Text(crate::native::CARRIED_TEXT_MARK.to_string().into()));
+    }
     let bytes = drain_in(&mut a[0])?;
     Ok(Value::Text(b64_encode(&bytes, false).into()))
 }

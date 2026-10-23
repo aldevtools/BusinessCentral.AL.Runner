@@ -106,8 +106,25 @@ pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a quer
 /// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
 /// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
 /// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
+/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC of the newest major re-zips it too, probe cu
+/// 61288 case DX) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
 pub fn is_carried_mark(what: &str) -> bool {
-    what == MEDIA_SET_FILE_REENCODED
+    what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
+}
+
+/// The mark of a file .NET saved (XmlDocument.Save) with content carried unread in it, and of what is made from it (a GZip
+/// package): the RapidStart package the DemoTool exports.
+pub const PACKAGE_CARRIED: &str = "a file holding content carried unread";
+
+/// Whether the AL routine that asked is System Application's "Base64 Convert Impl.": its ToBase64(InStream) only tests the
+/// stream for content (`Length < 1`, `EOS`) and for more than 10 MB (a telemetry warning) before the platform encodes it
+/// (Base64ConvertImpl.Codeunit.al:75-79). For content carried unread those tests come out the same on every platform (a
+/// re-encoded picture or a re-zipped package is never empty and far below 10 MB), and the number never reaches other code.
+fn base64_impl_asks(ctx: &dyn Ctx) -> bool {
+    ctx.company_build()
+        && ctx
+            .calling_object()
+            .is_some_and(|(app, object)| app == "System Application" && object == "Base64 Convert Impl.")
 }
 
 /// Makes `blob` an opaque copy of content behind `mark`: no bytes, and any look refused with the mark.
@@ -148,6 +165,11 @@ pub fn render_pending_error(report: &str) -> Signal {
             "a Blob written through a stream created before CalcFields loaded it, after a read without CalcFields \
              (whether the write replaces the content is not pinned)"
                 .into(),
+        );
+    }
+    if report == PACKAGE_CARRIED {
+        return Signal::Unsupported(
+            "a file .NET saved with content carried unread in it (a re-encoded or re-zipped media whose bytes are not pinned)".into(),
         );
     }
     if report == MEDIA_SET_FILE_REENCODED {
@@ -696,11 +718,16 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
     )
 }
 
-fn blob_has_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue: true after Get without CalcFields.
     let b = blob_of(r)?;
     let buf = b.borrow();
     if buf.render_pending.as_deref() == Some(QUERY_METADATA) {
+        return Ok(Value::Boolean(true));
+    }
+    // Content carried unread in the company build is never empty (Temp Blob.FromFieldRef asks, TempBlobImpl.Codeunit.al:76).
+    if ctx.company_build() && buf.render_pending.as_deref().is_some_and(is_carried_mark) {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::Boolean(true));
     }
     buf.observe()?;
@@ -890,7 +917,18 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
     })
 }
 
-fn in_eos(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn in_eos(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = r.as_deref()
+        && carried_mark_of_in(v).is_some()
+        && base64_impl_asks(ctx)
+    {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+        return Ok(Value::Boolean(false));
+    }
+    in_eos_plain(r, a)
+}
+
+fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     // A stream HttpContent.WriteFrom took is not at its end (network/lt-db-http-leads/DbHttpContentLeads.al:310): its position
     // did not move.
     with_in_of(r, true, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
@@ -903,7 +941,16 @@ fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
     })
 }
 
-fn in_length(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    // Only for "Base64 Convert Impl." (`base64_impl_asks`): content carried unread answers 1, which passes its two tests as the
+    // real length does on every platform and goes nowhere else.
+    if let Some(v) = r.as_deref()
+        && carried_mark_of_in(v).is_some()
+        && base64_impl_asks(ctx)
+    {
+        crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+        return Ok(Value::BigInteger(1));
+    }
     with_in_of(r, false, true, |s| Ok(Value::BigInteger(s.len() as i64)))
 }
 

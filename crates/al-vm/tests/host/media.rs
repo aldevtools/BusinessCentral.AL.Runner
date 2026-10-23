@@ -646,11 +646,17 @@ fn a_re_encoded_export_file_moves_unread_through_file_stream_and_blob_in_the_com
                H.Create(P + '-copy'); H.CreateOutStream(Outs); CopyStream(Outs, Ins); H.Close(); ";
     let ok = |body: &str| export_file_in("29.0", true, true, &format!("{png}{body} end;"));
     assert_eq!(ok("exit(Format(Exists(P + '-copy')));").unwrap(), "Yes");
+    // Never empty (assumption company-build-carried-content-not-empty): HasValue Yes, Format `*`.
+    assert_eq!(
+        ok("exit(Format(Rec.Src.HasValue()) + Format(Rec.Src));").unwrap(),
+        "Yes*"
+    );
     for look in [
         "exit(Format(Len(Q)));",
         "exit(Format(Len(P + '-copy')));",
         "Rec.Src.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
         "exit(Format(Ins.Length));",
+        "exit(Format(Ins.EOS));",
         "G.Open(P + '-copy'); G.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
     ] {
         let r = ok(look);

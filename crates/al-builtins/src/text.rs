@@ -85,7 +85,10 @@ impl Txt {
             2 => false,
             _ => {
                 MARKER_SCANS.with(|c| c.set(c.get() + 1));
-                let m = self.0.s.contains(crate::native::CALL_STACK_MARK);
+                let m = self
+                    .0
+                    .s
+                    .contains([crate::native::CALL_STACK_MARK, crate::native::CARRIED_TEXT_MARK]);
                 self.0.marked.store(if m { 1 } else { 2 }, Relaxed);
                 m
             }

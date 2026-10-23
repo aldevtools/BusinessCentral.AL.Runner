@@ -33,6 +33,10 @@ pub trait FormatCtx {
         let _ = gate;
         false
     }
+    /// Whether content behind a carried mark (`stream::is_carried_mark`) moves unread: only in the company build.
+    fn carries_unread(&self) -> bool {
+        false
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -50,6 +54,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.0.format_gate(gate)
+    }
+    fn carries_unread(&self) -> bool {
+        self.0.carries_unread()
     }
 }
 
@@ -470,10 +477,20 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Blob(b) => {
             let buf = b.borrow();
             // ADR-040: the text shows whether the buffer holds data, which a pending buffer cannot say.
-            if let Some(report) = &buf.render_pending {
-                crate::stream::note_pending_observation(report);
+            match &buf.render_pending {
+                // Content carried unread in the company build is never empty (a re-encoded picture, a re-zipped package):
+                // it shows `*` (assumption `company-build-carried-content-not-empty`).
+                Some(report) if ctx.carries_unread() && crate::stream::is_carried_mark(report) => {
+                    crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
+                    "*".to_string()
+                }
+                pending => {
+                    if let Some(report) = pending {
+                        crate::stream::note_pending_observation(report);
+                    }
+                    (if buf.bytes.is_empty() { " " } else { "*" }).to_string()
+                }
             }
-            (if buf.bytes.is_empty() { " " } else { "*" }).to_string()
         }
         Value::Date(0, _) | Value::Time(0) | Value::DateTime(0) => String::new(),
         Value::Date(day, closing) => format_date(*day, *closing, standard, ctx.language())?,

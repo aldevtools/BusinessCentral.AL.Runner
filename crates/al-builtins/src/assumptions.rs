@@ -529,6 +529,12 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: their company is built by the DemoTool (Create Demonstration Data.OnRun opens `CurrencyData.txt`), and they pass in Microsoft's CI.",
         probe: "Not measurable from the corpus: the case rule is the server's file system, and the corpus CI runs BC on Linux. On the Windows nightly: File.Exists and File.Open of a file in the server's folder by a name in other case.",
     },
+    CompanyBuildCarriedContentNotEmpty => {
+        id: "company-build-carried-content-not-empty",
+        assumed: "In the company build, content carried unread (owner decision 2026-10-23 \"Carry bytes unread\": a file MediaSet.ExportFile wrote for a re-encoded item, a .docx Media.ExportStream re-zips) is never empty: Blob.HasValue answers Yes and Format of the Blob shows `*`; for System Application's Base64 Convert Impl. only, InStream.EOS answers No and InStream.Length answers 1 (its two tests, empty and more than 10 MB, come out as for the real length on every platform). Every other read of the bytes, length or text is refused.",
+        tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step exports the Config. Media Buffer rows (ConfigXMLExchange.Codeunit.al:1429, ConvertBlobToBase64String; Temp Blob.FromFieldRef asks HasValue), and they pass in Microsoft's CI.",
+        probe: "Not needed for the values (a re-encoded picture and a re-zipped package are not empty on any platform: 99, 103, 108 and 919 bytes measured); a corpus test that a Media.ExportStream of an imported PNG into a Blob gives HasValue Yes and Format `*` would pin it.",
+    },
     MediaExportStreamJfif300DpiKept => {
         id: "media-exportstream-jfif-dpi-jpeg-kept",
         assumed: "From the newest major on (the same major where MediaSet keeps a JPEG), Media.ExportStream of a JPEG that Media.ImportFile read, whose JFIF header has units 1 (dots per inch) and density 300 x 300, writes the file's bytes unchanged. Measured on Windows BC of the newest major (probe cu 61288 SC_DemoTool_Media_ExportStream, case JD: export = file, Tenant Media Content = file). Other JPEG headers are rewritten there (units 0: three header bytes; no JFIF: a JFIF segment inserted) and stay refused.",
