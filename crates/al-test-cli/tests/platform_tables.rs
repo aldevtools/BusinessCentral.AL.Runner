@@ -113,6 +113,17 @@ fn outcomes_app(app_id: &str, main: &str, roots: al_sema::check::Roots) -> Vec<(
 
 /// [`outcomes_app`] run as BC build `bc` (the System app stays the one of the corpus packages).
 fn outcomes_bc(app_id: &str, main: &str, roots: al_sema::check::Roots, bc: &str) -> Vec<(String, Outcome)> {
+    outcomes_over(app_id, main, None, roots, bc)
+}
+
+/// [`outcomes_bc`] with a dependency app `dep` (its source) besides the System app, which the app under test depends on.
+fn outcomes_over(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+) -> Vec<(String, Outcome)> {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -120,16 +131,17 @@ fn outcomes_bc(app_id: &str, main: &str, roots: al_sema::check::Roots, bc: &str)
         dependencies: deps.iter().map(|d| d.to_string()).collect(),
         files,
     };
-    let (_, l) = al_sema::lower::compile_apps_with(
-        vec![
-            app(app_id, "main", &[], vec![("main.al".into(), main.into())]),
-            app(al_sema::workspace::PLATFORM_APP_ID, "System", &[], system_app_files()),
-        ],
-        vec![AppKind::Workspace, AppKind::Dependency],
-        &symbols(),
-        None,
-        roots,
-    );
+    let deps: &[&str] = if dep.is_some() { &["dep"] } else { &[] };
+    let mut apps = vec![
+        app(app_id, "main", deps, vec![("main.al".into(), main.into())]),
+        app(al_sema::workspace::PLATFORM_APP_ID, "System", &[], system_app_files()),
+    ];
+    let mut kinds = vec![AppKind::Workspace, AppKind::Dependency];
+    if let Some(dep) = dep {
+        apps.push(app("dep", "dep", &[], vec![("dep.al".into(), dep.into())]));
+        kinds.push(AppKind::Dependency);
+    }
+    let (_, l) = al_sema::lower::compile_apps_with(apps, kinds, &symbols(), None, roots);
     let blocked = l
         .unsupported
         .iter()
@@ -1927,4 +1939,57 @@ fn application_object_metadata_of_a_query_feeds_the_query_metadata_reader_and_it
     assert!(why.contains("Application Object Metadata"), "{why}");
     let why = not_run(&o, "OfATable");
     assert!(why.contains("Application Object Metadata"), "{why}");
+}
+
+// A dependency app's query that the test names only by its id, read through Application Object Metadata and the
+// QueryMetadataReader (corpus tests/al-language-onprem-dotnet/lt-re-dotnet/ReQueryMetadataShapes.al:171, Base
+// Application's query 51 read by ODataUtility.GetTenantWebServiceMetadata). The demand-driven compile must hold the
+// query as the complete compile does (ADR-013 decision 6): the Application Object Metadata row of every query exists in
+// both, so its Metadata must read alike.
+#[test]
+fn a_dependency_query_named_only_by_id_reads_its_metadata_alike_in_the_demand_driven_and_the_complete_compile() {
+    let dep = r#"
+table 50001 "QM Header" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
+query 50003 "QM Query" { elements { dataitem(Head; "QM Header") { column(HeadId; Id) { } column(HeadName; Name) { } } } }
+"#;
+    let main = r#"
+dotnet { assembly("Microsoft.Dynamics.Nav.Client.BusinessChart") {
+    type("Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader"; QueryMetadataReader) { }
+    type("Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields"; QueryFields) { }
+} }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure ReadsTheColumns()
+  var AllObj: Record AllObj; M: Record "Application Object Metadata"; I: InStream; R: DotNet QueryMetadataReader; F: DotNet QueryFields;
+      Result: Text; n: Integer; Id: Integer;
+  begin
+    Id := 50000 + 3;
+    AllObj.Get(AllObj."Object Type"::Query, Id);
+    M.Get(AllObj."App Runtime Package ID", M."Object Type"::Query, Id);
+    M.CalcFields(Metadata);
+    M.Metadata.CreateInStream(I, TextEncoding::Windows);
+    R := R.FromStream(I);
+    for n := 0 to R.Fields().Count() - 1 do begin
+      F := R.Fields().Item(n);
+      Result += '[' + Format(F.FieldNo()) + '|' + Format(F.TableNo()) + '|' + F.FieldName() + ']';
+    end;
+    if Result <> '[1|50001|HeadId][2|50001|HeadName]' then
+      Error(Result);
+  end;
+}
+"#;
+    let run = |eager: bool| {
+        outcomes_over(
+            "main",
+            main,
+            Some(dep),
+            al_sema::check::Roots {
+                eager,
+                ..Default::default()
+            },
+            "27.5.0.0",
+        )
+    };
+    let (demand, eager) = (run(false), run(true));
+    assert_eq!(demand, eager, "the demand-driven compile differs from the complete one");
+    passes(&demand, "ReadsTheColumns");
 }

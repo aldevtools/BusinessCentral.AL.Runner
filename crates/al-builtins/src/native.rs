@@ -329,6 +329,20 @@ pub trait Ctx: FormatCtx {
     fn fs_remove(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
+    /// Creates the file at `path` with content the runtime does not know (`mark` names why, as for a stream: ADR-040): the
+    /// file exists, and any look at it is refused until AL code writes it again.
+    fn fs_write_unproduced(&mut self, _path: &str, _mark: &str) -> Result<(), String> {
+        Err("this context has no file system".into())
+    }
+    /// Whether `path` lies in the company build's file system, which also answers folder questions (al-host
+    /// `FileSystem::serves_path`; owner rule 2026-10-22: folder access only inside the company build).
+    fn fs_serves_path(&self, _path: &str) -> bool {
+        false
+    }
+    /// Whether the folder exists, for a path [`Ctx::fs_serves_path`] accepts.
+    fn fs_dir_exists(&self, _path: &str) -> bool {
+        false
+    }
     /// A new name for a temporary file, under [`crate::file::TEMP_DIR`].
     fn fs_temp_name(&mut self) -> String {
         format!("{}0.tmp", crate::file::TEMP_DIR)

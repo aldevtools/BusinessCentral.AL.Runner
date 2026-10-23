@@ -166,6 +166,17 @@ impl al_builtins::native::Ctx for Session {
         self.refuse_pending_file(path)?;
         Ok(self.host.files.remove(path))
     }
+    fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
+        self.host.files.write(path, &[])?;
+        self.render_pending_files.insert(pending_key(path), mark.into());
+        Ok(())
+    }
+    fn fs_serves_path(&self, path: &str) -> bool {
+        self.host.files.serves_path(path)
+    }
+    fn fs_dir_exists(&self, path: &str) -> bool {
+        self.host.files.dir_exists(path)
+    }
     fn fs_temp_name(&mut self) -> String {
         self.temp_files += 1;
         format!("{}{}.tmp", al_builtins::file::TEMP_DIR, self.temp_files)

@@ -92,7 +92,7 @@ const TABLE: &[(&str, Kind)] = &[
     ("Media.ImportStream", Guard),
     ("Media.MediaId", Pure),
     ("MediaSet.Count", Pure),
-    ("MediaSet.ExportFile", Refused),
+    ("MediaSet.ExportFile", Produces),
     ("MediaSet.FindOrphans", Refused),
     ("MediaSet.ImportFile", Guard),
     ("MediaSet.ImportStream", Guard),

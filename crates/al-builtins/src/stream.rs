@@ -74,6 +74,10 @@ thread_local! {
 /// (types/W7Media.al:141-151), and other content is not probed on those majors.
 pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 
+/// The mark `MediaSet.ExportFile` puts on the file of an item BC re-encodes (a PNG, a .jpg holding a PNG, a JPEG before BC
+/// 29; al-builtins media.rs `set_export_file`): the file exists, its bytes are not pinned.
+pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
+
 /// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
 /// does not pin (`Gate::DocxMediaRezippedFrom29`).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
@@ -116,6 +120,11 @@ pub fn render_pending_error(report: &str) -> Signal {
             "a Blob written through a stream created before CalcFields loaded it, after a read without CalcFields \
              (whether the write replaces the content is not pinned)"
                 .into(),
+        );
+    }
+    if report == MEDIA_SET_FILE_REENCODED {
+        return Signal::Unsupported(
+            "a file MediaSet.ExportFile wrote for an item BC re-encodes (its bytes are not pinned)".into(),
         );
     }
     if report == MEDIA_REENCODED {

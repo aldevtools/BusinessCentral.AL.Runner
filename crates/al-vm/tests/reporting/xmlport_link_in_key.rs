@@ -1,7 +1,7 @@
 //! Xml import of a nested linked table element whose link field is part of its primary key, with two rows under one
 //! parent (Microsoft's DemoTool: Base App xmlport 1225 "Imp / Exp Data Exch Def & Map", Data Exch. Column Def rows). Only
 //! the first row gets the link (TestXmlPortTriggersReplaceViewContracts.al:414, a link field outside the key); a later row
-//! keeps the fields of the primary key, as Init does (assumption xmlport-later-child-keeps-key-link).
+//! keeps the fields of the primary key, as Init does (TestXmlPortTriggersReplaceViewContracts.al:648).
 
 use al_testkit::run;
 

@@ -529,12 +529,6 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: their company is built by the DemoTool (Create Demonstration Data.OnRun opens `CurrencyData.txt`), and they pass in Microsoft's CI.",
         probe: "Not measurable from the corpus: the case rule is the server's file system, and the corpus CI runs BC on Linux. On the Windows nightly: File.Exists and File.Open of a file in the server's folder by a name in other case.",
     },
-    XmlportLaterChildKeepsKeyLink => {
-        id: "xmlport-later-child-keeps-key-link",
-        assumed: "On an XmlPort import, the second and later rows of a linked table element under the same parent row keep the value of a link field that is part of their primary key (as Init keeps the primary key); only the first row gets the link (pinned for a link field outside the key: xmlport/TestXmlPortTriggersReplaceViewContracts.al:414, a later row has 0 there).",
-        tests: "Microsoft's DemoTool company build (Create Data Exch. Column Def imports PostingExchangeDefinitions\\ECBExchangeRateService.xml with Base App xmlport 1225: the second Data Exch. Column Def row of a line definition fails the OnInsert TestField of Data Exch. Def Code without it); every test of the Legacy lane (for example Tests-SCM-Warehouse 137015) needs that company and passes in Microsoft's CI.",
-        probe: "A Format = Xml import port with a parent tableelement (Code) and a linked child tableelement whose primary key is (HeadCode, LineNo) with LinkFields = HeadCode = field(Code): two child rows under one parent, the second without and with a HeadCode element; the rows stored and the child OnBeforeInsertRecord values.",
-    },
 }
 
 thread_local! {

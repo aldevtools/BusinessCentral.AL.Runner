@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "5ef0f046ddfdbdcece105ccf17d0e76e77d8bec7",
+  "corpus_commit": "12498fefc41079ade3bd8b8006c0118c69ff434f",
   "dimensions": [
     {
       "catalog": 190,
@@ -402,7 +402,7 @@
           "site": "pages/lt-pages-xmlport-upload-members/P112Pages.al:99"
         },
         {
-          "corpus_uses": 31,
+          "corpus_uses": 34,
           "group": "xmlport/tableelement",
           "ms_uses": 28,
           "name": "OnBeforeInsertRecord",
@@ -1912,7 +1912,7 @@
           "site": "errors/lt-ms-refusals-129/P129FormatFieldRef.al:53"
         },
         {
-          "corpus_uses": 1672,
+          "corpus_uses": 1675,
           "group": "table/key",
           "ms_uses": 1769,
           "name": "Clustered",
@@ -3487,7 +3487,7 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:259"
         },
         {
-          "corpus_uses": 31,
+          "corpus_uses": 35,
           "group": "xmlport/tableelement",
           "ms_uses": 71,
           "name": "MinOccurs",
@@ -3892,7 +3892,7 @@
           "site": "pages/lt-report-page-properties/05-requestpage-lookup.al:29"
         },
         {
-          "corpus_uses": 25,
+          "corpus_uses": 28,
           "group": "xmlport/tableelement",
           "ms_uses": 40,
           "name": "LinkFields",
@@ -3901,7 +3901,7 @@
           "site": "_fixtures/xmlports/ALTParentChildXmlPort.al:30"
         },
         {
-          "corpus_uses": 28,
+          "corpus_uses": 31,
           "group": "xmlport/tableelement",
           "ms_uses": 40,
           "name": "LinkTable",
@@ -3991,7 +3991,7 @@
           "site": "pageext/lt-page-ext-properties/PageViews.al:32"
         },
         {
-          "corpus_uses": 66,
+          "corpus_uses": 67,
           "group": "xmlport/fieldelement",
           "ms_uses": 35,
           "name": "MinOccurs",
@@ -4036,7 +4036,7 @@
           "site": "record/TestPlatformMetadataDeclarationContracts.al:96"
         },
         {
-          "corpus_uses": 225,
+          "corpus_uses": 227,
           "group": "xmlport",
           "ms_uses": 30,
           "name": "Direction",
@@ -4405,7 +4405,7 @@
           "site": "misc/lt-probes-needed-3/PnC21Metadata.al:158"
         },
         {
-          "corpus_uses": 218,
+          "corpus_uses": 220,
           "group": "xmlport",
           "ms_uses": 17,
           "name": "Format",
@@ -4558,7 +4558,7 @@
           "site": "pages/lt-page-editability-width-lookups/P115GridLabel.al:22"
         },
         {
-          "corpus_uses": 214,
+          "corpus_uses": 216,
           "group": "xmlport",
           "ms_uses": 14,
           "name": "UseRequestPage",
@@ -4747,7 +4747,7 @@
           "site": "errors/lt-ms-refusals-130/P130ReportOpt.al:23"
         },
         {
-          "corpus_uses": 11,
+          "corpus_uses": 12,
           "group": "xmlport",
           "ms_uses": 11,
           "name": "FormatEvaluate",
@@ -14940,7 +14940,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 829765,
+          "corpus_uses": 831532,
           "group": "expression",
           "ms_uses": 1809637,
           "name": "NameRef",
@@ -14949,7 +14949,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 303675,
+          "corpus_uses": 304227,
           "group": "expression",
           "ms_uses": 475470,
           "name": "MemberExpr",
@@ -14958,7 +14958,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 360317,
+          "corpus_uses": 360951,
           "group": "expression",
           "ms_uses": 389686,
           "name": "CallExpr",
@@ -14967,7 +14967,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 254368,
+          "corpus_uses": 254680,
           "group": "statement",
           "ms_uses": 248561,
           "name": "ExprStmt",
@@ -14976,7 +14976,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 39703,
+          "corpus_uses": 39742,
           "group": "statement",
           "ms_uses": 188839,
           "name": "Block",
@@ -14985,7 +14985,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 36117,
+          "corpus_uses": 36177,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -14994,7 +14994,7 @@
           "site": "ALTInternalCodeunit.al:19"
         },
         {
-          "corpus_uses": 5987,
+          "corpus_uses": 6031,
           "group": "statement",
           "ms_uses": 101593,
           "name": "IfStmt",
@@ -15003,7 +15003,7 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 6982,
+          "corpus_uses": 7008,
           "group": "statement",
           "ms_uses": 81177,
           "name": "ExitStmt",
@@ -15012,7 +15012,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 54624,
+          "corpus_uses": 54679,
           "group": "expression",
           "ms_uses": 77744,
           "name": "Literal:Integer",
@@ -15021,7 +15021,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 8751,
+          "corpus_uses": 8777,
           "group": "expression",
           "ms_uses": 71175,
           "name": "ScopeExpr",
@@ -15030,7 +15030,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 321934,
+          "corpus_uses": 322365,
           "group": "expression",
           "ms_uses": 54387,
           "name": "Literal:StringLit",
@@ -15039,7 +15039,7 @@
           "site": "BwXaObjects.al:21"
         },
         {
-          "corpus_uses": 2824,
+          "corpus_uses": 2856,
           "group": "expression",
           "ms_uses": 33696,
           "name": "BinExpr =",
@@ -15048,7 +15048,7 @@
           "site": "TestDotNetValueKindsContracts.al:170"
         },
         {
-          "corpus_uses": 765,
+          "corpus_uses": 767,
           "group": "expression",
           "ms_uses": 25509,
           "name": "ParenExpr",
@@ -15057,7 +15057,7 @@
           "site": "_fixtures/Assert.al:176"
         },
         {
-          "corpus_uses": 3664,
+          "corpus_uses": 3668,
           "group": "expression",
           "ms_uses": 24498,
           "name": "Literal:false",
@@ -15066,7 +15066,7 @@
           "site": "_fixtures/ALTFixtureCleanup.al:28"
         },
         {
-          "corpus_uses": 1165,
+          "corpus_uses": 1173,
           "group": "expression",
           "ms_uses": 24382,
           "name": "PrefixExpr not",
@@ -15075,7 +15075,7 @@
           "site": "_fixtures/Assert.al:56"
         },
         {
-          "corpus_uses": 4464,
+          "corpus_uses": 4471,
           "group": "expression",
           "ms_uses": 23439,
           "name": "Literal:true",
@@ -15111,7 +15111,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 31868,
+          "corpus_uses": 32060,
           "group": "expression",
           "ms_uses": 15888,
           "name": "BinExpr +",
@@ -15120,7 +15120,7 @@
           "site": "BwXaObjects.al:26"
         },
         {
-          "corpus_uses": 282,
+          "corpus_uses": 283,
           "group": "expression",
           "ms_uses": 11383,
           "name": "BinExpr and",
@@ -15129,7 +15129,7 @@
           "site": "_fixtures/Assert.al:186"
         },
         {
-          "corpus_uses": 544,
+          "corpus_uses": 552,
           "group": "statement",
           "ms_uses": 6695,
           "name": "RepeatStmt",
@@ -15183,7 +15183,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 3552,
+          "corpus_uses": 3577,
           "group": "statement",
           "ms_uses": 3049,
           "name": "AssignStmt +=",
@@ -15273,7 +15273,7 @@
           "site": "_fixtures/Assert.al:415"
         },
         {
-          "corpus_uses": 1084,
+          "corpus_uses": 1087,
           "group": "statement",
           "ms_uses": 743,
           "name": "ForStmt",
@@ -15291,7 +15291,7 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:103"
         },
         {
-          "corpus_uses": 507,
+          "corpus_uses": 512,
           "group": "statement",
           "ms_uses": 455,
           "name": "ForeachStmt",
@@ -15568,7 +15568,7 @@
           "site": "_fixtures/ALTTryFunctionNoExitProbe.al:43"
         },
         {
-          "corpus_uses": 2843,
+          "corpus_uses": 2844,
           "group": "procedure",
           "ms_uses": 603,
           "name": "TryFunction",
@@ -15766,7 +15766,7 @@
           "site": "errors/lt-ms-refusals-133/P133MessageInHandlers.al:100"
         },
         {
-          "corpus_uses": 18220,
+          "corpus_uses": 18227,
           "group": "procedure",
           "ms_uses": 0,
           "name": "Test",
@@ -15975,7 +15975,7 @@
         "generic": false,
         "line": 393,
         "pinned": true,
-        "site": "media/MediaFiles.al:201",
+        "site": "media/MediaFiles.al:205",
         "template": "The specified path is invalid."
       },
       {
@@ -15984,7 +15984,7 @@
         "generic": false,
         "line": 397,
         "pinned": true,
-        "site": "media/MediaFiles.al:203",
+        "site": "media/MediaFiles.al:207",
         "template": "Could not find a part of the path '%'."
       },
       {
@@ -16009,7 +16009,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 733,
+        "line": 739,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16135,7 +16135,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 838,
+        "line": 821,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16144,7 +16144,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1005,
+        "line": 985,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16153,7 +16153,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1170,
+        "line": 1150,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16162,7 +16162,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1202,
+        "line": 1182,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16357,15 +16357,6 @@
         "template": "Page % has to close."
       },
       {
-        "code": "FormCloseNotAllowed",
-        "file": "crates/al-vm/src/pages/rows.rs",
-        "generic": false,
-        "line": 2858,
-        "pinned": true,
-        "site": "pages/lt-ab-tests/ABTests.al:958",
-        "template": "The page cannot be closed at this time."
-      },
-      {
         "code": "",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
@@ -16423,7 +16414,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3628,
+        "line": 3555,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16564,8 +16555,8 @@
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 80,
-    "sites": 81
+    "pinned": 79,
+    "sites": 80
   },
   "language": {
     "bc": "27-29",

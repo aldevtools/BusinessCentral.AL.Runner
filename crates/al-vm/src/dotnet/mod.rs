@@ -4,6 +4,7 @@
 
 pub mod compression;
 mod drawing;
+mod generic_dictionary;
 mod gettype;
 mod last_error;
 pub mod policy;
@@ -482,6 +483,9 @@ impl Session {
                     return unsupported(format!("foreach over a .NET enum value of {clr_type} (not pinned)"));
                 }
                 DotNetKind::Internal { type_name, .. } => {
+                    if let Some(en) = generic_dictionary::foreach_start(type_name) {
+                        return Ok(en);
+                    }
                     return unsupported(format!("foreach over a runtime-provided {type_name} (not pinned)"));
                 }
             },
@@ -541,6 +545,11 @@ impl Session {
         let Value::DotNet(en) = enumerator else {
             return unsupported("a foreach loop over a .NET collection that is not set up");
         };
+        if let DotNetKind::Internal { type_name, .. } = &en.kind
+            && generic_dictionary::is_enumerator(type_name)
+        {
+            return Ok(None);
+        }
         let DotNetKind::Host {
             handle: en_handle,
             clr_type: en_type,

@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "5ef0f046ddfdbdcece105ccf17d0e76e77d8bec7",
+  "corpus_commit": "12498fefc41079ade3bd8b8006c0118c69ff434f",
   "language": {
     "bc": "27-29",
-    "implemented": 1510,
+    "implemented": 1511,
     "methods": [
       {
         "bc": [
@@ -155,7 +155,7 @@
           29
         ],
         "id": "Blob.CreateInStream#1",
-        "ms_uses": 142,
+        "ms_uses": 146,
         "name": "CreateInStream",
         "pinned": true,
         "scope": "",
@@ -171,7 +171,7 @@
           29
         ],
         "id": "Blob.CreateOutStream#1",
-        "ms_uses": 124,
+        "ms_uses": 127,
         "name": "CreateOutStream",
         "pinned": true,
         "scope": "",
@@ -2501,7 +2501,7 @@
           29
         ],
         "id": "FieldRef.Class#1",
-        "ms_uses": 21,
+        "ms_uses": 23,
         "name": "Class",
         "pinned": true,
         "scope": "",
@@ -2645,7 +2645,7 @@
           29
         ],
         "id": "FieldRef.GetFilter#1",
-        "ms_uses": 15,
+        "ms_uses": 17,
         "name": "GetFilter",
         "pinned": true,
         "scope": "",
@@ -2853,7 +2853,7 @@
           29
         ],
         "id": "FieldRef.SetFilter#1",
-        "ms_uses": 70,
+        "ms_uses": 72,
         "name": "SetFilter",
         "pinned": true,
         "scope": "",
@@ -5733,7 +5733,7 @@
           29
         ],
         "id": "InStream.ReadText#1",
-        "ms_uses": 61,
+        "ms_uses": 65,
         "name": "ReadText",
         "pinned": true,
         "scope": "",
@@ -10319,7 +10319,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text)",
-        "site": "media/MediaFiles.al:70",
+        "site": "media/MediaFiles.al:74",
         "state": "refused",
         "type": "Media"
       },
@@ -10335,7 +10335,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(OutStream)",
-        "site": "media/MediaFiles.al:493",
+        "site": "media/MediaFiles.al:497",
         "state": "implemented",
         "type": "Media"
       },
@@ -10367,7 +10367,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/MediaFiles.al:110",
+        "site": "media/MediaFiles.al:114",
         "state": "implemented",
         "type": "Media"
       },
@@ -10383,7 +10383,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, Text, [Text])",
-        "site": "media/MediaFiles.al:82",
+        "site": "media/MediaFiles.al:86",
         "state": "implemented",
         "type": "Media"
       },
@@ -10447,7 +10447,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "media/MediaFiles.al:230",
+        "site": "media/MediaFiles.al:234",
         "state": "implemented",
         "type": "MediaSet"
       },
@@ -10463,8 +10463,8 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text)",
-        "site": "media/MediaFiles.al:76",
-        "state": "refused",
+        "site": "media/MediaFiles.al:80",
+        "state": "implemented",
         "type": "MediaSet"
       },
       {
@@ -10495,7 +10495,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, Text, [Text])",
-        "site": "media/MediaFiles.al:227",
+        "site": "media/MediaFiles.al:231",
         "state": "implemented",
         "type": "MediaSet"
       },
@@ -11768,7 +11768,7 @@
           29
         ],
         "id": "OutStream.WriteText#1",
-        "ms_uses": 61,
+        "ms_uses": 64,
         "name": "WriteText",
         "pinned": true,
         "scope": "",
@@ -12691,7 +12691,7 @@
           29
         ],
         "id": "Record.CalcFields#1",
-        "ms_uses": 1586,
+        "ms_uses": 1590,
         "name": "CalcFields",
         "pinned": true,
         "scope": "",
@@ -12931,7 +12931,7 @@
           29
         ],
         "id": "Record.DeleteAll#1",
-        "ms_uses": 2208,
+        "ms_uses": 2209,
         "name": "DeleteAll",
         "pinned": true,
         "scope": "",
@@ -13091,7 +13091,7 @@
           29
         ],
         "id": "Record.Find#1",
-        "ms_uses": 2588,
+        "ms_uses": 2590,
         "name": "Find",
         "pinned": true,
         "scope": "",
@@ -13123,7 +13123,7 @@
           29
         ],
         "id": "Record.FindLast#1",
-        "ms_uses": 740,
+        "ms_uses": 741,
         "name": "FindLast",
         "pinned": true,
         "scope": "",
@@ -13155,7 +13155,7 @@
           29
         ],
         "id": "Record.FindSet#1",
-        "ms_uses": 3357,
+        "ms_uses": 3358,
         "name": "FindSet",
         "pinned": true,
         "scope": "",
@@ -13186,7 +13186,7 @@
           29
         ],
         "id": "Record.Get#1",
-        "ms_uses": 12242,
+        "ms_uses": 12245,
         "name": "Get",
         "pinned": true,
         "scope": "",
@@ -13362,7 +13362,7 @@
           29
         ],
         "id": "Record.Init#1",
-        "ms_uses": 2303,
+        "ms_uses": 2304,
         "name": "Init",
         "pinned": true,
         "scope": "",
@@ -13378,7 +13378,7 @@
           29
         ],
         "id": "Record.Insert#1",
-        "ms_uses": 3088,
+        "ms_uses": 3090,
         "name": "Insert",
         "pinned": true,
         "scope": "",
@@ -13568,7 +13568,7 @@
           29
         ],
         "id": "Record.Next#1",
-        "ms_uses": 5282,
+        "ms_uses": 5285,
         "name": "Next",
         "pinned": true,
         "scope": "",
@@ -13632,7 +13632,7 @@
           29
         ],
         "id": "Record.RecordId#1",
-        "ms_uses": 1192,
+        "ms_uses": 1195,
         "name": "RecordId",
         "pinned": true,
         "scope": "",
@@ -13696,7 +13696,7 @@
           29
         ],
         "id": "Record.Reset#1",
-        "ms_uses": 3270,
+        "ms_uses": 3271,
         "name": "Reset",
         "pinned": true,
         "scope": "",
@@ -13856,7 +13856,7 @@
           29
         ],
         "id": "Record.SetRange#1",
-        "ms_uses": 23650,
+        "ms_uses": 23654,
         "name": "SetRange",
         "pinned": true,
         "scope": "",
@@ -14800,7 +14800,7 @@
           29
         ],
         "id": "RecordRef.Field#2",
-        "ms_uses": 612,
+        "ms_uses": 614,
         "name": "Field",
         "pinned": true,
         "scope": "",
@@ -14832,7 +14832,7 @@
           29
         ],
         "id": "RecordRef.FieldCount#1",
-        "ms_uses": 24,
+        "ms_uses": 25,
         "name": "FieldCount",
         "pinned": true,
         "scope": "",
@@ -14848,7 +14848,7 @@
           29
         ],
         "id": "RecordRef.FieldExist#2",
-        "ms_uses": 16,
+        "ms_uses": 17,
         "name": "FieldExist",
         "pinned": true,
         "scope": "",
@@ -14880,7 +14880,7 @@
           29
         ],
         "id": "RecordRef.FieldIndex#1",
-        "ms_uses": 32,
+        "ms_uses": 35,
         "name": "FieldIndex",
         "pinned": true,
         "scope": "",
@@ -15087,7 +15087,7 @@
           29
         ],
         "id": "RecordRef.GetView#1",
-        "ms_uses": 29,
+        "ms_uses": 30,
         "name": "GetView",
         "pinned": true,
         "scope": "",
@@ -15407,7 +15407,7 @@
           29
         ],
         "id": "RecordRef.Open#2",
-        "ms_uses": 292,
+        "ms_uses": 294,
         "name": "Open",
         "pinned": true,
         "scope": "",
@@ -15678,7 +15678,7 @@
           29
         ],
         "id": "RecordRef.SetView#1",
-        "ms_uses": 48,
+        "ms_uses": 49,
         "name": "SetView",
         "pinned": true,
         "scope": "",
@@ -17611,7 +17611,7 @@
           29
         ],
         "id": "System.Clear#1",
-        "ms_uses": 2250,
+        "ms_uses": 2253,
         "name": "Clear",
         "pinned": true,
         "scope": "",
@@ -18091,7 +18091,7 @@
           29
         ],
         "id": "System.Evaluate#1",
-        "ms_uses": 618,
+        "ms_uses": 619,
         "name": "Evaluate",
         "pinned": true,
         "scope": "",
@@ -20863,7 +20863,7 @@
           29
         ],
         "id": "Text.CopyStr#1",
-        "ms_uses": 1902,
+        "ms_uses": 1905,
         "name": "CopyStr",
         "pinned": true,
         "scope": "",
@@ -20879,7 +20879,7 @@
           29
         ],
         "id": "Text.DelChr#1",
-        "ms_uses": 155,
+        "ms_uses": 156,
         "name": "DelChr",
         "pinned": true,
         "scope": "",
@@ -20895,7 +20895,7 @@
           29
         ],
         "id": "Text.DelStr#1",
-        "ms_uses": 41,
+        "ms_uses": 43,
         "name": "DelStr",
         "pinned": true,
         "scope": "",
@@ -21007,7 +21007,7 @@
           29
         ],
         "id": "Text.InsStr#1",
-        "ms_uses": 16,
+        "ms_uses": 17,
         "name": "InsStr",
         "pinned": true,
         "scope": "",
@@ -21263,7 +21263,7 @@
           29
         ],
         "id": "Text.StrLen#1",
-        "ms_uses": 537,
+        "ms_uses": 539,
         "name": "StrLen",
         "pinned": true,
         "scope": "",
@@ -21279,7 +21279,7 @@
           29
         ],
         "id": "Text.StrPos#1",
-        "ms_uses": 346,
+        "ms_uses": 348,
         "name": "StrPos",
         "pinned": true,
         "scope": "",
@@ -21295,7 +21295,7 @@
           29
         ],
         "id": "Text.StrSubstNo#1",
-        "ms_uses": 3728,
+        "ms_uses": 3731,
         "name": "StrSubstNo",
         "pinned": true,
         "scope": "",
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 212,
+    "refused": 211,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
@@ -31984,13 +31984,13 @@
           "id": "Media.ExportFile#1",
           "pinned": true,
           "signature": "Media.ExportFile inst (Filename: Text) -> Boolean?",
-          "site": "media/MediaFiles.al:70"
+          "site": "media/MediaFiles.al:74"
         },
         {
           "id": "Media.ExportStream#1",
           "pinned": true,
           "signature": "Media.ExportStream inst (Stream: OutStream) -> Boolean?",
-          "site": "media/MediaFiles.al:493"
+          "site": "media/MediaFiles.al:497"
         },
         {
           "id": "Media.FindOrphans#1",
@@ -32002,13 +32002,13 @@
           "id": "Media.HasValue#1",
           "pinned": true,
           "signature": "Media.HasValue inst () -> Boolean",
-          "site": "media/MediaFiles.al:110"
+          "site": "media/MediaFiles.al:114"
         },
         {
           "id": "Media.ImportFile#1",
           "pinned": true,
           "signature": "Media.ImportFile inst (Filename: Text, Description: Text, ?MimeType: Text) -> Guid?",
-          "site": "media/MediaFiles.al:82"
+          "site": "media/MediaFiles.al:86"
         },
         {
           "id": "Media.ImportStream#1",
@@ -32039,13 +32039,13 @@
           "id": "MediaSet.Count#1",
           "pinned": true,
           "signature": "MediaSet.Count inst () -> Integer",
-          "site": "media/MediaFiles.al:230"
+          "site": "media/MediaFiles.al:234"
         },
         {
           "id": "MediaSet.ExportFile#1",
           "pinned": true,
           "signature": "MediaSet.ExportFile inst (FilenamePrefix: Text) -> Integer?",
-          "site": "media/MediaFiles.al:76"
+          "site": "media/MediaFiles.al:80"
         },
         {
           "id": "MediaSet.FindOrphans#1",
@@ -32057,7 +32057,7 @@
           "id": "MediaSet.ImportFile#1",
           "pinned": true,
           "signature": "MediaSet.ImportFile inst (Filename: Text, Description: Text, ?MimeType: Text) -> Guid?",
-          "site": "media/MediaFiles.al:227"
+          "site": "media/MediaFiles.al:231"
         },
         {
           "id": "MediaSet.ImportStream#1",

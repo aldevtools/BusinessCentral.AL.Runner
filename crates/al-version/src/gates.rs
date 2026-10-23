@@ -214,6 +214,11 @@ pub enum Gate {
     /// corpus ignores (al-language-onprem/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
     /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
     DocxMediaRezippedFrom29,
+    /// `MediaSet.ImportFile` of a .jpg file holding a JPEG keeps the file's bytes as Tenant Media content on BC 29; BC 27 and 28
+    /// re-encode it (al-language-onprem/media/MediaFiles.al:897-901, RJ_MediaSet_ExportFile_ConfigPackageShape, `BC29PLUS`;
+    /// corpus bump 61). Consumed by `al-builtins` media.rs: `MediaSet.ExportFile` writes those bytes from 29 and is refused
+    /// below.
+    JpegMediaSetKeptFrom29,
 }
 
 impl Gate {
@@ -273,6 +278,7 @@ impl Gate {
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::DocxMediaRezippedFrom29,
+        Gate::JpegMediaSetKeptFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -309,7 +315,8 @@ impl Gate {
             | Gate::HttpBlankHeaderNameIsFormatFrom29
             | Gate::FrFrGroupSeparatorNoBreakSpaceFrom29
             | Gate::HttpHandlerUnderDefaultPolicyFrom29
-            | Gate::DocxMediaRezippedFrom29 => 29,
+            | Gate::DocxMediaRezippedFrom29
+            | Gate::JpegMediaSetKeptFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -350,6 +357,10 @@ impl Gate {
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
+            }],
+            Gate::JpegMediaSetKeptFrom29 => &[Evidence {
+                file: "../al-language-onprem/media/MediaFiles.al",
+                lines: "898,900",
             }],
             Gate::HttpHandlerUnderDefaultPolicyFrom29 => &[Evidence {
                 file: "../al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al",
