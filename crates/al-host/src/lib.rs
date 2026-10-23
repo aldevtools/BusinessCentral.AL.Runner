@@ -487,6 +487,12 @@ pub trait FileSystem {
     fn staged_folder_files(&self, _dir: &str) -> Option<Vec<String>> {
         None
     }
+    /// The paths of the files directly in `dir`, for a folder AL code created in the company build's temporary folder (al-testrun
+    /// company_data.rs): `None` for every other folder. `Some(Err(why))` when the listing would depend on a choice no test pins
+    /// (the files' creation order and name order differ).
+    fn temp_folder_files(&self, _dir: &str) -> Option<Result<Vec<String>, String>> {
+        None
+    }
     /// Whether .NET's static `System.IO.Directory` and `System.IO.File` calls on `path` are answered by this file system
     /// instead of being refused: only the company build's (al-testrun company_data.rs, owner rule 2026-10-22: folder
     /// access only inside the company build) for its temporary folder and its staged folders.

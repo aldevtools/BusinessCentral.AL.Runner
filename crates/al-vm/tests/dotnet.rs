@@ -1743,6 +1743,81 @@ fn directory_get_files_of_any_other_folder_stays_refused_and_never_reaches_the_h
     }
 }
 
+/// A file system that, like the company build's temporary folder (al-testrun company_data.rs), lists a folder AL code created:
+/// `\TEMP\pkg/Media` in creation order = name order, `\TEMP\mixed` where the two orders differ.
+struct TempListed;
+
+impl al_host::FileSystem for TempListed {
+    fn read(&self, _: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn write(&mut self, _: &str, _: &[u8]) -> Result<(), String> {
+        Err("read only".into())
+    }
+    fn exists(&self, _: &str) -> bool {
+        false
+    }
+    fn remove(&mut self, _: &str) -> bool {
+        false
+    }
+    fn temp_folder_files(&self, dir: &str) -> Option<Result<Vec<String>, String>> {
+        match dir {
+            "\\TEMP\\pkg/Media" => Some(Ok(vec![format!("{dir}/{{A}}-1"), format!("{dir}/{{B}}-1")])),
+            "\\TEMP\\mixed" => Some(Err("creation order and name order differ".into())),
+            _ => None,
+        }
+    }
+}
+
+fn run_temp_listed(host: &Fake, path: &str) -> Ran {
+    let (program, blocked, oi, ri) = compile(
+        "Directory: DotNet Directory; Files: DotNet Array; Path: Text;",
+        &format!("Path := '{path}'; {GET_FILES}"),
+        ": Text",
+    );
+    let engine = Engine::with_dotnet(program, blocked, cfg(host));
+    let mut s = Session::with_host(engine, al_host::Host::default().with_files(TempListed));
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+// Config. XML Exchange.UpdateConfigPackageMediaSet lists the Media folder MediaSet.ExportFile wrote into (windows-check-results
+// 2026-10-23 RJ item B; corpus cu 61286 RJ_MediaSet_ExportFile_ConfigPackageShape). The listing marks its assumption.
+#[test]
+fn directory_get_files_of_a_company_build_temporary_folder_lists_its_files_and_marks_the_name_order_assumption() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a)
+            if t.name == "System.Text.RegularExpressions.Regex" && m == "Split" =>
+        {
+            assert_eq!(
+                a[0].value,
+                DotNetValue::Str("\\TEMP\\pkg/Media/{A}-1\n\\TEMP\\pkg/Media/{B}-1".into())
+            );
+            reply(handle(7, "System.String[]"))
+        }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "GetLength" => reply(DotNetValue::Int32(2)),
+        other => panic!("unexpected request {other:?}"),
+    });
+    take_hits();
+    assert_eq!(text(run_temp_listed(&host, "\\TEMP\\pkg/Media")), "2");
+    assert_eq!(take_hits(), vec![Assumption::CompanyBuildFolderListingNameOrder]);
+}
+
+#[test]
+fn directory_get_files_where_creation_and_name_order_differ_is_refused_without_reaching_the_host() {
+    for path in ["\\TEMP\\mixed", "\\TEMP\\other"] {
+        let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+        let r = run_temp_listed(&host, path);
+        assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));
+        assert!(host.calls().is_empty(), "{:?}", host.calls());
+    }
+}
+
 /// A staged folder as the DemoTool's PostingExchangeDefinitions: XML files in mixed case, files the pattern leaves out,
 /// and an empty one.
 struct StagedDefs;

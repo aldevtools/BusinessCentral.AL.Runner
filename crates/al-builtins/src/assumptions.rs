@@ -529,6 +529,12 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: their company is built by the DemoTool (Create Demonstration Data.OnRun opens `CurrencyData.txt`), and they pass in Microsoft's CI.",
         probe: "Not measurable from the corpus: the case rule is the server's file system, and the corpus CI runs BC on Linux. On the Windows nightly: File.Exists and File.Open of a file in the server's folder by a name in other case.",
     },
+    CompanyBuildFolderListingNameOrder => {
+        id: "company-build-folder-listing-name-order",
+        assumed: "In the company build (`--company-data demotool`), DotNet System.IO.Directory.GetFiles (File Management.GetServerDirectoryFilesList) of a folder AL code created in the temporary folder lists the files written directly in it, in name order without case, joined to the folder with `/`. Windows BC of the newest major lists the files MediaSet.ExportFile wrote, full path, no extension (windows-check-results 2026-10-23 RJ item B, corpus cu 61286 RJ_MediaSet_ExportFile_ConfigPackageShape); in that run creation order and name order agreed, so a folder where they differ is refused. The Linux BC image lists no files (bc-linux issue 181), so no corpus test pins it.",
+        tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step reads the Media folder back (Config. XML Exchange.UpdateConfigPackageMediaSet, ConfigXMLExchange.Codeunit.al:1505-1522), and they pass in Microsoft's CI.",
+        probe: "On Windows BC: MediaSet.ExportFile of two sets whose Guids sort against their creation order into one folder, then GetServerDirectoryFilesList of it; repeat on the two older majors (cu 61286 RJ_MediaSet_ExportFile_ConfigPackageShape).",
+    },
 }
 
 thread_local! {
