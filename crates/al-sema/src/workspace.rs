@@ -957,9 +957,7 @@ impl Workspace {
             .filter(|&&i| self.visible[f.app].contains(&self.objects[i].app))
             .any(|&i| {
                 let ns = &self.objects[i].namespace;
-                ns.is_none()
-                    || eq_ns(ns, &f.namespace)
-                    || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
+                ns.is_none() || eq_ns(ns, &f.namespace) || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
             })
     }
 

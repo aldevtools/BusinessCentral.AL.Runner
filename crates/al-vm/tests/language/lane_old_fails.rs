@@ -190,7 +190,10 @@ codeunit 50100 C {
   procedure Pos(): Text var S: InStream; begin S := FromLocal(); exit(Format(S.Position())); end; }"#;
     for routine in ["ReadInt", "Pos"] {
         let r = out(al_testkit::run_in(src, "C", routine));
-        assert!(r.starts_with("refused:") && r.contains("out of scope"), "{routine}: {r}");
+        assert!(
+            r.starts_with("refused:") && r.contains("out of scope"),
+            "{routine}: {r}"
+        );
     }
 }
 
@@ -208,7 +211,10 @@ codeunit 50100 C {
     assert_eq!(out(al_testkit::run_in(src, "C", "NotReached")), "ran");
     for routine in ["Reached1", "Reached2"] {
         let r = out(al_testkit::run_in(src, "C", routine));
-        assert!(r.starts_with("refused:") && r.contains("out of scope"), "{routine}: {r}");
+        assert!(
+            r.starts_with("refused:") && r.contains("out of scope"),
+            "{routine}: {r}"
+        );
     }
 }
 

@@ -688,12 +688,18 @@ impl Lowerer<'_> {
         let Some(range) = n.children().next().map(|c| c.text_range()) else {
             return out;
         };
-        let Some(scope) = self.stream_scope.iter().find(|(r, _)| *r == range).map(|(_, s)| s.clone()) else {
+        let Some(scope) = self
+            .stream_scope
+            .iter()
+            .find(|(r, _)| *r == range)
+            .map(|(_, s)| s.clone())
+        else {
             return out;
         };
         match scope {
             StreamScope::Refuse(why) | StreamScope::Static(why) => {
-                let mut refused: Vec<ir::Stmt> = out.into_iter().take_while(|s| matches!(s, ir::Stmt::Pos(_))).collect();
+                let mut refused: Vec<ir::Stmt> =
+                    out.into_iter().take_while(|s| matches!(s, ir::Stmt::Pos(_))).collect();
                 refused.push(ir::Stmt::Expr(ir::Expr::Refused(why)));
                 refused
             }

@@ -474,7 +474,11 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
         .map(|t| offset_of(t.syntax()))
         .collect();
     if ws.objects[oi].kind == ObjKind::Report {
-        fn dataitems(sections: impl Iterator<Item = ast::Section>, hit: &dyn Fn(&[String]) -> bool, at: &mut Vec<usize>) {
+        fn dataitems(
+            sections: impl Iterator<Item = ast::Section>,
+            hit: &dyn Fn(&[String]) -> bool,
+            at: &mut Vec<usize>,
+        ) {
             for s in sections {
                 if s.name().eq_ignore_ascii_case("dataitem") && s.arg_name_parts(1).is_some_and(|p| hit(&p)) {
                     at.push(offset_of(s.syntax()));
@@ -488,7 +492,14 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
         return;
     }
     for offset in at {
-        push(out, ws, file, offset, "AL0185", "Table 'Integer' is missing".to_string());
+        push(
+            out,
+            ws,
+            file,
+            offset,
+            "AL0185",
+            "Table 'Integer' is missing".to_string(),
+        );
     }
 }
 
@@ -1736,9 +1747,12 @@ mod tests {
     /// RiNsPlatformTable.al:19 compiles with the using; al-runner issue 5694).
     #[test]
     fn al0185_integer_from_a_namespace_without_its_using() {
-        const PLATFORM: &str = "namespace System.Utilities; table 2000000026 Integer { fields { field(1; Number; Integer) { } } }";
+        const PLATFORM: &str =
+            "namespace System.Utilities; table 2000000026 Integer { fields { field(1; Number; Integer) { } } }";
         let rec = |head: &str| format!("{head} codeunit 50100 C {{ procedure F() var N: Record Integer; begin end; }}");
-        let dataitem = |head: &str| format!("{head} report 50101 R {{ ProcessingOnly = true; dataset {{ dataitem(Number; Integer) {{ }} }} }}");
+        let dataitem = |head: &str| {
+            format!("{head} report 50101 R {{ ProcessingOnly = true; dataset {{ dataitem(Number; Integer) {{ }} }} }}")
+        };
         for platform in [&[PLATFORM][..], &[][..]] {
             let with = |src: String| {
                 let mut f: Vec<&str> = platform.to_vec();
