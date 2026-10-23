@@ -100,6 +100,10 @@ pub struct Engine {
     /// Why the company the tests run in could not be built (`al_testrun::company_data`): every test codeunit is then not
     /// run, with this reason. `None`: the company is as the install baseline left it.
     pub company_refusal: Option<String>,
+    /// The dependency apps the run skipped (no package with their source was found), each named as the log names it
+    /// (`` `Name` by Publisher ``). With one, a lookup by id of an object no loaded app declares may land in a skipped
+    /// app, where BC finds it: it is refused instead of raising the missing-object error (al-runner issue 5749).
+    pub skipped_apps: Vec<String>,
     /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
     /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
@@ -372,6 +376,7 @@ impl Engine {
             platform_unseeded: unseeded,
             demo_tables: Default::default(),
             company_refusal: None,
+            skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
             test_data: None,

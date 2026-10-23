@@ -1353,6 +1353,7 @@ fn test_inner(
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
         stop_on_compile_errors: true,
         entries: Vec::new(),
+        skipped_dependencies: dependencies.skipped.clone(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
             Arc::new(

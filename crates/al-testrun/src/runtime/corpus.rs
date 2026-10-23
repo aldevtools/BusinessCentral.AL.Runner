@@ -691,6 +691,7 @@ impl CorpusRuntime {
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.test_data = opts.test_data.clone();
+                e.skipped_apps = opts.skipped_dependencies.clone();
             }
             engine
         };

@@ -4,7 +4,7 @@
 use al_deps::artifact::{ArtifactUse, Fetch, HttpCdn, load_with_artifacts};
 use al_deps::build::BuildQuery;
 use al_deps::load::{AppJson, Request, WorkspaceApp, load_dependencies, parse_app_json};
-use al_deps::select::MissingPolicy;
+use al_deps::select::{MissingPolicy, SelectError};
 use al_sema::workspace::AppSource;
 use std::path::{Path, PathBuf};
 
@@ -30,6 +30,9 @@ pub struct Dependencies {
     pub lazy: Vec<Option<al_sema::LazySource>>,
     /// Per app of `apps`: the package file or the app folder it was read from.
     pub paths: Vec<PathBuf>,
+    /// The dependency apps that were skipped (no package with their source, or none at the declared version), as
+    /// `` `Name` by Publisher ``.
+    pub skipped: Vec<String>,
 }
 
 impl Dependencies {
@@ -315,8 +318,15 @@ pub fn load_project_with(
             format!("dependency note: {n}")
         }
     }));
+    let mut skipped = Vec::new();
     for s in &loaded.skipped {
         log.push(format!("dependency skipped: {s}"));
+        match s {
+            SelectError::Missing { dep, .. } | SelectError::BelowMinimum { dep, .. } => {
+                skipped.push(format!("`{}` by {}", dep.name, dep.publisher))
+            }
+            other => skipped.push(other.to_string()),
+        }
     }
     let mut apps = Vec::new();
     let mut summary = Vec::new();
@@ -357,6 +367,7 @@ pub fn load_project_with(
         application_aggregate,
         lazy,
         paths,
+        skipped,
     })
 }
 

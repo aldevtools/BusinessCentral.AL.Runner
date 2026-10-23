@@ -780,6 +780,13 @@ impl Session {
                 _ => true,
             };
             if !known {
+                let n = match args.first() {
+                    Some(Value::Integer(n)) => i64::from(*n),
+                    _ => 0,
+                };
+                if let Some(why) = self.missing_may_be_skipped("Report", n) {
+                    return unsupported(why);
+                }
                 return Err(crate::transactions::al_error_code("", "AL:MetadataNotFound"));
             }
             (1, self.report_by_number(id, args.first())?.1)

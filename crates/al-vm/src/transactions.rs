@@ -204,6 +204,9 @@ impl Session {
 
     /// The missing-object error with the object it names as the caller.
     pub(crate) fn missing_object_from(&self, kind: &str, id: i64, caller: &str) -> Signal {
+        if let Some(why) = self.missing_may_be_skipped(kind, id) {
+            return Signal::Unsupported(why);
+        }
         let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
         al_error_code(
             &format!(
@@ -213,6 +216,19 @@ impl Session {
             ),
             "AL:MetadataNotFound",
         )
+    }
+
+    /// Why an object of `kind` and `id` that no loaded app declares may still exist on BC: the run skipped a dependency
+    /// app, and the object may be one of its own (al-runner issue 5749). `None`: no app was skipped, or the id is none an
+    /// app can declare (0, or the platform's range from 2 000 000 000).
+    pub(crate) fn missing_may_be_skipped(&self, kind: &str, id: i64) -> Option<String> {
+        let skipped = &self.engine.skipped_apps;
+        ((1..2_000_000_000).contains(&id) && !skipped.is_empty()).then(|| {
+            format!(
+                "{kind} object {id} is in no app that was loaded, and the run skipped the dependency {} (no package with its AL source was found): the object may be one of its own, which BC would find",
+                skipped.join(", ")
+            )
+        })
     }
 
     /// Whether the session holds an open write transaction

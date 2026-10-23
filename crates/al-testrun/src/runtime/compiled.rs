@@ -84,6 +84,9 @@ pub struct RunOptions {
     /// entry runs its own tests with its own resource files, from the same database. Empty: one pass, as `only`,
     /// `run_only` and `hooks` say.
     pub entries: Vec<EntryRun>,
+    /// The dependency apps the run skipped, as the log names them (`deps::Dependencies::skipped`): a lookup by id of an
+    /// object no loaded app declares is then refused, as it may land in one of them (`al_vm::Engine::skipped_apps`).
+    pub skipped_dependencies: Vec<String>,
 }
 
 /// One entry of a run (`RunOptions::entries`).

@@ -544,6 +544,70 @@ fn a_missing_dependency_refuses_the_tests_that_need_it_instead_of_failing_the_ru
     assert!(t.contains("is outside the workspace"), "{t}");
 }
 
+/// Al-runner issue 5749: a run-time lookup by id of an object no loaded app declares, in a run that skipped a
+/// dependency, may land in the skipped app, where BC would find the object. The test is refused and names the app; it
+/// does not fail with BC's missing-object error. A test that does not reach the lookup still passes.
+#[test]
+fn a_lookup_by_id_into_a_skipped_dependency_refuses_the_test_and_names_the_app() {
+    let d = tempfile::tempdir().unwrap();
+    let lib_id = "22222222-0000-0000-0000-000000000021";
+    let lib = d.path().join("ById Lib.Source.zip");
+    std::fs::write(
+        &lib,
+        zip(&[
+            ("app.json", &app_json(lib_id, "ById Lib", &[])),
+            (
+                "src/Dep.Codeunit.al",
+                "codeunit 50320 \"ById Dep\" { trigger OnRun() begin end; }",
+            ),
+        ]),
+    )
+    .unwrap();
+    let app = d.path().join("Tests-ById.Source.zip");
+    std::fs::write(
+        &app,
+        zip(&[
+            ("app.json", &app_json("22222222-0000-0000-0000-000000000022", "Tests-ById", &[(lib_id, "ById Lib")])),
+            (
+                "T.Codeunit.al",
+                "codeunit 50321 \"ById Tests\" { Subtype = Test;
+                    [Test] procedure ByIdNotReached() begin if Go(false) <> 4 then Error('go(false)'); end;
+                    [Test] procedure ByIdReached() begin if Go(true) <> 4 then Error('go(true)'); end;
+                    [Test] procedure ByIdReachedUnderAssertError() begin asserterror Codeunit.Run(50320); end;
+                    [Test] procedure RecordRefOpenById() var R: RecordRef; begin R.Open(50322); end;
+                    [Test] procedure PageRunById() begin Page.Run(50323); end;
+                    local procedure Go(Flag: Boolean): Integer begin if Flag then Codeunit.Run(50320); exit(4); end; }",
+            ),
+        ]),
+    )
+    .unwrap();
+    let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--output-json"]);
+    let v = json_of(&o);
+    assert_eq!(row(&v, "Codeunit50321.ByIdNotReached")["status"], "pass", "{}", text(&o));
+    for m in [
+        "ByIdReached",
+        "ByIdReachedUnderAssertError",
+        "RecordRefOpenById",
+        "PageRunById",
+    ] {
+        let r = row(&v, &format!("Codeunit50321.{m}"));
+        assert_eq!(r["notRun"], true, "{m}: {r}");
+        let msg = r["message"].as_str().unwrap();
+        assert!(msg.contains("`ById Lib`") && msg.contains("skipped"), "{m}: {msg}");
+    }
+    // With the dependency given, the lookup finds the codeunit.
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--dep",
+        lib.to_str().unwrap(),
+        "--no-download",
+        "--output-json",
+    ]);
+    let v = json_of(&o);
+    assert_eq!(row(&v, "Codeunit50321.ByIdReached")["status"], "pass", "{}", text(&o));
+}
+
 #[test]
 fn an_app_folder_may_be_given_as_a_dependency_and_a_build_fills_microsoft_variables() {
     let d = tempfile::tempdir().unwrap();
