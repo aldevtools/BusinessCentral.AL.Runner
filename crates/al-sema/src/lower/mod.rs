@@ -478,6 +478,8 @@ pub(crate) enum StreamScope {
     Gone(SyntaxNode),
     /// Not pinned: the call is refused when it runs, with this reason.
     Refuse(String),
+    /// Not pinned, and the call is no statement of its own: the routine is refused, with this reason.
+    Static(String),
 }
 
 pub use self::assemble::*;

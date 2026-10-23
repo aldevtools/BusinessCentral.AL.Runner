@@ -148,7 +148,16 @@ impl Lowerer<'_> {
                 .map(|n| n.to_lowercase())
                 .collect();
             if let Some(b) = r.body() {
-                self.stream_scope = self.stream_of_a_local_handed_back(&b, &handed, &local_names);
+                let mut scope = self.stream_of_a_local_handed_back(&b, &handed, &local_names);
+                // A call that is no statement of its own cannot be refused alone when it runs: the routine is refused.
+                scope.retain(|(_, s)| match s {
+                    StreamScope::Static(why) => {
+                        self.reasons.push(why.clone());
+                        false
+                    }
+                    _ => true,
+                });
+                self.stream_scope = scope;
             }
         }
         // OnQueryClosePage with a Boolean return that ends without giving a value lets the page close. Not pinned (the corpus
@@ -683,7 +692,7 @@ impl Lowerer<'_> {
             return out;
         };
         match scope {
-            StreamScope::Refuse(why) => {
+            StreamScope::Refuse(why) | StreamScope::Static(why) => {
                 let mut refused: Vec<ir::Stmt> = out.into_iter().take_while(|s| matches!(s, ir::Stmt::Pos(_))).collect();
                 refused.push(ir::Stmt::Expr(ir::Expr::Refused(why)));
                 refused
@@ -1980,14 +1989,19 @@ impl Lowerer<'_> {
                         p.kind() == SyntaxKind::MemberExpr && p.children().next().is_some_and(|c| c == n)
                     })
                 });
-            let scope = if pinned_receiver && only_member_root && last_call == Some(call.text_range()) {
-                StreamScope::Gone(first)
-            } else {
-                StreamScope::Refuse(format!(
+            let why = || {
+                format!(
                     "an InStream handed back to the caller is created on the local variable `{}`: BC reads it as empty once \
                      the local is out of scope, the runtime keeps the bytes",
                     root.text().to_string().trim()
-                ))
+                )
+            };
+            let scope = if pinned_receiver && only_member_root && last_call == Some(call.text_range()) {
+                StreamScope::Gone(first)
+            } else if call.parent().is_some_and(|p| p.kind() == SyntaxKind::ExprStmt) {
+                StreamScope::Refuse(why())
+            } else {
+                StreamScope::Static(why())
             };
             out.push((call.text_range(), scope));
         }
