@@ -238,6 +238,7 @@ pub fn run_traced(
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
         if company_root == Some(k) {
             session.capture_messages();
+            session.set_company_build(true);
         }
         let called = if is_install(&objs[oi]) || keep_prefix {
             let inst = session.instance(oi);
@@ -246,6 +247,7 @@ pub fn run_traced(
             session.call_parameterless_subscriber(oi, ri)
         };
         if company_root == Some(k) {
+            session.set_company_build(false);
             for m in session.stop_capturing_messages() {
                 notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
             }
