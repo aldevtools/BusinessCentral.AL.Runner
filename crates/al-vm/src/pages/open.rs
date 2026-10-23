@@ -1227,7 +1227,13 @@ impl Session {
             .page_type
             .as_ref()
             .is_some_and(al_ir::PageType::is_plain);
-        let action = if ok_type && !st.borrow().modal { "OK" } else { "Cancel" };
+        // A Card run modally, not in lookup mode, reports OK too (pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al:177
+        // Modal_HandlerClose_VetoAlways `seen=OK;`); a lookup-mode modal is not pinned and keeps Cancel.
+        let modal_card = {
+            let s = st.borrow();
+            s.modal && !s.lookup && self.engine.object_facts[object].page_type_lower() == "card"
+        };
+        let action = if ok_type && (!st.borrow().modal || modal_card) { "OK" } else { "Cancel" };
         st.borrow_mut().close_error = false;
         self.pages.test_close = true;
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));
@@ -1255,6 +1261,16 @@ impl Session {
             other => other,
         };
         if r.is_ok() {
+            // A Close() the page's OnQueryClosePage refused inside the handler of a modal run closes the TestPage all the same;
+            // RunModal then raises (PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
+            // Modal_HandlerOkThenClose_VetoAlways).
+            let vetoed_in_handler = {
+                let s = st.borrow();
+                s.close_vetoed && s.modal && self.ui_state.page_handler_depth > 0
+            };
+            if vetoed_in_handler {
+                st.borrow_mut().test_close_vetoed = true;
+            }
             self.mark_closed(st);
         }
         r
@@ -1274,6 +1290,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         let test_close = std::mem::take(&mut self.pages.test_close);
         self.require_open(st)?;
+        st.borrow_mut().close_vetoed = false;
         let mapped = self.close_action(st, action);
         let action = mapped.as_str();
         // Cancel on a request page whose ModifyAllowed is false drops a changed row: no error, the stored row unchanged
@@ -1447,6 +1464,8 @@ impl Session {
             other => other?,
         };
         st.borrow_mut().close_error = false;
+        // A veto of a page with open parts is not pinned for a modal run: it is not marked (pages/rows.rs answer_page).
+        st.borrow_mut().close_vetoed = veto == Some(false) && open_parts.is_empty();
         if veto == Some(false) {
             return Ok(Value::Null);
         }
