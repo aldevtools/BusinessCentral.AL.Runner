@@ -132,6 +132,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
     type(\"Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper\"; \"PermissionTestHelper\") { }
     type(\"Microsoft.Dynamics.Nav.Runtime.NavTestExecution\"; \"NavTestExecution\") { }
+    type(\"Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions\"; \"ALCopilotFunctions\") { }
     type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GraphQuery\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UserInfo\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo\"; \"TenantInfo\") { }
@@ -1221,6 +1222,37 @@ fn is_in_test_mode_follows_the_running_test_codeunit() {
     assert_eq!(text(run(&no_host(), vars, body, ": Text")), "No");
 }
 
+/// `ALCopilotFunctions.IsPlatformAuthorizationConfigured(caller publisher, System Application publisher)`: false for a caller
+/// that is not Microsoft (corpus platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94, publisher 'AL Language'). A Microsoft caller
+/// is not pinned and is refused, and so is a call with other arguments; nothing reaches the host.
+#[test]
+fn copilot_platform_authorization_is_not_configured_for_a_partner_caller() {
+    let vars = "F: DotNet ALCopilotFunctions;";
+    let host = no_host();
+    let r = run(
+        &host,
+        vars,
+        "exit(Format(F.IsPlatformAuthorizationConfigured('AL Language', 'Microsoft')));",
+        ": Text",
+    );
+    assert_eq!(text(r), "No");
+    let r = run(
+        &host,
+        vars,
+        "exit(Format(F.IsPlatformAuthorizationConfigured('Microsoft', 'Microsoft')));",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("IsPlatformAuthorizationConfigured"));
+    let r = run(
+        &host,
+        vars,
+        "exit(Format(F.IsPlatformAuthorizationConfigured('A')));",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("IsPlatformAuthorizationConfigured"));
+    assert_eq!(host.log(), vec![]);
+}
+
 /// A SUPER session on table data: the four data rights, no Execute (corpus
 /// `session/TestSessionCompanyInfoExperienceClose.al`). Anything else is refused.
 #[test]
@@ -1396,6 +1428,9 @@ fn the_declared_result_types_match_the_registry() {
                 continue;
             }
             "SetTestTenantEnvironmentType" => vec![Value::Boolean(false)],
+            "IsPlatformAuthorizationConfigured" => {
+                vec![Value::Text("AL Language".into()), Value::Text("Microsoft".into())]
+            }
             // These raise by design on a tier without a directory; graph_query_without_a_directory_answers_as_probed runs them.
             "GetGroupPage" | "GetGroupInfo" | "FindFirstGroupInfoForDisplayName" | "GetUser" => continue,
             // Answers a null reference by design; graph_get_current_user_returns_null_without_an_error runs it.

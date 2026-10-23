@@ -65,6 +65,20 @@ fn round_expr(e: &FilterExpr) -> FilterExpr {
     }
 }
 
+/// A primary key as the SQL columns of a database table hold it: its Time and DateTime values rounded. Get, Modify, Rename and
+/// Delete of a database record find the row by the rounded key: `Get('A', 10:00:00.001)` finds the row stored as 10:00:00,
+/// `Get('A', 10:00:00.002)` looks for 10:00:00.003, and Modify, Rename and Delete of a record that holds 10:00:00.001 or
+/// 12:00:00.001 reach their row (errors/lt-ms-refusals-130/P130DateFilters.al:603-608, :651-658, :720-733).
+pub(crate) fn rounded_key(pk: &[Value]) -> Vec<Value> {
+    pk.iter().map(rounded).collect()
+}
+
+/// Whether the SQL column rounds a value of a primary key.
+pub(crate) fn key_rounds(pk: &[Value]) -> bool {
+    pk.iter()
+        .any(|v| !al_builtins::ops::compare(&rounded(v), v).is_ok_and(|o| o.is_eq()))
+}
+
 /// The filters of a database table read with their Time and DateTime values rounded as the column rounds them; the record keeps
 /// its own (GetFilters shows `11:59:59.999 PM`): P130DateFilters.al:206-227.
 pub(crate) fn round_filters(t: &TableDef, filters: &mut [FieldFilter]) {
@@ -102,12 +116,8 @@ pub(crate) fn store(
         if !f.stored || f.id >= 2_000_000_000 {
             continue;
         }
-        // A primary key field the rounding changes would stand elsewhere than the record's key says: not pinned.
-        if t.keys[0].contains(&i) && !al_builtins::ops::compare(&rounded(&row[i]), &row[i]).is_ok_and(|o| o.is_eq()) {
-            return Err(Signal::Unsupported(
-                "a Time or DateTime primary key value that the SQL column rounds (not pinned)".into(),
-            ));
-        }
+        // A primary key field the rounding changes is stored rounded like any other field: the row stands under the
+        // rounded key while the record keeps its own value (P130DateFilters.al:527-735, al-runner issue 5689).
         let bad = match (&f.ty, &row[i]) {
             (RtType::Date, Value::Date(0, false)) => None,
             (RtType::Date, Value::Date(1, false)) => None,
