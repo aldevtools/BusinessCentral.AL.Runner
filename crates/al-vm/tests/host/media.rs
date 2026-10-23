@@ -526,7 +526,11 @@ fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
     let target = Some(al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap()));
     let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), target);
     let host = al_host::Host::default();
-    let host = if serve { host.with_files(BuildFolder(files)) } else { host.with_files(files) };
+    let host = if serve {
+        host.with_files(BuildFolder(files))
+    } else {
+        host.with_files(files)
+    };
     let mut s = Session::with_host(engine, host);
     let inst = s.instance(oi);
     match s.call(oi, ri, inst, vec![])?.0 {
@@ -580,7 +584,11 @@ fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_th
     let jpeg = "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
                P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); ";
     for (bc, set) in [("29.0", png), ("28.0", jpeg)] {
-        assert_eq!(export_file_on(bc, true, &format!("{set}exit(Format(n)); end;")).unwrap(), "1", "{bc}");
+        assert_eq!(
+            export_file_on(bc, true, &format!("{set}exit(Format(n)); end;")).unwrap(),
+            "1",
+            "{bc}"
+        );
         let r = export_file_on(bc, true, &format!("{set}exit(Format(Len(P + '-1'))); end;"));
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc}: {r:?}");
     }
