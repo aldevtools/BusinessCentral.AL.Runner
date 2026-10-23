@@ -1617,6 +1617,7 @@ impl Value {
                     && a.persisted == b.persisted
                     && a.written == b.written
                     && a.render_pending == b.render_pending
+                    && a.first_write_truncates == b.first_write_truncates
             }
             (Codeunit(_), Codeunit(_))
             | (Library(..), Library(..))

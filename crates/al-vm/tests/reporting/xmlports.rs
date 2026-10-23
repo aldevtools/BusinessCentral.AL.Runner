@@ -2046,8 +2046,9 @@ fn an_import_checks_the_occurrence_of_field_attributes() {
     );
 }
 
-// An empty Optional field attribute (Text) is left out on export; a value that is not empty is written as without the
-// property (corpus tests/al-language/xmlport/lt-ra-xmlport/RaXmlPortExport.al:347).
+// The export of a field attribute with an explicit Occurrence: an Optional one whose text is empty is left out, a Required one
+// is written as `attr=""`, a value that is not empty is written as without the property (corpus
+// xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: `OptNum="0"`, no OptTxt).
 #[test]
 fn an_export_leaves_out_an_empty_optional_field_attribute() {
     let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; OutStr: OutStream; U: Record \"ALT Universal\";";

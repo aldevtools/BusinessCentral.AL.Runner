@@ -165,7 +165,9 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
                     | ((b.persisted as u8) << 2)
                     | ((b.fetched as u8) << 3)
                     | ((b.written as u8) << 4)
-                    | ((b.temp_row as u8) << 5),
+                    | ((b.temp_row as u8) << 5)
+                    | ((b.db_row as u8) << 6)
+                    | ((b.first_write_truncates as u8) << 7),
             );
         }
         Value::Unknown(why) => {
@@ -240,6 +242,8 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
                 b.fetched = flags & 8 != 0;
                 b.written = flags & 16 != 0;
                 b.temp_row = flags & 32 != 0;
+                b.db_row = flags & 64 != 0;
+                b.first_write_truncates = flags & 128 != 0;
             }
             Value::Blob(blob)
         }

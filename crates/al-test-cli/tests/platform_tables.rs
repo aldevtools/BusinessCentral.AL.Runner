@@ -1131,22 +1131,43 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Tenant Web Service and Web Service take Insert, Modify and Delete from AL
-/// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds rows
-/// in Tenant Web Service that nothing pins (only the count, 64, in PtWebServiceRows.al:136), so a read that would
-/// count or scan them is refused, and a Get that finds nothing too.
+/// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds 64 Tenant Web Service rows, every
+/// column pinned (platform/lt-platform-rows-fresh/PlatformRowsWebService.al:66-199, count :215). Microsoft's DemoTool (Create
+/// Web Services) calls CreateTenantWebService for page 89, which finds 'Job List' (onprem platform/PtWebServiceRows.al:229).
 #[test]
-fn tenant_web_service_takes_writes_and_refuses_reads_of_rows_it_does_not_hold() {
+fn tenant_web_service_holds_the_rows_of_a_fresh_tenant_and_takes_writes() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Writes() var R: Record "Tenant Web Service"; W: Record "Web Service"; begin
     R.Init(); R."Object Type" := R."Object Type"::Page; R."Service Name" := 'Zed'; R.Insert();
     R."Object ID" := 21; R.Modify(); if not R.Get(R."Object Type"::Page, 'Zed') then Error('lost'); R.Delete();
     W.Init(); W."Object Type" := W."Object Type"::Page; W."Service Name" := 'Zed'; W.Insert(); W.Delete(); end;
-  [Test] procedure CountIsRefused() var R: Record "Tenant Web Service"; begin if R.Count() < 0 then; end;
-  [Test] procedure MissIsRefused() var R: Record "Tenant Web Service"; begin if R.Get(0, 'Nope') then; end; }"#,
+  [Test] procedure Rows() var R: Record "Tenant Web Service"; begin if R.Count() <> 64 then Error('count %1', R.Count());
+    R.FindFirst(); if (R."Object Type" <> R."Object Type"::Codeunit) or (R."Service Name" <> 'WorkflowActionResponse') or (R."Object ID" <> 1544) or not R.Published then Error('first');
+    if not R.Get(R."Object Type"::Page, 'Job List') then Error('89'); if (R."Object ID" <> 89) or R.ExcludeNonEditableFlowFields then Error('id');
+    if R.Get(R."Object Type"::Page, 'Nope') then Error('nope'); end; }"#,
     );
     passes(&o, "Writes");
-    for t in ["CountIsRefused", "MissIsRefused"] {
+    passes(&o, "Rows");
+}
+
+// A fresh tenant also holds 402 Tenant Web Service Columns and 29 Tenant Web Service OData rows (System Application tables 6711,
+// 6710; onprem platform/PtWebServiceRows.al:237 and :267, 'counts before' 17|64|402|29), which rows is not pinned: the runtime starts them
+// empty, so a read of rows the session did not write is refused, as for Tenant Web Service Filter (6712), whose rows nothing pins.
+#[test]
+fn tenant_web_service_columns_odata_and_filter_refuse_reads_of_rows_they_do_not_hold() {
+    let o = outcomes(
+        r#"table 6710 "Tenant Web Service OData" { fields { field(1; TenantWebServiceID; RecordId) { } } keys { key(PK; TenantWebServiceID) { } } }
+table 6711 "Tenant Web Service Columns" { fields { field(1; "Entry ID"; Integer) { } field(2; "Data Item"; Integer) { } } keys { key(PK; "Entry ID") { } } }
+table 6712 "Tenant Web Service Filter" { fields { field(1; "Entry ID"; Integer) { } } keys { key(PK; "Entry ID") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Writes() var C: Record "Tenant Web Service Columns"; begin C."Entry ID" := 7; C.Insert(); if not C.Get(7) then Error('lost'); C.Delete(); end;
+  [Test] procedure ColumnsCount() var C: Record "Tenant Web Service Columns"; begin if C.Count() < 0 then; end;
+  [Test] procedure ODataCount() var D: Record "Tenant Web Service OData"; begin if D.IsEmpty() then; end;
+  [Test] procedure FilterFind() var F: Record "Tenant Web Service Filter"; begin if F.FindFirst() then; end; }"#,
+    );
+    passes(&o, "Writes");
+    for t in ["ColumnsCount", "ODataCount", "FilterFind"] {
         let why = not_run(&o, t);
         assert!(why.contains("Tenant Web Service"), "{t}: {why}");
     }
@@ -1167,27 +1188,27 @@ fn web_service_holds_the_rows_of_a_fresh_tenant() {
     passes(&o, "Rows");
 }
 
-// Tenant Report Layout Selection on a fresh tenant: four rows, blank company and user, the layout names; the App ID is not null
-// but its value is not pinned (platform/lt-platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
+// Tenant Report Layout Selection on a fresh tenant: four rows, blank company and user, the layout names, the Base Application's
+// App ID (platform/lt-platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
 // Insert(true) of an existing key answers false, Modify(true) true: Microsoft's DemoTool (Create Custom Report Layout) does that.
 #[test]
 fn tenant_report_layout_selection_holds_the_rows_of_a_fresh_tenant() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure AppId() var S: Record "Tenant Report Layout Selection"; begin S.FindSet(); repeat if Format(S."App ID") <> '{437DBF0E-84FF-417A-965D-ED2BB9650972}' then Error(Format(S."Report ID")); until S.Next() = 0; end;
   [Test] procedure Rows() var S: Record "Tenant Report Layout Selection"; B: Guid; begin if S.Count() <> 4 then Error('count');
     if not S.Get(1302, '', B) then Error('1302'); if S."Layout Name" <> 'StandardSalesProFormaInv.docx' then Error('name');
     if S.Get(1302, CompanyName(), B) then Error('company'); S.FindLast(); if S."Layout Name" <> 'StandardSalesInvoiceBlueSimple.docx' then Error('last');
     S.Init(); S."Report ID" := 1306; S."Layout Name" := 'X.docx'; if S.Insert(true) then Error('insert'); if not S.Modify(true) then Error('modify');
-    S.Get(1306, '', B); if S."Layout Name" <> 'X.docx' then Error('modified'); end;
-  [Test] procedure AppIdIsNotPinned() var S: Record "Tenant Report Layout Selection"; begin S.FindFirst(); if IsNullGuid(S."App ID") then; end; }"#,
+    S.Get(1306, '', B); if S."Layout Name" <> 'X.docx' then Error('modified'); end; }"#,
     );
     passes(&o, "Rows");
-    let why = not_run(&o, "AppIdIsNotPinned");
-    assert!(why.contains("App ID"), "{why}");
+    // platform/lt-platform-rows-fresh/PlatformRowsLayoutSelection.al:82-85: the Base Application's id on every row.
+    passes(&o, "AppId");
 }
 
-// OData Edm Type on a fresh tenant: six keys (PtCloudTables.al:435-492, QX_ODataEdmType_RowsAndEdmXml); their Description and
-// Edm Xml are not pinned. An own row inserts, reads back and deletes as in any table.
+// OData Edm Type on a fresh tenant: six keys (PtCloudTables.al:435-492, QX_ODataEdmType_RowsAndEdmXml) with their Description
+// and Edm Xml (:533-606). An own row inserts, reads back and deletes as in any table.
 #[test]
 fn odata_edm_type_holds_the_keys_of_a_fresh_tenant() {
     let o = outcomes(
@@ -1195,14 +1216,15 @@ fn odata_edm_type_holds_the_keys_of_a_fresh_tenant() {
   [Test] procedure Keys() var E: Record "OData Edm Type"; K: Text; begin if E.Count() <> 6 then Error('count'); E.FindSet(); repeat K += E."Key" + ','; until E.Next() = 0;
     if K <> 'BOOKINGSDATE,DIMENSION,DOCUMENTLINEOBJECTDETAILS,ITEM-UOM,ITEM-UOM-CONVERSION,POSTALADDRESS,' then Error(K);
     if E.Get('LTQX') then Error('get'); E.Init(); E."Key" := 'LTQX'; E.Description := 'd'; E.Insert(true); E.Get('LTQX'); if E.Description <> 'd' then Error('d'); E.Delete(); end;
-  [Test] procedure DescriptionIsNotPinned() var E: Record "OData Edm Type"; begin E.Get('DIMENSION'); if E.Description = '' then; end;
-  [Test] procedure EdmXmlIsNotPinned() var E: Record "OData Edm Type"; begin E.SetAutoCalcFields("Edm Xml"); E.Get('DIMENSION'); end; }"#,
+  [Test] procedure Description() var E: Record "OData Edm Type"; begin E.Get('DIMENSION'); if E.Description <> 'Graph CDM - Dimension complex type.' then Error(E.Description); end;
+  [Test] procedure EdmXml() var E: Record "OData Edm Type"; InS: InStream; T: Text; begin E.SetAutoCalcFields("Edm Xml"); E.Get('BOOKINGSDATE');
+    E."Edm Xml".CreateInStream(InS, TextEncoding::UTF8); InS.ReadText(T);
+    if T <> '<ComplexType Name="dateTimeTimeZoneType">  <Property Name="dateTime" Type="Edm.String" Nullable="false" />  <Property Name="timeZone" Type="Edm.String" /></ComplexType>' then Error(T); end; }"#,
     );
     passes(&o, "Keys");
-    for t in ["DescriptionIsNotPinned", "EdmXmlIsNotPinned"] {
-        let why = not_run(&o, t);
-        assert!(why.contains("OData Edm Type"), "{t}: {why}");
-    }
+    // PtCloudTables.al:533 RE_ODataEdmType_FreshDescriptions, :572 RE_ODataEdmType_EdmXml_BookingsDate.
+    passes(&o, "Description");
+    passes(&o, "EdmXml");
 }
 
 /// Field.IsPartOfPrimaryKey (column 28) is read in AL code: true for a field of the primary key

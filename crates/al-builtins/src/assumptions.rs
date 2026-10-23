@@ -513,9 +513,9 @@ registry! {
     },
     MediaImportFilePng => {
         id: "media-importfile-png",
-        assumed: "Media.ImportFile of a `.png` file that holds a PNG imports it as Media.ImportStream does a PNG (`image/png`, the picture's size) and its Tenant Media File Name is the path as given, as the corpus pins for a `.jpg` file holding a JPEG (onprem media/MediaFiles.al:293-340).",
+        assumed: "Media.ImportFile of a `.png` file that holds a PNG imports it as Media.ImportStream does a PNG (`image/png`, the picture's size) and its Tenant Media File Name is the path as given, as the corpus pins for a `.jpg` file holding a JPEG (onprem media/MediaFiles.al:293-340). For an upper-case `.PNG` file the corpus pins the Mime Type, the size and that the File Name contains the file's name (MediaFiles.al:394-447), not the File Name itself; a lower-case `.png` into a MediaSet is assumed to import as a `.PNG` does.",
         tests: "Every test of Microsoft's Legacy test lane (for example Tests-SCM-Warehouse codeunit 137015): their company is built by the DemoTool, whose Create Getting Started Data imports the WalkMeTour `.png` files through Media Resources Mgt.InsertMediaFromFile (Base App MediaResourcesMgt.Codeunit.al:34), and they pass in Microsoft's CI.",
-        probe: "Media.ImportFile of a `.png` file holding a PNG (and a `.jpeg`, `.PNG` file): Tenant Media Mime Type, Width, Height, File Name.",
+        probe: "Media.ImportFile and MediaSet.ImportFile of a lower-case `.png` file holding a PNG (and a `.jpeg` file): Tenant Media Mime Type, Width, Height; the exact File Name of a `.PNG` Media import on Windows BC.",
     },
     TernaryLongerTextFalseBranchFits => {
         id: "ternary-longer-text-false-branch-fits",
@@ -528,6 +528,12 @@ registry! {
         assumed: "A File.Open, File.Exists or read of a resource file of the company data (`--company-data demotool`) whose name differs from the file on disk only in case finds the file, as on the Windows server BCApps' CI builds the DemoTool company on (the DemoTool opens `CurrencyData.txt`, BCApps ships `CurrencyData.TXT`). A name that matches exactly does not take this path.",
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: their company is built by the DemoTool (Create Demonstration Data.OnRun opens `CurrencyData.txt`), and they pass in Microsoft's CI.",
         probe: "Not measurable from the corpus: the case rule is the server's file system, and the corpus CI runs BC on Linux. On the Windows nightly: File.Exists and File.Open of a file in the server's folder by a name in other case.",
+    },
+    XmlportLaterChildKeepsKeyLink => {
+        id: "xmlport-later-child-keeps-key-link",
+        assumed: "On an XmlPort import, the second and later rows of a linked table element under the same parent row keep the value of a link field that is part of their primary key (as Init keeps the primary key); only the first row gets the link (pinned for a link field outside the key: xmlport/TestXmlPortTriggersReplaceViewContracts.al:414, a later row has 0 there).",
+        tests: "Microsoft's DemoTool company build (Create Data Exch. Column Def imports PostingExchangeDefinitions\\ECBExchangeRateService.xml with Base App xmlport 1225: the second Data Exch. Column Def row of a line definition fails the OnInsert TestField of Data Exch. Def Code without it); every test of the Legacy lane (for example Tests-SCM-Warehouse 137015) needs that company and passes in Microsoft's CI.",
+        probe: "A Format = Xml import port with a parent tableelement (Code) and a linked child tableelement whose primary key is (HeadCode, LineNo) with LinkFields = HeadCode = field(Code): two child rows under one parent, the second without and with a HeadCode element; the rows stored and the child OnBeforeInsertRecord values.",
     },
 }
 

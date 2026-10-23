@@ -687,7 +687,7 @@ pub struct XmlNode {
     /// `FieldValidate` of a field element as declared (`None`: not declared, the port's `DefaultFieldsValidation` decides).
     #[serde(default)]
     pub field_validate: Option<bool>,
-    /// `SourceTableView` of a table node as written (`sorting(..) order(..) where(..)`).
+    /// `SourceTableView` of a table element as written (`sorting(..) order(..) where(..)`).
     #[serde(default)]
     pub source_view: Option<String>,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.

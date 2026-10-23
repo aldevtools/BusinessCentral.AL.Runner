@@ -372,6 +372,9 @@ impl Providers {
                 row[pos(t, 2)] = Value::Text(o.description.clone().into());
                 let blob = al_builtins::stream::new_blob();
                 al_builtins::stream::write_bytes(&blob, &o.bytes);
+                if al_builtins::media::jpg_holding_png(o) {
+                    blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
+                }
                 row[pos(t, 3)] = Value::Blob(blob);
                 row[pos(t, 4)] = Value::Text(o.mime.clone().into());
                 row[pos(t, 5)] = Value::Integer(o.height);

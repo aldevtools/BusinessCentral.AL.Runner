@@ -111,8 +111,6 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "usetemporary",
             "minoccurs",
             "maxoccurs",
-            // Applied on export, ignored on import (al-vm xmlports.rs `xp_rows_in_view`).
-            "sourcetableview",
         ],
         // `Unbound = true` on a field or text node changes neither the import nor the export of a field or text attribute
         // (xmlport/lt-y-xmlport-props/YXmlPortProps.al:682-722); the export of an unbound field element is refused when it runs.
@@ -373,12 +371,15 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             let pn = p.name().to_ascii_lowercase();
             if pn == "sourcetableview" && kind == K::Table {
                 // An import ignores the view: a row its filter leaves out is imported as any other (platform/lt-ag-contoso/
-                // AgXmlPortImport.al:62-80, :298-309, an element without a link). An export applies it (al-vm xmlports.rs
-                // `xp_rows_in_view`, which refuses the unpinned shapes). Not pinned: a filtered view on a linked element.
+                // AgXmlPortImport.al:62-80, :298-309, an element without a link); a filtered view on a linked element is refused
+                // on import when the port runs (not pinned). An export reads the rows in the view's order and through its
+                // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
+                // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
+                // is not pinned on export.
                 let linked = s.properties().any(|q| q.name().eq_ignore_ascii_case("linktable"));
-                if linked && p.value_text().to_ascii_lowercase().contains("where") {
-                    out.run_reasons.push(format!(
-                        "sourcetableview with a filter on the linked {section_name} {name} is not pinned"
+                if !linked && p.value_text().to_ascii_lowercase().contains("where") {
+                    out.export_reasons.push(format!(
+                        "sourcetableview with a filter on the {section_name} {name}, which is not linked, is not pinned on export"
                     ));
                 }
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
@@ -614,14 +615,14 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             auto_calc: layout.property(i, "AutoCalcField").and_then(|v| bool_prop(&v)),
             unbound: kind == ir::XmlNodeKind::Field
                 && layout.property(i, "Unbound").and_then(|v| bool_prop(&v)) == Some(true),
+            source_view: (kind == ir::XmlNodeKind::Table)
+                .then(|| layout.property(i, "SourceTableView"))
+                .flatten(),
             required: matches!(kind, ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr)
                 .then(|| layout.property(i, "Occurrence"))
                 .flatten()
                 .map(|v| v.trim().eq_ignore_ascii_case("required")),
             field_validate: layout.property(i, "FieldValidate").and_then(|v| bool_prop(&v)),
-            source_view: (kind == ir::XmlNodeKind::Table)
-                .then(|| layout.property(i, "SourceTableView"))
-                .flatten(),
             triggers,
         };
         match kind {

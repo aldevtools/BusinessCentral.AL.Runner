@@ -538,6 +538,7 @@ codeunit 50191 C
     procedure One(): Text begin exit(Unloaded(1)); end;
     procedure Three(): Text begin exit(Unloaded(3)); end;
     procedure Five(): Text begin exit(Unloaded(5)); end;
+    procedure Six(): Text begin exit(Unloaded(6)); end;
     procedure Hundred(): Text begin exit(Unloaded(100)); end;
 }
 "#;
@@ -550,7 +551,10 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
     assert_eq!(r("29.0", "One"), "7");
     assert_eq!(r("29.0", "Five"), "11");
     assert_eq!(r("27.5", "Five"), "11");
-    for (bc, routine) in [("27.5", "One"), ("28.5", "One"), ("29.0", "Three"), ("29.0", "Hundred")] {
+    // record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222 ('new' 9, every major).
+    assert_eq!(r("27.5", "Three"), "9");
+    // Six bytes are pinned only as the text 'stored' (:350): six repeated bytes compress.
+    for (bc, routine) in [("27.5", "One"), ("28.5", "One"), ("29.0", "Six"), ("29.0", "Hundred")] {
         assert!(
             r(bc, routine).starts_with("refused:"),
             "{bc} {routine}: {}",

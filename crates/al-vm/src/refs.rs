@@ -684,6 +684,7 @@ impl Session {
                     Some(Value::Record(src)) if from_variant => {
                         let mut copy = src.borrow().clone();
                         copy.company = None;
+                        own_unloaded_blobs(&mut copy);
                         *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
                         return Ok(Value::Null);
                     }
@@ -700,7 +701,8 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
                 };
-                let copy = src.borrow().clone();
+                let mut copy = src.borrow().clone();
+                own_unloaded_blobs(&mut copy);
                 *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
                 return Ok(Value::Null);
             }
@@ -1593,4 +1595,21 @@ impl Session {
 /// The record method a RecordRef method forwards to; the RecordRef arms that forward are listed by name.
 fn record_method(method: &str) -> RecordOp {
     RecordOp::from_name(method).expect("a RecordRef method that forwards to the record")
+}
+
+/// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without
+/// `CalcFields`: a `CalcField` through the ref loads that copy and leaves the record's Blob unloaded
+/// (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:369, `Temp Blob`.FromRecord, 'row after from record').
+fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
+    for v in &mut copy.fields {
+        if let Value::Blob(b) = v {
+            let unloaded = {
+                let b = b.borrow();
+                b.db_row && !b.loaded
+            };
+            if unloaded {
+                *b = al_builtins::stream::copy_blob_db_row(b);
+            }
+        }
+    }
 }

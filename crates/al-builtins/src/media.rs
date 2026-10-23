@@ -45,6 +45,9 @@ pub enum FileColumn {
     Unpinned,
 }
 
+/// The Tenant Media MIME type of an imported .docx file (MediaFiles.al:503).
+const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 /// The eight bytes every PNG starts with.
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -71,6 +74,12 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
 }
 
 /// The size a PNG header gives (`IHDR` at byte 16: width and height, big endian).
+/// A media whose name made it `image/jpeg` while it holds a PNG (ReMediaJpgHoldingPng.al:108): BC stores the picture
+/// re-encoded (111 bytes on Linux, other bytes on Windows, the test ignores both), so its Tenant Media Content is not pinned.
+pub fn jpg_holding_png(o: &MediaObject) -> bool {
+    o.mime == "image/jpeg" && png_size(&o.bytes).is_some()
+}
+
 fn png_size(b: &[u8]) -> Option<(i32, i32)> {
     if b.len() < 24 || b[..8] != PNG_SIGNATURE {
         return None;
@@ -270,6 +279,8 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         return unsupported("Media.ExportStream without an OutStream");
     };
     match &*h.borrow() {
+        // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
+        LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
@@ -389,10 +400,15 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         .unwrap_or_default();
     let (mime, (width, height)) = match (ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
         ("jpg", Some(size), _) => ("image/jpeg", size),
+        // A .jpg holding a PNG: the name decides the MIME type, the PNG data the size (onprem media/ReMediaJpgHoldingPng.al:108,
+        // 'media tenant'). Its stored content is re-encoded, not pinned (`jpg_holding_png`).
+        ("jpg", None, Some(size)) if name.ends_with(".jpg") => ("image/jpeg", size),
         ("png", _, Some(size)) => {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
             ("image/png", size)
         }
+        // A Word package: MediaFiles.al:461-517 RD_Media_ImportFile_Docx (width and height 0).
+        ("docx", _, _) if bytes.starts_with(b"PK\x03\x04") => (DOCX_MIME, (0, 0)),
         _ => {
             return unsupported(format!(
                 "Media.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
@@ -400,6 +416,8 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         }
     };
     let description = text_arg(a, 1)?;
+    let pending = (mime == DOCX_MIME && c.gate(al_version::Gate::DocxMediaRezippedFrom29))
+        .then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
     let id = c.new_guid();
     store(c)?.objects.borrow_mut().insert(
         id,
@@ -411,7 +429,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             file_column: Some(FileColumn::Path(name)),
             width,
             height,
-            pending: None,
+            pending,
         },
     );
     if let Some(slot) = r {
@@ -420,35 +438,50 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Guid(id))
 }
 
-/// `MediaSet.ImportFile(FileName, Description)` into an empty set: a `.jpg` file holding a JPEG gives the set one member
-/// whose Tenant Media row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
-/// QX_MediaAndMediaSet_ImportFile_Jpeg, 'mediaset count', 'mediaset item 1 tenant', 'mediaset count after get'). What it
-/// returns and the File Name of the member's row are not pinned (Windows and Linux BC write different names,
-/// windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): both are unknown, so a read of either is
-/// refused. Any other file, and a set that already has members, is refused.
+/// `MediaSet.ImportFile(FileName, Description)`: a `.jpg` file holding a JPEG gives an empty set one member whose Tenant Media
+/// row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
+/// QX_MediaAndMediaSet_ImportFile_Jpeg). A `.PNG` file holding a PNG gives `image/png` and its size, a second file joins a
+/// set of one member as Item(2), and the call returns the set's id, which MediaId answers and no item has; the id stays
+/// when a member joins (MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng). A lower-case `.png` is
+/// answered alike under the assumption `media-importfile-png`. The File Name of the member's row is not pinned (Windows
+/// and Linux BC write different names, windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): a read
+/// of it is refused. Any other file, and a set of two or more members, is refused.
 fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if id_of(&r)? != [0; 16] {
-        return unsupported("MediaSet.ImportFile into a set that already has members (not pinned)");
+    let set = id_of(&r)?;
+    let held = if set == [0; 16] {
+        0
+    } else {
+        store(c)?.sets.borrow().get(&set).map_or(0, Vec::len)
+    };
+    if held > 1 {
+        return unsupported("MediaSet.ImportFile into a set that already has two or more members (not pinned)");
     }
     let (name, bytes) = import_file_bytes(c, a)?;
-    let ext = name
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default();
-    let (Some((width, height)), "jpg") = (jpeg_size(&bytes), ext.as_str()) else {
-        return unsupported(format!(
-            "MediaSet.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
-        ));
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
+    let (mime, (width, height)) = match (ext, jpeg_size(&bytes), png_size(&bytes)) {
+        (e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
+        // ReMediaJpgHoldingPng.al:108 'mediaset item 1 tenant': as for Media.ImportFile.
+        ("jpg", None, Some(size)) => ("image/jpeg", size),
+        ("PNG", _, Some(size)) => ("image/png", size),
+        (e, _, Some(size)) if e.eq_ignore_ascii_case("png") => {
+            crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
+            ("image/png", size)
+        }
+        _ => {
+            return unsupported(format!(
+                "MediaSet.ImportFile of `{name}`: only a .jpg file holding a JPEG or a .PNG file holding a PNG is pinned (what BC makes of other content or extensions is not)"
+            ));
+        }
     };
     let description = text_arg(a, 1)?;
     let member = c.new_guid();
-    let set = c.new_guid();
+    let set = if held == 0 { c.new_guid() } else { set };
     let media = store(c)?;
     media.objects.borrow_mut().insert(
         member,
         MediaObject {
             bytes,
-            mime: "image/jpeg".into(),
+            mime: mime.into(),
             description,
             file_name: String::new(),
             file_column: Some(FileColumn::Unpinned),
@@ -457,13 +490,11 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             pending: None,
         },
     );
-    media.sets.borrow_mut().insert(set, vec![member]);
+    media.sets.borrow_mut().entry(set).or_default().push(member);
     if let Some(slot) = r {
         *slot = Value::Guid(set);
     }
-    Ok(Value::Unknown(
-        "the return value of MediaSet.ImportFile is not pinned (onprem media/MediaFiles.al does not read it)".into(),
-    ))
+    Ok(Value::Guid(set))
 }
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[
