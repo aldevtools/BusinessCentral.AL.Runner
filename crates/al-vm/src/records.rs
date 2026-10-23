@@ -623,6 +623,46 @@ impl Session {
         Ok(())
     }
 
+    /// The Delete of a row whose MediaSet holds items: their Tenant Media rows go (TestMediaPngImport.al:340-378). What happens
+    /// when another row still holds the same set is not pinned: refused.
+    fn release_media_set(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        pos: usize,
+        set: [u8; 16],
+    ) -> Result<(), Signal> {
+        let filters = [FieldFilter {
+            field: pos,
+            expr: FilterExpr::Eq(Value::Guid(set)),
+            group: 0,
+        }];
+        let scan = Scan {
+            key: 0,
+            filters: &filters,
+            ascending: true,
+            after: None,
+        };
+        let shared = self
+            .store
+            .next(cx, t, &scan)
+            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .is_some();
+        if shared {
+            return unsupported(
+                "a Delete of a row whose MediaSet another row still holds (what happens to its Tenant Media rows is not pinned)",
+            );
+        }
+        let items = self.media.sets.borrow().get(&set).cloned().unwrap_or_default();
+        for id in items {
+            if let Some(obj) = self.media.objects.borrow_mut().remove(&id) {
+                self.media.removed.borrow_mut().insert(id);
+                self.media_removed.0.push((id, obj));
+            }
+        }
+        Ok(())
+    }
+
     fn delete_row(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         let cx = self.cx_for(rec, t)?;
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
@@ -654,6 +694,7 @@ impl Session {
         };
         // The Media fields of the stored row: the Delete of the last row that holds a media removes it from Tenant Media
         // (media/TestMediaPngImport.al:326-332).
+        let mut media_sets: Vec<(usize, [u8; 16])> = Vec::new();
         let media: Vec<(usize, [u8; 16])> = if rec.borrow().temporary {
             Vec::new()
         } else {
@@ -674,16 +715,16 @@ impl Session {
                         .store_for(rec)
                         .get(&cx, t, &pk)
                         .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-                    // What a Delete does to the Tenant Media rows of a MediaSet is not pinned (media/TestMediaPngImport.al:337-375
-                    // pins it, but that test is refused earlier): refused while the set holds anything.
-                    if sets
+                    // The Delete removes the Tenant Media rows of the items still in a MediaSet; an item removed from the set
+                    // earlier keeps its row (media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow:
+                    // 'removed_item_after_delete' Yes, 'kept_item_after_delete' No).
+                    media_sets = sets
                         .iter()
-                        .any(|&i| matches!(stored.as_ref().map(|r| &r[i]), Some(Value::Guid(g)) if *g != [0; 16]))
-                    {
-                        return unsupported(
-                            "a Delete of a row whose MediaSet holds media (what happens to its Tenant Media rows is not pinned)",
-                        );
-                    }
+                        .filter_map(|&i| match stored.as_ref().map(|r| &r[i]) {
+                            Some(Value::Guid(g)) if *g != [0; 16] => Some((i, *g)),
+                            _ => None,
+                        })
+                        .collect();
                     positions
                         .into_iter()
                         .filter_map(|i| match stored.as_ref().map(|r| &r[i]) {
@@ -703,6 +744,9 @@ impl Session {
                 self.deletes += 1;
                 for (i, g) in media {
                     self.release_media(&cx, t, i, g)?;
+                }
+                for (i, set) in media_sets {
+                    self.release_media_set(&cx, t, i, set)?;
                 }
                 if let Some(name) = company {
                     self.after_company_row_delete(&name);

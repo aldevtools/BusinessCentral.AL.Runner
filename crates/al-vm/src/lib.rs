@@ -481,6 +481,9 @@ pub struct Session {
     install_scope: bool,
     /// The company data codeunit (Microsoft's DemoTool) builds the company (`set_company_build`).
     company_build: bool,
+    /// The session's data comes from a baseline in which the company data codeunit built the company to its end
+    /// (`Baseline::company_built`).
+    pub(crate) company_built: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to.
     demo_written: std::collections::HashSet<u32>,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
@@ -794,6 +797,7 @@ impl Session {
             isolated_set_in_test: Default::default(),
             install_scope: false,
             company_build: false,
+            company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,

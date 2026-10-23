@@ -213,6 +213,7 @@ pub fn run_traced(
     let mut notes = Vec::new();
     let mut touched = BTreeSet::new();
     let mut ran = 0;
+    let mut company_built = false;
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
     let company_name = session.set_company("");
@@ -269,6 +270,7 @@ pub fn run_traced(
         match why {
             None => {
                 ran += 1;
+                company_built |= company_root == Some(k);
                 session.commit_transaction();
             }
             Some(why) => {
@@ -314,6 +316,7 @@ pub fn run_traced(
     session.set_install_scope(false);
     let mut baseline = session.capture_baseline();
     baseline.workspace_installs = Some(workspace_installs);
+    baseline.company_built = company_built;
     let filled = baseline.nonempty_tables();
     // A table the restored company holds rows for is seeded, whether or not a root could write it.
     let unseeded = touched

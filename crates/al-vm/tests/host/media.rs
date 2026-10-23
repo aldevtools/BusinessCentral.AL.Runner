@@ -694,3 +694,17 @@ fn media_set_export_file_that_is_not_pinned_is_refused() {
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc} {serve} {body}: {r:?}");
     }
 }
+
+// media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow: the Delete of a row removes the Tenant Media rows of
+// the items still in its MediaSet ('kept_item_after_delete' No) and keeps an item removed from the set earlier
+// ('removed_item_after_delete' Yes).
+#[test]
+fn delete_of_a_row_removes_the_tenant_media_rows_of_the_items_still_in_its_media_set() {
+    let r = import_file(
+        "i1: Guid; i2: Guid; begin Rec.Code := 'A'; Rec.Insert(); Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); \
+         Rec.Images.ImportFile('\\TEMP\\E.PNG', 'two'); Rec.Modify(); Rec.Get('A'); i1 := Rec.Images.Item(1); \
+         i2 := Rec.Images.Item(2); Rec.Images.Remove(i1); Rec.Modify(); Rec.Get('A'); Rec.Delete(); \
+         exit(Format(T.Get(i1)) + '|' + Format(T.Get(i2))); end;",
+    );
+    assert_eq!(r.unwrap(), "Yes|No");
+}
