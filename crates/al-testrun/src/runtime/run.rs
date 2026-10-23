@@ -349,7 +349,7 @@ pub(crate) fn run_codeunit_core(
                 ));
             }
             Ok(_) => session.commit_transaction(),
-            Err(Signal::Unsupported(r)) if r.starts_with("the test used more than the time limit of ") => {
+            Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
                 return all(Outcome::NotRun(r));
             }
             Err(Signal::Unsupported(r)) => return all(Outcome::NotRun(format!("OnRun: {r}"))),
@@ -634,8 +634,15 @@ pub(crate) fn run_codeunit_core(
             _ => outcome,
         };
         session.store_mut().watch(Default::default());
-        let outcome = match outcome {
-            Outcome::Fail(m) if !unfinished.is_empty() => {
+        // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
+        // issue 5776): `kind` names it in the reason.
+        let judged = match outcome {
+            Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
+            Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
+            o => Err(o),
+        };
+        let outcome = match judged {
+            Ok((kind, m)) => {
                 let engine = session.engine.clone();
                 let index: &ReachIndex =
                     reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
@@ -678,11 +685,12 @@ pub(crate) fn run_codeunit_core(
                     }
                 });
                 match found {
-                    Some(why) => Outcome::NotRun(format!("{why}; this failure is not trusted: {m}")),
+                    Some(why) => Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
+                    None if kind == "timeout" => Outcome::NotRun(m),
                     None => Outcome::Fail(m),
                 }
             }
-            o => o,
+            Err(o) => o,
         };
         let ended = match &outcome {
             Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
@@ -925,6 +933,9 @@ pub(crate) struct Watchdog {
     pub(crate) done: std::sync::mpsc::Sender<()>,
     pub(crate) thread: std::thread::JoinHandle<bool>,
 }
+
+/// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
+const TIME_LIMIT_REASON: &str = "the test used more than the time limit of ";
 
 /// How many times the limit the wall clock may run before a test that does not compute is stopped.
 pub(crate) const WALL_BACKSTOP: u32 = 10;

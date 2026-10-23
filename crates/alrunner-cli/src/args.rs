@@ -748,7 +748,7 @@ OTHER
                          load of the machine does not count; a test that hangs without
                          computing is stopped at 10 times N of wall time) is stopped at its
                          next loop iteration and reported as not run, with the limit as the
-                         reason; the codeunit's later failures are then not trusted. A test
+                         reason; the codeunit's later failures and timeouts are then not trusted. A test
                          codeunit's OnRun trigger has a limit of its own (its time counts toward
                          no test); past it, every test of the codeunit gets the timeout row. 0: no limit.
                          Sleep does not wait, but the time it asks for, summed over the test,
