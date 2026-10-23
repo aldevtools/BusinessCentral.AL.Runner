@@ -68,6 +68,8 @@ pub struct TestArgs {
     pub cache_dir: Option<PathBuf>,
     /// `--no-compile-cache`: compile the dependency apps on every run, only what the tests reach.
     pub no_compile_cache: bool,
+    /// `--no-company-reuse`: build the company of `--company-data` again for every run (`ALRUNNER_NO_COMPANY_REUSE=1`).
+    pub no_company_reuse: bool,
     /// `--require-compile-cache`: a run without a usable cache entry is an error (CI).
     pub require_compile_cache: bool,
     /// `--rebuild-compile-cache`: read no entry of the compile cache; build and write the ones this run needs.
@@ -318,6 +320,13 @@ COMPILE CACHE
     200 ms, the folder is cleaned of entries of other al-runner builds unused for 7 days, entries of
     any build unused for 30 days, and leftover temporary files older than a day. A cache hit
     renews the entry. ALRUNNER_NO_CACHE_PRUNE=1 turns this off.
+    The company that --company-data demotool (and --recipe microsoft's Legacy lane) builds is kept
+    there too, under the same parts without the apps under test: every test app over the same
+    dependency apps starts from its own copy of it, unless the app takes part in building it (an
+    extension object, install code or an event subscriber without a bind), which gets a company
+    built with it installed. ALRUNNER_COMPANY_REUSE_VERIFY=1 builds both and says whether they differ.
+    --no-company-reuse   Build that company again for every test app (same outcomes, slower).
+                         Same as ALRUNNER_NO_COMPANY_REUSE=1.
     al-runner cache prune [--dry-run] [--all-other-builds] [--cache-dir DIR]
                          Run that cleanup now and print how many files and bytes went (--dry-run:
                          only print). --all-other-builds also removes entries of other builds that
@@ -1112,6 +1121,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--no-test-data" => a.no_test_data = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--no-compile-cache" => a.no_compile_cache = true,
+            "--no-company-reuse" => a.no_company_reuse = true,
             "--require-compile-cache" => a.require_compile_cache = true,
             "--rebuild-compile-cache" => a.rebuild_compile_cache = true,
             "--codeunit" => {
@@ -1914,6 +1924,8 @@ mod tests {
         assert!(test_args("test A --rebuild-compile-cache").rebuild_compile_cache);
         assert!(!test_args("test A").rebuild_compile_cache);
         assert!(p("test A --rebuild-compile-cache --no-compile-cache").is_err());
+        assert!(!test_args("test A").no_company_reuse);
+        assert!(test_args("test A --no-company-reuse").no_company_reuse);
         assert!(p("test A --rebuild-compile-cache --require-compile-cache").is_err());
     }
 

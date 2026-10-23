@@ -1898,6 +1898,9 @@ mod tests {
         assert!(plain.iter().all(Value::is_plain));
         assert!(!Value::List(Default::default()).is_plain());
         assert!(!Value::Library("X".into(), Default::default()).is_plain());
+        // A RecordId has a form in the baseline snapshot (`value_codec`), but its `Rc` cannot be shared between threads: a
+        // listing that holds one is no `SharedMat` (al-vm platform/mat.rs).
+        assert!(!Value::Library(crate::library_kind::LibraryKind::RecordId, Default::default()).is_plain());
     }
 }
 

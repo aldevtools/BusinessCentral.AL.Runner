@@ -202,10 +202,78 @@ impl Baseline {
         self
     }
 
+    /// The committed rows of every table the baseline holds, by object index (see `MemStore::export_committed`).
+    pub fn exported_tables(&self) -> Option<Vec<al_data::memory::ExportedTable>> {
+        self.store.export_committed()
+    }
+
+    /// This baseline as the start of another program that holds the same objects at other places: `map` gives, per
+    /// object index of this baseline's program, the index of that object in the other program (`None`: it has none).
+    /// What names an object moves: the tables, the AutoIncrement counters, the tables of the workspace installs, and in
+    /// the rows every Enum value (its enum's index) and RecordId (its table's index). `None` when one of them names an
+    /// object the other program does not have.
+    pub fn remapped(&self, map: &[Option<u32>]) -> Option<Baseline> {
+        let at = |o: u32| map.get(o as usize).copied().flatten();
+        let mut tables = self.store.export_committed()?;
+        for t in &mut tables {
+            t.object = at(t.object)?;
+            for (key, row) in &mut t.rows {
+                for v in key.iter_mut().chain(row.iter_mut()) {
+                    *v = remap_value(v, &at)?;
+                }
+            }
+        }
+        let autoinc = self
+            .autoinc
+            .iter()
+            .map(|((c, t), n)| Some(((c.clone(), at(*t)?), *n)))
+            .collect::<Option<_>>()?;
+        let workspace_installs = match &self.workspace_installs {
+            None => None,
+            Some(list) => Some(
+                list.iter()
+                    .map(|(set, why)| Some((set.iter().map(|&t| at(t)).collect::<Option<_>>()?, why.clone())))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+        };
+        Some(Baseline {
+            store: al_data::memory::MemStore::from_exported(tables),
+            autoinc,
+            workspace_installs,
+            ..self.clone()
+        })
+    }
+
     /// The table objects that hold a row in the baseline.
     pub fn nonempty_tables(&self) -> std::collections::BTreeSet<u32> {
         self.store.nonempty_tables()
     }
+}
+
+/// `v` with the object indices it holds (an Enum's enum, a RecordId's table and the values of its key) moved by `at`.
+fn remap_value(v: &al_builtins::value::Value, at: &dyn Fn(u32) -> Option<u32>) -> Option<al_builtins::value::Value> {
+    use al_builtins::value::{LibraryValue, Value};
+    Some(match v {
+        Value::Enum(e, ord) => Value::Enum(at(*e)?, *ord),
+        Value::Library(kind @ al_builtins::library_kind::LibraryKind::RecordId, l) => match &*l.borrow() {
+            LibraryValue::RecordId {
+                table,
+                table_no,
+                name,
+                key,
+            } => Value::Library(
+                kind.clone(),
+                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::RecordId {
+                    table: at(*table)?,
+                    table_no: *table_no,
+                    name: name.clone(),
+                    key: key.iter().map(|k| remap_value(k, at)).collect::<Option<_>>()?,
+                })),
+            ),
+            _ => v.clone(),
+        },
+        _ => v.clone(),
+    })
 }
 
 impl Session {
@@ -339,6 +407,58 @@ mod tests {
             b.last_stamp,
             b.workspace_installs
         )
+    }
+
+    // The company built in the program of the dependency apps (`al-testrun` company_snapshot.rs) is the start of a run
+    // whose program holds the same objects at other places: every object index it holds moves with them.
+    #[test]
+    fn a_baseline_moves_to_the_places_another_program_gives_its_objects() {
+        use al_builtins::value::{LibraryValue, Value};
+        let rid = |table: u32, e: u32| {
+            Value::Library(
+                al_builtins::library_kind::LibraryKind::RecordId,
+                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::RecordId {
+                    table,
+                    table_no: 18,
+                    name: "Customer".into(),
+                    key: vec![Value::Enum(e, 2)],
+                })),
+            )
+        };
+        let mut b = sample();
+        b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
+            company: "CRONUS".into(),
+            object: 3,
+            rows: vec![(vec![Value::Enum(5, 1)], vec![Value::Enum(5, 1), rid(3, 5)])],
+        }]);
+        b.autoinc = [(("CRONUS".to_string(), 3), 4_i64)].into_iter().collect();
+        b.workspace_installs = Some(vec![([3_u32].into_iter().collect(), "why".to_string())]);
+        let mut map = vec![None; 6];
+        map[3] = Some(7);
+        map[5] = Some(9);
+        let moved = b.remapped(&map).expect("every object it names has a place");
+        let mut expected = sample();
+        expected.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
+            company: "CRONUS".into(),
+            object: 7,
+            rows: vec![(vec![Value::Enum(9, 1)], vec![Value::Enum(9, 1), rid(7, 9)])],
+        }]);
+        expected.autoinc = [(("CRONUS".to_string(), 7), 4_i64)].into_iter().collect();
+        expected.workspace_installs = Some(vec![([7_u32].into_iter().collect(), "why".to_string())]);
+        // The RecordId's key moved too.
+        let Some(ExportedTable { rows, .. }) = moved.store.export_committed().unwrap().pop() else {
+            panic!("one table")
+        };
+        let Value::Library(_, l) = &rows[0].1[1] else {
+            panic!("a RecordId")
+        };
+        assert!(
+            matches!(&*l.borrow(), LibraryValue::RecordId { table: 7, key, .. } if matches!(key[..], [Value::Enum(9, 2)]))
+        );
+        assert_eq!(moved.to_bytes(), expected.to_bytes());
+        // An object the other program does not have: no baseline.
+        map[5] = None;
+        assert!(b.remapped(&map).is_none());
     }
 
     #[test]

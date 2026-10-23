@@ -152,6 +152,11 @@ fn file(dir: &Path, key: &str) -> PathBuf {
 /// The run kept under `key` and the instant it began. A file that cannot be read is removed. A hit marks the file
 /// as used now, so that the cleanup of the compile cache keeps what runs still use.
 pub fn read(dir: &Path, key: &str) -> Option<(BaselineRun, i64)> {
+    read_with(dir, key, decode)
+}
+
+/// What `decode` makes of the file kept under `key`. A file it cannot read is removed; a hit marks the file as used.
+pub(crate) fn read_with<T>(dir: &Path, key: &str, decode: impl FnOnce(&[u8]) -> Option<T>) -> Option<T> {
     let path = file(dir, key);
     let bytes = std::fs::read(&path).ok()?;
     match decode(&bytes) {
@@ -169,16 +174,20 @@ pub fn read(dir: &Path, key: &str) -> Option<(BaselineRun, i64)> {
 /// Keeps `run` under `key`, with the instant it began. Best effort: a folder that cannot be written costs the next
 /// run its install code, nothing else. The cleanup is the compile cache's (`compile_cache::prune`).
 pub fn write(dir: &Path, key: &str, run: &BaselineRun, started_at: i64) {
-    let Some(bytes) = encode(run, started_at) else {
-        return;
-    };
+    if let Some(bytes) = encode(run, started_at) {
+        write_bytes(dir, key, &bytes);
+    }
+}
+
+/// Keeps `bytes` under `key`, as [`write`] does.
+pub(crate) fn write_bytes(dir: &Path, key: &str, bytes: &[u8]) {
     if std::fs::create_dir_all(dir).is_err() {
         return;
     }
     let target = file(dir, key);
     // A name of its own per writer: two runs that write at once do not mix their bytes.
     let temp = dir.join(format!(".{key}.tmp-{}", std::process::id()));
-    if std::fs::write(&temp, &bytes).is_err() || std::fs::rename(&temp, &target).is_err() {
+    if std::fs::write(&temp, bytes).is_err() || std::fs::rename(&temp, &target).is_err() {
         let _ = std::fs::remove_file(&temp);
         return;
     }

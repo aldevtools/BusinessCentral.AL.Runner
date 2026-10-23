@@ -584,6 +584,8 @@ impl CorpusRuntime {
                 try_skip,
                 symbols: symbols.clone(),
             }),
+            manifests: manifests.to_vec(),
+            lazy,
         })
     }
 
@@ -611,6 +613,8 @@ impl CorpusRuntime {
             lean,
             compiles,
             incr: _,
+            manifests: _,
+            lazy: _,
         } = compiled;
         let (baseline_wanted, baseline, compile_cache_skipped, source_index) =
             (*baseline_wanted, *baseline, *compile_cache_skipped, *source_index);
@@ -702,7 +706,17 @@ impl CorpusRuntime {
         // It does not depend on the baseline, so it is built beside it, on another core.
         // The baseline of an earlier run of the same program, when the compile cache is on and nothing outside the
         // program can have changed what the install code reads (`baseline_key`).
-        let baseline_key = if baseline {
+        // The company built by the dependency apps alone, when no app under test takes part in building it
+        // (`company.rs`): every run of the same dependency apps starts from the same one.
+        let company_plan: Option<Result<(), String>> = opts
+            .company_data
+            .as_ref()
+            .filter(|_| baseline)
+            .map(|c| super::company::apps_under_test_take_no_part(ws, c));
+        let shared_company = matches!(company_plan, Some(Ok(())));
+        let mut company_note: Option<String> = None;
+        let mut company_read = false;
+        let baseline_key = if baseline && !shared_company {
             baseline_key(
                 ws,
                 lowered,
@@ -750,7 +764,16 @@ impl CorpusRuntime {
                         .ok()
                 })
                 .flatten();
-            let run = if baseline {
+            let run = if baseline && shared_company {
+                let (run, note, read) =
+                    super::company::start(compiled, &engine, cache_report.as_ref(), target, &dotnet, opts);
+                company_note = Some(note);
+                company_read = read;
+                run
+            } else if baseline {
+                if let Some(Err(why)) = &company_plan {
+                    company_note = Some(format!("built with the apps under test: {why}"));
+                }
                 kept.or_else(|| {
                     crate::baseline::run_traced(
                         &engine,
@@ -792,6 +815,9 @@ impl CorpusRuntime {
             if !opts.quiet_baseline {
                 if from_cache {
                     eprintln!("baseline: read from the cache of an earlier run of this program");
+                }
+                if let Some(n) = &company_note {
+                    eprintln!("baseline: the company was {n}");
                 }
                 for n in &b.notes {
                     eprintln!("baseline: {n}");
@@ -1223,7 +1249,14 @@ impl CorpusRuntime {
                 };
                 std::thread::scope(|scope| {
                     let mut handles = Vec::new();
-                    for _ in 1..workers.min(rest.len()) {
+                    // A company built by the dependency apps alone is not what the install code gives in this program, so
+                    // a thread cannot run it again here: without a snapshot the tests stay on this thread.
+                    let threads = if shared_company && baseline_engine.is_some() && snapshot.is_none() {
+                        1
+                    } else {
+                        workers.min(rest.len())
+                    };
+                    for _ in 1..threads {
                         let spawned = std::thread::Builder::new()
                             .stack_size(TEST_STACK)
                             .spawn_scoped(scope, || {
@@ -1473,6 +1506,7 @@ impl CorpusRuntime {
             phases: Phases {
                 baseline_assumptions: baseline_ids,
                 baseline_roots,
+                company: company_note.clone(),
                 compile: compile_time,
                 baseline: baseline_time,
                 tests: tests_time,
@@ -1628,41 +1662,11 @@ fn baseline_key(
     dotnet: &al_vm::dotnet::DotNetConfig,
     opts: &RunOptions,
 ) -> Option<String> {
-    let report = report?;
-    opts.compile_cache.as_ref()?;
-    if opts.trace
-        || opts.execute
-        || opts.coverage
-        || suites.iter().any(|s| s.runner.is_some())
-        || crate::host::uses_real_files()
-        || crate::host::real_clock()
-    {
+    if suites.iter().any(|s| s.runner.is_some()) {
         return None;
     }
     let mut key = crate::baseline_cache::KeyBuilder::new();
-    // The restored database: which backup, as the provider says (file, length, modification time, company). A
-    // provider that cannot say gets nothing kept.
-    match &opts.test_data {
-        Some(td) => key.text("test_data", &td.provider.identity()?),
-        None => key.text("test_data", ""),
-    };
-    // Whether `DotNet` calls of the install code could run. A baseline made without a usable .NET holds what the
-    // refused calls left out, and one made with it holds what they did.
-    key.text(
-        "dotnet",
-        if dotnet.host.availability().is_ok() {
-            "available"
-        } else {
-            "unavailable"
-        },
-    );
-    key.bytes("runtime_build", &crate::compile_cache::runtime_build());
-    // The codeunit that builds the company, and what its files and its app's source are.
-    match &opts.company_data {
-        Some(c) => key.text("company_data", &format!("{} {} {}", c.codeunit, c.name, c.identity)),
-        None => key.text("company_data", ""),
-    };
-    key.text("dependencies", &report.file.file_name()?.to_string_lossy());
+    world_key(&mut key, report?, target, dotnet, opts)?;
     for (i, app) in ws.apps.iter().enumerate() {
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {
             key.text("app", &app.id);
@@ -1689,6 +1693,65 @@ fn baseline_key(
     let only: Vec<String> = only.unwrap_or(&[]).iter().map(|(a, id)| format!("{a}/{id}")).collect();
     key.text("only", &only.join(","));
     key.text("only_set", if opts.only.is_some() { "yes" } else { "no" });
+    Some(key.finish())
+}
+
+/// The parts of [`baseline_key`] that are the world around the program: the restored database, .NET, this runtime
+/// build, the company data codeunit, the dependency layers, the target, the host and the day. The company built by the
+/// dependency apps alone is kept under them too (`company::company_key`). `None`: nothing is kept (a run that records,
+/// runs .NET's real files, reads the real clock, ...).
+pub(crate) fn world_key(
+    key: &mut crate::baseline_cache::KeyBuilder,
+    report: &crate::compile_cache::CacheReport,
+    target: Option<&al_version::Target>,
+    dotnet: &al_vm::dotnet::DotNetConfig,
+    opts: &RunOptions,
+) -> Option<()> {
+    opts.compile_cache.as_ref()?;
+    if opts.trace || opts.execute || opts.coverage || crate::host::uses_real_files() || crate::host::real_clock() {
+        return None;
+    }
+    // The restored database: which backup, as the provider says (file, length, modification time, company). A
+    // provider that cannot say gets nothing kept.
+    match &opts.test_data {
+        Some(td) => key.text("test_data", &td.provider.identity()?),
+        None => key.text("test_data", ""),
+    };
+    // Whether `DotNet` calls of the install code could run. A baseline made without a usable .NET holds what the
+    // refused calls left out, and one made with it holds what they did.
+    key.text(
+        "dotnet",
+        if dotnet.host.availability().is_ok() {
+            "available"
+        } else {
+            "unavailable"
+        },
+    );
+    key.bytes("runtime_build", &crate::compile_cache::runtime_build());
+    // The steps that build the company, how they run, and what their files and their apps' source are. The identity
+    // tells the companies apart (`demotool ...`, `contoso setup ...`, `contoso all ...`); the steps, the session
+    // flags and the apps installed first are in the key as well, so two companies that run differently never share.
+    match &opts.company_data {
+        Some(c) => {
+            key.text("company_data", &format!("{} {} {}", c.codeunit, c.name, c.identity));
+            let steps: Vec<String> = c
+                .steps()
+                .iter()
+                .map(|s| format!("{} {}", s.codeunit, s.label()))
+                .collect();
+            key.text("company_steps", &steps.join(";"));
+            key.text("company_no_client", if c.no_client { "yes" } else { "no" });
+            key.text("company_evaluation", if c.evaluation_company { "yes" } else { "no" });
+            match &c.installed_first {
+                Some(first) => key.text("company_installed_first", &first.join(";")),
+                None => key.text("company_installed_first", "<every app>"),
+            };
+        }
+        None => {
+            key.text("company_data", "");
+        }
+    }
+    key.text("dependencies", &report.file.file_name()?.to_string_lossy());
     match target {
         Some(t) => key.text("target", &format!("{}/{}", t.bc, t.runtime)),
         None => key.text("target", "none"),
@@ -1707,7 +1770,7 @@ fn baseline_key(
         "base_access",
         &std::env::var("AL_UNPINNED_BASE_ACCESS").unwrap_or_default(),
     );
-    Some(key.finish())
+    Some(())
 }
 
 /// The isolation BC's TestRunnerHub runs test codeunit `oi` under: its `RequiredTestIsolation`, `None` when that is

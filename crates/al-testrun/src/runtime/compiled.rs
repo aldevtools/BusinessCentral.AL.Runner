@@ -84,6 +84,10 @@ pub struct RunOptions {
     /// entry runs its own tests with its own resource files, from the same database. Empty: one pass, as `only`,
     /// `run_only` and `hooks` say.
     pub entries: Vec<EntryRun>,
+    /// With `company_data`: build the company again for every run instead of reading the one an earlier run of the
+    /// same dependency apps kept (`company.rs`; `--no-company-reuse`, `ALRUNNER_NO_COMPANY_REUSE=1`). The outcomes are
+    /// the same.
+    pub no_company_reuse: bool,
 }
 
 /// One entry of a run (`RunOptions::entries`).
@@ -173,6 +177,10 @@ pub struct Compiled {
     pub(crate) compiles: usize,
     /// What the incremental update needs, when the compile used the dependency cache (`update_files`).
     pub(crate) incr: Option<Incr>,
+    /// The manifests and the lazily read sources of the apps, in program order: a company built without the apps
+    /// under test compiles the dependency apps again with them (`company.rs`).
+    pub(crate) manifests: Vec<Manifest>,
+    pub(crate) lazy: Vec<Option<al_sema::LazySource>>,
 }
 
 /// What [`Compiled::update_files`] needs of the compile it renews.

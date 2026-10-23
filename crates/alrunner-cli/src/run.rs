@@ -1361,6 +1361,7 @@ fn test_inner(
         }),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
+        no_company_reuse: a.no_company_reuse || std::env::var_os(al_testrun::runtime::NO_REUSE_ENV).is_some(),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
                 a.cache_dir.as_deref(),

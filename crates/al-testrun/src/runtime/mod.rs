@@ -326,6 +326,9 @@ pub struct TestResult {
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {
+    /// With `--company-data`: how the company came about (`company.rs`): read from the cache, built for the dependency
+    /// apps, or built in the run's own program and why.
+    pub company: Option<String>,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
@@ -745,6 +748,7 @@ impl<T: Send + 'static> Drop for Retiring<T> {
 
 mod blocked;
 mod cache;
+mod company;
 mod compiled;
 mod corpus;
 mod handlers;
@@ -756,6 +760,7 @@ pub(crate) mod written;
 
 pub use self::blocked::*;
 pub use self::cache::*;
+pub use self::company::{NO_REUSE_ENV, VERIFY_ENV};
 pub use self::compiled::*;
 use self::handlers::*;
 pub use self::run::*;

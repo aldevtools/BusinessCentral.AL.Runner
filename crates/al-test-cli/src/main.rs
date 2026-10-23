@@ -596,6 +596,7 @@ fn run_version(
         stop_on_compile_errors: false,
         run_only: None,
         entries: Vec::new(),
+        no_company_reuse: false,
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(
