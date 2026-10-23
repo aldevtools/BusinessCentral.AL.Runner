@@ -6,10 +6,11 @@
 //! `platform/objects.rs`; the Blob holds the query's id under the mark `stream::QUERY_METADATA`). `Fields()` lists one
 //! entry per column in query order: `FieldNo` the source field (0 for a Method = Count column), `TableNo` the data item's
 //! table, `FieldName` the column name (tests/al-language-onprem-dotnet/lt-re-dotnet/ReQueryMetadataShapes.al:99-145; one
-//! data item: lt-qx-dotnet/QxDotNetDemoShapes.al:150-182).
+//! data item: lt-qx-dotnet/QxDotNetDemoShapes.al:150-182; Sum, Average, Min, Max, ReverseSign and FlowField columns:
+//! ReQueryMetadataShapes.al:171-182).
 //!
-//! Refused: any other stream, a query with a filter element, a column with another Method or ReverseSign, a column name
-//! that is not a plain identifier (none is pinned), `Item` out of range, every other member.
+//! Refused: any other stream, a query with a filter element, a column name that is not a plain identifier (none is
+//! pinned), `Item` out of range, every other member.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
@@ -20,7 +21,7 @@ use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const PIN: &str = "tests/al-language-onprem-dotnet/lt-re-dotnet/ReQueryMetadataShapes.al:99-145; \
+const PIN: &str = "tests/al-language-onprem-dotnet/lt-re-dotnet/ReQueryMetadataShapes.al:99-145, :171-182; \
     lt-qx-dotnet/QxDotNetDemoShapes.al:150-182";
 
 fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
@@ -94,12 +95,6 @@ fn from_stream(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value]) ->
                 "DotNet {QUERY_METADATA_READER}.Fields of query {id}: a filter element (not pinned)"
             ));
         }
-        if c.reverse_sign || !matches!(c.method, None | Some(al_ir::QueryMethod::Count)) {
-            return unsupported(format!(
-                "DotNet {QUERY_METADATA_READER}.Fields of query {id}: column {} has a Method other than Count or ReverseSign (not pinned)",
-                c.name
-            ));
-        }
         if !plain_identifier(&c.name) {
             return unsupported(format!(
                 "DotNet {QUERY_METADATA_READER}.Fields of query {id}: the FieldName of column '{}' (only plain names are pinned)",
@@ -108,6 +103,8 @@ fn from_stream(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value]) ->
         }
         let item = &def.items[c.item];
         let table = &program.objects[item.table];
+        // Sum, Average, Min and Max columns carry their source field like a plain column, Count has 0; ReverseSign and
+        // FlowField columns are plain entries (lt-re-dotnet/ReQueryMetadataShapes.al:171-182, one and nested data items).
         let field_no = match (c.method, c.field) {
             (Some(al_ir::QueryMethod::Count), _) => 0,
             (_, Some(f)) => table.table.as_ref().expect("a data item's table").fields[f].id as i32,

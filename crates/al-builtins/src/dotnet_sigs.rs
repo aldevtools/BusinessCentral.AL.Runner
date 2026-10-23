@@ -83,6 +83,9 @@ pub const STAGED_FILE_INFO: &str = "<FileInfo of a staged folder>";
 
 /// Microsoft's reader of a query's metadata (al-vm dotnet/query_metadata.rs), the list its `Fields()` answers (no real CLR
 /// type name, so no object of the .NET host takes its members), and one entry of it.
+/// AL declares it without type arguments (Base Application's ODataUtility, al-vm `dotnet/generic_dictionary.rs`).
+pub const GENERIC_DICTIONARY: &str = "System.Collections.Generic.Dictionary`2";
+pub const GENERIC_DICTIONARY_ENUMERATOR: &str = "<enumerator of a runtime-made Dictionary`2>";
 pub const QUERY_METADATA_READER: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryMetadataReader";
 pub const QUERY_FIELDS_LIST: &str = "<fields of a query metadata reader>";
 pub const QUERY_FIELDS: &str = "Microsoft.Dynamics.Nav.Client.BusinessChart.QueryFields";
@@ -200,6 +203,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (STAGED_FILE_ENUMERATOR, "Current", Ret::Object),
     (STAGED_FILE_INFO, "FullName", Ret::Text),
     (STAGED_FILE_INFO, "Length", Ret::Object),
+    (GENERIC_DICTIONARY, "Dictionary", Ret::Object),
     (QUERY_METADATA_READER, "FromStream", Ret::Object),
     (QUERY_METADATA_READER, "Fields", Ret::Object),
     (QUERY_FIELDS_LIST, "Count", Ret::Integer),
