@@ -724,6 +724,9 @@ const REGISTRY: &[(&str, NativeFn)] = &[
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(text))),
         ))
     }),
+    // The routine that created this InStream on its own local hands it back and ends: it reads as empty
+    // (streams/lt-dc-stream-leads/DcInStreamScope.al:107-166).
+    ("InStream.OwnerOutOfScope#1", crate::stream::owner_out_of_scope),
     // An interface assigned from another interface variable: one that holds no implementation raises
     // (codeunit/lt-enums-interfaces/OjT71047.al:250-251, Uninitialized_AssignedFromUninitialized `af224`).
     ("Interface.AssertAssigned#1", |_, _, a| match a.first() {
@@ -867,6 +870,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "Variant.IntoInteger#1",
     "Variant.IntoOption#1",
     "Text.MaxStrLenOfVarParameter#1",
+    "InStream.OwnerOutOfScope#1",
 ];
 
 /// Every name that gets a [`BuiltinId`]: the catalog's overloads of every version, the registered natives
@@ -2562,6 +2566,7 @@ pub(crate) mod tests {
             "Interface.AssertAssigned#1",
             "Variant.IntoInteger#1",
             "Variant.IntoOption#1",
+            "InStream.OwnerOutOfScope#1",
         ];
         for id in registered_ids().into_iter().filter(|id| !derived.contains(id)) {
             assert!(ids.iter().any(|i| i == id), "{id} is not a catalog overload id");
