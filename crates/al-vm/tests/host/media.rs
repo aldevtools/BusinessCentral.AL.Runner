@@ -506,6 +506,10 @@ impl al_host::FileSystem for BuildFolder {
 }
 
 fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
+    export_file_in(bc, serve, false, body)
+}
+
+fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Result<String, Signal> {
     use al_host::FileSystem;
     let src = format!(
         "{TABLE}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; P: Text; n: Integer; {body} {LEN} }}"
@@ -532,6 +536,7 @@ fn export_file_on(bc: &str, serve: bool, body: &str) -> Result<String, Signal> {
         host.with_files(files)
     };
     let mut s = Session::with_host(engine, host);
+    s.set_company_build(company_build);
     let inst = s.instance(oi);
     match s.call(oi, ri, inst, vec![])?.0 {
         Value::Text(t) => Ok(t.to_string()),
@@ -589,6 +594,40 @@ fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_th
         let r = export_file_on(bc, true, &format!("{set}exit(Format(Len(P + '-1'))); end;"));
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc}: {r:?}");
     }
+}
+
+// Owner decision 2026-10-23 "Carry bytes unread": in the company build, the file of a re-encoded item moves unread through
+// File.Exists, File.Open and CreateInStream, CopyStream, a Blob field and a file written from it (Config. XML Exchange.
+// ImportMediaSetFromFile via File Management.BLOBImportFromServerFile, FileManagement.Codeunit.al:444; the package export).
+// Any read of its bytes, length or text is still refused with the mark.
+#[test]
+fn a_re_encoded_export_file_moves_unread_through_file_stream_and_blob_in_the_company_build() {
+    let png = "G: File; H: File; Ins: InStream; Outs: OutStream; Q: Text; \
+               begin Rec.Images.ImportFile('\\TEMP\\E.PNG', 'png'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+               P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); Q := P + '-1'; \
+               if not Exists(Q) then exit('missing'); \
+               G.Open(Q); G.CreateInStream(Ins); Rec.Src.CreateOutStream(Outs); CopyStream(Outs, Ins); G.Close(); \
+               Rec.Modify(); Clear(Rec); Rec.Get('A'); Rec.CalcFields(Src); Rec.Src.CreateInStream(Ins); \
+               H.Create(P + '-copy'); H.CreateOutStream(Outs); CopyStream(Outs, Ins); H.Close(); ";
+    let ok = |body: &str| export_file_in("29.0", true, true, &format!("{png}{body} end;"));
+    assert_eq!(ok("exit(Format(Exists(P + '-copy')));").unwrap(), "Yes");
+    for look in [
+        "exit(Format(Len(Q)));",
+        "exit(Format(Len(P + '-copy')));",
+        "Rec.Src.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
+        "exit(Format(Ins.Length));",
+        "G.Open(P + '-copy'); G.CreateInStream(Ins); Ins.ReadText(Q); exit(Q);",
+    ] {
+        let r = ok(look);
+        let why = match &r {
+            Err(Signal::Unsupported(why)) => why.clone(),
+            other => panic!("{look}: {other:?}"),
+        };
+        assert!(why.contains("MediaSet.ExportFile"), "{look}: {why}");
+    }
+    // Outside the company build nothing changes: File.Exists of the file is refused.
+    let r = export_file_in("29.0", true, false, &format!("{png}exit('ran'); end;"));
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 // Not pinned, so refused: what a file system outside the company build's gets, a folder that does not exist, an empty

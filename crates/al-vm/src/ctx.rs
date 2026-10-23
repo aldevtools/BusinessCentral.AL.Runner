@@ -148,7 +148,10 @@ impl al_builtins::native::Ctx for Session {
         Session::collect_error(self, info)
     }
     fn fs_exists(&mut self, path: &str) -> Result<bool, Signal> {
-        self.refuse_pending_file(path)?;
+        // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread").
+        if self.fs_carried_mark(path).is_none() {
+            self.refuse_pending_file(path)?;
+        }
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
@@ -163,8 +166,24 @@ impl al_builtins::native::Ctx for Session {
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
-        self.refuse_pending_file(path)?;
+        if self.fs_carried_mark(path).is_some() {
+            self.render_pending_files.remove(&pending_key(path));
+        } else {
+            self.refuse_pending_file(path)?;
+        }
         Ok(self.host.files.remove(path))
+    }
+    fn company_build(&self) -> bool {
+        self.company_build
+    }
+    fn fs_carried_mark(&self, path: &str) -> Option<Arc<str>> {
+        if !self.company_build || self.render_pending_files.is_empty() {
+            return None;
+        }
+        self.render_pending_files
+            .get(&pending_key(path))
+            .filter(|m| al_builtins::stream::is_carried_mark(m))
+            .cloned()
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
         self.host.files.write(path, &[])?;

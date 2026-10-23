@@ -334,6 +334,16 @@ pub trait Ctx: FormatCtx {
     fn fs_write_unproduced(&mut self, _path: &str, _mark: &str) -> Result<(), String> {
         Err("this context has no file system".into())
     }
+    /// Whether the company data codeunit (Microsoft's DemoTool) is building the company: only there content behind a carried
+    /// mark (`stream::is_carried_mark`) moves unread.
+    fn company_build(&self) -> bool {
+        false
+    }
+    /// In the company build, the carried mark (`stream::is_carried_mark`) of a file written with content the runtime does not
+    /// know (`fs_write_unproduced`): File.Open gives an opaque buffer instead of refusing.
+    fn fs_carried_mark(&self, _path: &str) -> Option<std::sync::Arc<str>> {
+        None
+    }
     /// Whether `path` lies in the company build's file system, which also answers folder questions (al-host
     /// `FileSystem::serves_path`; owner rule 2026-10-22: folder access only inside the company build).
     fn fs_serves_path(&self, _path: &str) -> bool {

@@ -101,6 +101,34 @@ pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields,
 /// FromStream, and the reader is not null: QxDotNetDemoShapes.al:174-181).
 pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a query";
 
+/// Whether the content behind a mark moves unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): a file
+/// MediaSet.ExportFile wrote for an item BC re-encodes (PNG and the like; its bytes differ by platform, 103 on Windows BC 29.0
+/// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
+/// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
+/// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
+pub fn is_carried_mark(what: &str) -> bool {
+    what == MEDIA_SET_FILE_REENCODED
+}
+
+/// Makes `blob` an opaque copy of content behind `mark`: no bytes, and any look refused with the mark.
+pub fn mark_carried(blob: &BlobRef, mark: std::sync::Arc<str>) {
+    let mut buf = blob.borrow_mut();
+    buf.bytes.clear();
+    buf.write_pos = 0;
+    buf.loaded = true;
+    buf.written = true;
+    buf.render_pending = Some(mark);
+}
+
+/// The carried mark (`is_carried_mark`) of the buffer an InStream value reads, if it reads one.
+pub fn carried_mark_of_in(v: &Value) -> Option<std::sync::Arc<str>> {
+    let Value::Library(_, h) = v else { return None };
+    match &*h.borrow() {
+        LibraryValue::InStream(s) => s.render_pending().filter(|m| is_carried_mark(m)),
+        _ => None,
+    }
+}
+
 /// Whether a mark is one of the two unpinned Blob writes above (they refuse any look, not only a report column).
 pub fn is_unloaded_write_mark(what: &str) -> bool {
     what == UNLOADED_WRITE || what == UNLOADED_THEN_LOADED
@@ -631,11 +659,14 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     Ok(Value::Null)
 }
 
-fn blob_create_in(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let enc = Encoding::from_arg(a)?;
     let b = blob_of(r)?;
-    // A query's metadata is only handed to QueryMetadataReader.FromStream; a read of the stream refuses (`with_data`).
-    if b.borrow().render_pending.as_deref() != Some(QUERY_METADATA) {
+    // A query's metadata is only handed to QueryMetadataReader.FromStream; a read of the stream refuses (`with_data`). Content
+    // carried unread in the company build (`is_carried_mark`) gives a stream that only CopyStream moves on.
+    let pending = b.borrow().render_pending.clone();
+    let carried = ctx.company_build() && pending.as_deref().is_some_and(is_carried_mark);
+    if pending.as_deref() != Some(QUERY_METADATA) && !carried {
         b.borrow().observe()?;
     }
     set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
@@ -1510,6 +1541,15 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     }
     if a.len() > 2 {
         return unsupported("CopyStream with a byte count (not pinned)");
+    }
+    // Content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread", `is_carried_mark`): the
+    // target becomes an opaque copy; the source has no bytes to drain.
+    if ctx.company_build()
+        && let Some(mark) = carried_mark_of_in(&a[1])
+    {
+        let (out, _) = out_buf(Some(&mut a[0]))?;
+        mark_carried(&out, mark);
+        return Ok(Value::Boolean(true));
     }
     let (out, _) = out_buf(Some(&mut a[0]))?;
     let bytes = with_in(Some(&mut a[1]), |s| Ok(s.drain()))?;
