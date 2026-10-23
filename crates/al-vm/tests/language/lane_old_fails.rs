@@ -125,24 +125,91 @@ fn http_request_content_clear_then_get_headers() {
     );
 }
 
-/// An InStream handed back from a routine whose local owns its bytes reads as empty on BC once the local is out of scope
-/// (streams/lt-dc-stream-leads/DcInStreamScope.al:107-112, :125-126): refused. A stream of a global and one read in scope run.
+/// An InStream handed back from a routine whose local temporary record owns its bytes reads as empty on BC once the local
+/// is out of scope: Length 0, EOS Yes, ReadText gives '' (streams/lt-dc-stream-leads/DcInStreamScope.al:107-112, :125-126).
+/// A stream of a global keeps its bytes.
 #[test]
-fn an_instream_of_a_local_handed_back_is_refused() {
+fn an_instream_of_a_local_handed_back_reads_empty() {
     let src = r#"table 50101 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }
 codeunit 50100 C {
   var G: Record B temporary;
   local procedure FromLocal() Result: InStream var R: Record B temporary; O: OutStream; begin R.Data.CreateOutStream(O); O.WriteText('x'); R.Data.CreateInStream(Result); end;
   local procedure FromLocalVar(var S: InStream) var R: Record B temporary; O: OutStream; begin R.Data.CreateOutStream(O); O.WriteText('x'); R.Data.CreateInStream(S); end;
   local procedure FromGlobal() Result: InStream var O: OutStream; begin G.Data.CreateOutStream(O); O.WriteText('kept'); G.Data.CreateInStream(Result); end;
-  procedure Local(): Text var S: InStream; T: Text; begin S := FromLocal(); S.ReadText(T); exit(T); end;
-  procedure LocalVar(): Text var S: InStream; T: Text; begin FromLocalVar(S); S.ReadText(T); exit(T); end;
+  local procedure Show(var S: InStream): Text var T: Text; L: Text; E: Text; begin L := Format(S.Length()); E := Format(S.EOS()); S.ReadText(T); exit(L + '|' + E + '|' + T + '|' + Format(S.EOS())); end;
+  procedure Local(): Text var S: InStream; begin S := FromLocal(); exit(Show(S)); end;
+  procedure LocalVar(): Text var S: InStream; begin FromLocalVar(S); exit(Show(S)); end;
   procedure Global(): Text var S: InStream; T: Text; begin S := FromGlobal(); S.ReadText(T); exit(T); end; }"#;
-    for routine in ["Local", "LocalVar"] {
-        let r = out(al_testkit::run_in(src, "C", routine));
-        assert!(r.contains("out of scope"), "{routine}: {r}");
-    }
+    assert_eq!(out(al_testkit::run_in(src, "C", "Local")), "0|Yes||Yes");
+    assert_eq!(out(al_testkit::run_in(src, "C", "LocalVar")), "0|Yes||Yes");
     assert_eq!(out(al_testkit::run_in(src, "C", "Global")), "kept");
+}
+
+/// The Temp Blob codeunit as test code sees it: a stand-in with the System app's id and name, whose bytes live in a temporary
+/// record it holds as a global.
+const TEMP_BLOB: &str = r#"table 50102 TB { TableType = Temporary; fields { field(1; Id; Integer) { } field(2; Blob; Blob) { } } }
+codeunit 4100 "Temp Blob" {
+  var R: Record TB temporary;
+  procedure CreateInStream(var S: InStream) begin R.Blob.CreateInStream(S); end;
+  procedure CreateOutStream(var O: OutStream) begin R.Blob.CreateOutStream(O); end; }
+"#;
+
+/// al-runner issue 5688: a var InStream filled by a procedure of another codeunit named CreateInstream (as Http Web Request
+/// Mgt. has) that creates it on its own local Temp Blob, directly and through two levels, empty or with text: Length 0, EOS
+/// Yes, ReadText '' (streams/lt-dc-stream-leads/DcInStreamScope.al:128-166). The procedure named CreateInstream of a codeunit
+/// is no Blob method: the caller that hands its stream on is not refused.
+#[test]
+fn an_instream_of_a_local_temp_blob_of_another_codeunit_reads_empty() {
+    let src = format!(
+        r#"{TEMP_BLOB}
+codeunit 50103 Source {{
+  procedure CreateInstream(var InStr: InStream) var TempBlob: Codeunit "Temp Blob"; begin TempBlob.CreateInStream(InStr); end;
+  procedure FilledInstream(Content: Text; var InStr: InStream) var TempBlob: Codeunit "Temp Blob"; O: OutStream; begin
+    TempBlob.CreateOutStream(O); O.WriteText(Content); TempBlob.CreateInStream(InStr); end; }}
+codeunit 50100 C {{
+  local procedure Via(Content: Text; var S: InStream) var Source: Codeunit Source; begin
+    if Content = '' then Source.CreateInstream(S) else Source.FilledInstream(Content, S); end;
+  local procedure Show(var S: InStream): Text var T: Text; L: Text; E: Text; begin L := Format(S.Length()); E := Format(S.EOS()); S.ReadText(T); exit(L + '|' + E + '|' + T + '|' + Format(S.EOS())); end;
+  procedure TwoEmpty(): Text var S: InStream; begin Via('', S); exit(Show(S)); end;
+  procedure TwoText(): Text var S: InStream; begin Via('hello', S); exit(Show(S)); end;
+  procedure Direct(): Text var S: InStream; Source: Codeunit Source; begin Source.FilledInstream('hello', S); exit(Show(S)); end; }}"#
+    );
+    for routine in ["TwoEmpty", "TwoText", "Direct"] {
+        assert_eq!(out(al_testkit::run_in(&src, "C", routine)), "0|Yes||Yes", "{routine}");
+    }
+}
+
+/// A stream whose owner went out of scope: only Length, EOS and ReadText are pinned (DcInStreamScope.al:107-166); anything
+/// else is refused when it runs.
+#[test]
+fn an_instream_of_a_local_out_of_scope_refuses_other_uses() {
+    let src = r#"table 50101 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }
+codeunit 50100 C {
+  local procedure FromLocal() Result: InStream var R: Record B temporary; O: OutStream; begin R.Data.CreateOutStream(O); O.WriteText('x'); R.Data.CreateInStream(Result); end;
+  procedure ReadInt(): Text var S: InStream; I: Integer; begin S := FromLocal(); S.Read(I); exit(Format(I)); end;
+  procedure Pos(): Text var S: InStream; begin S := FromLocal(); exit(Format(S.Position())); end; }"#;
+    for routine in ["ReadInt", "Pos"] {
+        let r = out(al_testkit::run_in(src, "C", routine));
+        assert!(r.starts_with("refused:") && r.contains("out of scope"), "{routine}: {r}");
+    }
+}
+
+/// A stream of a local handed back in a shape no corpus test pins (a record that is not temporary, a call that is not the
+/// routine's last statement) is refused when that code runs, not when it is only reachable (al-runner issue 5688).
+#[test]
+fn an_instream_of_a_local_in_an_unpinned_shape_refuses_when_it_runs() {
+    let src = r#"table 50101 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }
+codeunit 50100 C {
+  local procedure NotTemp(var S: InStream) var R: Record B; begin R.Data.CreateInStream(S); end;
+  local procedure NotLast(var S: InStream) var R: Record B temporary; N: Integer; begin R.Data.CreateInStream(S); N := 1; end;
+  procedure Reached1(): Text var S: InStream; begin NotTemp(S); exit('ran'); end;
+  procedure Reached2(): Text var S: InStream; begin NotLast(S); exit('ran'); end;
+  procedure NotReached(): Text var S: InStream; N: Integer; begin if N = 1 then NotTemp(S); if N = 1 then NotLast(S); exit('ran'); end; }"#;
+    assert_eq!(out(al_testkit::run_in(src, "C", "NotReached")), "ran");
+    for routine in ["Reached1", "Reached2"] {
+        let r = out(al_testkit::run_in(src, "C", routine));
+        assert!(r.starts_with("refused:") && r.contains("out of scope"), "{routine}: {r}");
+    }
 }
 
 /// The InStream-of-a-local refusal looks at calls in the syntax tree, with names resolved: a comment or a string that
