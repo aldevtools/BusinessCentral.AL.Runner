@@ -35,9 +35,9 @@ impl Clone for Inner {
     }
 }
 
-/// How many times a text was scanned for the call-stack mark (the first `has_marker` of a text the flag is not known
-/// of). A loop that builds a text must not scan the whole text each round; the test of the append counts this. Counted
-/// per thread, so tests that run in parallel in one binary do not add to each other's count.
+// How many times a text was scanned for the call-stack mark (the first `has_marker` of a text the flag is not known
+// of). A loop that builds a text must not scan the whole text each round; the test of the append counts this. Counted
+// per thread, so tests that run in parallel in one binary do not add to each other's count.
 thread_local! {
     static MARKER_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
