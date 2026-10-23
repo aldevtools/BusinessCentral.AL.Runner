@@ -567,7 +567,14 @@ fn a_lookup_by_id_into_a_skipped_dependency_refuses_the_test_and_names_the_app()
     std::fs::write(
         &app,
         zip(&[
-            ("app.json", &app_json("22222222-0000-0000-0000-000000000022", "Tests-ById", &[(lib_id, "ById Lib")])),
+            (
+                "app.json",
+                &app_json(
+                    "22222222-0000-0000-0000-000000000022",
+                    "Tests-ById",
+                    &[(lib_id, "ById Lib")],
+                ),
+            ),
             (
                 "T.Codeunit.al",
                 "codeunit 50321 \"ById Tests\" { Subtype = Test;
@@ -583,7 +590,12 @@ fn a_lookup_by_id_into_a_skipped_dependency_refuses_the_test_and_names_the_app()
     .unwrap();
     let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--output-json"]);
     let v = json_of(&o);
-    assert_eq!(row(&v, "Codeunit50321.ByIdNotReached")["status"], "pass", "{}", text(&o));
+    assert_eq!(
+        row(&v, "Codeunit50321.ByIdNotReached")["status"],
+        "pass",
+        "{}",
+        text(&o)
+    );
     for m in [
         "ByIdReached",
         "ByIdReachedUnderAssertError",

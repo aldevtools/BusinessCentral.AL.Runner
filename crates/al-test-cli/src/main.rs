@@ -414,6 +414,7 @@ fn run_version(
         .collect::<Result<Vec<_>, _>>()?;
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
     let mut dependency_summary = Vec::new();
+    let mut skipped_dependencies = Vec::new();
     let mut bc_build = None;
     if !args.no_deps {
         // Dependencies go after the corpus apps, so the corpus objects keep their positions.
@@ -441,6 +442,7 @@ fn run_version(
         kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
         manifests.extend(deps.manifests);
         dependency_summary = deps.summary;
+        skipped_dependencies = deps.skipped;
         apps.extend(deps.apps);
     }
     if args.fetch_deps {
@@ -596,6 +598,7 @@ fn run_version(
         stop_on_compile_errors: false,
         run_only: None,
         entries: Vec::new(),
+        skipped_dependencies,
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(
