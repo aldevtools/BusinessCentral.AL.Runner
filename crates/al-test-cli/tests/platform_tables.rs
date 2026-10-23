@@ -299,6 +299,32 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "PendingHasARow");
 }
 
+// A field with ObsoleteState = PendingMove has a Field row whose ObsoleteState is ordinal 3, beyond the members
+// No,Pending,Removed of Field.ObsoleteState: Format prints `3`, and a filter `<> Removed` keeps the row. Windows BC 29.0
+// probe (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_FieldRowPendingMove), assumption
+// field-obsolete-state-pending-move. Power BI Report embeddings' PowerBI Reports Setup."Subs. Billing Report Name";
+// Dimension Management.FillNormalFieldBuffer scans the Field table with that filter.
+#[test]
+fn a_pending_move_field_has_a_field_row_with_obsolete_state_3() {
+    let o = outcomes(
+        r#"table 50001 "Pm Host" { fields { field(1; Id; Integer) { }
+  field(3; Moving; Text[30]) { ObsoleteState = PendingMove; ObsoleteReason = 'Moved to another app.'; ObsoleteTag = '1.0'; MovedTo = '437dbf0e-84ff-417a-965d-ed2bb9650972'; } }
+  keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Row() var F: Record Field; s: Text; begin
+    if not F.Get(50001, 3) then Error('no row');
+    s := Format(F.ObsoleteState) + '/' + Format(F.ObsoleteState, 0, 2) + '/' + F.ObsoleteReason;
+    if s <> '3/3/Moved to another app.' then Error(s); end;
+  [Test] procedure NotRemovedKeepsIt() var F: Record Field; n: Integer; begin
+    F.SetRange(TableNo, 50001); F.SetRange(Class, F.Class::Normal); n := F.Count();
+    F.SetFilter(ObsoleteState, '<>%1', F.ObsoleteState::Removed);
+    if (F.Count() <> n) or (n < 2) then Error(Format(F.Count()) + '/' + Format(n));
+    F.SetRange("No.", 3); if not F.FindFirst() then Error('not found'); end; }"#,
+    );
+    passes(&o, "Row");
+    passes(&o, "NotRemovedKeepsIt");
+}
+
 // The Field table answers the rowversion row (No. 0, `timestamp`, BigInteger, Normal, Len 8, Enabled) only to a FieldName
 // filter, on a table with a key over SystemRowVersion and on one without (types/lt-aj-probes/AjMisc.al:510-521, helper
 // QtFieldTableAnswers :414-429). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter on another name and a

@@ -588,6 +588,11 @@ impl Lowerer<'_> {
                     ty: self.field_rt(oi, f),
                     stored: f.class == crate::members::FieldClass::Normal,
                     init: f.init_value.as_ref().and_then(|v| {
+                        if let Ty::Option(m) = &f.ty {
+                            if let Some(c) = option_init_ordinal(v, m) {
+                                return c;
+                            }
+                        }
                         init_const(v, &f.ty).or_else(|| match f.ty {
                             // A member of the field's enum, by name; a blank-named member too
                             // (types/TestBlankEnumInitTests.Codeunit.al).
@@ -874,4 +879,21 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
         return quoted(rest.trim());
     }
     text.split('|').map(str::trim).all(|t| quoted(t) || plain(t))
+}
+
+/// An Option field's `InitValue` written as a number: `Some(init)` when the text is a number, else `None` (the
+/// member is named). The member at that ordinal (Windows BC 29.0 probe, corpus branch winprobe-wc6,
+/// tests/wc6-probe/ContosoProbe.al, cu 61320 CS_OptionInitValueOrdinal; the runtime marks assumption
+/// option-init-value-ordinal when no member has that name, `TableFacts::ordinal_init` in al-vm). A number past the
+/// last member, and a number that names a member at another ordinal (name or ordinal: not pinned), stay unresolved,
+/// so Init refuses.
+pub(crate) fn option_init_ordinal(text: &str, members: &[String]) -> Option<Option<ir::Const>> {
+    let t = text.trim().trim_matches('"').trim();
+    let n: usize = t.parse().ok()?;
+    let named = members.iter().position(|m| m.trim().eq_ignore_ascii_case(t));
+    Some(match named {
+        Some(p) if p != n => None,
+        _ if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
+        _ => None,
+    })
 }

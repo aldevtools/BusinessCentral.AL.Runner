@@ -21,6 +21,7 @@ mod loadfields;
 mod media_resources;
 mod modify_all_unchanged;
 mod np_blockers;
+mod option_init_ordinal;
 mod record_builtins;
 mod record_is_dirty;
 mod recordref;

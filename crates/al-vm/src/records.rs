@@ -166,6 +166,9 @@ impl Session {
 
     /// Field values of a fresh record: `InitValue` where declared, else the type default.
     pub(crate) fn initial_fields(&mut self, table: usize) -> Vec<Value> {
+        if self.engine.table_facts.get(table).is_some_and(|f| f.ordinal_init) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
+        }
         // The values are the same for every record of the table, so a table whose defaults are all scalars is
         // worked out once per session and copied (a text shares its buffer, copy on write); a table with a Blob, an
         // array or another shared object builds fresh ones each time.

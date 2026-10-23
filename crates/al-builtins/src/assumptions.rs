@@ -553,6 +553,18 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step reads the Media folder back (Config. XML Exchange.UpdateConfigPackageMediaSet, ConfigXMLExchange.Codeunit.al:1505-1522), and they pass in Microsoft's CI.",
         probe: "Measured on Windows BC of the newest major (cu 61287 LO_ListingOrder); the asserted corpus tests arrive with corpus bump 62. Still open: the two older majors.",
     },
+    OptionInitValueOrdinal => {
+        id: "option-init-value-ordinal",
+        assumed: "An Option field whose InitValue is a number that names no member (`InitValue = 1`) starts at the member of that ordinal: on a fresh variable, after Init and after Insert. Measured on Windows BC 29.0 (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_OptionInitValueOrdinal: Sunday..Saturday with InitValue = 1 gives Monday/1 three times). A number that is also the name of a member at another ordinal stays refused.",
+        tests: "The Contoso company build of Microsoft's IntegrationTest and Uncategorized lanes for apps that pull in Power BI Report embeddings: its Accounting Period table extension reads PowerBI Reports Setup (\"First Day Of Week\", InitValue = 1) from Create Accounting Period, and the build runs in Microsoft's CI.",
+        probe: "A corpus test of the measured case (fresh variable, Init, Insert and Get) on all three majors; the same with InitValue = 0 and with a number past the last member.",
+    },
+    FieldObsoleteStatePendingMove => {
+        id: "field-obsolete-state-pending-move",
+        assumed: "The Field row of a field with ObsoleteState = PendingMove exists and its ObsoleteState is ordinal 3 (Format prints `3`; the members of Field.ObsoleteState are No,Pending,Removed), so a filter `<> Removed` keeps it; ObsoleteReason is kept. Measured on Windows BC 29.0 (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_FieldRowPendingMove).",
+        tests: "The Contoso company build of Microsoft's IntegrationTest and Uncategorized lanes for apps that pull in Power BI Report embeddings: Dimension Management.FillNormalFieldBuffer scans the Field table with `ObsoleteState <> Removed` (Default Dimension.OnValidate), and PowerBI Reports Setup.\"Subs. Billing Report Name\" is PendingMove; the build runs in Microsoft's CI.",
+        probe: "A corpus test of the measured case on all three majors: Get of the Field row, Format of ObsoleteState with formats 0 and 2, a filter `<> Removed` and `= Pending`.",
+    },
 }
 
 thread_local! {

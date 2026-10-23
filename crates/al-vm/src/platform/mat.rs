@@ -19,6 +19,8 @@ pub(crate) struct Entry {
     /// The row is seen only by a lookup by its value in this column (see [`Entry::by_name_only`]); with a reason, a
     /// lookup that finds it refuses.
     pub name_only: Option<(usize, Option<String>)>,
+    /// The row rests on an unprobed assumption: a read that returns or counts it marks it.
+    pub assumed: Option<al_builtins::assumptions::Assumption>,
 }
 
 impl Entry {
@@ -29,6 +31,7 @@ impl Entry {
             known: usize::MAX,
             known_cols: Vec::new(),
             name_only: None,
+            assumed: None,
         }
     }
     pub(crate) fn poisoned(key_only: Row, why: String) -> Entry {
@@ -38,6 +41,7 @@ impl Entry {
             known: usize::MAX,
             known_cols: Vec::new(),
             name_only: None,
+            assumed: None,
         }
     }
     /// A poisoned row of which only the first `known` primary key columns are real: it stands for
@@ -49,6 +53,7 @@ impl Entry {
             known,
             known_cols: Vec::new(),
             name_only: None,
+            assumed: None,
         }
     }
     /// The positions of the columns of a poisoned row that hold real values.
@@ -62,6 +67,11 @@ impl Entry {
     /// finds it when `refuse` gives a reason. The Field table's rowversion row (fields.rs).
     pub(crate) fn by_name_only(mut self, col: usize, refuse: Option<String>) -> Entry {
         self.name_only = Some((col, refuse));
+        self
+    }
+    /// A row whose values rest on assumption `a`: every read that returns or counts it marks `a`.
+    pub(crate) fn assuming(mut self, a: al_builtins::assumptions::Assumption) -> Entry {
+        self.assumed = Some(a);
         self
     }
 }
@@ -85,6 +95,8 @@ pub(crate) struct Mat {
     known: Vec<usize>,
     known_cols: Vec<Vec<usize>>,
     name_only: Vec<Option<(usize, Option<String>)>>,
+    /// Per row: the assumption a read of it marks ([`Entry::assuming`]); empty when no row has one.
+    assumed: Vec<Option<al_builtins::assumptions::Assumption>>,
     /// No row is poisoned. Only then are the values of the key columns all real, so the rows are in the order of
     /// the key and the filters on its leading columns bound a scan (`band`).
     clean: bool,
@@ -212,7 +224,9 @@ impl Mat {
         let mut known = Vec::new();
         let mut known_cols = Vec::new();
         let mut name_only = Vec::new();
+        let mut assumed = Vec::new();
         for (_, e) in keyed {
+            assumed.push(e.assumed);
             rows.push(e.row);
             poison.push(e.poison);
             known.push(e.known);
@@ -221,12 +235,16 @@ impl Mat {
         }
         let clean = poison.iter().all(Option::is_none);
         let unknown_cols = unknown_cols(t, &rows, &poison, &name_only);
+        if assumed.iter().all(Option::is_none) {
+            assumed = Vec::new();
+        }
         Mat {
             rows,
             poison,
             known,
             known_cols,
             name_only,
+            assumed,
             clean,
             unknown_cols,
             memo: Default::default(),
@@ -240,6 +258,14 @@ impl Mat {
             .any(|f| self.unknown_cols.get(f.field).copied().unwrap_or(false))
     }
 
+    /// Row `i` is read: mark the assumption it rests on, if any.
+    #[inline]
+    fn seen(&self, i: usize) {
+        if let Some(Some(a)) = self.assumed.get(i) {
+            al_builtins::assumptions::assume(*a);
+        }
+    }
+
     /// The same listing with every row changed by `f` (the key columns must stay as they are).
     pub(crate) fn mapped(&self, f: impl Fn(&Row) -> Row) -> Mat {
         Mat {
@@ -248,6 +274,7 @@ impl Mat {
             known: self.known.clone(),
             known_cols: self.known_cols.clone(),
             name_only: self.name_only.clone(),
+            assumed: self.assumed.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
             memo: Default::default(),
@@ -259,7 +286,10 @@ impl Mat {
             Ok(i) if self.name_only[i].is_some() => None,
             Ok(i) => match &self.poison[i] {
                 Some(why) => return Err(refusal(t, why)),
-                None => Some(self.rows[i].clone()),
+                None => {
+                    self.seen(i);
+                    Some(self.rows[i].clone())
+                }
             },
             Err(_) => None,
         })
@@ -344,13 +374,19 @@ impl Mat {
                     .map(|k| idx[k])
                     .filter(|&i| (i as usize) >= range.start)
             };
-            return Ok(pick.map(|i| self.rows[i as usize].clone()));
+            return Ok(pick.map(|i| {
+                self.seen(i as usize);
+                self.rows[i as usize].clone()
+            }));
         }
         let check_unknown = self.filters_unknown(filters);
         let at = |i: usize| -> Result<Option<Row>, StoreError> {
             let r = &self.rows[i];
             if self.name_only[i].is_some() {
-                return Ok(self.found_by_name(t, i, filters, 0)?.then(|| r.clone()));
+                return Ok(self.found_by_name(t, i, filters, 0)?.then(|| {
+                    self.seen(i);
+                    r.clone()
+                }));
             }
             match &self.poison[i] {
                 Some(why) if may_pass(t, r, self.known[i], &self.known_cols[i], filters) => Err(refusal(t, why)),
@@ -359,7 +395,10 @@ impl Mat {
                     if let Some(why) = unknown_filtered(r, filters).filter(|_| check_unknown) {
                         return Err(StoreError::Refused(why.to_string()));
                     }
-                    Ok(passes(r, filters).then(|| r.clone()))
+                    Ok(passes(r, filters).then(|| {
+                        self.seen(i);
+                        r.clone()
+                    }))
                 }
             }
         };
@@ -422,7 +461,7 @@ impl Mat {
             .get(scan.key)
             .is_some_and(|k| k.iter().any(|&c| self.unknown_cols.get(c).copied().unwrap_or(false)));
         let check_unknown = self.filters_unknown(scan.filters);
-        let mut best: Option<(Vec<Value>, &Row)> = None;
+        let mut best: Option<(Vec<Value>, usize)> = None;
         for (i, r) in self.rows.iter().enumerate() {
             if self.name_only[i].is_some() {
                 // Checked first: its place in the order is checked there.
@@ -465,10 +504,13 @@ impl Mat {
                 }
             });
             if better {
-                best = Some((pos, r));
+                best = Some((pos, i));
             }
         }
-        Ok(best.map(|(_, r)| r.clone()))
+        Ok(best.map(|(_, i)| {
+            self.seen(i);
+            self.rows[i].clone()
+        }))
     }
 
     /// Whether the row at `i`, which only a lookup by name finds ([`Entry::by_name_only`]), passes `filters` in a
@@ -516,7 +558,11 @@ impl Mat {
         let check_unknown = self.filters_unknown(filters);
         for (i, r) in self.rows.iter().enumerate().skip(band.start).take(band.len()) {
             if self.name_only[i].is_some() {
-                n += usize::from(self.found_by_name(t, i, filters, 0)?);
+                let found = self.found_by_name(t, i, filters, 0)?;
+                if found {
+                    self.seen(i);
+                }
+                n += usize::from(found);
                 continue;
             }
             match &self.poison[i] {
@@ -528,7 +574,11 @@ impl Mat {
                     if let Some(why) = unknown_filtered(r, filters).filter(|_| check_unknown) {
                         return Err(StoreError::Refused(why.to_string()));
                     }
-                    n += usize::from(passes(r, filters))
+                    let pass = passes(r, filters);
+                    if pass {
+                        self.seen(i);
+                    }
+                    n += usize::from(pass)
                 }
             }
         }
@@ -573,6 +623,30 @@ mod tests {
                 Entry::poisoned(row(2, ""), "row 2 is not understood".into()),
             ],
         )
+    }
+
+    /// A row built on an assumption marks it when a read returns or counts it, and only then.
+    #[test]
+    fn a_read_that_returns_or_counts_an_assumed_row_marks_its_assumption() {
+        use al_builtins::assumptions::{Assumption, take_hits};
+        let a = Assumption::FieldObsoleteStatePendingMove;
+        let m = Mat::new(
+            &table(),
+            vec![Entry::ok(row(1, "a")), Entry::ok(row(2, "b")).assuming(a)],
+        );
+        let t = table();
+        take_hits();
+        assert!(m.get(&t, &[Value::Integer(1)]).unwrap().is_some());
+        assert_eq!(m.count(&t, &[id_filter(1, 1)]).unwrap(), 1);
+        assert!(m.next(&t, &scan(&[id_filter(1, 1)], None, true)).unwrap().is_some());
+        assert!(!take_hits().contains(&a));
+        assert!(m.get(&t, &[Value::Integer(2)]).unwrap().is_some());
+        assert!(take_hits().contains(&a));
+        assert_eq!(m.count(&t, &[]).unwrap(), 2);
+        assert!(take_hits().contains(&a));
+        let f = [id_filter(2, 2)];
+        assert!(m.next(&t, &scan(&f, None, true)).unwrap().is_some());
+        assert!(take_hits().contains(&a));
     }
 
     fn scan<'a>(filters: &'a [FieldFilter], after: Option<&'a [Value]>, ascending: bool) -> Scan<'a> {

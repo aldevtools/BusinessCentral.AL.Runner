@@ -284,6 +284,16 @@ impl Engine {
             .objects
             .iter()
             .map(|o| TableFacts {
+                // An Option InitValue written as a number no member is named (al-sema `option_init_ordinal`).
+                ordinal_init: o.table.as_ref().is_some_and(|t| {
+                    t.fields.iter().any(|f| match (&f.ty, &f.init, &f.init_text) {
+                        (al_builtins::value::RtType::Option(m), Some(al_ir::Const::Option(..)), Some(text)) => {
+                            let t = text.trim().trim_matches('"').trim();
+                            t.parse::<u32>().is_ok() && !m.iter().any(|x| x.trim().eq_ignore_ascii_case(t))
+                        }
+                        _ => false,
+                    })
+                }),
                 unresolved_init: o
                     .table
                     .as_ref()
@@ -1780,6 +1790,9 @@ pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<a
 pub(crate) struct TableFacts {
     /// Some field has an `InitValue` text that did not evaluate at compile time.
     pub(crate) unresolved_init: bool,
+    /// Some Option field's `InitValue` is a number no member is named: a fresh record marks assumption
+    /// option-init-value-ordinal.
+    pub(crate) ordinal_init: bool,
     /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.

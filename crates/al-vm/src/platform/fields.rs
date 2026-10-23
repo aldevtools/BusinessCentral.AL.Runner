@@ -24,6 +24,10 @@ const DATA_CLASSIFICATIONS: &[&str] = &[
     "SystemMetadata",
 ];
 
+fn is_pending_move(v: &str) -> bool {
+    ident(v.trim()).eq_ignore_ascii_case("PendingMove")
+}
+
 fn ordinal_of(members: &[&str], text: &str) -> Option<i32> {
     members
         .iter()
@@ -160,6 +164,13 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 r[col] = Value::Boolean(in_key);
             }
             match field_row(&c, o, schema, f, t, &blank, &mut r) {
+                Ok(())
+                    if f.properties
+                        .iter()
+                        .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && is_pending_move(v)) =>
+                {
+                    out.push(Entry::ok(r).assuming(al_builtins::assumptions::Assumption::FieldObsoleteStatePendingMove))
+                }
                 Ok(()) => out.push(Entry::ok(r)),
                 Err(why) => {
                     let mut k = blank.row();
@@ -395,6 +406,10 @@ fn field_row(
     // ObsoleteState and ObsoleteReason (TestFieldObsoleteStateVirtualTable.al:18-45).
     let state = match fprop("ObsoleteState") {
         None => 0,
+        // PendingMove is ordinal 3, past the members No,Pending,Removed (Format prints `3`): Windows BC 29.0 probe
+        // (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_FieldRowPendingMove); the row
+        // marks assumption field-obsolete-state-pending-move when it is read (`field_rows`).
+        Some(v) if is_pending_move(v) => 3,
         Some(v) => ordinal_of(OBSOLETE_STATES, v)
             .ok_or_else(|| format!("{}: ObsoleteState `{v}` is not understood", what()))?,
     };

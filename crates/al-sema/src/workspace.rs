@@ -1098,12 +1098,17 @@ impl Workspace {
     /// Assumption, not pinned by the corpus (docs/probes-needed.md, "Probe batch 4"); evidence:
     /// Microsoft's own libraries name "No. Series" with both Base Application's stub and
     /// Business Foundation's table visible, and compile.
+    /// An object marked `ObsoleteState = Removed` gives way the same way: naming a removed table does not
+    /// compile (corpus must-not-compile 0970-obsolete-removed-table.al, AL0433), so code that compiles with a
+    /// removed and a real candidate names the real one (Subscription Billing's SubContrAnalysisEntry.Table.al,
+    /// no namespace and no `using`, `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI
+    /// Report embeddings' removed table 36950 of that name).
     fn pick_real(&self, tier: Vec<usize>) -> Resolution {
         let moved = |i: &usize| {
-            self.objects[*i]
-                .scanned_properties
-                .iter()
-                .any(|(n, v)| n.eq_ignore_ascii_case("ObsoleteState") && v.trim().eq_ignore_ascii_case("Moved"))
+            self.objects[*i].scanned_properties.iter().any(|(n, v)| {
+                n.eq_ignore_ascii_case("ObsoleteState")
+                    && (v.trim().eq_ignore_ascii_case("Moved") || v.trim().eq_ignore_ascii_case("Removed"))
+            })
         };
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
             return pick(tier.into_iter().filter(|i| !moved(i)).collect());
@@ -2170,6 +2175,74 @@ mod tests {
         let file = only_stubs.objects.iter().find(|o| o.name == "Lib").unwrap().file;
         assert!(matches!(
             only_stubs.resolve_ref(file, ObjKind::Table, &["T".to_string()]),
+            Resolution::Ambiguous(_)
+        ));
+    }
+
+    /// A file with neither namespace nor `using` names a table that two visible apps declare in different
+    /// namespaces, one of them `ObsoleteState = Removed` (Subscription Billing's SubContrAnalysisEntry.Table.al:238
+    /// `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI Report embeddings' removed
+    /// table 36950 of the same name). A reference to a removed table does not compile (corpus must-not-compile
+    /// 0970-obsolete-removed-table.al, AL0433), and BC compiles the file, so the name means the table that is not
+    /// removed. Two removed candidates stay ambiguous.
+    #[test]
+    fn a_removed_table_does_not_make_the_real_table_ambiguous() {
+        let base = app(
+            "base",
+            &[],
+            &[(
+                "t.al",
+                "namespace M.Finance.Dimension; table 480 \"Dimension Set Entry\" { fields { field(1; Id; Integer) { } } }",
+            )],
+        );
+        let pbi = app(
+            "pbi",
+            &["base"],
+            &[(
+                "t.al",
+                "namespace M.PowerBIReports; table 36950 \"Dimension Set Entry\" { Access = Internal; \
+                 ObsoleteState = Removed; ObsoleteReason = 'r'; ObsoleteTag = '25.0'; fields { field(1; Id; Integer) { } } }",
+            )],
+        );
+        let sub = app(
+            "sub",
+            &["base", "pbi"],
+            &[(
+                "e.al",
+                "table 8019 \"Entry\" { fields { field(1; Id; Integer) { TableRelation = \"Dimension Set Entry\"; } } }",
+            )],
+        );
+        let ws = Workspace::load_apps(
+            vec![base, pbi, sub],
+            vec![AppKind::Dependency; 3],
+            &al_version::corpus_symbols(29),
+        );
+        let file = ws.objects.iter().find(|o| o.name == "Entry").unwrap().file;
+        let name = vec!["Dimension Set Entry".to_string()];
+        let Resolution::Found(t) = ws.resolve_relation_target(file, ObjKind::Table, &name) else {
+            panic!("the removed table made the name ambiguous");
+        };
+        assert_eq!(ws.apps[ws.objects[t].app].name, "base");
+        let only_removed = Workspace::load_apps(
+            vec![
+                app(
+                    "r1",
+                    &[],
+                    &[("t.al", "namespace A; table 5 T { ObsoleteState = Removed; }")],
+                ),
+                app(
+                    "r2",
+                    &[],
+                    &[("t.al", "namespace B; table 6 T { ObsoleteState = Removed; }")],
+                ),
+                app("lib", &["r1", "r2"], &[("c.al", "codeunit 9 \"Lib\" { }")]),
+            ],
+            vec![AppKind::Dependency; 3],
+            &al_version::corpus_symbols(29),
+        );
+        let file = only_removed.objects.iter().find(|o| o.name == "Lib").unwrap().file;
+        assert!(matches!(
+            only_removed.resolve_ref(file, ObjKind::Table, &["T".to_string()]),
             Resolution::Ambiguous(_)
         ));
     }
