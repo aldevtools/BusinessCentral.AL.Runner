@@ -2793,8 +2793,8 @@ impl Session {
     }
 
     /// A modal page whose close was refused by OnQueryClosePage: the corpus pins the page's own trigger answering false,
-    /// on a page with no extension that declares OnQueryClosePage and no subscriber to OnQueryClosePageEvent (a page with
-    /// open parts is not marked as vetoed in `close_with`).
+    /// on a page with no extension that declares OnQueryClosePage and no subscriber to OnQueryClosePageEvent (a modal page with
+    /// open parts is refused in `close_with`).
     fn refuse_unpinned_modal_veto(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;

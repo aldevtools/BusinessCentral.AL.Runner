@@ -1468,8 +1468,11 @@ impl Session {
             other => other?,
         };
         st.borrow_mut().close_error = false;
-        // A veto of a page with open parts is not pinned for a modal run: it is not marked (pages/rows.rs answer_page).
-        st.borrow_mut().close_vetoed = veto == Some(false) && open_parts.is_empty();
+        // A veto of a modal page with open parts is not pinned (PageModalQueryCloseVeto.al has no parts): refused.
+        if veto == Some(false) && !open_parts.is_empty() && st.borrow().modal {
+            return unsupported("a modal page with parts whose OnQueryClosePage refused the close (not pinned)");
+        }
+        st.borrow_mut().close_vetoed = veto == Some(false);
         if veto == Some(false) {
             return Ok(Value::Null);
         }
