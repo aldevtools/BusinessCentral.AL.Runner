@@ -529,6 +529,18 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: their company is built by the DemoTool (Create Demonstration Data.OnRun opens `CurrencyData.txt`), and they pass in Microsoft's CI.",
         probe: "Not measurable from the corpus: the case rule is the server's file system, and the corpus CI runs BC on Linux. On the Windows nightly: File.Exists and File.Open of a file in the server's folder by a name in other case.",
     },
+    MediaExportStreamJfif300DpiKept => {
+        id: "media-exportstream-jfif-dpi-jpeg-kept",
+        assumed: "From BC 29, Media.ExportStream of a JPEG that Media.ImportFile read, whose JFIF header has units 1 (dots per inch) and density 300 x 300, writes the file's bytes unchanged. Measured on Windows BC 29.0 (probe cu 61288 SC_DemoTool_Media_ExportStream, case JD: export = file, Tenant Media Content = file). Other JPEG headers are rewritten there (units 0: three header bytes; no JFIF: a JFIF segment inserted) and stay refused.",
+        tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step exports the Person, Contact, Customer, Vendor, Employee and Salesperson pictures (Config. XML Exchange.ExportMedia, ConfigXMLExchange.Codeunit.al:1486), all 300 dpi JFIF JPEGs, and they pass in Microsoft's CI.",
+        probe: "A corpus test of Media.ImportFile then Media.ExportStream of a 300 dpi JFIF JPEG on BC 29 (and the two older majors), asserting the exported bytes equal the file.",
+    },
+    GZipStreamCloseIsDispose => {
+        id: "gzipstream-close-is-dispose",
+        assumed: "DotNet System.IO.Compression.GZipStream.Close of a compressing stream does what Dispose does: it writes the compressed bytes to the wrapped stream. Measured on Windows BC 29.0 (probe cu 61289 SC_GZipStream_Close_ConfigPackageShape: no error, the file starts 1F 8B 08 00, Data Compression.GZipDecompress gives the source back).",
+        tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step compresses each package (Config. Pckg. Compression Mgt.ProcessGZip, ConfigPckgCompressionMgt.Codeunit.al:80), and they pass in Microsoft's CI.",
+        probe: "A corpus test of GZipStream(OutStream, Compress), CopyStream, Close on BC 29, then GZipDecompress of the result.",
+    },
     CompanyBuildFolderListingNameOrder => {
         id: "company-build-folder-listing-name-order",
         assumed: "In the company build (`--company-data demotool`), DotNet System.IO.Directory.GetFiles (File Management.GetServerDirectoryFilesList) of a folder AL code created in the temporary folder lists the files written directly in it, in name order without case, joined to the folder with `/`. Windows BC of the newest major lists the files MediaSet.ExportFile wrote, full path, no extension (windows-check-results 2026-10-23 RJ item B, corpus cu 61286 RJ_MediaSet_ExportFile_ConfigPackageShape), and lists every folder in name order without case, never in creation order (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder: created c,b,a lists a,b,c; a,C,b lists a,b,C; B,a lists a,B; two MediaSet.ExportFile sets whose Guids sort against creation order list in name order). The bc-linux image now lists the same way; corpus bump 62 pins it and then replaces this entry. An empty folder stays refused.",

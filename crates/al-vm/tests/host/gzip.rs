@@ -23,6 +23,13 @@ codeunit 50101 "GZ Impl"
         CopyStream(GZipStream, InputInStream);
         GZipStream.Dispose();
     end;
+    procedure CompressClose(InputInStream: InStream; CompressedOutStream: OutStream)
+    var DotNetCompressionMode: DotNet CompressionMode;
+    begin
+        GZipStream := GZipStream.GZipStream(CompressedOutStream, DotNetCompressionMode::Compress);
+        CopyStream(GZipStream, InputInStream);
+        GZipStream.Close();
+    end;
     procedure Decompress(InputInStream: InStream; DecompressedOutStream: OutStream)
     var DotNetCompressionMode: DotNet CompressionMode;
     begin
@@ -45,6 +52,13 @@ codeunit 50100 C
         Plain.CalcFields(Data); Plain.Data.CreateInStream(I);
         Clear(Packed.Data); Packed.Data.CreateOutStream(O);
         Impl.Compress(I, O);
+    end;
+    procedure PackClose(var Plain: Record "GZ Blob"; var Packed: Record "GZ Blob")
+    var I: InStream; O: OutStream; Impl: Codeunit "GZ Impl";
+    begin
+        Plain.CalcFields(Data); Plain.Data.CreateInStream(I);
+        Clear(Packed.Data); Packed.Data.CreateOutStream(O);
+        Impl.CompressClose(I, O);
     end;
     procedure Unpack(var Packed: Record "GZ Blob"; var Plain: Record "GZ Blob")
     var I: InStream; O: OutStream; Impl: Codeunit "GZ Impl";
@@ -90,6 +104,22 @@ fn text_round_trips_and_the_packed_bytes_start_with_31_and_139() {
         end;",
     ));
     assert_eq!(text_of(&r), "Yes/Yes/Yes/31/139");
+}
+
+/// Windows BC 29.0 probe cu 61289 SC_GZipStream_Close_ConfigPackageShape (Config. Pckg. Compression Mgt.ProcessGZip,
+/// ConfigPckgCompressionMgt.Codeunit.al:80): Close of a compressing stream writes the packed bytes as Dispose does.
+#[test]
+fn close_of_a_compressing_stream_packs_as_dispose_does_and_marks_its_assumption() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    take_hits();
+    let r = text(run(
+        "procedure F(): Text var P: Record \"GZ Blob\"; Z: Record \"GZ Blob\"; B: Record \"GZ Blob\"; S: Text; begin
+            S := 'Hello gzip close'; Fill(P, S); PackClose(P, Z); Unpack(Z, B);
+            exit(Format(Len(Z) > 0) + '/' + Format(ReadAll(B) = S));
+        end;",
+    ));
+    assert_eq!(text_of(&r), "Yes/Yes");
+    assert!(take_hits().contains(&Assumption::GZipStreamCloseIsDispose));
 }
 
 fn text_of(s: &str) -> &str {

@@ -251,6 +251,13 @@ fn jpeg() -> Vec<u8> {
     b
 }
 
+/// `jpeg()` with the JFIF header of the DemoTool's pictures: units 1 (dots per inch), density 300 x 300.
+fn jpeg_300dpi() -> Vec<u8> {
+    let mut b = jpeg();
+    b[13..18].copy_from_slice(&[0x01, 0x01, 0x2C, 0x01, 0x2C]);
+    b
+}
+
 /// A PNG of 4 x 5 pixels as far as its size goes.
 fn png() -> Vec<u8> {
     let mut b = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
@@ -284,6 +291,7 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
         .unwrap();
     let mut files = al_host::MemFileSystem::default();
     files.write("\\TEMP\\a.jpg", &jpeg()).unwrap();
+    files.write("\\TEMP\\dpi.jpg", &jpeg_300dpi()).unwrap();
     files.write("\\TEMP\\p.jpg", &png()).unwrap();
     files.write("\\TEMP\\b.png", &png()).unwrap();
     files.write("\\TEMP\\c.png", &jpeg()).unwrap();
@@ -458,6 +466,33 @@ fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
 // onprem media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
 // (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
 // (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
+// Windows BC 29.0 probe (winprobe-wc6 cu 61288 SC_DemoTool_Media_ExportStream, case JD): Media.ExportStream of a JPEG that
+// Media.ImportFile read, with a JFIF header of units 1 and density 300 x 300 (the DemoTool's Person and item pictures), gives the
+// file's bytes. A JFIF header of units 0 is rewritten (case JS), so it stays refused, as on BC 28.
+#[test]
+fn export_stream_of_a_300_dpi_jfif_jpeg_gives_the_file_bytes_on_bc_29() {
+    let body = |file: &str| {
+        format!(
+            "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin Rec.Picture.ImportFile('\\TEMP\\{file}', 'x'); \
+             B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); B.Get('B'); \
+             B.CalcFields(Src); B.Src.CreateInStream(InS); exit(Format(InS.Length)); end;"
+        )
+    };
+    al_builtins::assumptions::take_hits();
+    assert_eq!(
+        import_file_on(Some("29.0"), &body("dpi.jpg")).unwrap(),
+        jpeg_300dpi().len().to_string()
+    );
+    assert!(
+        al_builtins::assumptions::take_hits()
+            .contains(&al_builtins::assumptions::Assumption::MediaExportStreamJfif300DpiKept)
+    );
+    for (bc, file) in [("29.0", "a.jpg"), ("28.0", "dpi.jpg")] {
+        let r = import_file_on(Some(bc), &body(file));
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{bc} {file}: {r:?}");
+    }
+}
+
 #[test]
 fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused() {
     let ok = import_file_on(

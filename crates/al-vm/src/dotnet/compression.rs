@@ -224,6 +224,18 @@ fn gzip_dispose(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
     Ok(Value::Null)
 }
 
+/// `Close`: as `Dispose` for a compressing stream. Measured on Windows BC 29.0 (probe cu 61289
+/// SC_GZipStream_Close_ConfigPackageShape, the shape of Config. Pckg. Compression Mgt.ProcessGZip,
+/// ConfigPckgCompressionMgt.Codeunit.al:80: no error, the bytes start 1F 8B 08 00, GZipDecompress gives the source back); no
+/// corpus test pins it yet, so it marks `gzipstream-close-is-dispose`. Close of a decompressing stream is not measured.
+fn gzip_close(s: &mut Session, this: Option<&Rc<DotNetObject>>, a: &[Value]) -> Result<Value, Signal> {
+    if mode_of(state_of(this)?) != COMPRESS {
+        return unsupported("GZipStream.Close of a decompressing stream (not pinned)");
+    }
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GZipStreamCloseIsDispose);
+    gzip_dispose(s, this, a)
+}
+
 /// `CopyStream(GZipStream, InStream)`: the bytes wait in the stream until `Dispose` packs them.
 pub(super) fn write_into(out: &Value, src: &Value, count: Option<i64>) -> Option<Result<(), Signal>> {
     let Value::DotNet(o) = out else { return None };
@@ -284,6 +296,7 @@ pub fn types() -> Vec<RegistryType> {
                 },
                 call("CopyTo", gzip_copy_to),
                 call("Dispose", gzip_dispose),
+                call("Close", gzip_close),
             ],
         },
     ]
