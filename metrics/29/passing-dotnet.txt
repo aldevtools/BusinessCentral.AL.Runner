@@ -97,5 +97,9 @@
 99221 TestExecution_IsInTestMode
 99224 InstallTrigger_NavHelpers
 99250 BK_WindowsPrincipal_Declare
+99445 RA_DotNetEncodingCodeunit_StreamRoundTrip
+99445 RA_GetEncoding_DosCodePages850And437
 99445 RA_GetEncoding_Latin1_28591
+99445 RA_GetEncoding_UnknownCodePage
+99445 RA_GetEncoding_WindowsCodePage1252
 99473 Kinds_GetMissing
