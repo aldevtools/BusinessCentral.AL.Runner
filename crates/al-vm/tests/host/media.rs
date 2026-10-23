@@ -558,21 +558,18 @@ fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
     assert_eq!(r.unwrap(), "1|<jpeg>|-1|-1|-1");
 }
 
-// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row of the set in primary key order (ID, Media ID), not Item(n).
+// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
+// ID Guids is not pinned, so a set of two items is refused.
 #[test]
-fn media_set_export_file_of_two_jpegs_writes_them_in_media_id_order() {
+fn media_set_export_file_of_two_items_is_refused() {
     let r = export_file_on(
         "29.0",
         true,
         "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'one'); Rec.Code := 'A'; Rec.Insert(); \
          Rec.Images.ImportFile('\\TEMP\\a2.jpg', 'two'); Rec.Modify(); Rec.Get('A'); \
-         P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); \
-         if Format(Rec.Images.Item(1)) < Format(Rec.Images.Item(2)) then \
-             exit(Format(n) + '|' + Format(Len(P + '-1')) + '|' + Format(Len(P + '-2'))); \
-         exit(Format(n) + '|' + Format(Len(P + '-2')) + '|' + Format(Len(P + '-1'))); end;",
+         exit(Format(Rec.Images.ExportFile('\\TEMP\\M\\x'))); end;",
     );
-    let j = jpeg().len();
-    assert_eq!(r.unwrap(), format!("2|{j}|{}", j + 3));
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 // MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (MediaFiles.al:897-901):
