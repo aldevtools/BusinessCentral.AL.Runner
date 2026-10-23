@@ -641,10 +641,12 @@ fn getfilters_of_a_datetime_with_seconds_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
+// Pinned since: media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow (the Delete removes the Tenant
+// Media rows of the set's items; host/media.rs delete_of_a_row_removes_the_tenant_media_rows_of_the_items_still_in_its_media_set).
 #[test]
-fn a_delete_of_a_row_with_a_media_set_is_refused() {
+fn a_delete_of_a_row_with_a_media_set_runs() {
     let r = al_testkit::run_in(MEDIA, "M", "DeleteWithMediaSet");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert!(r.is_ok(), "{r:?}");
 }
 
 // CnTransferFieldsModify.al:250-268 QE_TF_Other_StaleBuffer_SourceOlder: the buffer keeps its own row version, so a stale
