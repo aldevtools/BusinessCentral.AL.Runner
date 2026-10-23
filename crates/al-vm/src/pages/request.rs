@@ -227,8 +227,9 @@ impl Session {
         self.report.request_only_page = outer;
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
-            if matches!(e, Signal::Error(_)) && st.borrow().open {
-                let closed = self.close_after_handler_error(&st);
+            let open = st.borrow().open;
+            if let (Signal::Error(err), true) = (&e, open) {
+                let closed = self.close_after_handler_error(&st, err);
                 self.mark_closed(&st);
                 closed?;
             }
@@ -264,7 +265,7 @@ impl Session {
     /// those triggers, and the page events are not pinned and are refused. With SaveValues the values are not stored,
     /// as after a Cancel action (handlers/TestPageSaveValues.al); whether BC stores them here is not pinned, and the
     /// earlier behavior is kept for handlers/TestReportMultiLineDataItemView.al:GetDemandToReserve_HandlerError_ReachesTheTest.
-    fn close_after_handler_error(&mut self, st: &St) -> Result<(), Signal> {
+    fn close_after_handler_error(&mut self, st: &St, err: &al_builtins::native::AlError) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
         let refuse = |what: &str| unsupported(format!("a request page handler error with {what} (close not pinned)"));
         let ext_closes = page_of(&self.engine(), st)
@@ -280,7 +281,26 @@ impl Session {
         if !st.borrow().parts.is_empty() {
             return refuse("a request page with parts");
         }
-        if !st.borrow().errors.is_empty() || st.borrow().dirty {
+        // One refused entry whose own TestValidation error is the one leaving the handler (the handler did not catch its
+        // SetValue) closes the page the same way: OnQueryClosePage(Cancel) sees the variable's old value, then OnClosePage
+        // (report/lt-report-requestpage/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun, an OnValidate
+        // error; :1264 RI_HandlerSetValue_NotEvaluable_ReachesRun, a value that cannot be evaluated). Two refused entries,
+        // an unsaved entry, or another error leaving the handler are not pinned.
+        let refused_entry_left = {
+            let s = st.borrow();
+            match s.errors.as_slice() {
+                [] => !s.dirty,
+                [(idx, stored)] => {
+                    let engine = self.engine();
+                    let name = &page_of(&engine, st).controls[*idx].name;
+                    !s.dirty
+                        && err.code == "TestValidation"
+                        && err.message == format!("Validation error for Field: {name},  Message = '{stored}'")
+                }
+                _ => false,
+            }
+        };
+        if !refused_entry_left {
             return refuse("a refused or unsaved entry on the request page");
         }
         if self.declares(st, "onaftergetcurrrecord") {

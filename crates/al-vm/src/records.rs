@@ -643,7 +643,8 @@ impl Session {
             self.profile_before_delete(t, &rec.borrow().fields)?;
         }
         let row = rec.borrow().fields.clone();
-        let pk = t.primary_key(&row);
+        // A key value the column rounds finds the rounded row (P130DateFilters.al:653-658, `delete unrounded`).
+        let pk = Self::sql_key(rec, t, &row);
         let company = if self.is_company_table(t) && !rec.borrow().temporary {
             let name = al_builtins::native::text_of(&row[0]).unwrap_or_default();
             self.before_company_row_delete(&name, run)?;
@@ -762,7 +763,7 @@ impl Session {
         }
         let cx = self.cx_for(rec, t)?;
         if own.is_none() {
-            let pk = t.primary_key(row);
+            let pk = Self::sql_key(rec, t, row);
             if self
                 .store_for(rec)
                 .get(&cx, t, &pk)
@@ -1458,6 +1459,28 @@ impl Session {
         }
     }
 
+    /// The primary key the row of `fields` stands under in the record's store: for a database table with its Time and DateTime
+    /// values rounded as the SQL columns hold them (`sqltime::rounded_key`).
+    fn sql_key(rec: &Rec, t: &TableDef, fields: &[Value]) -> Vec<Value> {
+        let pk = t.primary_key(fields);
+        if rec.borrow().temporary {
+            pk
+        } else {
+            crate::sqltime::rounded_key(&pk)
+        }
+    }
+
+    /// The primary key of `fields` where a key value the SQL column rounds is not pinned (`what` names the operation).
+    fn exact_key(rec: &Rec, t: &TableDef, fields: &[Value], what: &str) -> Result<Vec<Value>, Signal> {
+        let pk = t.primary_key(fields);
+        if !rec.borrow().temporary && crate::sqltime::key_rounds(&pk) {
+            return Err(Signal::Unsupported(format!(
+                "{what} of a record whose Time or DateTime primary key value the SQL column rounds (not pinned)"
+            )));
+        }
+        Ok(pk)
+    }
+
     /// The row to hand to the store: a database table keeps its own copy of every Blob.
     fn to_store(rec: &Rec, mut row: Vec<Value>) -> Vec<Value> {
         if rec.borrow().temp_id.is_none() {
@@ -1491,7 +1514,8 @@ impl Session {
             let temporary = rec.borrow().temporary;
             let keeps_content = buf.borrow().fetched && !buf.borrow().refetch && !temporary;
             if stored.is_none() {
-                let pk = t.primary_key(&rec.borrow().fields);
+                let fields = rec.borrow().fields.clone();
+                let pk = Self::exact_key(rec, &t, &fields, "a Blob read")?;
                 stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
@@ -1539,6 +1563,36 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The platform's virtual table `Agent Task` (2000000262): in a test session IsEmpty fails with the agent service's
+    /// error, code DB:Ok (platform/lt-rh-agent-session/RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent, through
+    /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
+    /// Every other read or write of it stays refused by its provider ("has no provider").
+    fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
+        if method != RecordOp::IsEmpty || rec.borrow().temporary {
+            return Ok(());
+        }
+        let object = &self.engine.program.objects[t.object as usize];
+        let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
+            a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
+        });
+        // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
+        let microsoft = self.frames.last().is_some_and(|o| {
+            let app = self.engine.program.objects[*o].app as usize;
+            self.engine
+                .program
+                .apps
+                .get(app)
+                .is_some_and(|a| a.publisher == "Microsoft")
+        });
+        if !platform || object.id != Some(2000000262) || !microsoft {
+            return Ok(());
+        }
+        Err(crate::transactions::al_error_code(
+            "Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.",
+            "DB:Ok",
+        ))
     }
 
     /// A `LinkedObject = true` table has no SQL table behind it in a test database: Insert and Count raise the SQL error
@@ -1820,6 +1874,7 @@ impl Session {
             ));
         }
         self.linked_object_check(&t, rec, method)?;
+        self.agent_task_check(&t, rec, method)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
@@ -2336,6 +2391,13 @@ impl Session {
                         Ok(Value::Boolean(true))
                     }
                     InsertOutcome::AlreadyExists => {
+                        // A key that only the column's rounding makes a duplicate: what Insert answers and the error it
+                        // names are not pinned (P130DateFilters.al:576-589 pins only a key the column holds as it is).
+                        if !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&row)) {
+                            return unsupported(
+                                "an Insert whose Time or DateTime key value the SQL column rounds onto an existing row (not pinned)",
+                            );
+                        }
                         Self::restore_row_version(rec, old_version);
                         Self::unstamp(rec, stamped);
                         // The value stays consumed; the key it took does not stay on the record.
@@ -2388,7 +2450,8 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 self.tenant_license_state_refuses(&t, "modify")?;
-                let pk = t.primary_key(&rec.borrow().fields);
+                // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
+                let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
@@ -2757,18 +2820,22 @@ impl Session {
                             }
                             Value::Code(digits.into())
                         }
-                        // A Time or DateTime key value the SQL column would round: what Get finds is not pinned (sqltime.rs).
-                        Some(v @ (Value::Time(_) | Value::DateTime(_)))
-                            if !rec.borrow().temporary
-                                && !ops::compare(&crate::sqltime::rounded(v), v).is_ok_and(|o| o.is_eq()) =>
-                        {
-                            return unsupported(
-                                "Get with a Time or DateTime key value the SQL column rounds (not pinned)",
-                            );
-                        }
                         Some(v) => ops::convert(v.clone(), &ty)?,
                         None => self.default_value(&ty),
                     });
+                }
+                // A Time or DateTime key value the SQL column rounds looks for the rounded row: Get('A', 10:00:00.001) and
+                // Get('A', 10:00:00) find the row stored from 10:00:00.001, Get('A', 10:00:00.002) does not, as it looks for
+                // 10:00:00.003 (errors/lt-ms-refusals-130/P130DateFilters.al:603-605, :617-618, :722-723). Through a RecordId
+                // it is not pinned.
+                let get_rounds = !rec.borrow().temporary && crate::sqltime::key_rounds(&pk);
+                if get_rounds {
+                    if from_id.is_some() {
+                        return unsupported(
+                            "Get of a RecordId whose Time or DateTime key value the SQL column rounds (not pinned)",
+                        );
+                    }
+                    pk = crate::sqltime::rounded_key(&pk);
                 }
                 if self.engine.program.objects[t.object as usize].id == Some(2_000_000_164) {
                     if let Some(why) = pk.first().and_then(crate::platform::time_zone_get_refusal) {
@@ -2787,6 +2854,10 @@ impl Session {
                         loaded?;
                         Ok(Value::Boolean(true))
                     }
+                    // Not found, by a key value the column rounds: only the answer false is pinned (P130DateFilters.al:605), not the error.
+                    None if get_rounds && !self.ret_used => unsupported(
+                        "the not-found error of a Get by a Time or DateTime key value the SQL column rounds (not pinned)",
+                    ),
                     None => {
                         // A row that is there: record/TestSetAutoCalcFieldsOnGet.Codeunit.al:68-79; a row that is not: the
                         // error of Get(key) (record/lt-record-conversion-assumptions/GetRecordId.al: P98_Get_RecordId_Missing_*).
@@ -2869,7 +2940,8 @@ impl Session {
                     // against OwnFilter_SecondVarWithTheSameFilter_FindDoesNotFindTheRow). A record
                     // remembers the key of the row it last read as its position.
                     "=" => {
-                        let pk = t.primary_key(&rec.borrow().fields);
+                        let fields = rec.borrow().fields.clone();
+                        let pk = Self::exact_key(rec, &t, &fields, "Find('=')")?;
                         let row = self
                             .store_for(rec)
                             .get(&cx, &t, &pk)
@@ -2905,7 +2977,8 @@ impl Session {
                                 // NewRowListTemporary.al:P197_Temp_SecondaryKeyAfterFindFirst: a list over a secondary key opens on
                                 // the positioned record). Base Application's Req. Wksh.-Make Order `Code` needs it as well.
                                 '=' => {
-                                    let pk = t.primary_key(&rec.borrow().fields);
+                                    let fields = rec.borrow().fields.clone();
+                                    let pk = Self::exact_key(rec, &t, &fields, "Find")?;
                                     let exact = self
                                         .store_for(rec)
                                         .get(&cx, &t, &pk)
@@ -3568,7 +3641,15 @@ impl Session {
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
-                let old_pk = t.primary_key(&old);
+                // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
+                // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
+                let old_pk = Self::sql_key(rec, &t, &old);
+                let new_rounds = !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&new));
+                if new_rounds && !refs.is_empty() {
+                    return unsupported(
+                        "a Rename to a Time or DateTime key value the SQL column rounds, of a table other tables relate to (not pinned)",
+                    );
+                }
                 // Rec carries the new key and xRec the old row in the events and the trigger
                 // (record/TestTableEventDispatch.al:TableEvent_OnAfterRename_Subscriber_FiresWithOldAndNewKeys).
                 let old_fields = old.clone();
@@ -3595,7 +3676,7 @@ impl Session {
                 }
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
-                let same_key = ops::compare_keys(&old_pk, &t.primary_key(&row));
+                let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row));
                 let outcome = if same_key {
                     match self
                         .store_for(rec)
@@ -3656,6 +3737,15 @@ impl Session {
                         self.run_ext_trigger(&t, "OnAfterRename", rec, Some(&xrec))?;
                         self.table_event(&t, "onafterrenameevent", rec, Some(&xrec), true, None)?;
                         Ok(Value::Boolean(true))
+                    }
+                    RenameOutcome::NotFound | RenameOutcome::AlreadyExists
+                        if new_rounds
+                            || (!rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&old))) =>
+                    {
+                        rec.borrow_mut().fields = old.clone();
+                        unsupported(
+                            "a failed Rename of a record whose Time or DateTime key value the SQL column rounds (its error is not pinned)",
+                        )
                     }
                     RenameOutcome::NotFound => {
                         rec.borrow_mut().fields = old.clone();

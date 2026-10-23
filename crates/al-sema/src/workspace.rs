@@ -946,6 +946,21 @@ impl Workspace {
             )
     }
 
+    /// Whether a table named `name` (bare) is among the objects `file` searches before the any-namespace fallback of
+    /// [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a namespace.
+    pub fn table_in_scope_tiers(&self, file: usize, name: &str) -> bool {
+        let f = &self.files[file];
+        self.by_name
+            .get(&(ObjKind::Table, name.to_lowercase()))
+            .into_iter()
+            .flatten()
+            .filter(|&&i| self.visible[f.app].contains(&self.objects[i].app))
+            .any(|&i| {
+                let ns = &self.objects[i].namespace;
+                ns.is_none() || eq_ns(ns, &f.namespace) || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
+            })
+    }
+
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
     pub fn has_unloaded_dependency(&self, app: usize) -> bool {
         self.visible[app].iter().any(|&a| {

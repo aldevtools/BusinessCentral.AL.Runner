@@ -1,6 +1,7 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of language/.
 
 mod abs_duration;
+mod agent_natives;
 mod append_char;
 mod array_params;
 mod assumption_truth;
@@ -39,6 +40,7 @@ mod impact_trace;
 mod in_precedence;
 mod interfaces;
 mod json_remove_statement;
+mod json_text_as_decimal;
 mod keyword_variable_names;
 mod lane_bump28;
 mod lane_captions;

@@ -42,6 +42,7 @@ mod table_globals;
 mod tableext_relation_modify;
 mod temp_sums_by_ref;
 mod temp_tables;
+mod time_key_rounding;
 mod transactions;
 mod user_gaps_filters;
 mod userpersonalization;

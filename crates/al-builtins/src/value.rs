@@ -458,6 +458,10 @@ pub struct PageState {
     pub refused: bool,
     /// The last close was refused because OnQueryClosePage raised an error (shown as a message).
     pub close_error: bool,
+    /// The last close was refused because the page's own OnQueryClosePage answered false.
+    pub close_vetoed: bool,
+    /// A `TestPage.Close()` in the modal page's handler was refused by OnQueryClosePage and closed the TestPage all the same.
+    pub test_close_vetoed: bool,
     /// The row the page was left on when it closed with LookupOK (`Page.RunModal(Id, Rec)` hands it back to `Rec`).
     pub selection: Option<Vec<Value>>,
     pub pending: Option<Vec<Value>>,
@@ -741,6 +745,8 @@ impl PageState {
             trigger_errors: Vec::new(),
             refused: false,
             close_error: false,
+            close_vetoed: false,
+            test_close_vetoed: false,
             selection: None,
             pending: None,
             modal: false,

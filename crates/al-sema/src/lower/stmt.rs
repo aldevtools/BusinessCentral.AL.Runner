@@ -125,9 +125,10 @@ impl Lowerer<'_> {
                 add(self, n, ty.clone(), &mut locals);
             }
         }
-        // An InStream handed back (the named return value or a `var` parameter) that the routine created on a local
-        // variable (a Temp Blob, a temporary record's Blob field) reads as empty once the local is out of scope
-        // (streams/lt-dc-stream-leads/DcInStreamScope.al:107-112, :125-126). The runtime keeps the bytes: refused.
+        // An InStream handed back (the named return value or a `var` parameter) that the routine created with the Blob or Temp
+        // Blob CreateInStream on a local variable reads as empty once the local is out of scope (streams/lt-dc-stream-leads/
+        // DcInStreamScope.al:107-126, :128-166). The pinned shapes read as empty; the others are refused when the call runs
+        // (`stream_of_a_local_handed_back`). A procedure of another codeunit named CreateInStream is no such call.
         let is_instream = |t: Option<al_syntax::ast::TypeRef>| {
             t.is_some_and(|t| t.syntax().text().to_string().trim().eq_ignore_ascii_case("instream"))
         };
@@ -139,17 +140,24 @@ impl Lowerer<'_> {
         if let Some(n) = r.return_name().filter(|_| is_instream(r.return_type())) {
             handed.push(n.to_lowercase());
         }
+        self.stream_scope.clear();
         if !handed.is_empty() {
             let local_names: Vec<String> = r
                 .local_var_decls()
                 .flat_map(|v| v.names())
                 .map(|n| n.to_lowercase())
                 .collect();
-            if let Some(why) = r
-                .body()
-                .and_then(|b| self.stream_of_a_local_handed_back(&b, &handed, &local_names))
-            {
-                self.reasons.push(why);
+            if let Some(b) = r.body() {
+                let mut scope = self.stream_of_a_local_handed_back(&b, &handed, &local_names);
+                // A call that is no statement of its own cannot be refused alone when it runs: the routine is refused.
+                scope.retain(|(_, s)| match s {
+                    StreamScope::Static(why) => {
+                        self.reasons.push(why.clone());
+                        false
+                    }
+                    _ => true,
+                });
+                self.stream_scope = scope;
             }
         }
         // OnQueryClosePage with a Boolean return that ends without giving a value lets the page close. Not pinned (the corpus
@@ -232,10 +240,12 @@ impl Lowerer<'_> {
                 ir::Stmt::Expr(call)
             }];
         } else if body.is_empty() && r.attributes().any(|a| a.name().eq_ignore_ascii_case("native")) {
-            self.reasons.push(format!(
+            // Refused when it runs, not when it lowers: code that can reach the native but never calls it runs on BC
+            // (al-runner issue 5684, an install routine that calls `Agent Utilities.SetInstructions` only per row).
+            body = vec![ir::Stmt::Expr(ir::Expr::Refused(format!(
                 "[Native] procedure `{}` is implemented by the platform and has no AL body (what it answers is not pinned)",
                 r.name()
-            ));
+            )))];
         }
         let expr_tys = self.take_table(&body);
         self.tys_on = false;
@@ -649,6 +659,9 @@ impl Lowerer<'_> {
         self.assumed.push(Vec::new());
         let mark = self.tys.len();
         let mut out = self.stmt_plain(n);
+        if n.kind() == SyntaxKind::ExprStmt && !self.stream_scope.is_empty() {
+            out = self.stream_scope_stmt(n, out);
+        }
         if self.tys_on && n.kind() != SyntaxKind::Block {
             self.seal_stmts(mark, &out);
         }
@@ -666,6 +679,44 @@ impl Lowerer<'_> {
             }
         }
         out
+    }
+
+    /// A `CreateInStream` call statement that creates a handed-back stream on a local (see
+    /// `stream_of_a_local_handed_back`): a pinned shape marks the stream as read empty after the call, any other is refused
+    /// when it runs.
+    fn stream_scope_stmt(&mut self, n: &SyntaxNode, out: Vec<ir::Stmt>) -> Vec<ir::Stmt> {
+        let Some(range) = n.children().next().map(|c| c.text_range()) else {
+            return out;
+        };
+        let Some(scope) = self
+            .stream_scope
+            .iter()
+            .find(|(r, _)| *r == range)
+            .map(|(_, s)| s.clone())
+        else {
+            return out;
+        };
+        match scope {
+            StreamScope::Refuse(why) | StreamScope::Static(why) => {
+                let mut refused: Vec<ir::Stmt> =
+                    out.into_iter().take_while(|s| matches!(s, ir::Stmt::Pos(_))).collect();
+                refused.push(ir::Stmt::Expr(ir::Expr::Refused(why)));
+                refused
+            }
+            StreamScope::Gone(stream) => {
+                let mark = self.place(&stream).and_then(|place| {
+                    Ok(ir::Stmt::Expr(ir::Expr::Builtin {
+                        id: super::call::builtin_id("InStream.OwnerOutOfScope#1")?,
+                        receiver: Some(Box::new(ir::Arg::Ref(place))),
+                        args: Vec::new(),
+                        ret_used: false,
+                    }))
+                });
+                let mut out = out;
+                out.push(mark.unwrap_or_else(|why| ir::Stmt::Expr(ir::Expr::Refused(why))));
+                out
+            }
+        }
     }
 
     /// A call or other expression used as a statement. A try function called as a statement behaves like a normal method
@@ -1883,14 +1934,31 @@ fn continue_else(n: &SyntaxNode) -> bool {
 }
 
 impl Lowerer<'_> {
-    /// The refusal for a routine whose body runs `<receiver>.CreateInStream(<name>, ...)` (a call in the syntax tree, so
-    /// comments and strings never match) with `<name>` resolving to one of `handed` (an InStream the caller gets back) and
-    /// the receiver's root name resolving to one of `locals` (a variable declared in the routine's own `var` section).
-    fn stream_of_a_local_handed_back(&self, body: &SyntaxNode, handed: &[String], locals: &[String]) -> Option<String> {
+    /// The calls `<receiver>.CreateInStream(<name>, ...)` of a routine body (calls in the syntax tree, so comments and
+    /// strings never match) with `<name>` resolving to one of `handed` (an InStream the caller gets back), the receiver a
+    /// Blob or the Temp Blob codeunit and its root name resolving to one of `locals` (a variable of the routine's own `var`
+    /// section). Pinned (streams/lt-dc-stream-leads/DcInStreamScope.al): the call is the last statement of the body, the
+    /// receiver is a local `Codeunit "Temp Blob"` (:18-26, :50-58, :128-166) or the Blob field of a local `temporary` record
+    /// (:60-80), and the body uses the local only as the root of a member (`TempBlob.CreateOutStream`, `TempRec.Id := 1`).
+    /// Those read as empty after the call; any other such call is refused when it runs.
+    fn stream_of_a_local_handed_back(
+        &self,
+        body: &SyntaxNode,
+        handed: &[String],
+        locals: &[String],
+    ) -> Vec<(rowan::TextRange, StreamScope)> {
         let local_named = |n: &SyntaxNode, names: &[String]| match self.res(n) {
             Some(Res::Local(v)) => names.iter().any(|h| h.eq_ignore_ascii_case(v)),
             _ => false,
         };
+        let last_call = body
+            .children()
+            .filter(|c| is_stmt(c.kind()))
+            .last()
+            .filter(|c| c.kind() == SyntaxKind::ExprStmt)
+            .and_then(|c| c.children().next())
+            .map(|c| c.text_range());
+        let mut out = Vec::new();
         for call in body.descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
             let mut kids = call.children();
             let (Some(callee), Some(args)) = (kids.next(), kids.find(|k| k.kind() == SyntaxKind::ArgList)) else {
@@ -1912,7 +1980,12 @@ impl Lowerer<'_> {
             if first.kind() != SyntaxKind::NameRef || !local_named(&first, handed) {
                 continue;
             }
-            let mut root = recv;
+            let blob = matches!(self.ty_ref(&recv), Ty::Builtin(n) if n.eq_ignore_ascii_case("Blob"));
+            let temp_blob = matches!(self.ty_ref(&recv), Ty::Object(ObjKind::Codeunit, n) if self.is_temp_blob(n));
+            if !blob && !temp_blob {
+                continue;
+            }
+            let mut root = recv.clone();
             while matches!(
                 root.kind(),
                 SyntaxKind::MemberExpr | SyntaxKind::IndexExpr | SyntaxKind::CallExpr | SyntaxKind::ParenExpr
@@ -1922,14 +1995,52 @@ impl Lowerer<'_> {
                     None => break,
                 }
             }
-            if root.kind() == SyntaxKind::NameRef && local_named(&root, locals) {
-                return Some(format!(
+            if root.kind() != SyntaxKind::NameRef || !local_named(&root, locals) {
+                continue;
+            }
+            let pinned_receiver = if temp_blob {
+                recv.kind() == SyntaxKind::NameRef
+            } else {
+                recv.kind() == SyntaxKind::MemberExpr
+                    && recv.children().next().is_some_and(|c| c == root)
+                    && matches!(self.ty_ref(&root), Ty::Record { temporary: true, .. })
+            };
+            let Some(Res::Local(root_name)) = self.res(&root) else {
+                continue;
+            };
+            let only_member_root = body
+                .descendants()
+                .filter(|n| n.kind() == SyntaxKind::NameRef)
+                .filter(|n| matches!(self.res(n), Some(Res::Local(v)) if v.eq_ignore_ascii_case(root_name)))
+                .all(|n| {
+                    n.parent().is_some_and(|p| {
+                        p.kind() == SyntaxKind::MemberExpr && p.children().next().is_some_and(|c| c == n)
+                    })
+                });
+            let why = || {
+                format!(
                     "an InStream handed back to the caller is created on the local variable `{}`: BC reads it as empty once \
                      the local is out of scope, the runtime keeps the bytes",
                     root.text().to_string().trim()
-                ));
-            }
+                )
+            };
+            let scope = if pinned_receiver && only_member_root && last_call == Some(call.text_range()) {
+                StreamScope::Gone(first)
+            } else if call.parent().is_some_and(|p| p.kind() == SyntaxKind::ExprStmt) {
+                StreamScope::Refuse(why())
+            } else {
+                StreamScope::Static(why())
+            };
+            out.push((call.text_range(), scope));
         }
-        None
+        out
+    }
+
+    /// Whether codeunit `name` is the System Application's Temp Blob (codeunit 4100).
+    fn is_temp_blob(&self, name: &str) -> bool {
+        self.resolve_obj(ObjKind::Codeunit, name).is_ok_and(|i| {
+            let o = &self.ws.objects[i];
+            o.id == Some(4100) && o.name.eq_ignore_ascii_case("Temp Blob")
+        })
     }
 }

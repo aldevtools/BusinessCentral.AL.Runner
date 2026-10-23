@@ -1008,3 +1008,113 @@ fn a_seeded_data_item_view_on_a_request_page_with_on_init_is_refused() {
     ));
     assert!(why.contains("OnInit"), "{why}");
 }
+
+/// al-runner issue 5691: a request page handler whose SetValue raises and does not catch it.
+const RI_OBJECTS: &str = r#"
+table 61250 "RI Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 61251 "RI Log"
+{
+    SingleInstance = true;
+    var Trail: Text;
+    procedure Add(T: Text) begin Trail += T + ';'; end;
+    procedure Take(): Text var R: Text; begin R := Trail; Trail := ''; exit(R); end;
+}
+report 61252 "RI Refused"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(Row; "RI Row") { trigger OnAfterGetRecord() begin L.Add('row ' + Format(Row.Id)); end; } }
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                field(ApplyCtl; ApplyVal)
+                {
+                    trigger OnValidate()
+                    begin
+                        L.Add('validate apply=' + Format(ApplyVal));
+                        if ApplyVal then Error('LT RI apply rejected');
+                    end;
+                }
+                field(IntCtl; IntVal) { }
+            }
+        }
+        trigger OnOpenPage() begin L.Add('RP OnOpenPage'); end;
+        trigger OnQueryClosePage(CloseAction: Action): Boolean
+        begin
+            L.Add('RP OnQueryClosePage action=' + Format(CloseAction) + ' apply=' + Format(ApplyVal) + ' int=' + Format(IntVal));
+            exit(true);
+        end;
+        trigger OnClosePage() begin L.Add('RP OnClosePage'); end;
+    }
+    trigger OnPreReport() begin L.Add('OnPreReport apply=' + Format(ApplyVal) + ' int=' + Format(IntVal)); end;
+    var ApplyVal: Boolean; IntVal: Integer; L: Codeunit "RI Log";
+}
+"#;
+
+fn ri_outcomes(tests: &str) -> Vec<(String, Outcome)> {
+    let src = format!("{RI_OBJECTS}\ncodeunit 61260 T {{ Subtype = Test; {tests} }}");
+    al_testkit::outcomes_in(&src, "T")
+}
+
+const RI_HELPERS: &str = "var L: Codeunit \"RI Log\"; Mode: Text;
+local procedure Seed() var R: Record \"RI Row\"; begin R.DeleteAll(); R.Id := 1; R.Insert(); R.Id := 2; R.Insert(); Commit(); L.Take(); end;
+local procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;
+[RequestPageHandler] procedure RiHandler(var RP: TestRequestPage \"RI Refused\") begin
+    L.Add('h ' + Mode);
+    case Mode of
+        'apply': RP.ApplyCtl.SetValue(true);
+        'int': RP.IntCtl.SetValue('abc');
+        'caught': begin asserterror RP.ApplyCtl.SetValue(true); Error('other'); end;
+    end;
+    if Mode <> 'ok' then L.Add('h after SetValue');
+    if Mode = 'ok' then RP.OK().Invoke() else RP.Cancel().Invoke();
+end;";
+
+// report/lt-report-requestpage/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun and :1264
+// RI_HandlerSetValue_NotEvaluable_ReachesRun: the error leaves Report.Run as the TestValidation error, the page closes with
+// Cancel (the refused value is not kept), OnPreReport does not run, and the next run is a normal one.
+#[test]
+fn a_set_value_error_the_request_page_handler_does_not_catch_closes_the_page_with_cancel() {
+    let o = ri_outcomes(&format!(
+        "{RI_HELPERS}
+        [Test] [HandlerFunctions('RiHandler')]
+        procedure OnValidateError() begin
+            Seed(); Mode := 'apply';
+            asserterror Report.Run(Report::\"RI Refused\");
+            Check('Validation error for Field: ApplyCtl,  Message = ''LT RI apply rejected''', GetLastErrorText());
+            Check('TestValidation', GetLastErrorCode());
+            Check('RP OnOpenPage;h apply;validate apply=Yes;RP OnQueryClosePage action=Cancel apply=No int=0;RP OnClosePage;', L.Take());
+            Mode := 'ok'; Report.Run(Report::\"RI Refused\");
+            Check('RP OnOpenPage;h ok;RP OnQueryClosePage action=OK apply=No int=0;RP OnClosePage;OnPreReport apply=No int=0;row 1;row 2;', L.Take());
+        end;
+        [Test] [HandlerFunctions('RiHandler')]
+        procedure NotEvaluable() begin
+            Seed(); Mode := 'int';
+            asserterror Report.Run(Report::\"RI Refused\");
+            Check('Validation error for Field: IntCtl,  Message = ''Your entry of ''abc'' is not an acceptable value for ''IntCtl''. The value \"abc\" can''t be evaluated into type Integer.''', GetLastErrorText());
+            Check('TestValidation', GetLastErrorCode());
+            Check('RP OnOpenPage;h int;RP OnQueryClosePage action=Cancel apply=No int=0;RP OnClosePage;', L.Take());
+        end;"
+    ));
+    assert_eq!(o.len(), 2);
+    for (n, r) in &o {
+        assert_eq!(r, &Outcome::Pass, "{n}");
+    }
+}
+
+// Not pinned: a handler that caught the SetValue error and then raised another one leaves a refused entry on the page while
+// a different error leaves the handler.
+#[test]
+fn a_handler_error_other_than_the_refused_entry_is_still_refused() {
+    let o = ri_outcomes(&format!(
+        "{RI_HELPERS}
+        [Test] [HandlerFunctions('RiHandler')]
+        procedure Caught() begin Seed(); Mode := 'caught'; asserterror Report.Run(Report::\"RI Refused\"); end;"
+    ));
+    match &o[..] {
+        [(_, Outcome::NotRun(why))] => assert!(why.contains("refused or unsaved entry"), "{why}"),
+        other => panic!("expected one refusal, got {other:?}"),
+    }
+}

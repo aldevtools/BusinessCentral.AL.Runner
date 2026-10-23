@@ -370,7 +370,7 @@ fn below_the_runtime_floor_a_call_without_an_al0666_answer_is_refused_with_ar100
     let got = diags_declared("28", "3.0", &[&src]);
     assert!(
         got.len() == 1
-            && got[0].starts_with("AR1007 `Exists` does not compile at runtime 3.0 with AL compiler 30.0.42.60748,"),
+            && got[0].starts_with("AR1007 `Exists` does not compile at runtime 3.0 with AL compiler 30.0.43.45776,"),
         "{got:?}"
     );
     assert_eq!(diags_declared("28", "4.0", &[&src]), Vec::<String>::new());

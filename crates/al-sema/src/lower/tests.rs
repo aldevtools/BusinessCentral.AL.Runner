@@ -699,19 +699,19 @@ fn report_layout_type_members_lower() {
 // A `[Native]` procedure of a platform app has an empty AL body: the service tier implements it. Running
 // the empty body would answer the default value (the corpus run showed `Agent Utilities.IsAgentSession`
 // deciding every session is an agent session, because the native `GetCurrentSessionAgentMetadataProviderType`
-// "returned" 0 instead of -1). Such a routine is refused when it runs.
+// "returned" 0 instead of -1). Such a routine is refused when it runs, not when it lowers (al-runner issue 5684:
+// an install routine that can reach `Agent Utilities.SetInstructions` but never calls it runs on BC).
 #[test]
-fn a_native_procedure_with_an_empty_body_is_refused() {
+fn a_native_procedure_with_an_empty_body_refuses_when_it_runs() {
     let (_, l) = lower_src(
         "codeunit 50100 C { [Native] procedure Kind(): Integer begin end; procedure Other(): Integer begin exit(1); end; }",
     );
-    let (ki, _) = routine(&l, "Kind");
+    let (ki, kind) = routine(&l, "Kind");
+    assert!(l.unsupported[0][ki].is_empty(), "{:?}", l.unsupported[0][ki]);
     assert!(
-        l.unsupported[0][ki]
-            .iter()
-            .any(|r| r.contains("Native") && r.contains("Kind")),
+        matches!(&kind.body[..], [ir::Stmt::Expr(ir::Expr::Refused(why))] if why.contains("Native") && why.contains("Kind")),
         "{:?}",
-        l.unsupported[0][ki]
+        kind.body
     );
     let (oi, _) = routine(&l, "Other");
     assert!(l.unsupported[0][oi].is_empty());

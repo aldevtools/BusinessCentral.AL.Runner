@@ -225,7 +225,7 @@ impl<'a> Catalog<'a> {
     }
 }
 
-pub(super) fn al_sema_platform_app_id() -> &'static str {
+pub(crate) fn al_sema_platform_app_id() -> &'static str {
     "8874ed3a-0643-4247-9ced-7a7002f7135d"
 }
 

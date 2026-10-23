@@ -2792,17 +2792,48 @@ impl Session {
         }
     }
 
+    /// A modal page whose close was refused by OnQueryClosePage: the corpus pins the page's own trigger answering false,
+    /// on a page with no extension that declares OnQueryClosePage and no subscriber to OnQueryClosePageEvent (a modal page with
+    /// open parts is refused in `close_with`).
+    fn refuse_unpinned_modal_veto(&self, st: &St) -> Result<(), Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let ext_query = page_of(&engine, st)
+            .ext_triggers
+            .iter()
+            .any(|(n, _, _)| n == "onqueryclosepage");
+        if ext_query || engine.events.is_subscribed(object, "onqueryclosepageevent") {
+            return unsupported(
+                "a modal page whose close was refused, with an extension's OnQueryClosePage or a subscriber to its close event (not pinned)",
+            );
+        }
+        Ok(())
+    }
+
     /// Hands the open page `st` to its handler, closes it if the handler left it open, and for a
     /// modal page reports how it closed.
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
         let (hobject, hroutine, hinst) = handler;
         let st = st.clone();
+        st.borrow_mut().test_close_vetoed = false;
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
             self.mark_closed(&st);
             return Err(e);
+        }
+        if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
+            // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
+            // (pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
+            // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
+            self.refuse_unpinned_modal_veto(&st)?;
+            st.borrow_mut().modal = false;
+            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            return Err(error_code(
+                format!("The RunModal procedure could not close the page {id} as it has already been closed."),
+                "TestCodeUnit",
+            ));
         }
         if st.borrow().open {
             let a = self.unattended_action(&st);
@@ -2813,9 +2844,21 @@ impl Session {
                 // with the page gone and no action completed; the page's writes stay (corpus
                 // handlers/TestPageQueryCloseMessageHandler_Tests.al:
                 // ErrorInQueryClosePage_MessageConsumed_CallerRegainsControl, ..._SettlesThePagesUncommittedWrite).
-                // A refusal by a plain `false` is not pinned for a modal page.
-                if !(modal && st.borrow().close_error) {
+                // A refusal by a plain `false` of a modal page's own OnQueryClosePage: RunModal answers None without an error,
+                // the last error is the veto's, and OnClosePage does not run (pages/lt-modal-query-close-veto/
+                // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
+                // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
+                let vetoed = st.borrow().close_vetoed;
+                if !(modal && (st.borrow().close_error || vetoed)) {
                     return unsupported("a page whose OnQueryClosePage refused the platform's close");
+                }
+                if vetoed {
+                    self.refuse_unpinned_modal_veto(&st)?;
+                    self.last_error = al_builtins::native::AlError {
+                        message: "The page cannot be closed at this time.".into(),
+                        code: "FormCloseNotAllowed".into(),
+                        ..Default::default()
+                    };
                 }
                 self.mark_closed(&st);
                 st.borrow_mut().result = Some("None".into());

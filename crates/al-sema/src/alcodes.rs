@@ -104,6 +104,10 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
         "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
     ),
     (
+        "AL0185",
+        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082); any other missing object is not decided.",
+    ),
+    (
         "AL0666",
         "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
     ),
@@ -418,6 +422,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             page_customization_variables(ws, oi, &obj, &mut out);
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
+        platform_integer_without_using(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
@@ -441,6 +446,61 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// AL0185 `Table 'Integer' is missing`. The platform table Integer lives in namespace System.Utilities: a file in a namespace
+/// names it bare only through `using System.Utilities;` (must-not-compile 2081: a Record variable, 2082: a report data item;
+/// misc/lt-inferred-behaviors/RiNsPlatformTable.al:19 compiles with the using, al-runner issue 5694). Only those two shapes and
+/// only Integer are pinned: other platform tables, other places that name a table, a qualified name and a file whose namespace
+/// is System.Utilities or below it keep compiling. A table Integer the file finds in its own namespace, a using or among the
+/// objects without a namespace is no error.
+fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    const NS: &str = "system.utilities";
+    let file = ws.objects[oi].file;
+    let f = &ws.files[file];
+    let Some(ns) = &f.namespace else {
+        return;
+    };
+    let ns = ns.to_ascii_lowercase();
+    if ns == NS || ns.starts_with("system.utilities.") || f.usings.iter().any(|u| u.eq_ignore_ascii_case(NS)) {
+        return;
+    }
+    let bare_integer = |parts: &[String]| matches!(parts, [p] if p.eq_ignore_ascii_case("Integer"));
+    let mut at: Vec<usize> = obj
+        .syntax()
+        .descendants()
+        .filter_map(ast::TypeRef::cast)
+        .filter(|t| t.type_name().eq_ignore_ascii_case("Record") && bare_integer(&t.object_name_parts()))
+        .map(|t| offset_of(t.syntax()))
+        .collect();
+    if ws.objects[oi].kind == ObjKind::Report {
+        fn dataitems(
+            sections: impl Iterator<Item = ast::Section>,
+            hit: &dyn Fn(&[String]) -> bool,
+            at: &mut Vec<usize>,
+        ) {
+            for s in sections {
+                if s.name().eq_ignore_ascii_case("dataitem") && s.arg_name_parts(1).is_some_and(|p| hit(&p)) {
+                    at.push(offset_of(s.syntax()));
+                }
+                dataitems(s.sections(), hit, at);
+            }
+        }
+        dataitems(obj.sections(), &bare_integer, &mut at);
+    }
+    if at.is_empty() || ws.table_in_scope_tiers(file, "Integer") {
+        return;
+    }
+    for offset in at {
+        push(
+            out,
+            ws,
+            file,
+            offset,
+            "AL0185",
+            "Table 'Integer' is missing".to_string(),
+        );
+    }
 }
 
 /// AL0161. A subscription to an event of a platform codeunit that is an `InternalEvent` (corpus 0740:
@@ -1680,6 +1740,39 @@ mod tests {
 
     fn ext(body: &str) -> String {
         format!("pageextension 50002 BPE extends BP {{ {body} }}")
+    }
+
+    /// The platform table Integer lives in namespace System.Utilities: code in a namespace names it bare only through
+    /// `using System.Utilities;` (must-not-compile 2081, 2082: AL0185 `Table 'Integer' is missing`; misc/lt-inferred-behaviors/
+    /// RiNsPlatformTable.al:19 compiles with the using; al-runner issue 5694).
+    #[test]
+    fn al0185_integer_from_a_namespace_without_its_using() {
+        const PLATFORM: &str =
+            "namespace System.Utilities; table 2000000026 Integer { fields { field(1; Number; Integer) { } } }";
+        let rec = |head: &str| format!("{head} codeunit 50100 C {{ procedure F() var N: Record Integer; begin end; }}");
+        let dataitem = |head: &str| {
+            format!("{head} report 50101 R {{ ProcessingOnly = true; dataset {{ dataitem(Number; Integer) {{ }} }} }}")
+        };
+        for platform in [&[PLATFORM][..], &[][..]] {
+            let with = |src: String| {
+                let mut f: Vec<&str> = platform.to_vec();
+                f.push(Box::leak(src.into_boxed_str()));
+                codes(&f)
+            };
+            assert_eq!(with(rec("namespace Repro;")), vec!["AL0185"]);
+            assert_eq!(with(dataitem("namespace Repro;")), vec!["AL0185"]);
+            assert!(with(rec("namespace Repro; using System.Utilities;")).is_empty());
+            assert!(with(dataitem("namespace Repro; using System.Utilities;")).is_empty());
+            assert!(with(rec("")).is_empty());
+            assert!(with(dataitem("")).is_empty());
+        }
+        let ws = load(&[PLATFORM, &rec("namespace Repro;")]);
+        let r = crate::check::check(&ws, &crate::members::build(&ws), &Catalog::load());
+        let d = r.diagnostics.iter().find(|d| d.code == "AL0185").expect("AL0185");
+        assert_eq!(d.message, "Table 'Integer' is missing");
+        // A table Integer of the file's own namespace is found.
+        let own = "namespace Repro; table 50102 Integer { fields { field(1; Number; Integer) { } } }";
+        assert!(codes(&[PLATFORM, own, &rec("namespace Repro;")]).is_empty());
     }
 
     #[test]

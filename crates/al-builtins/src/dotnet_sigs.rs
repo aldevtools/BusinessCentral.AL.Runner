@@ -26,6 +26,8 @@ pub enum Ret {
 pub const AL_CONFIG_SETTINGS: &str = "Microsoft.Dynamics.Nav.Types.ALConfigSettings";
 /// `Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper`.
 pub const TENANT_SETTINGS_HELPER: &str = "Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper";
+/// `Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions`, behind System Application's "AOAI Authorization".
+pub const COPILOT_FUNCTIONS: &str = "Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions";
 /// `Microsoft.Dynamics.Nav.Runtime.NavTestExecution`.
 pub const TEST_EXECUTION: &str = "Microsoft.Dynamics.Nav.Runtime.NavTestExecution";
 /// `Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper`, which codeunit 131006 "Permissions Mock" constructs.
@@ -140,6 +142,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (USER_ACCOUNT_HELPER, "IsDelegatedUser", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "GetEffectivePermissionForObject", Ret::Text),
     (TEST_EXECUTION, "IsInTestMode", Ret::Boolean),
+    (COPILOT_FUNCTIONS, "IsPlatformAuthorizationConfigured", Ret::Boolean),
     (PERMISSION_TEST_HELPER, "PermissionTestHelper", Ret::Object),
     (PERMISSION_TEST_HELPER, "Clear", Ret::Void),
     (PERMISSION_TEST_HELPER, "Dispose", Ret::Void),

@@ -16,8 +16,8 @@
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{
-    AL_CONFIG_SETTINGS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO, TENANT_SETTINGS_HELPER, TEST_EXECUTION,
-    USER_ACCOUNT_HELPER,
+    AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO, TENANT_SETTINGS_HELPER,
+    TEST_EXECUTION, USER_ACCOUNT_HELPER,
 };
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
@@ -297,6 +297,27 @@ fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
 fn is_in_test_mode(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTestExecution.IsInTestMode")?;
     Ok(Value::Boolean(s.in_test_codeunit))
+}
+
+/// `ALCopilotFunctions.IsPlatformAuthorizationConfigured(callerPublisher, systemApplicationPublisher)`, which System Application's
+/// "AOAI Authorization".IsConfigured asks for First Party authorization: false, with no error, for a caller published by
+/// 'AL Language' and the System Application published by 'Microsoft' (corpus platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94,
+/// BC 27, 28 and 29; al-runner issue 5693). A Microsoft caller is not pinned: whether the platform authorizes its own
+/// publisher's Copilot features on the test tier is refused.
+fn copilot_platform_authorization(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    let publisher = |v: &Value| al_builtins::native::text_of(v).map(|t| t.to_string());
+    match args {
+        [caller, current]
+            if publisher(current).as_deref() == Some("Microsoft")
+                && publisher(caller).is_some_and(|c| !c.trim().eq_ignore_ascii_case("microsoft")) =>
+        {
+            Ok(Value::Boolean(false))
+        }
+        _ => Err(Signal::Unsupported(
+            "DotNet ALCopilotFunctions.IsPlatformAuthorizationConfigured for a Microsoft caller or other arguments (not pinned)"
+                .into(),
+        )),
+    }
 }
 
 const ENV_PROBE: &str = "probe tests/al-language/session/TestEnvironmentUserTenantContracts.al";
@@ -614,6 +635,16 @@ fn own_types() -> Vec<RegistryType> {
                     ),
                 ]
             },
+        },
+        RegistryType {
+            clr_name: COPILOT_FUNCTIONS.into(),
+            members: vec![member(
+                "IsPlatformAuthorizationConfigured",
+                Pin::Corpus(
+                    "platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94 (false for the caller publisher 'AL Language')".into(),
+                ),
+                copilot_platform_authorization,
+            )],
         },
         RegistryType {
             clr_name: TEST_EXECUTION.into(),

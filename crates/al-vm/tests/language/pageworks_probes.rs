@@ -5,7 +5,7 @@
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
-use al_testkit::text;
+use al_testkit::{run_with, text};
 
 fn run(src: &str, routine: &str) -> Result<Value, Signal> {
     al_testkit::run(src, routine)
@@ -206,6 +206,13 @@ codeunit 50100 C
     begin
         exit(B.Unlisted('x'));
     end;
+    procedure NotReached(Call: Boolean): Text
+    var B: Codeunit Base64Convert;
+    begin
+        if Call then
+            exit(B.Unlisted('x'));
+        exit('not called');
+    end;
 }
 "#;
 
@@ -222,6 +229,19 @@ fn base64_convert_natives_answer_as_the_probe_did() {
 #[test]
 fn a_native_that_has_no_implementation_stays_refused() {
     match run(BASE64, "NotPinned") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("Native") && why.contains("Unlisted"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// al-runner issue 5684: an install routine that can reach a native it never calls runs on BC (corpus-writer RH:
+// nothing to pin, the reached native stops BC with a CLR exception). The native refuses when it is called, not when it
+// is merely reachable.
+#[test]
+fn a_native_without_implementation_refuses_only_when_called() {
+    let not_called = run_with(BASE64, "C", "NotReached", vec![Value::Boolean(false)]).map(|(v, _)| v);
+    assert_eq!(text(not_called), "not called");
+    match run_with(BASE64, "C", "NotReached", vec![Value::Boolean(true)]) {
         Err(Signal::Unsupported(why)) => assert!(why.contains("Native") && why.contains("Unlisted"), "{why}"),
         other => panic!("{other:?}"),
     }
