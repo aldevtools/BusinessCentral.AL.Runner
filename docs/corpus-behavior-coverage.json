@@ -16009,7 +16009,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 739,
+        "line": 747,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16135,7 +16135,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 821,
+        "line": 847,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16144,7 +16144,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 985,
+        "line": 1014,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16153,7 +16153,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1150,
+        "line": 1179,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16162,7 +16162,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1182,
+        "line": 1211,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16357,6 +16357,15 @@
         "template": "Page % has to close."
       },
       {
+        "code": "FormCloseNotAllowed",
+        "file": "crates/al-vm/src/pages/rows.rs",
+        "generic": false,
+        "line": 2858,
+        "pinned": true,
+        "site": "pages/lt-ab-tests/ABTests.al:958",
+        "template": "The page cannot be closed at this time."
+      },
+      {
         "code": "",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
@@ -16414,7 +16423,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3555,
+        "line": 3628,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16555,8 +16564,8 @@
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 79,
-    "sites": 80
+    "pinned": 80,
+    "sites": 81
   },
   "language": {
     "bc": "27-29",
