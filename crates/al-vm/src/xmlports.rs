@@ -1465,16 +1465,13 @@ impl Session {
             }
         }
         if !first_of_node && n.link_node.is_some() {
-            // A later row under the same parent keeps a link field of its primary key, as Init keeps the key (assumption
-            // xmlport-later-child-keeps-key-link; a link field outside the key is 0 there, pinned by
-            // xmlport/TestXmlPortTriggersReplaceViewContracts.al:414).
+            // A later row under the same parent keeps a link field of its primary key, as Init keeps the key, already in
+            // OnBeforeInsertRecord (xmlport/TestXmlPortTriggersReplaceViewContracts.al:648, attributes over 3 levels and
+            // elements over 2); a link field outside the key is 0 there (same file :414).
             let t = self.table(&rec)?;
             let r = rec.borrow();
             for &(own, _) in &n.link_fields {
                 if t.keys[0].contains(&own) {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::XmlportLaterChildKeepsKeyLink,
-                    );
                     fresh[own] = r.fields[own].clone();
                 }
             }
