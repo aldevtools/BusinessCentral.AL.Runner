@@ -286,27 +286,23 @@ impl Session {
         // (ConfigXMLExchange.Codeunit.al:1505-1522) lists the Media folder MediaSet.ExportFile wrote into. Windows BC 29.0
         // lists those files, full path with no extension (windows-check-results 2026-10-23 RJ item B; corpus
         // tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
-        // image lists none (bc-linux issue 181), so no corpus test pins it. The Microsoft-test exception (CLAUDE.md rule 3):
-        // every Microsoft Legacy test needs the DemoTool company. Only a folder whose creation order and name order agree is
-        // listed (that run could not tell them apart); an empty one is refused (not measured).
+        // image listed none (bc-linux issue 181). Windows BC 29.0 lists in name order without case, never in creation order
+        // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder); the bc-linux image now does the same and
+        // corpus bump 62 pins it (the next stage 2 swaps this assumption for that pin). Until then the Microsoft-test exception
+        // (CLAUDE.md rule 3): every Microsoft Legacy test needs the DemoTool company. An empty folder is refused (not measured).
         if let (Target::Static(d), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
             (&target, kind, values.as_slice())
             && d.name.eq_ignore_ascii_case("System.IO.Directory")
             && member.eq_ignore_ascii_case("GetFiles")
             && let Some(listed) = self.host.files.temp_folder_files(p)
         {
-            return match listed {
-                Ok(files) if !files.is_empty() => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::CompanyBuildFolderListingNameOrder,
-                    );
-                    self.staged_file_array(files, &shown)
-                }
-                Ok(_) => unsupported(format!(
+            if listed.is_empty() {
+                return unsupported(format!(
                     "DotNet {shown}: an empty folder of the company build's temporary folder (not measured on real BC)"
-                )),
-                Err(why) => unsupported(format!("DotNet {shown}: {why}")),
-            };
+                ));
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CompanyBuildFolderListingNameOrder);
+            return self.staged_file_array(listed, &shown);
         }
 
         // 1d. The company build's temporary folder (owner rule 2026-10-22: folder access only inside the company build).

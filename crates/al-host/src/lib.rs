@@ -488,9 +488,8 @@ pub trait FileSystem {
         None
     }
     /// The paths of the files directly in `dir`, for a folder AL code created in the company build's temporary folder (al-testrun
-    /// company_data.rs): `None` for every other folder. `Some(Err(why))` when the listing would depend on a choice no test pins
-    /// (the files' creation order and name order differ).
-    fn temp_folder_files(&self, _dir: &str) -> Option<Result<Vec<String>, String>> {
+    /// company_data.rs), in name order without case: `None` for every other folder.
+    fn temp_folder_files(&self, _dir: &str) -> Option<Vec<String>> {
         None
     }
     /// Whether .NET's static `System.IO.Directory` and `System.IO.File` calls on `path` are answered by this file system
