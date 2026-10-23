@@ -187,6 +187,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (GZIP_STREAM, "GZipStream", Ret::Object),
     (GZIP_STREAM, "CopyTo", Ret::Void),
     (GZIP_STREAM, "Dispose", Ret::Void),
+    (GZIP_STREAM, "Close", Ret::Void),
     (COMPRESSION_MODE, "Compress", Ret::Object),
     (COMPRESSION_MODE, "Decompress", Ret::Object),
     (BITMAP, "Bitmap", Ret::Object),

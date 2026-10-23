@@ -1464,7 +1464,7 @@ fn the_declared_result_types_match_the_registry() {
             "GetEnvironmentApplicationSetting" => vec![Value::Text("x".into())],
             "GetEffectivePermissionForObject" => continue, // needs a Guid; the AL test above runs it
             // Need streams; tests/gzip.rs runs them.
-            "GZipStream" | "CopyTo" | "Dispose" => continue,
+            "GZipStream" | "CopyTo" | "Dispose" | "Close" => continue,
             // Need other runtime objects; tests/host/bitmap.rs runs them.
             "Bitmap" | "Save" | "FromImage" | "FillEllipse" | "FromHtml" | "SolidBrush" => continue,
             // Need an exception object; tests/host/last_error_object.rs runs them.
