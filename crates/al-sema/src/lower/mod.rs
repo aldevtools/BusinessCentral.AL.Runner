@@ -233,6 +233,9 @@ pub(crate) struct Lowerer<'a> {
     /// While a call statement is lowered: the `CurrFieldNo` arguments it passes to `var` parameters, as (the local that
     /// stands in for it, the slot of the implicit Rec). `None` elsewhere.
     curr_field_args: Option<Vec<(usize, usize)>>,
+    /// While a routine is lowered: the `CreateInStream` calls of the routine that create an InStream it hands back on one of
+    /// its own locals, by the text range of the call (see `stream_of_a_local_handed_back`).
+    stream_scope: Vec<(rowan::TextRange, StreamScope)>,
     /// One entry per loop around the statement being lowered, innermost last: whether it is a foreach nested in another
     /// loop (`if ... then continue else ...` is refused there, see the ForeachStmt lowering).
     loops: Vec<bool>,
@@ -467,6 +470,17 @@ mod tables;
 #[cfg(test)]
 mod tests;
 mod tys;
+
+/// What the lowering does with a `CreateInStream` call that creates a handed-back InStream on a local of the routine.
+#[derive(Clone)]
+pub(crate) enum StreamScope {
+    /// A pinned shape: after the call (the routine's last statement) the stream reads as empty; the node is the stream.
+    Gone(SyntaxNode),
+    /// Not pinned: the call is refused when it runs, with this reason.
+    Refuse(String),
+    /// Not pinned, and the call is no statement of its own: the routine is refused, with this reason.
+    Static(String),
+}
 
 pub use self::assemble::*;
 pub use self::compile::*;
