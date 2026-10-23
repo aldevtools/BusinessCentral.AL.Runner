@@ -1494,6 +1494,36 @@ impl Session {
         }
     }
 
+    /// The platform's virtual table `Agent Task` (2000000262): in a test session IsEmpty fails with the agent service's
+    /// error, code DB:Ok (platform/lt-rh-agent-session/RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent, through
+    /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
+    /// Every other read or write of it stays refused by its provider ("has no provider").
+    fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
+        if method != RecordOp::IsEmpty || rec.borrow().temporary {
+            return Ok(());
+        }
+        let object = &self.engine.program.objects[t.object as usize];
+        let platform = self.engine.program.apps.get(object.app as usize).is_some_and(|a| {
+            a.id.eq_ignore_ascii_case(crate::platform::objects::al_sema_platform_app_id())
+        });
+        // Only a read from Microsoft code (the System Application) is pinned; a partner app's own read is not.
+        let microsoft = self.frames.last().is_some_and(|o| {
+            let app = self.engine.program.objects[*o].app as usize;
+            self.engine
+                .program
+                .apps
+                .get(app)
+                .is_some_and(|a| a.publisher == "Microsoft")
+        });
+        if !platform || object.id != Some(2000000262) || !microsoft {
+            return Ok(());
+        }
+        Err(crate::transactions::al_error_code(
+            "Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.",
+            "DB:Ok",
+        ))
+    }
+
     /// A `LinkedObject = true` table has no SQL table behind it in a test database: Insert and Count raise the SQL error
     /// (record/lt-x-table-props/XTablePropsTests.al:720-737, text and code). The other database operations are not pinned.
     fn linked_object_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
@@ -1704,6 +1734,7 @@ impl Session {
             ));
         }
         self.linked_object_check(&t, rec, method)?;
+        self.agent_task_check(&t, rec, method)?;
         self.note_table(t.object, method.writes());
         if matches!(
             method,
