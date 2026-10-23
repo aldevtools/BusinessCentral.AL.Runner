@@ -344,7 +344,10 @@ from the package and read Company Information."Country/Region Code"). Until then
    `UnitTest` or none, `IntegrationTest`, `Uncategorized`; `AITest` is in no build mode and is left out. A codeunit
    without the property runs in the UnitTest lane: checked 2026-10-22 against Microsoft's CI (BCApps `releases/29.x`,
    run 39519586834), where the Default job ran 242 such codeunits and the UncategorizedTests job none.
-3. Company per lane: Legacy runs `--company-data demotool` on every BC version (company name from the settings,
+3. Company per lane. **Off by default since 2026-10-23 (owner decision):** the company builds below (DemoTool, Contoso)
+   are experimental. Without `--experimental-company-builds` the recipe builds no company and reports the Legacy,
+   IntegrationTest and Uncategorized lanes as not run, with the reason; `--company-data demotool|contoso-*` is
+   refused. With the flag the lanes run as described here. Legacy runs `--company-data demotool` on every BC version (company name from the settings,
    CRONUS International Ltd.): BCApps' CI runs the DemoTool's "Create Demo Data from Config" after Company-Initialize
    (`Invoke-LegacyDemoDataTool`, 27.5, 28.5 and 29.0); the RapidStart package is not used (owner decision 2026-10-22);
    UnitTest runs without demo data (Company-Initialize and the installs only). IntegrationTest and Uncategorized need

@@ -294,13 +294,13 @@ fn an_app_with_tests_in_test_microsoft_or_no_extension_at_all_exits_2() {
     assert!(out.contains("nothing to measure"), "{out}");
 }
 
-#[test]
-fn a_codeunit_of_a_contoso_lane_whose_company_is_not_built_is_not_verified_with_the_reason() {
-    let dir = tempfile::tempdir().unwrap();
-    let (ext, _, lib) = source_fixture(dir.path());
+/// The fixture of the source runs with a copy of the impact test app whose codeunit has `TestType = Uncategorized`:
+/// Microsoft's recipe puts it in the Uncategorized lane (Contoso data). Returns the extension and the library.
+fn uncategorized_fixture(dir: &Path) -> (String, String) {
+    let (ext, _, lib) = source_fixture(dir);
     let tests = impact_fixture("tests");
     let read = |f: &str| std::fs::read_to_string(tests.join(f)).unwrap();
-    let test = dir.path().join(format!(
+    let test = dir.join(format!(
         "home/.bcartifacts.cache/sandbox/{BUILD}/platform/Applications/Fake/Test"
     ));
     // The same test app with `TestType = Uncategorized`: Microsoft's recipe puts it in the Uncategorized lane (Contoso
@@ -324,9 +324,48 @@ fn a_codeunit_of_a_contoso_lane_whose_company_is_not_built_is_not_verified_with_
         ]),
     )
     .unwrap();
+    (ext, lib)
+}
+
+// Owner decision 2026-10-23: company builds are experimental and off by default, so the Contoso lane is not run, with
+// the reason, and nothing is built.
+#[test]
+fn a_codeunit_of_a_contoso_lane_is_not_verified_by_default_because_company_builds_are_experimental() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ext, lib) = uncategorized_fixture(dir.path());
     let o = run(dir.path(), &[&ext, "--app", "Tests-Imp-Uncategorized", "--dep", &lib]);
     let out = text(&o);
-    // The lane runs with the Contoso company (`--company-data contoso-all`); the fake artifact has no Contoso app, so the
+    assert!(
+        out.contains("Tests-Imp-Uncategorized lane Uncategorized: 2 codeunit(s) not verified: lane not run yet:")
+            && out.contains("company builds are experimental and off by default"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("-- Tests-Imp-Uncategorized lane Uncategorized"),
+        "the lane does not run: {out}"
+    );
+    assert!(!out.contains("the company data was not built"), "{out}");
+    // A lane that is not run counts no test in the row; the note above says which codeunits were left out.
+    assert_eq!(source_row(&out, "microsoft"), "0 0 0 0 0 0 0", "{out}");
+}
+
+#[test]
+fn a_codeunit_of_a_contoso_lane_whose_company_is_not_built_is_not_verified_with_the_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ext, lib) = uncategorized_fixture(dir.path());
+    let o = run(
+        dir.path(),
+        &[
+            &ext,
+            "--app",
+            "Tests-Imp-Uncategorized",
+            "--dep",
+            &lib,
+            "--experimental-company-builds",
+        ],
+    );
+    let out = text(&o);
+    // With --experimental-company-builds the lane runs with the Contoso company (`--company-data contoso-all`); the fake artifact has no Contoso app, so the
     // company is not built and every test is not verified, with the reason.
     assert!(
         out.contains("-- Tests-Imp-Uncategorized lane Uncategorized: 2 codeunits --"),

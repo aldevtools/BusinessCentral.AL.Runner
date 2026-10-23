@@ -50,39 +50,12 @@ does: a fresh company, `Company-Initialize`, then the RapidStart package of the
 artifact. `--package PATH` names a different `.rapidstart` file. A company built
 from the package needs `--server-url` for `Company-Initialize`.
 
-## The DemoTool company
+## Microsoft's demo company
 
-```bash
-al-runner test Tests-SCM-Warehouse.Source.zip --company-data demotool
-```
-
-Microsoft's CI builds the Legacy lane's company with the DemoTool on every BC
-version (BCApps `Invoke-LegacyDemoDataTool`): it installs only the base apps,
-creates a new company (`Company-Initialize`), runs the action "Create Demo Data
-from Config" of page 101900 "Demonstration Data Tool", and installs the other
-apps after that. The container is on-prem. `--company-data demotool` does the
-same without a page: it runs that action's codeunit 101899 in the install
-baseline, after `Company-Initialize`, on an on-prem server. Only the apps of
-BCApps' groups `Base`, `TestFramework` and `LocalBaseExtensions` (from
-`build/groups.json`) and the DemoTool are installed before it; the install code
-of the other apps runs after it, and their event subscribers do not run before
-that. The tests themselves keep `--environment`.
-
-The DemoTool is not in the artifact. Its AL source and its W1 resource files
-(`DemoDataConfig.xml`, pictures, text files) come from Microsoft's BCApps
-repository, branch `releases/<major>.<minor>`. They are fetched once with git into
-`<cache dir>/bcapps-demotool/<major>.<minor>/`. `--demotool DIR` names a BCApps
-checkout instead. The app is compiled with the Microsoft apps. The codeunit reads
-the resource files through the `File` type, matched without case as on Windows.
-A path that climbs out of `TemporaryPath()` (`TemporaryPath() + '..\X'`) names
-the folder of the resource files, as BCApps copies them into the folder above the
-server's temporary folder.
-
-No backup is restored. If the codeunit does not run to its end, no test runs: each
-test is not run, with the place where the codeunit stopped. The run also lists
-every refused routine the codeunit can reach (`--verbose`). The company is kept
-with the install baseline in the compile cache, so the next run of the same
-program reads it. w1 only.
+Microsoft's CI builds the company of some test lanes with its own tools (the
+DemoTool for the Legacy lane, the Contoso Demo Tool for the IntegrationTest and
+Uncategorized lanes). AL Runner does not build these companies by default. The
+support for it is experimental and will be redesigned.
 
 ## Microsoft's test apps
 

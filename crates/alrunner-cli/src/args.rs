@@ -172,6 +172,10 @@ pub struct TestArgs {
     /// `--company-data contoso-setup|contoso-all`: build the company with the Contoso Demo Tool after Company-Initialize,
     /// as Microsoft's IntegrationTest (setup data) and Uncategorized (all demo data) test lanes do. No backup is restored.
     pub company_contoso: Option<ContosoData>,
+    /// `--experimental-company-builds`: allow the company builds of Microsoft's lanes (`--company-data demotool`,
+    /// `contoso-setup`, `contoso-all`, and the recipe's Legacy, IntegrationTest and Uncategorized lanes). Off by default
+    /// (owner decision 2026-10-23): without it they are refused, and the recipe does not run those lanes.
+    pub experimental_company_builds: bool,
     /// `--disabled-tests DIR`: BCApps' `src/DisabledTests` (or one app's folder); tests Microsoft turns off are marked.
     pub disabled_tests_dir: Option<PathBuf>,
     /// Not a command line option: the recipe's test apps. When set, only their folders below `disabled_tests_dir`
@@ -652,6 +656,8 @@ TEST DATA
                          builds the company the way Microsoft's Legacy test lane does: a fresh
                          company, Company-Initialize, then the RapidStart package of the artifact
                          (platform/ConfigurationPackages/*.rapidstart, the DemoTool's Extended data).
+                         `demotool`, `contoso-setup` and `contoso-all` are experimental and off by
+                         default: they need --experimental-company-builds.
                          `demotool` builds it as that lane does on a release whose artifact has
                          no package: a fresh company, Company-Initialize, then the DemoTool's
                          \"Create Demo Data from Config\" (codeunit 101899), compiled from BCApps' source
@@ -659,22 +665,28 @@ TEST DATA
                          <cache dir>/bcapps-demotool/<major>.<minor>/ once). No backup is restored. If
                          the codeunit does not run to its end, no test runs and the reason says where
                          it stopped. The company is kept with the install baseline in the compile cache.
-                         w1 only. Opt-in; nothing else changes. `contoso-setup` and `contoso-all` build it
+                         w1 only. `contoso-setup` and `contoso-all` build it
                          as Microsoft's IntegrationTest and Uncategorized lanes do: Company-Initialize, then
                          the Contoso Demo Tool of the artifact's Contoso Coffee Demo Dataset app (setup data,
                          or all demo data in an evaluation company), then its tenant data, each step without
                          a client (GuiAllowed false while the company is built). w1 only.
     --package PATH       The .rapidstart file to use (implies --company-data package).
     --demotool DIR       A BCApps checkout holding src/DemoTool and src/Layers/W1/DemoTool (implies
-                         --company-data demotool).
+                         --company-data demotool; experimental, needs --experimental-company-builds).
+    --experimental-company-builds  Turn on the experimental builds of Microsoft's demo company:
+                         --company-data demotool|contoso-setup|contoso-all, and the Legacy,
+                         IntegrationTest and Uncategorized lanes of --recipe microsoft and
+                         test-microsoft. Off by default; without it those lanes are not run.
     --disabled-tests DIR  Microsoft's list of disabled tests: BCApps' src/DisabledTests, or one
                          app's folder (every *.json below DIR is read). Those tests still run and
                          the summary and the JUnit file mark them (property disabled_by_microsoft).
     --parity             With --disabled-tests: do not run those tests.
     --recipe microsoft   Run the way Microsoft's CI does. BCApps' settings decide the company of each test
-                         codeunit (a lane): the Legacy test apps get the DemoTool company, a codeunit
-                         with TestType = UnitTest an empty company, IntegrationTest the Contoso setup company,
-                         the rest the Contoso company with all demo data. One run per lane, each with its own
+                         codeunit (a lane): a codeunit with TestType = UnitTest runs in an empty company.
+                         The Legacy test apps need the DemoTool company, IntegrationTest the Contoso setup
+                         company, the rest the Contoso company with all demo data: building those is
+                         experimental and off by default, so those lanes are not run, with the reason, unless
+                         --experimental-company-builds is given. One run per lane, each with its own
                          summary and, with --junit FILE, its own file (FILE.<lane>.xml). Microsoft's disabled
                          tests are skipped and counted. The BCApps files (MIT) of the release (releases/<major>.<minor>)
                          are fetched with git, sparse, into <cache dir>/bcapps/<major>.<minor>/ once; --no-download
@@ -698,7 +710,8 @@ TEST-MICROSOFT
                          app could not be loaded or compiled, else 1, 8, 7; 6 only when nothing ran).
                          The recipe decides the company and the disabled tests: --recipe,
                          --disabled-tests, --parity, --company-data, --package, --test-data*,
-                         --no-test-data and --explain are refused.
+                         --no-test-data and --explain are refused. The lanes that need Microsoft's
+                         demo company are not run unless --experimental-company-builds is given.
                          With APPs (your extensions, no test codeunits): `al-runner test APP...
                          --affected-from microsoft` without own tests (see TEST SOURCES); --impact
                          applies. An APP with test codeunits is refused.
@@ -1237,6 +1250,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.company_package = false;
                 a.company_contoso = None;
             }
+            "--experimental-company-builds" => a.experimental_company_builds = true,
             "--disabled-tests" => a.disabled_tests_dir = Some(text()?.into()),
             "--parity" => a.parity = true,
             "--recipe" => {
@@ -1322,6 +1336,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     }
     if a.company_package && a.no_test_data {
         return Err("--company-data package cannot be combined with --no-test-data".into());
+    }
+    if let Some(e) = company_build_off(&a) {
+        return Err(e);
     }
     if a.company_demotool {
         if !al_deps::artifact::is_w1(a.country()) {
@@ -1572,6 +1589,24 @@ fn affected_args(a: &TestArgs, what: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Why a company build of the command line is refused: the builds of Microsoft's demo company (`--company-data
+/// demotool`, `contoso-setup`, `contoso-all`) are experimental and off by default (owner decision 2026-10-23) unless
+/// `--experimental-company-builds` is given.
+pub fn company_build_off(a: &TestArgs) -> Option<String> {
+    let flag = if a.company_demotool {
+        "--company-data demotool / --demotool"
+    } else if a.company_contoso.is_some() {
+        "--company-data contoso-setup|contoso-all"
+    } else {
+        return None;
+    };
+    (!a.experimental_company_builds).then(|| {
+        format!(
+            "{flag} builds Microsoft's demo company; company builds are experimental and off by default: add --experimental-company-builds to use them"
+        )
+    })
 }
 
 /// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are
@@ -1957,28 +1992,28 @@ mod tests {
 
     #[test]
     fn company_data_contoso_builds_the_company_without_a_backup() {
-        let a = test_args("test A --company-data contoso-setup");
+        let a = test_args("test A --experimental-company-builds --company-data contoso-setup");
         assert_eq!(a.company_contoso, Some(ContosoData::Setup));
         assert!(!a.wants_test_data() && !a.company_demotool);
         assert_eq!(
-            test_args("test A --company-data contoso-all").company_contoso,
+            test_args("test A --experimental-company-builds --company-data contoso-all").company_contoso,
             Some(ContosoData::All)
         );
         assert!(
-            test_args("test A --company-data contoso-all --company-data bak")
+            test_args("test A --experimental-company-builds --company-data contoso-all --company-data bak")
                 .company_contoso
                 .is_none()
         );
         assert!(
-            test_args("test A --company-data contoso-all --company-data demotool")
+            test_args("test A --experimental-company-builds --company-data contoso-all --company-data demotool")
                 .company_contoso
                 .is_none()
         );
         for bad in [
-            "test A --company-data contoso-setup --test-data x.bak",
-            "test A --company-data contoso-all --no-test-data",
-            "test A --company-data contoso-all --country us",
-            "test A --company-data contoso-all --recipe microsoft",
+            "test A --experimental-company-builds --company-data contoso-setup --test-data x.bak",
+            "test A --experimental-company-builds --company-data contoso-all --no-test-data",
+            "test A --experimental-company-builds --company-data contoso-all --country us",
+            "test A --experimental-company-builds --company-data contoso-all --recipe microsoft",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
@@ -1986,21 +2021,52 @@ mod tests {
 
     #[test]
     fn company_data_demotool_builds_the_company_without_a_backup() {
-        let a = test_args("test A --company-data demotool");
+        let a = test_args("test A --experimental-company-builds --company-data demotool");
         assert!(a.company_demotool && !a.company_package);
         assert!(!a.wants_test_data(), "no backup is restored under the DemoTool company");
-        let a = test_args("test A --demotool d");
+        let a = test_args("test A --experimental-company-builds --demotool d");
         assert!(a.company_demotool && a.demotool_dir == Some(PathBuf::from("d")));
-        assert!(!test_args("test A --company-data demotool --company-data bak").company_demotool);
+        assert!(
+            !test_args("test A --experimental-company-builds --company-data demotool --company-data bak")
+                .company_demotool
+        );
         for bad in [
-            "test A --company-data demotool --test-data x.bak",
-            "test A --company-data demotool --no-test-data",
-            "test A --company-data demotool --country us",
-            "test A --company-data demotool --recipe microsoft",
+            "test A --experimental-company-builds --company-data demotool --test-data x.bak",
+            "test A --experimental-company-builds --company-data demotool --no-test-data",
+            "test A --experimental-company-builds --company-data demotool --country us",
+            "test A --experimental-company-builds --company-data demotool --recipe microsoft",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
         assert!(HELP.contains("--company-data bak|package|demotool") && HELP.contains("--demotool DIR"));
+    }
+
+    // Owner decision 2026-10-23: the company builds of Microsoft's lanes (DemoTool, Contoso) are experimental and off by
+    // default; without the opt-in they are refused with a reason that names it.
+    #[test]
+    fn company_builds_are_refused_without_the_experimental_opt_in() {
+        for bad in [
+            "test A --company-data demotool",
+            "test A --demotool d",
+            "test A --company-data contoso-setup",
+            "test A --company-data contoso-all",
+        ] {
+            let e = p(bad).unwrap_err();
+            assert!(
+                e.contains("experimental")
+                    && e.contains("off by default")
+                    && e.contains("--experimental-company-builds"),
+                "{bad}: {e}"
+            );
+        }
+        // The other company options need no opt-in.
+        assert!(test_args("test A --company-data package").company_package);
+        assert!(!test_args("test A --company-data bak").experimental_company_builds);
+        assert!(test_args("test A --experimental-company-builds").experimental_company_builds);
+        // test-microsoft takes the opt-in for its lanes, and still refuses --company-data.
+        assert!(p("test-microsoft --experimental-company-builds").is_ok());
+        assert!(p("test-microsoft --experimental-company-builds --company-data demotool").is_err());
+        assert!(HELP.contains("--experimental-company-builds"));
     }
 
     #[test]

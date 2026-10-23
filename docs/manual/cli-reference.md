@@ -135,9 +135,8 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 | `--no-test-data` | Run without company data. |
 | `--test-data [PATH]` | Name a backup (`.bak`, `.bacpac`), or insist on test data: a missing backup then stops the run. Write `--test-data=PATH`, or end the name in `.bak` or `.bacpac`, because a bare name after `--test-data` is an APP. |
 | `--test-data-company NAME` | The company to restore (exact name or prefix). Default: the only company, else `CRONUS International Ltd.`. |
-| `--company-data bak\|package\|demotool` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. `demotool` builds it the way that lane does on BC 29: Company-Initialize, then the DemoTool's codeunit 101899, compiled from BCApps' source (see test-data.md). |
+| `--company-data bak\|package` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. The other values build Microsoft's demo company; they are experimental and off by default. |
 | `--package PATH` | The `.rapidstart` file to use. Implies `--company-data package`. |
-| `--demotool DIR` | A BCApps checkout with `src/DemoTool` and `src/Layers/W1/DemoTool`. Implies `--company-data demotool`. |
 | `--disabled-tests DIR` | Microsoft's list of disabled tests (BCApps `src/DisabledTests`, or one app's folder). Those tests still run and are marked `disabled_by_microsoft`. |
 | `--parity` | With `--disabled-tests`: do not run those tests. |
 | `--recipe microsoft` | Run the way Microsoft's CI does. See [Running Microsoft's tests](microsoft-tests.md). |

@@ -60,18 +60,19 @@ which they call a lane:
 
 | Test codeunit | Company |
 |---|---|
-| Legacy test apps | The DemoTool company, on every BC version, as Microsoft's CI builds it (see [Test data](test-data.md#the-demotool-company)). A RapidStart package is not used. |
+| Legacy test apps | The DemoTool company (not run by default) |
 | `TestType = UnitTest`, or no `TestType` | An empty company |
-| `IntegrationTest` | The Contoso setup company (not run yet) |
-| `Uncategorized` | The Contoso company with all demo data (not run yet) |
+| `IntegrationTest` | The Contoso setup company (not run by default) |
+| `Uncategorized` | The Contoso company with all demo data (not run by default) |
 
 Each lane has its own summary and, with `--junit FILE`, its own file
 (`FILE.<lane>.xml`). Microsoft's disabled tests are skipped and counted. The BCApps
 files (MIT) of the release are fetched sparsely with `git` into
 `<cache dir>/bcapps/<major>.<minor>/` once. `--bcapps DIR` names a checkout, and
-`--no-download` uses the cache only. The two Contoso lanes are not run yet, because
-AL Runner does not build the Contoso company, and the output says so. The recipe
-cannot be combined with the company and disabled-test options.
+`--no-download` uses the cache only. The Legacy, IntegrationTest and Uncategorized
+lanes need Microsoft's demo company. AL Runner does not build it by default, so these
+lanes are not run, and the output says so. Building it is experimental and will be
+redesigned. The recipe cannot be combined with the company and disabled-test options.
 
 **Time limit.** The recipe's limit is 60 seconds of CPU time per test, and other runs
 keep 20. `--test-timeout-secs N` sets another, and `0` removes it. `Sleep` does not

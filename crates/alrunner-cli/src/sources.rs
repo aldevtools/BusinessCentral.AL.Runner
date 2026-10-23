@@ -558,6 +558,9 @@ fn index_command(a: &TestArgs, head: String) -> String {
     for d in &a.defines {
         out.push_str(&format!(" --define {}", quote(d)));
     }
+    if a.experimental_company_builds {
+        out.push_str(" --experimental-company-builds");
+    }
     out
 }
 
@@ -1230,6 +1233,15 @@ pub fn build_index(a: &TestArgs) -> Result<u8, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The index of a Microsoft lane is built with the same company: the opt-in of the company builds is passed on.
+    #[test]
+    fn the_index_command_passes_on_the_experimental_company_builds() {
+        let mut a = TestArgs::default();
+        assert!(!microsoft_index_command(&a, "Tests-ERM", "29.0.1.2").contains("--experimental-company-builds"));
+        a.experimental_company_builds = true;
+        assert!(microsoft_index_command(&a, "Tests-ERM", "29.0.1.2").ends_with(" --experimental-company-builds"));
+    }
 
     #[test]
     fn by_default_every_candidate_runs_the_excluded_ones_too() {

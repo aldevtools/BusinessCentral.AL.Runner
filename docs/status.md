@@ -104,6 +104,14 @@ State, MCP Configuration and Event Subscription rows for uncompiled codeunits. T
 `CodeCoverageLog` recording saw (hits per statement, the tests that started, the methods that ran in them; `docs/probes-needed.md`,
 "Code coverage rows").
 
+## Microsoft's demo company builds: experimental, off by default (owner, 2026-10-23)
+
+The builds of Microsoft's demo company (the DemoTool company of the Legacy lane, the Contoso companies of the
+IntegrationTest and Uncategorized lanes) are on hold and will be redesigned. The code stays, behind
+`--experimental-company-builds`. Without it, `--company-data demotool|contoso-setup|contoso-all` is refused, and
+`--recipe microsoft` / `al-runner test-microsoft` report those three lanes as not run, with the reason. The general
+fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-buckets.md) (recipe, step 3).
+
 ## What is implemented
 
 - **Front end.** Full lossless parse of the corpus. Namespaces and `using`s,

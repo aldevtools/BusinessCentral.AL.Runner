@@ -50,10 +50,12 @@ fn release(a: &TestArgs, inputs: &[apps::AppInput]) -> Result<(u32, u32), String
 /// The arguments of one lane's run: a copy of the command line with the lane's codeunits, its company, Microsoft's
 /// disabled tests skipped, and its own output files.
 ///
-/// The Legacy lane's company is built by the DemoTool (`--company-data demotool`) on every BC version, as BCApps' CI
-/// builds it (`build/scripts/ImportTestDataInBcContainer.ps1`, `Invoke-LegacyDemoDataTool`, on 27.5, 28.5 and 29.0).
-/// A RapidStart package is never used for it, even one that is on disk or named with `--package` (owner decision
-/// 2026-10-22): the package is only that company's exported data.
+/// The company builds are experimental and off by default (owner decision 2026-10-23): without
+/// `--experimental-company-builds` no lane asks for one, and the lanes that need one are not run ([`company_refusal`]).
+/// With it, the Legacy lane's company is built by the DemoTool (`--company-data demotool`) on every BC version, as
+/// BCApps' CI builds it (`build/scripts/ImportTestDataInBcContainer.ps1`, `Invoke-LegacyDemoDataTool`, on 27.5, 28.5
+/// and 29.0). A RapidStart package is never used for it, even one that is on disk or named with `--package` (owner
+/// decision 2026-10-22): the package is only that company's exported data.
 pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], recipe: &Recipe) -> TestArgs {
     let mut a = base.clone();
     a.recipe = false;
@@ -73,7 +75,14 @@ pub fn lane_args(base: &TestArgs, lane: Lane, company: &str, codeunits: &[u32], 
     };
     a.disabled_tests_dir = Some(recipe.disabled_tests_dir());
     a.parity = true;
+    let builds = base.experimental_company_builds;
     match lane {
+        // Off by default: no company build; the lane is not run (`company_refusal`).
+        Lane::Legacy | Lane::Integration | Lane::Uncategorized if !builds => {
+            a.company_package = false;
+            a.package_path = None;
+            a.company_name = Some(company.to_string());
+        }
         // BCApps' CI: a new company, Company-Initialize, then the DemoTool (`Invoke-LegacyDemoDataTool`).
         Lane::Legacy => {
             a.company_demotool = true;
@@ -120,11 +129,25 @@ pub fn lane_file(path: &Path, lane: Lane) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// Why the runner cannot build a lane's company, if it cannot. Every lane's company is built now: the Legacy lane's by
-/// the DemoTool, the IntegrationTest and Uncategorized lanes' by the Contoso Demo Tool (`--company-data contoso-*`). A
-/// company build that stops makes the lane's tests not run, with the reason, in the lane's own run.
-pub fn company_refusal(_lane: Lane) -> Option<String> {
-    None
+/// Why the runner does not build a lane's company, if it does not. The company builds of Microsoft's demo company are
+/// experimental and off by default (owner decision 2026-10-23): without `--experimental-company-builds` the Legacy lane
+/// (the DemoTool's company) and the IntegrationTest and Uncategorized lanes (the Contoso Demo Tool's) are not run rather
+/// than run against a different company. With it every lane's company is built, and a company build that stops makes
+/// the lane's tests not run, with the reason, in the lane's own run.
+pub fn company_refusal(lane: Lane, experimental: bool) -> Option<String> {
+    if experimental {
+        return None;
+    }
+    let built_by = match lane {
+        Lane::UnitTest => return None,
+        Lane::Legacy => "Microsoft's DemoTool",
+        Lane::Integration => "Microsoft's Contoso Demo Tool (setup data)",
+        Lane::Uncategorized => "Microsoft's Contoso Demo Tool (all demo data)",
+    };
+    Some(format!(
+        "the {} lane needs Microsoft's demo company, built by {built_by}; company builds are experimental and off by default (--experimental-company-builds turns them on), so these tests are not run rather than run against a different company",
+        lane.test_type()
+    ))
 }
 
 /// The lines under the lane runs.
@@ -257,7 +280,7 @@ pub fn plan_lanes(a: &TestArgs) -> Result<Planned, String> {
         lanes.push(PlannedLane {
             lane: *lane,
             build_mode: recipe.build_mode(app, *lane),
-            refusal: company_refusal(*lane),
+            refusal: company_refusal(*lane, a.experimental_company_builds),
             company,
             args,
         });
@@ -350,11 +373,44 @@ mod tests {
         }
     }
 
-    // Owner decision 2026-10-22: the Legacy lane builds its company with the DemoTool on every BC version, as BCApps'
-    // CI does (`Invoke-LegacyDemoDataTool`), and never from a RapidStart package, even one that is on disk or named.
+    /// The command line with `--experimental-company-builds`: the lanes build their companies as on main before the
+    /// owner decision of 2026-10-23.
+    fn experimental() -> TestArgs {
+        TestArgs {
+            experimental_company_builds: true,
+            ..base()
+        }
+    }
+
+    // Owner decision 2026-10-23: the company builds are experimental and off by default. The lanes that need Microsoft's
+    // demo company (Legacy: the DemoTool; IntegrationTest and Uncategorized: Contoso) are not run, with the reason; the
+    // UnitTest lane runs on its empty company as before.
+    #[test]
+    fn without_the_opt_in_no_lane_builds_a_company_and_those_lanes_are_not_run_with_the_reason() {
+        for lane in [Lane::Legacy, Lane::Integration, Lane::Uncategorized] {
+            let a = lane_args(&base(), lane, "C", &[5], &recipe());
+            assert!(
+                !a.company_demotool && a.company_contoso.is_none() && !a.company_package,
+                "{lane:?}"
+            );
+            let why = company_refusal(lane, false).unwrap_or_else(|| panic!("{lane:?} is refused"));
+            assert!(
+                why.contains("Microsoft's demo company")
+                    && why.contains("experimental and off by default")
+                    && why.contains("--experimental-company-builds"),
+                "{lane:?}: {why}"
+            );
+        }
+        assert!(company_refusal(Lane::UnitTest, false).is_none());
+        assert!(lane_args(&base(), Lane::UnitTest, "C", &[5], &recipe()).no_test_data);
+    }
+
+    // Owner decision 2026-10-22, with --experimental-company-builds: the Legacy lane builds its company with the DemoTool
+    // on every BC version, as BCApps' CI does (`Invoke-LegacyDemoDataTool`), and never from a RapidStart package, even
+    // one that is on disk or named.
     #[test]
     fn the_legacy_lane_builds_its_company_with_the_demotool_and_skips_the_disabled_tests() {
-        let mut b = base();
+        let mut b = experimental();
         b.package_path = Some("p.rapidstart".into());
         let a = lane_args(&b, Lane::Legacy, "CRONUS International Ltd.", &[5, 6], &recipe());
         assert!(a.company_demotool && !a.company_package && !a.recipe);
@@ -367,7 +423,7 @@ mod tests {
         assert!(a.parity);
         assert_eq!(a.junit, Some(PathBuf::from("out/r.legacy.xml")));
         // The DemoTool only for the Legacy lane.
-        let u = lane_args(&base(), Lane::UnitTest, "Empty Company", &[7], &recipe());
+        let u = lane_args(&experimental(), Lane::UnitTest, "Empty Company", &[7], &recipe());
         assert!(!u.company_demotool);
     }
 
@@ -400,12 +456,12 @@ mod tests {
         assert_eq!(a.codeunits, vec![6]);
     }
 
-    // BCApps build/scripts/ImportTestDataInBcContainer.ps1 (releases/29.0) :884-907: IntegrationTest gets the Contoso
-    // setup data, Uncategorized all demo data; neither restores a backup.
+    // With --experimental-company-builds, BCApps build/scripts/ImportTestDataInBcContainer.ps1 (releases/29.0) :884-907:
+    // IntegrationTest gets the Contoso setup data, Uncategorized all demo data; neither restores a backup.
     #[test]
     fn the_contoso_lanes_build_their_company_with_the_contoso_demo_tool() {
         use crate::args::ContosoData;
-        let mut b = base();
+        let mut b = experimental();
         b.package_path = Some("p.rapidstart".into());
         let i = lane_args(&b, Lane::Integration, "My Company", &[8], &recipe());
         assert_eq!(i.company_contoso, Some(ContosoData::Setup));
@@ -426,7 +482,7 @@ mod tests {
                 .is_none()
         );
         for lane in [Lane::Legacy, Lane::UnitTest, Lane::Integration, Lane::Uncategorized] {
-            assert!(company_refusal(lane).is_none(), "{lane:?}");
+            assert!(company_refusal(lane, true).is_none(), "{lane:?}");
         }
     }
 

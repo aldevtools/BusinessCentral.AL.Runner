@@ -931,6 +931,11 @@ fn test_inner(
     let preferred_build = preferred.clone();
     // `--company-data demotool`: the DemoTool of the release is one more dependency app, and its codeunit builds the
     // company in the install baseline (`demotool.rs`).
+    // Off by default (owner decision 2026-10-23): a company build needs `--experimental-company-builds`, also for a
+    // lane of the recipe, which does not ask for one without it (recipe_run.rs).
+    if let Some(e) = crate::args::company_build_off(a) {
+        return Err(e);
+    }
     let company_data = if a.company_demotool {
         // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
         if !al_deps::artifact::is_w1(a.country()) {

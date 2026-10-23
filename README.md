@@ -149,13 +149,11 @@ for the rest of Microsoft's recipe). For a parity report, `--disabled-tests DIR`
 `src/DisabledTests` folder from BCApps. A normal run still runs those tests and marks them in
 the summary and the JUnit file. `--parity` also skips them.
 `--recipe microsoft` does all of this the way Microsoft's CI does: BCApps' own settings decide the
-company of each test codeunit (the Legacy test apps get the package company, a codeunit with
-`TestType = UnitTest` an empty one), the disabled tests are skipped, and each lane has its own
-summary and JUnit file. The BCApps files (MIT) are fetched sparsely with `git` into the cache once;
-`--bcapps DIR` names a checkout, `--no-download` uses the cache only. The two Contoso lanes
-(IntegrationTest and the codeunits with no TestType) get the company Microsoft's Contoso Demo Tool
-builds (`--company-data contoso-setup` and `contoso-all`): setup data in "My Company", or all demo
-data in an evaluation company. The recipe's time limit per test is 60 s of CPU time (20 s for other
+company of each test codeunit (a codeunit with `TestType = UnitTest` gets an empty one), the
+disabled tests are skipped, and each lane has its own summary and JUnit file. The lanes that need
+Microsoft's demo company (Legacy, IntegrationTest, Uncategorized) are not run, and the output says
+so. The BCApps files (MIT) are fetched sparsely with `git` into the cache once;
+`--bcapps DIR` names a checkout, `--no-download` uses the cache only. The recipe's time limit per test is 60 s of CPU time (20 s for other
 runs); `--test-timeout-secs N` or `ALRUNNER_TEST_TIMEOUT` sets another.
 `al-runner test-microsoft` runs all of Microsoft's test apps of a BC build this way, with nothing to
 download or collect by hand: it reads the list of test apps from the build's artifact, fetches the
