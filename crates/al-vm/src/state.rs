@@ -40,6 +40,9 @@ pub(crate) struct TxState {
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
+    /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
+    /// Modify are not writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861); other writes there are refused.
+    pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
     pub(crate) inconsistent: Vec<u32>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst

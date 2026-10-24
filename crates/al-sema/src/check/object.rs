@@ -292,15 +292,7 @@ impl<'a> Checker<'a> {
                 // CompiledContracts.al). The checker only needs the name to resolve; running such a
                 // report with a request page Rec is refused by the lowerer.
                 if o.kind == ObjKind::Report {
-                    let source = ast::sections_in(obj.syntax())
-                        .into_iter()
-                        .filter(|sec| sec.name().eq_ignore_ascii_case("requestpage"))
-                        .find_map(|sec| {
-                            sec.properties()
-                                .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-                                .map(|p| unquote(p.value_text()))
-                        });
-                    if let Some(table) = source {
+                    if let Some(table) = request_page_source_table(&obj) {
                         rec = Some(Ty::Record {
                             table: table.into(),
                             temporary: false,
@@ -313,6 +305,15 @@ impl<'a> Checker<'a> {
                     "currxmlport".into(),
                     Ty::Object(ObjKind::XmlPort, o.name.as_str().into()),
                 );
+                // The request page of an xmlport that states a `SourceTable` gives the xmlport's triggers, procedures and
+                // request page a `Rec` of that table (xmlport/lt-y-xmlport-props/YXmlPortProps.al:421-470, al-runner issue
+                // 5756). Without one there is no `Rec` (AL0118: must-not-compile cases 2111 and 2112).
+                if let Some(table) = request_page_source_table(&obj) {
+                    rec = Some(Ty::Record {
+                        table: table.into(),
+                        temporary: false,
+                    });
+                }
             }
             // A query's procedures call the query's own methods unqualified and name its columns
             // and filters (query/TestQueryDataItemTableFilterDatabaseConst.al: `SetSourceFilter` of
@@ -809,4 +810,16 @@ impl<'a> Checker<'a> {
             self.walk(sc, &child);
         }
     }
+}
+
+/// The `SourceTable` of the object's request page, unquoted, if it states one.
+fn request_page_source_table(obj: &ast::Object) -> Option<String> {
+    ast::sections_in(obj.syntax())
+        .into_iter()
+        .filter(|sec| sec.name().eq_ignore_ascii_case("requestpage"))
+        .find_map(|sec| {
+            sec.properties()
+                .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
+                .map(|p| p.value_text().trim().trim_matches('"').to_string())
+        })
 }

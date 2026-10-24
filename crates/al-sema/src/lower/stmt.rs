@@ -988,6 +988,14 @@ impl Lowerer<'_> {
             },
             // A statement that uses a variable whose attribute is not supported refuses when it runs, not the whole
             // routine: Base Application declares such variables in routines whose other paths run (`var_attr_refusal`).
+            Err(e) if self.run_failures.contains_key(&e) => {
+                let (message, code) = self.run_failures[&e].clone();
+                let s = ir::Stmt::Expr(ir::Expr::Fail { message, code });
+                match self.mark(n) {
+                    Some(m) => vec![m, s],
+                    None => vec![s],
+                }
+            }
             Err(e) if self.run_refusals.contains(&e) => {
                 let s = ir::Stmt::Expr(ir::Expr::Refused(e));
                 match self.mark(n) {
@@ -1766,6 +1774,27 @@ impl Lowerer<'_> {
                 Some(Res::Global(name)) if !self.in_request_page && self.var_attr_refusal(name, false).is_some() => {
                     let why = self.var_attr_refusal(name, false).unwrap_or_default();
                     self.run_refusals.insert(why.clone());
+                    Err(why)
+                }
+                // The request page's Rec in OnInitReport: reading it raises (report/lt-y-request-page/YRequestPageTests.al:551,
+                // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
+                Some(Res::Global(name))
+                    if self.in_report_init_with_rec.is_some() && (name == "rec" || name == "xrec") =>
+                {
+                    let id = self.in_report_init_with_rec.unwrap_or_default();
+                    if name == "xrec" {
+                        let why = "the request page's xRec in OnInitReport (not pinned)".to_string();
+                        self.run_refusals.insert(why.clone());
+                        return Err(why);
+                    }
+                    let why = format!("the request page's Rec in OnInitReport of report {id}");
+                    self.run_failures.insert(
+                        why.clone(),
+                        (
+                            format!("You cannot call the RequestPage from the OnInitReport Trigger in Report ID \"{id}\" because the RequestPage is not yet initialized."),
+                            "ReportRequestPageNotInitialized".into(),
+                        ),
+                    );
                     Err(why)
                 }
                 Some(Res::Local(name)) => self

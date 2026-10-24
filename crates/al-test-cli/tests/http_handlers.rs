@@ -295,13 +295,12 @@ fn run_on(bc: &str, header: &str, body: &str) -> Vec<(String, Outcome)> {
     run_codeunit(&engine, &l, oi)
 }
 
+// al-language-onprem/session/PZHttpBlock.al:46-63 (Handler_UnderBlockOutboundRequests_StillAnswers): 'Yes |' on BC 29, and on
+// Windows BC 27.5 and 28.5 (Windows check 2026-10-22; the Linux images of 27 and 28 never call the handler, a Linux image bug, so
+// the corpus asserts nothing there). The handler answers on every major (al-runner issue 5777).
 #[test]
-fn before_bc_29_a_handler_does_not_answer_under_block_outbound_requests() {
-    // al-language-onprem/session/PZHttpBlock.al:54-57 (Handler_UnderBlockOutboundRequests_StillAnswers): Yes on 29, the
-    // unhandled-request error before.
-    let body = |expected: &str| {
-        format!(
-            r#"
+fn a_handler_answers_under_block_outbound_requests_on_every_major() {
+    let body = r#"
     [TryFunction]
     local procedure TryGet(Url: Text)
     var Client: HttpClient; Resp: HttpResponseMessage;
@@ -320,18 +319,95 @@ fn before_bc_29_a_handler_does_not_answer_under_block_outbound_requests() {
     begin
         Ok := TryGet('https://example.invalid/handled');
         Got := Format(Ok) + ' ' + GetLastErrorText() + '|' + GetLastErrorCode();
-        if Got <> '{expected}' then Error('got %1', Got);
+        if Got <> 'Yes |' then Error('got %1', Got);
     end;
-"#
-        )
-    };
-    let header = "TestHttpRequestPolicy = BlockOutboundRequests;";
-    for (name, outcome) in run_on("29.0", header, &body("Yes |")) {
-        assert_eq!(outcome, Outcome::Pass, "29: {name}");
+"#;
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in run_on(bc, BLOCK, body) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
     }
-    let blocked = "No Unhandled outbound HTTP requests are not permitted when the TestHttpRequestPolicy property is set to ''BlockOutboundRequests''. Please ensure that an HTTP client handler is configured.|TestCodeunitUnhandledHttpRequest";
-    for bc in ["27.5", "28.5"] {
-        for (name, outcome) in run_on(bc, header, &body(blocked)) {
+}
+
+const BLOCK: &str = "TestHttpRequestPolicy = BlockOutboundRequests;";
+
+/// The mock handlers and the GET of al-runner issue 5777, as in PZHttpBlock.al:65-106.
+const RS_MOCK: &str = r#"
+    var MockCalls: Integer;
+    [HttpClientHandler]
+    procedure MockHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        MockCalls += 1;
+        Response.HttpStatusCode(200);
+        Response.Content.WriteFrom('{"ok":true}');
+        exit(false);
+    end;
+    [HttpClientHandler]
+    procedure PassOnHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        MockCalls += 1;
+        exit(true);
+    end;
+    local procedure GetStatusAndBody(Url: Text; var Status: Integer; var Body: Text): Boolean
+    var Client: HttpClient; Response: HttpResponseMessage;
+    begin
+        if not Client.Get(Url, Response) then
+            exit(false);
+        Status := Response.HttpStatusCode();
+        Response.Content.ReadAs(Body);
+        exit(true);
+    end;
+    [TryFunction]
+    local procedure TryGetStatusAndBody(Url: Text; var Ok: Boolean; var Status: Integer; var Body: Text)
+    begin
+        Ok := GetStatusAndBody(Url, Status, Body);
+    end;
+    local procedure Observed(): Text
+    var Ok: Boolean; Status: Integer; Body: Text; Tried: Boolean;
+    begin
+        MockCalls := 0;
+        ClearLastError();
+        Tried := TryGetStatusAndBody('https://api.example.com/v1/items?id=7', Ok, Status, Body);
+        exit(Format(Tried) + ' ' + StrSubstNo('%1|%2|%3|%4', Ok, Status, Body, MockCalls) + ' ' + GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+"#;
+
+// PZHttpBlock.al:106-129 (RS_MockHandler_ReturnsFalse_GivesTheMock, BC 29): the mock is the answer and the handler runs once.
+// al-runner issue 5777 shows the same value on a real BC 28.1 container; Windows BC 27.5 and 28.5 call the handler under
+// BlockOutboundRequests (Handler_UnderBlockOutboundRequests_StillAnswers above).
+#[test]
+fn issue_5777_a_mock_handler_answering_false_gives_the_mock_on_every_major() {
+    let body = format!(
+        r#"{RS_MOCK}
+    [Test] [HandlerFunctions('MockHandler')] procedure Mock()
+    begin
+        if Observed() <> 'Yes Yes|200|{{"ok":true}}|1 |' then Error('got %1', Observed());
+    end;"#
+    );
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in run_on(bc, BLOCK, &body) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
+    }
+}
+
+// PZHttpBlock.al:131-155 (RS_PassOnHandler_ReturnsTrue_UnderBlockOutboundRequests, BC 29): a handler answering true raises the
+// fallthrough error; the handler ran once. Not measured on BC 27 and 28 (the corpus discards those legs); they raise the same
+// error, since a refusal would lose the baseline case.
+#[test]
+fn under_block_outbound_requests_a_handler_answering_true_raises_the_fallthrough_error() {
+    let body = format!(
+        r#"{RS_MOCK}
+    [Test] [HandlerFunctions('PassOnHandler')] procedure PassOn()
+    var Got: Text;
+    begin
+        Got := Observed();
+        if Got <> 'No No|0||1 Explicit HTTP client handler fallthrough is not allowed when the TestHttpRequestPolicy property is set to ''BlockOutboundRequests''.|NotAllowedHttpClientHandlerFallThrough' then
+            Error('got %1', Got);
+    end;"#
+    );
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in run_on(bc, BLOCK, &body) {
             assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
         }
     }
@@ -363,7 +439,7 @@ const AY: &str = r#"
     procedure TeapotHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
     begin
         Calls += 1;
-        Response.HttpStatusCode := 418;
+        Response.HttpStatusCode := 402;
         exit(false);
     end;
     [HttpClientHandler]
@@ -412,7 +488,7 @@ fn ay_on(bc: &str, tests: &str) -> Vec<(String, Outcome)> {
 // address: a plain word joins the base directory, a rooted path replaces the base path, `../x` drops the last directory,
 // and a query alone keeps the base path.
 #[test]
-fn on_bc_29_a_handler_sees_the_relative_path_joined_to_the_base_address() {
+fn on_every_major_a_handler_sees_the_relative_path_joined_to_the_base_address() {
     let tests = r#"
     [Test] [HandlerFunctions('PathHandler')] procedure Joined()
     var Client: HttpClient;
@@ -423,15 +499,17 @@ fn on_bc_29_a_handler_sees_the_relative_path_joined_to_the_base_address() {
         Check(Path(Client, '../x'), 'Yes [https://example.invalid/api/x]');
         Check(Path(Client, '?q=1'), 'Yes [https://example.invalid/api/v1/]q=1&');
     end;"#;
-    for (name, outcome) in ay_on("29.0", tests) {
-        assert_eq!(outcome, Outcome::Pass, "{name}");
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, tests) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
     }
 }
 
 // AyHttpHandler.al:NoBaseAddress_RelativePaths_1 and _2 (BC 29): with no base address, `a/b`, `a.b` and `?q=1` raise
 // "Invalid URI: The URI is empty." (AL:UriFormat) before the handler runs.
 #[test]
-fn on_bc_29_a_relative_path_without_a_base_address_raises_the_empty_uri_error() {
+fn on_every_major_a_relative_path_without_a_base_address_raises_the_empty_uri_error() {
     let tests = r#"
     [Test] [HandlerFunctions('PathHandler')] procedure NoBase()
     var Client: HttpClient;
@@ -441,40 +519,8 @@ fn on_bc_29_a_relative_path_without_a_base_address_raises_the_empty_uri_error() 
         Check(Path(Client, '?q=1'), 'E[Invalid URI: The URI is empty.|AL:UriFormat] ');
         if Calls <> 0 then Error('calls %1', Calls);
     end;"#;
-    for (name, outcome) in ay_on("29.0", tests) {
-        assert_eq!(outcome, Outcome::Pass, "{name}");
-    }
-}
-
-// AyHttpHandler.al (BC 27 and 28 legs): under AllowOutboundFromHandler a request is not given to the handler: every form
-// raises the unhandled-request error, the handler is not called and the response keeps status 200.
-#[test]
-fn before_bc_29_a_handler_does_not_answer_under_allow_outbound_from_handler() {
-    let unhandled = "Unhandled outbound HTTP requests are not permitted when the TestHttpRequestPolicy property is set to ''AllowOutboundFromHandler''. Please ensure that an HTTP client handler is configured.|TestCodeunitUnhandledHttpRequest";
-    let short =
-        "E[Unhandled outbound HTTP requests are not permitted when the TestHttpRe|TestCodeunitUnhandledHttpRequest] ";
-    let tests = format!(
-        r#"
-    [Test] [HandlerFunctions('PathHandler')] procedure Paths()
-    var Client: HttpClient; NoBase: HttpClient;
-    begin
-        Client.SetBaseAddress('https://example.invalid/api/v1/');
-        Check(Path(Client, 'orders'), '{short}');
-        Check(Path(Client, '../x'), '{short}');
-        Check(Path(NoBase, 'a/b'), '{short}');
-        Check(Path(NoBase, '?q=1'), '{short}');
-    end;
-    [Test] [HandlerFunctions('NotFoundHandler')] procedure NotFound()
-    begin
-        Check(Outcome('https://example.invalid/missing'), 'error status=200 last={unhandled} calls=0');
-    end;
-    [Test] [HandlerFunctions('FallThroughHandler')] procedure FallThrough()
-    begin
-        Check(Outcome('http://localhost:1/x'), 'error status=200 last={unhandled} calls=0');
-    end;"#
-    );
-    for bc in ["27.5", "28.5"] {
-        for (name, outcome) in ay_on(bc, &tests) {
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, tests) {
             assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
         }
     }
@@ -482,18 +528,21 @@ fn before_bc_29_a_handler_does_not_answer_under_allow_outbound_from_handler() {
 
 // AyHttpHandler.al:Handler_OnlyStatus404 (BC 29): a handler that sets only status 404 answers true with reason "Not Found".
 #[test]
-fn on_bc_29_a_handler_that_sets_only_404_gives_the_reason_not_found() {
+fn on_every_major_a_handler_that_sets_only_404_gives_the_reason_not_found() {
     let tests = r#"
     [Test] [HandlerFunctions('NotFoundHandler')] procedure NotFound()
     begin
         Check(Outcome('https://example.invalid/missing'), 'ret=Yes status=404 reason=[Not Found] success=No blocked=No last=| calls=1');
     end;"#;
-    for (name, outcome) in ay_on("29.0", tests) {
-        assert_eq!(outcome, Outcome::Pass, "{name}");
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, tests) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
     }
 }
 
-// The reason phrase BC gives a status the handler set without a reason is pinned for 200 and 404 only: another is refused.
+// The reason phrase BC gives a status the handler set without a reason is pinned for the statuses of AyHttpHandler.al:PY_ReasonPhrase_1
+// to _3 only: another (402) is refused.
 #[test]
 fn a_handler_status_whose_reason_phrase_is_not_pinned_is_refused() {
     let tests = r#"
@@ -505,7 +554,7 @@ fn a_handler_status_whose_reason_phrase_is_not_pinned_is_refused() {
     var Client: HttpClient; Resp: HttpResponseMessage;
     begin
         if not Client.Get('https://example.invalid/tea', Resp) then Error('false');
-        Check(Format(Resp.HttpStatusCode), '418');
+        Check(Format(Resp.HttpStatusCode), '402');
     end;"#;
     let got = ay_on("29.0", tests);
     assert!(
@@ -516,6 +565,98 @@ fn a_handler_status_whose_reason_phrase_is_not_pinned_is_refused() {
     assert_eq!(got[1].1, Outcome::Pass, "{got:?}");
 }
 
+// AyHttpHandler.al:PY_ReasonPhrase_1 to _3 (:486-583, BC 29; Windows BC 27.5 and 28.5 give the BC 29 values): a handler that sets
+// only a status gives the status's reason phrase.
+#[test]
+fn a_handler_that_sets_only_a_pinned_status_gives_its_reason_phrase_on_every_major() {
+    let tests = r#"
+    var NextStatus: Integer;
+    [HttpClientHandler]
+    procedure StatusHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        Response.HttpStatusCode := NextStatus;
+        exit(false);
+    end;
+    local procedure Phrase(Status: Integer): Text
+    var Client: HttpClient; Resp: HttpResponseMessage;
+    begin
+        NextStatus := Status;
+        if not Client.Get('https://example.invalid/s', Resp) then Error('false');
+        exit(Format(Resp.HttpStatusCode) + ' ' + Resp.ReasonPhrase);
+    end;
+    [Test] [HandlerFunctions('StatusHandler')] procedure Phrases()
+    var Got: Text;
+    begin
+        Got := Phrase(100) + ';' + Phrase(201) + ';' + Phrase(202) + ';' + Phrase(204) + ';' + Phrase(400) + ';' + Phrase(401) + ';' +
+            Phrase(403) + ';' + Phrase(405) + ';' + Phrase(409) + ';' + Phrase(422) + ';' + Phrase(429) + ';' + Phrase(451) + ';' +
+            Phrase(500) + ';' + Phrase(503);
+        Check(Got, '100 Continue;201 Created;202 Accepted;204 No Content;400 Bad Request;401 Unauthorized;403 Forbidden;' +
+            '405 Method Not Allowed;409 Conflict;422 Unprocessable Entity;429 Too Many Requests;451 Unavailable For Legal Reasons;' +
+            '500 Internal Server Error;503 Service Unavailable');
+    end;"#;
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, tests) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
+    }
+}
+
+// AyHttpHandler.al:PY_ReasonPhrase_2 and _3 (:515-583, BC 29; Windows BC 27.5 and 28.5 give the same values): a handler that sets
+// one of these statuses raises "The value 'n' is not a valid HTTP status code." (InvalidValue). 301, 302 and 304 raise InvalidValue
+// with a text pinned only for 60 characters (PY_ReasonPhrase_1): the code is readable, the text is refused.
+#[test]
+fn a_handler_setting_an_invalid_status_raises_invalid_value() {
+    let tests = r#"
+    var NextStatus: Integer;
+    [HttpClientHandler]
+    procedure StatusHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        Response.HttpStatusCode := NextStatus;
+        exit(false);
+    end;
+    [TryFunction]
+    local procedure TryStatus(Status: Integer)
+    var Client: HttpClient; Resp: HttpResponseMessage;
+    begin
+        NextStatus := Status;
+        Client.Get('https://example.invalid/s', Resp);
+    end;
+    local procedure Invalid(Status: Integer): Text
+    begin
+        if TryStatus(Status) then exit('no error');
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+    [Test] [HandlerFunctions('StatusHandler')] procedure NotValid()
+    begin
+        Check(Invalid(418), 'The value ''418'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(299), 'The value ''299'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(599), 'The value ''599'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(0), 'The value ''0'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(999), 'The value ''999'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(1000), 'The value ''1000'' is not a valid HTTP status code.|InvalidValue');
+        Check(Invalid(-1), 'The value ''-1'' is not a valid HTTP status code.|InvalidValue');
+    end;
+    [Test] [HandlerFunctions('StatusHandler')] procedure RedirectCode()
+    begin
+        if TryStatus(301) then Error('no error');
+        Check(GetLastErrorCode(), 'InvalidValue');
+    end;
+    [Test] [HandlerFunctions('StatusHandler')] procedure RedirectText()
+    begin
+        if TryStatus(302) then Error('no error');
+        Check(GetLastErrorText(), 'x');
+    end;"#;
+    for bc in ["27.5", "28.5", "29.0"] {
+        let got = ay_on(bc, tests);
+        assert_eq!(got[0].1, Outcome::Pass, "{bc}: {got:?}");
+        assert_eq!(got[1].1, Outcome::Pass, "{bc}: {got:?}");
+        assert!(
+            matches!(&got[2].1, Outcome::NotRun(w) if w.contains("not pinned")),
+            "{bc}: {got:?}"
+        );
+    }
+}
+
 const SECURITY: &str = "There was an error while executing the HTTP request, the connecting endpoint violates security requirements. Make sure you are connecting to a valid endpoint.";
 const SOCKET: &str =
     "There was an error while executing the HTTP request. Make sure you are connecting to a valid endpoint.";
@@ -524,7 +665,7 @@ const SOCKET: &str =
 // request go, with no approval prompt. A request to localhost is refused before any connection: the call answers false,
 // the response reads status 0 and `NavHttpClient Request Failed`, and the last error is HttpRequest:Security.
 #[test]
-fn on_bc_29_a_handler_answering_true_sends_the_request_and_localhost_is_refused() {
+fn on_every_major_a_handler_answering_true_sends_the_request_and_localhost_is_refused() {
     let tests = format!(
         r#"
     [Test] [HandlerFunctions('FallThroughHandler')] procedure FallThrough()
@@ -532,15 +673,17 @@ fn on_bc_29_a_handler_answering_true_sends_the_request_and_localhost_is_refused(
         Check(Outcome('http://localhost:1/x'), 'ret=No status=0 reason=[NavHttpClient Request Failed] success=No blocked=No last={SECURITY}|HttpRequest:Security calls=1');
     end;"#
     );
-    for (name, outcome) in ay_on("29.0", &tests) {
-        assert_eq!(outcome, Outcome::Pass, "{name}");
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, &tests) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
     }
 }
 
 // AyHttpHandler.al:PY_FailedCall_IntoFilledResponse (BC 29): a failed request overwrites a response that a handler filled
 // before (status 0); PY_UnusedResult_AllowOnceRefused: with the result not used the call raises the error.
 #[test]
-fn on_bc_29_a_failed_request_overwrites_a_filled_response_and_raises_as_a_statement() {
+fn on_every_major_a_failed_request_overwrites_a_filled_response_and_raises_as_a_statement() {
     let tests = format!(
         r#"
     var Mode: Text;
@@ -568,8 +711,10 @@ fn on_bc_29_a_failed_request_overwrites_a_filled_response_and_raises_as_a_statem
         Check(Format(TryStatement(Client, 'http://localhost:1/three', Resp)) + ' ' + GetLastErrorText() + '|' + GetLastErrorCode() + ' ' + Format(Resp.HttpStatusCode), 'No {SECURITY}|HttpRequest:Security 0');
     end;"#
     );
-    for (name, outcome) in ay_on("29.0", &tests) {
-        assert_eq!(outcome, Outcome::Pass, "{name}");
+    for bc in ["27.5", "28.5", "29.0"] {
+        for (name, outcome) in ay_on(bc, &tests) {
+            assert_eq!(outcome, Outcome::Pass, "{bc}: {name}");
+        }
     }
 }
 
@@ -606,29 +751,17 @@ const DEFAULT_POLICY_TESTS: &str = r#"
 "#;
 
 // al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al (codeunits 98700 default policy and 98701 AllowAllOutboundRequests,
-// the same values): from BC 29 a handler answers (Handler_AnswersFalse_Mocked: 201 Mocked, calls 1); before, it is not called and
-// the request goes out for real: to example.invalid it fails with HttpRequest:Socket, to localhost with HttpRequest:Security.
+// the same values): a handler answers (Handler_AnswersFalse_Mocked: 201 Mocked, calls 1), BC 29 asserted; Windows BC 28.5 gives the
+// same values (Windows check 2026-10-22; the Linux images of 27 and 28 never call the handler, so the corpus asserts nothing there).
 #[test]
-fn under_the_default_policy_a_handler_answers_from_bc_29_and_before_the_request_goes_out() {
+fn under_the_default_policy_a_handler_answers_on_every_major() {
     let fail = "status=0 reason=[NavHttpClient Request Failed] success=No blocked=No";
     for header in ["", "TestHttpRequestPolicy = AllowAllOutboundRequests;"] {
-        for (bc, mocked, through) in [
-            (
-                "29.0",
-                "ret=Yes status=201 reason=[Mocked] success=Yes blocked=No last=| calls=1".to_string(),
+        for bc in ["27.5", "28.5", "29.0"] {
+            let (mocked, through) = (
+                "ret=Yes status=201 reason=[Mocked] success=Yes blocked=No last=| calls=1",
                 1,
-            ),
-            (
-                "28.5",
-                format!("ret=No {fail} last={SOCKET}|HttpRequest:Socket calls=0"),
-                0,
-            ),
-            (
-                "27.5",
-                format!("ret=No {fail} last={SOCKET}|HttpRequest:Socket calls=0"),
-                0,
-            ),
-        ] {
+            );
             let body = format!(
                 r#"{DEFAULT_POLICY_TESTS}
     [Test] [HandlerFunctions('ModeHandler')] procedure Mocked()

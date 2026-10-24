@@ -945,3 +945,33 @@ fn a_page_extension_cannot_modify_editable_of_a_part() {
         Vec::<String>::new()
     );
 }
+
+// al-runner issue 5756: an xmlport whose request page states `SourceTable` has a `Rec` of that table in its triggers,
+// procedures and request page (xmlport/lt-y-xmlport-props/YXmlPortProps.al:421-470, the ALCops example); without one, `Rec`
+// does not exist (must-not-compile 2111: a request page without SourceTable; 2112: no request page).
+#[test]
+fn an_xmlport_request_page_source_table_gives_the_xmlport_a_rec() {
+    let table = "table 50100 T { fields { field(1; Id; Guid) { } } keys { key(PK; Id) { } } }";
+    let with = r#"xmlport 50101 X
+{
+    schema { textelement(Root) { } }
+    requestpage
+    {
+        SourceTable = T;
+        trigger OnOpenPage() begin Rec.Init(); end;
+    }
+    trigger OnPreXmlPort() begin Rec.Id := CreateGuid(); xRec := Rec; end;
+    procedure P(): Guid begin exit(Rec.Id); end;
+}"#;
+    assert_eq!(diags(&[table, with]), Vec::<String>::new());
+    for without in [
+        "xmlport 50101 X { schema { textelement(Root) { } } requestpage { } trigger OnPreXmlPort() begin Rec.Init(); end; }",
+        "xmlport 50101 X { schema { textelement(Root) { } } trigger OnPreXmlPort() begin Rec.Init(); end; }",
+    ] {
+        let d = diags(&[table, without]);
+        assert!(
+            d.iter().any(|m| m == "AR1000 unresolved name `Rec`"),
+            "{without}: {d:?}"
+        );
+    }
+}

@@ -186,6 +186,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         globals: Default::default(),
         request_page_globals: Default::default(),
         in_request_page: false,
+        in_report_init_with_rec: None,
         locals: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
@@ -194,6 +195,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         global_var_attrs: HashMap::default(),
         local_var_attrs: HashMap::default(),
         run_refusals: Default::default(),
+        run_failures: Default::default(),
         with_places: HashMap::default(),
         reasons: Vec::new(),
         calls: Vec::new(),
@@ -570,6 +572,12 @@ pub(crate) fn lower_object<'a>(
                 .ancestors()
                 .filter_map(ast::Section::cast)
                 .any(|s| s.name().eq_ignore_ascii_case("requestpage"));
+        lw.in_report_init_with_rec = (o.kind == ObjKind::Report
+            && table_of[oi].is_some()
+            && r.is_trigger()
+            && r.name().eq_ignore_ascii_case("OnInitReport")
+            && r.syntax().ancestors().filter_map(ast::Section::cast).next().is_none())
+        .then(|| o.id.map(i64::from).unwrap_or_default());
         lw.reasons = global_reasons.clone();
         lw.calls.clear();
         // A trigger of a data item runs with the item's record as its `Rec`.

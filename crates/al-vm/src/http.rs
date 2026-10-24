@@ -64,24 +64,11 @@ impl Session {
 
     pub(crate) fn http_send_impl(&mut self, request: HttpOutgoing) -> Result<TestHttpResponseState, Signal> {
         let policy = self.http_policy;
-        let bound = self.has_http_handler();
-        // Before BC 29 a bound handler does not answer under BlockOutboundRequests or AllowOutboundFromHandler: the request
-        // raises as with no handler, whatever its path, and the handler is not called (al-language-onprem/session/PZHttpBlock.al:54-57;
-        // al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al, the BC 27 and 28 legs: `calls` 0). The bound handler
-        // counts as run: those tests, with `[HandlerFunctions(...)]` and the error expected, pass on real BC 27 and 28
-        // (oracle/27/junit-onprem.xml:430, oracle/28/junit-onprem.xml:445).
-        let blocked_anyway = match policy {
-            Some("BlockOutboundRequests") => !self.has(al_version::Gate::HttpHandlerUnderBlockOutboundFrom29),
-            Some("AllowOutboundFromHandler") => !self.has(al_version::Gate::HttpHandlerUnderAllowFromHandlerFrom29),
-            // Under the default policy and AllowAllOutboundRequests a handler answers from BC 29; before, it is not called, the
-            // request goes out for real and the unused handler does not fail the test
-            // (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line: 1 on BC 29, 0 on 27 and 28).
-            _ => !self.has(al_version::Gate::HttpHandlerUnderDefaultPolicyFrom29),
-        };
-        if blocked_anyway && bound {
-            self.http_handlers_count_as_run();
-        }
-        if !bound || blocked_anyway {
+        // A bound handler is called under every policy, on every major: BC 29 asserted (al-language-onprem/session/PZHttpBlock.al:50,
+        // :106; network/lt-ay-http-handler/AyHttpHandler.al and PyHttpPolicy.al, the BC29PLUS legs). Windows BC 27.5 and 28.5 give the
+        // same values (Windows check 2026-10-22); the Linux images of 27 and 28 never call the handler (bc-linux issue 192), so the
+        // corpus asserts nothing on 27 and 28 (al-runner issue 5777).
+        if !self.has_http_handler() {
             return match policy {
                 Some(p @ ("BlockOutboundRequests" | "AllowOutboundFromHandler")) => raise(
                     format!(
@@ -142,6 +129,15 @@ impl Session {
             Value::Boolean(false) | Value::Null => {}
             // The handler lets the real request go, with no approval prompt: AyHttpHandler.al:Handler_FallThrough_ConnectionRefused
             // and the PY_HandlerTrue_* tests (BC 29, `menu=0`), PyHttpPolicy.al:Handler_AnswersTrue_* (corpus bump 43).
+            // Under BlockOutboundRequests the request may not go out: PZHttpBlock.al:131-155
+            // (RS_PassOnHandler_ReturnsTrue_UnderBlockOutboundRequests, BC 29; the handler ran once). BC 27 and 28 are not measured
+            // (the corpus discards those legs); refusing there would lose that baseline case, so they raise the same error.
+            Value::Boolean(true) if policy == Some("BlockOutboundRequests") => {
+                return raise(
+                    "Explicit HTTP client handler fallthrough is not allowed when the TestHttpRequestPolicy property is set to 'BlockOutboundRequests'.",
+                    "NotAllowedHttpClientHandlerFallThrough",
+                );
+            }
             Value::Boolean(true) => return real_request(&request.url),
             other => return unsupported(format!("an [HttpClientHandler] that answers {}", other.describe())),
         }
@@ -175,14 +171,34 @@ fn real_request(url: &str) -> Result<TestHttpResponseState, Signal> {
 }
 
 /// A response whose handler set a status but no `ReasonPhrase` gets the status's reason phrase: 200 keeps "OK"
-/// (PZHttpHandler.al:EmptyHandler_AnswersADefaultResponse) and 404 gives "Not Found" (AyHttpHandler.al:Handler_OnlyStatus404,
-/// BC 29). Another status's phrase is not measured: reading it is refused (`reason_unpinned`).
+/// (PZHttpHandler.al:EmptyHandler_AnswersADefaultResponse), 404 gives "Not Found" (AyHttpHandler.al:Handler_OnlyStatus404), and
+/// the statuses of AyHttpHandler.al:PY_ReasonPhrase_1 to _3 (:486-583, BC 29; Windows BC 27.5 and 28.5 give the same values,
+/// Windows check 2026-10-22) give theirs. Another status's phrase is not measured: reading it is refused (`reason_unpinned`).
 fn with_reason_phrase(mut s: TestHttpResponseState) -> Result<TestHttpResponseState, Signal> {
     if !s.reason_set {
-        match s.status {
-            200 => s.reason = "OK".into(),
-            404 => s.reason = "Not Found".into(),
-            _ => s.reason_unpinned = true,
+        let reason = match s.status {
+            100 => "Continue",
+            200 => "OK",
+            201 => "Created",
+            202 => "Accepted",
+            204 => "No Content",
+            400 => "Bad Request",
+            401 => "Unauthorized",
+            403 => "Forbidden",
+            404 => "Not Found",
+            405 => "Method Not Allowed",
+            409 => "Conflict",
+            422 => "Unprocessable Entity",
+            429 => "Too Many Requests",
+            451 => "Unavailable For Legal Reasons",
+            500 => "Internal Server Error",
+            503 => "Service Unavailable",
+            _ => "",
+        };
+        if reason.is_empty() {
+            s.reason_unpinned = true;
+        } else {
+            s.reason = reason.into();
         }
     }
     Ok(s)

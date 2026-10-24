@@ -1753,7 +1753,7 @@ fn response_reason(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> O
     })? {
         Some(v) => Ok(v),
         None => unsupported(
-            "ReasonPhrase of a response whose [HttpClientHandler] set a status and no ReasonPhrase: the phrase BC gives is pinned for 200 and 404 only (docs/probes-needed.md)",
+            "ReasonPhrase of a response whose [HttpClientHandler] set a status and no ReasonPhrase: the phrase BC gives this status is not pinned (docs/probes-needed.md)",
         ),
     }
 }
@@ -1800,6 +1800,25 @@ fn test_response_status(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value])
         None => with_test_response(r, |s| Value::Integer(s.status)),
         Some(Value::Integer(n)) => {
             let n = *n;
+            // AyHttpHandler.al:PY_ReasonPhrase_1 to _3 (al-language-onprem/network/lt-ay-http-handler, :486-583, BC 29; Windows
+            // BC 27.5 and 28.5 give the same values): these values raise InvalidValue. The text of 301, 302 and 304 is pinned
+            // only up to its 60th character, so reading it is refused. Every other value is kept as before.
+            match n {
+                418 | 299 | 599 | 0 | 999 | 1000 | -1 => {
+                    return Err(Signal::Error(Box::new(crate::native::AlError {
+                        message: format!("The value '{n}' is not a valid HTTP status code."),
+                        code: "InvalidValue".into(),
+                        ..Default::default()
+                    })));
+                }
+                301 | 302 | 304 => {
+                    return Err(Signal::Error(Box::new(crate::native::unpinned_text_error(
+                        "InvalidValue",
+                        "the full text of 'The value '301' is outside the allowed range for mocked HTTP' (AyHttpHandler.al:502 pins 60 characters)",
+                    ))));
+                }
+                _ => {}
+            }
             with_test_response(r, |s| s.status = n).map(|()| Value::Null)
         }
         Some(other) => unsupported(format!("HttpStatusCode set from {}", other.describe())),

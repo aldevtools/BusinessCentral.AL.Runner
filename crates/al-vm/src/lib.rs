@@ -868,6 +868,7 @@ impl Session {
                 immediate_errors: false,
                 try_depth: 0,
                 used_tries: Vec::new(),
+                xp_export_try_world: None,
                 inconsistent: Vec::new(),
                 lock_tx: false,
                 lock_unpinned: None,
@@ -1447,6 +1448,20 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
+        }
+        // A report procedure that names the request page's `Rec`, called while OnInitReport runs: in OnInitReport itself a read
+        // of Rec raises ReportRequestPageNotInitialized (report/lt-y-request-page/YRequestPageTests.al:551); through a procedure
+        // it is not pinned.
+        if self.report.report_init_depth.is_some()
+            && self.engine.program.objects[object]
+                .report
+                .as_ref()
+                .is_some_and(|r| r.request_rec_routines.contains(&routine))
+        {
+            return Err(Signal::Unsupported(
+                "a report procedure that uses the request page's Rec, called while OnInitReport runs (not pinned)"
+                    .into(),
+            ));
         }
         if self.depth >= MAX_CALL_DEPTH {
             return Err(Signal::Error(Box::new(al_builtins::native::AlError {

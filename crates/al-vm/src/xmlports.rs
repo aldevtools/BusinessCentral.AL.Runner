@@ -430,6 +430,26 @@ impl Session {
     }
 
     fn xp_run(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
+        // An export started inside a TryFunction whose result is used: its triggers' Insert and Modify are the export's, not
+        // writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861, RS_XmlPortRequestPageRec_Export: in
+        // OnPreXmlPort Modify answers false and Insert writes the row the export then lists), as an import's are
+        // (`used_try_nested_world`). Other writes there are refused (`refuse_used_try_write`).
+        if dir == Dir::Export
+            && self.tx_model != crate::transactions::TxModel::None
+            && self.tx.xp_export_try_world.is_none()
+            && self.used_try_write_applies()
+        {
+            self.tx.tx_world += 1;
+            self.tx.xp_export_try_world = Some(self.tx.tx_world);
+            let r = self.xp_run_body(inst, dir, ret_used, static_form);
+            self.tx.xp_export_try_world = None;
+            self.tx.tx_world -= 1;
+            return r;
+        }
+        self.xp_run_body(inst, dir, ret_used, static_form)
+    }
+
+    fn xp_run_body(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
         let schema = self.xp_schema(inst)?;
         // xmlport/TestXmlPortExportImportContracts.al:XmlPort_WrongDirection_Throws
         match (dir, schema.xp().direction) {

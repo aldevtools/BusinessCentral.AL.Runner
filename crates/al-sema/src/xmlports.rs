@@ -298,7 +298,8 @@ pub fn layout(obj: &ast::Object) -> Layout {
             "requestpage"
                 if request_page_is_empty(&top)
                     || request_page_has_only_empty_sections(&top)
-                    || request_page_is_caption_with_empty_layout_and_actions(&top) => {}
+                    || request_page_is_caption_with_empty_layout_and_actions(&top)
+                    || request_page_is_source_table_only(&top) => {}
             "requestpage" => out.run_reasons.push("request pages are not supported yet".into()),
             other => out
                 .reasons
@@ -346,6 +347,25 @@ fn request_page_is_caption_with_empty_layout_and_actions(rp: &ast::Section) -> b
         && rp
             .sections()
             .all(|s| section_is_bare(&s) && s.sections().next().is_none())
+}
+
+/// A `requestpage` that declares `SourceTable` (and maybe `SourceTableTemporary = true`) and holds nothing else but an
+/// `OnOpenPage` trigger. Its `Rec` is a record of the table in the xmlport's own code; on Export and Import no request
+/// page opens and OnOpenPage does not run (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861-923, xmlports 88570 and 88571
+/// at :421 and :477; al-runner issue 5756). Any other property, trigger, variable or section is not pinned.
+fn request_page_is_source_table_only(rp: &ast::Section) -> bool {
+    let mut has_source = false;
+    for p in rp.properties() {
+        match p.name().to_ascii_lowercase().as_str() {
+            "sourcetable" => has_source = true,
+            "sourcetabletemporary" if p.value_text().trim().eq_ignore_ascii_case("true") => {}
+            _ => return false,
+        }
+    }
+    has_source
+        && rp.triggers().all(|t| t.name().eq_ignore_ascii_case("OnOpenPage"))
+        && rp.var_decls().next().is_none()
+        && rp.sections().next().is_none()
 }
 
 fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {

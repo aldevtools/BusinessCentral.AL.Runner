@@ -8,7 +8,7 @@
 use crate::check::posmap::FxMap as HashMap;
 use crate::workspace::{ObjKind, Resolution, Workspace};
 use al_ir as ir;
-use al_syntax::ast;
+use al_syntax::{SyntaxKind, ast};
 
 /// Report properties that change nothing a processing run can observe.
 const INERT_OBJECT_PROPERTIES: &[&str] = &[
@@ -1143,6 +1143,29 @@ fn object_trigger(o: &Owner, obj: &ast::Object, name: &str) -> Option<usize> {
         .and_then(|t| o.routine_at.get(&(o.oi, usize::from(t.syntax().text_range().start()))))
 }
 
+/// The procedures of a report whose request page states `SourceTable` that name `Rec` or `xRec` (by token: a local of that
+/// name counts too, which only refuses more).
+fn request_rec_routines(o: &Owner, obj: &ast::Object) -> Vec<usize> {
+    let has_rec = obj.sections().any(|s| {
+        s.name().eq_ignore_ascii_case("requestpage")
+            && s.properties().any(|p| p.name().eq_ignore_ascii_case("SourceTable"))
+    });
+    if !has_rec {
+        return Vec::new();
+    }
+    obj.routines()
+        .filter(|r| {
+            r.syntax().descendants_with_tokens().any(|e| {
+                e.as_token().is_some_and(|t| {
+                    t.kind() == SyntaxKind::Ident
+                        && (t.text().eq_ignore_ascii_case("rec") || t.text().eq_ignore_ascii_case("xrec"))
+                })
+            })
+        })
+        .filter_map(|r| o.routine_at.get(&(o.oi, usize::from(r.syntax().text_range().start()))))
+        .collect()
+}
+
 /// The IR of report `cx.oi`. `reasons` are what the lowering of the item variables found.
 pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::Report {
     let layout = cx.layout;
@@ -1179,6 +1202,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         on_pre_rendering: object_trigger(&o, obj, "OnPreRendering"),
         extensions: cx.extensions.clone(),
         request_flag_slot: cx.request_flag_slot,
+        request_rec_routines: request_rec_routines(&o, obj),
         output: layout.output.clone(),
         unsupported: reasons,
         caption: layout.caption.clone(),

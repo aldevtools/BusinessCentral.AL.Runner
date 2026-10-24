@@ -309,6 +309,11 @@ pub struct Report {
     pub extensions: Vec<usize>,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
+    /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
+    /// while OnInitReport runs is refused (Rec read in OnInitReport itself raises `ReportRequestPageNotInitialized`,
+    /// report/lt-y-request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
+    #[serde(default)]
+    pub request_rec_routines: Vec<usize>,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
     /// layout): the runtime renders nothing, so a run that gets that far is refused. Its request
     /// page still opens first.

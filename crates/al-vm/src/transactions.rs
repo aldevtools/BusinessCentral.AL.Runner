@@ -434,6 +434,11 @@ impl Session {
                 "{function} inside a TryFunction whose result is used, in install code (not pinned)"
             )));
         }
+        if self.tx.xp_export_try_world == Some(self.tx.tx_world) && function != "INSERT" {
+            return Err(Signal::Unsupported(format!(
+                "{function} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)"
+            )));
+        }
         if let Some(r) = self.used_try_nested_world()? {
             return r;
         }
@@ -470,6 +475,12 @@ impl Session {
         // Truncate has a refusal of its own inside any try function (`autoinc.rs`).
         if self.tx.used_tries.is_empty() || method == RecordOp::Truncate {
             return Ok(());
+        }
+        if self.tx.xp_export_try_world == Some(self.tx.tx_world) && method != RecordOp::Modify {
+            return Err(Signal::Unsupported(format!(
+                "{} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)",
+                method.name()
+            )));
         }
         if let Some(r) = self.used_try_nested_world()? {
             return r;

@@ -454,6 +454,28 @@ pub(crate) fn build_shared<'a>(
                     }
                 }
             }
+            // `Rec` of an xmlport whose request page states `SourceTable`: a record of that table in the xmlport's code, temporary
+            // with `SourceTableTemporary = true` (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861-923, al-runner issue 5756).
+            ObjKind::XmlPort if active(oi) => {
+                let obj = ws.object_ast(oi);
+                if let Some(rp) = obj.sections().find(|s| s.name().eq_ignore_ascii_case("requestpage")) {
+                    let source = rp
+                        .properties()
+                        .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
+                        .map(|p| p.value_text());
+                    if let Some(t) = source {
+                        if let Resolution::Found(t) =
+                            ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()])
+                        {
+                            table_of[oi] = Some(t);
+                            page_temporary[oi] = rp.properties().any(|p| {
+                                p.name().eq_ignore_ascii_case("SourceTableTemporary")
+                                    && p.value_text().trim().eq_ignore_ascii_case("true")
+                            });
+                        }
+                    }
+                }
+            }
             ObjKind::TableExtension if active(oi) => {
                 if let Some(base) = ws.object_ast(oi).extends_parts() {
                     if let Resolution::Found(t) = ws.resolve_ref(o.file, ObjKind::Table, &base) {

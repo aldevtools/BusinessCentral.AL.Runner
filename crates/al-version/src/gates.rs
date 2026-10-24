@@ -168,14 +168,6 @@ pub enum Gate {
     /// compiles on 28 and later and has no BC 27 counterpart (al-language-onprem/lt-file-type/FileQProbes.al:92, corpus bump 24).
     /// Not consumed yet; the test is refused by the runtime today.
     FileDownloadWithoutClientFrom28,
-    /// Under `TestHttpRequestPolicy = BlockOutboundRequests` an `[HttpClientHandler]` answers the request from BC 29; before,
-    /// the request raises the unhandled-request error as if no handler were bound, and the unused handler does not fail the test
-    /// (al-language-onprem/session/PZHttpBlock.al:43-58 passes on BC 27 and 28: oracle/27/junit-onprem.xml:430, oracle/28/junit-onprem.xml:445).
-    HttpHandlerUnderBlockOutboundFrom29,
-    /// Under `TestHttpRequestPolicy = AllowOutboundFromHandler` an `[HttpClientHandler]` answers the request from BC 29; before,
-    /// the request raises the unhandled-request error, the handler is not called and the unused handler does not fail the test
-    /// (al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al, the BC 27 and 28 legs of every test).
-    HttpHandlerUnderAllowFromHandlerFrom29,
     /// `HttpHeaders.Add` with a name of blanks raises `InvalidHeader:Format` from BC 29 and `InvalidHeader:Argument` on BC 28
     /// (network/lt-http/HttpHeaders.al:304-308).
     HttpBlankHeaderNameIsFormatFrom29,
@@ -192,10 +184,6 @@ pub enum Gate {
     /// before, CalcFields raises `The following fields must have the same type` (`DB:TypeMisMatch`)
     /// (calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:166-186, corpus bump 28).
     FlowFieldCountFilterBigIntegerFromIntegerFrom29,
-    /// Under the default `TestHttpRequestPolicy` and `AllowAllOutboundRequests` an `[HttpClientHandler]` answers the request from
-    /// BC 29; before, the handler is not called, the request is sent for real and the unused handler does not fail the test
-    /// (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line; corpus bump 43).
-    HttpHandlerUnderDefaultPolicyFrom29,
     /// `Format` of a Decimal field with `AutoFormatType = 1` (an amount) rounds to 2 decimals from BC 28, under the default format
     /// and under `<Standard Format,2>` and format number 2 or 9; BC 27 writes every digit
     /// (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49). Consumed by
@@ -222,7 +210,6 @@ pub enum Gate {
 
 impl Gate {
     pub const ALL: &'static [Gate] = &[
-        Gate::HttpHandlerUnderDefaultPolicyFrom29,
         Gate::AutoFormatAmountFieldRoundsFrom28,
         Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29,
         Gate::CaseTimeZeroLabelFrom29,
@@ -270,8 +257,6 @@ impl Gate {
         Gate::Base64TextIsWindows1252From28,
         Gate::TestFieldTypedValueTexts,
         Gate::FileDownloadWithoutClientFrom28,
-        Gate::HttpHandlerUnderBlockOutboundFrom29,
-        Gate::HttpHandlerUnderAllowFromHandlerFrom29,
         Gate::HttpBlankHeaderNameIsFormatFrom29,
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::TestRunnerHubRequiredIsolationFrom28,
@@ -306,12 +291,9 @@ impl Gate {
             | Gate::DataSourceAndTestHandlerContextFrom29
             | Gate::IsolatedStorageIsolationLevelOverloadsFrom29
             | Gate::RecordIsDirtyFrom29
-            | Gate::HttpHandlerUnderBlockOutboundFrom29
-            | Gate::HttpHandlerUnderAllowFromHandlerFrom29
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
-            | Gate::HttpHandlerUnderDefaultPolicyFrom29
             | Gate::DocxMediaRezippedFrom29
             | Gate::JpegMediaSetKeptFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
@@ -354,10 +336,6 @@ impl Gate {
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "515",
-            }],
-            Gate::HttpHandlerUnderDefaultPolicyFrom29 => &[Evidence {
-                file: "../al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al",
-                lines: "129,147",
             }],
             Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29 => &[Evidence {
                 file: "calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al",
@@ -881,14 +859,6 @@ impl Gate {
                     lines: "486,532,538,544",
                 },
             ],
-            Gate::HttpHandlerUnderBlockOutboundFrom29 => &[Evidence {
-                file: "../al-language-onprem/session/PZHttpBlock.al",
-                lines: "54-57",
-            }],
-            Gate::HttpHandlerUnderAllowFromHandlerFrom29 => &[Evidence {
-                file: "../al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al",
-                lines: "190-207",
-            }],
             Gate::HttpBlankHeaderNameIsFormatFrom29 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "304-308",

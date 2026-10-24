@@ -183,6 +183,9 @@ pub(crate) struct Lowerer<'a> {
     /// finds them before the report's own variables.
     request_page_globals: HashMap<String, usize>,
     in_request_page: bool,
+    /// The id of the report whose OnInitReport is being lowered, when its request page states `SourceTable`: a statement
+    /// that names `Rec` raises ReportRequestPageNotInitialized when it runs (`run_failures`).
+    in_report_init_with_rec: Option<i64>,
     locals: HashMap<String, usize>,
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
@@ -196,6 +199,9 @@ pub(crate) struct Lowerer<'a> {
     /// The reasons `place` gave for a variable whose attribute is not supported: a statement that fails with one of them
     /// refuses when it runs (`stmt_plain`) instead of refusing its routine.
     run_refusals: std::collections::HashSet<String>,
+    /// The reasons `place` gave for a name that raises an AL error when it is read (the reason, then text and code): a
+    /// statement that fails with one of them raises it when it runs (`stmt_plain`).
+    run_failures: HashMap<String, (String, String)>,
     /// The record of each `with` statement being lowered, by the start offset of the statement.
     with_places: HashMap<usize, ir::Place>,
     reasons: Vec<String>,
