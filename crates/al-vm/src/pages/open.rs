@@ -956,9 +956,14 @@ impl Session {
         if !rec.borrow().filters.is_empty() {
             return refuse("with a filter set");
         }
-        if ["onfindrecord", "onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
-            .iter()
-            .any(|t| self.declares(st, t))
+        if [
+            "onfindrecord",
+            "onnextrecord",
+            "onaftergetrecord",
+            "onaftergetcurrrecord",
+        ]
+        .iter()
+        .any(|t| self.declares(st, t))
         {
             return refuse("with find or record triggers");
         }
