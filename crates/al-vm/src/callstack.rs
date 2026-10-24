@@ -54,6 +54,28 @@ impl Session {
         Some(out)
     }
 
+    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them, then
+    /// `UNTRACKED_CALL_STACK`. The corpus keeps only the lines of its own app after it drops CR and splits at LF
+    /// (misc/lt-probes-needed-2/PnBErrorsCollections.al:282-306 and :329-358, RO_CollectedErrorInfo_Internal_And_Client), so
+    /// the rest of the text (the test runner's frames, which writer RO saw on BC 27.5 and not on 28.5 or 29.0, CR, a trailing
+    /// separator) is not pinned: with the mark the stack is not empty and no text function reads it.
+    pub(crate) fn collected_call_stack(&self) -> String {
+        if self.events.unpinned_event_depth > 0 {
+            return UNTRACKED_CALL_STACK.to_string();
+        }
+        let mut lines: Vec<String> = self
+            .frames
+            .iter()
+            .zip(&self.call_stack)
+            .rev()
+            .map(|(&object, &frame)| {
+                frame_line(&self.engine.program, object, frame).unwrap_or_else(|| UNTRACKED_CALL_STACK.to_string())
+            })
+            .collect();
+        lines.push(UNTRACKED_CALL_STACK.to_string());
+        lines.join("\n")
+    }
+
     /// Adds the line of routine `frame` of `object` to the error's stack.
     pub(crate) fn add_frame(&self, e: &mut AlError, object: usize, frame: CallFrame) {
         if !e.call_stack.is_empty() {

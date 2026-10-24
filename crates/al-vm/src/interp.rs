@@ -719,6 +719,35 @@ impl Session {
         let mut added = 0;
         let same = Rc::ptr_eq(callee, &f.instance);
         for (i, a) in args.iter().enumerate() {
+            let by_var = self.engine.program.objects[object].routines[routine]
+                .by_var
+                .get(i)
+                .copied()
+                .unwrap_or(false);
+            // A subscriber's parameter that is a global of the publisher's instance (`dispatch`), handed on by `var`: to a
+            // procedure of the subscriber's own instance it stays that global, at any depth (events/lt-event-var-through-sender/
+            // EventVarThroughSender.al:284-306, modes 2-5 and 7; :308-330). To another instance it is not measured: reaching the
+            // global by its name while the call runs is refused.
+            if let ir::Arg::Ref(ir::Place::Local(slot)) = a {
+                if let Some((_, owner, g)) = f
+                    .aliases
+                    .iter()
+                    .find(|(s, inst, _)| s == slot && !Rc::ptr_eq(inst, &f.instance))
+                {
+                    if by_var && values.get(i).is_some_and(is_alias_scalar) {
+                        self.var_alias_watch.push(crate::AliasWatch {
+                            instance: owner.clone(),
+                            global: *g,
+                            live: if same { Some(false) } else { None },
+                        });
+                        if same {
+                            self.events.next_aliases.push((i, owner.clone(), *g));
+                        }
+                        added += 1;
+                    }
+                    continue;
+                }
+            }
             let g = match a {
                 ir::Arg::Ref(ir::Place::Global(g)) => *g,
                 ir::Arg::Ref(ir::Place::Local(slot)) => match own_alias_of_slot(f, *slot) {
@@ -727,11 +756,6 @@ impl Session {
                 },
                 _ => continue,
             };
-            let by_var = self.engine.program.objects[object].routines[routine]
-                .by_var
-                .get(i)
-                .copied()
-                .unwrap_or(false);
             if by_var && values.get(i).is_some_and(is_alias_scalar) {
                 if same {
                     self.var_alias_watch.push(crate::AliasWatch {

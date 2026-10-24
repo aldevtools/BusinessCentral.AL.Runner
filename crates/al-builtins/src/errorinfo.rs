@@ -11,6 +11,53 @@ use std::rc::Rc;
 
 type Out = Result<Value, Signal>;
 
+/// An entry of `CALLSTACKS`: the cell of an `ErrorInfo` value and its `Callstack`.
+type CallstackEntry = (std::rc::Weak<RefCell<LibraryValue>>, Rc<str>);
+
+thread_local! {
+    /// The `Callstack` of a collected error, by the cell of the `ErrorInfo` value that carries it (`set_callstack_of`; `copy_of`
+    /// hands it on to the copy). A side table: the state struct of an `ErrorInfo` has no field for it. A `Weak` keeps its cell's
+    /// address from being reused while the entry lives; dead entries go at the next insert.
+    static CALLSTACKS: RefCell<Vec<CallstackEntry>> = const { RefCell::new(Vec::new()) };
+}
+
+fn callstack_of(cell: &Rc<RefCell<LibraryValue>>) -> Option<Rc<str>> {
+    CALLSTACKS.with_borrow(|t| {
+        t.iter()
+            .find(|(w, _)| std::ptr::eq(w.as_ptr(), Rc::as_ptr(cell)))
+            .map(|(_, s)| s.clone())
+    })
+}
+
+fn put_callstack(cell: &Rc<RefCell<LibraryValue>>, stack: Rc<str>) {
+    CALLSTACKS.with_borrow_mut(|t| {
+        t.retain(|(w, _)| w.strong_count() > 0);
+        t.retain(|(w, _)| !std::ptr::eq(w.as_ptr(), Rc::as_ptr(cell)));
+        t.push((Rc::downgrade(cell), stack));
+    });
+}
+
+/// Sets what `Callstack` of an `ErrorInfo` value reads (a collected error: the frames of its `Error` call).
+pub fn set_callstack_of(v: &Value, stack: &str) {
+    if let Value::Library(_, cell) = v {
+        put_callstack(cell, stack.into());
+    }
+}
+
+/// `Callstack`: empty until the error is raised (session/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable); a
+/// collected error has the frames of its `Error` call and then the untracked mark, so it is not empty and no text function reads
+/// it (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358 pins only the frames of the test's own app; al-vm
+/// `collected_call_stack`).
+fn callstack(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    let cell = match &r {
+        Some(Value::Library(_, cell)) => Some(cell.clone()),
+        _ => None,
+    };
+    with_state(r, |_| ())?;
+    let stack = cell.and_then(|c| callstack_of(&c));
+    Ok(Value::Text(stack.as_deref().unwrap_or_default().to_string().into()))
+}
+
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
@@ -222,11 +269,16 @@ fn system_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 /// A fresh ErrorInfo carries no custom dimensions (errorinfo/TestErrorInfoType.al:423-442). An assigned
 /// dictionary is held, not copied: an entry added to it later shows through `CustomDimensions()`
-/// (record/ProbePropertyAssignmentForms.al:332-349, BC 27.5).
+/// (record/ProbePropertyAssignmentForms.al:332-349, BC 27.5). So is the empty one a read gives: `CustomDimensions.Add` on a
+/// fresh ErrorInfo keeps the entry (misc/lt-system-functions/ErrorMessage.al:225-227 `customdims after add`,
+/// misc/lt-probes-needed-2/PnBErrorsCollections.al:270 and :329-358 `dims=1:Dim1=Val1`).
 fn custom_dimensions(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
-        let held = with_state(r, |s| s.custom_dimensions.clone())?;
-        return Ok(held.unwrap_or_else(|| Value::Dictionary(Rc::new(RefCell::new(Vec::new())))));
+        return with_state(r, |s| {
+            s.custom_dimensions
+                .get_or_insert_with(|| Value::Dictionary(Rc::new(RefCell::new(Vec::new()))))
+                .clone()
+        });
     }
     let Some(d @ Value::Dictionary(_)) = a.first() else {
         return unsupported(format!("CustomDimensions with {}", a.first().describe()));
@@ -259,20 +311,32 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         _ => return unsupported("Error with an ErrorInfo nobody created"),
     };
     // An internal error hides its message behind a fixed text and a correlation id (session/
-    // TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal; the id changes from run to run).
-    let message = if internal {
+    // TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal; the id changes from run to run). Collected, its Message
+    // is that text with a line break before the id (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358 `internal message`).
+    let (message, collected_message) = if internal {
         let g = c.new_guid();
         let id = crate::pagefmt::guid_text(&g);
-        format!(
-            "An error has occurred. If the error persists, please contact your system administrator.\\Correlation ID: {id}"
+        (
+            format!("{INTERNAL_ERROR_TEXT}\\Correlation ID: {id}"),
+            Some(format!("{INTERNAL_ERROR_TEXT}\r\nCorrelation ID: {id}")),
         )
     } else {
-        message
+        (message, None)
     };
     // A collectible error inside a `[ErrorBehavior(Collect)]` scope is kept and execution goes on
     // (errorinfo/TestErrorInfoType.al:448-459); a non-collectible one unwinds even there (:474-490).
-    if collectible && c.collect_error(info) {
-        return Ok(Value::Null);
+    if collectible {
+        let collected = match &collected_message {
+            Some(m) => {
+                let copy = copy_of(info).expect("an ErrorInfo");
+                set_message_of(&copy, m);
+                copy
+            }
+            None => info.clone(),
+        };
+        if c.collect_error(&collected) {
+            return Ok(Value::Null);
+        }
     }
     // The flag's text for any classification, the default one, custom dimensions included (P86LastError.al:54, :88-104,
     // :121, :145, :169).
@@ -284,16 +348,28 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     })))
 }
 
-/// A copy of an `ErrorInfo` value that shares nothing with the original.
+/// The text an Internal error shows instead of its message (session/TestProbeSessionMiscContracts.al:
+/// ErrorInfo_ErrorClientAndInternal).
+pub const INTERNAL_ERROR_TEXT: &str =
+    "An error has occurred. If the error persists, please contact your system administrator.";
+
+/// A copy of an `ErrorInfo` value that shares nothing with the original, its `Callstack` included.
 pub fn copy_of(v: &Value) -> Option<Value> {
     let Value::Library(name, cell) = v else { return None };
-    match &*cell.borrow() {
-        LibraryValue::ErrorInfo(s) => Some(Value::Library(
-            name.clone(),
-            Rc::new(RefCell::new(LibraryValue::ErrorInfo(s.clone()))),
-        )),
-        _ => None,
+    let copy = match &*cell.borrow() {
+        LibraryValue::ErrorInfo(s) => Rc::new(RefCell::new(LibraryValue::ErrorInfo(s.clone()))),
+        _ => return None,
+    };
+    if let Some(stack) = callstack_of(cell) {
+        put_callstack(&copy, stack);
     }
+    Some(Value::Library(name.clone(), copy))
+}
+
+/// Whether an `ErrorInfo` value has ErrorType Internal.
+pub fn is_internal(v: &Value) -> bool {
+    let Value::Library(_, cell) = v else { return false };
+    matches!(&*cell.borrow(), LibraryValue::ErrorInfo(s) if s.error_type == Some(1))
 }
 
 /// Sets the message of an `ErrorInfo` value and answers whether it is collectible.
@@ -353,8 +429,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         "CustomDimensions" => custom_dimensions,
         "AddAction" => add_action,
         "AddNavigationAction" => add_navigation_action,
-        // Empty until the error is raised (session/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable).
-        "Callstack" => |_, r, _| with_state(r, |_| ()).map(|()| Value::Text(String::new().into())),
+        "Callstack" => callstack,
         _ => return None,
     })
 }

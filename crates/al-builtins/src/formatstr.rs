@@ -61,6 +61,8 @@ struct Numeric {
     value: Decimal,
     /// The character `<Integer,N>` pads with (`<Filler Character,C>` anywhere in the string).
     filler: char,
+    /// The decimals `<Decimals>` shows at least: the minimum places of a Decimal field (`format_with_field_places`), else 0.
+    min_decimals: u32,
     /// `<Precision,A:B>`: at least A and at most B decimals.
     precision: Option<(u32, u32)>,
     /// The precision was written as `<Precision,N>`: at most N decimals, how many at least is not pinned.
@@ -156,6 +158,19 @@ fn canonical_template(template: &str) -> Option<String> {
 
 /// `Err` names the part of the format string that is not understood.
 pub fn format_with_string(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -> Result<String, String> {
+    format_with_field_places(v, length, template, 0, ctx)
+}
+
+/// `format_with_string` of a Decimal field's value already rounded to the field's most places, where `<Decimals>` shows at
+/// least the field's fewest places (DecimalPlaces 2:2 writes `.00` for 5, 0:5 nothing; types/lt-at-partner-gaps/
+/// AtPrecisionStandardFormat2.al:969-1047, RO_FieldFormatStrings_DecimalPlacesFields_*). A `<Decimals,N>` keeps its own width.
+pub fn format_with_field_places(
+    v: &Value,
+    length: i32,
+    template: &str,
+    min_decimals: u32,
+    ctx: &dyn FormatCtx,
+) -> Result<String, String> {
     // A Guid takes no format string without codes: the platform asks for the standard format number -1
     // (types/lt-scalars/ScT70054.al:Guid_FormatStrings `af79`).
     if matches!(v, Value::Guid(_)) && !template.contains('<') {
@@ -219,7 +234,7 @@ pub fn format_with_string(v: &Value, length: i32, template: &str, ctx: &dyn Form
     {
         return Ok(crate::format::pad(String::new(), length));
     }
-    let numeric = numeric_of(v, &pieces).map_err(|e| {
+    let numeric = numeric_of(v, &pieces, min_decimals).map_err(|e| {
         if e == INVALID_FORMAT_MARK {
             format!("{INVALID_FORMAT_MARK}{template}")
         } else {
@@ -394,7 +409,7 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
     }
 }
 
-fn numeric_of(v: &Value, pieces: &[(bool, &str)]) -> Result<Option<Numeric>, String> {
+fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<Option<Numeric>, String> {
     let value = match v {
         Value::Integer(i) => Decimal::from(*i),
         Value::BigInteger(i) => Decimal::from(*i),
@@ -404,6 +419,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)]) -> Result<Option<Numeric>, Str
     let mut n = Numeric {
         value,
         filler: ' ',
+        min_decimals,
         precision: None,
         precision_single: false,
         precision_after_std: false,
@@ -513,7 +529,12 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
     }
     if code == "Decimals" || code == "Decimals,0" {
         // Without a width: the decimals the value has (`5.5` shows `.5`, a whole number nothing).
-        let frac = abs.fract().normalize().to_string();
+        let frac = abs.fract().normalize();
+        let digits = frac.scale().max(n.min_decimals);
+        if digits == 0 {
+            return Ok(String::new());
+        }
+        let frac = format!("{:.*}", digits as usize, frac);
         return Ok(frac.strip_prefix('0').map(str::to_string).unwrap_or_default());
     }
     if let Some(w) = width(code, "Decimals")? {

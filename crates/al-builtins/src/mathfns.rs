@@ -33,8 +33,8 @@ fn dec(v: &Value) -> Option<Decimal> {
 ///
 /// A Duration rounds its milliseconds the same way and gives a Decimal (types/lt-bc-round-duration/BcRoundDuration.al:51-143: zero,
 /// positive and negative durations by 1, 1000 with each direction, 0.5 and 60000; no precision; the result type). Its errors are
-/// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109). On a Decimal the invalid
-/// directions `x`, `` and `>>` raise (misc/lt-system-functions/Round.al:118-138); any other invalid text is refused.
+/// pinned for a precision of 0 and -1000 (shown as `1,000`) and the direction `x` (:91-109). Any direction text other than `=`, `>`
+/// and `<` raises InvalidValue (misc/lt-system-functions/Round.al:118-138, :435-505; BcRoundDuration.al:163-190).
 fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let duration = matches!(a[0], Value::Duration(_));
     let number = match &a[0] {
@@ -78,11 +78,11 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         "=" => RoundingStrategy::MidpointAwayFromZero,
         ">" => RoundingStrategy::AwayFromZero,
         "<" => RoundingStrategy::ToZero,
-        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection) pins `x`, `` and `>>` on a Decimal;
-        // BcRoundDuration.al:91-109 pins `x` on a Duration. Other invalid texts (`q`) are not measured.
-        "x" => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
-        "" | ">>" if !duration => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
-        other => return unsupported(format!("Round with direction `{other}` (not pinned)")),
+        // Every other text raises, on a Decimal, an Integer, a BigInteger and a Duration (zero too), blanks around a valid
+        // direction included: misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection: `x`, ``, `>>`) and :435-505
+        // (RO_Round_InvalidDirection_Texts: `q`, `Q`, `X`, blanks, `<>`, `==`, `<<`, `=<`, `< `, ` <`, ` = `, `1`, `0`, `up`;
+        // RO_Round_InvalidDirection_CodeunitRun), types/lt-bc-round-duration/BcRoundDuration.al:91-109 and :163-190.
+        _ => return crate::native::raise("The supplied value is not valid.", "InvalidValue"),
     };
     let Some(steps) = number.checked_div(precision) else {
         return unsupported("Round outside the Decimal range");
@@ -175,10 +175,6 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
-    #[track_caller]
-    fn refused(r: Result<Value, Signal>) {
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?} should be a refusal");
-    }
 
     #[test]
     fn round_half_away_from_zero() {
@@ -203,24 +199,39 @@ mod tests {
     }
 
     #[test]
-    fn round_refuses_what_the_corpus_does_not_pin() {
-        // Only `x`, `` and `>>` are pinned as invalid directions; `q` is not.
-        refused(call("System.Round#1", vec![d("2.5"), Value::Integer(1), t("q")]));
-        refused(call(
-            "System.Round#1",
-            vec![Value::Duration(1500), Value::Integer(1000), t("")],
-        ));
-    }
-
-    #[test]
-    fn round_raises_for_the_pinned_invalid_directions() {
-        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection).
-        for dir in ["x", "", ">>"] {
+    fn round_raises_for_every_invalid_direction() {
+        // misc/lt-system-functions/Round.al:118-138 (Round_InvalidDirection) and :435-492 (RO_Round_InvalidDirection_Texts):
+        // only `=`, `>` and `<` are directions; every other text raises, blanks around a valid one too.
+        let dirs = [
+            "x", "", ">>", "q", "Q", "X", " ", "  ", "<>", "==", "<<", "=<", "< ", " <", " = ", "1", "0", "up",
+        ];
+        for dir in dirs {
             raised(
-                call("System.Round#1", vec![d("2.5"), Value::Integer(1), t(dir)]),
+                call("System.Round#1", vec![d("1.5"), Value::Integer(1), t(dir)]),
                 "The supplied value is not valid.",
                 "InvalidValue",
             );
+        }
+        // Integer and BigInteger (RO_Round_InvalidDirection_Texts `integer q`, `biginteger q`).
+        for v in [Value::Integer(5), Value::BigInteger(5)] {
+            raised(
+                call("System.Round#1", vec![v, Value::Integer(1), t("q")]),
+                "The supplied value is not valid.",
+                "InvalidValue",
+            );
+        }
+        // A Duration, zero too (types/lt-bc-round-duration/BcRoundDuration.al:163-190, RO_Round_Duration_InvalidDirections).
+        for ms in [1500, 0] {
+            for dir in ["", ">>", "q", " ", "<>", "< "] {
+                raised(
+                    call(
+                        "System.Round#1",
+                        vec![Value::Duration(ms), Value::Integer(1000), t(dir)],
+                    ),
+                    "The supplied value is not valid.",
+                    "InvalidValue",
+                );
+            }
         }
     }
 

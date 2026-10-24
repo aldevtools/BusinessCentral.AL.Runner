@@ -673,13 +673,14 @@ impl Lowerer<'_> {
                     out.push(ir::Arg::Value(ir::Expr::Load(record)));
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(pos as i32))));
                 }
-                // The places, and whether they hold only from BC 28 (an amount field without AutoFormatExpression).
-                if let (true, Some((places, gated))) = (emit_id == "System.FormatDecimalField#1", decimal_field_places) {
+                // The places, and when they hold (`decimal_field_places`: always, from BC 28 only, or under the measured format
+                // strings only).
+                if let (true, Some((places, mode))) = (emit_id == "System.FormatDecimalField#1", decimal_field_places) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(places))));
-                    out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(gated))));
+                    out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(mode))));
                 }
                 Ok(ir::Expr::Builtin {
                     id: builtin_id(&emit_id)?,
