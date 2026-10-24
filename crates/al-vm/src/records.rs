@@ -1170,7 +1170,8 @@ impl Session {
     /// refused with nothing in between (:481, Delete :662), after a plain Get (:551), and after a further Commit (:586). A
     /// buffer read by Get is refused whatever the new transaction did (:604, :623, :642). Not pinned, refused: other contact
     /// with the table in the new transaction (another write, another lock, a rollback), an Insert buffer older than one
-    /// Commit that the new transaction touched, and a stale buffer of another origin whose row the new transaction wrote.
+    /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
+    /// under the assumption stale-buffer-other-origin-written.
     fn stale_verdict(
         &mut self,
         t: &TableDef,
@@ -1197,7 +1198,8 @@ impl Session {
                 Some(Value::BigInteger(n)) => Some(*n),
                 _ => None,
             });
-        if !committed.is_some_and(|c| mine < c) {
+        // Stale: the row changed since the buffer was read, and the last Commit already held a newer row than the buffer.
+        if mine >= theirs || !committed.is_some_and(|c| mine < c) {
             return Ok(StaleVerdict::Fresh);
         }
         let written_now = theirs > self.tx.committed_row_version;
@@ -1232,10 +1234,12 @@ impl Session {
                 t.name
             )),
             Some(_) => Ok(StaleVerdict::Refused),
-            None if written_now => unsupported(format!(
-                "a stale {} buffer read otherwise than by Get or Insert, whose row the new transaction wrote: not pinned",
-                t.name
-            )),
+            // Not pinned; Microsoft's tests need it (assumption stale-buffer-other-origin-written): the last writer wins, as
+            // before any of this was probed.
+            None if written_now => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StaleBufferOtherOriginWritten);
+                Ok(StaleVerdict::Written)
+            }
             None => Ok(StaleVerdict::Refused),
         }
     }

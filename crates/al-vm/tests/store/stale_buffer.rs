@@ -241,6 +241,17 @@ codeunit 69996 RU
         InsertRow(Row); ChangeAndCommit(); Two.Id := 6; Two.Insert(); exit(Write(Row));
     end;
 
+    // Not pinned (assumption stale-buffer-other-origin-written): a buffer read by FindFirst, stale after a Commit, whose row
+    // the new transaction wrote.
+    procedure FindBufferWritten(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row"; Stored: Record "RU Row";
+    begin
+        InsertRow(Row); Commit(); Row.FindFirst(); ChangeAndCommit(); Later.Get(5); Later.Note := 'later'; Later.Modify(false);
+        Row.Qty := 5; Row.Modify(false);
+        Stored.Get(5);
+        exit(Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
     // Not pinned: a second Commit between the Insert and the transaction that modified the row.
     procedure InsertTwoCommits(): Text
     var Row: Record "RU Row"; Later: Record "RU Row";
@@ -279,6 +290,12 @@ fn a_stale_delete_follows_the_same_rule() {
     // TestRecordStaleBufferWrite.al:662, :676.
     assert_eq!(run("DeleteNothing"), "DB:RecordChanged|Yes");
     assert_eq!(run("DeleteAfterUnchanged"), "ok|No");
+}
+
+// Microsoft's No. Series batch writes such a buffer (Tests-ERM, 110 tests): the last writer wins under the assumption.
+#[test]
+fn a_stale_buffer_of_another_origin_whose_row_the_transaction_wrote_is_written() {
+    assert_eq!(text(al_testkit::run_in(RU, "RU", "FindBufferWritten")), "start|5");
 }
 
 #[test]
