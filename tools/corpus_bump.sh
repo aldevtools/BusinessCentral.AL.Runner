@@ -10,7 +10,8 @@
 #   4. download each artifact by id and copy its XML unchanged to oracle/<major>/junit.xml and
 #      oracle/<major>/junit-onprem.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
-#   6. build release and regenerate the baselines (al-test-cli refuses when a baseline case regresses);
+#   6. build release and regenerate the baselines (al-test-cli refuses when a baseline case regresses), then
+#      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions);
 #   7. write the new case counts into crates/al-test-cli/tests/corpus_harness.rs.
 # It never edits a JUnit file and never edits docs/probes-needed.md: it prints the corpus files added
 # since the old pin, and the number of table rows of probes-needed before and after, so the person
@@ -213,6 +214,12 @@ cargo build --release -q
 for major in 27 28 29; do
   ./target/release/al-test-cli --root . --update-baseline --bc-version "$major" | grep -E "^BC [0-9.]+: " || die "baseline for BC $major"
 done
+
+# 6b. The assumptions that waited for a corpus pin now in the corpus (Info::awaiting in
+# crates/al-builtins/src/assumptions.rs): each must go (the pin agrees) or its code be fixed (the pin disagrees).
+# The bump goes on; ./check.sh fails until they are dealt with.
+echo "assumptions waiting for a corpus pin:"
+./target/release/al-test-cli --root . --awaiting-assumptions 2>&1 | grep -E "^(assumption |warning: assumption |awaiting assumptions: )" || echo "  the check failed (lines above): remove each assumption whose pin landed, or fix its code, before ./check.sh"
 
 # 7. The harness counts: totals per major and the BC 29 area totals the harness asserts.
 dir="$(mktemp -d)"

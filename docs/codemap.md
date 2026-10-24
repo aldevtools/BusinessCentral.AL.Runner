@@ -209,6 +209,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 ### al-test-cli
 
 - `args.rs` (305): Command-line parsing and the --help text. Entry: `parse` 79, `Args` 7, `HELP` 177.
+- `awaiting.rs` (~300): `--awaiting-assumptions [--summary]`: the assumptions that wait for a corpus pin (`Info::awaiting` in `al-builtins/src/assumptions.rs`) against the pinned corpus. Every awaited file present: `main.rs` `awaiting_assumptions` runs those files and fails with "the pin landed: remove the assumption" or "the pin contradicts the assumption: fix the code"; some present is a warning. `tools/corpus_bump.sh` prints it after the baselines; `tests/awaiting_assumptions.rs` runs it in the normal suite (`AL_AWAITING_EXTRA` injects entries for its tests). Entry: `with_extra`, `presence`, `verdict`, `message`, `summary`.
 - `config.rs` (292): oracle/oracle.toml: versions, suites, corpus pin. Entry: `OracleFile` 7, `VersionEntry` 16, `SuiteEntry` 51.
 - `corpus.rs` (210): Corpus discovery: test codeunits, their area folder and file. Entry: `discover` 32, `CorpusIndex` 20, `TestCodeunit` 12.
 - `coverage.rs` (330): The corpus coverage map (`--coverage-map`, `docs/corpus-coverage.md` and `.json`): which builtin overloads of the catalog some corpus test calls, from the checker's `Res::Builtin` resolutions. Entry: `collect_calls`, `build`, `to_markdown`, `to_json`, `corpus_coverage`. Also the view against the language catalog (`language_view`: every catalog overload with pinned, implemented, refused or unknown and its Microsoft use, `microsoft_calls`).

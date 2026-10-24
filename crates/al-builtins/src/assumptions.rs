@@ -11,6 +11,10 @@
 //! the test with `UPDATE_ASSUMPTIONS_DOC=1` to rewrite it). When a probe pins an assumption, delete its entry:
 //! the compiler then names every place that still marks it.
 //!
+//! An entry for a user issue fixed before its corpus probe sets `awaiting`: the al-runner issue(s) and the corpus
+//! file(s) that will pin it. A test requires it when the entry or its `docs/probes-needed.md` lines name an
+//! al-runner issue; `al-test-cli --awaiting-assumptions` fails once every awaited file is in the pinned corpus.
+//!
 //! A test (`every_entry_is_marked_somewhere`) checks that each entry is used by at least one code path; an
 //! unregistered marker does not compile.
 
@@ -23,6 +27,7 @@ macro_rules! registry {
         tests: $tests:expr,
         probe: $probe:expr,
         $(note: $note:expr,)?
+        $(awaiting: $awaiting:expr,)?
     } ),* $(,)?) => {
         /// A behavior implemented on an assumption no probe has confirmed.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -42,6 +47,7 @@ macro_rules! registry {
                         tests: $tests,
                         probe: $probe,
                         note: registry!(@note $($note)?),
+                        awaiting: registry!(@awaiting $($awaiting)?),
                     } ),*
                 }
             }
@@ -49,6 +55,8 @@ macro_rules! registry {
     };
     (@note) => { None };
     (@note $n:expr) => { Some($n) };
+    (@awaiting) => { None };
+    (@awaiting $w:expr) => { Some($w) };
 }
 
 /// What the registry says about one assumption.
@@ -64,6 +72,34 @@ pub struct Info {
     pub probe: &'static str,
     /// An open point about the entry (a probe that contradicts it, say).
     pub note: Option<&'static str>,
+    /// The corpus pin that will replace the assumption, when one is on its way. Required for an entry that
+    /// names an al-runner issue (a runtime fix for a user issue that landed before its probe); `al-test-cli
+    /// --awaiting-assumptions` fails once every awaited file is in the pinned corpus.
+    pub awaiting: Option<Awaiting>,
+}
+
+/// The corpus pin an assumption waits for.
+#[derive(Debug, Clone, Copy)]
+pub struct Awaiting {
+    /// The al-runner issue number(s) the assumption serves.
+    pub issues: &'static [u32],
+    /// The corpus test file(s) that will pin it, relative to the corpus root (`tests/al-language/...al`).
+    pub files: &'static [&'static str],
+    /// The day the entry started waiting, `YYYY-MM-DD` (`--awaiting-assumptions --summary` lists the oldest first).
+    pub since: &'static str,
+}
+
+/// One sentence on what `w` waits for, for the generated table and `--list-assumptions`.
+pub fn awaiting_text(w: &Awaiting) -> String {
+    let issues: Vec<String> = w.issues.iter().map(u32::to_string).collect();
+    let files: Vec<String> = w.files.iter().map(|f| format!("`{f}`")).collect();
+    format!(
+        "Awaiting since {}: al-runner issue{} {}, corpus {}.",
+        w.since,
+        if w.issues.len() == 1 { "" } else { "s" },
+        issues.join(", "),
+        files.join(", ")
+    )
 }
 
 registry! {
@@ -660,13 +696,18 @@ pub fn markdown_table() -> String {
         let i = a.info();
         let cell = |t: &str| t.replace('|', "\\|");
         let note = i.note.map(|n| format!(" **{}**", cell(n))).unwrap_or_default();
+        let awaiting = i
+            .awaiting
+            .map(|w| format!(" {}", cell(&awaiting_text(&w))))
+            .unwrap_or_default();
         s.push_str(&format!(
-            "| `{}` | {}{} | {} | {} |\n",
+            "| `{}` | {}{} | {} | {}{} |\n",
             i.id,
             cell(i.assumed),
             note,
             cell(i.tests),
-            cell(i.probe)
+            cell(i.probe),
+            awaiting
         ));
     }
     s
@@ -688,6 +729,9 @@ pub fn listing(counts: &dyn Fn(&str) -> Option<(usize, usize)>) -> String {
         ));
         if let Some(n) = i.note {
             s.push_str(&format!("    NOTE: {n}\n"));
+        }
+        if let Some(w) = &i.awaiting {
+            s.push_str(&format!("    {}\n", awaiting_text(w)));
         }
     }
     s
@@ -773,6 +817,154 @@ mod tests {
         assert!(
             unused.is_empty(),
             "registered but never marked by a code path (delete the entry or add the marker): {unused:?}"
+        );
+    }
+
+    /// The al-runner issue numbers a text names: `al-runner issue 5806`, `al-runner issues 5606, 5641`,
+    /// `al-runner 5808`, `al-runner #5808`.
+    fn al_runner_issues(text: &str) -> Vec<u32> {
+        let mut out = Vec::new();
+        for (at, _) in text.match_indices("al-runner") {
+            let rest = text[at + "al-runner".len()..].trim_start();
+            let rest = rest
+                .strip_prefix("issues")
+                .or_else(|| rest.strip_prefix("issue"))
+                .unwrap_or(rest)
+                .trim_start();
+            // A list of numbers: `5606, 5641`, `#5606 and #5641`.
+            let mut s = rest;
+            loop {
+                let t = s.trim_start_matches(['#', ' ']);
+                let digits: String = t.chars().take_while(char::is_ascii_digit).collect();
+                let Ok(n) = digits.parse() else { break };
+                out.push(n);
+                s = &t[digits.len()..];
+                s = s
+                    .strip_prefix(", ")
+                    .or_else(|| s.strip_prefix(" and "))
+                    .or_else(|| s.strip_prefix(" or "))
+                    .unwrap_or("");
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn al_runner_issue_references_are_read() {
+        assert_eq!(al_runner_issues("as BC does (al-runner issue 5806)"), vec![5806]);
+        assert_eq!(
+            al_runner_issues("al-runner issues 5606, 5641 and 5700"),
+            vec![5606, 5641, 5700]
+        );
+        assert_eq!(al_runner_issues("Repeater (al-runner 5808)"), vec![5808]);
+        assert_eq!(al_runner_issues("al-runner #5808"), vec![5808]);
+        assert!(al_runner_issues("AL Runner v2 does it, al-runner-rs too").is_empty());
+    }
+
+    /// The problems of one entry's `awaiting`, given the al-runner issues its texts and docs name.
+    fn awaiting_problems(id: &str, awaiting: Option<&Awaiting>, named: &[u32]) -> Vec<String> {
+        let mut out = Vec::new();
+        let Some(w) = awaiting else {
+            if !named.is_empty() {
+                out.push(format!(
+                    "{id}: names al-runner issue(s) {named:?} but has no `awaiting` (a runtime fix for a user issue must say which corpus pin replaces it)"
+                ));
+            }
+            return out;
+        };
+        if w.issues.is_empty() {
+            out.push(format!("{id}: `awaiting` names no al-runner issue"));
+        }
+        for n in named {
+            if !w.issues.contains(n) {
+                out.push(format!(
+                    "{id}: names al-runner issue {n}, which `awaiting` does not list"
+                ));
+            }
+        }
+        if w.files.is_empty() {
+            out.push(format!("{id}: `awaiting` names no corpus file"));
+        }
+        for f in w.files {
+            if !f.starts_with("tests/") || !f.ends_with(".al") || f.contains('\\') || f.contains("..") {
+                out.push(format!(
+                    "{id}: awaited corpus file `{f}` must be a path relative to the corpus root, `tests/<app>/.../<file>.al`"
+                ));
+            }
+        }
+        let b = w.since.as_bytes();
+        let date = b.len() == 10
+            && b[4] == b'-'
+            && b[7] == b'-'
+            && b.iter()
+                .enumerate()
+                .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+        if !date {
+            out.push(format!("{id}: `awaiting.since` `{}` is not a date YYYY-MM-DD", w.since));
+        }
+        out
+    }
+
+    const SAMPLE: Awaiting = Awaiting {
+        issues: &[5806],
+        files: &["tests/al-language/bgtasks/lt-x/X.al"],
+        since: "2026-10-24",
+    };
+
+    #[test]
+    fn an_entry_that_names_an_al_runner_issue_must_await_its_pin() {
+        assert_eq!(awaiting_problems("a", None, &[]), Vec::<String>::new());
+        assert_eq!(awaiting_problems("a", None, &[5806]).len(), 1);
+        assert!(awaiting_problems("a", Some(&SAMPLE), &[5806]).is_empty());
+        assert_eq!(awaiting_problems("a", Some(&SAMPLE), &[5806, 5807]).len(), 1);
+        let bad = Awaiting {
+            issues: &[],
+            files: &["corpus/tests/x.al", "bgtasks/X.al"],
+            since: "24.10.2026",
+        };
+        assert_eq!(awaiting_problems("a", Some(&bad), &[]).len(), 4);
+    }
+
+    /// The lines of `docs/probes-needed.md` outside the generated table that name the entry `id` (in backticks).
+    fn doc_lines_naming<'a>(doc: &'a str, id: &str) -> Vec<&'a str> {
+        let needle = format!("`{id}`");
+        let (a, b) = (doc.find("<!-- assumptions:begin"), doc.find(END));
+        doc.lines()
+            .filter(|l| l.contains(&needle))
+            .filter(|l| {
+                let at = l.as_ptr() as usize - doc.as_ptr() as usize;
+                !matches!((a, b), (Some(a), Some(b)) if at >= a && at <= b)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_entry_that_names_an_al_runner_issue_awaits_its_pin() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/probes-needed.md");
+        let doc = std::fs::read_to_string(&path).expect("docs/probes-needed.md");
+        let mut problems = Vec::new();
+        for a in Assumption::ALL {
+            let i = a.info();
+            let mut named = Vec::new();
+            for t in [i.assumed, i.tests, i.probe, i.note.unwrap_or("")] {
+                named.extend(al_runner_issues(t));
+            }
+            for l in doc_lines_naming(&doc, i.id) {
+                named.extend(al_runner_issues(l));
+            }
+            named.sort();
+            named.dedup();
+            problems.extend(awaiting_problems(i.id, i.awaiting.as_ref(), &named));
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn the_table_and_listing_name_what_an_entry_awaits() {
+        let s = awaiting_text(&SAMPLE);
+        assert_eq!(
+            s,
+            "Awaiting since 2026-10-24: al-runner issue 5806, corpus `tests/al-language/bgtasks/lt-x/X.al`."
         );
     }
 

@@ -459,3 +459,17 @@ fn a_new_pin_moves_the_legs_and_leaves_suites_of_other_runs_alone() {
         "{readme}"
     );
 }
+
+/// After the baselines, the bump prints the assumptions whose awaited corpus pin is now in the corpus
+/// (`al-test-cli --awaiting-assumptions`), and a nonzero answer of that check does not stop the bump.
+#[test]
+fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_baselines() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let baseline = script.find("--update-baseline").expect("the baseline step");
+    let check = script
+        .find("./target/release/al-test-cli --root . --awaiting-assumptions")
+        .expect("the bump runs al-test-cli --awaiting-assumptions");
+    assert!(check > baseline, "the check runs after the baseline step");
+    let line = script[check..].lines().next().unwrap();
+    assert!(line.contains("||"), "a landed pin must not stop the bump: {line}");
+}
