@@ -2080,7 +2080,8 @@ fn isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
         .unwrap()
         .to_string();
     assert!(m.contains("Commit inside a test under TestIsolation = Function"), "{m}");
-    // What the mode does not cover is refused per test, with the reason.
+    // A codeunit with handlers runs under runner 130450, as Codeunit isolation, whatever its RequiredTestIsolation says
+    // (corpus codeunit/lt-qu-commit-isolation/RqIsolationModes.al:673-839).
     let h = d.path().join("handlers");
     write(
         &h,
@@ -2097,15 +2098,7 @@ fn isolation_required_runs_each_codeunit_under_its_required_test_isolation() {
         "--isolation",
         "required",
     ]);
-    assert_eq!(code(&o), 7, "{}", text(&o));
-    let m = row(&json_of(&o), "Codeunit50675.Shows")["message"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        m.contains("RequiredTestIsolation = Function on a test codeunit with handlers"),
-        "{m}"
-    );
+    assert_eq!(code(&o), 0, "{}", text(&o));
 }
 /// Issue 5608: an outbound request no handler answers fails with BC's pinned error where BC fails it without a
 /// connection (an internal address: PyHttpPolicy.al:82-90) and under BlockOutboundRequests (AyHttpHandler.al:121); a
