@@ -127,6 +127,7 @@ impl Lowerer<'_> {
                     ext_triggers: Vec::new(),
                     run_object: None,
                     action_ref: None,
+                    prop_texts: Vec::new(),
                 });
                 continue;
             }
@@ -196,6 +197,32 @@ impl Lowerer<'_> {
             }
             if let Some(before) = props_before {
                 self.page_mods.borrow_mut().before.push((controls.len(), before));
+            }
+            // What Page Control Field reports for an expression-valued Visible, Enabled or Editable of the page's own control
+            // that no extension changes (crate::pages::control_expr_text). A plain field or variable is no expression.
+            let mut prop_texts = Vec::new();
+            if raw.owner.is_none() {
+                let changed: Vec<String> = raw
+                    .modifies
+                    .iter()
+                    .flat_map(|(_, m)| m.properties().map(|p| p.name().to_ascii_lowercase()))
+                    .collect();
+                for p in sec.properties() {
+                    let name = p.name().to_ascii_lowercase();
+                    if !["visible", "enabled", "editable"].contains(&name.as_str()) || changed.contains(&name) {
+                        continue;
+                    }
+                    let fields: Vec<String> = table
+                        .map(|t| self.members[t].fields.iter().map(|f| f.name.clone()).collect())
+                        .unwrap_or_default();
+                    let globals: Vec<String> = obj.var_decls().flat_map(|v| v.names()).map(|n| n.to_string()).collect();
+                    if let Some(text) = obj
+                        .id()
+                        .and_then(|id| crate::pages::control_expr_text(&p.value_text(), id, &globals, &fields))
+                    {
+                        prop_texts.push((name, text));
+                    }
+                }
             }
             let mut binding = ir::Binding::None;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
@@ -369,6 +396,7 @@ impl Lowerer<'_> {
                 ext_triggers,
                 run_object,
                 action_ref,
+                prop_texts,
             });
         }
         let base = owner_of(None);

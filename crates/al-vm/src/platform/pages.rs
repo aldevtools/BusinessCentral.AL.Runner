@@ -422,9 +422,9 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
 // ---- Page Control Field -----------------------------------------------------------------------------
 
 /// A boolean control property as the column text: undeclared is `default`; a literal is its own
-/// text in lower case. What BC reports for an expression is not pinned (docs/probes-needed.md): that
-/// column alone is left unknown, so a read of it is refused and the rest of the row is served
-/// (al-runner issue 5786: `Editable = Rec."Allow Edit"` beside `Visible = false`).
+/// text in lower case; an expression of a form the corpus pins, the text lowering wrote for it (`Control::prop_texts`). What BC
+/// reports for another expression is not pinned (docs/probes-needed.md): that column alone is left unknown, so a read of it is
+/// refused and the rest of the row is served (al-runner issue 5786).
 fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Result<Value, String> {
     match ctl.props.iter().find(|(k, _)| k == name).map(|(_, v)| v) {
         None => Ok(Value::Text(default.into())),
@@ -440,6 +440,8 @@ fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Res
             // (TestPageControlFieldDefaults.al:52-80).
             Ok(Value::Text(t.into()))
         }
+        // An expression of a pinned form reads as BC writes it (P132PageControlVisible.al:134-264, AL Runner issue 5786).
+        Some(_) if let Some((_, text)) = ctl.prop_texts.iter().find(|(k, _)| k == name) => Ok(Value::Text(text.clone().into())),
         Some(_) => Ok(Value::Unknown(
             format!(
                 "Page Control Field: page '{}' control '{}': {name} is an expression (what the column reports is not pinned)",

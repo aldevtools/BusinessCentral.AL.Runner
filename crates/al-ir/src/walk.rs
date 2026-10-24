@@ -863,6 +863,7 @@ fn walk_control<V: RefVisitor>(
         ext_triggers,
         run_object,
         action_ref: _,
+        prop_texts: _,
     } = c;
     // The routines of `binding`, `triggers` and `PropVal::Routine` belong to the extension that
     // owns the control; those of the page itself are positions in the page.

@@ -1726,6 +1726,7 @@ mod tests {
                 ext_triggers: vec![],
                 run_object: None,
                 action_ref: None,
+                prop_texts: vec![],
             },
             pred,
             parent: None,

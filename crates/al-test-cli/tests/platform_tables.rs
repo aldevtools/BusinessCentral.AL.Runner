@@ -2115,10 +2115,10 @@ fn feature_key_rows_follow_the_measured_minors() {
     assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
 }
 
-// al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served; a read of
-// the Editable column is refused (what BC reports there is not pinned, docs/probes-needed.md).
+// al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the
+// Editable column reads `"Allow Edit"` (errors/lt-ms-refusals-132/P132PageControlVisible.al:232-264).
 #[test]
-fn page_control_field_refuses_only_the_column_that_holds_an_expression() {
+fn page_control_field_serves_the_row_of_a_control_with_an_editable_expression() {
     let o = outcomes(
         r#"table 50105 "Repro Cost Line 50105"
 {
@@ -2151,8 +2151,7 @@ codeunit 50000 "T" { Subtype = Test;
         o.iter().any(|(n, o)| n == "VisibleFalse" && *o == Outcome::Pass),
         "{o:?}"
     );
-    let why = not_run(&o, "EditableRead");
-    assert!(why.contains("editable is an expression"), "{why}");
+    passes(&o, "EditableRead");
 }
 
 /// Active Session takes an Insert: the row is stored next to the session's own, Get, Count, Modify and Delete see it, a
@@ -2261,4 +2260,32 @@ codeunit 50000 "T" { Subtype = Test; var H: Codeunit "H"; N: Guid;
     ] {
         not_run(&run(body), "P");
     }
+}
+
+// Page Control Field reports a Visible, Enabled or Editable expression as text: a page variable as p<id>p<id><Name>, a source
+// table field as its name (quoted only when it needs quotes), with `not`, `and` and a comparison with a number written out
+// (errors/lt-ms-refusals-132/P132PageControlVisible.al:134-264, AL Runner issue 5786). Other expression shapes are not pinned.
+#[test]
+fn page_control_field_reports_expressions_as_bc_writes_them() {
+    let src = r#"table 50001 "Line" { fields { field(1; "No."; Integer) { } field(2; "Allow Edit"; Boolean) { } field(3; Flag; Boolean) { } field(4; Quantity; Decimal) { } } keys { key(PK; "No.") { } } }
+page 50002 "Lines" { PageType = List; SourceTable = "Line"; layout { area(Content) { repeater(R) {
+    field(A; Rec.Quantity) { Editable = Rec."Allow Edit"; Visible = false; }
+    field(B; Rec.Quantity) { Editable = not Rec."Allow Edit"; }
+    field(C; Rec.Quantity) { Editable = Rec.Quantity > 0; Enabled = Rec.Flag; }
+    field(D; Rec.Quantity) { Editable = Rec.Flag and EditAllowed; Visible = not ShowIt; }
+    field(E; Rec.Quantity) { Visible = ShowIt and Rec.Flag; }
+    field(F; Rec.Quantity) { Editable = Rec.Flag or ShowIt; } } } }
+  var EditAllowed: Boolean; ShowIt: Boolean; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Row(Name: Text; var P: Record "Page Control Field") begin P.SetRange(PageNo, 50002); P.SetRange(ControlName, Name); P.FindFirst(); end;
+  [Test] procedure Pinned() var P: Record "Page Control Field"; begin
+    Row('A', P); if (P.Editable <> '"Allow Edit"') or (P.Visible <> 'false') or (P.Enabled <> 'true') then Error('A %1 %2 %3', P.Editable, P.Visible, P.Enabled);
+    Row('B', P); if P.Editable <> 'not "Allow Edit"' then Error('B %1', P.Editable);
+    Row('C', P); if (P.Editable <> 'Quantity > 0') or (P.Enabled <> 'Flag') then Error('C %1 %2', P.Editable, P.Enabled);
+    Row('D', P); if (P.Editable <> 'Flag and p50002p50002EditAllowed') or (P.Visible <> 'not p50002p50002ShowIt') then Error('D %1 %2', P.Editable, P.Visible);
+    Row('E', P); if P.Visible <> 'p50002p50002ShowIt and Flag' then Error('E %1', P.Visible); end;
+  [Test] procedure NotPinned() var P: Record "Page Control Field"; begin Row('F', P); if P.Editable = '' then; end; }"#;
+    let o = outcomes(src);
+    passes(&o, "Pinned");
+    not_run(&o, "NotPinned");
 }

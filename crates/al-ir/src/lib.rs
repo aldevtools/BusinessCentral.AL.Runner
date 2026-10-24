@@ -901,6 +901,10 @@ pub struct Control {
     /// For `actionref(Name; Target)` controls: the action they stand for.
     #[serde(default)]
     pub action_ref: Option<ActionRef>,
+    /// The text Page Control Field reports for the control's `visible`, `enabled` or `editable` when it is an expression of a
+    /// form the corpus pins: (lower-case property name, text). An expression property without an entry reports nothing.
+    #[serde(default)]
+    pub prop_texts: Vec<(String, String)>,
 }
 
 /// The action an `actionref` delegates to.
