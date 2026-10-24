@@ -449,10 +449,10 @@ impl Checker<'_> {
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if o.kind == ObjKind::Codeunit
-                && self.ws.is_dependency(i)
-                && self.ws.usable(i)
                 && o.id == Some(LOGIN_MANAGEMENT)
                 && o.name.eq_ignore_ascii_case("LogInManagement")
+                && self.ws.is_dependency(i)
+                && self.ws.usable(i)
             {
                 for r in self.routines_of(i).iter() {
                     if !r.is_trigger() && r.name().eq_ignore_ascii_case(LOGIN_WORK_DATE) {
