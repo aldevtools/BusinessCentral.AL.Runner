@@ -639,6 +639,14 @@ pub(crate) fn refused(why: impl Into<String>) -> StoreError {
     StoreError::Refused(why.into())
 }
 
+/// The position of field `id` in table `t`.
+fn pos_of(t: &TableDef, id: u32) -> usize {
+    t.fields
+        .iter()
+        .position(|f| f.id == id)
+        .expect("a column of the platform table")
+}
+
 impl VirtualTables for Providers {
     fn serves(&self, t: &TableDef) -> bool {
         self.served.get(t.object as usize).is_some_and(Option::is_some)
@@ -731,6 +739,46 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
+            // The rows of one page come in ControlId order, an id the compiler derives, which the runtime's ids do not follow
+            // (record/TestPageControlFieldPageExtension.al:148): what a read in key order that chooses between two controls of a
+            // page gives is not pinned. It is kept as it was before the expression texts were pinned, because a baseline case
+            // walks a page's controls that way without depending on their order (TestPageControlFieldPageExtension.al:58-85):
+            // the rows it reaches serve an expression column as unknown, as they did then. One read by Sequence is pinned
+            // (record/TestTableRelationsSequenceMetadataContracts.al:107-122) and is served in full.
+            Virtual::PageControlField if scan.key == 0 => {
+                let listed = self.listed(t, Virtual::PageControlField)?;
+                let mut found = listed.next(t, scan)?;
+                if let Some(row) = &mut found {
+                    let at = al_data::position(t, 0, row);
+                    let mut chose = false;
+                    for ascending in [true, false] {
+                        let around = Scan {
+                            key: 0,
+                            filters: scan.filters,
+                            ascending,
+                            after: Some(&at),
+                        };
+                        chose |= listed.next(t, &around)?.is_some_and(|other| {
+                            al_builtins::ops::compare(&other[pos_of(t, 1)], &row[pos_of(t, 1)])
+                                .is_ok_and(|o| o == std::cmp::Ordering::Equal)
+                        });
+                    }
+                    if chose {
+                        for id in [6, 7, 8] {
+                            let i = pos_of(t, id);
+                            let literal =
+                                matches!(&row[i], Value::Text(v) if ["true", "false", "True"].contains(&v.as_str()));
+                            if matches!(row[i], Value::Text(_)) && !literal {
+                                row[i] = Value::Unknown(
+                                    "Page Control Field: an expression column of a row read in key order over several controls of a page (the rows come in ControlId order, an id the compiler derives; not pinned)"
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                Ok(found)
+            }
             k => self.listed(t, k)?.next(t, scan),
         }
     }

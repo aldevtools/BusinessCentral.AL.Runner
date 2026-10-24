@@ -2284,8 +2284,19 @@ codeunit 50000 "T" { Subtype = Test;
     Row('C', P); if (P.Editable <> 'Quantity > 0') or (P.Enabled <> 'Flag') then Error('C %1 %2', P.Editable, P.Enabled);
     Row('D', P); if (P.Editable <> 'Flag and p50002p50002EditAllowed') or (P.Visible <> 'not p50002p50002ShowIt') then Error('D %1 %2', P.Editable, P.Visible);
     Row('E', P); if P.Visible <> 'p50002p50002ShowIt and Flag' then Error('E %1', P.Visible); end;
-  [Test] procedure NotPinned() var P: Record "Page Control Field"; begin Row('F', P); if P.Editable = '' then; end; }"#;
+  [Test] procedure NotPinned() var P: Record "Page Control Field"; begin Row('F', P); if P.Editable = '' then; end;
+  [Test] procedure WalkInKeyOrder() var P: Record "Page Control Field"; N: Integer; begin P.SetRange(PageNo, 50002); P.FindSet(); repeat N += 1; until P.Next() = 0; if N <> 6 then Error('%1', N); end;
+  [Test] procedure WalkInKeyOrderReadsExpression() var P: Record "Page Control Field"; begin P.SetRange(PageNo, 50002); P.FindSet(); repeat if P.Editable = '' then; until P.Next() = 0; end;
+  [Test] procedure WalkBySequence() var P: Record "Page Control Field"; N: Integer; begin P.SetRange(PageNo, 50002); P.SetCurrentKey(Sequence); P.FindSet();
+    repeat N += 1; until P.Next() = 0; if N <> 6 then Error('%1', N); end; }"#;
     let o = outcomes(src);
     passes(&o, "Pinned");
     not_run(&o, "NotPinned");
+    // The rows of one page come in ControlId order, an id the compiler derives (record/TestPageControlFieldPageExtension.al:148):
+    // a walk in key order over two controls of a page is not pinned and stays as it was before (a baseline case walks so), but
+    // the expression columns of its rows are refused; one in Sequence order is pinned
+    // (record/TestTableRelationsSequenceMetadataContracts.al:107-122).
+    passes(&o, "WalkInKeyOrder");
+    assert!(not_run(&o, "WalkInKeyOrderReadsExpression").contains("ControlId"));
+    passes(&o, "WalkBySequence");
 }
