@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "da9ccf90fea9c97ce4f8ff282a0f5d46e9a2b8d6",
+  "corpus_commit": "b5fd674de95de9ae6b3dca7aa5d00afe3e02c0e2",
   "language": {
     "bc": "27-29",
     "implemented": 1511,
@@ -17104,7 +17104,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer)",
-        "site": "platform/lt-platform-members/PlTSession.al:294",
+        "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:116",
         "state": "implemented",
         "type": "Session"
       },
@@ -17248,7 +17248,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(var Integer, Integer, [Text], [var Table])",
-        "site": "events/lt-platform-events-v/PeVTests.al:344",
+        "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:127",
         "state": "implemented",
         "type": "Session"
       },
@@ -18640,7 +18640,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer)",
-        "site": "lt-al-dotnet/AlTimerTriggers.al:140",
+        "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:117",
         "state": "implemented",
         "type": "System"
       },
@@ -34623,7 +34623,7 @@
           "id": "Session.IsSessionActive#1",
           "pinned": true,
           "signature": "Session.IsSessionActive static (SessionID: Integer) -> Boolean",
-          "site": "platform/lt-platform-members/PlTSession.al:294"
+          "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:116"
         },
         {
           "id": "Session.LogAuditMessage#1",
@@ -34665,7 +34665,7 @@
           "id": "Session.StartSession#1",
           "pinned": true,
           "signature": "Session.StartSession static (var SessionId: Integer, CodeunitId: Integer, ?Company: Text, ?var Record: Record) -> Boolean?",
-          "site": "events/lt-platform-events-v/PeVTests.al:344"
+          "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:127"
         },
         {
           "id": "Session.StartSession#2",
@@ -35220,7 +35220,7 @@
           "id": "System.Sleep#1",
           "pinned": true,
           "signature": "System.Sleep static (Duration: Integer)",
-          "site": "lt-al-dotnet/AlTimerTriggers.al:140"
+          "site": "codeunit/lt-qu-commit-isolation/RqIsolationModes.al:117"
         },
         {
           "id": "System.TemporaryPath#1",
