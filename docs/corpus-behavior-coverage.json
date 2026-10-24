@@ -16342,7 +16342,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1453,
+        "line": 1455,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16351,7 +16351,7 @@
         "code": "FormAbort:Dialog",
         "file": "crates/al-vm/src/pages.rs",
         "generic": false,
-        "line": 274,
+        "line": 276,
         "pinned": true,
         "site": "pages/lt-cc-page-leads/CcPageLeads.al:525",
         "template": "Page % has to close."
@@ -16360,7 +16360,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open.rs",
         "generic": false,
-        "line": 1375,
+        "line": 1379,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
