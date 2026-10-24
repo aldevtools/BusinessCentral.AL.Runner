@@ -170,7 +170,7 @@ impl Session {
         Some((profile, app, company))
     }
 
-    fn table_def(&self, id: u32) -> Option<Arc<TableDef>> {
+    pub(crate) fn table_def(&self, id: u32) -> Option<Arc<TableDef>> {
         self.compiled_table(id).and_then(|i| self.engine.tables[i].clone())
     }
 
@@ -179,7 +179,7 @@ impl Session {
         !temporary && self.table_id(t) == Some(USER)
     }
 
-    fn all_rows(&self, cx: &AccessContext, t: &TableDef) -> Result<Vec<Row>, Signal> {
+    pub(crate) fn all_rows(&self, cx: &AccessContext, t: &TableDef) -> Result<Vec<Row>, Signal> {
         let mut out = Vec::new();
         let mut after: Option<Vec<Value>> = None;
         loop {

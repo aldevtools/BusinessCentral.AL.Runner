@@ -2227,3 +2227,38 @@ fn agent_get_from_microsoft_code_reports_agents_unavailable() {
     let partner = outcomes(src);
     assert!(not_run(&partner, "GetAgent").contains("has no provider"));
 }
+
+// NavUserAccountHelper.IsPermissionSetAssigned(user, company, role, app id, scope), which "User Permissions".
+// HasUserPermissionSetAssigned asks when no Access Control row of company '' or the given company matches: false for a set not
+// held, a row for another company and a row with another app id (platform/lt-outside-platform/RvPermissionSetAssigned.al:74-200,
+// AL Runner issue 5796). A row that would match is found by "User Permissions" first: what the member answers then is not pinned.
+#[test]
+fn is_permission_set_assigned_answers_false_where_no_row_assigns_the_set() {
+    let head = r#"dotnet { assembly("Microsoft.Dynamics.Nav.NavUserAccount") { Culture = 'neutral'; PublicKeyToken = '31bf3856ad364e35';
+    type("Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper"; "NavUserAccountHelper") { } } }
+codeunit 50001 "H" {
+  procedure Has(Company: Text; AppId: Guid): Boolean var H: DotNet NavUserAccountHelper; A: Record "Access Control"; begin
+      exit(H.IsPermissionSetAssigned(UserSecurityId(), Company, 'LTSET', AppId, A.Scope::System)); end;
+  procedure Assign(Company: Text; AppId: Guid) var A: Record "Access Control"; begin
+      A."User Security ID" := UserSecurityId(); A."Role ID" := 'LTSET'; A."Company Name" := Company; A.Scope := A.Scope::System; A."App ID" := AppId; A.Insert(); end; }
+codeunit 50000 "T" { Subtype = Test; var H: Codeunit "H"; N: Guid;
+"#;
+    let run = |body: &str| outcomes(&format!("{head}  [Test] procedure P() begin {body} end; }}"));
+    passes(
+        &run("if H.Has(CompanyName(), N) or H.Has('', N) then Error('held');"),
+        "P",
+    );
+    passes(
+        &run(
+            "H.Assign('Other', N); if H.Has('', N) or H.Has(CompanyName(), N) then Error('elsewhere'); if H.Has('Other', CreateGuid()) then Error('app id');",
+        ),
+        "P",
+    );
+    for body in [
+        "H.Assign('Other', N); if H.Has('Other', N) then;",
+        "H.Assign('', N); if H.Has('Other', N) then;",
+        "H.Assign('Other', N); if H.Has('OTHER', N) then;",
+    ] {
+        not_run(&run(body), "P");
+    }
+}

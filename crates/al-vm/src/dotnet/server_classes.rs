@@ -291,6 +291,67 @@ fn effective_permission(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
     }
 }
 
+/// `NavUserAccountHelper.IsPermissionSetAssigned(user, company, roleId, appId, scope)`: false when no Access Control row of that
+/// user and role is for that company or all companies with that app id (platform/lt-outside-platform/RvPermissionSetAssigned.al:
+/// 74-200, through "User Permissions".HasUserPermissionSetAssigned, AL Runner issue 5796: a set not held, a row for another company,
+/// a row with another app id). "User Permissions" finds a matching row itself before it asks, so what the member answers for one
+/// is not pinned and is refused; so are a row with another scope, a company that differs only in case, and an assignment
+/// through a security group (the corpus CI has none; the runtime holds none either).
+fn is_permission_set_assigned(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    let text = |v: &Value| al_builtins::native::text_of(v).map(|t| t.to_string());
+    let ordinal = |v: &Value| match v {
+        Value::Option(n, _) | Value::Integer(n) => Some(*n),
+        _ => None,
+    };
+    let [Value::Guid(user), company, role, Value::Guid(app), scope] = args else {
+        return Err(Signal::Unsupported(
+            "DotNet NavUserAccountHelper.IsPermissionSetAssigned takes (Guid, Text, Code, Guid, Option)".into(),
+        ));
+    };
+    let (Some(company), Some(role), Some(scope)) = (text(company), text(role), ordinal(scope)) else {
+        return Err(Signal::Unsupported(
+            "DotNet NavUserAccountHelper.IsPermissionSetAssigned takes (Guid, Text, Code, Guid, Option)".into(),
+        ));
+    };
+    let Some(ac) = s.table_def(2_000_000_053) else {
+        return Err(Signal::Unsupported(
+            "DotNet NavUserAccountHelper.IsPermissionSetAssigned: no Access Control table".into(),
+        ));
+    };
+    let col = |name: &str| ac.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
+    let (Some(c_user), Some(c_role), Some(c_company), Some(c_scope), Some(c_app)) = (
+        col("User Security ID"),
+        col("Role ID"),
+        col("Company Name"),
+        col("Scope"),
+        col("App ID"),
+    ) else {
+        return Err(Signal::Unsupported(
+            "DotNet NavUserAccountHelper.IsPermissionSetAssigned: an Access Control column is missing".into(),
+        ));
+    };
+    let cx = s.cx.clone();
+    for r in s.all_rows(&cx, &ac)? {
+        let same_guid = |i: usize, g: &[u8; 16]| matches!(&r[i], Value::Guid(x) if x == g);
+        if !same_guid(c_user, user) || !text(&r[c_role]).is_some_and(|x| x.eq_ignore_ascii_case(&role)) {
+            continue;
+        }
+        if ordinal(&r[c_scope]) != Some(scope) {
+            return Err(Signal::Unsupported(
+                "DotNet NavUserAccountHelper.IsPermissionSetAssigned with a row of another scope (not pinned)".into(),
+            ));
+        }
+        let row_company = text(&r[c_company]).unwrap_or_default();
+        if same_guid(c_app, app) && (row_company.is_empty() || row_company.eq_ignore_ascii_case(&company)) {
+            return Err(Signal::Unsupported(
+                "DotNet NavUserAccountHelper.IsPermissionSetAssigned for a set an Access Control row assigns (what it answers is not pinned)"
+                    .into(),
+            ));
+        }
+    }
+    Ok(Value::Boolean(false))
+}
+
 /// `NavTestExecution.IsInTestMode()`: true while a test codeunit runs. The probe's
 /// `Environment Information.CanStartSession` is false, which is `TaskScheduler.CanCreateTask`
 /// (false, also probed) behind this being true.
@@ -571,6 +632,11 @@ fn own_types() -> Vec<RegistryType> {
                     "IsDelegatedUser",
                     Pin::Corpus("session/TestEnvironmentUserTenantContracts.al:245 (inferred: IsUserDelegated false; the member itself is unprobed, assumption nav-user-account-helper-is-delegated-user)".into()),
                     is_delegated_user,
+                ),
+                member(
+                    "IsPermissionSetAssigned",
+                    Pin::Corpus("platform/lt-outside-platform/RvPermissionSetAssigned.al:74-200".into()),
+                    is_permission_set_assigned,
                 ),
                 member(
                     "GetEffectivePermissionForObject",
