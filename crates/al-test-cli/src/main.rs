@@ -51,7 +51,7 @@ fn write(p: &Path, s: &str) -> Result<(), String> {
 }
 
 fn run() -> Result<ExitCode, String> {
-    let args = match args::parse(std::env::args().skip(1))? {
+    let mut args = match args::parse(std::env::args().skip(1))? {
         Parsed::Help => {
             print!("{}", args::HELP);
             return Ok(ExitCode::SUCCESS);
@@ -128,10 +128,15 @@ fn run() -> Result<ExitCode, String> {
         ));
     }
 
+    if args.awaiting_assumptions {
+        let newest = versions[0];
+        return awaiting_assumptions(&mut args, &root, &oracle_path, &cfg, newest);
+    }
+
     let mut code = 0u8;
     let mut runs = Vec::new();
     for v in versions {
-        let r = run_version(&args, &root, &oracle_path, &cfg, v)?;
+        let r = run_version(&args, &root, &oracle_path, &cfg, v, None)?;
         code = code.max(r.code);
         runs.push((v.major, r));
     }
@@ -139,6 +144,66 @@ fn run() -> Result<ExitCode, String> {
         print!("{}", drift_summary(&runs));
     }
     Ok(ExitCode::from(code))
+}
+
+/// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
+/// Runs the awaited files of the entries whose pin landed, on one version, and fails with one message each.
+fn awaiting_assumptions(
+    args: &mut Args,
+    root: &Path,
+    oracle_path: &Path,
+    cfg: &config::OracleFile,
+    version: &config::VersionEntry,
+) -> Result<ExitCode, String> {
+    use al_test_cli::awaiting::{self, Presence};
+    let corpus = root.join(&cfg.corpus_repo);
+    let list: Vec<(awaiting::Entry, Presence)> =
+        awaiting::with_extra(std::env::var("AL_AWAITING_EXTRA").ok().as_deref())?
+            .into_iter()
+            .map(|e| {
+                let p = awaiting::presence(&corpus, &e.awaiting);
+                (e, p)
+            })
+            .collect();
+    if args.summary {
+        println!("{}", awaiting::summary(&list));
+        return Ok(ExitCode::SUCCESS);
+    }
+    for (e, p) in &list {
+        if let Presence::Partial { present, missing } = p {
+            eprintln!("{}", awaiting::partial_warning(e, present, missing));
+        }
+    }
+    let landed: Vec<&awaiting::Entry> = list
+        .iter()
+        .filter(|(_, p)| *p == Presence::Landed)
+        .map(|(e, _)| e)
+        .collect();
+    if landed.is_empty() {
+        println!("awaiting assumptions: {}, none with its corpus pin landed", list.len());
+        return Ok(ExitCode::SUCCESS);
+    }
+    // Run exactly the awaited files of the landed entries; the verdict, not the ratchet, decides.
+    let mut files: Vec<String> = landed
+        .iter()
+        .flat_map(|e| e.awaiting.files.iter().map(|f| f.to_string()))
+        .collect();
+    files.sort();
+    files.dedup();
+    args.select = select::Selection {
+        files,
+        ..Default::default()
+    };
+    args.no_ratchet = true;
+    args.update_baseline = false;
+    let mut cases = Vec::new();
+    run_version(args, root, oracle_path, cfg, version, Some(&mut cases))?;
+    println!();
+    for e in &landed {
+        let v = awaiting::verdict(e.id, &e.awaiting, &cases);
+        println!("{}", awaiting::message(e, &v));
+    }
+    Ok(ExitCode::from(1))
 }
 
 /// `--coverage-map`: which builtin overloads the corpus calls (`coverage.rs`).
@@ -249,6 +314,7 @@ fn run_version(
     oracle_path: &Path,
     cfg: &config::OracleFile,
     version: &config::VersionEntry,
+    awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
 ) -> Result<VersionRun, String> {
     // ADR-007: the oracle may be recorded for an older corpus commit when the pin only added files.
     pin::check(
@@ -750,6 +816,29 @@ fn run_version(
         }
         rep.suites.push(sr);
         suite_cases.push(cases);
+    }
+    // `--awaiting-assumptions`: every selected case with its file relative to the corpus root.
+    if let Some(out) = awaited {
+        let corpus = root.join(&cfg.corpus_repo);
+        let mut take = |cases: &[oracle::OracleCase], ix: &corpus::CorpusIndex, suite: &str| {
+            for c in cases {
+                let Some(cu) = ix.codeunits.get(&c.id.codeunit) else {
+                    continue;
+                };
+                let file = cu.file.strip_prefix(&corpus).unwrap_or(&cu.file);
+                out.push(al_test_cli::awaiting::AwaitedCase {
+                    file: file.to_string_lossy().replace('\\', "/"),
+                    name: c.id.name.clone(),
+                    outcome: rt.outcome_in(suite, &c.id),
+                    bc_failed: c.bc_failed,
+                    marks: rt.assumptions_in(suite, &c.id).iter().map(|a| a.info().id).collect(),
+                });
+            }
+        };
+        take(&cases, &index, "");
+        for ((suite, cases), (_, ix)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
+            take(cases, ix, &suite.name);
+        }
     }
 
     let all = args.all_versions;
