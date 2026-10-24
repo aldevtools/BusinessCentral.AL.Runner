@@ -83,6 +83,19 @@ codeunit 70550 "LT PnB ErrorInfo"
         exit(Info.Callstack <> '');
     end;
 
+    procedure StackNotEqualAsAssert(): Boolean
+    var
+        Info: ErrorInfo;
+        Count: Integer;
+        Left: Variant;
+        Right: Variant;
+    begin
+        RoCollect(ErrorType::Client, true, Count, Info);
+        Left := '';
+        Right := Info.Callstack;
+        exit(Format(Left, 0, 2) = Format(Right, 0, 2));
+    end;
+
     procedure StackLines(): Integer
     var
         Info: ErrorInfo;
@@ -176,7 +189,8 @@ fn a_collected_error_has_the_call_stack_of_its_error_call() {
     );
 }
 
-/// al-runner issue 5766 Q4_CollectedErrorInfo_HasCallstack: the Callstack of a collected error is not empty. How many lines it
+/// al-runner issue 5766 Q4_CollectedErrorInfo_HasCallstack: the Callstack of a collected error is not empty (pinned: the frames
+/// PnBErrorsCollections.al:329-358 reads). How many lines it
 /// has is not pinned: the split refuses.
 #[test]
 fn a_collected_call_stack_is_not_empty_and_its_lines_are_not_read() {
@@ -184,6 +198,12 @@ fn a_collected_call_stack_is_not_empty_and_its_lines_are_not_read() {
         SRC,
         "LT PnB ErrorInfo",
         "StackNotEmpty"
+    )));
+    // Library Assert's `Equal` of two texts compares `Format(.., 0, 2)` of both (`AreNotEqual(Callstack, '')` in the issue).
+    assert!(!al_testkit::boolean(al_testkit::run_in(
+        SRC,
+        "LT PnB ErrorInfo",
+        "StackNotEqualAsAssert"
     )));
     let r = al_testkit::run_in(SRC, "LT PnB ErrorInfo", "StackLines");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
