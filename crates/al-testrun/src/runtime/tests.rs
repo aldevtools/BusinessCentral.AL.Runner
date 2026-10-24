@@ -594,6 +594,60 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
+// Al-runner issue 5751: install code runs without a client. A plain Message does not stop it, GuiAllowed() is false,
+// CurrentClientType() is SOAP, StrMenu, Confirm and Page.Run raise CallbackNotAllowed, Dialog, Hyperlink and
+// Notification.Send do nothing (install/lt-outside-install-ui/RlInstallUi.al:210-241; Confirm, Page.RunModal with a write open and
+// a Commit in a TryFunction: install/lt-cm-install-leads/CmInstallLeads.al:54-61).
+#[test]
+fn install_code_runs_without_a_client() {
+    let o = outcomes(
+        "table 60900 Seed { fields { field(1; K; Code[30]) { } field(2; Txt; Text[2048]) { } } }
+            table 60901 SeedDb { DataPerCompany = false; fields { field(1; K; Code[30]) { } field(2; Txt; Text[2048]) { } } }
+            page 60903 \"Ui Page\" { PageType = Card; SourceTable = Seed; layout { area(Content) { field(K; Rec.K) { } } } }
+            codeunit 60902 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
+                local procedure PerCompany() var Dlg: Dialog; begin
+                    Add('GUI', Format(GuiAllowed())); Add('CLIENT', Format(CurrentClientType()));
+                    ClearLastError(); Message('install message %1', 1); Add('AFTER', 'reached'); Add('LASTERR', GetLastErrorText());
+                    if GuiAllowed() then Add('GUARD', 'taken') else Add('GUARD', 'skipped');
+                    Add('STRMENU', Outcome(TryStrMenu())); Add('CONFIRM', Outcome(TryConfirm()));
+                    Add('DIALOG', Outcome(TryDialog(Dlg))); Add('PAGE', Outcome(TryPageRun()));
+                    Add('LINK', Outcome(TryLink())); Add('NOTE', Outcome(TryNote())); Add('MODAL', Outcome(TryModal()));
+                    Add('COMMIT', Outcome(TryCommit())); Add('AFTERCOMMIT', 'reached'); end;
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerDatabase', '', false, false)]
+                local procedure PerDatabase() var R: Record SeedDb; begin
+                    Message('per database'); R.K := 'GUI'; R.Txt := Format(GuiAllowed()); R.Insert(); end;
+                local procedure Outcome(Ok: Boolean): Text var T: Text; begin
+                    if Ok then T := 'ok' else T := 'error: ' + GetLastErrorText() + ' | code: ' + GetLastErrorCode(); ClearLastError(); exit(T); end;
+                [TryFunction] local procedure TryStrMenu() begin if StrMenu('one,two', 2, 'pick one') = 0 then; end;
+                [TryFunction] local procedure TryConfirm() begin if Confirm('sure?') then; end;
+                [TryFunction] local procedure TryDialog(var Dlg: Dialog) begin Dlg.Open('dialog #1####'); Dlg.Update(1, 'x'); Dlg.Close(); end;
+                [TryFunction] local procedure TryPageRun() begin Page.Run(Page::\"Ui Page\"); end;
+                [TryFunction] local procedure TryCommit() begin Commit(); end;
+                [TryFunction] local procedure TryModal() begin Page.RunModal(Page::\"Ui Page\"); end;
+                [TryFunction] local procedure TryLink() begin Hyperlink('https://example.com'); end;
+                [TryFunction] local procedure TryNote() var N: Notification; begin N.Message('note'); N.Send(); end;
+                local procedure Add(K: Code[30]; T: Text) var R: Record Seed; begin R.K := K; R.Txt := T; if R.Insert() then; end; }
+            codeunit 60102 T { Subtype = Test;
+                local procedure S(K: Code[30]): Text var R: Record Seed; begin if not R.Get(K) then exit('<missing>'); exit(R.Txt); end;
+                local procedure Is(K: Code[30]; Expected: Text) begin if S(K) <> Expected then Error('%1: %2', K, S(K)); end;
+                [Test] procedure PerCompany() begin
+                    Is('GUI', 'No'); Is('CLIENT', 'SOAP'); Is('AFTER', 'reached'); Is('LASTERR', ''); Is('GUARD', 'skipped');
+                    Is('STRMENU', 'error: Microsoft Dynamics 365 Business Central Data Services attempted to issue a client callback to show a selection menu: pick one (CodeUnit 60902 Subs). Client callbacks are not supported on Microsoft Dynamics 365 Business Central Data Services. | code: CallbackNotAllowed');
+                    Is('CONFIRM', 'error: Microsoft Dynamics 365 Business Central Data Services attempted to issue a client callback to show a confirmation dialog box: sure? (CodeUnit 60902 Subs). Client callbacks are not supported on Microsoft Dynamics 365 Business Central Data Services. | code: CallbackNotAllowed');
+                    Is('DIALOG', 'ok');
+                    Is('PAGE', 'error: Microsoft Dynamics 365 Business Central Data Services attempted to issue a client callback to run page 60903 Ui Page. Client callbacks are not supported on Microsoft Dynamics 365 Business Central Data Services. | code: CallbackNotAllowed');
+                    Is('LINK', 'ok'); Is('NOTE', 'ok');
+                    Is('MODAL', 'error: An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance. | code: DB:Ok');
+                    Is('COMMIT', 'ok'); Is('AFTERCOMMIT', 'reached'); end;
+                [Test] procedure PerDatabase() var R: Record SeedDb; begin R.Get('GUI'); if R.Txt <> 'No' then Error('%1', R.Txt); end;
+                [Test] procedure TestHasAClient() begin if not GuiAllowed() then Error('no client'); end; }",
+    );
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
+    }
+}
+
 // ADR-046 amendment 1, A5: in the per-database part, IsEmpty and FindFirst of a per-company table fail with the text BC
 // gives (install/lt-bf-install-probes/BfInstallTests.al:138-139; reads in TryFunctions at BfInstallFixtures.al:131-146).
 // The code BC gave (DB:Ok) is not pinned yet, so a read of it is refused.

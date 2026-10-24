@@ -294,6 +294,10 @@ pub trait Ctx: FormatCtx {
     fn install_scope(&self) -> bool {
         false
     }
+    /// Whether an install routine runs in BC's install session, which has no client (al-vm `set_install_without_client`).
+    fn install_without_client(&self) -> bool {
+        false
+    }
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false
@@ -1831,8 +1835,12 @@ fn log_audit_message(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value])
 /// `Hyperlink(Url)` asks the client to open a page. A test has no handler for it, so the platform raises
 /// `Unhandled UI: Hyperlink <url>` (record/ProbeClearAllSetKeyHyperlink.al:322-338, BC 27.5); a routine
 /// that only mentions the call still runs.
-fn hyperlink(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+fn hyperlink(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let url = text_arg(args, 0)?;
+    // Install code has no client: Hyperlink does nothing there (install/lt-outside-install-ui/RlInstallUi.al:224).
+    if c.install_without_client() {
+        return Ok(Value::Null);
+    }
     Err(Signal::Error(Box::new(AlError {
         message: format!("Unhandled UI: Hyperlink {url}"),
         code: "MissingUIHandler".into(),

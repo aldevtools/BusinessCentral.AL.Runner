@@ -139,6 +139,9 @@ impl Session {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ContosoBuildNoClient);
                 Ok(Value::Boolean(false))
             }
+            // Install code has no client (install/lt-outside-install-ui/RlInstallUi.al:210, :239;
+            // install/lt-cm-install-leads/CmInstallLeads.al:51).
+            ids::SYSTEM_GUIALLOWED_1 if self.install_without_client => Ok(Value::Boolean(false)),
             ids::SYSTEM_GUIALLOWED_1 => Ok(Value::Boolean(self.host.identity.gui_allowed())),
             ids::SYSTEM_ISSERVICETIER_1 => Ok(Value::Boolean(self.host.identity.is_service_tier())),
             // The folder AL code writes scratch files to. BC's answer ends with `TEMP\` on the Linux tier
@@ -177,6 +180,9 @@ impl Session {
             ids::SYSTEM_GETURL_1 | ids::SYSTEM_GETURL_2 | ids::SYSTEM_GETURL_3 | ids::SYSTEM_GETURL_4 => {
                 self.get_url(args)
             }
+            // Install code runs in a SOAP session on the corpus CI's publish path, the same on BC 27.5, 28.5 and 29.0
+            // (install/lt-outside-install-ui/RlInstallUi.al:211).
+            ids::SESSION_CURRENTCLIENTTYPE_1 if self.install_without_client => Ok(client_type_named("SOAP")),
             ids::SESSION_CURRENTCLIENTTYPE_1 => Ok(client_type(self.host.identity.current_client_type())),
             ids::SESSION_DEFAULTCLIENTTYPE_1 => Ok(client_type(self.host.identity.default_client_type())),
             _ => return None,
@@ -241,13 +247,17 @@ impl Session {
 }
 
 fn client_type(t: al_host::ClientType) -> Value {
+    client_type_named(t.name())
+}
+
+fn client_type_named(name: &str) -> Value {
     let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("ClientType")
         .expect("a system option")
         .into();
     let ordinal = members
         .iter()
-        .position(|m| m == t.name())
-        .expect("the host names a member of ClientType");
+        .position(|m| m == name)
+        .expect("a member of ClientType");
     Value::Option(ordinal as i32, members)
 }
 

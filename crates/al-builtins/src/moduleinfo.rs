@@ -160,8 +160,16 @@ fn version_of(m: ModuleInfoState) -> Out {
 
 /// A freshly installed app's data version is its app version (not pinned further: the corpus asks
 /// only that a version comes back, session/TestMiscTypes.al).
-fn data_version(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    version_of(state_of(r, true)?)
+///
+/// While its install code runs, the app's own data version is 0.0.0.0, per company and per database: the app was
+/// not installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this
+/// runtime always installs fresh).
+fn data_version(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    let m = state_of(r, true)?;
+    if c.install_without_client() && c.module_at_frame(0).is_some_and(|own| own.id == m.id) {
+        return Ok(version_value([0, 0, 0, 0]));
+    }
+    version_of(m)
 }
 
 /// The package id of the app with id `app` (16 bytes in text order): a service tier assigns it when it

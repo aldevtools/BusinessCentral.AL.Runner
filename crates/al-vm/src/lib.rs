@@ -498,6 +498,8 @@ pub struct Session {
     company_build: bool,
     /// The code runs in a session without a client (`set_no_client`).
     no_client: bool,
+    /// An install routine runs in BC's install session, which has no client (`set_install_without_client`).
+    install_without_client: bool,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
@@ -815,6 +817,7 @@ impl Session {
             install_scope: false,
             company_build: false,
             no_client: false,
+            install_without_client: false,
             company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,
@@ -1227,6 +1230,14 @@ impl Session {
     /// `contoso-build-no-client`. Nothing else changes: Message is captured and Confirm refused as in any company build.
     pub fn set_no_client(&mut self, on: bool) {
         self.no_client = on;
+    }
+
+    /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
+    /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
+    /// CallbackNotAllowed (install/lt-outside-install-ui/RlInstallUi.al:210-241, install/lt-cm-install-leads/CmInstallLeads.al:54-61).
+    /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
+    pub fn set_install_without_client(&mut self, on: bool) {
+        self.install_without_client = on;
     }
 
     /// Whether an install routine runs (`set_install_scope`).

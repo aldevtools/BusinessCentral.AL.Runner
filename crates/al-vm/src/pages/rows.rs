@@ -2736,6 +2736,13 @@ impl Session {
     ) -> Result<Value, Signal> {
         let handed = record.clone();
         let object = st.borrow().object;
+        if let Some(refused) = self.install_page_run(object as usize, modal) {
+            // Pinned for `Page.Run(Id)` and `Page.RunModal(Id)` alone (RlInstallUi.al:123, CmInstallObjects.al:109).
+            if (record.is_some() || field) && matches!(refused, Signal::Error(_)) {
+                return unsupported("Page.Run or RunModal with a record in install code: the error is pinned only without one");
+            }
+            return Err(refused);
+        }
         let mut st = st.clone();
         let mut trapped = false;
         if !modal {

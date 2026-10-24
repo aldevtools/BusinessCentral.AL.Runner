@@ -424,6 +424,16 @@ impl Session {
         let Some(t) = self.tx.used_tries.last() else {
             return Ok(());
         };
+        // Install code has no test runner around it: a Commit in a TryFunction there commits and the code goes on
+        // (install/lt-cm-install-leads/CmInstallLeads.al:58-59, CmInstallObjects.al:69-70). Other writes there are not pinned.
+        if self.install_without_client {
+            if function == "COMMIT" {
+                return Ok(());
+            }
+            return Err(Signal::Unsupported(format!(
+                "{function} inside a TryFunction whose result is used, in install code (not pinned)"
+            )));
+        }
         if let Some(r) = self.used_try_nested_world()? {
             return r;
         }

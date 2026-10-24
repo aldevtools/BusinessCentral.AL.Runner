@@ -355,6 +355,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     let mut skipped = Vec::new();
     let company = session.set_company("");
     session.set_company(&company);
+    // BC's install session has no client (`Session::set_install_without_client`).
+    session.set_install_without_client(true);
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
@@ -411,6 +413,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         }
     }
     session.set_install_session_id(None);
+    session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
     session.commit_transaction();

@@ -551,7 +551,71 @@ impl Session {
         self.scratch_messages.take().unwrap_or_default()
     }
 
+    /// The error BC raises when code without a client asks the client for `what`: the innermost routine's codeunit is named
+    /// after the text (install/lt-outside-install-ui/RlInstallUi.al:219; CmInstallLeads.al:54). Only a codeunit with no
+    /// Caption is pinned there; any other caller is refused.
+    fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
+        let mut text = format!(
+            "Microsoft Dynamics 365 Business Central Data Services attempted to issue a client callback to {what}"
+        );
+        if named {
+            let Some(o) = self.frames.last().and_then(|&o| self.engine.program.objects.get(o)) else {
+                return Signal::Unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
+            };
+            let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
+            if o.kind != al_ir::ObjKind::Codeunit || captioned || o.id.is_none() {
+                return Signal::Unsupported(format!(
+                    "a client callback ({what}) from install code in {}: only the text for a codeunit without a Caption is pinned",
+                    o.name
+                ));
+            }
+            text.push_str(&format!(" (CodeUnit {} {})", o.id.unwrap_or(0), o.name));
+        }
+        text.push_str(". Client callbacks are not supported on Microsoft Dynamics 365 Business Central Data Services.");
+        Signal::Error(Box::new(AlError {
+            message: text,
+            code: "CallbackNotAllowed".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        }))
+    }
+
+    /// `Page.Run` or `Page.RunModal` of `page` in install code. `Page.Run` raises CallbackNotAllowed
+    /// (install/lt-outside-install-ui/RlInstallUi.al:223); `Page.RunModal` with a write open raises the generic DB:Ok error
+    /// (install/lt-cm-install-leads/CmInstallLeads.al:56, the rows written before it at CmInstallObjects.al:62). Both are
+    /// pinned for a page with no triggers and no extensions; whether a page's own triggers run before the error, and what
+    /// RunModal does with no write open, are not: refused. `None`: not install code, the page runs as elsewhere.
+    pub(crate) fn install_page_run(&self, page: usize, modal: bool) -> Option<Signal> {
+        if !self.install_without_client || self.ui_state.scope.is_some() {
+            return None;
+        }
+        let o = &self.engine.program.objects[page];
+        let p = o.page.as_ref()?;
+        let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
+        if !p.triggers.is_empty() || !p.extensions.is_empty() || captioned || o.id.is_none() {
+            return Some(Signal::Unsupported(format!(
+                "Page.Run or RunModal of {} in install code: the error is pinned only for a page without triggers, extensions or Caption",
+                o.name
+            )));
+        }
+        if modal {
+            return Some(match self.in_write_transaction() {
+                Ok(true) => crate::transactions::transaction_stopped(),
+                Ok(false) => Signal::Unsupported(
+                    "Page.RunModal in install code with no write open: what BC raises then is not pinned".into(),
+                ),
+                Err(e) => e,
+            });
+        }
+        Some(self.callback_not_allowed(&format!("run page {} {}", o.id.unwrap_or(0), o.name), false))
+    }
+
     pub(crate) fn ui_message(&mut self, text: String) -> Result<(), Signal> {
+        // Install code has no client: a Message does not stop it, and leaves no last error
+        // (install/lt-outside-install-ui/RlInstallUi.al:214-217, :241).
+        if self.ui_state.scope.is_none() && self.install_without_client {
+            return Ok(());
+        }
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -564,6 +628,9 @@ impl Session {
     }
 
     pub(crate) fn ui_confirm(&mut self, question: String, default: bool) -> Result<bool, Signal> {
+        if self.ui_state.scope.is_none() && self.install_without_client {
+            return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
+        }
         let finals = self.dispatch_ui(
             UiKind::Confirm,
             &question.clone(),
@@ -579,6 +646,15 @@ impl Session {
     }
 
     pub(crate) fn ui_str_menu(&mut self, options: String, default: i32, instruction: String) -> Result<i32, Signal> {
+        if self.ui_state.scope.is_none() && self.install_without_client {
+            // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.
+            if instruction.is_empty() {
+                return Err(Signal::Unsupported(
+                    "StrMenu without an instruction in install code: the client callback text is not pinned".into(),
+                ));
+            }
+            return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
+        }
         let finals = self.dispatch_ui(
             UiKind::StrMenu,
             &options.clone(),
