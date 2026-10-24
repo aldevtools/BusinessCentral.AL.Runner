@@ -213,9 +213,9 @@ registry! {
     },
     PageExpressionControlLiveReadAfterNextFilterActivate => {
         id: "page-expression-control-live-read-after-next-filter-activate",
-        assumed: "An expression control the page does not keep (it reads the record or runs other code) shows its value as computed at the read after TestPage.Next, TestPage.Filter (and the TestFilter calls on it) and TestField.Activate: BC refreshes the page at each of these. Pinned only for the kept codeunit-getter controls of a Card and its parts (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710).",
-        tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob and VarifyFieldsOnPurchaseJobPriceListsPage after TestField.Activate; ERM Invoice Discount And VAT and Document Totals Pages after TestPage.Filter.",
-        probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter and Activate.",
+        assumed: "An expression control the page does not keep (it reads the record or runs other code) shows its value as computed at the read after TestPage.Next, TestPage.Filter, the TestFilter calls (SetFilter, ...), TestField.Activate and TestField.Caption: BC refreshes the page at each of these. Pinned only for the kept codeunit-getter controls of a Card and its parts (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710).",
+        tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
+        probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
     },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",

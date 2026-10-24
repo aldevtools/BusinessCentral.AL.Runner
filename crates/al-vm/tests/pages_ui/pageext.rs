@@ -379,7 +379,7 @@ fn extension_controls_are_bound_to_rec_to_an_expression_and_to_the_extensions_ow
 // list computes it again is assumed (page-expression-control-live-read-after-next-filter-activate, al-vm pages/shown.rs).
 #[test]
 fn an_extension_expression_control_after_next_reads_the_new_row_and_is_flagged() {
-    use al_builtins::assumptions::{clear_hits, take_hits, Assumption};
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
     clear_hits();
     let r = run(
         &format!(

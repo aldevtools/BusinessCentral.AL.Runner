@@ -215,6 +215,23 @@ codeunit 69806 T
         exit(P.Twice.Value());
     end;
 
+    // Not pinned: a TestFilter call or a control's Caption before the read (assumed, flagged).
+    procedure RecExpressionAfterSetFilter(): Text
+    var P: TestPage "XR Rec Card";
+    begin
+        P.OpenEdit();
+        P.Filter.SetFilter("Code", '<>''''');
+        exit(P.Twice.Value());
+    end;
+
+    procedure RecExpressionAfterCaption(): Text
+    var P: TestPage "XR Rec Card";
+    begin
+        P.OpenEdit();
+        if P."Code".Caption() = '' then;
+        exit(P.Twice.Value());
+    end;
+
     // Not pinned and not assumed: Previous.
     procedure RecExpressionAfterPrevious(): Text
     var P: TestPage "XR Rec Card";
@@ -311,8 +328,23 @@ fn a_record_expression_after_a_call_whose_refresh_is_not_pinned_is_refused() {
 // Assumption page-expression-control-live-read-after-next-filter-activate (Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList).
 #[test]
 fn a_record_expression_after_next_reads_as_it_is_now_and_is_flagged() {
-    use al_builtins::assumptions::{clear_hits, take_hits, Assumption};
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
     clear_hits();
     assert_eq!(text(run_in(SRC, "T", "RecExpressionAfterNext")), "2.00");
     assert!(take_hits().contains(&Assumption::PageExpressionControlLiveReadAfterNextFilterActivate));
+}
+
+// The same assumption after TestFilter.SetFilter (Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged)
+// and after TestField.Caption (Price List Line UT.VarifyFieldsOnPurchaseJobPriceListsPage).
+#[test]
+fn a_record_expression_after_set_filter_or_caption_reads_as_it_is_now_and_is_flagged() {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    for f in ["RecExpressionAfterSetFilter", "RecExpressionAfterCaption"] {
+        clear_hits();
+        assert_eq!(text(run_in(SRC, "T", f)), "2.00", "{f}");
+        assert!(
+            take_hits().contains(&Assumption::PageExpressionControlLiveReadAfterNextFilterActivate),
+            "{f}"
+        );
+    }
 }
