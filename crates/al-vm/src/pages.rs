@@ -179,6 +179,7 @@ mod draft;
 mod format;
 mod open;
 mod pageops;
+mod refill;
 mod rows;
 mod runobject;
 

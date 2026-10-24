@@ -8,7 +8,22 @@ impl Session {
     /// and records a refusal in the control's ledger (corpus handlers/TestPageValidationError_Tests.al,
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
+        // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
+        // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320).
+        let engine = self.engine();
+        let refill_held = (matches!(
+            page_of(&engine, st).controls[idx].binding,
+            ir::Binding::Var(_) | ir::Binding::BaseVar(_)
+        ) && page_of(&engine, st).controls[idx].trigger("onvalidate").is_some()
+            && self.temp_refill_shape(st))
+        .then(|| self.row_key(&self.page_rec(st)))
+        .transpose()?;
         let r = self.control_set_value_now(st, idx, args);
+        if let (Ok(_), Some(held)) = (&r, refill_held) {
+            if !st.borrow().refresh && self.temp_refill_shape(st) && self.held_rows_changed(st)? {
+                self.reread_after_refill_by_validate(st, &held)?;
+            }
+        }
         // The control now holds an explicit value (see `PageState::set_controls`).
         if !st.borrow().set_controls.contains(&idx) {
             st.borrow_mut().set_controls.push(idx);

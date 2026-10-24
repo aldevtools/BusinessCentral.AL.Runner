@@ -879,6 +879,17 @@ impl Session {
                     return Ok(Value::Null);
                 }
             }
+            // A temporary Worksheet whose action left Rec on another row (a refill: RmTempRefill.al:323-:420) is read again from the
+            // row the client stood on and Rec's row (`reread_after_refill_by_action`), with or without CurrPage.Update.
+            if let Some(before) = &before {
+                let held = self.table(&self.page_rec(st))?.primary_key(before);
+                let now = self.row_key(&self.page_rec(st))?;
+                if !Self::same_key(&held, &now) && self.temp_refill_shape(st) {
+                    st.borrow_mut().refresh = false;
+                    self.reread_after_refill_by_action(st, &held)?;
+                    return Ok(Value::Null);
+                }
+            }
             if let Some(held) = &held_before {
                 let rec = self.page_rec(st);
                 if st.borrow().cursor == Cursor::Row && !st.borrow().draft && self.stored_row(&rec)?.is_some() {

@@ -42,6 +42,7 @@ mod rp1_gone_row_no_new_line;
 mod rp1_init_value_key;
 mod rp1_read_only_blob;
 mod rp1_read_only_var_control;
+mod rp1_temp_refill;
 mod run_record_group2;
 mod trap_reopen;
 mod trigger_errors;
