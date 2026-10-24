@@ -2994,7 +2994,7 @@ impl Session {
             );
         }
         let a = self.unattended_action(st);
-        match self.close_with(st, &a, false, false) {
+        match self.close_with(st, a, false, false) {
             Ok(_) if st.borrow().open && st.borrow().close_vetoed => self.refuse_unpinned_modal_veto(st),
             Err(Signal::Error(_)) | Ok(_) => unsupported(
                 "a page left open by a ModalPageHandler that raised an error, whose close is allowed (not pinned)",
