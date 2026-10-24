@@ -1353,6 +1353,15 @@ impl Session {
                 (&from.fields[sp].ty, &df.ty, &src_fields[sp])
                 && Value::text_len(s) > *to_len as usize
             {
+                // A --tdd stub field of unknown length refuses first.
+                tdd_fits(&schema.fields[dp], &src_fields[sp])?;
+                let from_schema = engine.program.objects[from.object as usize]
+                    .table
+                    .as_ref()
+                    .expect("table");
+                if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
+                    return Err(Signal::Unsupported(why.clone()));
+                }
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
             tdd_fits(&schema.fields[dp], &src_fields[sp])?;

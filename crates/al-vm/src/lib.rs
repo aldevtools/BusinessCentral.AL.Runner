@@ -865,6 +865,7 @@ impl Session {
                 inconsistent: Vec::new(),
                 lock_tx: false,
                 lock_unpinned: None,
+                read_uncommitted_read: false,
             },
             ui_state: UiState {
                 scope: None,
@@ -950,6 +951,7 @@ impl Session {
         self.tx.tx_phase = crate::transactions::TX_FRESH;
         self.tx.lock_tx = false;
         self.tx.lock_unpinned = None;
+        self.tx.read_uncommitted_read = false;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -997,6 +999,7 @@ impl Session {
         self.tx.inconsistent.clear();
         self.tx.lock_tx = false;
         self.tx.lock_unpinned = None;
+        self.tx.read_uncommitted_read = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
         }

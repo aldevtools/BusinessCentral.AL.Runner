@@ -254,7 +254,14 @@ impl Session {
             Some(what) => Err(Signal::Unsupported(format!(
                 "whether {what} starts a write transaction (not pinned)"
             ))),
-            None => Ok(false),
+            None => {
+                if self.tx.read_uncommitted_read {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::ReadUncommittedReadOpensNoWriteTransaction,
+                    );
+                }
+                Ok(false)
+            }
         }
     }
 

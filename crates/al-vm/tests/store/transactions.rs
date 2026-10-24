@@ -630,3 +630,16 @@ fn an_unpinned_lock_shape_refuses_is_in_write_transaction() {
         "No"
     );
 }
+
+// Assumption `readuncommitted-read-opens-no-write-transaction` (Tests-ERM Manual Payment Registration tests).
+#[test]
+fn a_readuncommitted_read_opens_no_write_transaction() {
+    assert_eq!(
+        f("var R: Record \"TX T\"; begin
+            R.K := 'A'; R.Insert(); Commit();
+            R.ReadIsolation := IsolationLevel::ReadUncommitted; R.FindFirst();
+            exit(Format(Database.IsInWriteTransaction()));
+        end;"),
+        "No"
+    );
+}

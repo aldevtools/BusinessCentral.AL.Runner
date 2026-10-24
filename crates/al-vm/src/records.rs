@@ -1468,6 +1468,7 @@ impl Session {
                 cleared: false,
                 assigned: Vec::new(),
                 missing_loaded: false,
+                fetched: Default::default(),
             });
             r.load.partial = false;
         }
@@ -2203,7 +2204,7 @@ impl Session {
             use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other
-            // reads under a locking isolation, and a ReadUncommitted read, are not pinned.
+            // reads under a locking isolation are not pinned; a ReadUncommitted read opens none under an assumption.
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
                     self.tx.lock_tx = true
@@ -2212,9 +2213,7 @@ impl Session {
                     self.tx.lock_unpinned =
                         Some("a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock")
                 }
-                ISOLATION_READ_UNCOMMITTED => {
-                    self.tx.lock_unpinned = Some("a read under ReadIsolation ReadUncommitted")
-                }
+                ISOLATION_READ_UNCOMMITTED => self.tx.read_uncommitted_read = true,
                 _ => {}
             }
         }

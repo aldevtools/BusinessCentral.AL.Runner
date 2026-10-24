@@ -67,6 +67,12 @@ pub struct Info {
 }
 
 registry! {
+    ReadUncommittedReadOpensNoWriteTransaction => {
+        id: "readuncommitted-read-opens-no-write-transaction",
+        assumed: "A read under ReadIsolation ReadUncommitted does not open a write transaction (IsInWriteTransaction No, a guarded Codeunit.Run allowed), as a ReadCommitted read does not (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `readcommitted_read` No).",
+        tests: "Tests-ERM Manual Payment Registration.PostPaymentForSalesInvoiceBalAccountBank and about 25 more Tests-ERM tests whose posting reads under ReadUncommitted before a guarded Codeunit.Run or a write-transaction check.",
+        probe: "Commit, then a FindFirst under ReadIsolation ReadUncommitted on a database table: IsInWriteTransaction, and a guarded Codeunit.Run afterwards.",
+    },
     PageFieldFollowsSourceFieldEditableFalse => {
         id: "page-field-follows-source-field-editable-false",
         assumed: "A page field over a source table field that is a FlowFilter and declares Editable = false, with no Editable of its own on the control, reads Editable() No on a TestPage. A stored field (pages/lt-page-field-editable-source/PageFieldEditableSource.al) and a FlowField (handlers/N582TestPageEdges.al:324) are pinned.",

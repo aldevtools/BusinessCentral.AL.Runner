@@ -1173,7 +1173,22 @@ pub struct Buffer {
     /// A read of an unloaded field loaded every missing field: a fetch of another row then loads its load set and nothing
     /// carries over (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1120 `key_after_next_loaded_Qty` No).
     pub missing_loaded: bool,
+    /// The row as it was fetched: a field that is not loaded and no longer holds its fetched value was changed by AL code
+    /// (an assignment, Validate, TransferFields, ...), and a load of the missing fields keeps it.
+    pub fetched: FetchedRow,
 }
+
+/// The fields of a row as it was fetched into a partial buffer (`Buffer::fetched`). Buffers compare equal whatever it holds.
+#[derive(Debug, Clone, Default)]
+pub struct FetchedRow(pub Option<Rc<Vec<Value>>>);
+
+impl PartialEq for FetchedRow {
+    fn eq(&self, _: &FetchedRow) -> bool {
+        true
+    }
+}
+
+impl Eq for FetchedRow {}
 
 /// Partial-record state of a record variable. A default one is a full load that fetched nothing.
 #[derive(Debug, Clone, Default)]

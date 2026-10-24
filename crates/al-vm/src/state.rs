@@ -49,6 +49,9 @@ pub(crate) struct TxState {
     /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
     /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
     pub(crate) lock_unpinned: Option<&'static str>,
+    /// A read under ReadIsolation ReadUncommitted ran since the last Commit: it opens no write transaction under the
+    /// assumption `readuncommitted-read-opens-no-write-transaction`.
+    pub(crate) read_uncommitted_read: bool,
 }
 
 /// Handler functions and notifications of the running test method.

@@ -80,6 +80,7 @@ impl Session {
                 cleared: false,
                 assigned: Vec::new(),
                 missing_loaded: false,
+                fetched: Default::default(),
             },
             // After a Clear only a whole fetched row stays in hand for a Get of the same row (session/
             // TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded). A partial buffer does not: after FindSet and
@@ -96,6 +97,7 @@ impl Session {
                     cleared: false,
                     assigned: Vec::new(),
                     missing_loaded: false,
+                    fetched: Default::default(),
                 }
             }
             Some(old) => {
@@ -150,6 +152,8 @@ impl Session {
             }
         };
         drop(r);
+        let mut buffer = buffer;
+        buffer.fetched = al_builtins::value::FetchedRow(Some(std::rc::Rc::new(row.to_vec())));
         let mut r = rec.borrow_mut();
         r.load.partial = !matches!(buffer.have, FieldSet::All);
         r.load.buffer = Some(buffer);
@@ -165,14 +169,21 @@ impl Session {
     /// (`key_after_next_loaded_Name` Yes, `_Qty` No). A row that is gone, a key changed since the fetch, and a field whose
     /// state is unsure and whose value differs from the row's are not pinned.
     pub(crate) fn load_missing_fields(&mut self, rec: &Rec, read: Option<usize>) -> Result<(), Signal> {
-        let (have, unsure, assigned, held) = {
+        let (have, unsure, assigned, held, fetched) = {
             let r = rec.borrow();
             match &r.load.buffer {
-                Some(b) if r.load.partial && !b.cleared && !matches!(b.have, FieldSet::All) => {
-                    (b.have.clone(), b.unsure.clone(), b.assigned.clone(), b.row.clone())
-                }
+                Some(b) if r.load.partial && !b.cleared && !matches!(b.have, FieldSet::All) => (
+                    b.have.clone(),
+                    b.unsure.clone(),
+                    b.assigned.clone(),
+                    b.row.clone(),
+                    b.fetched.0.clone(),
+                ),
                 _ => return Ok(()),
             }
+        };
+        let Some(fetched) = fetched else {
+            return unsupported("a load of the missing fields of a partial record whose fetched row is not known");
         };
         if read.is_some_and(|p| have.contains(p)) {
             return Ok(());
@@ -196,6 +207,15 @@ impl Session {
         let mut merged = fields;
         for p in 0..t.fields.len() {
             if !t.fields[p].stored || have.contains(p) || assigned.contains(&p) {
+                continue;
+            }
+            // Changed by AL code since the fetch (Validate, TransferFields, Init, ...): kept, as an assignment is.
+            let changed = match (&merged[p], fetched.get(p)) {
+                (Value::Blob(_), _) => false,
+                (v, Some(f)) => !v.identical(f),
+                (_, None) => true,
+            };
+            if changed {
                 continue;
             }
             // A Blob is the same when the buffer's unwritten copy holds the row's bytes.

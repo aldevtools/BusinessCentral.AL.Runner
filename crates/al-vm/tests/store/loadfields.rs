@@ -450,6 +450,15 @@ codeunit 50100 C
         P.Qty := 5; P.Modify();
         exit(Stored() + '|' + P.Name);
     end;
+    procedure ChangedByTransferFields(): Text
+    var P: Record "LF Row"; O: Record "LF Row"; S: Record "LF Row" temporary;
+    begin
+        Seed();
+        P.SetLoadFields(Name); P.Get('A');
+        S.Code := 'A'; S.Name := 'alpha'; S.Qty := 42; P.TransferFields(S);
+        O.Get('A'); O.Qty := 99; O.Modify();
+        exit(Format(P.Qty) + '|' + Format(P.Modify()) + '|' + Stored());
+    end;
     procedure SetResults(): Text
     var R: Record "LF Row"; S: Text;
     begin
@@ -498,4 +507,11 @@ fn after_clear_a_partial_buffer_holds_no_field() {
         yn("Rec.AreFieldsLoaded(Rec.Name)")
     );
     assert_eq!(text("", &body).unwrap(), "YesNo");
+}
+
+// A field AL code changed by another way than an assignment (TransferFields here) since the fetch is kept by the load of the
+// missing fields, as an assigned one is (Tests-ERM posting code fills partial records through Validate and TransferFields).
+#[test]
+fn a_field_changed_since_the_fetch_is_kept_by_the_load_of_the_missing_fields() {
+    assert_eq!(rn("ChangedByTransferFields"), "42|Yes|alpha|42");
 }
