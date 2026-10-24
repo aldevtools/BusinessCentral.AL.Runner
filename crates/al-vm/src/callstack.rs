@@ -54,6 +54,31 @@ impl Session {
         Some(out)
     }
 
+    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them
+    /// (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358, RO_CollectedErrorInfo_Internal_And_Client; the test reads the
+    /// frames of its own app only). Under the test runner BC 27.5 lists the runner's frames below the test's and 28.5 and 29.0
+    /// do not (writer RO's measurement, not asserted): on BC 27 the stack ends with `UNTRACKED_CALL_STACK`, so a read refuses.
+    /// A frame with no pinned format is `UNTRACKED_CALL_STACK` too.
+    pub(crate) fn collected_call_stack(&self) -> String {
+        if self.events.unpinned_event_depth > 0 {
+            return UNTRACKED_CALL_STACK.to_string();
+        }
+        let mut lines: Vec<String> = self
+            .frames
+            .iter()
+            .zip(&self.call_stack)
+            .rev()
+            .map(|(&object, &frame)| {
+                frame_line(&self.engine.program, object, frame).unwrap_or_else(|| UNTRACKED_CALL_STACK.to_string())
+            })
+            .collect();
+        let before_28 = self.engine.target.as_ref().is_some_and(|t| t.bc.major < 28);
+        if !self.runner_frames.is_empty() && before_28 {
+            lines.push(UNTRACKED_CALL_STACK.to_string());
+        }
+        lines.join("\n")
+    }
+
     /// Adds the line of routine `frame` of `object` to the error's stack.
     pub(crate) fn add_frame(&self, e: &mut AlError, object: usize, frame: CallFrame) {
         if !e.call_stack.is_empty() {

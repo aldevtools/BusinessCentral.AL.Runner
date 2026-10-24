@@ -1606,58 +1606,101 @@ table 60012 "ALT TFB"
     );
 }
 
-/// al-runner issue 5575: a CalcFormula filter written as one quoted literal with filter operators in it
-/// (`filter('10|200..299|400..499')`) sums the matching entries on BC 29, where the runtime read it as one literal value
-/// and summed nothing. No corpus test pins how the quoted form is read, so the FlowField is refused; a quoted literal
-/// with no operator in it reads the same either way.
+/// al-runner issues 5575 and 5745: a CalcFormula filter written as one quoted literal with ranges, unions, `&`, `<>` and `>=`
+/// in it is read as the filter its content spells, the same as the unquoted form; on a Code and a Text field the ranges compare
+/// as text (`'200'..'299'` holds `250`, `25` and `2000`), on an Integer field as numbers (corpus calcfields/W4CalcFields.al:455
+/// RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro, fixtures RoCalcFormulaRanges.al).
 #[test]
-fn a_calc_formula_filter_quoted_whole_with_operators_is_refused() {
+fn a_calc_formula_filter_quoted_whole_with_ranges_reads_as_the_filter() {
     let src = r#"
-table 50110 "Filter Entry" { fields { field(1; "Entry No."; Integer) { } field(2; Category; Code[20]) { } field(3; Amount; Decimal) { } } keys { key(PK; "Entry No.") { } } }
-table 50111 "Filter Summary"
+table 50110 "RO CF Entry" { fields { field(1; Id; Integer) { } field(2; Cat; Code[20]) { } field(3; Txt; Text[20]) { } field(4; Num; Integer) { } field(5; Amount; Decimal) { } } keys { key(PK; Id) { } } }
+table 50111 "RO CF Sum"
 {
     fields
     {
         field(1; "No."; Integer) { }
-        field(2; Total; Decimal) { FieldClass = FlowField; CalcFormula = sum("Filter Entry".Amount where(Category = filter('10|200..299|400..499'))); }
-        field(3; Plain; Decimal) { FieldClass = FlowField; CalcFormula = sum("Filter Entry".Amount where(Category = filter('250'))); }
+        field(2; QuotedUnion; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('10|200..299|400..499'))); }
+        field(3; PlainUnion; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter(10 | 200 .. 299 | 400 .. 499))); }
+        field(4; QuotedRange; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('200..299'))); }
+        field(5; QuotedUpTo; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('..199'))); }
+        field(6; QuotedFrom; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('400..'))); }
+        field(7; QuotedNotAnd; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('<>10&<>250'))); }
+        field(8; QuotedGe; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('>=400'))); }
+        field(9; QuotedLetters; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('A..C|X'))); }
+        field(10; QuotedSpaces; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Cat = filter('10 | 200..299'))); }
+        field(11; TextUnion; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Txt = filter('10|200..299|400..499'))); }
+        field(12; IntUnion; Decimal) { FieldClass = FlowField; CalcFormula = sum("RO CF Entry".Amount where(Num = filter('10|200..299|400..499'))); }
+        field(13; CountUnion; Integer) { FieldClass = FlowField; CalcFormula = count("RO CF Entry" where(Cat = filter('10|200..299|400..499'))); }
     }
     keys { key(PK; "No.") { } }
 }
 codeunit 50112 C
 {
-    local procedure Seed()
-    var E: Record "Filter Entry";
+    local procedure Add(Id: Integer; Cat: Code[20]; Num: Integer)
+    var
+        E: Record "RO CF Entry";
     begin
-        E.DeleteAll();
-        E."Entry No." := 1; E.Category := '250'; E.Amount := 17; E.Insert();
+        E.Id := Id;
+        E.Cat := Cat;
+        E.Txt := Cat;
+        E.Num := Num;
+        E.Amount := Power(2, Id - 1);
+        E.Insert();
     end;
 
-    procedure Union(): Decimal
-    var S: Record "Filter Summary";
+    procedure Sums(): Text
+    var
+        S: Record "RO CF Sum";
     begin
-        Seed();
-        S.CalcFields(Total);
-        exit(S.Total);
-    end;
-
-    procedure Plain(): Decimal
-    var S: Record "Filter Summary";
-    begin
-        Seed();
-        S.CalcFields(Plain);
-        exit(S.Plain);
+        Add(1, '10', 10); Add(2, '250', 250); Add(3, '25', 25); Add(4, '2000', 2000); Add(5, '3', 3); Add(6, '450', 450);
+        Add(7, '100', 100); Add(8, '500', 500); Add(9, '1', 1); Add(10, 'B', -1); Add(11, 'C1', -1); Add(12, 'X', -1);
+        Add(13, '200', 200); Add(14, '299', 299);
+        S.CalcFields(QuotedUnion, PlainUnion, QuotedRange, QuotedUpTo, QuotedFrom, QuotedNotAnd, QuotedGe, QuotedLetters, QuotedSpaces, TextUnion, IntUnion, CountUnion);
+        exit(Format(S.QuotedUnion, 0, 9) + '|' + Format(S.PlainUnion, 0, 9) + '|' + Format(S.QuotedRange, 0, 9) + '|' + Format(S.QuotedUpTo, 0, 9) + '|' +
+            Format(S.QuotedFrom, 0, 9) + '|' + Format(S.QuotedNotAnd, 0, 9) + '|' + Format(S.QuotedGe, 0, 9) + '|' + Format(S.QuotedLetters, 0, 9) + '|' +
+            Format(S.QuotedSpaces, 0, 9) + '|' + Format(S.TextUnion, 0, 9) + '|' + Format(S.IntUnion, 0, 9) + '|' + Format(S.CountUnion));
     end;
 }
 "#;
-    match al_testkit::run_in(src, "C", "Union") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("quoted"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
     assert_eq!(
-        format!("{:?}", al_testkit::run_in(src, "C", "Plain").unwrap()),
-        "Decimal(17)"
+        text(al_testkit::run_in(src, "C", "Sums")),
+        "12335|12335|12302|321|3744|16380|3744|2560|12303|12335|12323|7"
     );
+}
+
+/// A quoted literal with an operator no corpus test measured inside quotes (a lone `<` or `>`, `<=`, `=`, `@`, parentheses)
+/// stays refused.
+#[test]
+fn a_calc_formula_filter_quoted_whole_with_unmeasured_operators_is_refused() {
+    for filter in ["'<10'", "'>10'", "'<=10'", "'=10'", "'@a*'", "'(10|20)'"] {
+        let src = format!(
+            r#"
+table 50113 "Q Entry" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Cat; Code[20]) {{ }} field(3; Amount; Decimal) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+table 50114 "Q Sum"
+{{
+    fields
+    {{
+        field(1; "No."; Integer) {{ }}
+        field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("Q Entry".Amount where(Cat = filter({filter}))); }}
+    }}
+    keys {{ key(PK; "No.") {{ }} }}
+}}
+codeunit 50115 C
+{{
+    procedure Total(): Decimal
+    var S: Record "Q Sum";
+    begin
+        S.CalcFields(Total);
+        exit(S.Total);
+    end;
+}}
+"#
+        );
+        match al_testkit::run_in(&src, "C", "Total") {
+            Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("quoted"), "{filter}: {why}"),
+            other => panic!("{filter}: expected a refusal, got {other:?}"),
+        }
+    }
 }
 
 /// `filter(<> 0D)`, `filter(<>0D)` and `filter(0D)` on a Date field of the source table match the dated and the empty rows

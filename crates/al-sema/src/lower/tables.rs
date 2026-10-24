@@ -739,14 +739,18 @@ impl Lowerer<'_> {
                     // One quoted literal is read as the filter its content spells (calcfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
-                    // wildcard. Pinned for `|`, `<>`, `*` and quotes only: a content with `..`, `&`, `=`, `@`, parentheses or a
-                    // lone `<` or `>` stays refused (al-runner issue 5575, docs/probes-needed.md "User issues (lane-user-trust)").
+                    // wildcard. Ranges (`200..299`, `..199`, `400..`), `&`, `>=` and blanks around `|` read the same way, as the
+                    // unquoted form does: on a Code or Text field the ranges compare as text (W4CalcFields.al:455
+                    // RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro; al-runner issues 5575, 5745).
+                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused.
                     if let Some(inner) = crate::queries::whole_literal(raw)
                         .filter(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')', '\'']))
                     {
                         if inner
                             .replace("<>", "")
-                            .contains(['&', '.', '<', '>', '=', '@', '(', ')'])
+                            .replace(">=", "")
+                            .replace("..", "")
+                            .contains(['.', '<', '>', '=', '@', '(', ')'])
                         {
                             return Err(format!(
                                 "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",

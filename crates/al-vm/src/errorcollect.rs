@@ -76,6 +76,7 @@ impl Session {
         }
         match al_builtins::errorinfo::copy_of(info) {
             Some(copy) => {
+                al_builtins::errorinfo::set_callstack_of(&copy, &self.collected_call_stack());
                 self.error_scopes.held.push(copy);
                 true
             }
@@ -96,7 +97,19 @@ impl Session {
             return outcome;
         }
         let held = std::mem::take(&mut sc.held);
-        let first = al_builtins::errorinfo::message_of(&held[0]).unwrap_or_default();
+        let mut first = al_builtins::errorinfo::message_of(&held[0]).unwrap_or_default();
+        // An Internal error raises the generic text with a backslash before its correlation id, where its collected Message
+        // has a line break (misc/lt-probes-needed-2/PnBErrorsCollections.al:360-375 RO_CollectedErrorInfo_Internal_NotCleared_
+        // ScopeExit). As the first of several, the summary is not measured.
+        if al_builtins::errorinfo::is_internal(&held[0]) {
+            if held.len() > 1 {
+                return Err(Signal::Unsupported(
+                    "several collected errors at the end of the scope, the first an Internal one (the summary text is not pinned)"
+                        .into(),
+                ));
+            }
+            first = first.replace("\r\n", "\\");
+        }
         let message = if held.len() == 1 { first } else { summary(&first) };
         // session/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText, ErrorCollection_SingleError: code Dialog.
         Err(Signal::Error(Box::new(AlError {

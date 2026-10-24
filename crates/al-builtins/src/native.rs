@@ -1151,9 +1151,12 @@ fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Va
         Some(Value::Text(t)) => crate::pagefmt::parse_decimal_places(t),
         _ => None,
     };
-    // An amount field without AutoFormatExpression rounds from BC 28 only; BC 27 writes every digit
-    // (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, `#else` side).
-    let gated = matches!(args.get(4), Some(Value::Boolean(true)));
+    // When the places hold (`al-sema` `decimal_field_places`): mode 1, an amount field without AutoFormatExpression, rounds from
+    // BC 28 only; BC 27 writes every digit (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, `#else` side, and
+    // :883-967). Mode 2, a unit amount without one, has its places under `FIELD_FORMAT_STRINGS` only (:883-967); elsewhere it
+    // keeps every digit (:684).
+    let mode = int_arg(args, 4).unwrap_or(0);
+    let gated = mode == 1;
     let plain = |ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]| {
         if matches!(args.get(2), Some(Value::Text(_) | Value::Code(_))) {
             format_2(ctx, r, &mut args[..3])
@@ -1165,10 +1168,16 @@ fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Va
     if gated && !ctx.format_gate(al_version::Gate::AutoFormatAmountFieldRoundsFrom28) {
         return plain(ctx, r, args);
     }
+    let field_string =
+        matches!(args.get(2), Some(Value::Text(t) | Value::Code(t)) if FIELD_FORMAT_STRINGS.contains(&t.as_str()));
+    if mode == 2 && !field_string {
+        return plain(ctx, r, args);
+    }
     // A format string: one with a `<Precision,..>` code formats the value by itself, the field's places do not matter
     // (AtPrecisionStandardFormat2.al:684-723, `P22S2` and `P2S2` of every field); `<Standard Format,2>` alone is format number 2
-    // with the field's places (`S2`: `1234.6` for the `<Precision,1:1>` field, `1234.57` for the amount from BC 28). Any other
-    // string is not pinned.
+    // with the field's places (`S2`: `1234.6` for the `<Precision,1:1>` field, `1234.57` for the amount from BC 28). The strings
+    // of `FIELD_FORMAT_STRINGS` format the value rounded to the field's places (`format_field_string`). Any other string is not
+    // pinned.
     let std = match args.get(2) {
         Some(Value::Text(t) | Value::Code(t)) => {
             let t = t.as_str();
@@ -1176,9 +1185,12 @@ fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Va
                 return plain(ctx, r, args);
             }
             if t != "<Standard Format,2>" {
-                return Err(Signal::Unsupported(format!(
-                    "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
-                )));
+                return match (FIELD_FORMAT_STRINGS.contains(&t), &args[0], places) {
+                    (true, Value::Decimal(d), Some(places)) => format_field_string(ctx, *d, len, t, places),
+                    _ => Err(Signal::Unsupported(format!(
+                        "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
+                    ))),
+                };
             }
             2
         }
@@ -1209,6 +1221,59 @@ fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Va
         return Ok(Value::Text(crate::format::pad(text, len).into()));
     }
     plain(ctx, r, args)
+}
+
+/// The format strings measured on Decimal fields with places: DecimalPlaces 2:2, 0:0, 3:5, 0:5, and AutoFormatType 1 (2:2 from
+/// BC 28), 2 and 10 with `<Precision,1:1>` (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:805-1047, RO_* tests: the
+/// values 5, 1234, 1234.5678, -0.5, 0 and -1234567.25; the same under GlobalLanguage 1031).
+const FIELD_FORMAT_STRINGS: &[&str] = &[
+    "<Integer>",
+    "<Integer Thousand>",
+    "<Decimals>",
+    "<Integer><Decimals>",
+    "<Sign><Integer Thousand><Decimals>",
+    "<Standard Format,0>",
+    "<Standard Format,1>",
+    "<Standard Format,9>",
+    "<Integer Thousand><Decimals,3>",
+    "<Integer>.<Decimals>",
+];
+
+/// A string of `FIELD_FORMAT_STRINGS` on a field of `(min, max)` places: the value is first rounded half away from zero to
+/// `max` places (0:0 writes 1234.5678 as `1235` and -0.5 as `-1`, `<Integer>` of it `1`: the integer code drops the sign), then
+/// `<Decimals>` shows at least `min` places (2:2 writes 5 as `.00`, 0:5 as nothing, 3:5 -0.5 as `.500`), and `<Decimals,3>`
+/// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047). A negative value that rounds to
+/// zero is not measured and is refused.
+fn format_field_string(
+    ctx: &mut dyn Ctx,
+    d: rust_decimal::Decimal,
+    len: i32,
+    template: &str,
+    (min, max): (u32, u32),
+) -> Result<Value, Signal> {
+    let rounded = d.round_dp_with_strategy(max, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
+    if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() {
+        return Err(Signal::Unsupported(format!(
+            "Format of a Decimal field with places {min}:{max} of {d}, a negative value that rounds to zero, with `{template}` (not pinned)"
+        )));
+    }
+    if let Some(std) = template
+        .strip_prefix("<Standard Format,")
+        .and_then(|t| t.strip_suffix('>'))
+    {
+        let mut text = crate::pagefmt::decimal_text(&rounded, (min, max));
+        if std != "0" {
+            text.retain(|c| c != ',');
+        }
+        return Ok(Value::Text(crate::format::pad(text, len).into()));
+    }
+    format_string_out(crate::formatstr::format_with_field_places(
+        &Value::Decimal(rounded),
+        len,
+        template,
+        min,
+        ctx,
+    ))
 }
 
 /// `Format(Rec.Field[, Length, FormatNumber])` of a Decimal table field whose AutoFormatExpression is an expression: the
@@ -1288,8 +1353,12 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
 fn format_2(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let len = int_arg(args, 1).unwrap_or(0) as i32;
     let template = text_arg(args, 2)?;
-    crate::formatstr::format_with_string(&args[0], len, &template, ctx)
-        .map(|s| Value::Text(s.into()))
+    format_string_out(crate::formatstr::format_with_string(&args[0], len, &template, ctx))
+}
+
+/// The result of a format string: the text, or the error or refusal `formatstr` marks in its `Err`.
+fn format_string_out(r: Result<String, String>) -> Result<Value, Signal> {
+    r.map(|s| Value::Text(s.into()))
         .map_err(|e| match e.strip_prefix(crate::formatstr::INVALID_FORMAT_MARK) {
             Some(template) => Signal::Error(Box::new(AlError {
                 message: format!(

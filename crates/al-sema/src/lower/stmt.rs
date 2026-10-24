@@ -432,9 +432,11 @@ impl Lowerer<'_> {
     /// `AutoFormatExpression` (type 10), else the 2:2 of a blank-expression amount (type 1) or 2:5 of a unit amount (type 2)
     /// (pages/lt-page-autoformat-lookups/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/lt-page-presentation-properties/
     /// P119Table.al:P119_DecimalPlaces). An amount (type 1) without an `AutoFormatExpression` gives 2:2 from BC 28 only (the
-    /// `true` beside it: `Gate::AutoFormatAmountFieldRoundsFrom28`, types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:
-    /// 684-723); a unit amount (type 2) without one keeps every digit (:684 `1,234.5678`). `None` for any other argument or field.
-    pub(crate) fn decimal_field_places(&mut self, arg: &SyntaxNode) -> Option<(String, bool)> {
+    /// mode 1 beside it: `Gate::AutoFormatAmountFieldRoundsFrom28`, types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:
+    /// 684-723); a unit amount (type 2) without one keeps every digit (:684 `1,234.5678`), except under the format strings measured
+    /// on fields, where it has 2:5 places on every BC version (mode 2: `.00` for `<Decimals>` of 5, :883-967 RO_FieldFormatStrings_
+    /// AutoFormatFields_*). Mode 0: the places always hold. `None` for any other argument or field.
+    pub(crate) fn decimal_field_places(&mut self, arg: &SyntaxNode) -> Option<(String, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
@@ -450,7 +452,7 @@ impl Lowerer<'_> {
         };
         let digits = |p: &str| p.split(':').all(|x| x.trim().parse::<u32>().is_ok());
         if let Some(p) = prop("DecimalPlaces").filter(|p| digits(p)) {
-            return Some((p.replace(' ', ""), false));
+            return Some((p.replace(' ', ""), 0));
         }
         let expr = prop("AutoFormatExpression");
         match prop("AutoFormatType").as_deref() {
@@ -458,11 +460,12 @@ impl Lowerer<'_> {
                 let text = expr?;
                 let rest = text.split("<Precision,").nth(1)?;
                 let p = rest.split('>').next()?.trim().to_string();
-                digits(&p).then_some((p, false))
+                digits(&p).then_some((p, 0))
             }
-            Some("1") if expr.as_deref() == Some("''") => Some(("2:2".into(), false)),
-            Some("1") if expr.is_none() => Some(("2:2".into(), true)),
-            Some("2") if expr.as_deref() == Some("''") => Some(("2:5".into(), false)),
+            Some("1") if expr.as_deref() == Some("''") => Some(("2:2".into(), 0)),
+            Some("1") if expr.is_none() => Some(("2:2".into(), 1)),
+            Some("2") if expr.as_deref() == Some("''") => Some(("2:5".into(), 0)),
+            Some("2") if expr.is_none() => Some(("2:5".into(), 2)),
             _ => None,
         }
     }
