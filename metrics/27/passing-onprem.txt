@@ -130,7 +130,6 @@
 98550 PY_HandlerTrue_StrMenuAllowOnce
 98550 PY_HandlerTrue_StrMenuBlockOnce
 98550 PY_HandlerTrue_StrMenuCancel
-98550 PY_ReasonPhrase_1
 98550 PY_ReasonPhrase_2
 98550 PY_ReasonPhrase_3
 98550 PY_UnusedResult_AllowOnceRefused
