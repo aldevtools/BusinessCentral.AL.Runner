@@ -408,6 +408,9 @@ pub struct PageState {
     /// The open read of a descending find list went up from the row it opened on, the last row of the view: the window holds
     /// the rows above it in client order and the cursor stands on its last row (see `read_rows_up_from_the_last`).
     pub window_read_up: bool,
+    /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
+    /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
+    pub window_top_unread: bool,
     /// The page is landing on its first row as it opens (the reads of a view that ends inside the window differ there).
     pub landing_first: bool,
     /// The page opens on the row its OnOpenPage left Rec on, not the first of the view: a list's open read also reads the
@@ -727,6 +730,7 @@ impl PageState {
             window_whole: false,
             view_read_to_end: false,
             window_read_up: false,
+            window_top_unread: false,
             landing_first: false,
             open_reads_above: false,
             opened_on_moved_rec: false,

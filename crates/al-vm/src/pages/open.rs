@@ -556,11 +556,32 @@ impl Session {
     /// moves inside the rows the client holds ask the page nothing (QcFindViewTests.al:97, :135, :236, :540).
     /// Pinned for an ascending view and for a descending one on a List page; a descending part is refused by
     /// `refuse_descending_filtered_find_move`.
+    /// Also a List page (not a part) with Editable = false whose SourceTableView only sorts, ascending or descending: it moves as
+    /// the filtered view does (misc/lt-probes-needed-6/PnF06FindListMoves.al:1521-1934 RK_Desc_* and RK_Asc_*, pages 88070-88073;
+    /// `sorted_find_list_pinned`).
     pub(super) fn filtered_find_list_without_row_triggers(&self, st: &St) -> bool {
-        self.find_page_filtered_view(st)
+        (self.find_page_filtered_view(st) || self.sorted_find_list_pinned(st))
             && !self.declares(st, "onaftergetrecord")
             && !self.declares(st, "onaftergetcurrrecord")
             && (self.page_rec(st).borrow().ascending || self.descending_find_list_pinned(st))
+    }
+
+    /// A List page (not a part), Editable = false, with OnFindRecord and a SourceTableView without a WHERE part: the shape of writer
+    /// RK's pages 88070-88073 (PnF06FindListMoves.al), whose moves ask the page nothing. An editable page, a part, or a page whose
+    /// view sets no key is not pinned.
+    fn sorted_find_list_pinned(&self, st: &St) -> bool {
+        let object = st.borrow().object as usize;
+        let props = &self.engine.program.objects[object].properties;
+        self.declares(st, "onfindrecord")
+            && self.engine.object_facts[object].has_source_table_view
+            && !self.source_view_filters(st)
+            && props
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("SourceTableView") && v.to_ascii_lowercase().contains("sorting"))
+            && props
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"))
+            && self.descending_find_list_pinned(st)
     }
 
     /// A List page (not a part) with OnFindRecord, a descending filtered SourceTableView and no row trigger: its moves ask the

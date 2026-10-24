@@ -558,6 +558,7 @@ impl Session {
         st.borrow_mut().window_whole = false;
         st.borrow_mut().view_read_to_end = false;
         st.borrow_mut().window_read_up = false;
+        st.borrow_mut().window_top_unread = false;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
         let start = self.row_key(&rec)?;
@@ -715,14 +716,14 @@ impl Session {
                 // it, else without asking the page; the rows it holds then start at the first row of the view and the cursor
                 // stays on the row it opened on (misc/lt-probes-needed-6/PnF06FindListMoves.al:870-908 QV_DescKind_FindNext_Moves
                 // `open = 1|F(=><)=Yes:1;N(1)=0:1;N(-1)=-1:3;N(-1)=-1:5;N(-1)=0:5;`, `01_first = Yes|5|`; :825-868
-                // QV_DescKind_FindOnly_Moves, the same rows with an empty log). A view of one row is not pinned.
+                // QV_DescKind_FindOnly_Moves, the same rows with an empty log). A view of one row: one OnNextRecord(-1) that answers 0
+                // (PnF06FindListMoves.al:1185 RK_DescKind_FindNext_1Rows `open = 1|F(=><)=Yes:1;N(1)=0:1;N(-1)=0:1;`, :1072
+                // RK_DescKind_Find_1Rows, AL Runner issue 5738). The step back stops after a window of 20 rows above the row it opened
+                // on and asks no more (RK_DescKind_FindNext_21Rows, _25Rows `open` ends with `N(-1)=-1:41;`, _20Rows with
+                // `N(-1)=-1:39;N(-1)=0:39;`); First reads the rest (`first_above_the_find_list_window`).
                 let mut above = Vec::new();
+                let mut top_unread = false;
                 while self.nav_next(st, -1)? {
-                    if above.len() + keys.len() >= Self::WINDOW {
-                        return unsupported(
-                            "the open read of a descending find list on its last row, with more rows above it than a window holds (not pinned)",
-                        );
-                    }
                     let key = self.row_key(&rec)?;
                     let stored = rec.borrow().fields.clone();
                     self.populate_current(st)?;
@@ -731,11 +732,10 @@ impl Session {
                         stored,
                         shown: rec.borrow().fields.clone(),
                     });
-                }
-                if above.is_empty() {
-                    return unsupported(
-                        "the open read of a descending find list whose view holds one row (not pinned)",
-                    );
+                    if above.len() == Self::WINDOW {
+                        top_unread = true;
+                        break;
+                    }
                 }
                 above.reverse();
                 if let Some(row) = keys.first() {
@@ -747,9 +747,20 @@ impl Session {
                 // The open read ran to the end of the view: Next on the last row asks the page nothing (PnF06FindListMoves.al:
                 // QV_DescKind_FindNext_Moves `04_next_end = No|1|`).
                 st.borrow_mut().view_read_to_end = true;
+                st.borrow_mut().window_whole = !top_unread;
+                st.borrow_mut().window_top_unread = top_unread;
                 return Ok(());
             }
-            if no_row_triggers && walked > 0 {
+            // An ascending find list without row triggers whose view ends inside the window, also a view of one row: the same
+            // probe, and the moves then ask the page nothing, Next on the last row included (misc/lt-probes-needed-6/
+            // PnF06FindListMoves.al:1857, :1873 RK_Asc_FindNext_1Rows `open = 1|F(=><)=Yes:1;N(1)=0:1;N(-1)=0:1;`, _5Rows
+            // `walk = 2,3,4,5,end:5`; :1409, :1425 RK_AscKind_FindNext_1Rows, _5Rows; :1745 RK_Asc_Find_1Rows).
+            let ascending_find_list_ended = no_row_triggers
+                && view_ended_at_open
+                && keys.len() < Self::WINDOW
+                && rec.borrow().ascending
+                && self.filtered_find_list_without_row_triggers(st);
+            if no_row_triggers && (walked > 0 || ascending_find_list_ended) {
                 // A find page with no row trigger puts its first row back and probes once (pages/lt-testpage-list-rows/ListRowsOpenNone.al:
                 // OpenView_FindNext5Rows_ReadsAtOpen `F0;N2;N3;N4;N5;N5;N1`, _FindNext30Rows `...;N20;N1`).
                 // The client puts its first row back and asks OnNextRecord(-1) once, which answers 0 there.
@@ -757,6 +768,9 @@ impl Session {
                     rec.borrow_mut().fields = first.stored.clone();
                 }
                 self.nav_next(st, -1)?;
+                if ascending_find_list_ended {
+                    st.borrow_mut().view_read_to_end = true;
+                }
             } else {
                 for _ in 0..walked {
                     if !self.nav_next(st, -1)? {
@@ -1000,6 +1014,46 @@ impl Session {
         }
         self.current_record_trigger(st, before)?;
         Ok(Some(true))
+    }
+
+    /// `First` on a descending find list without row triggers whose open read stopped a full window above the row it opened on
+    /// (`PageState::window_top_unread`): the client steps on up from the top row it holds, with OnNextRecord(-1) when the page
+    /// declares it, until that answers 0, and asks the page nothing else (misc/lt-probes-needed-6/PnF06FindListMoves.al:1248
+    /// RK_DescKind_FindNext_25Rows `first = Yes|49|N(-1)=-1:43;N(-1)=-1:45;N(-1)=-1:47;N(-1)=-1:49;N(-1)=0:49;`, _21Rows
+    /// `first = Yes|41|N(-1)=0:41;`; :1137 RK_DescKind_Find_25Rows `first = Yes|49|`, AL Runner issue 5739). The walk, Last and the
+    /// walk back then ask nothing. A second full window above is not pinned.
+    fn first_above_the_find_list_window(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let top = st.borrow().window[0].stored.clone();
+        rec.borrow_mut().fields = top;
+        let mut new_rows = Vec::new();
+        while self.nav_next(st, -1)? {
+            if new_rows.len() == Self::WINDOW {
+                return unsupported(
+                    "First on a descending find list with a second full window of rows above the open read (not pinned)",
+                );
+            }
+            let key = self.row_key(&rec)?;
+            let stored = rec.borrow().fields.clone();
+            self.populate_current(st)?;
+            new_rows.push(al_builtins::value::WindowRow {
+                key,
+                stored,
+                shown: rec.borrow().fields.clone(),
+            });
+        }
+        new_rows.reverse();
+        let mut s = st.borrow_mut();
+        new_rows.append(&mut s.window);
+        s.window = new_rows;
+        s.window_whole = true;
+        s.window_top_unread = false;
+        let shown = s.window[0].shown.clone();
+        let stored = s.window[0].stored.clone();
+        drop(s);
+        rec.borrow_mut().fields = shown;
+        self.set_xrec_fields(st, stored);
+        Ok(true)
     }
 
     /// The end of the open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord (no OnAfterGetCurrRecord) whose
@@ -1486,7 +1540,14 @@ impl Session {
                 );
             }
         }
-        if how == PageMethod::Last && st.borrow().window.len() == Self::WINDOW {
+        // A descending find list without row triggers whose open read held its whole view (the step back answered 0) goes to
+        // its last row in the client's rows, also with a full window (misc/lt-probes-needed-6/PnF06FindListMoves.al
+        // RK_DescKind_Find_20Rows, RK_DescKind_FindNext_20Rows `last = Yes|1|`).
+        // The same on an ascending one after Next read on from the last row of the window (RK_Asc_FindNext_20Rows `last = Yes|20|`).
+        let whole_find_view = st.borrow().view_read_to_end
+            && st.borrow().window_whole
+            && self.filtered_find_list_without_row_triggers(st);
+        if how == PageMethod::Last && st.borrow().window.len() == Self::WINDOW && !whole_find_view {
             return self.last_past_the_window(st, find_page);
         }
         let rec = self.page_rec(st);
@@ -1531,11 +1592,14 @@ impl Session {
         }
         // Previous on the top row of a descending filtered find list without row triggers whose whole view the client holds
         // answers false and asks the page nothing, OnNextRecord declared or not (misc/lt-probes-needed-6/PnF06FindListMoves.al:
-        // 870-908 QV_DescKind_FindNext_Moves `12_previous_top = No|5|`, :825-868 QV_DescKind_FindOnly_Moves).
+        // 870-908 QV_DescKind_FindNext_Moves `12_previous_top = No|5|`, :825-868 QV_DescKind_FindOnly_Moves), also when the rows it
+        // holds are a full window or more and the step back up to the top answered 0 (RK_DescKind_FindNext_20Rows, _21Rows, _25Rows
+        // `back` ends with `end:<top>`, nothing asked). The same on an ascending view whose first row the client holds
+        // (PnF06FindListMoves.al:1409-1440 RK_AscKind_FindNext_1Rows, _5Rows, :1857-1888 RK_Asc_FindNext_1Rows, _5Rows `back` ends
+        // with `end:1`, nothing asked).
         if how == PageMethod::Previous
             && at == 0
-            && window.len() < Self::WINDOW
-            && !rec.borrow().ascending
+            && (window.len() < Self::WINDOW || st.borrow().window_whole)
             && self.filtered_find_list_without_row_triggers(st)
         {
             return Ok(Some(false));
@@ -1556,6 +1620,42 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         // Next and Previous in a key other than the primary key read the row once more (`reads_once_more_in_its_key`).
+        // Next onto the last row of a full window of an ascending find list with OnNextRecord and no row trigger reads on from
+        // there with OnNextRecord(1) until it answers 0; the client then holds the whole view and no later move asks the page
+        // (misc/lt-probes-needed-6/PnF06FindListMoves.al:1895 RK_Asc_FindNext_20Rows `walk = ...,20[N(1)=0:20;],end:20`, :1911
+        // _21Rows `...,20[N(1)=1:21;N(1)=0:21;],21,end:21`, :1927 _25Rows; :1447-1484 RK_AscKind_FindNext_20Rows to _25Rows). A
+        // second full window is not pinned.
+        if how == PageMethod::Next
+            && target == Self::WINDOW - 1
+            && window.len() == Self::WINDOW
+            && !st.borrow().view_read_to_end
+            && !st.borrow().window_whole
+            && rec.borrow().ascending
+            && self.declares(st, "onnextrecord")
+            && self.filtered_find_list_without_row_triggers(st)
+        {
+            let last = window[target].stored.clone();
+            rec.borrow_mut().fields = last;
+            let mut new_rows = 0;
+            while self.nav_next(st, 1)? {
+                if new_rows == Self::WINDOW {
+                    return unsupported(
+                        "Next onto the last row of a find list's window with a second full window after it (not pinned)",
+                    );
+                }
+                let key = self.row_key(&rec)?;
+                let stored = rec.borrow().fields.clone();
+                self.populate_current(st)?;
+                let shown = rec.borrow().fields.clone();
+                st.borrow_mut()
+                    .window
+                    .push(al_builtins::value::WindowRow { key, stored, shown });
+                new_rows += 1;
+            }
+            let mut s = st.borrow_mut();
+            s.window_whole = true;
+            s.view_read_to_end = true;
+        }
         let once_more = matches!(how, PageMethod::Next | PageMethod::Previous) && self.still_reads_once_more(st);
         if once_more {
             self.read_client_row_in(st, target, true)?;
@@ -2021,6 +2121,29 @@ impl Session {
 
     pub(super) fn page_move_inner(&mut self, st: &St, how: PageMethod) -> Result<bool, Signal> {
         self.refuse_descending_filtered_find_move(st)?;
+        if st.borrow().window_top_unread {
+            if how == PageMethod::First {
+                return self.first_above_the_find_list_window(st);
+            }
+            return unsupported(format!(
+                "{how}() on a descending find list whose open read stopped a full window above its last row (not pinned)"
+            ));
+        }
+        // Last on an ascending find list with OnFindRecord only and no row trigger, standing on the row where Next answered false
+        // after it walked past the first window, asks the page nothing (misc/lt-probes-needed-6/PnF06FindListMoves.al:1799, :1815
+        // RK_Asc_Find_21Rows, _25Rows and :1351, :1367 RK_AscKind_Find_21Rows, _25Rows `last = Yes|<last>|`).
+        let find_only_list = !self.declares(st, "onnextrecord") && self.filtered_find_list_without_row_triggers(st);
+        if how == PageMethod::Last
+            && st.borrow().cursor == Cursor::Row
+            && st.borrow().view_read_to_end
+            && self.page_rec(st).borrow().ascending
+            && find_only_list
+        {
+            let key = self.row_key(&self.page_rec(st))?;
+            if st.borrow().window.last().is_some_and(|w| Self::same_key(&w.key, &key)) {
+                return Ok(true);
+            }
+        }
         if let Some(r) = self.move_in_client_rows(st, how)? {
             return Ok(r);
         }
@@ -2052,6 +2175,10 @@ impl Session {
                 Cursor::Row => {
                     if self.nav_next(st, 1)? {
                         true
+                    } else if find_only_list && !st.borrow().new_line {
+                        // The read ran to the end of the view (see the Last above).
+                        st.borrow_mut().view_read_to_end = true;
+                        false
                     } else if st.borrow().new_line {
                         // corpus handlers/TestPageNewRowLine_Tests.al: Next() past the last data
                         // row lands on the blank line and answers true.
@@ -2182,6 +2309,11 @@ impl Session {
             }
         }
         self.refuse_descending_filtered_find_move(st)?;
+        if st.borrow().window_top_unread {
+            return unsupported(
+                "GoToKey on a descending find list whose open read stopped a full window above its last row (not pinned)",
+            );
+        }
         if let Some(found) = self.go_to_key_find_without_row_triggers(st, &want)? {
             if !found && !result_used {
                 return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));

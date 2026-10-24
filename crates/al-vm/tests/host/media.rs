@@ -371,7 +371,7 @@ fn import_file_of_other_content_or_a_media_set_stays_refused() {
 
 // onprem media/MediaFiles.al:317-344 QX_MediaAndMediaSet_ImportFile_Jpeg: a .jpg imported into an empty MediaSet gives the set
 // one member whose Tenant Media row has the description, image/jpeg and the picture's size ('mediaset count',
-// 'mediaset item 1 tenant'). The return value and the row's File Name are not pinned (:340 ignores it): a read of either is refused.
+// 'mediaset item 1 tenant').
 #[test]
 fn media_set_import_file_of_a_jpeg_fills_the_set() {
     let r = import_file(
@@ -400,19 +400,27 @@ fn media_set_import_file_returns_the_set_id_and_a_png_joins_as_the_second_item()
     assert!(take_hits().is_empty());
 }
 
+// onprem media/MediaFiles.al:335, :351 QX_MediaAndMediaSet_ImportFile_Jpeg 'mediaset file name' = '<name>' and :256-259 (corpus
+// bump 62): the File Name of a member's Tenant Media row is the bare file name, without the folder.
 #[test]
-fn media_set_import_file_file_name_and_a_third_member_are_refused() {
-    for body in [
-        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); T.Get(Rec.Images.Item(1)); exit(T.\"File Name\"); end;",
+fn media_set_import_file_stores_the_bare_file_name() {
+    let r = import_file(
+        "R: Text; begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); Rec.Images.ImportFile('\\TEMP\\E.PNG', 'y'); \
+         T.Get(Rec.Images.Item(1)); R := T.\"File Name\"; T.Get(Rec.Images.Item(2)); exit(R + '|' + T.\"File Name\"); end;",
+    );
+    assert_eq!(r.unwrap(), "a.jpg|E.PNG");
+}
+
+#[test]
+fn media_set_import_file_third_member_is_refused() {
+    let r = import_file(
         "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'x'); Rec.Images.ImportFile('\\TEMP\\E.PNG', 'y'); \
          Rec.Images.ImportFile('\\TEMP\\a.jpg', 'z'); exit(''); end;",
-    ] {
-        let r = import_file(body);
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
-            "{body}: {r:?}"
-        );
-    }
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
+        "{r:?}"
+    );
 }
 
 // onprem media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
@@ -583,19 +591,23 @@ const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin i
                    G.Open(Name); exit(G.Len()); end;";
 
 // onprem media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
-// returns the number of items and writes <prefix>-1 with no extension; a JPEG's bytes are kept on BC 29.
+// returns the number of items and writes <prefix>-1 with no extension. Whether a JPEG's bytes are kept is not pinned since corpus
+// bump 62 (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus issue 723): the file is written with a mark and a look
+// at its bytes is refused, on BC 29 too.
 #[test]
 fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
+    let set = "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg item'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
+               P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); ";
     let r = export_file_on(
         "29.0",
         true,
-        "begin Rec.Images.ImportFile('\\TEMP\\a.jpg', 'jpeg item'); Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); \
-         P := '\\TEMP\\M\\' + Format(Rec.Images); n := Rec.Images.ExportFile(P); \
-         exit(Format(n) + '|' + Format(Len(P + '-1')) + '|' + Format(Len(P)) + '|' + Format(Len(P + '-1.jpg')) + '|' + \
-         Format(Len(P + '-2'))); end;",
+        &format!(
+            "{set}exit(Format(n) + '|' + Format(Len(P)) + '|' + Format(Len(P + '-1.jpg')) + '|' + Format(Len(P + '-2'))); end;"
+        ),
     );
-    let r = r.map(|t| t.replace(&jpeg().len().to_string(), "<jpeg>"));
-    assert_eq!(r.unwrap(), "1|<jpeg>|-1|-1|-1");
+    assert_eq!(r.unwrap(), "1|-1|-1|-1");
+    let r = export_file_on("29.0", true, &format!("{set}exit(Format(Len(P + '-1'))); end;"));
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 // MediaFiles.al:772: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
@@ -612,7 +624,7 @@ fn media_set_export_file_of_two_items_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (MediaFiles.al:897-901):
+// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
 // the count and the name are pinned, the bytes are not, so the file is written with a mark and any look at it is refused.
 #[test]
 fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_the_file() {

@@ -41,8 +41,9 @@ pub struct MediaObject {
 pub enum FileColumn {
     /// `Media.ImportFile`: the path as given (onprem media/MediaFiles.al:337 'media file name' = '<tmp><name>').
     Path(String),
-    /// `MediaSet.ImportFile`: not pinned (MediaFiles.al:340 ignores it); a read is refused.
-    Unpinned,
+    /// `MediaSet.ImportFile`: the bare file name, without the folder (onprem media/MediaFiles.al:351 'mediaset file name' =
+    /// '<name>', :256-259 `filename_longer_than_name=No`; Windows BC 27.5, 28.5 and 29.0 and bc-linux dc007079, corpus bump 62).
+    Bare(String),
 }
 
 /// The Tenant Media MIME type of an imported .docx file (MediaFiles.al:503).
@@ -471,14 +472,19 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(Value::Guid(id))
 }
 
+/// The file name of `path` without its folder: what follows the last `\\` (the corpus imports from TemporaryPath(), MediaFiles.al:52
+/// BaseOf).
+fn bare_file_name(path: &str) -> &str {
+    path.rsplit_once('\\').map_or(path, |(_, name)| name)
+}
+
 /// `MediaSet.ImportFile(FileName, Description)`: a `.jpg` file holding a JPEG gives an empty set one member whose Tenant Media
 /// row has the description, `image/jpeg` and the picture's size (onprem media/MediaFiles.al:317-344
 /// QX_MediaAndMediaSet_ImportFile_Jpeg). A `.PNG` file holding a PNG gives `image/png` and its size, a second file joins a
 /// set of one member as Item(2), and the call returns the set's id, which MediaId answers and no item has; the id stays
 /// when a member joins (MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng). A lower-case `.png` is
-/// answered alike under the assumption `media-importfile-png`. The File Name of the member's row is not pinned (Windows
-/// and Linux BC write different names, windows-check-results 2026-10-22 QX item 9; MediaFiles.al:340 ignores it): a read
-/// of it is refused. Any other file, and a set of two or more members, is refused.
+/// answered alike under the assumption `media-importfile-png`. The File Name of the member's row is the bare file name
+/// (`FileColumn::Bare`). Any other file, a path with a `/`, and a set of two or more members, is refused.
 fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let set = id_of(&r)?;
     let held = if set == [0; 16] {
@@ -490,6 +496,11 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
         return unsupported("MediaSet.ImportFile into a set that already has two or more members (not pinned)");
     }
     let (name, bytes) = import_file_bytes(c, a)?;
+    if name.contains('/') {
+        return unsupported(format!(
+            "MediaSet.ImportFile of `{name}`: the File Name BC stores for a path with a `/` is not pinned (only `\\` paths are)"
+        ));
+    }
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
     let (mime, (width, height)) = match (ext, jpeg_size(&bytes), png_size(&bytes)) {
         (e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
@@ -517,7 +528,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             mime: mime.into(),
             description,
             file_name: String::new(),
-            file_column: Some(FileColumn::Unpinned),
+            file_column: Some(FileColumn::Bare(bare_file_name(&name).to_string())),
             width,
             height,
             pending: None,
@@ -534,8 +545,9 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 /// media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
 /// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
 /// row of the set in primary key order (ID, Media ID), not Item(n); only a set of one item is served. Only the company build's file system is served (owner rule
-/// 2026-10-22), and only items `MediaSet.ImportFile` read: a .jpg file holding a JPEG keeps its bytes from BC 29
-/// (`Gate::JpegMediaSetKeptFrom29`); an item BC re-encodes is written as a file a look at is refused. Refused: any other
+/// 2026-10-22), and only items `MediaSet.ImportFile` read: each is written as a file a look at is refused (a PNG is re-encoded
+/// on every major; whether a JPEG keeps its bytes is not pinned since corpus bump 62: Windows BC 29.0 re-encodes it, the Linux
+/// image keeps it, MediaFiles.al ignores 'tenant item bytes same as files', corpus issue 723). Refused: any other
 /// item, an empty set, a set of two or more items, an empty prefix and a folder that does not exist (the errors are not
 /// pinned).
 fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -565,27 +577,21 @@ fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             "MediaSet.ExportFile of a set of two or more items (which item each numbered file holds follows the order of Guid keys, which is not pinned)",
         );
     }
-    // `None`: BC re-encodes the item (a PNG on every major, W7Media.al:141-145; a .jpg holding a PNG, ReMediaJpgHoldingPng.al:108;
-    // a JPEG before BC 29, MediaFiles.al:897-901), so the file is written with the mark of a re-encoded media and a look at it is
-    // refused (as Media.ExportStream does).
-    let kept = c.gate(al_version::Gate::JpegMediaSetKeptFrom29);
-    let mut contents: Vec<Option<Vec<u8>>> = Vec::with_capacity(items.len());
+    // `None`: BC re-encodes the item (a PNG on every major, W7Media.al:141-145; a .jpg holding a PNG, ReMediaJpgHoldingPng.al:108),
+    // or whether it does is not pinned (a JPEG, see above), so the file is written with the mark of a re-encoded media and a look at
+    // it is refused (as Media.ExportStream does).
     for id in &items {
         let obj = store(c)?.objects.borrow().get(id).cloned();
         match obj {
-            Some(o) if o.pending.is_none() && matches!(o.file_column, Some(FileColumn::Unpinned)) => {
+            Some(o) if o.pending.is_none() && matches!(o.file_column, Some(FileColumn::Bare(_))) => {
                 let is_jpeg = o.mime == "image/jpeg" && jpeg_size(&o.bytes).is_some();
                 let is_png = png_size(&o.bytes).is_some() && matches!(o.mime.as_str(), "image/jpeg" | "image/png");
-                contents.push(match (is_jpeg, is_png) {
-                    (true, _) if kept => Some(o.bytes),
-                    (true, _) | (_, true) => None,
-                    _ => {
-                        return unsupported(format!(
-                            "MediaSet.ExportFile of an item of type `{}` holding neither a JPEG nor a PNG (not pinned)",
-                            o.mime
-                        ));
-                    }
-                });
+                if !is_jpeg && !is_png {
+                    return unsupported(format!(
+                        "MediaSet.ExportFile of an item of type `{}` holding neither a JPEG nor a PNG (not pinned)",
+                        o.mime
+                    ));
+                }
             }
             other => {
                 let what = match &other {
@@ -606,17 +612,13 @@ fn set_export_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             }
         }
     }
-    for (n, bytes) in contents.iter().enumerate() {
-        let name = format!("{prefix}-{}", n + 1);
-        let wrote = match bytes {
-            Some(b) => c.fs_write(&name, b),
-            None => c.fs_write_unproduced(&name, crate::stream::MEDIA_SET_FILE_REENCODED),
-        };
-        if let Err(why) = wrote {
+    for n in 1..=items.len() {
+        let name = format!("{prefix}-{n}");
+        if let Err(why) = c.fs_write_unproduced(&name, crate::stream::MEDIA_SET_FILE_REENCODED) {
             return unsupported(format!("MediaSet.ExportFile could not write `{name}`: {why}"));
         }
     }
-    Ok(Value::Integer(contents.len() as i32))
+    Ok(Value::Integer(items.len() as i32))
 }
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[

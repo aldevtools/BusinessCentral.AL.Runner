@@ -87,14 +87,13 @@ impl Region {
         })
     }
 
-    /// The group separator and the decimal separator of an amount. fr-FR groups with U+202F on BC 27 and 28
-    /// (PnH4CurrReport.al:252 `1 234,5`, bytes E2 80 AF; YReportPropsTests.al:80 shows the same bytes read back through code page 437)
-    /// and with U+00A0 from BC 29 (PnH4CurrReport.al:250, YReportPropsTests.al:78; `no_break_space`).
-    fn separators(self, no_break_space: bool) -> (char, char) {
+    /// The group separator and the decimal separator of an amount. fr-FR groups with U+00A0 on BC 27, 28 and 29
+    /// (misc/lt-probes-needed-8/PnH4CurrReport.al:247,311, report/lt-y-report-props/YReportPropsTests.al:74; corpus bump 62, where
+    /// the corpus CI's newer Linux image stopped giving U+202F on BC 27 and 28).
+    fn separators(self) -> (char, char) {
         match self {
             Region::DeDE | Region::DaDK => ('.', ','),
-            Region::FrFR if no_break_space => ('\u{A0}', ','),
-            Region::FrFR => ('\u{202F}', ','),
+            Region::FrFR => ('\u{A0}', ','),
             Region::EnGB | Region::JaJP | Region::ZzZZ => (',', '.'),
         }
     }
@@ -213,15 +212,14 @@ fn format_in_region(
             let ms = t - 1;
             format!("{:02}:{:02}:{:02}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60)
         }
-        // de-DE and da-DK swap the separators (`1.234,5`), fr-FR groups with U+202F; a negative amount is measured nowhere
+        // de-DE and da-DK swap the separators (`1.234,5`), fr-FR groups with U+00A0; a negative amount is measured nowhere
         // (the de-DE rule predates this guard and keeps its sign).
         Value::Decimal(_) if standard == 0 => {
             let en = format_value(v, 0, standard, &plain)?;
             if en.starts_with('-') && r != Region::DeDE {
                 return Err(refuse());
             }
-            let (group, decimal) =
-                r.separators(ctx.format_gate(al_version::Gate::FrFrGroupSeparatorNoBreakSpaceFrom29));
+            let (group, decimal) = r.separators();
             en.chars()
                 .map(|c| match c {
                     ',' => group,
@@ -314,7 +312,7 @@ pub fn region_column(r: Region, v: &Value) -> Option<String> {
         // A negative decimal in de-DE: `-1234567,891` (W3ReportObjectIdPreviewLanguage.al:912), `-1234,5` (BdRegionTests.al:131).
         Value::Decimal(d) if !d.is_sign_negative() || r == Region::DeDE => {
             // The decimal separator does not depend on the version.
-            let (_, decimal) = r.separators(false);
+            let (_, decimal) = r.separators();
             Some(d.to_string().replace('.', &decimal.to_string()))
         }
         _ => None,
@@ -1419,7 +1417,7 @@ mod tests {
         );
         assert_eq!(
             row("fr-FR"),
-            "1\u{202F}234\u{202F}567,891|31/01/25|31/01/25 14:30|31 January 2025|1234567"
+            "1\u{A0}234\u{A0}567,891|31/01/25|31/01/25 14:30|31 January 2025|1234567"
         );
         assert_eq!(
             row("ja-JP"),
@@ -1433,7 +1431,7 @@ mod tests {
         let march = Value::Date(day_from_civil(2024, 3, 5), false);
         for (r, want) in [
             ("de-DE", "1.234,5|05.03.24|Yes"),
-            ("fr-FR", "1\u{202F}234,5|05/03/24|Yes"),
+            ("fr-FR", "1\u{A0}234,5|05/03/24|Yes"),
             ("da-DK", "1.234,5|05-03-24|Yes"),
         ] {
             let got = [&small, &march, &Value::Boolean(true)]
@@ -1474,10 +1472,10 @@ mod tests {
     }
 
     #[test]
-    fn on_bc_29_fr_fr_groups_with_a_no_break_space() {
-        // misc/lt-probes-needed-8/PnH4CurrReport.al:247 and :311 (#if BC29PLUS: U+00A0; BC 27 and 28 keep U+202F) and
-        // report/lt-y-report-props/YReportPropsTests.al:74 (BC 29 AmtText).
-        struct R(bool);
+    fn fr_fr_groups_with_a_no_break_space_on_every_version() {
+        // misc/lt-probes-needed-8/PnH4CurrReport.al:247 and :311 and report/lt-y-report-props/YReportPropsTests.al:74: U+00A0 on
+        // BC 27, 28 and 29 (corpus bump 62; the older Linux image gave U+202F on BC 27 and 28).
+        struct R;
         impl FormatCtx for R {
             fn enum_name(&self, _: u32, o: i32) -> String {
                 o.to_string()
@@ -1485,12 +1483,9 @@ mod tests {
             fn region(&self) -> Option<String> {
                 Some("fr-FR".into())
             }
-            fn format_gate(&self, gate: al_version::Gate) -> bool {
-                gate == al_version::Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 && self.0
-            }
         }
-        assert_eq!(format(&dec("1234567.891"), 0, 0, &R(true)), "1\u{A0}234\u{A0}567,891");
-        assert_eq!(format(&dec("1234.5"), 0, 0, &R(false)), "1\u{202F}234,5");
+        assert_eq!(format(&dec("1234567.891"), 0, 0, &R), "1\u{A0}234\u{A0}567,891");
+        assert_eq!(format(&dec("1234.5"), 0, 0, &R), "1\u{A0}234,5");
     }
 
     #[test]

@@ -192,9 +192,6 @@ pub enum Gate {
     /// before, CalcFields raises `The following fields must have the same type` (`DB:TypeMisMatch`)
     /// (calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:166-186, corpus bump 28).
     FlowFieldCountFilterBigIntegerFromIntegerFrom29,
-    /// `Format` of a Decimal under the fr-FR format region groups with U+00A0 (no-break space) from BC 29; BC 27 and 28 group
-    /// with U+202F (narrow no-break space) (misc/lt-probes-needed-8/PnH4CurrReport.al:247,311; corpus bump 43).
-    FrFrGroupSeparatorNoBreakSpaceFrom29,
     /// Under the default `TestHttpRequestPolicy` and `AllowAllOutboundRequests` an `[HttpClientHandler]` answers the request from
     /// BC 29; before, the handler is not called, the request is sent for real and the unused handler does not fail the test
     /// (al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al, every `calls` line; corpus bump 43).
@@ -214,16 +211,16 @@ pub enum Gate {
     /// corpus ignores (al-language-onprem/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
     /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
     DocxMediaRezippedFrom29,
-    /// `MediaSet.ImportFile` of a .jpg file holding a JPEG keeps the file's bytes as Tenant Media content on BC 29; BC 27 and 28
-    /// re-encode it (al-language-onprem/media/MediaFiles.al:897-901, RJ_MediaSet_ExportFile_ConfigPackageShape, `BC29PLUS`;
-    /// corpus bump 61). Consumed by `al-builtins` media.rs: `MediaSet.ExportFile` writes those bytes from 29 and is refused
-    /// below.
+    /// Corpus bump 61 pinned that `MediaSet.ImportFile` of a .jpg file holding a JPEG keeps the file's bytes on BC 29 and BC 27
+    /// and 28 re-encode it. Corpus bump 62 dropped that assertion (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus
+    /// issue 723), so `MediaSet.ExportFile` no longer consumes this gate. Its one consumer is the registered assumption
+    /// `media-exportstream-jfif-dpi-jpeg-kept` (al-builtins media.rs, a Windows BC 29.0 probe); the evidence is the BC 29 guard of
+    /// the same file for the export of an imported media (MediaFiles.al:515). To remove once that probe lands in the corpus.
     JpegMediaSetKeptFrom29,
 }
 
 impl Gate {
     pub const ALL: &'static [Gate] = &[
-        Gate::FrFrGroupSeparatorNoBreakSpaceFrom29,
         Gate::HttpHandlerUnderDefaultPolicyFrom29,
         Gate::AutoFormatAmountFieldRoundsFrom28,
         Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29,
@@ -313,7 +310,6 @@ impl Gate {
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
-            | Gate::FrFrGroupSeparatorNoBreakSpaceFrom29
             | Gate::HttpHandlerUnderDefaultPolicyFrom29
             | Gate::DocxMediaRezippedFrom29
             | Gate::JpegMediaSetKeptFrom29 => 29,
@@ -350,17 +346,13 @@ impl Gate {
                 file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
                 lines: "684,697,749,762",
             }],
-            Gate::FrFrGroupSeparatorNoBreakSpaceFrom29 => &[Evidence {
-                file: "misc/lt-probes-needed-8/PnH4CurrReport.al",
-                lines: "247,311",
-            }],
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
             }],
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
-                lines: "898,900",
+                lines: "515",
             }],
             Gate::HttpHandlerUnderDefaultPolicyFrom29 => &[Evidence {
                 file: "../al-language-onprem/network/lt-ay-http-handler/PyHttpPolicy.al",

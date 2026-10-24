@@ -384,12 +384,9 @@ impl Providers {
                     t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("File Name")),
                 ) {
                     row[p] = match file {
-                        al_builtins::media::FileColumn::Path(name) => Value::Text(name.clone().into()),
-                        al_builtins::media::FileColumn::Unpinned => Value::Unknown(
-                            "the File Name of the Tenant Media row of a MediaSet.ImportFile is not pinned \
-                             (onprem media/MediaFiles.al:340 ignores it)"
-                                .into(),
-                        ),
+                        al_builtins::media::FileColumn::Path(name) | al_builtins::media::FileColumn::Bare(name) => {
+                            Value::Text(name.clone().into())
+                        }
                     };
                 }
                 // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).

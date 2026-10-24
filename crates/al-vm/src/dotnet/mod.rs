@@ -287,9 +287,9 @@ impl Session {
         // lists those files, full path with no extension (windows-check-results 2026-10-23 RJ item B; corpus
         // tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
         // image listed none (bc-linux issue 181). Windows BC 29.0 lists in name order without case, never in creation order
-        // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder); the bc-linux image now does the same and
-        // corpus bump 62 pins it (the next stage 2 swaps this assumption for that pin). Until then the Microsoft-test exception
-        // (CLAUDE.md rule 3): every Microsoft Legacy test needs the DemoTool company. An empty folder is refused (not measured).
+        // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder), pinned on every major since corpus bump 62
+        // (tests/al-language-onprem/media/MediaFiles.al RJ_GetServerDirectoryFilesList_ListingOrder). The join with `/` differs
+        // from BC's backslash (see the assumption), so the listing still marks it. An empty folder is refused (not measured).
         if let (Target::Static(d), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
             (&target, kind, values.as_slice())
             && d.name.eq_ignore_ascii_case("System.IO.Directory")
