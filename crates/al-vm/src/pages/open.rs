@@ -484,6 +484,16 @@ impl Session {
             if rec_unpinned.is_some() && has_source {
                 self.page_rec(st).borrow_mut().unpinned_buffer = None;
             }
+            // An error out of the OnOpenPage of a request page with a source table, with its handler bound, is not pinned: it could
+            // leave the handler queued for a later codeunit (corpus report/lt-y-request-page/RsRequestPageRec.al:153, report 88563;
+            // al-runner issue 5756). Without a handler the run fails before OnOpenPage (YRequestPageTests.al:509).
+            if let Err(Signal::Error(_)) = &opened {
+                if has_source && self.is_request_page(st) {
+                    return unsupported(
+                        "an error out of the OnOpenPage of a request page with a source table (whether its handler stays queued is not pinned)",
+                    );
+                }
+            }
             opened?;
             if let Some(before) = before_open {
                 let kept = self.temp_rec_position(st)?.is_some_and(|now| {
@@ -897,8 +907,68 @@ impl Session {
             if self.rec_moved_by_onopenpage(st)? {
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
+        } else if st.borrow().host.is_none()
+            && self.is_request_page(st)
+            && self.has_source(st)
+            && self.declares(st, "onopenpage")
+            && self.request_rec_moved_by_onopenpage(st)?
+        {
+            return self.open_on_rec_moved_by_onopenpage(st);
         }
         self.page_first_row(st)
+    }
+
+    /// A report request page with a source table whose OnOpenPage left Rec on a stored row other than the first of its view: true
+    /// when the page opens on that row. Pinned by corpus report/lt-y-request-page/YRequestPageTests.al:443
+    /// RS_RequestPageRec_ModifyAndInsert_InOnOpenPage (Rec inserted on `N/1`, the handler reads `docno = N`, `descr = inserted`) and
+    /// :471 RS_RequestPageRec_ReadInReportTriggers (FindFirst then Next, the handler reads `A` and `second`). A blank key or Rec on the
+    /// first row opens on the first row, as before. A temporary source, another key, a filter, Rec on a key no row has or holding
+    /// values its row does not, and the find and record triggers of the page are not pinned for a moved Rec: refused.
+    fn request_rec_moved_by_onopenpage(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let table = self.table(&rec)?;
+        let blank: Vec<Value> = table.keys[0]
+            .iter()
+            .map(|&f| self.default_value(&table.fields[f].ty))
+            .collect();
+        if Self::same_key(&key, &blank) {
+            return Ok(false);
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if let Value::Boolean(true) = self.record_op(RecordOp::FindFirst, &probe, &mut [])? {
+            if Self::same_key(&self.row_key(&probe)?, &key) {
+                return Ok(false);
+            }
+        }
+        let refuse = |what: &str| -> Result<bool, Signal> {
+            unsupported(format!(
+                "a request page whose OnOpenPage left Rec on a row other than the first of its view, {what} (which row it opens on is not pinned)"
+            ))
+        };
+        if rec.borrow().temporary {
+            return refuse("over a temporary source");
+        }
+        if rec.borrow().key != 0 {
+            return refuse("in a key other than the primary key");
+        }
+        if !rec.borrow().filters.is_empty() {
+            return refuse("with a filter set");
+        }
+        if ["onfindrecord", "onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
+            .iter()
+            .any(|t| self.declares(st, t))
+        {
+            return refuse("with find or record triggers");
+        }
+        match self.stored_row(&rec)? {
+            None => refuse("on a key no row has"),
+            Some(stored) if !Self::same_values(&stored, &rec.borrow().fields) => {
+                refuse("holding values its stored row does not")
+            }
+            Some(_) => Ok(true),
+        }
     }
 
     /// A Card or List over a database table opened without a record, in a key other than the primary key, whose Rec is still the
@@ -1410,6 +1480,30 @@ impl Session {
         r
     }
 
+    /// OK on a request page with a changed row writes the row, and the report reads it through Rec (corpus
+    /// report/lt-y-request-page/YRequestPageTests.al:471 RS_RequestPageRec_ReadInReportTriggers: `typed` set on a control bound to
+    /// Rec, then `rows` `A/20000/typed` and `pre_rec` `[A/20000/typed]`). Pinned for a row of a table that runs no code when it is
+    /// written (no trigger, extension trigger, event subscriber or global trigger) on a page without OnModifyRecord, whose
+    /// ModifyAllowed is not false; whether such code runs, and any other shape, are not pinned and stay refused.
+    fn request_ok_writes_changed_row(&mut self, st: &St, action: &str) -> Result<bool, Signal> {
+        let object = st.borrow().object as usize;
+        if action != "OK" || st.borrow().draft || flag_denied(&self.engine(), object, "ModifyAllowed")? {
+            return Ok(false);
+        }
+        if self.declares(st, "onmodifyrecord") || self.engine().events.is_subscribed(object, "onmodifyrecordevent") {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        if rec.borrow().temporary
+            || self.has_write_hooks(&table)?
+            || self.global_enabled(&table, crate::globaltriggers::GlobalOp::Modify)?
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     /// Closes the page with `action`. The client first saves what was typed; a save the table
     /// refuses raises at Close() but not at an OK, which counts one validation error and leaves the
     /// page open (corpus testpageclose/TestPageClosingActions.al, Card_OK_AfterATableRefusedDuplicateKey_*,
@@ -1428,8 +1522,9 @@ impl Session {
         let mapped = self.close_action(st, action);
         let action = mapped.as_str();
         // Cancel on a request page whose ModifyAllowed is false drops a changed row: no error, the stored row unchanged
-        // (report/lt-y-request-page/YRequestPageTests.al:130-162, `modify = ok changed` then `rows` as seeded). With ModifyAllowed
-        // true, or at OK, what happens to a changed row of a request page is not pinned.
+        // (report/lt-y-request-page/YRequestPageTests.al:130-162, `modify = ok changed` then `rows` as seeded). OK writes it in the
+        // shape `request_ok_writes_changed_row` names; with ModifyAllowed true at Cancel, or another shape at OK, what happens to a
+        // changed row of a request page is not pinned.
         if self.is_request_page(st) && self.has_source(st) {
             let changed = {
                 let s = st.borrow();
@@ -1439,16 +1534,21 @@ impl Session {
                 let rec = self.page_rec(st);
                 let differs = !Self::same_values(&rec.borrow().fields, &self.page_xrec_fields(st));
                 let object = st.borrow().object as usize;
+                // OK that writes the row leaves it changed for the save below (`request_ok_writes_changed_row`).
+                let writes = differs && self.request_ok_writes_changed_row(st, action)?;
                 if differs
+                    && !writes
                     && (action != "Cancel"
                         || st.borrow().draft
                         || !flag_denied(&self.engine(), object, "ModifyAllowed")?)
                 {
                     return unsupported(format!(
-                        "{action} on a request page with a changed row (only Cancel with ModifyAllowed = false is pinned)"
+                        "{action} on a request page with a changed row (only Cancel with ModifyAllowed = false, and OK on a table that runs no code when it is written, are pinned)"
                     ));
                 }
-                st.borrow_mut().dirty = false;
+                if !writes {
+                    st.borrow_mut().dirty = false;
+                }
             }
         }
         if st.borrow().refused {
