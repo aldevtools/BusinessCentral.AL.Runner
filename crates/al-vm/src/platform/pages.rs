@@ -422,10 +422,12 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
 // ---- Page Control Field -----------------------------------------------------------------------------
 
 /// A boolean control property as the column text: undeclared is `default`; a literal is its own
-/// text in lower case; an expression is not pinned.
-fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Result<String, String> {
+/// text in lower case. What BC reports for an expression is not pinned (docs/probes-needed.md): that
+/// column alone is left unknown, so a read of it is refused and the rest of the row is served
+/// (al-runner issue 5786: `Editable = Rec."Allow Edit"` beside `Visible = false`).
+fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Result<Value, String> {
     match ctl.props.iter().find(|(k, _)| k == name).map(|(_, v)| v) {
-        None => Ok(default.into()),
+        None => Ok(Value::Text(default.into())),
         Some(PropVal::Lit(v)) => {
             let t = v.trim().to_ascii_lowercase();
             if t != "true" && t != "false" {
@@ -436,11 +438,14 @@ fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Res
             }
             // How BC spells a declared value is not pinned; Evaluate reads this form
             // (TestPageControlFieldDefaults.al:52-80).
-            Ok(t)
+            Ok(Value::Text(t.into()))
         }
-        Some(_) => Err(format!(
-            "page '{}' control '{}': {name} is an expression (what the column reports is not pinned)",
-            o.name, ctl.name
+        Some(_) => Ok(Value::Unknown(
+            format!(
+                "Page Control Field: page '{}' control '{}': {name} is an expression (what the column reports is not pinned)",
+                o.name, ctl.name
+            )
+            .into(),
         )),
     }
 }
@@ -505,9 +510,9 @@ fn control_row(
     r[pos(t, 4)] = Value::Integer(src.and_then(|s| s.id).unwrap_or(0) as i32);
     // Enabled and Visible report a lower-case `true` when undeclared, Editable a capitalised `True`
     // (TestPageControlFieldDefaults.al:15-50).
-    r[pos(t, 6)] = Value::Text(bool_prop(o, ctl, "enabled", "true")?.into());
-    r[pos(t, 7)] = Value::Text(bool_prop(o, ctl, "editable", "True")?.into());
-    r[pos(t, 8)] = Value::Text(bool_prop(o, ctl, "visible", "true")?.into());
+    r[pos(t, 6)] = bool_prop(o, ctl, "enabled", "true")?;
+    r[pos(t, 7)] = bool_prop(o, ctl, "editable", "True")?;
+    r[pos(t, 8)] = bool_prop(o, ctl, "visible", "true")?;
     // The variables a control can name are the globals of the object that declares it.
     let owner = ctl.owner.map_or(o, |e| &c.objects[e]);
     match &ctl.binding {

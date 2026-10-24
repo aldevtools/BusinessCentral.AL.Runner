@@ -73,6 +73,7 @@ mod record_bare_exit;
 mod relation_blank_member;
 mod setter_call;
 mod sql_counters;
+mod strsubstno_decimal_field_places;
 mod table_ext_base_vars;
 mod temp_record_array;
 mod ternary_args;

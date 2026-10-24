@@ -13,6 +13,7 @@ mod fix_records;
 mod flowfield_write;
 mod flowfields;
 mod general_journal;
+mod get_recordid_other_table;
 mod hostvalues;
 mod key_ties;
 mod lane_codeunit_run;
