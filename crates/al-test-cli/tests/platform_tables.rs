@@ -2066,3 +2066,19 @@ fn a_source_table_view_with_sorting_order_and_conditions_reads_as_bc_formats_it(
         assert!(matches!(got, Some(Outcome::NotRun(_))), "{test}: {got:?}");
     }
 }
+
+/// "Page Metadata".Editable is the page's declared Editable, Yes when it declares none (misc/W2PageMetadata.al:461
+/// RP_LookupPageSortedBySecondaryKey_CardPageId: `one_editable` No for a List with Editable = false, `card_editable` Yes).
+#[test]
+fn a_pages_editable_column_is_its_declared_editable() {
+    let o = outcomes(
+        r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "Card" { PageType = Card; SourceTable = Thing; layout { area(Content) { field(No; Rec."No.") { } } } }
+page 50003 "List" { PageType = List; SourceTable = Thing; Editable = false; layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Editable() var M: Record "Page Metadata"; begin
+    M.Get(50002); if not M.Editable then Error('card');
+    M.Get(50003); if M.Editable then Error('list'); end; }"#,
+    );
+    passes(&o, "Editable");
+}

@@ -361,6 +361,10 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
             .id_of(al_ir::ObjKind::Page, v)
             .map_err(|e| format!("page '{}': CardPageID {e}", o.name))? as i32,
     });
+    // Editable: the declared literal, Yes when undeclared (misc/W2PageMetadata.al:461 RP_LookupPageSortedBySecondaryKey_CardPageId:
+    // a List with Editable = false reads No, a Card that declares none Yes). Other page types without the property are not
+    // pinned (docs/probes-needed.md).
+    r[pos(t, 4)] = Value::Boolean(allowed(c, o, "Editable")?);
     r[pos(t, 5)] = option(t, 5, page_type);
     // BC's own placeholder for a declared DataCaptionExpression (TestPageMetadataProperties.al:23-26).
     r[pos(t, 7)] = Value::Text(
