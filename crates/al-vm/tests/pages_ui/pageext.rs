@@ -375,10 +375,12 @@ fn extension_controls_are_bound_to_rec_to_an_expression_and_to_the_extensions_ow
     assert_eq!(text(r), "A:Alpha|o1|EXTOPENED|o2");
 }
 
-// The corpus pins the expression after First() (TrappedPageRun_ExtExpressionControl_ReadsTheCurrentRow); whether Next() on a
-// list computes it again is not pinned (al-vm pages/shown.rs).
+// The corpus pins the expression after First() (TrappedPageRun_ExtExpressionControl_ReadsTheCurrentRow); that Next() on a
+// list computes it again is assumed (page-expression-control-live-read-after-next-filter-activate, al-vm pages/shown.rs).
 #[test]
-fn an_extension_expression_control_after_next_is_refused() {
+fn an_extension_expression_control_after_next_reads_the_new_row_and_is_flagged() {
+    use al_builtins::assumptions::{clear_hits, take_hits, Assumption};
+    clear_hits();
     let r = run(
         &format!(
             "procedure F(): Text var R: Record \"PX Row\"; L: TestPage \"PX List\"; begin
@@ -386,6 +388,25 @@ fn an_extension_expression_control_after_next_is_refused() {
                 L.OpenView();
                 L.First();
                 L.Next();
+                exit(L.ExtExpression.Value());
+            end;"
+        ),
+        "F",
+    );
+    assert_eq!(text(r), "B:Bravo");
+    assert!(take_hits().contains(&Assumption::PageExpressionControlLiveReadAfterNextFilterActivate));
+}
+
+// Previous() is not among the assumed calls: the read stays refused.
+#[test]
+fn an_extension_expression_control_after_previous_is_refused() {
+    let r = run(
+        &format!(
+            "procedure F(): Text var R: Record \"PX Row\"; L: TestPage \"PX List\"; begin
+                {SEED}
+                L.OpenView();
+                L.Last();
+                L.Previous();
                 exit(L.ExtExpression.Value());
             end;"
         ),

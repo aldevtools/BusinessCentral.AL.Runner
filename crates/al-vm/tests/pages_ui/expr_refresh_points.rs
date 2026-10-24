@@ -206,12 +206,21 @@ codeunit 69806 T
         exit(P.Twice.Value());
     end;
 
-    // Not pinned: whether Next on a card computes an expression over the record again.
+    // Not pinned: whether Next on a card computes an expression over the record again (assumed, flagged).
     procedure RecExpressionAfterNext(): Text
     var P: TestPage "XR Rec Card";
     begin
         P.OpenEdit();
         P.Next();
+        exit(P.Twice.Value());
+    end;
+
+    // Not pinned and not assumed: Previous.
+    procedure RecExpressionAfterPrevious(): Text
+    var P: TestPage "XR Rec Card";
+    begin
+        P.OpenEdit();
+        P.Previous();
         exit(P.Twice.Value());
     end;
 
@@ -296,5 +305,14 @@ fn a_record_expression_reads_as_it_is_after_reads() {
 
 #[test]
 fn a_record_expression_after_a_call_whose_refresh_is_not_pinned_is_refused() {
-    refused(run_in(SRC, "T", "RecExpressionAfterNext"));
+    refused(run_in(SRC, "T", "RecExpressionAfterPrevious"));
+}
+
+// Assumption page-expression-control-live-read-after-next-filter-activate (Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList).
+#[test]
+fn a_record_expression_after_next_reads_as_it_is_now_and_is_flagged() {
+    use al_builtins::assumptions::{clear_hits, take_hits, Assumption};
+    clear_hits();
+    assert_eq!(text(run_in(SRC, "T", "RecExpressionAfterNext")), "2.00");
+    assert!(take_hits().contains(&Assumption::PageExpressionControlLiveReadAfterNextFilterActivate));
 }

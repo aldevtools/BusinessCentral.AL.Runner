@@ -27,7 +27,10 @@
 //! control of any page of the tree: Editable, Enabled, AssertEquals (misc/lt-probes-needed-7/PnGTempControl.al:116), AsDecimal
 //! (TestPageUpdate.al:116) and the As* methods of the other types. These count also when they raise an error
 //! (PnGTempControl.al:116). And an action of the host whose code calls only `CurrPage.Update()` (TestPageUpdate.al:143). After
-//! any other such call a read is refused.
+//! any other such call a read is refused, except after `TestPage.Next`, `TestPage.Filter` and `TestField.Activate`
+//! (`DOUBT_ASSUMED`): there the read is computed as it is now under assumption
+//! page-expression-control-live-read-after-next-filter-activate, which Microsoft's Tests-ERM need (Price Lists
+//! UI.T003_SalesPriceListsDiscountsFromCustomersList reads `SourceType` after `TestPage.Next`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -53,6 +56,9 @@ const DOUBT_FIRST: u8 = 8;
 const DOUBT_READ: u8 = 16;
 const DOUBT_HOST_ACTION_UPDATE: u8 = 32;
 const DOUBT_OTHER: u8 = 64;
+/// `TestPage.Next`, `TestPage.Filter` or `TestField.Activate`: a read of an expression the page does not keep is computed as
+/// it is now, under an assumption (module comment).
+const DOUBT_ASSUMED: u8 = 128;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
 const DOUBT_KEPT: u8 =
     DOUBT_SET_VALUE | DOUBT_HOST_SET_VALUE | DOUBT_GO_TO_RECORD | DOUBT_FIRST | DOUBT_READ | DOUBT_HOST_ACTION_UPDATE;
@@ -138,6 +144,9 @@ impl Session {
                     if on_control =>
                 {
                     DOUBT_READ
+                }
+                _ if matches!(method, PageOp::TestPageNext | PageOp::TestPageFilter | PageOp::TestFieldActivate) => {
+                    DOUBT_ASSUMED
                 }
                 _ => DOUBT_OTHER,
             };
@@ -315,12 +324,18 @@ impl Session {
             .find(|(i, _)| *i == idx)
             .map(|(_, v)| v.clone());
         let Some(kept) = kept else {
-            if st.borrow().shown_doubts & !DOUBT_KEPT != 0 {
+            let doubts = st.borrow().shown_doubts;
+            if doubts & !(DOUBT_KEPT | DOUBT_ASSUMED) != 0 {
                 return unsupported(format!(
                     "control {} shows an expression computed when it is read, after {}, whose refresh of the page is not pinned",
                     page_of(&self.engine(), st).controls[idx].name,
                     st.borrow().shown_doubt_call.unwrap_or("a call")
                 ));
+            }
+            if doubts & DOUBT_ASSUMED != 0 {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::PageExpressionControlLiveReadAfterNextFilterActivate,
+                );
             }
             return live(self);
         };
