@@ -1365,6 +1365,20 @@ impl Session {
             };
             if vetoed_in_handler {
                 st.borrow_mut().test_close_vetoed = true;
+            } else if st.borrow().close_vetoed {
+                // A Close() the page's own OnQueryClosePage refused returns, and the veto is the last error, also inside a
+                // TryFunction and over an earlier error (handlers/TestPageCloseVeto_Tests.al:245 RP_PlainVeto_LastErrorAfterClose,
+                // :269 _LastErrorPerOpenMode, :335 _ReplacesAnEarlierLastError, :351 RP_ConfirmNoVeto_LastErrorAfterClose;
+                // al-runner issue 5769). Pinned outside a page handler only.
+                self.last_error = if self.ui_state.page_handler_depth == 0 {
+                    al_builtins::native::AlError {
+                        message: "The page cannot be closed at this time.".into(),
+                        code: "FormCloseNotAllowed".into(),
+                        ..Default::default()
+                    }
+                } else {
+                    al_builtins::native::unpinned_error()
+                };
             }
             self.mark_closed(st);
         }
@@ -1531,6 +1545,14 @@ impl Session {
                 }
                 other => other?,
             };
+            // A modal page whose part's own OnQueryClosePage answers false is refused like the host's own veto, and the host
+            // is not asked (pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al:530 RP_ListWithFactBox_PartVetoes_HostAllows:
+            // `part_noinvoke_hostcount` 0, None, FormCloseNotAllowed). A part's veto of a page not run modally is not pinned.
+            if answer == Some(false) && st.borrow().modal {
+                st.borrow_mut().close_error = false;
+                st.borrow_mut().close_vetoed = true;
+                return Ok(Value::Null);
+            }
             if answer == Some(false) || !self.page_event(part, "onqueryclosepageevent", Some(true), None)? {
                 return unsupported("a part's OnQueryClosePage that refuses the close (not pinned)");
             }
@@ -1559,10 +1581,9 @@ impl Session {
             other => other?,
         };
         st.borrow_mut().close_error = false;
-        // A veto of a modal page with open parts is not pinned (PageModalQueryCloseVeto.al has no parts): refused.
-        if veto == Some(false) && !open_parts.is_empty() && st.borrow().modal {
-            return unsupported("a modal page with parts whose OnQueryClosePage refused the close (not pinned)");
-        }
+        // A veto of a modal page with open parts answers as one without parts: the parts are asked first, with None, once per
+        // close attempt (PageModalQueryCloseVeto.al:448 RP_ListWithFactBox_HandlerDoesNothing_HostVetoes, :463 _HandlerOk_HostVetoes,
+        // :509 RP_CardWithListPart_HostVetoes; al-runner issue 5762).
         st.borrow_mut().close_vetoed = veto == Some(false);
         if veto == Some(false) {
             return Ok(Value::Null);

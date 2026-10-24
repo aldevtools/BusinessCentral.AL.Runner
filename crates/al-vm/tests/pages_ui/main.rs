@@ -43,6 +43,7 @@ mod rp1_init_value_key;
 mod rp1_read_only_blob;
 mod rp1_read_only_var_control;
 mod rp1_temp_refill;
+mod rp2_close_veto_last_error;
 mod run_record_group2;
 mod trap_reopen;
 mod trigger_errors;
