@@ -765,7 +765,9 @@ mod tests {
     fn a_workdate_read_observes_the_baseline_only_with_the_login_code() {
         let test = "codeunit 60002 T { Subtype = Test; [Test] procedure P() begin if WorkDate() = 0D then; end; }";
         assert_eq!(verdict(test, &["T"]), None);
-        let login = format!("codeunit 40 LogInManagement {{ procedure GetDefaultWorkDate(): Date begin exit(Today()); end; }}\n{test}");
+        let login = format!(
+            "codeunit 40 LogInManagement {{ procedure GetDefaultWorkDate(): Date begin exit(Today()); end; }}\n{test}"
+        );
         assert!(verdict(&login, &["T"]).is_some_and(|w| w.contains("WorkDate")));
     }
 

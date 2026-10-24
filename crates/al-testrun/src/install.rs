@@ -605,7 +605,8 @@ pub(crate) fn login_work_date(lowered: &Lowered, session: &mut Session) -> Resul
     }) else {
         return Ok(());
     };
-    let why = |what: String| format!("the login code that sets WorkDate when the test session opens the company: {what}");
+    let why =
+        |what: String| format!("the login code that sets WorkDate when the test session opens the company: {what}");
     if let Some(reason) = crate::runtime::blocked_reason(lowered, object, routine) {
         return Err(why(reason));
     }

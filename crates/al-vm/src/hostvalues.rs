@@ -254,10 +254,7 @@ fn client_type_named(name: &str) -> Value {
     let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("ClientType")
         .expect("a system option")
         .into();
-    let ordinal = members
-        .iter()
-        .position(|m| m == name)
-        .expect("a member of ClientType");
+    let ordinal = members.iter().position(|m| m == name).expect("a member of ClientType");
     Value::Option(ordinal as i32, members)
 }
 

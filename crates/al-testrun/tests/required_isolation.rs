@@ -348,7 +348,12 @@ codeunit 50631 "FO Next"
 #[test]
 fn function_isolation_on_the_hub_keeps_what_onrun_wrote_for_each_test() {
     let o = run(FUNCTION_ONRUN, true);
-    for t in ["FO1_Writes", "FO2_SeesOnRunOnly", "FO3_StartSession", "FO11_NextCodeunitSeesNothing"] {
+    for t in [
+        "FO1_Writes",
+        "FO2_SeesOnRunOnly",
+        "FO3_StartSession",
+        "FO11_NextCodeunitSeesNothing",
+    ] {
         assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
     }
 }
@@ -412,5 +417,9 @@ fn under_runner_130450_what_onrun_wrote_reaches_the_later_codeunits() {
     // A codeunit on the TestRunnerHub (BC 28+, no handlers, TestPermissions = Disabled) rolls OnRun's writes back
     // (RqIsolationModes.al:357-362).
     let o = run(ONRUN_130450, true);
-    assert_eq!(outcome(&o, "CO11_NextCodeunitReads"), &Outcome::Fail("next rows: 0".into()), "{o:?}");
+    assert_eq!(
+        outcome(&o, "CO11_NextCodeunitReads"),
+        &Outcome::Fail("next rows: 0".into()),
+        "{o:?}"
+    );
 }

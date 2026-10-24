@@ -1032,9 +1032,7 @@ impl CorpusRuntime {
                     // its RequiredTestIsolation (`RunOptions::required_isolation`).
                     let hub_path = suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none();
                     let this = match isolation {
-                        Ok(i) if hub_path => {
-                            hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true)))
-                        }
+                        Ok(i) if hub_path => hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true))),
                         Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
                         Err(why) => Err(why.clone()),
                     };
@@ -1268,9 +1266,12 @@ impl CorpusRuntime {
                 })
             };
             for (k, mut r) in rest.into_iter().zip(results) {
-                let before = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
-                let hit =
-                    r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || before.is_some_and(|(_, _, _, c)| c.everything);
+                let before = carried
+                    .iter()
+                    .rev()
+                    .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
+                let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit)
+                    || before.is_some_and(|(_, _, _, c)| c.everything);
                 if let (true, Some((_, _, leg, c))) = (hit, before) {
                     let o = &lowered.program.objects[units[k].oi];
                     let handlers = o.routines.iter().any(|r| {
