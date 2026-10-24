@@ -15955,16 +15955,7 @@
         "code": "InvalidValue",
         "file": "crates/al-builtins/src/mathfns.rs",
         "generic": false,
-        "line": 83,
-        "pinned": true,
-        "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
-        "template": "The supplied value is not valid."
-      },
-      {
-        "code": "InvalidValue",
-        "file": "crates/al-builtins/src/mathfns.rs",
-        "generic": false,
-        "line": 84,
+        "line": 85,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."
@@ -16315,7 +16306,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1194,
+        "line": 1218,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16324,7 +16315,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1477,
+        "line": 1501,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16333,7 +16324,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1554,
+        "line": 1578,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16342,7 +16333,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1564,
+        "line": 1588,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16573,8 +16564,8 @@
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 81,
-    "sites": 82
+    "pinned": 80,
+    "sites": 81
   },
   "language": {
     "bc": "27-29",

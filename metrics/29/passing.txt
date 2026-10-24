@@ -4900,6 +4900,8 @@
 68042 BR_TableExtensionConst_HostHasSameNamedOptionField
 68042 IntegerSource_IntoBigIntegerFlowField
 68042 QZ_CalcFormula_QuotedLiteralFilters
+68042 RO_CalcFormula_QuotedRangesAndUnions
+68042 RO_CalcFormula_QuotedUnion_Repro
 68042 SystemRowVersion_MinMax
 68045 Ascending_WholeKey_Ties
 68045 SetAscending_SingleFieldKey
@@ -6943,6 +6945,7 @@
 70059 Power_Values
 70059 Round_Default
 70059 Round_Directions
+70059 Round_Errors
 70059 Round_IntegerArgs
 70059 Round_Precision
 70060 Boolean_ToInteger
@@ -7732,6 +7735,7 @@
 70550 Collect_ThenPlainError_DiscardsCollected
 70550 Create_ArgumentCounts
 70550 ErrorType_BeforeSet_AndRaise
+70550 RO_CollectedErrorInfo_Internal_NotCleared_ScopeExit
 70550 VerbosityAndDataClassification_Ordinals
 70551 Dictionary_MissingKeyAndDuplicate
 70551 List_IndexErrors
@@ -10212,6 +10216,8 @@
 72507 LT_BU_Round_Default_FollowsGLSetup
 72507 LT_BU_Round_LearnExampleTable
 72507 Power_Values
+72507 RO_Round_InvalidDirection_CodeunitRun
+72507 RO_Round_InvalidDirection_Texts
 72507 Round_Default
 72507 Round_Direction
 72507 Round_IntegerArguments
@@ -10237,6 +10243,7 @@
 72511 LastError_Divide
 72511 LastError_Initial_AndAfterTry
 72511 LastError_SurvivesPassingCalls
+72512 ErrorInfo_Properties
 72512 Error_CodeAndTry
 72512 Error_EmptyAndSpecial
 72512 Error_Label
@@ -12478,6 +12485,8 @@
 74364 EventVar_GlobalsPassedAsVar_SubscriberAssignsAfterSenderCall
 74364 EventVar_GlobalsPassedAsVar_SubscriberAssignsBeforeSenderCall
 74364 EventVar_LocalsPassedAsVar_SenderSetsGlobals_LocalsKeepTheirOwnValue
+74364 RO_EventVar_InternalEvent_Repro
+74364 RO_EventVar_NestedProcedure_SetsParams_ReadsThroughSender
 74401 AddA_Part1
 74401 AddA_Part2
 74402 InsertA_Part1
@@ -13636,6 +13645,16 @@
 80004 QS_P2S9_EnUs
 80004 QS_S2_DeDe
 80004 QS_S2_EnUs
+80004 RO_FieldFormatStrings_AutoFormatFields_EnUs_1
+80004 RO_FieldFormatStrings_AutoFormatFields_EnUs_2
+80004 RO_FieldFormatStrings_AutoFormatFields_EnUs_3
+80004 RO_FieldFormatStrings_AutoFormatFields_EnUs_4
+80004 RO_FieldFormatStrings_DecimalPlacesFields_DeDe
+80004 RO_FieldFormatStrings_DecimalPlacesFields_EnUs_1
+80004 RO_FieldFormatStrings_DecimalPlacesFields_EnUs_2
+80004 RO_FieldFormatStrings_DecimalPlacesFields_EnUs_3
+80004 RO_FieldFormatStrings_DecimalPlacesFields_EnUs_4
+80004 RO_IntegerOfDecimalPlacesField_Repro
 80006 AT_GetInteger_CodeKey_RowExists
 80006 AT_GetInteger_CodeKey_RowMissing_Bare
 80006 AT_GetInteger_CodeKey_RowMissing_ReturnValueUsed
@@ -13796,6 +13815,7 @@
 80979 Xml_BlobColumn_CalcFieldsInTrigger
 80979 Xml_BlobMediaColumns_EmptyAndText
 80979 Xml_CompanyPicture_Repro
+80980 RO_Round_Duration_InvalidDirections
 80980 Round_Duration_DefaultPrecision_And_Errors
 80980 Round_Duration_ResultType
 80980 Round_Durations_PrecisionsAndDirections
