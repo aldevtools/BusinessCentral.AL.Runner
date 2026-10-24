@@ -1970,6 +1970,32 @@ impl Session {
             return Ok(());
         }
         self.show_row_page_code_positioned(st)?;
+        let again = {
+            let s = st.borrow();
+            s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
+        };
+        if again {
+            // A second action on the blank Rec runs OnNewRecord and OnAfterGetCurrRecord once more and reads no row
+            // (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:352 RM_Ws_OpenEdit_DeleteAllUpdate_Twice `N:0;C:0;`, an action
+            // that leaves the table empty). One that leaves rows in the view is not pinned.
+            let rec = self.page_rec(st);
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if matches!(
+                self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+                Value::Boolean(true)
+            ) {
+                return unsupported(
+                    "an action that put rows into a list without the new-row line that stood on a blank Rec (not pinned)",
+                );
+            }
+            return self.settle_on_blank_rec(st, &rec);
+        }
+        if st.borrow().cursor != Cursor::None {
+            let mut s = st.borrow_mut();
+            s.gone_blank_no_new_line = false;
+            s.gone_blank_shows_line = false;
+        }
         if !st.borrow().open || st.borrow().cursor != Cursor::Row || st.borrow().draft {
             return Ok(());
         }
@@ -2010,7 +2036,13 @@ impl Session {
             // a list without OnNewRecord). A list opened for viewing raises nothing (pages/W1Update.al:534, :556). A list in
             // another state (an edit list without the new-row line) is not pinned.
             let new_line = self.offers_new_line(st)?;
-            if !new_line && st.borrow().mode != PageMode::View {
+            if !new_line && self.blank_rec_without_new_line(st)? {
+                return self.settle_on_blank_rec(st, &rec);
+            }
+            if !new_line
+                && (st.borrow().mode != PageMode::View
+                    || flag_denied(&self.engine(), st.borrow().object as usize, "InsertAllowed")?)
+            {
                 return unsupported("a list without the new-row line that lost its only row to an action (not pinned)");
             }
             st.borrow_mut().refresh = false;
@@ -2039,6 +2071,7 @@ impl Session {
             }
             st.borrow_mut().cursor = Cursor::None;
             if new_line {
+                st.borrow_mut().gone_blank_shows_line = !filtered;
                 for _ in 0..3 {
                     let fresh = self.initial_fields(table);
                     rec.borrow_mut().fields = fresh;
@@ -2064,6 +2097,62 @@ impl Session {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Whether a list without the new-row line that lost its only row to an action stands on a blank Rec: pinned for a page whose
+    /// InsertAllowed is false, a Worksheet opened for edit, for view or run modally and a List opened for edit
+    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291, :327, :373, :397, :429). A List opened for view without the line
+    /// is not pinned (with the line, pages/W1Update.al:534 pins that it raises nothing), nor is a list without the line for
+    /// another reason (Editable = false, lookup mode, a tree).
+    fn blank_rec_without_new_line(&mut self, st: &St) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        if !flag_denied(&engine, object, "InsertAllowed")? {
+            return Ok(false);
+        }
+        let read_only = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        let lookup_list = st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st);
+        if read_only || lookup_list || self.tree_indentation(st).is_some() {
+            return Ok(false);
+        }
+        let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
+        Ok(match st.borrow().mode {
+            PageMode::Edit => worksheet || self.is_list_page(st),
+            PageMode::View => worksheet,
+            _ => false,
+        })
+    }
+
+    /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
+    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). A Rec
+    /// the page's filters would stamp is not pinned.
+    fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
+        let table = rec.borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        rec.borrow_mut().fields = fresh.clone();
+        self.stamp_from_filters(st, false)?;
+        let stamped = rec.borrow().fields.clone();
+        rec.borrow_mut().fields = fresh;
+        if !Self::same_values(&stamped, &rec.borrow().fields) {
+            return unsupported(
+                "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
+            );
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.cursor = Cursor::None;
+            s.gone_blank_no_new_line = true;
+        }
+        self.set_xrec(st);
+        self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
+        self.page_event(st, "onnewrecordevent", None, Some(true))?;
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         Ok(())
     }
 

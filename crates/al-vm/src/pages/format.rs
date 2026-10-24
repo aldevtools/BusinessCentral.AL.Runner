@@ -110,6 +110,7 @@ impl Session {
     pub(super) fn shows_no_row(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
         st.borrow().cursor == Cursor::None
+            && !st.borrow().gone_blank_shows_line
             && matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Field(_))
     }
 
@@ -1144,7 +1145,21 @@ impl Session {
                  CurrPage.Editable(false) (not pinned)",
             );
         }
+        // A page whose property says `Editable = false` makes its page-variable controls read No as well, also one with its own
+        // `Editable = true` and one in a group outside the repeater: pinned for a List and a Card, opened for edit, for view, by
+        // Page.Run and run modally (pages/lt-outside-worksheet/RmReadOnlyPageVarControl.al:146-:277). Another page type is not.
+        let page_says_read_only = engine.program.objects[st.borrow().object as usize]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        if var_bound && page_says_read_only && !self.is_request_page(st) && !self.is_list_page(st) && !self.is_card(st)
+        {
+            return unsupported(
+                "Editable() of a page-variable control on a page that says Editable = false, other than a List or a Card (not pinned)",
+            );
+        }
         let rec_bound = !var_bound
+            || (page_says_read_only && !self.is_request_page(st))
             || (st.borrow().lookup && self.is_list_page(st))
             || (st.borrow().editable_off && open_lock != Some(PageMode::View))
             // A request page that says `Editable = false` makes its variable-bound fields read No too

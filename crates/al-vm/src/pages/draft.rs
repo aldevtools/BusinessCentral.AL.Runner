@@ -389,6 +389,15 @@ impl Session {
                 .all(|(x, y)| ops::compare(x, y).map(|o| o.is_eq()).unwrap_or(false))
     }
 
+    /// `same_values`, where a Blob of `rec` that no stream wrote since it was read counts as unchanged.
+    fn same_but_unwritten_blobs(rec: &[Value], xrec: &[Value]) -> bool {
+        rec.len() == xrec.len()
+            && rec.iter().zip(xrec).all(|(x, y)| match (x, y) {
+                (Value::Blob(a), Value::Blob(_)) => !a.borrow().written,
+                _ => ops::compare(x, y).map(|o| o.is_eq()).unwrap_or(false),
+            })
+    }
+
     /// The stored row with `rec`'s primary key, whatever the view says.
     pub(super) fn stored_row(&mut self, rec: &Rec) -> Result<Option<Vec<Value>>, Signal> {
         let table = self.table(rec)?;
@@ -596,6 +605,13 @@ impl Session {
         }
         // Only a close with a changed row on a page that does not allow modify is pinned (see `close_denied_modify`).
         if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
+            // A Blob no stream wrote is not a change, also after a CalcFields loaded what it holds: an action that changes nothing
+            // runs no modify trigger and leaves the row alone (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316, :370, :394,
+            // :420, :447; a table without a Blob :340).
+            if Self::same_but_unwritten_blobs(&rec.borrow().fields, &self.page_xrec_fields(st)) {
+                st.borrow_mut().dirty = false;
+                return Ok(());
+            }
             return unsupported(
                 "saving a changed row on a page whose ModifyAllowed is false, other than at Close (not pinned)",
             );

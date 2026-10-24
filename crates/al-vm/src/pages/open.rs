@@ -248,6 +248,8 @@ impl Session {
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
+            s.gone_blank_no_new_line = false;
+            s.gone_blank_shows_line = false;
             s.parts = Vec::new();
             s.areas = self.application_areas.clone();
         }
@@ -540,6 +542,19 @@ impl Session {
             // (corpus testpageteardown/TestPageTeardown.al:3-24).
             self.mark_closed(st);
             return Err(e);
+        }
+        // A Worksheet run modally: First right after the open, on the row it opened on, reads nothing (pages/lt-outside-worksheet/
+        // RmWorksheetGoneRow.al:397 RM_Ws_RunModal_DeleteAllUpdate `handler first = Yes`, `handler open log` only the open's reads).
+        // Opened by OpenEdit, OpenView or Page.Run, or another page type, First keeps reading the row as before (not pinned).
+        if st.borrow().modal
+            && engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
+            && self.is_list(st)
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+        {
+            st.borrow_mut().settled_first_row = true;
         }
         Ok(handler)
     }
