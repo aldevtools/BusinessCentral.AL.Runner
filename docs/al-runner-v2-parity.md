@@ -6,6 +6,8 @@ does with it today. It is the parity page of ADR-016 (gate R, item 1).
 - First written 2026-10-13 (ADR-016, "Release: AL Runner v3").
 - Refreshed 2026-10-22 against `main` at `4111976b8`. Every row was checked
   against the code, `al-runner --help` and the docs on that commit.
+- Updated 2026-10-22 against `main` at `3ee9937e2`: the owner's decisions on the
+  Open rows, Windows signing (DIST-5) and `--isolation required` (SEL-5).
 
 The owner's direction: AL Runner must support everything v2 offers. Commands,
 flags and calls may differ. A migration step and a migration guide are
@@ -52,15 +54,15 @@ LethAL).
 | ID | Feature | v2 reference | Status | AL Runner today |
 |---|---|---|---|---|
 | IN-1 | One or more bundle folders as arguments; one combined summary | `Program.cs` arg loop (lines 480-660); `ProgramSupport/CliText.cs` | Done | `al-runner test APP...`. APP is an app folder, a `*.Source.zip` or an `.app` with source (`--help`, USAGE). |
-| IN-2 | Bundle root found by climbing from any folder below an `app.json` | `Infrastructure/BundleRootValidation.cs` | Open | A folder without an `app.json` is an error (`crates/alrunner-cli/src/apps.rs`, `load`). |
-| IN-3 | A folder holding several apps runs as one bundle per app | `ProgramSupport/Suites.cs`, `docs/server-mode.md` (#5107) | Open | Each APP must be named. Only `--affected-from PATH` splits a folder of test apps (PR 5653). |
-| IN-4 | The same folder named twice runs once | `Infrastructure/BundleRootDeduplication.cs` | Open | Not checked for APP arguments. |
+| IN-2 | Bundle root found by climbing from any folder below an `app.json` | `Infrastructure/BundleRootValidation.cs` | Not planned | Owner, 2026-10-22: not needed to replace v2. A folder without an `app.json` is an error (`crates/alrunner-cli/src/apps.rs`, `load`). |
+| IN-3 | A folder holding several apps runs as one bundle per app | `ProgramSupport/Suites.cs`, `docs/server-mode.md` (#5107) | Not planned | Owner, 2026-10-22: not needed to replace v2. Each APP must be named. Only `--affected-from PATH` splits a folder of test apps (PR 5653). |
+| IN-4 | The same folder named twice runs once | `Infrastructure/BundleRootDeduplication.cs` | Not planned | Owner, 2026-10-22: not needed to replace v2. Not checked for APP arguments. |
 | IN-5 | `app.json` read for identity, dependencies, `platform`/`application` floor, `propagateDependencies`, `internalsVisibleTo`, `preprocessorSymbols` | `ProgramSupport/Dependencies.cs:261`, `Infrastructure/InProcessAppPackager.cs:178` | Partial | Identity, dependencies, the floor and `preprocessorSymbols` are read (`apps.rs`). Missing: `propagateDependencies` and `internalsVisibleTo` are not read. |
 | IN-6 | The project's own `.alpackages` is a dependency source | `DependencyResolver.cs` | Done | Order: `--dep`, `--package-cache`, `.alpackages`, then the artifact feed (`--help`, DEPENDENCIES). |
 | IN-7 | An app sees only its declared dependencies (plus `propagateDependencies`); otherwise `AL0185` | `--guide` (#4096) | Done | `AppSource` has `visible_from` by dependency id. |
 | IN-8 | Preprocessor symbols: `--define`, `--preprocessor-symbols`, `app.json`, built-in `CLEANSCHEMA1..25` | `Program.cs:625,640` | Done | `--define`, `--preprocessor-symbols` and `app.json` work (`--help`, OTHER). v2's built-in `CLEANSCHEMA1..25` set is not copied: the AL compiler predefines none of them (ADR-015 3.9; issue 5615, closed). Projects that need them pass `--define`. |
 | IN-9 | Run inline AL, or a codeunit's `OnRun`, without tests (`execute`) | `ServerProtocol.cs`, `docs/server-mode.md` | Partial | The `serve` command `execute` works (migrating-tools, section 4b). Missing: a command-line form; `al-runner run` is refused as not built (`args.rs`). |
-| IN-10 | Package a folder as `.app` without compiling (`--emit-app`) | `ProgramSupport/SiblingCompile.cs`, `Program.cs:256` | Open | `al-runner package` is refused as not built (`args.rs`). |
+| IN-10 | Package a folder as `.app` without compiling (`--emit-app`) | `ProgramSupport/SiblingCompile.cs`, `Program.cs:256` | Not planned | Owner, 2026-10-22: not needed to replace v2. `al-runner package` is refused as not built (`args.rs`). |
 | IN-11 | Compile one `.app` to a DLL (`--precompile`) | `Program.cs:249` | N/A | AL Runner has no DLLs. |
 | IN-12 | Config file | none (the root `al-runner.json` is not read) | N/A | v2 has none either. |
 
@@ -77,7 +79,7 @@ LethAL).
 | DP-7 | `--package-cache PATH` (repeatable); default scan of `~/.bcartifacts.cache`, artifacts dir, `.alpackages` | `Program.cs:539`, `Provisioning.cs:197` | Partial | `--package-cache` and `--dep` work. `~/.bcartifacts.cache/sandbox` is read for an exact build and as the fallback. Missing: a general scan of that folder. |
 | DP-8 | Resolver rules: app id wins, version is a minimum, highest wins, cycle error, optional dependencies skipped | `DependencyResolver.cs` | Done | `crates/al-deps/src/select.rs`. |
 | DP-9 | Symbols-only versus code-bearing packages; `NO IMPLEMENTATION` report in an "Action needed" block | `DependencyResolver.cs`, `--guide` | Partial | Packages with source win; a missing source names the symbol-only packages found (`select.rs`). Missing: v2's "Action needed" block. |
-| DP-10 | A dependency that ships only compiled code (no AL source) still runs | `DependencyLoader.cs`, `AppLoader.cs` | Open | Cannot be matched: AL Runner has no CLR. Tests that reach such an app are not run, and the message names the app (`docs/manual/what-works.md`). Needs an owner deferral (ADR-016, open question 8). |
+| DP-10 | A dependency that ships only compiled code (no AL source) still runs | `DependencyLoader.cs`, `AppLoader.cs` | Not planned | Owner, 2026-10-22: not needed to replace v2. AL Runner has no CLR. Tests that reach such an app are not run, and the message names the app (`docs/manual/what-works.md`). |
 | DP-11 | Download by ranged ZIP reads; only needed entries | `ArtifactDownloader.cs` | Done | `crates/al-deps/src/zip.rs`, `remote.rs`. |
 | DP-12 | Network failure classification; IPv4/IPv6 multi-address connect | `NetworkDiagnosis.cs`, `MultiAddressConnector.cs` | Partial | Retries and HTTP error texts (`remote.rs`). Missing: v2's failure classes and multi-address connect. |
 | DP-13 | Offline and air-gapped use | `--no-auto-provision` | Done | `--no-download`; a cached build is the fallback when the feed is offline (`--help`). |
@@ -90,7 +92,7 @@ LethAL).
 | DP-20 | `--test-data`: fill the database from a BC `.bak`, one table at first touch | `TestDataProvisioner.cs` | Done | On by default with Microsoft's apps (ADR-020; `docs/manual/test-data.md`). `.bacpac` works too. |
 | DP-21 | `--test-data-company NAME` (prefix match); `--test-data-normalize-company` | same | Partial | `--test-data-company` works. Missing: `--test-data-normalize-company` is refused (`args.rs`). |
 | DP-22 | Pinned `bcbak` reader installed on demand; `AL_RUNNER_BCBAK` | `Infrastructure/BackupReaderProvisioning.cs` | Done | The reader is built in (`crates/al-bcdb`). Nothing to install. |
-| DP-23 | `[test-data]` note under a failure that names an empty table | `Reporter.cs` | Open | The summary lists the tables loaded and left out, but no note under a failure. |
+| DP-23 | `[test-data]` note under a failure that names an empty table | `Reporter.cs` | Not planned | Owner, 2026-10-22: not needed to replace v2. The summary lists the tables loaded and left out, but no note under a failure. |
 | DP-24 | `DotNet` interop | `docs/limitations.md` | Partial | A closed set of framework members runs inside `al-runner`; the rest goes to the .NET 8 helper (ADR-014). Missing: a prebuilt helper; the helper is built on first use and needs the .NET 8 SDK (`docs/manual/what-works.md`, "DotNet"). |
 
 ## 3. Test selection and execution
@@ -101,11 +103,11 @@ LethAL).
 | SEL-2 | Exit 6 when the pattern selects no test | `Program.cs` | Done | Exit 6, also in `--output-json` (PR 5622). |
 | SEL-3 | `--exclude-test` | `Program.cs:520` | Done | `--help`, SELECTION. |
 | SEL-4 | `--isolation codeunit` (default) | `TestExecutor.cs` | Done | `--help`, ISOLATION. |
-| SEL-5 | `--isolation test` and `disabled`; aliases | `Program.cs:658` | Partial | `test` (aliases `function`, `method`) works. Missing: `disabled` refuses every test (issue 5609), and `Commit()` under `test` is refused (issue 5607). |
+| SEL-5 | `--isolation test` and `disabled`; aliases | `Program.cs:658` | Partial | `test` (aliases `function`, `method`) works. New: `--isolation required` runs each test codeunit under its own `RequiredTestIsolation`, as BC 28 and later do (PR 5699). There `Function` and `Disabled` run, `Commit()` included. A codeunit that asks for them and has handlers or an `OnRun` trigger is not run, with the reason. On BC 27 every codeunit runs as `codeunit`, with a note. Missing: `--isolation disabled` still reports every test as not run (issue 5609), and a test that calls `Commit()` under `--isolation test` is still not run (issue 5607). |
 | SEL-6 | Per-test timeout (`--test-timeout`, `AL_RUNNER_TEST_TIMEOUT_SEC`, message `Test exceeded {N}s timeout.`) | `Program.cs:603` | Done | Same flag, variable and message. The limit is CPU time, default 20 s; `Sleep` time counts (PR 5640). |
 | SEL-7 | Watchdog for hung tests; `--resume-aborts`; `--merge-counts`; `--merge-results` | `Infrastructure/AbortResume.cs` | N/A | The time limit stops one test cleanly. No re-exec. |
 | SEL-8 | `--jobs N`: parallel workers | `docs/jobs-unit-claiming.md` | Done | Test codeunits run on threads by default, one per core; `AL_TEST_THREADS` sets the count (`--help`, ENVIRONMENT). There is no `--jobs` flag. |
-| SEL-9 | `--seed N`, `AL_RUNNER_SEED`; seed printed; replay | `docs/run-seed.md` | Open | No seed. Needs an owner decision (ADR-016 gate R1). |
+| SEL-9 | `--seed N`, `AL_RUNNER_SEED`; seed printed; replay | `docs/run-seed.md` | Open | No seed. The owner wants it (2026-10-22). ADR-053 (Proposed) drafts the design. |
 | SEL-10 | `--tdd`: stubs for missing symbols, so the test fails red instead of the compile failing | `TddGeneration.cs`, `--guide` "TDD MODE" | Done | ADR-051: procedures, overloads, fields, enum values, missing codeunits, tables and enums, also in `serve` (PRs 5601, 5616, 5630, 5638, 5644, 5657). |
 | SEL-11 | Several bundles load together so events cross bundles | `README.md` (#4931) | Done | All APPs compile into one program (`apps.rs`, `combined_project`). |
 | SEL-12 | `--per-suite`, `--bundled` | `Program.cs:540` | N/A | v2 pipeline switches. `--per-suite` is refused with a reason. |
@@ -125,10 +127,10 @@ LethAL).
 | OUT-7 | `--output-json`: per-test status, message, stack, duration, summary, exit code | `Reporter.cs` | Done | v2's shape (migrating-tools, section 4). Adds `notRun`, `sleptMs` (PR 5652). |
 | OUT-8 | `--coverage`: Cobertura XML, `--coverage-out` | `AlCoverage*.cs` | Done | `--coverage`, `--coverage-out`, `--coverage-json` (migrating-tools, section 4a). |
 | OUT-9 | Exit codes 0 to 6 and their order | `README.md` "Exit Codes" | Done | 0, 1, 2, 3, 6, plus 7 and 8 for tests not run (`--help`, EXIT CODES). Exit 3 (the APPs do not compile) came with PR 5623. v2's 4 and 5 belong to dev-only flags (DEV-1, DEV-2). |
-| OUT-10 | `--no-strict-exit`: always exit 0 | `Program.cs:601` | Open | Not built. `--allow-not-run` turns only 7 and 8 into 0. |
+| OUT-10 | `--no-strict-exit`: always exit 0 | `Program.cs:601` | Not planned | Owner, 2026-10-22: not needed to replace v2. Not built. `--allow-not-run` turns only 7 and 8 into 0. |
 | OUT-11 | Output paths checked before the run; parent folders created | `Infrastructure/OutputPaths.cs` | Done | `crates/alrunner-cli/src/run.rs` (`write_file`, the check before the run). |
 | OUT-12 | Out-of-scope surfaces fail loudly, with a reason and a scope anchor | `docs/scope.md` | Done | A refused test is "not run" with the reason (hard rule 4). The scope list is ADR-027 and `docs/manual/what-works.md`. |
-| OUT-13 | `[testpage]` note under a failure (the real error behind "The TestPage is not open.") | `Reporter.cs` | Open | Not built. |
+| OUT-13 | `[testpage]` note under a failure (the real error behind "The TestPage is not open.") | `Reporter.cs` | Not planned | Owner, 2026-10-22: not needed to replace v2. Not built. |
 | OUT-14 | `--dump-csharp DIR` | `Program.cs:651` | N/A | No C# stage. |
 | OUT-15 | Timing records: `AL_RUNNER_PHASE_LOG` | `PerfTrace.cs` | Done | `--timings` prints the compile phases and the slowest codeunits. |
 | OUT-16 | `--version`, `--help`, `--guide` | `CliText.cs` | Partial | `--version` and `--help` work. Missing: `al-runner guide` is refused as not built (`args.rs`). |
@@ -202,7 +204,7 @@ older.
 | DIST-2 | Windows, Linux (x64, arm64), macOS | `README.md` | Partial | Linux x64, Windows x64, macOS arm64. Missing: Linux arm64, macOS Intel, Windows arm64. |
 | DIST-3 | Linux needs no C compiler (prebuilt Win32 shim) | `README.md` | N/A | No shim. |
 | DIST-4 | One engine per BC minor inside the package | `AlRunner.csproj:255-290` | N/A | One binary for all BC versions (ADR-015). |
-| DIST-5 | Authenticode-signed binaries | `.github/workflows/publish.yml` (`sign-and-pack`) | Open | No signing and no macOS notarization. Releases carry SHA256SUMS and build provenance attestations. |
+| DIST-5 | Authenticode-signed binaries | `.github/workflows/publish.yml` (`sign-and-pack`) | Done | The Windows `al-runner.exe` is Authenticode-signed with Azure Trusted Signing, and the build checks the signature (`.github/workflows/build-packages.yml`; PRs 5669, 5673). The macOS and Linux binaries are not signed, and macOS has no notarization (owner decision). Releases carry SHA256SUMS and build provenance attestations. |
 | CI-1 | JUnit XML for CI systems | `CHANGELOG.md` 1.0.12 | Done | `--junit` (OUT-6). |
 | CI-2 | Cobertura XML | `.github/workflows/coverage-demo.yml` | Done | `--coverage-out` (OUT-8). |
 | CI-3 | Exit codes as a gate; `--no-strict-exit` | `README.md` | Partial | Exit codes work (OUT-9). Missing: `--no-strict-exit` (OUT-10). |
@@ -240,25 +242,26 @@ These four rows are not counted below.
 
 | Status | 2026-10-13 | 2026-10-22 |
 |---|---:|---:|
-| Done | 3 | 57 |
+| Done | 3 | 58 |
 | Partial | 36 | 33 |
-| Open (2026-10-13: "No") | 63 | 10 |
-| Not planned | 0 | 2 |
+| Open (2026-10-13: "No") | 63 | 1 |
+| Not planned | 0 | 10 |
 | N/A | 16 | 16 |
 
 The counts come from the tables above. Recount them when a row changes.
 
-The 10 Open rows: IN-2, IN-3, IN-4 (how APP arguments are found), IN-10
-(`package`), DP-10 (compiled-only dependencies), DP-23 and OUT-13 (notes under a
-failure), SEL-9 (`--seed`), OUT-10 (`--no-strict-exit`), DIST-5 (signing).
+The one Open row is SEL-9 (`--seed`). On 2026-10-22 the owner decided that it
+is the only Open row needed to replace v2. The other eight Open rows became Not
+planned: IN-2, IN-3, IN-4 (how APP arguments are found), IN-10 (`package`),
+DP-10 (compiled-only dependencies), DP-23 and OUT-13 (notes under a failure),
+OUT-10 (`--no-strict-exit`). DIST-5 (signing) is Done for Windows.
 
 For gate R1, each Open and Partial row needs to be built or deferred by the owner
-in writing. Candidates for a written deferral: DP-10, SEL-9, IN-10, OUT-10, and
-the missing platforms (DIST-2).
+in writing. A candidate for a written deferral: the missing platforms (DIST-2).
 
 ## What is hard to match, and why
 
-1. **DP-10, compiled-only dependencies.** v2 loads Microsoft's CLR code. AL
+1. **DP-10, compiled-only dependencies** (Not planned, owner 2026-10-22). v2 loads Microsoft's CLR code. AL
    Runner has no CLR, so an app that ships without AL source cannot run. This
    touches ISV and AppSource apps that set `ShowMyCode = false`. Microsoft's own
    apps are not affected: their source is in the artifacts (ADR-013).
