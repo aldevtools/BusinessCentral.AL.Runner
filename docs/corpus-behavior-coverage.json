@@ -16358,9 +16358,18 @@
       },
       {
         "code": "FormCloseNotAllowed",
+        "file": "crates/al-vm/src/pages/open.rs",
+        "generic": false,
+        "line": 1375,
+        "pinned": true,
+        "site": "handlers/TestPageCloseVeto_Tests.al:259",
+        "template": "The page cannot be closed at this time."
+      },
+      {
+        "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3012,
+        "line": 3054,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16564,8 +16573,8 @@
         "template": "Invalid expression of type: table view.%%"
       }
     ],
-    "pinned": 80,
-    "sites": 81
+    "pinned": 81,
+    "sites": 82
   },
   "language": {
     "bc": "27-29",
