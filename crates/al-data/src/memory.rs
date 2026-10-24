@@ -1074,8 +1074,13 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
-        if self.virtual_of(t).is_some() {
-            return Err(self.read_only(t, "Insert"));
+        if let Some(v) = self.virtual_of(t) {
+            if !v.takes_inserts(t) {
+                return Err(self.read_only(t, "Insert"));
+            }
+            if v.get(self, cx, t, &t.primary_key(&row))?.is_some() {
+                return Ok(InsertOutcome::AlreadyExists);
+            }
         }
         self.note_unknown(t, &row);
         let k = Key(t.primary_key(&row));
@@ -1099,6 +1104,12 @@ impl Store for MemStore {
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
         if let Some(v) = self.virtual_of(t) {
+            let k = Key(t.primary_key(&row));
+            if v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
+                self.table_mut(cx, t).insert(k, row);
+                self.touch(cx, t);
+                return Ok(WriteOutcome::Done);
+            }
             let writable = v.writable_columns(t);
             if !writable.is_empty() {
                 let old = v.get(self, cx, t, &t.primary_key(&row))?;
@@ -1147,8 +1158,11 @@ impl Store for MemStore {
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
         bump();
-        if self.virtual_of(t).is_some() {
-            return Err(self.read_only(t, "Delete"));
+        if let Some(v) = self.virtual_of(t) {
+            let k = Key(pk.to_vec());
+            if !(v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k))) {
+                return Err(self.read_only(t, "Delete"));
+            }
         }
         self.note_restored(cx, t, &Key(pk.to_vec()), "Delete", None);
         Ok(match self.table_mut(cx, t).remove(&Key(pk.to_vec())) {
@@ -1370,6 +1384,11 @@ impl Store for MemStore {
 }
 
 impl MemStore {
+    /// Whether table `t` is computed by a provider that keeps the rows an Insert adds ([`crate::VirtualTables::takes_inserts`]).
+    pub fn takes_inserts(&self, t: &TableDef) -> bool {
+        self.virtual_of(t).is_some_and(|v| v.takes_inserts(t))
+    }
+
     /// A virtual table took a change since the last commit (see the field).
     pub fn virtual_write_pending(&self) -> bool {
         self.virtual_write_pending

@@ -2682,6 +2682,21 @@ impl Session {
                         Ok(Value::Boolean(true))
                     }
                     InsertOutcome::AlreadyExists => {
+                        // A duplicate key in Active Session: Insert with a return value answers false and leaves an error whose
+                        // text is not pinned (platform/lt-outside-platform/RvActiveSessionWrites.al:136-171, "Error code:
+                        // 85132273" on Linux, a suspect). Its statement form is not pinned.
+                        if self.store_for(rec).takes_inserts(&t) {
+                            Self::restore_row_version(rec, old_version);
+                            Self::unstamp(rec, stamped);
+                            if self.ret_used {
+                                self.last_error = al_builtins::native::unpinned_error();
+                                return Ok(Value::Boolean(false));
+                            }
+                            return unsupported(format!(
+                                "a duplicate-key Insert into {} in its statement form: not pinned",
+                                t.name
+                            ));
+                        }
                         // A key that only the column's rounding makes a duplicate: what Insert answers and the error it
                         // names are not pinned (P130DateFilters.al:576-589 pins only a key the column holds as it is).
                         if !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&row)) {

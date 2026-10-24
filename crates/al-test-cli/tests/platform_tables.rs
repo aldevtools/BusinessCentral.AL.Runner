@@ -2154,3 +2154,47 @@ codeunit 50000 "T" { Subtype = Test;
     let why = not_run(&o, "EditableRead");
     assert!(why.contains("editable is an expression"), "{why}");
 }
+
+/// Active Session takes an Insert: the row is stored next to the session's own, Get, Count, Modify and Delete see it, a
+/// rollback removes it, and the Session table does not list it (platform/lt-outside-platform/RvActiveSessionWrites.al:42-240,
+/// AL Runner issue 5807). A duplicate key answers false with an error whose text is not pinned (:136); its statement form
+/// and a write to the session's own row are not pinned.
+#[test]
+fn an_active_session_insert_is_stored_and_read_back() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  local procedure Copy(var A: Record "Active Session"; Id: Integer; U: Text) begin A.Get(ServiceInstanceId(), SessionId()); A.Validate("Session ID", Id); A.Validate("Session Unique ID", CreateGuid()); A.Validate("User ID", U); end;
+  [Test] procedure InsertGet() var A: Record "Active Session"; B: Record "Active Session"; N: Integer; begin N := A.Count(); Copy(A, -1000001, 'OTHER');
+    if not A.Insert(false) then Error('insert'); if not B.Get(ServiceInstanceId(), -1000001) then Error('get'); if B."User ID" <> 'OTHER' then Error('user');
+    if A.Count() - N <> 1 then Error('count'); B.SetRange("Session ID", -1000001); if B.Count() <> 1 then Error('filtered'); end;
+  [Test] procedure InitRow() var A: Record "Active Session"; B: Record "Active Session"; begin A.Init(); A."Server Instance ID" := ServiceInstanceId(); A."Session ID" := -1000003; A."User ID" := 'INIT';
+    if not A.Insert() then Error('insert'); B.Get(ServiceInstanceId(), -1000003); if not IsNullGuid(B."Session Unique ID") then Error('uid');
+    if Format(B."Client Type") <> 'Windows Client' then Error('%1', B."Client Type"); if B."Database Name" <> '' then Error('db'); end;
+  [Test] procedure Duplicate() var A: Record "Active Session"; begin A.Get(ServiceInstanceId(), SessionId()); if A.Insert(false) then Error('own'); end;
+  [Test] procedure ModifyDelete() var A: Record "Active Session"; B: Record "Active Session"; begin Copy(A, -1000004, 'BEFORE'); A.Insert(false); A."User ID" := 'AFTER';
+    if not A.Modify(false) then Error('modify'); B.Get(ServiceInstanceId(), -1000004); if B."User ID" <> 'AFTER' then Error('after');
+    if not A.Delete(false) then Error('delete'); if B.Get(ServiceInstanceId(), -1000004) then Error('found'); if not B.Get(ServiceInstanceId(), SessionId()) then Error('own'); end;
+  [Test] procedure Rollback() var B: Record "Active Session"; H: Codeunit H; begin asserterror H.InsertFail(); if B.Get(ServiceInstanceId(), -1000005) then Error('kept'); end;
+  [Test] procedure NotInSession() var A: Record "Active Session"; S: Record Session; begin Copy(A, -1000006, 'V'); A.Insert(false); S.SetRange("Connection ID", -1000006); if S.Count() <> 0 then Error('session'); end;
+  [Test] procedure DuplicateStatement() var A: Record "Active Session"; begin A.Get(ServiceInstanceId(), SessionId()); A.Insert(false); end;
+  [Test] procedure ModifyOwn() var A: Record "Active Session"; begin A.Get(ServiceInstanceId(), SessionId()); A."User ID" := 'X'; A.Modify(false); end; }
+codeunit 50001 H { procedure InsertFail() var A: Record "Active Session"; begin A.Get(ServiceInstanceId(), SessionId()); A."Session ID" := -1000005; A.Insert(false); Error('fail'); end; }"#,
+    );
+    for t in [
+        "InsertGet",
+        "InitRow",
+        "Duplicate",
+        "ModifyDelete",
+        "Rollback",
+        "NotInSession",
+    ] {
+        passes(&o, t);
+    }
+    not_run(&o, "DuplicateStatement");
+    not_run(&o, "ModifyOwn");
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure DuplicateText() var A: Record "Active Session"; begin A.Get(ServiceInstanceId(), SessionId()); if not A.Insert(false) then if GetLastErrorText() = '' then Error('empty'); end; }"#,
+    );
+    not_run(&o, "DuplicateText");
+}

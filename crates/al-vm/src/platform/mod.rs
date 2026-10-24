@@ -399,6 +399,18 @@ impl Providers {
     }
 
     /// The Feature Key rows: the served ones, with the rows a Modify stored (`Enabled`) over them.
+    /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
+    /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
+    fn active_session_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        let stored = store.stored_rows(cx, t);
+        if stored.is_empty() {
+            return self.listed(t, Virtual::ActiveSession);
+        }
+        let mut entries = self.list_rows(t, Virtual::ActiveSession);
+        entries.extend(stored.into_iter().map(mat::Entry::ok));
+        Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
+    }
+
     fn feature_key_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
@@ -643,6 +655,11 @@ impl VirtualTables for Providers {
         }
     }
 
+    /// Active Session keeps the rows an Insert adds (platform/lt-outside-platform/RvActiveSessionWrites.al, AL Runner issue 5807).
+    fn takes_inserts(&self, t: &TableDef) -> bool {
+        self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
+    }
+
     fn write_refusal(&self, t: &TableDef) -> Option<String> {
         (self.served.get(t.object as usize) == Some(&Some(Virtual::Unprovided))).then(|| {
             format!(
@@ -682,6 +699,7 @@ impl VirtualTables for Providers {
                 Ok(self.with_event_stats(t, self.listed(t, Virtual::EventSubscription)?.get(t, pk)?))
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
+            Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self
                 .listed(t, Virtual::Field)?
                 .get(t, pk)?
@@ -712,6 +730,7 @@ impl VirtualTables for Providers {
                 Ok(self.with_event_stats(t, self.listed(t, Virtual::EventSubscription)?.next(t, scan)?))
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
+            Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -743,6 +762,7 @@ impl VirtualTables for Providers {
                 self.listed(t, Virtual::EventSubscription)?.count(t, filters)
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
+            Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
             k => self.listed(t, k)?.count(t, filters),
         }
     }
