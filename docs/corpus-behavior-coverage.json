@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "6a7b3a231b5274063eb54f81ed73f995f71712df",
+  "corpus_commit": "30c54354fcf46294e49475af8bea1342fe72c538",
   "dimensions": [
     {
       "catalog": 191,
@@ -1867,7 +1867,7 @@
           "site": "_fixtures/ALTRelationOwnDepImportedWriters.al:27"
         },
         {
-          "corpus_uses": 20,
+          "corpus_uses": 26,
           "group": "table/field",
           "ms_uses": 2001,
           "name": "AutoFormatType",
@@ -1912,7 +1912,7 @@
           "site": "_fixtures/reports/ALTRunTxNoneReportInserter.al:25"
         },
         {
-          "corpus_uses": 30,
+          "corpus_uses": 34,
           "group": "table/field",
           "ms_uses": 1770,
           "name": "DecimalPlaces",
@@ -1921,7 +1921,7 @@
           "site": "errors/lt-ms-refusals-129/P129FormatFieldRef.al:53"
         },
         {
-          "corpus_uses": 1701,
+          "corpus_uses": 1703,
           "group": "table/key",
           "ms_uses": 1769,
           "name": "Clustered",
@@ -2065,13 +2065,13 @@
           "site": "handlers/TestPageActionReachability_Objects.al:80"
         },
         {
-          "corpus_uses": 14,
+          "corpus_uses": 18,
           "group": "table/field",
           "ms_uses": 999,
           "name": "AutoFormatExpression",
           "pinned": true,
           "runtime_reads": true,
-          "site": "pages/lt-page-autoformat-lookups/P113AutoFormat.al:16"
+          "site": "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:17"
         },
         {
           "corpus_uses": 5,
@@ -3604,7 +3604,7 @@
           "site": "_fixtures/xmlports/ALTUniversalManualXmlPort.al:21"
         },
         {
-          "corpus_uses": 2866,
+          "corpus_uses": 2868,
           "group": "codeunit",
           "ms_uses": 59,
           "name": "Subtype",
@@ -11407,7 +11407,7 @@
           "site": "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:257"
         },
         {
-          "corpus_uses": 2736,
+          "corpus_uses": 2738,
           "group": "codeunit",
           "ms_uses": 0,
           "name": "TestPermissions",
@@ -14967,7 +14967,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 844870,
+          "corpus_uses": 845822,
           "group": "expression",
           "ms_uses": 1809637,
           "name": "NameRef",
@@ -14976,7 +14976,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 309238,
+          "corpus_uses": 309601,
           "group": "expression",
           "ms_uses": 475470,
           "name": "MemberExpr",
@@ -14985,7 +14985,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 366836,
+          "corpus_uses": 367238,
           "group": "expression",
           "ms_uses": 389686,
           "name": "CallExpr",
@@ -14994,7 +14994,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 258748,
+          "corpus_uses": 259066,
           "group": "statement",
           "ms_uses": 248561,
           "name": "ExprStmt",
@@ -15003,7 +15003,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 40483,
+          "corpus_uses": 40503,
           "group": "statement",
           "ms_uses": 188839,
           "name": "Block",
@@ -15012,7 +15012,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 36671,
+          "corpus_uses": 36694,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -15021,7 +15021,7 @@
           "site": "ALTInternalCodeunit.al:19"
         },
         {
-          "corpus_uses": 6118,
+          "corpus_uses": 6121,
           "group": "statement",
           "ms_uses": 101593,
           "name": "IfStmt",
@@ -15030,7 +15030,7 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 7138,
+          "corpus_uses": 7142,
           "group": "statement",
           "ms_uses": 81177,
           "name": "ExitStmt",
@@ -15039,7 +15039,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 55248,
+          "corpus_uses": 55274,
           "group": "expression",
           "ms_uses": 77744,
           "name": "Literal:Integer",
@@ -15057,7 +15057,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 327305,
+          "corpus_uses": 327788,
           "group": "expression",
           "ms_uses": 54387,
           "name": "Literal:StringLit",
@@ -15066,7 +15066,7 @@
           "site": "BwXaObjects.al:21"
         },
         {
-          "corpus_uses": 2901,
+          "corpus_uses": 2904,
           "group": "expression",
           "ms_uses": 33696,
           "name": "BinExpr =",
@@ -15075,7 +15075,7 @@
           "site": "TestDotNetValueKindsContracts.al:170"
         },
         {
-          "corpus_uses": 795,
+          "corpus_uses": 796,
           "group": "expression",
           "ms_uses": 25509,
           "name": "ParenExpr",
@@ -15138,7 +15138,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 32826,
+          "corpus_uses": 32856,
           "group": "expression",
           "ms_uses": 15888,
           "name": "BinExpr +",
@@ -15156,7 +15156,7 @@
           "site": "_fixtures/Assert.al:186"
         },
         {
-          "corpus_uses": 561,
+          "corpus_uses": 562,
           "group": "statement",
           "ms_uses": 6695,
           "name": "RepeatStmt",
@@ -15192,7 +15192,7 @@
           "site": "TestDotNetValueKindsContracts.al:427"
         },
         {
-          "corpus_uses": 822,
+          "corpus_uses": 823,
           "group": "expression",
           "ms_uses": 3898,
           "name": "BinExpr >",
@@ -15210,7 +15210,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 3679,
+          "corpus_uses": 3682,
           "group": "statement",
           "ms_uses": 3049,
           "name": "AssignStmt +=",
@@ -15228,7 +15228,7 @@
           "site": "calcfields/W4CalcFields.al:381"
         },
         {
-          "corpus_uses": 1659,
+          "corpus_uses": 1660,
           "group": "expression",
           "ms_uses": 2426,
           "name": "PrefixExpr -",
@@ -15291,7 +15291,7 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:48"
         },
         {
-          "corpus_uses": 128,
+          "corpus_uses": 129,
           "group": "expression",
           "ms_uses": 912,
           "name": "BinExpr <=",
@@ -15300,7 +15300,7 @@
           "site": "_fixtures/Assert.al:415"
         },
         {
-          "corpus_uses": 1104,
+          "corpus_uses": 1105,
           "group": "statement",
           "ms_uses": 743,
           "name": "ForStmt",
@@ -15318,7 +15318,7 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:103"
         },
         {
-          "corpus_uses": 518,
+          "corpus_uses": 520,
           "group": "statement",
           "ms_uses": 455,
           "name": "ForeachStmt",
@@ -15345,7 +15345,7 @@
           "site": "handlers/ProbeEventSubscriberOrder.al:80"
         },
         {
-          "corpus_uses": 1914,
+          "corpus_uses": 1917,
           "group": "expression",
           "ms_uses": 279,
           "name": "Literal:Decimal",
@@ -15354,7 +15354,7 @@
           "site": "_fixtures/ALTImplicitReturnCallee.al:28"
         },
         {
-          "corpus_uses": 1021,
+          "corpus_uses": 1027,
           "group": "expression",
           "ms_uses": 268,
           "name": "Literal:TimeLit",
@@ -15516,7 +15516,7 @@
           "site": null
         },
         {
-          "corpus_uses": 4546,
+          "corpus_uses": 4550,
           "group": "statement",
           "ms_uses": 0,
           "name": "AssertErrorStmt",
@@ -15595,7 +15595,7 @@
           "site": "_fixtures/ALTTryFunctionNoExitProbe.al:43"
         },
         {
-          "corpus_uses": 2866,
+          "corpus_uses": 2867,
           "group": "procedure",
           "ms_uses": 603,
           "name": "TryFunction",
@@ -15694,7 +15694,7 @@
           "site": "network/lt-ay-http-handler/AyHttpHandler.al:35"
         },
         {
-          "corpus_uses": 32,
+          "corpus_uses": 33,
           "group": "procedure",
           "ms_uses": 0,
           "name": "MessageHandler",
@@ -15793,7 +15793,7 @@
           "site": "errors/lt-ms-refusals-133/P133MessageInHandlers.al:100"
         },
         {
-          "corpus_uses": 18491,
+          "corpus_uses": 18498,
           "group": "procedure",
           "ms_uses": 0,
           "name": "Test",
@@ -15838,7 +15838,7 @@
           "site": "events/lt-platform-triggers/PtObserve.al:610"
         },
         {
-          "corpus_uses": 1458,
+          "corpus_uses": 1459,
           "group": "procedure",
           "ms_uses": 0,
           "name": "HandlerFunctions",
@@ -16279,7 +16279,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 606,
+        "line": 602,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16378,7 +16378,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1480,
+        "line": 1470,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16468,7 +16468,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3937,
+        "line": 3747,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -19475,7 +19475,7 @@
         "owner": "Field",
         "pinned": true,
         "scope": "",
-        "site": "pageext/lt-u-page-props/UPageObjects.al:43",
+        "site": "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:17",
         "state": "implemented"
       },
       {

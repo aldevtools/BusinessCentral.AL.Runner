@@ -44,6 +44,7 @@ mod in_precedence;
 mod interfaces;
 mod json_remove_statement;
 mod json_text_as_decimal;
+mod json_time_milliseconds;
 mod keyword_variable_names;
 mod lane_bump28;
 mod lane_captions;

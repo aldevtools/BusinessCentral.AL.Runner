@@ -316,6 +316,11 @@ impl Lowerer<'_> {
                 // Evaluate into an Option variable: a variable has no OptionCaption, so a text that is neither an ordinal nor a
                 // member name is a plain rejection (P86Eval.al:Eval Option, `Bet`, `-1`, `1,0`). A field may name a member by its
                 // caption, which the value does not carry, so a field keeps the id that refuses it.
+                if id == "System.Format#1" || id == "System.Format#2" {
+                    if let Some(why) = args.first().and_then(|a| self.decimal_field_format_unpinned(a)) {
+                        return Ok(ir::Expr::Refused(why));
+                    }
+                }
                 let decimal_field_places = if id == "System.Format#1" || id == "System.Format#2" {
                     args.first().and_then(|a| self.decimal_field_places(a))
                 } else {
@@ -636,13 +641,32 @@ impl Lowerer<'_> {
                             || id.starts_with("Dialog.Message#")
                             || id.starts_with("Dialog.Error#"))
                     {
-                        if self.decimal_field_declares_format(a) {
-                            // Refused when it runs: Base Application substitutes such fields on many paths a test never reaches.
-                            ir::Arg::Value(ir::Expr::Refused(
-                                "StrSubstNo, Message or Error %n of a Decimal field with DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
-                            ))
-                        } else {
-                            ir::Arg::Value(self.format_option_field(true, false, a)?)
+                        // A Decimal field that declares its format is substituted as `Format(Rec.Field)`, the version gate
+                        // of an amount without an expression included (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+                        // RW_StrSubstNo_DecimalField_TempRecord, :214 a row read with Get, :293 Message and Error). The places
+                        // are lost through any other carrier (:242: a variable, `(Rec.F)`, `Rec.F + 0`, a FieldRef).
+                        // Refused when it runs for the shapes no corpus test measures (a unit amount without an expression,
+                        // an expression that is not blank, DecimalPlaces beside another AutoFormat).
+                        let pinned = self.decimal_field_format_unpinned(a).is_none();
+                        match self.decimal_field_places(a) {
+                            _ if !self.decimal_field_declares_format(a) || self.decimal_field_is_plain(a) => {
+                                ir::Arg::Value(self.format_option_field(true, false, a)?)
+                            }
+                            Some((places, mode)) if pinned && mode != 2 => ir::Arg::Value(ir::Expr::Builtin {
+                                id: builtin_id("System.FormatDecimalField#1")?,
+                                receiver: None,
+                                args: vec![
+                                    ir::Arg::Value(self.expr(a)?),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Text(places))),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(mode))),
+                                ],
+                                ret_used: true,
+                            }),
+                            _ => ir::Arg::Value(ir::Expr::Refused(
+                                "StrSubstNo, Message or Error %n of a Decimal field with this DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
+                            )),
                         }
                     } else {
                         ir::Arg::Value(self.expr(a)?)

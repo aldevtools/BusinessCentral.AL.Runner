@@ -429,8 +429,7 @@ impl Lowerer<'_> {
     }
 
     /// Whether `arg` is a Decimal table field that declares how it is formatted (`DecimalPlaces`, `AutoFormatType` or
-    /// `AutoFormatExpression`). StrSubstNo, Message and Error `%n` of such a field are not pinned (al-runner issue 5791:
-    /// BC gives `70.00` for an AutoFormatType = 1 field; docs/probes-needed.md).
+    /// `AutoFormatExpression`). StrSubstNo, Message and Error `%n` of such a field substitute `Format` of it (al-runner issue 5791).
     pub(crate) fn decimal_field_declares_format(&mut self, arg: &SyntaxNode) -> bool {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return false;
@@ -447,6 +446,56 @@ impl Lowerer<'_> {
                             .any(|n| k.eq_ignore_ascii_case(n))
                     })
             })
+    }
+
+    /// Whether the Decimal table field `arg` declares only `AutoFormatType = 0`: it formats as a plain Decimal
+    /// (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83 `Amt0`: `70`).
+    pub(crate) fn decimal_field_is_plain(&mut self, arg: &SyntaxNode) -> bool {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return false;
+        };
+        self.members[table]
+            .fields
+            .iter()
+            .find(|f| f.id == field)
+            .is_some_and(|f| {
+                let has = |n: &str| f.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case(n));
+                !has("DecimalPlaces")
+                    && !has("AutoFormatExpression")
+                    && f.properties
+                        .iter()
+                        .any(|(k, v)| k.eq_ignore_ascii_case("AutoFormatType") && v.trim() == "0")
+            })
+    }
+
+    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
+    /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
+    /// `AutoFormatExpression` is pinned (the AutoFormat wins: misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+    /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
+    pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return None;
+        };
+        let f = self.members[table].fields.iter().find(|f| f.id == field)?;
+        if !matches!(f.ty, Ty::Decimal) {
+            return None;
+        }
+        let prop = |n: &str| {
+            f.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                .map(|(_, v)| v.trim().to_string())
+        };
+        prop("DecimalPlaces")?;
+        let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
+        match (aft.as_deref(), expr.as_deref()) {
+            (None | Some("0"), None) | (Some("1"), Some("''")) => None,
+            _ => Some(format!(
+                "Format of Decimal field {} with DecimalPlaces and an AutoFormat beside it (not pinned: only AutoFormatType = 1 \
+                 with a blank AutoFormatExpression is)",
+                f.name
+            )),
+        }
     }
 
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
@@ -472,6 +521,10 @@ impl Lowerer<'_> {
                 .map(|(_, v)| v.trim().to_string())
         };
         let digits = |p: &str| p.split(':').all(|x| x.trim().parse::<u32>().is_ok());
+        // An amount AutoFormat with a blank expression wins over DecimalPlaces (RwDecimalFieldPlaces.al:83 `Dp33Amt1`: `70.00`).
+        if prop("AutoFormatType").as_deref() == Some("1") && prop("AutoFormatExpression").as_deref() == Some("''") {
+            return Some(("2:2".into(), 0));
+        }
         if let Some(p) = prop("DecimalPlaces").filter(|p| digits(p)) {
             return Some((p.replace(' ', ""), 0));
         }

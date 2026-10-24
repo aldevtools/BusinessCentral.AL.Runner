@@ -325,10 +325,16 @@ impl Gate {
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
-            Gate::AutoFormatAmountFieldRoundsFrom28 => &[Evidence {
-                file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
-                lines: "684,697,749,762",
-            }],
+            Gate::AutoFormatAmountFieldRoundsFrom28 => &[
+                Evidence {
+                    file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
+                    lines: "684,697,749,762",
+                },
+                Evidence {
+                    file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
+                    lines: "99,104,127,132,155,160,183,188",
+                },
+            ],
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
