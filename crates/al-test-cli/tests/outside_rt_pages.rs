@@ -587,6 +587,22 @@ fn a_key_field_filter_whose_field_validates_stays_refused() {
 }
 
 #[test]
+fn a_read_of_xrec_s_key_field_on_the_filtered_blank_rec_stays_refused() {
+    // Whether xRec takes the filter value with Rec is not pinned (RtFilteredGoneRow.al reads only Rec).
+    let src = FILTERED_GONE_ROW.replace(
+        "WorkLog.Add('N:' + Format(Rec.\"User Security ID\" = UserSecurityId()));",
+        "WorkLog.Add('N:' + Format(Rec.\"User Security ID\" = UserSecurityId()) + Format(xRec.\"User Security ID\" = UserSecurityId()));",
+    );
+    assert_ne!(src, FILTERED_GONE_ROW);
+    let o = outcome(
+        &src,
+        "Repro Work Tests 50124",
+        "ActionThatAppliesTheOnlyRowOfAUserFilteredWorksheet",
+    );
+    assert!(matches!(o, Outcome::NotRun(_)), "{o:?}");
+}
+
+#[test]
 fn getrangemin_and_getrangemax_in_onopenpage_read_the_run_page_link_value() {
     assert_eq!(
         outcome(

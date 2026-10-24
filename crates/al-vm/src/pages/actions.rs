@@ -2163,7 +2163,7 @@ impl Session {
                 );
             }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneOnlyRowBlankRecTakesKeyFilter);
-            rec.borrow_mut().fields = stamped;
+            rec.borrow_mut().fields = stamped.clone();
         }
         {
             let mut s = st.borrow_mut();
@@ -2171,7 +2171,22 @@ impl Session {
             s.cursor = Cursor::None;
             s.gone_blank_no_new_line = true;
         }
-        self.set_xrec(st);
+        // xRec stays the blank record as on an unfiltered list; whether it takes the filter values with Rec is not pinned
+        // (RtFilteredGoneRow.al reads only Rec), so a read of a stamped field of xRec is refused.
+        let xrec: Vec<Value> = stamped
+            .iter()
+            .zip(fresh)
+            .map(|(a, b)| {
+                if Self::same_values(std::slice::from_ref(a), std::slice::from_ref(&b)) {
+                    b
+                } else {
+                    Value::Unknown(std::sync::Arc::from(
+                        "xRec of a filtered list's blank Rec after its only row was gone (whether it takes the filter is not pinned)",
+                    ))
+                }
+            })
+            .collect();
+        self.set_xrec_fields(st, xrec);
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
