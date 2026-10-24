@@ -122,7 +122,7 @@ jobs:
           - Built: $(date -u +%Y-%m-%d) (UTC)
           - Changes since the previous edge build: $compare
 
-          Not signed. Install: \`curl -fsSL https://github.com/$GH_REPO/releases/download/edge/install.sh | sh -s -- edge\`
+          Windows binary signed; macOS and Linux not signed. Install: \`curl -fsSL https://github.com/$GH_REPO/releases/download/edge/install.sh | sh -s -- edge\`
           Windows: download \`install.ps1\` and run \`./install.ps1 -Version edge\`.
           For a numbered checkpoint, use the newest \`3.0.0-alpha.N\` release instead.
           NOTES

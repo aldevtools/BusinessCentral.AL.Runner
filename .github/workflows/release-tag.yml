@@ -101,8 +101,8 @@ jobs:
           al-runner $VERSION. An alpha: no AL Runner v2 parity, some tests are refused ("not run")
           with a reason, and results may change.
 
-          The binaries are not signed. See "Try the alpha" in the README for the macOS and
-          Windows steps. Install:
+          The Windows binary is signed (Azure Trusted Signing). The macOS and Linux binaries are
+          not signed. See "Try the alpha" in the README for the macOS steps. Install:
 
           - mise: \`mise use -g github:$GH_REPO\`, and \`mise up\` to update
           - Linux and macOS: \`curl -fsSL https://github.com/$GH_REPO/releases/download/$GITHUB_REF_NAME/install.sh | sh -s -- $GITHUB_REF_NAME\`
