@@ -1997,6 +1997,12 @@ impl Session {
                 s.window_whole = true;
             }
         }
+        // In a key other than the primary key each step of the scan reads its row once more, as Next does: pinned for a view the
+        // client holds whole (pages/lt-outside-worksheet/RmInitValueKey.al:231 RM_List_OpenEdit `goto log` =
+        // `R:4;R:4;R:4;C:4;R:2;R:2;R:2;C:2;...`, :250, :269, :290, :311). A longer view keeps the assumption.
+        if held < Self::WINDOW && self.still_reads_once_more(st) {
+            return self.read_client_row_in(st, idx, true);
+        }
         self.read_client_row(st, idx)
     }
 

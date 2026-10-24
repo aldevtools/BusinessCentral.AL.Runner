@@ -881,12 +881,53 @@ impl Session {
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
+            if let Some(modal_list) = self.init_record_on_a_key_no_row_has(st)? {
+                return if modal_list {
+                    self.open_on_rec_moved_by_onopenpage(st)
+                } else {
+                    self.page_first_row(st)
+                };
+            }
             self.read_rec_in_its_key(st)?;
             if self.rec_moved_by_onopenpage(st)? {
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
         }
         self.page_first_row(st)
+    }
+
+    /// A Card or List over a database table opened without a record, in a key other than the primary key, whose Rec is still the
+    /// initial record (OnOpenPage left it alone) and stands on a primary key no row has because a key field has an InitValue.
+    /// `Some(true)` for a List run modally, which opens `=><` from Rec (pages/lt-outside-worksheet/RmInitValueKey.al:290
+    /// RM_List_RunModal opens on Line 2, `R:2;R:1;R:3;R:2;R:4;R:2;R:2;R:2;C:2;`); `Some(false)` otherwise, which opens on the first
+    /// row of the view (:231 RM_List_OpenEdit, :250 _OpenView, :269 _PageRun on Line 4, :330 RM_ListDesc_OpenEdit on 3, :349
+    /// RM_Card_OpenEdit and :369 RM_Card_RunModal on 4). A filtered view, lookup mode or OnNextRecord are not pinned and go on
+    /// as before (`read_rec_in_its_key` refuses them).
+    fn init_record_on_a_key_no_row_has(&mut self, st: &St) -> Result<Option<bool>, Signal> {
+        let rec = self.page_rec(st);
+        if rec.borrow().key == 0 || rec.borrow().temporary || !rec.borrow().filters.is_empty() {
+            return Ok(None);
+        }
+        let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
+        if !matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List))
+            || st.borrow().lookup
+            || self.declares(st, "onnextrecord")
+            || self.declares(st, "onfindrecord")
+        {
+            return Ok(None);
+        }
+        let table = rec.borrow().table as usize;
+        let initial = self.initial_fields(table);
+        if !Self::same_values(&rec.borrow().fields, &initial) {
+            return Ok(None);
+        }
+        let key = self.row_key(&rec)?;
+        let t = self.table(&rec)?;
+        let blank: Vec<Value> = t.keys[0].iter().map(|&f| self.default_value(&t.fields[f].ty)).collect();
+        if Self::same_key(&key, &blank) || self.stored_row(&rec)?.is_some() {
+            return Ok(None);
+        }
+        Ok(Some(st.borrow().modal && self.is_list(st)))
     }
 
     /// A Card or List over a database table opened without a record, whose OnOpenPage left Rec on a row in a key other than the
