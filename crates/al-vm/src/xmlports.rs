@@ -554,7 +554,7 @@ impl Session {
             // into false, the instance form raises it
             // (xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing,
             // :InstanceGuardedImport_WithUncommittedWrite_IsRefused_AndImportsNothing).
-            if self.in_write_transaction() {
+            if self.in_write_transaction()? {
                 if self.tx_model == TxModel::AutoRollback {
                     return unsupported("guarded XmlPort.Import with a pending write under AutoRollback (not pinned)");
                 }

@@ -1167,6 +1167,12 @@ pub struct Buffer {
     /// `Clear` kept this buffer: it carries over to a fetch of the same row only; a fetch of another row starts afresh
     /// (record/TestRecordPartialLoadNarrowAfterFetch.al:121-185).
     pub cleared: bool,
+    /// Fields assigned while not loaded: a load of the missing fields (a read of an unloaded field, a Modify) keeps their
+    /// values (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1169-1188).
+    pub assigned: Vec<usize>,
+    /// A read of an unloaded field loaded every missing field: a fetch of another row then loads its load set and nothing
+    /// carries over (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1120 `key_after_next_loaded_Qty` No).
+    pub missing_loaded: bool,
 }
 
 /// Partial-record state of a record variable. A default one is a full load that fetched nothing.
@@ -1199,6 +1205,9 @@ impl LoadState {
         if let Some(b) = &mut self.buffer {
             if !b.have.contains(pos) {
                 b.unsure.add(pos);
+                if !b.assigned.contains(&pos) {
+                    b.assigned.push(pos);
+                }
             }
         }
     }

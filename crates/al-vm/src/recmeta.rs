@@ -555,6 +555,11 @@ impl Session {
                 }
                 // LockTable sets ReadIsolation back to Default (misc/lt-cv-odd-leads/CvReadIsolationState.al:47-48, :59).
                 rec.borrow_mut().read_isolation = 0;
+                // On a database table it starts the write transaction, on a temporary one not
+                // (codeunit/TestCodeunitRunWriteTransaction.al:211-252 RN_LockTable_WriteTransactionState, _Temporary_).
+                if !rec.borrow().temporary {
+                    self.tx.lock_tx = true;
+                }
                 Ok(Value::Null)
             }
             RecordOp::Consistent => {
@@ -591,6 +596,19 @@ impl Session {
                         let mut r = rec.borrow_mut();
                         if is_iso {
                             r.read_isolation = *i;
+                            // UpdLock set on a database table starts the write transaction before any read
+                            // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`, :340-355). A RepeatableRead
+                            // set without a read, and either on a temporary table, are not pinned.
+                            match (*i, r.temporary) {
+                                (ISOLATION_UPDLOCK, false) => self.tx.lock_tx = true,
+                                (ISOLATION_REPEATABLE_READ, false) => {
+                                    self.tx.lock_unpinned = Some("a ReadIsolation RepeatableRead set without a read")
+                                }
+                                (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
+                                    self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
+                                }
+                                _ => {}
+                            }
                         } else {
                             r.security_filtering = *i;
                         }
@@ -1331,6 +1349,12 @@ impl Session {
                 updates.push((dp, src_fields[sp].clone()));
                 continue;
             }
+            if let (RtType::Text(Some(_)), RtType::Text(Some(to_len)), Value::Text(s)) =
+                (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+                && Value::text_len(s) > *to_len as usize
+            {
+                return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
+            }
             tdd_fits(&schema.fields[dp], &src_fields[sp])?;
             updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
@@ -1367,6 +1391,56 @@ impl Session {
             r.fields[dp] = v;
         }
         Ok(Value::Null)
+    }
+
+    /// A Text value longer than the target Text field: DB:TypeMisMatch with the size text, the target field keeps its value, and
+    /// the primary key fields copied before it stay copied (errors/lt-ms-refusals-130/P130TransferTypes.al:424-480
+    /// RN_Transfer_Text100ToText10_ByValueLength, al-runner issue 5773; :366 for the text). The text names fields and tables by
+    /// name; a field or table whose caption differs, and other fields copied before the failure, are not pinned.
+    fn transfer_too_small(
+        &mut self,
+        rec: &Rec,
+        t: &TableDef,
+        from: &TableDef,
+        (dp, sp): (usize, usize),
+        updates: Vec<(usize, Value)>,
+    ) -> Signal {
+        let caption_is_name = |o: usize| {
+            let obj = &self.engine.program.objects[o];
+            obj.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
+                .is_none_or(|(_, v)| v.trim().trim_matches('\'') == obj.name)
+        };
+        if self.field_caption(t, dp) != t.fields[dp].name
+            || self.field_caption(from, sp) != from.fields[sp].name
+            || !caption_is_name(t.object as usize)
+            || !caption_is_name(from.object as usize)
+        {
+            return Signal::Unsupported(
+                "the TransferFields size error of a field or table whose caption is not its name (not pinned)".into(),
+            );
+        }
+        if updates.iter().any(|(p, _)| !t.keys[0].contains(p)) {
+            return Signal::Unsupported(
+                "a TransferFields that fails on a field after other fields than the primary key were copied (which stay copied is not pinned)"
+                    .into(),
+            );
+        }
+        let mut r = rec.borrow_mut();
+        for (p, v) in updates {
+            r.fields[p] = v;
+        }
+        let (to, src) = (&t.fields[dp].name, &from.fields[sp].name);
+        let len = |ty: &RtType| if let RtType::Text(Some(n)) = ty { *n } else { 0 };
+        let (from_len, to_len) = (len(&from.fields[sp].ty), len(&t.fields[dp].ty));
+        crate::transactions::al_error_code(
+            &format!(
+                "The contents of the {src} field cannot be copied to the {to} field because the size of the {to} field is too small.\\\\Type: Text{to_len} <-- Text{from_len}\\Field: {to} <-- {src}\\Table: {} <-- {}",
+                t.name, from.name
+            ),
+            "DB:TypeMisMatch",
+        )
     }
 
     /// `GetBySystemId(Guid)`: loads the row holding that SystemId, whatever the filters; a miss is
@@ -1778,6 +1852,11 @@ impl Session {
         }
     }
 }
+
+/// Member indexes of the IsolationLevel option (`al_builtins::sysenum`, "isolationlevel").
+pub(crate) const ISOLATION_READ_UNCOMMITTED: i32 = 1;
+pub(crate) const ISOLATION_REPEATABLE_READ: i32 = 3;
+pub(crate) const ISOLATION_UPDLOCK: i32 = 4;
 
 /// The error of `LockTable` with Wait = false (record/lt-record-write/RcBMeta.al:418-419).
 pub(crate) fn lock_table_bad_parm(t: &TableDef) -> Signal {

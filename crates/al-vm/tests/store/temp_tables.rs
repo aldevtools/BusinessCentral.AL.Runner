@@ -77,3 +77,37 @@ fn a_temporary_table_that_is_still_in_use_keeps_its_rows() {
     // `Copy(x, true)` shares the table: the copy sees the rows of the original (record/TestTempTableContracts.al).
     assert!(matches!(call(&mut s, oi, "Shared"), Ok(Value::Integer(1))));
 }
+
+/// al-runner issue 5768: a temporary record handed by value to a `temporary` parameter, or to a parameter of a TableType =
+/// Temporary table, is an empty table with the current values, no filters, the primary key ascending and no marks; the
+/// caller keeps its own (record/lt-qd-temp-param/QdStoredToTempParam.al:283-469).
+#[test]
+fn a_temporary_record_by_value_to_a_temporary_parameter_has_no_view() {
+    let src = r#"
+table 50910 "P Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[10]) { } } keys { key(PK; Id) { } key(N; Name) { } } }
+table 50911 "P Temp" { TableType = Temporary; fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { } } }
+codeunit 50100 C
+{
+    procedure Callee(R: Record "P Row" temporary): Text
+    begin
+        exit(Format(R.Count()) + '|' + R.GetFilters() + '|' + R.CurrentKey() + '|' + Format(R.Ascending()) + '|' +
+            Format(R.MarkedOnly()) + '|' + Format(R.Id) + '=' + R.Name);
+    end;
+    procedure Plain(R: Record "P Temp"): Text begin exit(Format(R.Count()) + '|' + R.GetFilters() + '|' + R.Code); end;
+    procedure F(): Text
+    var T: Record "P Row" temporary; P: Record "P Temp"; S: Text;
+    begin
+        T.Id := 1; T.Name := 'c'; T.Insert(); T.Id := 2; T.Name := 'a'; T.Insert();
+        T.Get(1); T.Mark(true); T.MarkedOnly(true);
+        T.SetCurrentKey(Name); T.Ascending(false); T.SetRange(Id, 1, 2);
+        S := Callee(T) + '#' + T.GetFilters() + '|' + T.CurrentKey() + '|' + Format(T.Count());
+        P.Code := 'A'; P.Insert(); P.Code := 'B'; P.Insert(); P.SetRange(Code, 'A', 'B');
+        exit(S + '#' + Plain(P) + '#' + P.GetFilters());
+    end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "F")),
+        "0||Id|Yes|No|1=c#Marked: Yes, Id: 1..2|Name|1#0||B#Code: A..B"
+    );
+}

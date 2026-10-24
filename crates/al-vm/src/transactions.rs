@@ -238,10 +238,24 @@ impl Session {
     /// transaction, and cannot write to a table (`bg_refuse_write`): its transaction never holds
     /// a change, whatever the caller has pending (handlers/TestPageBgTaskTx_Tests.al:
     /// RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction).
-    pub(crate) fn in_write_transaction(&self) -> bool {
+    ///
+    /// A lock starts it too (`TxState::lock_tx`, codeunit/TestCodeunitRunWriteTransaction.al:211-278); after a lock whose
+    /// effect is not pinned (`TxState::lock_unpinned`) the answer is refused unless a write or a pinned lock opened it.
+    pub(crate) fn in_write_transaction(&self) -> Result<bool, Signal> {
         // A write call starts the transaction even when it changes nothing (record/TestProbeRecordRefContracts.al:
         // WriteTransaction_State: a DeleteAll or ModifyAll of no row).
-        self.pages.bg_worker.is_none() && (self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE)
+        if self.pages.bg_worker.is_some() {
+            return Ok(false);
+        }
+        if self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE || self.tx.lock_tx {
+            return Ok(true);
+        }
+        match self.tx.lock_unpinned {
+            Some(what) => Err(Signal::Unsupported(format!(
+                "whether {what} starts a write transaction (not pinned)"
+            ))),
+            None => Ok(false),
+        }
     }
 
     /// Whether the running test method has no transaction: `TransactionModel::None` outside
@@ -637,7 +651,7 @@ impl Session {
             // while the caller holds an uncommitted write
             // (codeunit/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns).
             // (in_write_transaction is false in a page background worker.)
-            if self.in_write_transaction() {
+            if self.in_write_transaction()? {
                 // The same refusal under AutoRollback, and inside a TryFunction, which traps it
                 // and returns false (codeunit/TestCodeunitRunErrorTextsAndModels.al:93-160 and
                 // :248-262).

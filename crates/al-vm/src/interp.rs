@@ -36,7 +36,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         use al_builtins::builtin_id::{Class, ids};
         if id == ids::DATABASE_ISINWRITETRANSACTION_1 {
-            return Ok(Value::Boolean(self.in_write_transaction()));
+            return Ok(Value::Boolean(self.in_write_transaction()?));
         }
         if class == Class::Xmlport {
             return self.xmlport_builtin(id, recv, &values, ret_used);
@@ -1128,7 +1128,26 @@ impl Session {
                     return Err(Signal::Unsupported(why));
                 }
                 if r.load.partial {
+                    // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
+                    // reads load nothing else (P81LoadFields.al:664-689 CalcFields_OnNotLoadedFlowAndBlob `loaded_qty` No).
+                    let stored = self.engine.program.objects[r.table as usize]
+                        .table
+                        .as_ref()
+                        .and_then(|s| s.fields.get(*pos))
+                        .is_some_and(|f| f.stored);
+                    let missing = stored
+                        && r.load.buffer.as_ref().is_some_and(|b| !b.have.contains(*pos))
+                        && !matches!(r.fields[*pos], Value::Blob(_));
                     drop(r);
+                    if missing && !rc.borrow().temporary {
+                        // A read of a field that is not loaded loads every missing field from the row (partial.rs).
+                        self.load_missing_fields(&rc, Some(*pos))?;
+                        let v = rc.borrow().fields[*pos].clone();
+                        if let Value::Unknown(why) = &v {
+                            return Err(Signal::Unsupported(why.to_string()));
+                        }
+                        return Ok(v);
+                    }
                     rc.borrow_mut().load.touch(*pos);
                 }
                 Ok(v)

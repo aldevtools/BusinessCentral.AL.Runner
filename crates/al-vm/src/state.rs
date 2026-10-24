@@ -42,6 +42,13 @@ pub(crate) struct TxState {
     pub(crate) used_tries: Vec<transactions::UsedTry>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
     pub(crate) inconsistent: Vec<u32>,
+    /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
+    /// under RepeatableRead or UpdLock (codeunit/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
+    pub(crate) lock_tx: bool,
+    /// A lock whose effect on the write transaction is not pinned ran since the last Commit (a RecordRef.LockTable, a
+    /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
+    /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
+    pub(crate) lock_unpinned: Option<&'static str>,
 }
 
 /// Handler functions and notifications of the running test method.

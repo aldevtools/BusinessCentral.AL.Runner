@@ -1227,7 +1227,7 @@ impl Session {
             // Snapshot runs when no write is pending (handlers/TestReportRuntimeContracts.al:
             // 468-482); with a pending write what BC does is not pinned.
             Some("snapshot") => {
-                if self.in_write_transaction() {
+                if self.in_write_transaction()? {
                     return unsupported(format!(
                         "TransactionType = snapshot on report \"{}\" with a pending write (not pinned)",
                         schema.name()
@@ -1249,14 +1249,14 @@ impl Session {
             // A report declaring a TransactionType needs a type change, which BC refuses once a
             // transaction has started; AutoRollback exempts the world, not that rule
             // (record/TestTxModelReportExec.al:243-257, Test12).
-            if differs && self.in_write_transaction() {
+            if differs && self.in_write_transaction()? {
                 return unsupported(
                     "a TransactionType = Update report under AutoRollback with a pending write (not pinned)",
                 );
             }
             return Ok(false);
         }
-        if self.in_write_transaction() {
+        if self.in_write_transaction()? {
             return Err(crate::transactions::transaction_stopped());
         }
         if self.tx.try_depth > 0 {

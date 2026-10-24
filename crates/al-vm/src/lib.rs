@@ -863,6 +863,8 @@ impl Session {
                 try_depth: 0,
                 used_tries: Vec::new(),
                 inconsistent: Vec::new(),
+                lock_tx: false,
+                lock_unpinned: None,
             },
             ui_state: UiState {
                 scope: None,
@@ -946,6 +948,8 @@ impl Session {
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
+        self.tx.lock_tx = false;
+        self.tx.lock_unpinned = None;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -957,7 +961,8 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
-        self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE;
+        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
+        self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
@@ -990,6 +995,8 @@ impl Session {
     /// The `Consistent(false)` marks end with the transaction too.
     fn end_write_phase(&mut self) {
         self.tx.inconsistent.clear();
+        self.tx.lock_tx = false;
+        self.tx.lock_unpinned = None;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
         }
@@ -1504,8 +1511,15 @@ impl Session {
                 // QF_StoredRecord_KeyAndOrder_ToTemporaryParameter `callee.view = VERSION(1) SORTING(Field1)`, `callee.order = 1,2,3,`;
                 // QF_StoredRecord_Marks_ToTemporaryParameter and _MarksNotMarkedOnly_: `callee.markedOnly = No`, `callee.marks =
                 // 1=No,2=No,3=No,`; corpus bump 37).
+                // A temporary record handed by value to a parameter declared `temporary`, or to one of a TableType = Temporary
+                // table, is the same: an empty table of its own, the current values, no filters in any filter group, the primary
+                // key ascending, no marks (QdStoredToTempParam.al:283-317 RN_TempRecord_ToTemporaryParameter, :319-344
+                // _FilterGroups_, :346-381 _KeyAndOrder_, :383-416 _Marks_; :427-469 RN_TableTypeTemporary_ByValueParameter for
+                // the parameter with and without `temporary`; al-runner issue 5768).
                 (Value::Record(rc), false)
-                    if !rc.borrow().temporary && matches!(r.locals[i].ty, RtType::Record(_, true)) =>
+                    if matches!(r.locals[i].ty, RtType::Record(_, true))
+                        || (rc.borrow().temporary
+                            && matches!(r.locals[i].ty, RtType::Record(t, false) if self.engine.object_facts[t as usize].temporary())) =>
                 {
                     let mut st = rc.borrow().clone();
                     st.key = 0;
@@ -1706,6 +1720,10 @@ impl Session {
         let value = match (&r.ret, ret, r.ret_local) {
             (Some(t), Some(v), _) => ops::convert_plain(v, t)?,
             (Some(_), None, Some(l)) => frame.locals[l].clone(),
+            // A Record left by a bare `exit;` or by the end of the body is a fresh record of its table, with the InitValue
+            // values (misc/lt-inferred-behaviors/P69ProcResultField.al:424-480 RN_BareExit_ReturnsRecord, RnNoExit; al-runner
+            // issue 5757).
+            (Some(t @ RtType::Record(..)), None, None) => self.default_value(t),
             (Some(t), None, None) => Value::default_for(t),
             (None, _, _) => Value::Null,
         };

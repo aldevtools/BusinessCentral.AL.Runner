@@ -268,7 +268,11 @@ impl Session {
             // line 77, but the first read in each test follows a DeleteAll): refused. platform/lt-platform-members/PlTDatabase.al:250-264
             // pins the bounds 0 <= value <= LastUsedRowVersion() + 1 only.
             ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
-                if self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.last_commit_wrote {
+                if self.tx.tx_phase == crate::transactions::TX_WRITE
+                    || self.tx.last_commit_wrote
+                    || self.tx.lock_tx
+                    || self.tx.lock_unpinned.is_some()
+                {
                     return unsupported(
                         "Database.MinimumActiveRowVersion in a write transaction or after a Commit that made writes durable (the exact value is not pinned; probe wanted)",
                     );
@@ -319,6 +323,12 @@ impl Session {
                     Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
                 };
                 let (update, snapshot, report) = (1, 2, 4);
+                // After a lock (codeunit/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
+                if self.tx.tx_phase != TX_WRITE && (self.tx.lock_tx || self.tx.lock_unpinned.is_some()) {
+                    return unsupported(
+                        "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
+                    );
+                }
                 match self.tx.tx_phase {
                     TX_FRESH => self.tx.transaction_type = new,
                     TX_WRITE if new == self.tx.transaction_type => {}

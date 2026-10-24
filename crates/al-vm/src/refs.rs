@@ -99,6 +99,15 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
 
 /// The table as the program declares it: without the ad hoc key a record may have appended.
 impl Session {
+    /// A lock through a RecordRef: whether it starts the write transaction is pinned for Record only
+    /// (codeunit/TestCodeunitRunWriteTransaction.al:211-278), so a lock it started is marked as not pinned.
+    fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
+        if !locked_before && self.tx.lock_tx {
+            self.tx.lock_tx = false;
+            self.tx.lock_unpinned = Some(what);
+        }
+    }
+
     fn base_table(&self, t: &TableDef) -> std::sync::Arc<TableDef> {
         self.engine.tables[t.object as usize]
             .clone()
@@ -870,11 +879,20 @@ impl Session {
                     return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
                 }
                 let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
-                self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a)
+                let locked = self.tx.lock_tx;
+                let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
+                self.lock_through_recordref(locked, "a RecordRef.LockTable");
+                r
+            }
+            "ReadIsolation" => {
+                let locked = self.tx.lock_tx;
+                let r = self.record_meta_op(RecordOp::ReadIsolation, &rec, &t, args);
+                self.lock_through_recordref(locked, "a locking RecordRef.ReadIsolation");
+                r
             }
             "ReadConsistency" | "RecordLevelLocking" | "ReadPermission" | "WritePermission" | "CountApprox"
-            | "ReadIsolation" | "SecurityFiltering" | "GetPosition" | "SetPosition" | "Ascending" | "SetRecFilter"
-            | "Mark" | "MarkedOnly" | "ClearMarks" => self.record_meta_op(record_method(method), &rec, &t, args),
+            | "SecurityFiltering" | "GetPosition" | "SetPosition" | "Ascending" | "SetRecFilter" | "Mark"
+            | "MarkedOnly" | "ClearMarks" => self.record_meta_op(record_method(method), &rec, &t, args),
             // Doc (RecordRef.Get): loads the row a RecordId names; the table must be the ref's own.
             "Get" => {
                 let key = match args.first() {

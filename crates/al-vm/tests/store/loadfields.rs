@@ -87,14 +87,15 @@ fn are_fields_loaded_is_false_before_any_fetch() {
 
 #[test]
 fn reading_an_omitted_field_loads_its_real_value() {
-    // record/TestRecordPartialLoad.al:144-190 (PartialLoad_ReadOmittedField_JitLoadsRealValue).
+    // record/TestRecordPartialLoad.al:144-190 (PartialLoad_ReadOmittedField_JitLoadsRealValue); the read loads every field
+    // (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich).
     let body = format!(
         "{SEED} Rec.SetLoadFields(Rec.Amount); Rec.Get(1); {} a += Rec.Name; {} {} exit(a);",
         yn("Rec.AreFieldsLoaded(Rec.Name)"),
         yn("Rec.AreFieldsLoaded(Rec.Name)"),
         yn("Rec.AreFieldsLoaded(Rec.Note)")
     );
-    assert_eq!(text("", &body).unwrap(), "NoalphaYesNo");
+    assert_eq!(text("", &body).unwrap(), "NoalphaYesYes");
 }
 
 #[test]
@@ -375,4 +376,126 @@ fn add_load_fields_of_a_stored_field_after_set_load_fields_loads_a_flow_field_to
         yn("Rec.AreFieldsLoaded(Rec.Cnt)")
     );
     assert_eq!(text("", &body).unwrap(), "YesYesYes");
+}
+
+// ---- al-runner issue 5764 (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1243, writer RN) ----
+
+const RN_SRC: &str = r#"
+table 50810 "LF Row"
+{
+    fields
+    {
+        field(1; Code; Code[10]) { }
+        field(2; Name; Text[30]) { }
+        field(3; Qty; Integer) { }
+        field(4; Notes; Blob) { }
+        field(7; KindFilter; Code[10]) { FieldClass = FlowFilter; }
+    }
+    keys { key(PK; Code) { } }
+}
+codeunit 50100 C
+{
+    local procedure Seed()
+    var R: Record "LF Row";
+    begin
+        R.DeleteAll();
+        R.Code := 'A'; R.Name := 'alpha'; R.Qty := 7; R.Insert();
+        R.Code := 'B'; R.Name := 'beta'; R.Qty := 8; R.Insert();
+    end;
+    local procedure Stored(): Text
+    var R: Record "LF Row";
+    begin
+        R.Get('A'); exit(R.Name + '|' + Format(R.Qty));
+    end;
+    local procedure L(var R: Record "LF Row"): Text
+    begin
+        exit(Format(R.AreFieldsLoaded(R.Name)) + Format(R.AreFieldsLoaded(R.Qty)) + Format(R.AreFieldsLoaded(R.Notes)) +
+            Format(R.AreFieldsLoaded(R.KindFilter)) + Format(R.AreFieldsLoaded(R.SystemId)));
+    end;
+    procedure Jit(): Text
+    var R: Record "LF Row"; K: Record "LF Row"; S: Text;
+    begin
+        Seed();
+        R.SetLoadFields(Name); R.Get('A');
+        S := L(R) + '|' + Format(R.Qty) + '|' + L(R);
+        K.SetLoadFields(Code); K.FindFirst();
+        S += '#' + L(K) + '|' + K.Name + '|' + L(K);
+        K.Next();
+        exit(S + '|' + L(K));
+    end;
+    procedure UnloadedChanged(): Text
+    var P: Record "LF Row"; O: Record "LF Row"; S: Text;
+    begin
+        Seed();
+        P.SetLoadFields(Name); P.Get('A');
+        O.Get('A'); O.Qty := 99; O.Modify();
+        P.Name := 'partial';
+        S := Format(P.Modify()) + '|' + Stored() + '|' + Format(P.AreFieldsLoaded(P.Qty));
+        exit(S + '|' + Format(P.Qty));
+    end;
+    procedure JitAfterChange(): Text
+    var P: Record "LF Row"; O: Record "LF Row";
+    begin
+        Seed();
+        P.SetLoadFields(Name); P.Get('A');
+        O.Get('A'); O.Qty := 99; O.Modify();
+        exit(Format(P.Qty));
+    end;
+    procedure AssignedUnloaded(): Text
+    var P: Record "LF Row"; O: Record "LF Row";
+    begin
+        Seed();
+        P.SetLoadFields(Name); P.Get('A');
+        O.Get('A'); O.Name := 'other'; O.Modify();
+        P.Qty := 5; P.Modify();
+        exit(Stored() + '|' + P.Name);
+    end;
+    procedure SetResults(): Text
+    var R: Record "LF Row"; S: Text;
+    begin
+        S := Format(R.SetLoadFields(KindFilter)) + Format(R.SetLoadFields(Name));
+        exit(S + Format(R.AddLoadFields(Name)) + Format(R.AddLoadFields(KindFilter)) + Format(R.AddLoadFields(Qty)));
+    end;
+}
+"#;
+
+fn rn(routine: &str) -> String {
+    al_testkit::text(al_testkit::run(RN_SRC, routine))
+}
+
+// RN_JitRead_UnloadedField_LoadsWhich: a read of one unloaded field loads every field; the field read joins the load set for
+// the next row. A Blob, a FlowFilter and SystemId read as loaded after a partial fetch (:172-304).
+#[test]
+fn a_read_of_an_unloaded_field_loads_every_field_and_joins_the_load_set() {
+    assert_eq!(
+        rn("Jit"),
+        "YesNoYesYesYes|7|YesYesYesYesYes#NoNoYesYesYes|alpha|YesYesYesYesYes|YesNoYesYesYes"
+    );
+}
+
+// RN_StaleModify_UnloadedFieldChangedElsewhere, _JitReadAfterOtherChange, _UnloadedFieldSetHere_LoadedChangedElsewhere.
+#[test]
+fn modify_of_a_partial_record_keeps_a_field_never_loaded_or_assigned() {
+    assert_eq!(rn("UnloadedChanged"), "Yes|partial|99|Yes|99");
+    assert_eq!(rn("JitAfterChange"), "99");
+    assert_eq!(rn("AssignedUnloaded"), "alpha|5|alpha");
+}
+
+// BR_SetLoadFields_ReturnValue_FlowFieldAndFlowFilter (:991-1028): SetLoadFields answers Yes; AddLoadFields answers No for a
+// FlowFilter and for a field the request holds already; Yes for a new field (record/TestRecordExtended.al:58-65).
+#[test]
+fn set_and_add_load_fields_results() {
+    assert_eq!(rn("SetResults"), "YesYesNoNoYes");
+}
+
+// misc/lt-probes-needed-2/PnBErrorsCollections.al:640-674 SetLoadFields_ThenRead_AndClear: the field read joins the load set
+// for Next, and after Clear no field of the partial buffer is loaded.
+#[test]
+fn after_clear_a_partial_buffer_holds_no_field() {
+    let body = format!(
+        "{SEED} Rec.SetLoadFields(Rec.Name); Rec.FindFirst(); Rec.Amount := Rec.Amount; Rec.Next(); {} Clear(Rec); {} exit(a);",
+        yn("Rec.AreFieldsLoaded(Rec.Amount)"),
+        yn("Rec.AreFieldsLoaded(Rec.Name)")
+    );
+    assert_eq!(text("", &body).unwrap(), "YesNo");
 }

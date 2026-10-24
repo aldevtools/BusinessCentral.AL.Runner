@@ -45,6 +45,7 @@ mod temp_sums_by_ref;
 mod temp_tables;
 mod time_key_rounding;
 mod transactions;
+mod transferfields_size;
 mod user_gaps_filters;
 mod userpersonalization;
 mod usertable;

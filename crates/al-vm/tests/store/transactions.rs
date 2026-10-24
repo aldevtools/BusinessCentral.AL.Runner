@@ -548,3 +548,85 @@ fn a_tableno_codeunit_that_changes_rec_changes_the_callers_record() {
         "changed"
     );
 }
+
+// ---- al-runner issue 5767: LockTable and a locking ReadIsolation start the write transaction ----
+
+fn refused(r: Result<Value, Signal>) -> String {
+    match r {
+        Err(Signal::Unsupported(m)) => m,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+// codeunit/TestCodeunitRunWriteTransaction.al:211-235 RN_LockTable_WriteTransactionState and :237-252 (temporary: No).
+#[test]
+fn locktable_starts_the_write_transaction_until_commit() {
+    assert_eq!(
+        f("var R: Record \"TX T\"; T: Record \"TX T\" temporary; S: Text; begin
+            R.K := 'A'; R.Insert(); Commit();
+            S := Format(Database.IsInWriteTransaction());
+            T.LockTable(); S += Format(Database.IsInWriteTransaction());
+            R.LockTable(); S += Format(Database.IsInWriteTransaction());
+            R.FindFirst(); S += Format(Database.IsInWriteTransaction());
+            Commit(); S += Format(Database.IsInWriteTransaction());
+            R.FindFirst(); S += Format(Database.IsInWriteTransaction());
+            exit(S);
+        end;"),
+        "NoNoYesYesNoNo"
+    );
+}
+
+// codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState.
+#[test]
+fn updlock_set_and_a_repeatable_read_start_the_write_transaction() {
+    assert_eq!(
+        f("var U: Record \"TX T\"; P: Record \"TX T\"; C: Record \"TX T\"; S: Text; begin
+            U.K := 'A'; U.Insert(); Commit();
+            U.ReadIsolation := IsolationLevel::UpdLock; S := Format(Database.IsInWriteTransaction());
+            U.FindFirst(); S += Format(Database.IsInWriteTransaction());
+            Commit();
+            P.ReadIsolation := IsolationLevel::RepeatableRead; P.FindFirst(); S += Format(Database.IsInWriteTransaction());
+            Commit();
+            C.ReadIsolation := IsolationLevel::ReadCommitted; C.FindFirst(); S += Format(Database.IsInWriteTransaction());
+            exit(S);
+        end;"),
+        "YesYesYesNo"
+    );
+}
+
+// codeunit/TestCodeunitRunWriteTransaction.al:280-293 RN_GuardedRun_AfterLockTable: DB:Ok, the codeunit does not run.
+#[test]
+fn a_guarded_run_after_locktable_fails_with_db_ok() {
+    assert_eq!(
+        f("var R: Record \"TX T\"; Ok: Boolean; begin
+            R.LockTable();
+            asserterror Ok := Codeunit.Run(Codeunit::Inserter);
+            R.Reset(); R.SetRange(K, 'M');
+            exit(GetLastErrorCode() + '|' + GetLastErrorText() + '|' + Format(R.Count()));
+        end;"),
+        "DB:Ok|An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance.|0"
+    );
+}
+
+// Not pinned: a RepeatableRead set without a read, and a RecordRef.LockTable. What IsInWriteTransaction answers is refused.
+#[test]
+fn an_unpinned_lock_shape_refuses_is_in_write_transaction() {
+    let m = refused(run("procedure F(): Text var R: Record \"TX T\"; begin
+            R.ReadIsolation := IsolationLevel::RepeatableRead;
+            exit(Format(Database.IsInWriteTransaction()));
+        end;"));
+    assert!(m.contains("not pinned"), "{m}");
+    let m = refused(run("procedure F(): Text var RR: RecordRef; begin
+            RR.Open(50900); RR.LockTable();
+            exit(Format(Database.IsInWriteTransaction()));
+        end;"));
+    assert!(m.contains("not pinned"), "{m}");
+    // A Commit ends the unpinned state.
+    assert_eq!(
+        f("var R: Record \"TX T\"; begin
+            R.ReadIsolation := IsolationLevel::RepeatableRead; Commit();
+            exit(Format(Database.IsInWriteTransaction()));
+        end;"),
+        "No"
+    );
+}

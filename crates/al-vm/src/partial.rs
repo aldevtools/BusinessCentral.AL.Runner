@@ -24,7 +24,7 @@ use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Buffer, FieldSet, Value};
-use al_data::TableDef;
+use al_data::{Store, TableDef};
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
@@ -61,6 +61,9 @@ impl Session {
         let key = &t.keys[r.key.min(t.keys.len() - 1)];
         have.extend(key.iter().copied());
         have.extend(r.filters.iter().map(|f| f.field));
+        // SystemId and the four audit fields are always loaded (record/lt-loadfields-pagesource-validate/P81LoadFields.al:172-190
+        // LoadFields_Name_Get_LoadedFlags `a_loaded_SystemId` to `a_loaded_SystemModifiedBy`; :1047-1120 `key_before_loaded_System*`).
+        have.extend((0..t.fields.len()).filter(|&p| (2_000_000_000..=2_000_000_004).contains(&t.fields[p].id)));
         have.sort_unstable();
         have.dedup();
         // A secondary key ends in the primary key; whether that is loaded is not pinned.
@@ -75,6 +78,8 @@ impl Session {
                 unsure: FieldSet::Of(unsure),
                 row: Some(new_row),
                 cleared: false,
+                assigned: Vec::new(),
+                missing_loaded: false,
             },
             // After a Clear only a whole fetched row stays in hand for a Get of the same row (session/
             // TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded). A partial buffer does not: after FindSet and
@@ -89,6 +94,8 @@ impl Session {
                     unsure: FieldSet::Of(unsure),
                     row: Some(new_row),
                     cleared: false,
+                    assigned: Vec::new(),
+                    missing_loaded: false,
                 }
             }
             Some(old) => {
@@ -96,6 +103,8 @@ impl Session {
                 let mut next = old.clone();
                 next.row = Some(new_row.clone());
                 next.cleared = false;
+                next.assigned.clear();
+                next.missing_loaded = false;
                 if old_row == new_row && !via_get {
                     // A Find on the row the buffer holds reads it again and keeps only what the request names: after a full
                     // FindFirst, `SetLoadFields(Amt)` and another FindFirst, the Name is no longer loaded (recordref/
@@ -118,8 +127,10 @@ impl Session {
                         }
                     }
                 } else {
-                    // Another row: what the old buffer held is not known to carry over.
+                    // Another row: what the old buffer held is not known to carry over, except after a load of every missing
+                    // field, which carries nothing (P81LoadFields.al:1047-1120 `key_after_next_loaded_*`).
                     let carried = match &old.have {
+                        _ if old.missing_loaded => FieldSet::Of(Vec::new()),
                         FieldSet::All => FieldSet::All,
                         FieldSet::Of(h) => FieldSet::Of(h.iter().copied().filter(|p| !have.contains(p)).collect()),
                     };
@@ -145,6 +156,84 @@ impl Session {
         Ok(())
     }
 
+    /// Loads what a partial buffer misses from the stored row, as BC does on a read of a field that is not loaded and on a
+    /// Modify (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1243, al-runner issue 5764): every stored field
+    /// that is neither loaded nor assigned takes the row's current value (`RN_StaleModify_JitReadAfterOtherChange` reads 99,
+    /// `RN_StaleModify_UnloadedFieldChangedElsewhere` keeps the other variable's 99); a loaded field keeps the buffer's value, also
+    /// when it is stale (`RN_StaleModify_UnloadedFieldSetHere_LoadedChangedElsewhere`), and so does an assigned one. Afterwards
+    /// every field is loaded (`name_after_qty_loaded_*` Yes), and the field `read` joins the load set of the next fetch
+    /// (`key_after_next_loaded_Name` Yes, `_Qty` No). A row that is gone, a key changed since the fetch, and a field whose
+    /// state is unsure and whose value differs from the row's are not pinned.
+    pub(crate) fn load_missing_fields(&mut self, rec: &Rec, read: Option<usize>) -> Result<(), Signal> {
+        let (have, unsure, assigned, held) = {
+            let r = rec.borrow();
+            match &r.load.buffer {
+                Some(b) if r.load.partial && !b.cleared && !matches!(b.have, FieldSet::All) => {
+                    (b.have.clone(), b.unsure.clone(), b.assigned.clone(), b.row.clone())
+                }
+                _ => return Ok(()),
+            }
+        };
+        if read.is_some_and(|p| have.contains(p)) {
+            return Ok(());
+        }
+        let t = self.table(rec)?;
+        let fields = rec.borrow().fields.clone();
+        if held.as_deref() != Some(row_id(&t, &fields).as_str()) {
+            return unsupported(
+                "a load of the missing fields of a partial record whose key changed since the fetch (not pinned)",
+            );
+        }
+        let pk = Self::sql_key(rec, &t, &fields);
+        let cx = self.cx.clone();
+        let stored = self
+            .store_for(rec)
+            .get(&cx, &t, &pk)
+            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+        let Some(stored) = stored else {
+            return unsupported("a load of the missing fields of a partial record whose row is gone (not pinned)");
+        };
+        let mut merged = fields;
+        for p in 0..t.fields.len() {
+            if !t.fields[p].stored || have.contains(p) || assigned.contains(&p) {
+                continue;
+            }
+            // A Blob is the same when the buffer's unwritten copy holds the row's bytes.
+            let same = match (&merged[p], &stored[p]) {
+                (Value::Blob(a), Value::Blob(b)) => {
+                    let (a, b) = (a.borrow(), b.borrow());
+                    !a.written && a.bytes == b.bytes
+                }
+                (a, b) => a.identical(b),
+            };
+            if unsure.contains(p) && !same {
+                return unsupported(format!(
+                    "a load of the missing fields of a partial record over field position {p}, whose state the corpus does not pin"
+                ));
+            }
+            merged[p] = match (&merged[p], &stored[p]) {
+                // A Blob the record calculated or wrote keeps its content (P81LoadFields.al:664-689
+                // CalcFields_OnNotLoadedFlowAndBlob); an unread one takes the row's (:1224-1243 RN_StaleModify_BlobChangedElsewhere).
+                (Value::Blob(a), _) if a.borrow().loaded || a.borrow().written => continue,
+                (_, Value::Blob(b)) => Value::Blob(al_builtins::stream::copy_blob_db_row(b)),
+                (_, v) => v.clone(),
+            };
+        }
+        let mut r = rec.borrow_mut();
+        r.fields = merged;
+        if let Some(b) = &mut r.load.buffer {
+            b.have = FieldSet::Of((0..t.fields.len()).collect());
+            b.unsure = FieldSet::Of(Vec::new());
+            b.missing_loaded = true;
+        }
+        if let (Some(p), Some(req)) = (read, &mut r.load.request) {
+            if !req.contains(&p) {
+                req.push(p);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn load_fields_op(
         &mut self,
         method: RecordOp,
@@ -163,12 +252,23 @@ impl Session {
                 // an error of code DB:Ok (record/lt-priority-assumptions/PriorityAssumptions.al:282-312 SetLoadFields,
                 // :303-338 AddLoadFields, real BC 29). The error is pinned for one FlowField as the only argument, after
                 // a SetLoadFields and without a request; a longer list is not pinned. A FlowFilter is not pinned.
+                // SetLoadFields takes a FlowFilter as it takes a FlowField (record/lt-loadfields-pagesource-validate/P81LoadFields.al:
+                // 273-304 LoadFields_FlowFilterField), and answers Yes (:991-1028 BR_SetLoadFields_ReturnValue_FlowFieldAndFlowFilter:
+                // a FlowField, a FlowFilter, a normal field with and without a FlowField, no field). The function form of AddLoadFields
+                // answers No for a FlowField or a FlowFilter alone and raises nothing (`add flowfield`, `add flowfilter` ok|No);
+                // its statement form with a FlowFilter is not pinned.
                 let no_args = wanted.is_empty();
                 let mut wanted = wanted;
-                if let Some(&p) = wanted.iter().find(|&&p| flow_filter(p)) {
-                    return unsupported(format!(
-                        "SetLoadFields or AddLoadFields of field position {p}, a FlowFilter (only a FlowField is pinned)"
-                    ));
+                if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| !stored(p)) && self.ret_used {
+                    if wanted.len() != 1 || rec.borrow().load.request.is_none() {
+                        return unsupported(
+                            "the result of AddLoadFields of a FlowField or FlowFilter among several fields or without a request (not pinned)",
+                        );
+                    }
+                    return Ok(Value::Boolean(false));
+                }
+                if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| flow_filter(p)) {
+                    return unsupported("AddLoadFields of a FlowFilter in its statement form (not pinned)");
                 }
                 if method == RecordOp::AddLoadFields && wanted.iter().any(|&p| !stored(p)) {
                     let p = wanted[0];
@@ -192,6 +292,21 @@ impl Session {
                     // No arguments: back to the default load set (record/TestRecordPartialLoad.al:61-99).
                     (RecordOp::SetLoadFields, true) => r.load.request = None,
                     (RecordOp::SetLoadFields, false) => r.load.request = Some(wanted),
+                    // AddLoadFields answers Yes for a field it adds (record/TestRecordExtended.al:58-65) and No for one the request
+                    // holds already (P81LoadFields.al:1012-1024 `add normal` ok|No, after SetLoadFields(Note)).
+                    (RecordOp::AddLoadFields, _) if self.ret_used => match &mut r.load.request {
+                        None => return Ok(Value::Boolean(false)),
+                        Some(req) => {
+                            let mut added = false;
+                            for p in wanted {
+                                if !req.contains(&p) {
+                                    req.push(p);
+                                    added = true;
+                                }
+                            }
+                            return Ok(Value::Boolean(added));
+                        }
+                    },
                     // Without a request the load is already full: nothing to add. The result is
                     // the documentation's (docs/probes-needed.md).
                     (RecordOp::AddLoadFields, _) => match &mut r.load.request {
@@ -207,7 +322,11 @@ impl Session {
                     },
                     _ => unreachable!(),
                 }
-                Ok(Value::Null)
+                Ok(if self.ret_used {
+                    Value::Boolean(true)
+                } else {
+                    Value::Null
+                })
             }
             RecordOp::SetBaseLoadFields => {
                 // Only the full-load case is pinned as callable (record/TestRecordExtended.al:71-80);
@@ -230,14 +349,13 @@ impl Session {
                 if wanted.is_empty() {
                     return unsupported("AreFieldsLoaded without fields");
                 }
-                if let Some(p) = wanted.iter().find(|&&p| !stored(p) && flow_filter(p)) {
-                    return unsupported(format!("AreFieldsLoaded of field position {p}, a FlowFilter"));
-                }
                 let flow = wanted.iter().any(|&p| !stored(p));
                 let wanted: Vec<usize> = wanted.into_iter().filter(|&p| stored(p)).collect();
                 // A FlowField reads as loaded on a record that fetched a partial request, whether or not it was requested
                 // (PriorityAssumptions.al:282-312 flow_only_cnt_loaded, mixed_cnt_loaded; :325-333 cnt_loaded). A record
-                // that fetched nothing or a whole row is not pinned for it.
+                // that fetched nothing or a whole row is not pinned for it. A FlowFilter reads the same: Yes after a partial
+                // fetch, after a read of an unloaded field and after Next (record/lt-loadfields-pagesource-validate/
+                // P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich, `_loaded_KindFilter`).
                 if flow {
                     let r = rec.borrow();
                     if !r.load.buffer.as_ref().is_some_and(|b| !matches!(b.have, FieldSet::All)) {
@@ -263,9 +381,25 @@ impl Session {
                         || fresh.iter().zip(r.fields.iter()).any(|(a, b)| !a.identical(b));
                     return Ok(Value::Boolean(filled));
                 };
+                // A Blob reads as loaded on a record that holds a partial fetch, requested or not (record/
+                // lt-loadfields-pagesource-validate/P81LoadFields.al:172-190 LoadFields_Name_Get_LoadedFlags `a_loaded_Notes`,
+                // :372-388 LoadFields_BlobNotLoaded_CalcFields `loaded_notes_before`; a Media field is not: `_loaded_Pic` No).
+                let blob = |p: usize| {
+                    schema.is_some_and(|s| {
+                        s.fields
+                            .get(p)
+                            .is_some_and(|f| f.stored && f.ty == al_builtins::value::RtType::Library("Blob".into()))
+                    })
+                };
+                let partial = !matches!(b.have, FieldSet::All);
+                // After Clear a partial buffer holds no field (misc/lt-probes-needed-2/PnBErrorsCollections.al:640-674
+                // SetLoadFields_ThenRead_AndClear `afterClear.name` No).
+                if partial && b.cleared {
+                    return Ok(Value::Boolean(false));
+                }
                 let mut all = true;
                 for &p in &wanted {
-                    if b.have.contains(p) {
+                    if b.have.contains(p) || (partial && blob(p)) {
                         continue;
                     }
                     if b.unsure.contains(p) {

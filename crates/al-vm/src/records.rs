@@ -1466,6 +1466,8 @@ impl Session {
                 unsure: al_builtins::value::FieldSet::Of(Vec::new()),
                 row: None,
                 cleared: false,
+                assigned: Vec::new(),
+                missing_loaded: false,
             });
             r.load.partial = false;
         }
@@ -1508,7 +1510,7 @@ impl Session {
 
     /// The primary key the row of `fields` stands under in the record's store: for a database table with its Time and DateTime
     /// values rounded as the SQL columns hold them (`sqltime::rounded_key`).
-    fn sql_key(rec: &Rec, t: &TableDef, fields: &[Value]) -> Vec<Value> {
+    pub(crate) fn sql_key(rec: &Rec, t: &TableDef, fields: &[Value]) -> Vec<Value> {
         let pk = t.primary_key(fields);
         if rec.borrow().temporary {
             pk
@@ -2182,6 +2184,40 @@ impl Session {
             // A read call starts it too (session/ProbeSystemEnumMembers.al:94-112).
             self.tx.tx_phase = crate::transactions::TX_READ;
         }
+        if !rec.borrow().temporary
+            && matches!(
+                method,
+                RecordOp::Get
+                    | RecordOp::GetBySystemId
+                    | RecordOp::Find
+                    | RecordOp::FindFirst
+                    | RecordOp::FindLast
+                    | RecordOp::FindSet
+                    | RecordOp::Next
+                    | RecordOp::Count
+                    | RecordOp::IsEmpty
+                    | RecordOp::CalcFields
+                    | RecordOp::CalcSums
+            )
+        {
+            use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
+            // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
+            // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other
+            // reads under a locking isolation, and a ReadUncommitted read, are not pinned.
+            match rec.borrow().read_isolation {
+                ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
+                    self.tx.lock_tx = true
+                }
+                ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
+                    self.tx.lock_unpinned =
+                        Some("a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock")
+                }
+                ISOLATION_READ_UNCOMMITTED => {
+                    self.tx.lock_unpinned = Some("a read under ReadIsolation ReadUncommitted")
+                }
+                _ => {}
+            }
+        }
         match method {
             RecordOp::Init => {
                 let mut fresh = self.initial_fields(t.object as usize);
@@ -2585,6 +2621,11 @@ impl Session {
                 // report all fields loaded afterwards, for Modify(true) and Modify(false)
                 // (record/lt-af-record-events/AfModifyLoadFields.al:92, :112, :130). A record nothing was fetched into is not pinned
                 // and stays as it is.
+                // What it writes: the loaded and the assigned fields; a field never loaded or assigned keeps the stored value
+                // (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1127-1243, al-runner issue 5764).
+                if !rec.borrow().temporary {
+                    self.load_missing_fields(rec, None)?;
+                }
                 if let Some(b) = &mut rec.borrow_mut().load.buffer {
                     b.have = al_builtins::value::FieldSet::All;
                     b.unsure = al_builtins::value::FieldSet::Of(Vec::new());
