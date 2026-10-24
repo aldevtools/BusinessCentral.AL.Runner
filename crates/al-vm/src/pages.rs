@@ -403,7 +403,88 @@ impl Session {
                 },
             )?;
         }
+        // What the Editable and Enabled expressions of the repeater's controls read for the row: the variables as its
+        // OnAfterGetRecord left them (`row_prop_vars`).
+        if name == "onaftergetrecord" && declared && result.is_ok() {
+            self.note_row_prop_vars(st)?;
+        }
         result.map(|()| answer)
+    }
+
+    /// The global slots the property `name` (an Editable or Enabled expression) of control `idx` reads, when the control is the
+    /// page's own and the expression is made of the page's variables, constants and operators only (`Editable =
+    /// SequenceEditable`, `Enabled = not Locked`); `None` for any other expression.
+    pub(crate) fn prop_global_slots(&self, st: &St, idx: usize, name: &str) -> Option<Vec<usize>> {
+        fn slots(e: &ir::Expr, out: &mut Vec<usize>) -> bool {
+            match e {
+                ir::Expr::Const(_) => true,
+                ir::Expr::Load(ir::Place::Global(n)) => {
+                    if !out.contains(n) {
+                        out.push(*n);
+                    }
+                    true
+                }
+                ir::Expr::Unary(_, a) | ir::Expr::Convert(_, a) => slots(a, out),
+                ir::Expr::Binary(_, a, b) => slots(a, out) && slots(b, out),
+                _ => false,
+            }
+        }
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let c = &page.controls[idx];
+        if c.owner.is_some() {
+            return None;
+        }
+        let Some(ir::PropVal::Routine(r)) = c.prop(name) else {
+            return None;
+        };
+        let object = st.borrow().object as usize;
+        let body: &[ir::Stmt] = &engine.program.objects[object].routines[*r].body;
+        let [ir::Stmt::Exit(Some(e))] = body else {
+            return None;
+        };
+        let mut out = Vec::new();
+        slots(e, &mut out).then_some(out)
+    }
+
+    /// Notes, for the row the page's record holds, the page variables the Editable and Enabled expressions of the repeater's
+    /// controls read (see `row_prop_vars`).
+    fn note_row_prop_vars(&mut self, st: &St) -> Result<(), Signal> {
+        if !self.has_source(st) || st.borrow().cursor != Cursor::Row || st.borrow().draft {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let n = page_of(&engine, st).controls.len();
+        let mut wanted: Vec<usize> = Vec::new();
+        for i in 0..n {
+            for name in ["editable", "enabled"] {
+                if matches!(page_of(&engine, st).controls[i].prop(name), Some(p) if !matches!(p, ir::PropVal::Lit(_)))
+                    && self.in_repeater(st, i)
+                {
+                    for slot in self.prop_global_slots(st, i, name).unwrap_or_default() {
+                        if !wanted.contains(&slot) {
+                            wanted.push(slot);
+                        }
+                    }
+                }
+            }
+        }
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        let inst = self.owner_instance(st, None);
+        let values: Vec<(usize, Value)> = wanted
+            .into_iter()
+            .map(|slot| (slot, inst.borrow().globals[slot].clone()))
+            .collect();
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let mut s = st.borrow_mut();
+        match s.row_prop_vars.iter_mut().find(|(k, _)| Self::same_key(k, &key)) {
+            Some((_, held)) => *held = values,
+            None => s.row_prop_vars.push((key, values)),
+        }
+        Ok(())
     }
 
     /// What the page variables bound to controls of the repeater hold now: (control index, value).

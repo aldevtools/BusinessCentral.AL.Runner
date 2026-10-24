@@ -1,8 +1,10 @@
 //! TestPage `Editable()` of a repeater control whose Editable expression reads a page variable OnAfterGetRecord sets, after
-//! GoToRecord moves to another row (al-runner issue 5808, the reporter's Worksheet). BC answers per row; the runtime keeps one
-//! value of the variable. Only a Card is pinned (handlers/TestPageEditable_Tests.al:93-112), so the read on a row other than the
-//! one OnAfterGetRecord ran with last is refused until a probe pins the list (docs/probes-needed.md).
+//! GoToRecord moves to another row (al-runner issue 5808, the reporter's Worksheet). BC answers for the row the TestPage stands
+//! on, with the variable as that row's OnAfterGetRecord left it (writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:162
+//! RT_EdWs_OpenEdit_GoToRecord_AB). An expression that calls
+//! code stays refused there.
 
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -77,9 +79,23 @@ codeunit 69962 C
 "#;
 
 #[test]
-fn editable_of_a_repeater_control_after_a_row_move_is_refused() {
-    match al_testkit::run_in(SRC, "C", "Run") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("Editable"), "{why}"),
+fn editable_of_a_repeater_control_follows_the_row_a_move_goes_to() {
+    take_hits();
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Run")), "A:No;B:Yes");
+    assert!(take_hits().is_empty());
+}
+
+#[test]
+fn an_editable_expression_that_calls_code_on_another_row_is_refused() {
+    let src = SRC
+        .replace("Editable = SequenceEditable;", "Editable = IsEditable();")
+        .replace(
+            "    var\n        SequenceEditable: Boolean;",
+            "    local procedure IsEditable(): Boolean\n    begin\n        exit(SequenceEditable);\n    end;\n    var\n        SequenceEditable: Boolean;",
+        );
+    assert!(src.contains("IsEditable(): Boolean"));
+    match al_testkit::run_in(&src, "C", "Run") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("editable"), "{why}"),
         other => panic!("{other:?}"),
     }
 }

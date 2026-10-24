@@ -2005,7 +2005,22 @@ impl Session {
                 | RecordOp::ReadIsolation
                 | RecordOp::SecurityFiltering
         );
-        if !runs {
+        // Rec itself holds the link as filters in filter group 0: GetFilters reads them, GetRangeMin and GetRangeMax of a linked
+        // field the linked value (pages/lt-outside-worksheet-2/
+        // RtLinkRange.al:275 RT_Lr_StatusAndCode_Trap_H1 `A:Order No.: H1, Status: Released`, `Min:H1;Max:H1`, :335 a Code-only
+        // link, :354 const, :373 a filter(..) range `Min:H1;Max:H2`). Filters in another group, or several on the field, are not
+        // pinned.
+        let link_read = match method {
+            RecordOp::GetFilters => rec.borrow().filters.iter().all(|f| f.group == 0),
+            RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
+                let pos = arg_pos(args, 0)?;
+                let r = rec.borrow();
+                let on_field: Vec<&FieldFilter> = r.filters.iter().filter(|f| f.field == pos).collect();
+                matches!(on_field.as_slice(), [only] if only.group == 0)
+            }
+            _ => false,
+        };
+        if !runs && !link_read {
             let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
             return unsupported(format!("Rec.{}() {why}", method.name()));
         }
