@@ -2731,8 +2731,8 @@ impl Session {
 
     /// [`run_page_ui`](Self::run_page_ui); `field`: the call had a field argument (`Page.RunModal(Id, Rec, Rec.Field)`).
     /// With no handler for the page the field changes nothing: the unhandled-UI error is the same as without it
-    /// (corpus errors/lt-last-error-and-events/P70_06RunModalField.al). What a handler sees and what the field
-    /// takes when it answers OK is not pinned, so that is refused.
+    /// (corpus errors/lt-last-error-and-events/P70_06RunModalField.al), and with a TestPage handler neither (P106RunStatic.al).
+    /// With a Page-typed handler a LookupOK answer is refused ([`Self::field_argument_answer`]).
     pub(crate) fn run_page_ui_with(
         &mut self,
         st: &St,
@@ -2821,7 +2821,11 @@ impl Session {
             return Ok(Value::Null);
         };
         let answer = self.answer_page(&st, handler, modal)?;
-        let answer = self.field_argument_answer(field, answer)?;
+        // With a TestPage handler the field argument changes nothing: what the handler sees, the action and the record after
+        // the call are those of the call without it, for a field number, a field value, a FieldRef and an Integer of another
+        // table, on a list and a card, with OK, Cancel, a Close action, a pick and a FilterGroup 2 filter
+        // (pages/lt-page-run-overloads-testpart/P106RunStatic.al:141-700 P106_RunModal_NumRecField*, P106_Run_NumRecField*,
+        // P106_BP_*; :761-866 RP_RunModal_FieldArg_*, RP_Run_FieldArg_FilterGroup2_GoToRecord; al-runner issue 5753).
         self.hand_back_selection(&st, &handed, &answer);
         // After a LookupOK the page variable holds the row the page closed on, and the next run of the variable opens on it;
         // after OK it does not (pages/lt-page-run-overloads-testpart/P106RunInstance.al:P106_Inst_RunModal_LookupMode,
@@ -2841,9 +2845,9 @@ impl Session {
         Ok(answer)
     }
 
-    /// What `Page.RunModal(Id, Rec, Field)` does with the field when a handler answered. Only an answer other than LookupOK is
-    /// accepted, and then the field keeps its value (documented: the field takes the page's value on LookupOK; the corpus pins no
-    /// handler with a field argument, P70_06RunModalField.al has none bound). Microsoft's tests need it: Segment Line.RunCreateInteraction
+    /// What `Page.RunModal(Id, Rec, Field)` does with the field when a Page-typed handler answered. Only an answer other than
+    /// LookupOK is accepted, and then the field keeps its value (the corpus pins the field argument with TestPage handlers only,
+    /// P106RunStatic.al). Microsoft's tests need it: Segment Line.RunCreateInteraction
     /// runs `PAGE.RunModal(PAGE::"Create Interaction", Rec, "Interaction Template Code")` and Tests-Marketing answer it with a
     /// Page-typed handler that leaves Response alone (33 tests). A LookupOK answer stays refused.
     fn field_argument_answer(&self, field: bool, answer: Value) -> Result<Value, Signal> {

@@ -52,6 +52,32 @@ impl Session {
                 let engine = self.engine();
                 let record = match args.get(1) {
                     Some(Value::Record(r)) => Some(r.clone()),
+                    // A Variant that holds a RecordRef runs the page on the RecordRef's record: the handler sees it, and a pick or an
+                    // edit reaches the RecordRef and the Variant (pages/lt-ce-page-run/CePageRun.al:382 PageRunModal_VariantHoldingRecordRef,
+                    // :548 RP_RunModal_VariantRecRef_FieldZero_Card, :594 RP_RunModal_VariantRecRef_FieldNo_ListPick, :633
+                    // RP_Run_VariantRecRef_FieldZero_Card; al-runner issue 5759).
+                    Some(Value::Library(_, lib))
+                        if matches!(&*lib.borrow(), al_builtins::value::LibraryValue::RecordRef(_)) =>
+                    {
+                        match &*lib.borrow() {
+                            al_builtins::value::LibraryValue::RecordRef(r) => Some(r.clone()),
+                            _ => None,
+                        }
+                    }
+                    // A Variant that holds an Integer or a Char is no record (CePageRun.al:654 RP_RunModal_VariantNotARecord_FieldZero).
+                    Some(v @ (Value::Integer(_) | Value::Char(_))) => {
+                        let from = if matches!(v, Value::Integer(_)) {
+                            "NavInteger"
+                        } else {
+                            "NavChar"
+                        };
+                        return Err(error_code(
+                            format!(
+                                "Unable to convert from Microsoft.Dynamics.Nav.Runtime.{from} to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle."
+                            ),
+                            "Conversion",
+                        ));
+                    }
                     None => None,
                     other => return unsupported(format!("Page.Run with {} as the record", other.describe())),
                 };
