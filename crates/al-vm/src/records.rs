@@ -255,6 +255,38 @@ impl Session {
     }
 
     /// Why the caption of the table with object index `object` is not pinned, if it is not.
+    /// `Get` with the RecordId of table `other` (record/lt-record-conversion-assumptions/GetRecordId.al:123-164, al-runner
+    /// issue 5795): with the result used it answers false and raises nothing (P98_Get_RecordId_OtherTable_ResultUsed); unused,
+    /// also in a TryFunction, it raises the error below with code `DB:Ok` (P98_Get_RecordId_OtherTable). What a used Get leaves
+    /// in GetLastErrorText is not pinned, nor whether the text names a table with a caption by its name or by its caption.
+    fn get_other_tables_record_id(&mut self, t: &TableDef, other: usize) -> Result<Value, Signal> {
+        if self.ret_used {
+            self.last_error = al_builtins::native::unpinned_error();
+            return Ok(Value::Boolean(false));
+        }
+        let Some(o) = self.engine.tables.get(other).cloned().flatten() else {
+            return unsupported("Get of a RecordId of a table that was not compiled");
+        };
+        let mut names = Vec::new();
+        for d in [&*o, t] {
+            let caption = self.caption(d);
+            if caption != d.name || self.caption_refused(d.object as usize).is_some() {
+                return unsupported(
+                    "the error of a Get with the RecordId of another table, for a table with a caption: name or caption is not pinned",
+                );
+            }
+            names.push(caption);
+        }
+        Err(Signal::Error(Box::new(AlError {
+            message: format!(
+                "A RecordID from table '{}' cannot be used with a record from table '{}'.",
+                names[0], names[1]
+            ),
+            code: "DB:Ok".into(),
+            ..Default::default()
+        })))
+    }
+
     pub(crate) fn caption_refused(&self, object: usize) -> Option<String> {
         self.engine.program.objects[object]
             .properties
@@ -2852,14 +2884,14 @@ impl Session {
                 // `Get(RecordId)`: the row the RecordId names, as RecordRef.Get(RecordId) does (corpus
                 // recordref/TestRecordRefKeys.al:48). The Record form is pinned for a row that exists
                 // (record/TestSetAutoCalcFieldsOnGet.Codeunit.al:68-79; Base Application's Item
-                // Category Management does `ItemCategory.Get(RecId)`); the RecordId of another table is refused.
+                // Category Management does `ItemCategory.Get(RecId)`).
                 let from_id: Option<Vec<Value>> = match args {
                     [Value::Library(_, l)] => match &*l.borrow() {
                         al_builtins::value::LibraryValue::RecordId { table, key, .. } if *table == t.object => {
                             Some(key.clone())
                         }
-                        al_builtins::value::LibraryValue::RecordId { .. } => {
-                            return unsupported("Get of a RecordId of another table (error text not pinned)");
+                        al_builtins::value::LibraryValue::RecordId { table, .. } => {
+                            return self.get_other_tables_record_id(&t, *table as usize);
                         }
                         // An empty RecordId finds no row: false, no error (record/lt-record-conversion-assumptions/
                         // GetRecordId.al: P98_Get_RecordId_Empty). With the result unused the outcome is not pinned.

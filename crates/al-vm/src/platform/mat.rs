@@ -282,6 +282,18 @@ impl Mat {
     }
 
     pub(crate) fn get(&self, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        // A poisoned row known only by a key prefix stands for every key that starts with it: a Get of such a key cannot
+        // answer that the row is missing (al-runner issue 5790: the one Feature Key row of a minor not measured).
+        if !self.clean {
+            for (i, row) in self.rows.iter().enumerate() {
+                if let Some(why) = &self.poison[i]
+                    && self.known[i] < pk.len()
+                    && key_cmp(&t.primary_key(row)[..self.known[i]], &pk[..self.known[i]]) == Ordering::Equal
+                {
+                    return Err(refusal(t, why));
+                }
+            }
+        }
         Ok(match self.rows.binary_search_by(|r| key_cmp(&t.primary_key(r), pk)) {
             Ok(i) if self.name_only[i].is_some() => None,
             Ok(i) => match &self.poison[i] {
@@ -794,6 +806,26 @@ mod tests {
         // An ID filter that excludes 2 is decided by the known column.
         assert!(matches!(m.count(&t, &[id_filter(1, 1)]), Ok(1)));
         assert!(m.get(&t, &[Value::Integer(2), Value::Text("".into())]).is_err());
+        // A Get of a key the row stands for, past its placeholder, is refused as well (al-runner issue 5790).
+        assert!(m.get(&t, &[Value::Integer(2), Value::Text("b".into())]).is_err());
+        assert!(
+            m.get(&t, &[Value::Integer(1), Value::Text("a".into())])
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            m.get(&t, &[Value::Integer(3), Value::Text("b".into())])
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_get_cannot_miss_a_row_whose_whole_key_is_unknown() {
+        // Feature Key on a minor that was not measured: one row, no key column known (al-runner issue 5790).
+        let t = table();
+        let m = Mat::new(&t, vec![Entry::poisoned_prefix(row(0, ""), 0, "not measured".into())]);
+        assert!(m.get(&t, &[Value::Integer(7)]).is_err());
     }
 
     #[test]
