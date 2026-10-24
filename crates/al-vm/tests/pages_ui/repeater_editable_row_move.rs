@@ -1,10 +1,10 @@
 //! TestPage `Editable()` of a repeater control whose Editable expression reads a page variable OnAfterGetRecord sets, after
 //! GoToRecord moves to another row (al-runner issue 5808, the reporter's Worksheet). BC answers for the row the TestPage stands
 //! on, with the variable as that row's OnAfterGetRecord left it (writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:162
-//! RT_EdWs_OpenEdit_GoToRecord_AB, assumption repeater-editable-follows-row until the corpus bump). An expression that calls
+//! RT_EdWs_OpenEdit_GoToRecord_AB). An expression that calls
 //! code stays refused there.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -82,7 +82,7 @@ codeunit 69962 C
 fn editable_of_a_repeater_control_follows_the_row_a_move_goes_to() {
     take_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Run")), "A:No;B:Yes");
-    assert!(take_hits().contains(&Assumption::RepeaterEditableFollowsRow));
+    assert!(take_hits().is_empty());
 }
 
 #[test]

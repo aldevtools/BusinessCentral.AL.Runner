@@ -598,7 +598,7 @@ fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
 // QZ). The runtime holds the link as a filter, so the reads of Rec's filters, view and rows refuse there. GetFilter of one field
 // runs (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), and so does CurrentKey
 // (handlers/TestPageActionRunPageView.al:134). GetFilters and GetRangeMin/GetRangeMax of Rec itself read the link
-// (assumption run-page-link-open-rec-filters, writer RT's pages/lt-outside-worksheet-2/RtLinkRange.al; tests/outside_rt_pages.rs).
+// (pages/lt-outside-worksheet-2/RtLinkRange.al; tests/outside_rt_pages.rs).
 #[test]
 fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
     let ops = ["GetView", "HasFilter", "Count", "IsEmpty", "FindFirst"];

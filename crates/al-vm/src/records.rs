@@ -1850,7 +1850,7 @@ impl Session {
                 | RecordOp::SecurityFiltering
         );
         // Rec itself holds the link as filters in filter group 0: GetFilters reads them, GetRangeMin and GetRangeMax of a linked
-        // field the linked value (assumption run-page-link-open-rec-filters, writer RT's pages/lt-outside-worksheet-2/
+        // field the linked value (pages/lt-outside-worksheet-2/
         // RtLinkRange.al:275 RT_Lr_StatusAndCode_Trap_H1 `A:Order No.: H1, Status: Released`, `Min:H1;Max:H1`, :335 a Code-only
         // link, :354 const, :373 a filter(..) range `Min:H1;Max:H2`). Filters in another group, or several on the field, are not
         // pinned.
@@ -1864,9 +1864,6 @@ impl Session {
             }
             _ => false,
         };
-        if link_read {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunPageLinkOpenRecFilters);
-        }
         if !runs && !link_read {
             let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
             return unsupported(format!("Rec.{}() {why}", method.name()));

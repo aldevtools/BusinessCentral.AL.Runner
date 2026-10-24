@@ -3,7 +3,7 @@
 //! was: it opens on that row, as a List does (pinned by pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705, the
 //! QT_Temp* tests; the modal and lookup forms are checked by the corpus run). Forms past those pins are refused. A Worksheet
 //! whose OnOpenPage moved Rec or changed its key is not pinned: assumption `worksheet-temp-source-open-row`.
-//! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (assumption `worksheet-db-filled-on-open-row`).
+//! The same Worksheet over a database table opens on the row OnOpenPage left Rec on (pages/lt-outside-worksheet-2/RtFillOnOpen.al).
 
 const SRC: &str = r#"
 table 69980 "OpWs Row" {
@@ -162,13 +162,13 @@ fn a_temporary_worksheet_filled_in_onopenpage_opens_on_the_last_insert() {
 }
 
 /// Writer RT's pages/lt-outside-worksheet-2/RtFillOnOpen.al (al-runner issue 5785): a Worksheet over a database table opens on
-/// the row its OnOpenPage left Rec on, by every route (assumption worksheet-db-filled-on-open-row until the corpus bump).
+/// the row its OnOpenPage left Rec on, by every route.
 #[test]
 fn a_worksheet_over_a_database_table_whose_onopenpage_moves_rec_opens_on_that_row() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "DatabaseSource")), "2");
-    assert!(take_hits().contains(&Assumption::WorksheetDbFilledOnOpenRow));
+    assert!(take_hits().is_empty());
 }
 
 #[test]

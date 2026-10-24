@@ -1228,10 +1228,9 @@ impl Session {
         }
         let page_editable = self.page_editable(st) && !(rec_bound && open_lock == Some(PageMode::New));
         // A Worksheet opened for view answers the Editable expression of a repeater control, read-only as the page is
-        // (assumption repeater-editable-follows-row, writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:253
+        // (pages/lt-outside-worksheet-2/RtRowEditable.al:253
         // RT_EdWs_OpenView_GoToRecord_AB `A:No/No`, `B:Yes/Yes`). Only that reason for a read-only page is pinned.
         if rec_bound && !page_editable && self.view_worksheet_expression(st, idx) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RepeaterEditableFollowsRow);
             return self.row_prop_bool(st, idx, "editable", true);
         }
         Ok((!rec_bound || page_editable) && self.row_prop_bool(st, idx, "editable", true)?)
@@ -1257,7 +1256,7 @@ impl Session {
 
     /// The Editable or Enabled expression `name` of control `idx`, for the row the TestPage stands on. On a repeater row other
     /// than the one OnAfterGetRecord ran with last, BC answers with the page variables as that row's OnAfterGetRecord left them
-    /// (assumption repeater-editable-follows-row, writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:162
+    /// (pages/lt-outside-worksheet-2/RtRowEditable.al:162
     /// RT_EdWs_OpenEdit_GoToRecord_AB `A:No/No`, `B:Yes/Yes`, :181 the other order, :198 swapped data, :217 GoToKey, :232 Next,
     /// Previous, First and Last, :253 OpenView, :272 a List); the Card is pinned (handlers/TestPageEditable_Tests.al:93-112). An
     /// expression that calls code or reads other than the page's own variables, and a page with OnAfterGetCurrRecord, are not
@@ -1294,7 +1293,6 @@ impl Session {
                         "{name} of a repeater control with an expression, on a row other than the one OnAfterGetRecord ran with last (not pinned)"
                     ));
                 };
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RepeaterEditableFollowsRow);
                 let inst = self.owner_instance(st, None);
                 let saved: Vec<(usize, Value)> = held
                     .iter()

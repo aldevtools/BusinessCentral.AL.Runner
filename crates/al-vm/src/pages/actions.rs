@@ -2145,8 +2145,8 @@ impl Session {
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
     /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
     /// Rec takes a single-value filter of a primary-key field set in filter group 0 or 2, before OnNewRecord; a filter on a field
-    /// outside the key or a range is not taken (assumption gone-only-row-blank-rec-takes-key-filter, writer RT's
-    /// pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
+    /// outside the key or a range is not taken
+    /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
     /// 0, :389 a field outside the key, :406 both key fields `N:Yes:5:`, :423 a range, :466 a List). Another filter group, a
     /// value from several filters, PopulateAllFields or a stamped field that validates are not pinned.
     fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
@@ -2162,7 +2162,6 @@ impl Session {
                     "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
                 );
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneOnlyRowBlankRecTakesKeyFilter);
             rec.borrow_mut().fields = stamped.clone();
         }
         {

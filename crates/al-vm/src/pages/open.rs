@@ -1104,8 +1104,8 @@ impl Session {
             && list_type;
         // A Worksheet over a database table in the primary key, without OnNextRecord (OnFindRecord the caller rules out), opens
         // on the row OnOpenPage left Rec on by every route, in lookup mode too; so does a List in lookup mode whose Rec is on
-        // the last row of its view (assumption worksheet-db-filled-on-open-row, writer RT's
-        // pages/lt-outside-worksheet-2/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`, :278 _ACB_OK on
+        // the last row of its view
+        // (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`, :278 _ACB_OK on
         // B, :293 RunModal, :314 lookup RunModal, :336 Page.Run, :353 and :374 OpenEdit, :395 OpenView, :417 RT_FillList_Lookup_ABC_OK).
         // A List in lookup mode on another row, another key or OnNextRecord are not pinned.
         if !rec.borrow().temporary && rec.borrow().key == 0 && !self.declares(st, "onnextrecord") {
@@ -1118,7 +1118,6 @@ impl Session {
                 }
             };
             if worksheet_type || list_lookup_on_last {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetDbFilledOnOpenRow);
                 return Ok(true);
             }
         }
