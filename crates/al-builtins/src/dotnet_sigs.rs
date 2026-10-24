@@ -141,6 +141,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (USER_ACCOUNT_HELPER, "IsUserDelegatedAdmin", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsDelegatedUser", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "GetEffectivePermissionForObject", Ret::Text),
+    (USER_ACCOUNT_HELPER, "IsPermissionSetAssigned", Ret::Boolean),
     (TEST_EXECUTION, "IsInTestMode", Ret::Boolean),
     (COPILOT_FUNCTIONS, "IsPlatformAuthorizationConfigured", Ret::Boolean),
     (PERMISSION_TEST_HELPER, "PermissionTestHelper", Ret::Object),

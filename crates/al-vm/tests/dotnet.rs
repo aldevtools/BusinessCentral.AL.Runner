@@ -1463,6 +1463,8 @@ fn the_declared_result_types_match_the_registry() {
         let args: Vec<Value> = match *member {
             "GetEnvironmentApplicationSetting" => vec![Value::Text("x".into())],
             "GetEffectivePermissionForObject" => continue, // needs a Guid; the AL test above runs it
+            // Needs the Access Control table; al-test-cli tests/platform_tables.rs runs it.
+            "IsPermissionSetAssigned" => continue,
             // Need streams; tests/gzip.rs runs them.
             "GZipStream" | "CopyTo" | "Dispose" | "Close" => continue,
             // Need other runtime objects; tests/host/bitmap.rs runs them.
