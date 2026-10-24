@@ -105,5 +105,9 @@ fn a_modal_page_with_a_part_answers_a_veto_as_one_without_parts() {
 #[test]
 fn a_parts_veto_of_a_page_not_run_modally_stays_refused() {
     let r = run_in(SRC, "C", "PartVetoNotModal");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{}", text(r));
+    assert!(
+        matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+        "{}",
+        text(r)
+    );
 }

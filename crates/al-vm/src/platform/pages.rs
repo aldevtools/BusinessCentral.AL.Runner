@@ -68,59 +68,164 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
         .collect()
 }
 
-/// `where(Field = const(2))` as BC formats a source table view: `WHERE(Field6=CONST(2))`. Only the
-/// single-condition form is pinned (TestPageMetadataSourceObject.al:61-80); a view with sorting,
-/// order or other conditions is not.
+/// A source table view as BC formats it: `SORTING(Field2,Field1) ORDER(1) WHERE(Field2=CONST(1),Field3=FILTER(1..5))`.
+/// Pinned shapes (misc/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId,
+/// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
+/// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
+/// integer range `a .. b`. Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
 fn view_text(o: &Object, table: Option<&Object>, table_objects: &[Object]) -> Result<String, String> {
     let Some(v) = prop(o, "SourceTableView") else {
         return Ok(String::new());
     };
     let not_pinned = || {
         format!(
-            "page '{}': SourceTableView `{v}` (only a single where(field = const(value)) is pinned)",
+            "page '{}': SourceTableView `{v}` (only sorting, order(descending) and where with const or an integer range filter are pinned)",
             o.name
         )
     };
-    let lower = v.to_ascii_lowercase();
-    let inner = lower
-        .trim()
-        .strip_prefix("where(")
-        .and_then(|r| r.strip_suffix(')'))
-        .ok_or_else(not_pinned)?;
-    // Back to the original case for the field name and value.
-    let inner = &v.trim()[6..6 + inner.len()];
-    let (field, rest) = inner.split_once('=').ok_or_else(not_pinned)?;
-    let value = rest
-        .trim()
-        .strip_prefix_ci("const(")
-        .and_then(|r| r.strip_suffix(')'))
-        .ok_or_else(not_pinned)?
-        .trim();
-    if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
-        return Err(not_pinned());
-    }
-    let name = ident(field);
     let table = table.ok_or_else(not_pinned)?;
     let fields = &table.table.as_ref().ok_or_else(not_pinned)?.fields;
-    let f = fields
-        .iter()
-        .find(|f| f.name.eq_ignore_ascii_case(&name))
-        .ok_or_else(not_pinned)?;
-    // An option or enum member is reported by its ordinal (TestPageMetadataSourceObject.al:61-80
-    // declares `Status = const(Active)` and expects `CONST(2)`); a number stays as written.
-    let shown = match &f.ty {
-        RtType::Option(m) => m
+    let field = |name: &str| {
+        let name = ident(name);
+        fields
+            .iter()
+            .find(|f| f.name.eq_ignore_ascii_case(&name))
+            .ok_or_else(not_pinned)
+    };
+    let clauses = view_clauses(v).ok_or_else(not_pinned)?;
+    let (mut sorting, mut order, mut filters) = (None, None, None);
+    for (name, body) in clauses {
+        let slot = match name.to_ascii_lowercase().as_str() {
+            "sorting" => &mut sorting,
+            "order" => &mut order,
+            "where" => &mut filters,
+            _ => return Err(not_pinned()),
+        };
+        if slot.replace(body).is_some() {
+            return Err(not_pinned());
+        }
+    }
+    let mut out = String::new();
+    if let Some(body) = sorting {
+        let ids = split_top(body)
+            .ok_or_else(not_pinned)?
+            .iter()
+            .map(|n| field(n).map(|f| format!("Field{}", f.id)))
+            .collect::<Result<Vec<_>, _>>()?;
+        out.push_str(&format!("SORTING({}) ", ids.join(",")));
+    }
+    if let Some(body) = order {
+        if !body.trim().eq_ignore_ascii_case("descending") {
+            return Err(not_pinned());
+        }
+        out.push_str("ORDER(1) ");
+    }
+    if let Some(body) = filters {
+        let mut conds = Vec::new();
+        for cond in split_top(body).ok_or_else(not_pinned)? {
+            let (name, rest) = cond.split_once('=').ok_or_else(not_pinned)?;
+            let f = field(name)?;
+            let rest = rest.trim();
+            if let Some(value) = rest.strip_prefix_ci("const(").and_then(|r| r.strip_suffix(')')) {
+                conds.push(format!(
+                    "Field{}=CONST({})",
+                    f.id,
+                    const_text(f, value.trim(), table_objects).ok_or_else(not_pinned)?
+                ));
+            } else if let Some(value) = rest.strip_prefix_ci("filter(").and_then(|r| r.strip_suffix(')')) {
+                // An integer range, written `1 .. 5`, reads `1..5` (W2PageMetadata.al:395 E_filter_range).
+                let (a, b) = value.split_once("..").ok_or_else(not_pinned)?;
+                let (a, b) = (a.trim(), b.trim());
+                if !matches!(f.ty, RtType::Integer) || a.parse::<i32>().is_err() || b.parse::<i32>().is_err() {
+                    return Err(not_pinned());
+                }
+                conds.push(format!("Field{}=FILTER({a}..{b})", f.id));
+            } else {
+                return Err(not_pinned());
+            }
+        }
+        out.push_str(&format!("WHERE({})", conds.join(",")));
+    }
+    Ok(out)
+}
+
+/// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
+/// (TestPageMetadataSourceObject.al:61-80 declares `Status = const(Active)` and expects `CONST(2)`), a number as written,
+/// a Text value without its quotes (W2PageMetadata.al:394 `CONST(x)`, :397 `CONST(a b)`).
+fn const_text(f: &al_ir::Field, value: &str, table_objects: &[Object]) -> Option<String> {
+    let plain = |v: &str| !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    match &f.ty {
+        RtType::Text(_) => {
+            let text = string_lit(value)?;
+            (!text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')).then_some(text)
+        }
+        RtType::Option(m) if plain(value) => m
             .iter()
             .position(|x| x.eq_ignore_ascii_case(value))
-            .ok_or_else(not_pinned)?
-            .to_string(),
-        RtType::Enum(e) => objects_enum_ordinal(table_objects, *e, value)
-            .ok_or_else(not_pinned)?
-            .to_string(),
-        RtType::Integer | RtType::BigInteger if value.parse::<i64>().is_ok() => value.to_string(),
-        _ => return Err(not_pinned()),
-    };
-    Ok(format!("WHERE(Field{}=CONST({shown}))", f.id))
+            .map(|p| p.to_string()),
+        RtType::Enum(e) if plain(value) => objects_enum_ordinal(table_objects, *e, value).map(|p| p.to_string()),
+        RtType::Integer | RtType::BigInteger if value.parse::<i64>().is_ok() => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+/// The clauses of a view, `name(body)` separated by white space, with their bodies. `None` when it does not read so.
+fn view_clauses(v: &str) -> Option<Vec<(&str, &str)>> {
+    let mut out = Vec::new();
+    let mut rest = v.trim();
+    while !rest.is_empty() {
+        let open = rest.find('(')?;
+        let name = rest[..open].trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        let close = matching_paren(rest, open)?;
+        out.push((name, &rest[open + 1..close]));
+        rest = rest[close + 1..].trim_start();
+    }
+    Some(out)
+}
+
+/// The index of the `)` that closes the `(` at `open`, outside quotes.
+fn matching_paren(s: &str, open: usize) -> Option<usize> {
+    let (mut depth, mut quote) = (0usize, None::<char>);
+    for (i, c) in s.char_indices().skip_while(|(i, _)| *i < open) {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `body` split at its top-level commas (outside parentheses and quotes), each part trimmed. `None` for an empty part.
+fn split_top(body: &str) -> Option<Vec<&str>> {
+    let (mut parts, mut start, mut depth, mut quote) = (Vec::new(), 0, 0usize, None::<char>);
+    for (i, c) in body.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth = depth.checked_sub(1)?,
+            (None, ',') if depth == 0 => {
+                parts.push(body[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(body[start..].trim());
+    (!parts.iter().any(|p| p.is_empty())).then_some(parts)
 }
 
 fn objects_enum_ordinal(objects: &[Object], enum_object: u32, member: &str) -> Option<i32> {
