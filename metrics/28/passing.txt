@@ -2559,6 +2559,7 @@
 60419 PlainVeto_FieldReadRaisesNotOpen
 60419 PlainVeto_ScopeExitDoesNotAskAgain
 60419 PlainVeto_SecondCloseRaisesNotOpen
+60419 RP_Allowed_LastErrorAfterClose
 60420 ModalPartFlush_BothCloseRoutes_AgreeAboutTheUncommittedPartRow
 60420 ModalPartFlush_HandlerWritesNothing_LeavesThePartTableEmpty
 60420 ModalPartFlush_HandlerWritesPartAndInvokesNothing_PersistsThePartRow
@@ -8362,6 +8363,7 @@
 70867 Modal_HandlerOk_VetoAlways
 70867 Modal_HandlerOk_VetoOnlyOk
 70867 Modal_Lookup_HandlerLookupOk_VetoAlways
+70867 RP_ListWithFactBox_HandlerOk_HostAllows
 70869 ExcludeFlag_DateTimeBooleanOptionArgs
 70869 ExcludeFlag_ErrorInfoMessageFromLabel
 70869 ExcludeFlag_GetWithCompositeKeyMissing
@@ -14674,6 +14676,7 @@
 86889 QT_ValPartSplit_Empty_Next
 86889 QT_ValPartSplit_Empty_Previous
 86889 QT_ValPartSplit_TwoLines_Last
+86889 RP_SharedState_MainAction
 87141 VarGlobal_BothChangeInTurn
 87141 VarGlobal_IntegerAndTextInsideP
 87141 VarGlobal_PChangesParam_QReadsGlobal
@@ -14943,3 +14946,9 @@
 88061 NotSet_ChatCompletions_IsAuthorizationConfigured
 88062 UsingSystemUtilities_RecordInteger_BareAndQualified
 88276 RM_Plain_OpenView_Open
+88506 RQ_C01_FirstTest
+88506 RQ_C02_SecondTest
+88506 RQ_C03_StartSession
+88506 RQ_C04_AfterStartSession
+88507 RQ_C11_NextCodeunitSees
+88509 RQ_F11_NextCodeunitSees
