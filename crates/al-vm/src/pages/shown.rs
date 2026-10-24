@@ -1,0 +1,472 @@
+//! When a page's expression controls are evaluated (al-runner issue 5765). BC's client shows the value an expression control
+//! had when its page last refreshed, not the value it has now. The corpus pins it for a Card with two ListParts and a
+//! CardPart FactBox that show one codeunit's state (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710, codeunit
+//! 86889):
+//! - every page computes its values when it opens (`opened`: all 0);
+//! - an action on the main card refreshes the card and every part, with or without `CurrPage.Update(false)` (:4695
+//!   RP_SharedState_MainAction, :4682 `after_main_update`);
+//! - an action on the FactBox refreshes the FactBox only, also with `CurrPage.Update(false)` in it (:4629
+//!   RP_SharedState_FactBoxAction `after_factbox_action_read`, :4651 RP_SharedState_FactBoxActionWithUpdate);
+//! - `First()` on a ListPart that declares OnAfterGetCurrRecord refreshes that part only (:4641 `after_factbox_action`, :4677
+//!   `after_set`);
+//! - `Next()` on that part and `Next()` on the card (no OnAfterGetRecord, no OnAfterGetCurrRecord, parts without a link)
+//!   refresh no other page (:4679 `after_sub_next`, :4681 `after_main_next`), and code of the test that changes the state
+//!   refreshes nothing (:4676 `after_set_read`).
+//!
+//! Only controls whose expression reads no record and runs no code that writes keep a value (`kept_controls`): computing
+//! them at a refresh changes nothing else. Any other event leaves the page's kept values in doubt: a read then gives the
+//! value as it is now when that is the kept one, and is refused when it changed (whether that event refreshes is not
+//! pinned).
+//!
+//! A control of any other expression is computed when it is read. That is what BC shows only when the page refreshed at
+//! each event since its last pinned refresh, which is not pinned. It is kept, as before, after the calls the baseline
+//! cases need (`DOUBT_KEPT`): a SetValue on the page (handlers/TestPageFieldSharedBinding_Tests.al:137, misc/
+//! lt-protected-var-abs-query-views/P146PageExprSetValue.al:245, :300, :506) or on its host, a GoToRecord of the host and
+//! First on a part (pageupdate/TestPageUpdate.al:73, :116, :143), First on the page itself (handlers/
+//! TestTempIntegerListPart.al:92, pageextensioncontrol/TestPageExtensionControlTrapped_Tests.al:53) and the reads of a
+//! control of any page of the tree: Editable, Enabled, AssertEquals (misc/lt-probes-needed-7/PnGTempControl.al:116), AsDecimal
+//! (TestPageUpdate.al:116) and the As* methods of the other types. These count also when they raise an error
+//! (PnGTempControl.al:116). And an action of the host whose code calls only `CurrPage.Update()` (TestPageUpdate.al:143). After
+//! any other such call a read is refused, except after `TestPage.Next`, `TestPage.Filter`, the `TestFilter` calls,
+//! `TestField.Activate` and `TestField.Caption` (`DOUBT_ASSUMED`): there the read is computed as it is now under assumption
+//! page-expression-control-live-read-after-next-filter-activate, which Microsoft's Tests-ERM need (Price Lists
+//! UI.T003_SalesPriceListsDiscountsFromCustomersList reads `SourceType` after `TestPage.Next`).
+
+use super::*;
+use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
+
+/// What a page's own code did to its page tree during a TestPage call (`PageClients::shown_frames`).
+#[derive(Debug, Clone)]
+pub(crate) enum ShownNote {
+    /// `CurrPage.Update(false)` on this page.
+    UpdateFalse(*const RefCell<PageState>),
+    /// `CurrPage.Update()` or `CurrPage.Update(true)` on this page.
+    UpdateTrue(*const RefCell<PageState>),
+    /// Any other call of `CurrPage` or a `Page` variable.
+    Other,
+}
+
+/// Kinds of unpinned events (`PageState::shown_doubts`): a SetValue on a control of the page, or of its host; a GoToRecord of
+/// the host; First on the page itself; a read of a control (Editable, Enabled, AssertEquals, the As* methods); an action of
+/// the host whose code calls only `CurrPage.Update()` of the host; anything else.
+const DOUBT_SET_VALUE: u8 = 1;
+const DOUBT_HOST_SET_VALUE: u8 = 2;
+const DOUBT_GO_TO_RECORD: u8 = 4;
+const DOUBT_FIRST: u8 = 8;
+const DOUBT_READ: u8 = 16;
+const DOUBT_HOST_ACTION_UPDATE: u8 = 32;
+const DOUBT_OTHER: u8 = 64;
+/// `TestPage.Next`, `TestPage.Filter`, a `TestFilter` call, `TestField.Activate` or `TestField.Caption`: a read of an expression the page does not keep is computed as
+/// it is now, under an assumption (module comment).
+const DOUBT_ASSUMED: u8 = 128;
+/// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
+const DOUBT_KEPT: u8 =
+    DOUBT_SET_VALUE | DOUBT_HOST_SET_VALUE | DOUBT_GO_TO_RECORD | DOUBT_FIRST | DOUBT_READ | DOUBT_HOST_ACTION_UPDATE;
+
+/// What a TestPage call does to the kept values of one page of its tree.
+#[derive(Clone, Copy, PartialEq)]
+enum Effect {
+    /// The page computes its values again.
+    Refresh,
+    /// Pinned to leave the page as it is.
+    Keep,
+    /// Not pinned.
+    Doubt,
+}
+
+impl Session {
+    /// Runs TestPage call `f` on page `st` (the page of a TestPage, TestPart or TestField) and then applies what the call does
+    /// to the kept expression values of the pages of its tree. `arg_false`: the call's first argument is `false`.
+    pub(super) fn shown_client_call(
+        &mut self,
+        method: PageOp,
+        st: &St,
+        target: Option<&ControlTarget>,
+        arg_false: bool,
+        f: impl FnOnce(&mut Self) -> Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
+        if method.recv() == PageRecv::Page {
+            let update = (target.is_none() && method.method() == PageMethod::Update).then_some(arg_false);
+            self.shown_page_code(method, st, update);
+            return f(self);
+        }
+        let root = shown_root(st);
+        self.pages.shown_frames.push((Rc::as_ptr(&root), Vec::new()));
+        let r = f(self);
+        let notes = self.pages.shown_frames.pop().map(|(_, n)| n).unwrap_or_default();
+        let tree = shown_tree(&root);
+        for p in &tree {
+            let effect = match r {
+                Ok(_) => self.shown_effect(method, st, target, &root, p, &notes, &tree),
+                Err(_) => Effect::Doubt,
+            };
+            if effect == Effect::Refresh {
+                self.shown_refresh(p);
+                continue;
+            }
+            // A call pinned to leave the kept values as they are still says nothing about the expressions the page does not
+            // keep: those see the kind of the call (`DOUBT_KEPT`).
+            let on_control = matches!(target, Some(ControlTarget::Control(_)));
+            let is_p = Rc::ptr_eq(st, p);
+            let on_root = Rc::ptr_eq(st, &root);
+            let kind = match method.method() {
+                // A closed page shows nothing; it computes everything again when it opens (`shown_opened`).
+                PageMethod::Close | PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew
+                    if on_root && target.is_none() && r.is_ok() =>
+                {
+                    0
+                }
+                PageMethod::Value if on_control && r.is_ok() => 0,
+                PageMethod::SetValue if is_p && on_control => DOUBT_SET_VALUE,
+                PageMethod::SetValue if on_root && on_control => DOUBT_HOST_SET_VALUE,
+                PageMethod::GoToRecord if on_root && target.is_none() => DOUBT_GO_TO_RECORD,
+                PageMethod::First if is_p && target.is_none() => DOUBT_FIRST,
+                PageMethod::Invoke
+                    if on_root
+                        && on_control
+                        && !notes.is_empty()
+                        && notes
+                            .iter()
+                            .all(|n| matches!(n, ShownNote::UpdateTrue(x) if *x == Rc::as_ptr(&root))) =>
+                {
+                    DOUBT_HOST_ACTION_UPDATE
+                }
+                PageMethod::Value
+                | PageMethod::Editable
+                | PageMethod::Enabled
+                | PageMethod::AssertEquals
+                | PageMethod::AsBoolean
+                | PageMethod::AsDate
+                | PageMethod::AsDateTime
+                | PageMethod::AsDecimal
+                | PageMethod::AsInteger
+                | PageMethod::AsTime
+                    if on_control =>
+                {
+                    DOUBT_READ
+                }
+                _ if method.recv() == PageRecv::TestFilter
+                    || matches!(
+                        method,
+                        PageOp::TestPageNext
+                            | PageOp::TestPageFilter
+                            | PageOp::TestFieldActivate
+                            | PageOp::TestFieldCaption
+                    ) =>
+                {
+                    DOUBT_ASSUMED
+                }
+                _ => DOUBT_OTHER,
+            };
+            let mut s = p.borrow_mut();
+            if effect == Effect::Doubt {
+                s.shown_current = false;
+            }
+            s.shown_doubts |= kind;
+            if kind == DOUBT_OTHER && s.shown_doubt_call.is_none() {
+                s.shown_doubt_call = Some(method.name());
+            }
+        }
+        r
+    }
+
+    /// A call of `CurrPage` (or a `Page` variable) on page `st`: noted for the TestPage call that runs on its tree; outside
+    /// one, a `CurrPage.Update` leaves the tree's kept values in doubt.
+    /// `update`: the call is `CurrPage.Update`, with `false` (`Some(true)`) or not.
+    fn shown_page_code(&mut self, method: PageOp, st: &St, update: Option<bool>) {
+        let root = Rc::as_ptr(&shown_root(st));
+        let note = match update {
+            Some(true) => ShownNote::UpdateFalse(Rc::as_ptr(st)),
+            Some(false) => ShownNote::UpdateTrue(Rc::as_ptr(st)),
+            None => ShownNote::Other,
+        };
+        if let Some((_, notes)) = self.pages.shown_frames.iter_mut().rev().find(|(r, _)| *r == root) {
+            notes.push(note);
+        } else if method.method() == PageMethod::Update {
+            for p in shown_tree(&shown_root(st)) {
+                let mut s = p.borrow_mut();
+                s.shown_current = false;
+                s.shown_doubts |= DOUBT_OTHER;
+                s.shown_doubt_call
+                    .get_or_insert("CurrPage.Update outside a TestPage call");
+            }
+        }
+    }
+
+    /// What TestPage call `method` on page `st` did to page `p` of its tree (see the module comment for the pins).
+    #[allow(clippy::too_many_arguments)]
+    fn shown_effect(
+        &self,
+        method: PageOp,
+        st: &St,
+        target: Option<&ControlTarget>,
+        root: &St,
+        p: &St,
+        notes: &[ShownNote],
+        tree: &[St],
+    ) -> Effect {
+        let engine = self.engine();
+        let m = method.method();
+        let on_root = Rc::ptr_eq(st, root);
+        let is_p = Rc::ptr_eq(st, p);
+        let page_type = |s: &St| engine.object_facts[s.borrow().object as usize].page_type.clone();
+        let other_type = |s: &St, t: &str| matches!(page_type(s), Some(ir::PageType::Other(o)) if o == t);
+        // No part of the tree takes its link from `st`, and none is linked to the host's row.
+        let unlinked = |s: &St| {
+            tree.iter().all(
+                |q| match q.borrow().host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i))) {
+                    None => true,
+                    Some((h, i)) => match &page_of(&engine, &h).controls[i].part_link {
+                        None => true,
+                        Some(l) => {
+                            l.entries.is_empty()
+                                && l.view.is_none()
+                                && l.provider.is_none_or(|pr| {
+                                    !s.borrow().host.as_ref().is_some_and(|(sh, si)| {
+                                        sh.upgrade().is_some_and(|sh| Rc::ptr_eq(&sh, &h)) && *si == pr
+                                    })
+                                })
+                        }
+                    },
+                },
+            )
+        };
+        // A Value read changes nothing: the reads of the corpus cases agree with each other (:4676-4682).
+        if m == PageMethod::Value && matches!(target, Some(ControlTarget::Control(_))) {
+            return Effect::Keep;
+        }
+        // Only `CurrPage.Update(false)` of the page whose action runs is pinned inside its action (:4651).
+        let only_update_false_of = |s: &St| {
+            notes
+                .iter()
+                .all(|n| matches!(n, ShownNote::UpdateFalse(x) if *x == Rc::as_ptr(s)))
+        };
+        match (m, target) {
+            // The open computed the values (`shown_opened`).
+            (PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew, None) => Effect::Keep,
+            (PageMethod::Invoke, Some(ControlTarget::Control(idx)))
+                if page_of(&engine, st).controls[*idx].kind == ir::ControlKind::Action
+                    && page_of(&engine, st).controls[*idx].run_object.is_none() =>
+            {
+                if on_root && page_type(st) == Some(ir::PageType::Card) && only_update_false_of(st) {
+                    return Effect::Refresh;
+                }
+                let propagates = st
+                    .borrow()
+                    .host
+                    .as_ref()
+                    .and_then(|(h, i)| h.upgrade().map(|h| (h, *i)))
+                    .is_none_or(|(h, i)| page_of(&engine, &h).controls[i].prop("updatepropagation").is_some());
+                if !on_root && other_type(st, "cardpart") && !propagates && only_update_false_of(st) {
+                    return if is_p { Effect::Refresh } else { Effect::Keep };
+                }
+                Effect::Doubt
+            }
+            (PageMethod::First | PageMethod::Next, None) if !on_root && notes.is_empty() && unlinked(st) => {
+                if !is_p {
+                    return Effect::Keep;
+                }
+                if m == PageMethod::First && other_type(st, "listpart") && self.declares(st, "onaftergetcurrrecord") {
+                    return Effect::Refresh;
+                }
+                Effect::Doubt
+            }
+            (PageMethod::Next, None)
+                if on_root
+                    && notes.is_empty()
+                    && page_type(st) == Some(ir::PageType::Card)
+                    && !self.declares(st, "onaftergetrecord")
+                    && !self.declares(st, "onaftergetcurrrecord")
+                    && tree.iter().all(|q| q.borrow().host.is_none() || unlinked(q)) =>
+            {
+                Effect::Keep
+            }
+            _ => Effect::Doubt,
+        }
+    }
+
+    /// Page `st` computes its kept expression values again (or for the first time, as it opens).
+    pub(super) fn shown_refresh(&mut self, st: &St) {
+        if !st.borrow().open || st.borrow().instance.is_none() {
+            let mut s = st.borrow_mut();
+            s.shown_current = false;
+            s.shown_exprs.clear();
+            s.shown_doubts = DOUBT_OTHER;
+            s.shown_doubt_call = Some("a refresh of a page that is not open");
+            return;
+        }
+        let controls = self.kept_controls(st);
+        let mut shown = Vec::with_capacity(controls.len());
+        for &idx in controls.iter() {
+            let ir::Binding::Expr(r) = page_of(&self.engine(), st).controls[idx].binding else {
+                continue;
+            };
+            // What BC shows for an expression that fails when the page refreshes is not pinned: its reads are refused.
+            shown.push((idx, self.control_routine(st, idx, r).ok()));
+        }
+        let mut s = st.borrow_mut();
+        s.shown_exprs = shown;
+        s.shown_current = true;
+        s.shown_doubts = 0;
+        s.shown_doubt_call = None;
+    }
+
+    /// Every page of the tree of `st` computes its kept values as it opens.
+    pub(super) fn shown_opened(&mut self, st: &St) {
+        for p in shown_tree(st) {
+            self.shown_refresh(&p);
+        }
+    }
+
+    /// The value expression control `idx` of `st` shows, given `live`, its value now (see the module comment).
+    pub(super) fn shown_value(
+        &mut self,
+        st: &St,
+        idx: usize,
+        live: impl FnOnce(&mut Self) -> Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
+        let kept = st
+            .borrow()
+            .shown_exprs
+            .iter()
+            .find(|(i, _)| *i == idx)
+            .map(|(_, v)| v.clone());
+        let Some(kept) = kept else {
+            let doubts = st.borrow().shown_doubts;
+            if doubts & !(DOUBT_KEPT | DOUBT_ASSUMED) != 0 {
+                return unsupported(format!(
+                    "control {} shows an expression computed when it is read, after {}, whose refresh of the page is not pinned",
+                    page_of(&self.engine(), st).controls[idx].name,
+                    st.borrow().shown_doubt_call.unwrap_or("a call")
+                ));
+            }
+            if doubts & DOUBT_ASSUMED != 0 {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::PageExpressionControlLiveReadAfterNextFilterActivate,
+                );
+            }
+            return live(self);
+        };
+        let Some(kept) = kept else {
+            return unsupported(format!(
+                "control {} shows an expression that failed when its page last refreshed (what BC shows then is not pinned)",
+                page_of(&self.engine(), st).controls[idx].name
+            ));
+        };
+        if st.borrow().shown_current {
+            return Ok(kept);
+        }
+        let now = live(self)?;
+        if ops::compare(&now, &kept).is_ok_and(|o| o.is_eq()) {
+            return Ok(now);
+        }
+        unsupported(format!(
+            "control {} shows an expression whose value changed since its page last refreshed, after a call whose refresh is not pinned",
+            page_of(&self.engine(), st).controls[idx].name
+        ))
+    }
+
+    /// The expression controls of `st` whose value the page keeps: the page's own controls (not an extension's) whose
+    /// expression reads no record and calls only codeunit procedures that only return a value (`pure_expr`).
+    fn kept_controls(&mut self, st: &St) -> Rc<Vec<usize>> {
+        let object = st.borrow().object;
+        if let Some(c) = self.pages.shown_controls.get(&object) {
+            return c.clone();
+        }
+        let engine = self.engine();
+        let program = &engine.program;
+        let kept: Vec<usize> = page_of(&engine, st)
+            .controls
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| match c.binding {
+                ir::Binding::Expr(r) if c.owner.is_none() && pure_routine(program, object as usize, r, 0) => Some(i),
+                _ => None,
+            })
+            .collect();
+        let kept = Rc::new(kept);
+        self.pages.shown_controls.insert(object, kept.clone());
+        kept
+    }
+}
+
+/// The page at the top of the part tree `st` belongs to.
+fn shown_root(st: &St) -> St {
+    let mut cur = st.clone();
+    loop {
+        let host = cur.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
+        match host {
+            Some(h) => cur = h,
+            None => return cur,
+        }
+    }
+}
+
+/// `root` and every part below it.
+fn shown_tree(root: &St) -> Vec<St> {
+    let mut out = vec![root.clone()];
+    let mut i = 0;
+    while i < out.len() {
+        let parts: Vec<St> = out[i].borrow().parts.iter().map(|(_, p)| p.clone()).collect();
+        out.extend(parts);
+        i += 1;
+    }
+    out
+}
+
+/// Routine `r` of `object` only returns a value computed by `pure_expr`.
+fn pure_routine(program: &ir::Program, object: usize, r: usize, depth: usize) -> bool {
+    if depth > 4 {
+        return false;
+    }
+    let Some(routine) = program.objects[object].routines.get(r) else {
+        return false;
+    };
+    let mut body = routine
+        .body
+        .stmts()
+        .iter()
+        .filter(|s| !matches!(s, ir::Stmt::Pos(_)))
+        .peekable();
+    body.peek().is_some()
+        && body.all(|s| matches!(s, ir::Stmt::Exit(Some(e)) if pure_expr(program, object, routine, e, depth)))
+}
+
+/// An expression that reads no record and runs nothing that writes: constants, operators, variables that hold no record,
+/// and calls of procedures of a codeunit variable that are themselves `pure_routine` (QjPartPropagation.al:4767
+/// `State.GetValue()`).
+fn pure_expr(program: &ir::Program, object: usize, routine: &ir::Routine, e: &ir::Expr, depth: usize) -> bool {
+    let not_record = |ty: &RtType| !matches!(ty, RtType::Record(..));
+    let pure = |e: &ir::Expr| pure_expr(program, object, routine, e, depth);
+    match e {
+        ir::Expr::Const(_) => true,
+        ir::Expr::Load(ir::Place::Global(g)) => program.objects[object]
+            .globals
+            .get(*g)
+            .is_some_and(|s| not_record(&s.ty)),
+        ir::Expr::Load(ir::Place::Local(l)) => routine.locals.get(*l).is_some_and(|s| not_record(&s.ty)),
+        ir::Expr::Unary(_, a) | ir::Expr::Convert(_, a) => pure(a),
+        ir::Expr::Binary(_, a, b) => pure(a) && pure(b),
+        ir::Expr::Ternary(a, b, c) => pure(a) && pure(b) && pure(c),
+        ir::Expr::Call {
+            object: callee,
+            routine: r,
+            instance: Some(inst),
+            args,
+            try_call: false,
+        } => {
+            let codeunit_var = match &**inst {
+                ir::Expr::Load(ir::Place::Global(g)) => program.objects[object]
+                    .globals
+                    .get(*g)
+                    .is_some_and(|s| matches!(s.ty, RtType::Codeunit(_))),
+                _ => false,
+            };
+            codeunit_var
+                && program.objects[*callee].is_kind(ir::ObjKind::Codeunit)
+                && args.iter().all(|a| matches!(a, ir::Arg::Value(v) if pure(v)))
+                && pure_routine(program, *callee, *r, depth + 1)
+        }
+        _ => false,
+    }
+}

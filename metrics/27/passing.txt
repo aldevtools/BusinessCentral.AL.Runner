@@ -14711,7 +14711,10 @@
 86889 QT_ValPartSplit_Empty_Next
 86889 QT_ValPartSplit_Empty_Previous
 86889 QT_ValPartSplit_TwoLines_Last
+86889 RP_SharedState_FactBoxAction
+86889 RP_SharedState_FactBoxActionWithUpdate
 86889 RP_SharedState_MainAction
+86889 RP_SharedState_TestCodeChangesState
 87141 VarGlobal_BothChangeInTurn
 87141 VarGlobal_IntegerAndTextInsideP
 87141 VarGlobal_PChangesParam_QReadsGlobal

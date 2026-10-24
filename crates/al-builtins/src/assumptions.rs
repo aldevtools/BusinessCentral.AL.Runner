@@ -211,6 +211,12 @@ registry! {
         tests: "platform/lt-xmlport-session-navapp-cookie/P94Cookie.al assigns the result to a Text it never reads (SetName_DoesNotTouchOtherMembers, Copy_AndClear).",
         probe: "Format of the result of C.Name('n') and C.Value('v') on a cookie that had other values before. Asked in corpus #650.",
     },
+    PageExpressionControlLiveReadAfterNextFilterActivate => {
+        id: "page-expression-control-live-read-after-next-filter-activate",
+        assumed: "An expression control the page does not keep (it reads the record or runs other code) shows its value as computed at the read after TestPage.Next, TestPage.Filter, the TestFilter calls (SetFilter, ...), TestField.Activate and TestField.Caption: BC refreshes the page at each of these. Pinned only for the kept codeunit-getter controls of a Card and its parts (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710).",
+        tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
+        probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
+    },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",

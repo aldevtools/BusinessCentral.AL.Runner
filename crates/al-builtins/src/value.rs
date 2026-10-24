@@ -698,6 +698,16 @@ pub struct PageState {
     /// parameters), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value)>,
     pub bg_next_id: i32,
+    /// What the page's expression controls showed when it last refreshed: (control index, value; `None` when the expression
+    /// raised an error then). Only controls whose expression reads no record and runs no code that writes (al-vm
+    /// `pages/shown.rs`, al-runner issue 5765).
+    pub shown_exprs: Vec<(usize, Option<Value>)>,
+    /// Since that refresh only events happened that are pinned to leave this page as it is.
+    pub shown_current: bool,
+    /// The kinds of unpinned events since that refresh (bits of al-vm `pages/shown.rs`).
+    pub shown_doubts: u8,
+    /// The first call since that refresh after which a read of an expression it does not keep is refused.
+    pub shown_doubt_call: Option<&'static str>,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -848,6 +858,10 @@ impl PageState {
             refresh_update_false: false,
             bg_tasks: Default::default(),
             bg_next_id: 1,
+            shown_exprs: Vec::new(),
+            shown_current: false,
+            shown_doubts: 0,
+            shown_doubt_call: None,
         }
     }
 }
