@@ -51,6 +51,14 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
   When a probe pins it, delete the entry: the compiler lists the marker sites that remain.
   `al-runner test --top-assumptions` ranks the entries by flagged passes; `--list-assumptions`
   prints the registry with the counts of the last run (also in `al-test-cli`).
+- **A runtime fix for a user issue from a repro** (FAST FLOW: the corpus pin is not on `master` yet)
+  registers its assumption with `awaiting: Awaiting { issues: &[N], files: &["tests/al-language/<area>/<file>.al"],
+  since: "YYYY-MM-DD" }`: the al-runner issue and the corpus file(s) the writer is adding. A test fails when an
+  entry names an al-runner issue without it. The commit and PR say `Refs #N`, never `Fixes #N`: the issue
+  closes when the pin lands. Once every awaited file is in the pinned corpus, `al-test-cli --root .
+  --awaiting-assumptions` (run by `cargo test`, `check.sh` and `tools/corpus_bump.sh`) fails until the entry is
+  removed and the pin cited, or the code is fixed where the pin disagrees. `--awaiting-assumptions --summary`
+  prints one status line, the oldest entry first.
 - **One build, one result.** A corpus run must give each case the same outcome whatever the
   thread counts, the run order and HOME hold (`corpus_harness.rs`
   `outcomes_do_not_depend_on_threads_or_home` checks it). Before you call two runs "the same

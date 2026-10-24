@@ -81,6 +81,10 @@ pub struct Args {
     pub top_assumptions: Option<usize>,
     /// `--list-assumptions`: print the registry of unprobed assumptions with the counts of the last run, then stop.
     pub list_assumptions: bool,
+    /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
+    pub awaiting_assumptions: bool,
+    /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
+    pub summary: bool,
     /// `--top-refusals-area AREA`: the ranking counts only that area (and selects it).
     pub top_refusals_area: Option<String>,
     /// `--baseline-diff`: list what newly passes, what fails and what left the baseline.
@@ -154,6 +158,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
         }
         if flag == "--list-assumptions" {
             a.list_assumptions = true;
+            continue;
+        }
+        if flag == "--awaiting-assumptions" {
+            a.awaiting_assumptions = true;
+            continue;
+        }
+        if flag == "--summary" {
+            a.summary = true;
             continue;
         }
         if flag == "--top-assumptions" {
@@ -307,6 +319,12 @@ DIAGNOSE
                               --json carries them, --explain names them
   --list-assumptions          print the registry of unprobed assumptions with the counts of the last
                               run, then stop
+  --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
+                              when every awaited file is in the pinned corpus, run those files and
+                              fail with one line per assumption, `the pin landed: remove the
+                              assumption` or `the pin contradicts the assumption: fix the code`;
+                              some files present is a warning. Add --summary for one status line
+                              (count, oldest first) without a run
   --top-refusals-area FOLDER  the same for one corpus folder; also selects that folder
   --baseline-diff             per version: cases that newly pass, cases that fail and are not in
                               the baseline, and baseline cases that no longer pass; listed by area
@@ -392,6 +410,8 @@ mod tests {
         assert!(run(&["--top-assumptions", "0"]).is_err());
         assert!(run(&["--list-assumptions"]).unwrap().list_assumptions);
         assert!(!run(&["--no-deps"]).unwrap().list_assumptions);
+        let a = run(&["--awaiting-assumptions", "--summary"]).unwrap();
+        assert!(a.awaiting_assumptions && a.summary);
     }
 
     #[test]
