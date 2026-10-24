@@ -1430,6 +1430,12 @@ fn evaluate_with_max(
                 }
             }
         }
+        // Evaluate into PageBackgroundTaskErrorLevel is not pinned: lt-ac/QbEvaluateBgTask.al is an observe-only probe, not a case.
+        Value::Option(_, members) if crate::sysenum::is_page_background_task_error_level(members) => {
+            return unsupported(format!(
+                "Evaluate of `{text}` into PageBackgroundTaskErrorLevel (not pinned)"
+            ));
+        }
         // An ordinal into SecurityFilter: `Evaluate(Filter, '3')` gives Disallowed
         // (recordref/TestPlatformOptionsLockingContracts.al:42-43). Other options are not pinned.
         Value::Option(_, members) if crate::sysenum::is_security_filter(members) => {

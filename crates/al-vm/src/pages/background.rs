@@ -24,12 +24,23 @@ fn copy_dictionary(v: &V) -> V {
 }
 
 impl Session {
-    /// `CurrPage.EnqueueBackgroundTask(var TaskId; CodeunitId; [var Parameters]; [Timeout])`: the task
-    /// waits in the queue until the client call that is running ends.
+    /// `CurrPage.EnqueueBackgroundTask(var TaskId; CodeunitId; [var Parameters]; [Timeout]; [ErrorLevel])`: the task
+    /// waits in the queue until the client call that is running ends. A task that succeeds runs the same under every
+    /// ErrorLevel (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:86 with Error, EnqueueBackgroundTask_WithHandlers); what the
+    /// level changes for a failing worker is in `bg_drain`.
     pub(super) fn bg_enqueue(&mut self, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        if args.len() > 4 {
-            return unsupported("EnqueueBackgroundTask with an ErrorLevel (not pinned)");
-        }
+        let level = match args.get(4) {
+            None => None,
+            Some(Value::Option(o, members)) if al_builtins::sysenum::is_page_background_task_error_level(members) => {
+                Some(*o)
+            }
+            Some(other) => {
+                return unsupported(format!(
+                    "EnqueueBackgroundTask with the ErrorLevel {}",
+                    other.describe()
+                ));
+            }
+        };
         let Some(Value::Integer(codeunit)) = args.get(1).cloned() else {
             return unsupported("EnqueueBackgroundTask without a codeunit id");
         };
@@ -43,7 +54,7 @@ impl Session {
             let mut s = st.borrow_mut();
             let id = s.bg_next_id;
             s.bg_next_id += 1;
-            s.bg_tasks.push_back((id, codeunit, params));
+            s.bg_tasks.push_back((id, codeunit, params, level));
             id
         };
         args[0] = Value::Integer(id);
@@ -143,6 +154,25 @@ impl Session {
         let completion = matches!(args.get(2), Some(V::Boolean(true)));
         let results = match self.bg_run_worker(codeunit, params)? {
             Ok(r) => r,
+            // With the completion triggers, a failing worker runs OnPageBackgroundTaskError, and when that marks the error as
+            // handled the call returns without an error (bgtasks/W2BackgroundTasks.al:508-537
+            // RunPageBackgroundTask_FailingWorker_WithCompletionTriggers, `with_completion|ok` = Yes and the error trigger's log).
+            // An error the trigger leaves unhandled, and what the call returns, are not pinned (docs/probes-needed.md): the result
+            // is an empty dictionary.
+            Err(e) if completion => {
+                let id = {
+                    let mut s = st.borrow_mut();
+                    let id = s.bg_next_id;
+                    s.bg_next_id += 1;
+                    id
+                };
+                if !self.bg_error(st, id, &e)? {
+                    return unsupported(
+                        "RunPageBackgroundTask with completion triggers whose failing worker's error OnPageBackgroundTaskError leaves unhandled (not pinned)",
+                    );
+                }
+                return Ok(V::Dictionary(Default::default()));
+            }
             Err(e) => return Err(Signal::Error(Box::new(e))),
         };
         if completion {
@@ -196,7 +226,7 @@ impl Session {
     pub(super) fn bg_drain(&mut self, st: &St) -> Result<(), Signal> {
         loop {
             let next = st.borrow_mut().bg_tasks.pop_front();
-            let Some((id, codeunit, params)) = next else {
+            let Some((id, codeunit, params, level)) = next else {
                 return Ok(());
             };
             if !st.borrow().open {
@@ -206,6 +236,19 @@ impl Session {
                 Ok(results) => {
                     let r = self.bg_completed(st, id, &results);
                     self.torn_down_on_error(st, r)?;
+                }
+                // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
+                // trigger did not mark the error as handled (bgtasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
+                // `log` = `error(id=n,row=L1,handled_in=false);`).
+                Err(e) if level == Some(2) => {
+                    self.bg_error(st, id, &e)?;
+                }
+                // Under Error or Warning given as an argument, what a failing worker does to the page is not pinned
+                // (docs/probes-needed.md).
+                Err(_) if level.is_some() => {
+                    return unsupported(
+                        "a failing worker of a background task enqueued with ErrorLevel Error or Warning (not pinned)",
+                    );
                 }
                 Err(e) => {
                     let handled = self.bg_error(st, id, &e)?;

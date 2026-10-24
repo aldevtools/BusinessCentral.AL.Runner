@@ -142,6 +142,8 @@ impl Session {
             // Install code has no client (install/lt-outside-install-ui/RlInstallUi.al:210, :239;
             // install/lt-cm-install-leads/CmInstallLeads.al:51).
             ids::SYSTEM_GUIALLOWED_1 if self.install_without_client => Ok(Value::Boolean(false)),
+            // A page background task worker has no client (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204 `gui=No`).
+            ids::SYSTEM_GUIALLOWED_1 if self.pages.bg_worker.is_some() => Ok(Value::Boolean(false)),
             ids::SYSTEM_GUIALLOWED_1 => Ok(Value::Boolean(self.host.identity.gui_allowed())),
             ids::SYSTEM_ISSERVICETIER_1 => Ok(Value::Boolean(self.host.identity.is_service_tier())),
             // The folder AL code writes scratch files to. BC's answer ends with `TEMP\` on the Linux tier

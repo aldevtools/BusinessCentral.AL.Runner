@@ -1748,6 +1748,10 @@ impl Session {
             s.stale = true;
             s.window.clear();
             s.window_from_start = false;
+            // The rows above the open read went with the window: the next move asks the triggers again, as after any Update
+            // (pagefindrecord/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
+            // list). Left set, First indexed the empty window (al-runner issue 5802).
+            s.window_top_unread = false;
             return Ok(());
         }
         let rec = self.page_rec(st);

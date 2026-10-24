@@ -695,8 +695,8 @@ pub struct PageState {
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
-    /// parameters), and the next task id.
-    pub bg_tasks: std::collections::VecDeque<(i32, i32, Value)>,
+    /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
+    pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,
     pub bg_next_id: i32,
     /// What the page's expression controls showed when it last refreshed: (control index, value; `None` when the expression
     /// raised an error then). Only controls whose expression reads no record and runs no code that writes (al-vm

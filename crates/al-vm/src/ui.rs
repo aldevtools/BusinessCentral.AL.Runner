@@ -554,10 +554,15 @@ impl Session {
     /// The error BC raises when code without a client asks the client for `what`: the innermost routine's codeunit is named
     /// after the text (install/lt-outside-install-ui/RlInstallUi.al:219; CmInstallLeads.al:54). Only a codeunit with no
     /// Caption is pinned there; any other caller is refused.
+    /// A page background task worker has no client either; its texts name the `Server` instead of `Data Services`
+    /// (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
     fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
-        let mut text = format!(
-            "Microsoft Dynamics 365 Business Central Data Services attempted to issue a client callback to {what}"
-        );
+        let product = if self.pages.bg_worker.is_some() {
+            "Microsoft Dynamics 365 Business Central Server"
+        } else {
+            "Microsoft Dynamics 365 Business Central Data Services"
+        };
+        let mut text = format!("{product} attempted to issue a client callback to {what}");
         if named {
             let Some(o) = self.frames.last().and_then(|&o| self.engine.program.objects.get(o)) else {
                 return Signal::Unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
@@ -571,7 +576,7 @@ impl Session {
             }
             text.push_str(&format!(" (CodeUnit {} {})", o.id.unwrap_or(0), o.name));
         }
-        text.push_str(". Client callbacks are not supported on Microsoft Dynamics 365 Business Central Data Services.");
+        text.push_str(&format!(". Client callbacks are not supported on {product}."));
         Signal::Error(Box::new(AlError {
             message: text,
             code: "CallbackNotAllowed".into(),
@@ -616,6 +621,11 @@ impl Session {
         if self.ui_state.scope.is_none() && self.install_without_client {
             return Ok(());
         }
+        // Nor does it stop a page background task worker, and no MessageHandler of the test sees it
+        // (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204-205, `message=returned` and the handler log).
+        if self.pages.bg_worker.is_some() {
+            return Ok(());
+        }
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -628,7 +638,9 @@ impl Session {
     }
 
     pub(crate) fn ui_confirm(&mut self, question: String, default: bool) -> Result<bool, Signal> {
-        if self.ui_state.scope.is_none() && self.install_without_client {
+        // A page background task worker raises it too, whatever the default, and no ConfirmHandler sees it
+        // (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204-205).
+        if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
         let finals = self.dispatch_ui(
@@ -646,6 +658,11 @@ impl Session {
     }
 
     pub(crate) fn ui_str_menu(&mut self, options: String, default: i32, instruction: String) -> Result<i32, Signal> {
+        if self.pages.bg_worker.is_some() {
+            return Err(Signal::Unsupported(
+                "StrMenu in a page background task worker (not pinned)".into(),
+            ));
+        }
         if self.ui_state.scope.is_none() && self.install_without_client {
             // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.
             if instruction.is_empty() {

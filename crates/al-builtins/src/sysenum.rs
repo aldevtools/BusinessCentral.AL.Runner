@@ -143,6 +143,9 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "Ambiguous",
             "Subordinate",
         ]),
+        // The ErrorLevel of `CurrPage.EnqueueBackgroundTask`. Error is the zero value; the platform's ordinals are 0, 10 and 20
+        // (`platform_ordinal`), and Format(x, 0, 1) prints the name (lt-ac/ACPageBackgroundTaskErrorLevel.al).
+        "pagebackgroundtaskerrorlevel" => Some(&["Error", "Warning", "Ignore"]),
         "fieldtype" => Some(&[
             "TableFilter",
             "RecordID",
@@ -220,6 +223,12 @@ pub fn ordinals_hidden(members: &[String]) -> bool {
     same(known) || same(&crate::value::ACTION_MEMBERS)
 }
 
+/// Whether `members` is the `PageBackgroundTaskErrorLevel` option.
+pub fn is_page_background_task_error_level(members: &[String]) -> bool {
+    let known = members_static("pagebackgroundtaskerrorlevel");
+    members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b)
+}
+
 /// Whether `members` is the `SecurityFilter` option, the one platform option an ordinal can be
 /// evaluated into (recordref/TestPlatformOptionsLockingContracts.al:42).
 pub fn is_security_filter(members: &[String]) -> bool {
@@ -293,6 +302,7 @@ pub fn is_platform(members: &[String]) -> bool {
         "webserviceactionresultcode",
         "fieldtype",
         "pagestyle",
+        "pagebackgroundtaskerrorlevel",
     ];
     kind_of(members).is_some()
         || is_field_table_type(members)
@@ -312,6 +322,10 @@ pub fn platform_ordinal(members: &[String], position: i32) -> Option<i32> {
     };
     if same("verbosity") || same("telemetryscope") {
         return Some(position + 1);
+    }
+    // Error 0, Warning 10, Ignore 20 (lt-ac/ACPageBackgroundTaskErrorLevel.al:AC_PageBackgroundTaskErrorLevel_Format `ordinal_*`).
+    if same("pagebackgroundtaskerrorlevel") {
+        return Some(position * 10);
     }
     if same("webserviceactionresultcode") {
         return [0, 200, 201, 200, 204].get(usize::try_from(position).ok()?).copied();

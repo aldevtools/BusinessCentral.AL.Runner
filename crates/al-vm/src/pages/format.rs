@@ -1226,6 +1226,30 @@ impl Session {
                 }
             }
         }
+        // An Editable expression of a repeater control on a page with OnAfterGetRecord: BC answers for the row the TestPage stands
+        // on, the runtime evaluates it with the variables as OnAfterGetRecord left them last. Pinned on a Card only
+        // (handlers/TestPageEditable_Tests.al:93-112); on a row other than the one OnAfterGetRecord ran with last it gave a wrong
+        // answer (al-runner issue 5808), so that read is refused until a probe pins it (docs/probes-needed.md). As for a
+        // page-variable control's value (`control_value`), a row OnAfterGetRecord never ran with (a line the test added) keeps
+        // the variables as they are: kept, not pinned (Tests-ERM 134117 T200_WorkTypeVariantCodeOnSalesPriceListLineResource,
+        // T205_WorkTypeVariantCodeOnPurchasePriceListLineResource read it on a line added with New and Lookup).
+        if matches!(page_of(&engine, st).controls[idx].prop("editable"), Some(p) if !matches!(p, ir::PropVal::Lit(_)))
+            && self.in_repeater(st, idx)
+            && self.declares(st, "onaftergetrecord")
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+        {
+            let key = self.row_key(&self.page_rec(st))?;
+            let s = st.borrow();
+            let ran_for_it = s.agr_rows.iter().any(|k| Self::same_key(k, &key));
+            let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
+            drop(s);
+            if ran_for_it && !last {
+                return unsupported(
+                    "Editable() of a repeater control with an Editable expression, on a row other than the one OnAfterGetRecord ran with last (not pinned)",
+                );
+            }
+        }
         let page_editable = self.page_editable(st) && !(rec_bound && open_lock == Some(PageMode::New));
         Ok((!rec_bound || page_editable) && self.prop_bool_now(st, idx, "editable", true)?)
     }
