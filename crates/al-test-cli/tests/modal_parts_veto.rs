@@ -74,11 +74,41 @@ codeunit 69994 T
         if Run(false, false, 0) <> 'OK|1|||part(None);host(OK);part close;host close' then
             Error('%1', Run(false, false, 0));
     end;
+    [Test] [HandlerFunctions('H')]
+    procedure HostVetoHandlerError()
+    var Row: Record "MV Row"; L: Codeunit "MV Log"; Pg: Page "MV List";
+    begin
+        Row.DeleteAll(); Row.Id := 1; Row.Insert();
+        L.Reset(true, false, 2);
+        asserterror Pg.RunModal();
+        if GetLastErrorCode() + '|' + L.Dump() <> 'TestActionNotFound|part(None);host(OK)' then
+            Error('%1', GetLastErrorCode() + '|' + L.Dump());
+    end;
     [ModalPageHandler]
     procedure H(var P: TestPage "MV List")
     var L: Codeunit "MV Log";
     begin
-        if L.GetMode() = 1 then P.OK().Invoke();
+        case L.GetMode() of
+            1: P.OK().Invoke();
+            2: P.Cancel().Invoke();
+        end;
+    end;
+}
+codeunit 69996 T2
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('H')]
+    procedure AllowedHandlerError()
+    var Row: Record "MV Row"; L: Codeunit "MV Log"; Pg: Page "MV List";
+    begin
+        Row.DeleteAll(); Row.Id := 1; Row.Insert();
+        L.Reset(false, false, 2);
+        asserterror Pg.RunModal();
+    end;
+    [ModalPageHandler]
+    procedure H(var P: TestPage "MV List")
+    begin
+        P.Cancel().Invoke();
     end;
 }
 codeunit 69995 C
@@ -100,6 +130,12 @@ fn a_modal_page_with_a_part_answers_a_veto_as_one_without_parts() {
     for (name, outcome) in outcomes_in(SRC, "T") {
         assert_eq!(format!("{outcome:?}"), "Pass", "{name}");
     }
+}
+
+#[test]
+fn an_error_in_the_handler_of_a_page_whose_close_is_allowed_is_refused() {
+    let o = outcomes_in(SRC, "T2");
+    assert!(format!("{:?}", o[0].1).starts_with("NotRun"), "{o:?}");
 }
 
 #[test]

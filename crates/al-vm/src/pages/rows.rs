@@ -2964,6 +2964,38 @@ impl Session {
         Ok(())
     }
 
+    /// A ModalPageHandler that raised an error left its page open: the platform still asks the close, the parts first with
+    /// None, then the page with its own action, and RunModal raises the handler's error (pages/lt-modal-query-close-veto/
+    /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
+    /// for a refusal: when neither the page nor a part declares OnQueryClosePage nothing is asked that a test could see, and
+    /// the page closes as before; a close the trigger allows, or one with an unsaved row, is refused.
+    fn close_modal_after_handler_error(&mut self, st: &St) -> Result<(), Signal> {
+        let parts: Vec<St> = st
+            .borrow()
+            .parts
+            .iter()
+            .map(|(_, c)| c.clone())
+            .filter(|c| c.borrow().open)
+            .collect();
+        let asks = self.declares(st, "onqueryclosepage") || parts.iter().any(|p| self.declares(p, "onqueryclosepage"));
+        if !asks {
+            return Ok(());
+        }
+        if st.borrow().dirty || st.borrow().draft || !st.borrow().hidden_parts.is_empty() {
+            return unsupported(
+                "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",
+            );
+        }
+        let a = self.unattended_action(st);
+        match self.close_with(st, &a, false, false) {
+            Ok(_) if st.borrow().open && st.borrow().close_vetoed => self.refuse_unpinned_modal_veto(st),
+            Err(Signal::Error(_)) | Ok(_) => unsupported(
+                "a page left open by a ModalPageHandler that raised an error, whose close is allowed (not pinned)",
+            ),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Hands the open page `st` to its handler, closes it if the handler left it open, and for a
     /// modal page reports how it closed.
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
@@ -2974,6 +3006,9 @@ impl Session {
         let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
+            if modal && matches!(e, Signal::Error(_)) && st.borrow().open {
+                self.close_modal_after_handler_error(&st)?;
+            }
             self.mark_closed(&st);
             return Err(e);
         }
