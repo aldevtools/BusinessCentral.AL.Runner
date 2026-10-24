@@ -234,6 +234,7 @@ impl Session {
             s.agr_xrec = None;
             s.agcr_xrec = None;
             s.row_vars = Vec::new();
+            s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             s.part_accessed = false;
             s.new_host_part_rows = false;
@@ -1004,6 +1005,7 @@ impl Session {
         let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
         let pinned_type = matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List));
         let list_type = matches!(page_type, Some(al_ir::PageType::List));
+        let worksheet_type = matches!(page_type, Some(al_ir::PageType::Worksheet));
         // A Worksheet over a temporary source whose row was set before the open is pinned (`set_before` below); one whose
         // OnOpenPage moved Rec opens as a List does under assumption worksheet-temp-source-open-row. A Worksheet over a
         // database table stays refused below.
@@ -1100,6 +1102,26 @@ impl Session {
             && rec.borrow().key == 0
             && st.borrow().onopenpage_kept_rec
             && list_type;
+        // A Worksheet over a database table in the primary key, without OnNextRecord (OnFindRecord the caller rules out), opens
+        // on the row OnOpenPage left Rec on by every route, in lookup mode too; so does a List in lookup mode whose Rec is on
+        // the last row of its view (assumption worksheet-db-filled-on-open-row, writer RT's
+        // pages/lt-outside-worksheet-2/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`, :278 _ACB_OK on
+        // B, :293 RunModal, :314 lookup RunModal, :336 Page.Run, :353 and :374 OpenEdit, :395 OpenView, :417 RT_FillList_Lookup_ABC_OK).
+        // A List in lookup mode on another row, another key or OnNextRecord are not pinned.
+        if !rec.borrow().temporary && rec.borrow().key == 0 && !self.declares(st, "onnextrecord") {
+            let list_lookup_on_last = list_type && st.borrow().lookup && {
+                let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+                self.ret_used = true;
+                match self.record_op(RecordOp::FindLast, &probe, &mut [])? {
+                    Value::Boolean(true) => Self::same_key(&self.row_key(&probe)?, &key),
+                    _ => false,
+                }
+            };
+            if worksheet_type || list_lookup_on_last {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::WorksheetDbFilledOnOpenRow);
+                return Ok(true);
+            }
+        }
         if !pinned_type || (st.borrow().lookup && !pinned_lookup) || self.declares(st, "onnextrecord") {
             return unsupported(
                 "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",

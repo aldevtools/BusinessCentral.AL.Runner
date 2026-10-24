@@ -499,6 +499,30 @@ registry! {
         tests: "The first-row path is reached by Item Tracking Lines (a temporary Worksheet whose OnOpenPage changes the key) in many tests of Tests-SCM-Reservation, Tests-SCM-Warehouse, Tests-SCM and Tests-ERM; they pass in Microsoft's CI.",
         probe: "A Worksheet page over a temporary table whose OnOpenPage fills it or moves Rec (Get of row 2, FindLast), and one whose OnOpenPage calls SetCurrentKey and then Get: run modally, in lookup mode and with Page.Run, with and without OnNextRecord: which row the TestPage shows, and the OnAfterGetRecord/OnAfterGetCurrRecord order.",
     },
+    WorksheetDbFilledOnOpenRow => {
+        id: "worksheet-db-filled-on-open-row",
+        assumed: "A Worksheet over a database table, opened without a record in the primary key and without OnFindRecord or OnNextRecord, whose OnOpenPage left Rec on a row other than the first of its view, opens on that row as a List does (`=><` from Rec, the window read from that row: `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`), by every route (TestPage OpenEdit and OpenView, Page.Run, RunModal, lookup mode); a List in lookup mode does so when Rec is on the last row of its view. Real-BC repro of al-runner issue 5785; writer RT pins it on corpus master 85935743, branch al-runtime-rs-staging-rt (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK, :278 _ACB_OK, :293-:411, :417 RT_FillList_Lookup_ABC_OK), not yet pinned by this repository's corpus.",
+        tests: "al-runner issue 5785 (a partner app; Base Application codeunit 1018 \"Purchase Doc. From Job\" runs page 1328 \"Purch. Order From Sales Order\" in lookup mode); the repro passes on BC 29.",
+        probe: "Done on corpus master (RtFillOnOpen.al): the corpus bump to it turns this into pinned code.",
+    },
+    GoneOnlyRowBlankRecTakesKeyFilter => {
+        id: "gone-only-row-blank-rec-takes-key-filter",
+        assumed: "A list without the new-row line that lost its only row to an action stands on a blank Rec that takes the value of a single-value filter on a primary-key field set in filter group 0 or 2 (no OnValidate, table relation or validate subscriber on it), before OnNewRecord; a filter on a field outside the key or a range is not taken. Real-BC repro of al-runner issue 5809; writer RT pins it on corpus master 85935743, branch al-runtime-rs-staging-rt (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 _KeyFieldGroup0, :389 _NonKeyFieldGroup2, :406 _BothKeyFieldsGroup2, :423 _RangeOnSecondKeyFieldGroup2, :466 RT_UfListNoNew_KeyFieldGroup2), not yet pinned by this repository's corpus.",
+        tests: "al-runner issue 5809 (a partner app); the repro passes on BC 29.",
+        probe: "Done on corpus master (RtFilteredGoneRow.al): the corpus bump to it turns this into pinned code.",
+    },
+    RepeaterEditableFollowsRow => {
+        id: "repeater-editable-follows-row",
+        assumed: "TestPage Editable() and Enabled() of a repeater control whose Editable or Enabled expression reads page variables OnAfterGetRecord sets answer for the row the TestPage stands on: the expression is evaluated with the variables as OnAfterGetRecord left them for that row, after every move (GoToRecord, GoToKey, Next, Previous, First, Last), on a Worksheet and a List; on a Worksheet opened for view, read-only for that reason alone, Editable() answers that expression all the same (a plain field of such a page keeps No, not pinned). Real-BC repro of al-runner issue 5808; writer RT pins it on corpus master 85935743, branch al-runtime-rs-staging-rt (pages/lt-outside-worksheet-2/RtRowEditable.al:162 RT_EdWs_OpenEdit_GoToRecord_AB `A:No/No`, `B:Yes/Yes`, to :272 the List), not yet pinned by this repository's corpus.",
+        tests: "al-runner issue 5808 (a partner app); the repro passes on BC 29.",
+        probe: "Done on corpus master (RtRowEditable.al): the corpus bump to it turns this into pinned code.",
+    },
+    RunPageLinkOpenRecFilters => {
+        id: "run-page-link-open-rec-filters",
+        assumed: "In the OnOpenPage of a page an action opens through RunPageLink, Rec itself holds the link as filters in filter group 0: GetFilters reads them ('Order No.: H1, Status: Released') and GetRangeMin and GetRangeMax of a linked field read the linked value (both ends of a filter(..) range). Real-BC repro of al-runner issue 5811; writer RT pins it on corpus master 85935743, branch al-runtime-rs-staging-rt (pages/lt-outside-worksheet-2/RtLinkRange.al:275 RT_Lr_StatusAndCode_Trap_H1, :335 the Code-only link, :373 the range), not yet pinned by this repository's corpus.",
+        tests: "al-runner issue 5811 (a partner app; Base Application page 99000817 \"Prod. Order Routing\" compares GetRangeMin and GetRangeMax of \"Prod. Order No.\" in its OnOpenPage); the repro passes on BC 29.",
+        probe: "Done on corpus master (RtLinkRange.al): the corpus bump to it turns this into pinned code.",
+    },
     PageUnwrittenBlobNoChangeOtherPage => {
         id: "page-unwritten-blob-no-change-other-page",
         assumed: "On a page whose ModifyAllowed is false, a Blob of Rec that no stream wrote since it was read (also after a CalcFields loaded it) is no change of the row, so the page saves nothing after an action or a SetValue: pinned for a List (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316-:470); assumed for any other page type.",

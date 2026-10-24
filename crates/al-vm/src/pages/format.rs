@@ -1226,14 +1226,47 @@ impl Session {
                 }
             }
         }
-        // An Editable expression of a repeater control on a page with OnAfterGetRecord: BC answers for the row the TestPage stands
-        // on, the runtime evaluates it with the variables as OnAfterGetRecord left them last. Pinned on a Card only
-        // (handlers/TestPageEditable_Tests.al:93-112); on a row other than the one OnAfterGetRecord ran with last it gave a wrong
-        // answer (al-runner issue 5808), so that read is refused until a probe pins it (docs/probes-needed.md). As for a
-        // page-variable control's value (`control_value`), a row OnAfterGetRecord never ran with (a line the test added) keeps
-        // the variables as they are: kept, not pinned (Tests-ERM 134117 T200_WorkTypeVariantCodeOnSalesPriceListLineResource,
-        // T205_WorkTypeVariantCodeOnPurchasePriceListLineResource read it on a line added with New and Lookup).
-        if matches!(page_of(&engine, st).controls[idx].prop("editable"), Some(p) if !matches!(p, ir::PropVal::Lit(_)))
+        let page_editable = self.page_editable(st) && !(rec_bound && open_lock == Some(PageMode::New));
+        // A Worksheet opened for view answers the Editable expression of a repeater control, read-only as the page is
+        // (assumption repeater-editable-follows-row, writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:253
+        // RT_EdWs_OpenView_GoToRecord_AB `A:No/No`, `B:Yes/Yes`). Only that reason for a read-only page is pinned.
+        if rec_bound && !page_editable && self.view_worksheet_expression(st, idx) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RepeaterEditableFollowsRow);
+            return self.row_prop_bool(st, idx, "editable", true);
+        }
+        Ok((!rec_bound || page_editable) && self.row_prop_bool(st, idx, "editable", true)?)
+    }
+
+    /// A repeater control with an Editable expression of the page's own variables, on a Worksheet opened for view that is
+    /// read-only for that reason alone (see `control_editable`).
+    fn view_worksheet_expression(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let s = st.borrow();
+        let only_view = s.mode == PageMode::View && !s.editable_off && !s.lookup;
+        drop(s);
+        only_view
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
+            && !engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"))
+            && self.in_repeater(st, idx)
+            && self.prop_global_slots(st, idx, "editable").is_some()
+    }
+
+    /// The Editable or Enabled expression `name` of control `idx`, for the row the TestPage stands on. On a repeater row other
+    /// than the one OnAfterGetRecord ran with last, BC answers with the page variables as that row's OnAfterGetRecord left them
+    /// (assumption repeater-editable-follows-row, writer RT's pages/lt-outside-worksheet-2/RtRowEditable.al:162
+    /// RT_EdWs_OpenEdit_GoToRecord_AB `A:No/No`, `B:Yes/Yes`, :181 the other order, :198 swapped data, :217 GoToKey, :232 Next,
+    /// Previous, First and Last, :253 OpenView, :272 a List); the Card is pinned (handlers/TestPageEditable_Tests.al:93-112). An
+    /// expression that calls code or reads other than the page's own variables, and a page with OnAfterGetCurrRecord, are not
+    /// pinned there: refused. A row OnAfterGetRecord never ran with (a line the test added) reads the variables as they are:
+    /// kept, not pinned (Tests-ERM 134117 T200_WorkTypeVariantCodeOnSalesPriceListLineResource,
+    /// T205_WorkTypeVariantCodeOnPurchasePriceListLineResource read it on a line added with New and Lookup).
+    pub(super) fn row_prop_bool(&mut self, st: &St, idx: usize, name: &str, default: bool) -> Result<bool, Signal> {
+        let engine = self.engine();
+        if matches!(page_of(&engine, st).controls[idx].prop(name), Some(p) if !matches!(p, ir::PropVal::Lit(_)))
             && self.in_repeater(st, idx)
             && self.declares(st, "onaftergetrecord")
             && st.borrow().cursor == Cursor::Row
@@ -1245,13 +1278,39 @@ impl Session {
             let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
             drop(s);
             if ran_for_it && !last {
-                return unsupported(
-                    "Editable() of a repeater control with an Editable expression, on a row other than the one OnAfterGetRecord ran with last (not pinned)",
-                );
+                let held = match self.prop_global_slots(st, idx, name) {
+                    Some(slots) if !self.declares(st, "onaftergetcurrrecord") => {
+                        let s = st.borrow();
+                        s.row_prop_vars
+                            .iter()
+                            .find(|(k, _)| Self::same_key(k, &key))
+                            .map(|(_, v)| v.clone())
+                            .filter(|v| slots.iter().all(|slot| v.iter().any(|(n, _)| n == slot)))
+                    }
+                    _ => None,
+                };
+                let Some(held) = held else {
+                    return unsupported(format!(
+                        "{name} of a repeater control with an expression, on a row other than the one OnAfterGetRecord ran with last (not pinned)"
+                    ));
+                };
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RepeaterEditableFollowsRow);
+                let inst = self.owner_instance(st, None);
+                let saved: Vec<(usize, Value)> = held
+                    .iter()
+                    .map(|(slot, _)| (*slot, inst.borrow().globals[*slot].clone()))
+                    .collect();
+                for (slot, v) in held {
+                    inst.borrow_mut().globals[slot] = v;
+                }
+                let r = self.prop_bool_now(st, idx, name, default);
+                for (slot, v) in saved {
+                    inst.borrow_mut().globals[slot] = v;
+                }
+                return r;
             }
         }
-        let page_editable = self.page_editable(st) && !(rec_bound && open_lock == Some(PageMode::New));
-        Ok((!rec_bound || page_editable) && self.prop_bool_now(st, idx, "editable", true)?)
+        self.prop_bool_now(st, idx, name, default)
     }
 
     /// Whether control `idx` sits inside a `cuegroup`.
@@ -1283,7 +1342,7 @@ impl Session {
                 at = page_of(&engine, st).controls[p].parent;
             }
         }
-        self.prop_bool_now(st, idx, "enabled", true)
+        self.row_prop_bool(st, idx, "enabled", true)
     }
 
     pub(super) fn control_visible(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {

@@ -2143,19 +2143,27 @@ impl Session {
     }
 
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
-    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). A Rec
-    /// the page's filters would stamp is not pinned.
+    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
+    /// Rec takes a single-value filter of a primary-key field set in filter group 0 or 2, before OnNewRecord; a filter on a field
+    /// outside the key or a range is not taken (assumption gone-only-row-blank-rec-takes-key-filter, writer RT's
+    /// pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
+    /// 0, :389 a field outside the key, :406 both key fields `N:Yes:5:`, :423 a range, :466 a List). Another filter group, a
+    /// value from several filters, PopulateAllFields or a stamped field that validates are not pinned.
     fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
         rec.borrow_mut().fields = fresh.clone();
         self.stamp_from_filters(st, false)?;
         let stamped = rec.borrow().fields.clone();
-        rec.borrow_mut().fields = fresh;
-        if !Self::same_values(&stamped, &rec.borrow().fields) {
-            return unsupported(
-                "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
-            );
+        rec.borrow_mut().fields = fresh.clone();
+        if !Self::same_values(&stamped, &fresh) {
+            if !self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? {
+                return unsupported(
+                    "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneOnlyRowBlankRecTakesKeyFilter);
+            rec.borrow_mut().fields = stamped;
         }
         {
             let mut s = st.borrow_mut();
@@ -2169,6 +2177,62 @@ impl Session {
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         Ok(())
+    }
+
+    /// Whether every value the filters stamp on the blank Rec (`stamped` against `fresh`) is of the pinned form (see
+    /// `settle_on_blank_rec`): one `SetRange` value of a primary-key field in filter group 0 or 2, on a field without OnValidate,
+    /// table relation or validate subscriber, on a page without PopulateAllFields.
+    fn blank_rec_takes_key_filters(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        stamped: &[Value],
+        fresh: &[Value],
+    ) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        if engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("PopulateAllFields") && v.trim().eq_ignore_ascii_case("true"))
+        {
+            return Ok(false);
+        }
+        let table = self.table(rec)?;
+        let schema = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        for (pos, (a, b)) in stamped.iter().zip(fresh).enumerate() {
+            if Self::same_values(std::slice::from_ref(a), std::slice::from_ref(b)) {
+                continue;
+            }
+            let pinned_filter = {
+                let r = rec.borrow();
+                let mut on_field = r.filters.iter().filter(|f| f.field == pos);
+                // SetRange of one value holds the range `v..v` (records.rs, RecordOp::SetRange).
+                matches!(
+                    (on_field.next(), on_field.next()),
+                    (Some(f), None) if (f.group == 0 || f.group == 2) && matches!(
+                        &f.expr,
+                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).is_ok_and(|o| o.is_eq())
+                    )
+                )
+            };
+            let f = &schema.fields[pos];
+            if !pinned_filter
+                || !table.keys[0].contains(&pos)
+                || f.on_validate.is_some()
+                || f.relation
+                || !f.ext_before_validate.is_empty()
+                || !f.ext_after_validate.is_empty()
+                || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
+                || self.listened(&table, "onaftervalidateevent", Some(&f.name))?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// A list that serves its rows from OnFindRecord lost its current row to an action. The client asks
