@@ -317,16 +317,14 @@ fn run_modal_with_a_field_argument_and_a_handler_that_does_not_answer_lookup_ok(
     ));
 }
 
+// With a TestPage handler that answers OK the field argument changes nothing (pages/lt-page-run-overloads-testpart/
+// P106RunStatic.al:141-866; al-runner issue 5753).
 #[test]
-fn run_modal_with_a_field_argument_and_lookup_ok_stays_refused() {
+fn run_modal_with_a_field_argument_and_lookup_ok_runs() {
     let r = outcomes(
         "[Test] [HandlerFunctions('Ok')] procedure Accepted() var R: Record \"FP Row\"; A: Action; begin
           R.Txt := 'x'; A := Page.RunModal(Page::\"FP Row Dialog\", R, R.Txt); end;
         [ModalPageHandler] procedure Ok(var D: TestPage \"FP Row Dialog\") begin D.OK().Invoke(); end;",
     );
-    assert!(
-        r.iter()
-            .all(|(_, o)| matches!(o, Outcome::NotRun(m) if m.contains("field argument"))),
-        "{r:?}"
-    );
+    assert!(r.iter().all(|(_, o)| matches!(o, Outcome::Pass)), "{r:?}");
 }
