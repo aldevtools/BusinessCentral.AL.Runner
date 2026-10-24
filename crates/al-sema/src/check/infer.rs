@@ -541,9 +541,17 @@ impl<'a> Checker<'a> {
         let assigned =
             node.parent().is_some_and(|p| p.kind() == SyntaxKind::AssignStmt) && node.prev_sibling().is_none();
         let object_level = !node.ancestors().any(|a| a.kind() == SyntaxKind::Section);
+        // A trigger or procedure of the request page itself, not of a control or action in it (must-not-compile 2110:
+        // Rec in a report request page OnOpenPage without SourceTable).
+        let in_request_page = node
+            .ancestors()
+            .filter_map(ast::Section::cast)
+            .next()
+            .is_some_and(|s| s.name().eq_ignore_ascii_case("requestpage"));
         // System variables the object type does not have (corpus must-not-compile 0351 to 0355): `CurrPage`,
         // `CurrReport`, `CurrXmlPort`, `CurrQuery` and `xRec` in a codeunit without `TableNo`, the first four in a table,
-        // `Rec` in the object-level code of a report without a request page source table.
+        // `Rec` in the object-level or request page code of a report or xmlport without a request page source table
+        // (must-not-compile 2110 to 2113), `CurrPage` in an xmlport request page (2114).
         let lower = name.to_ascii_lowercase();
         let absent_system_variable = match kind {
             ObjKind::Codeunit => {
@@ -556,7 +564,13 @@ impl<'a> Checker<'a> {
             ObjKind::Table | ObjKind::TableExtension => {
                 matches!(lower.as_str(), "currpage" | "currreport" | "currxmlport" | "currquery")
             }
-            ObjKind::Report => lower == "rec" && sc.rec.is_none() && object_level,
+            ObjKind::Report => lower == "rec" && sc.rec.is_none() && (object_level || in_request_page),
+            // Must-not-compile 2111 (Rec in a request page without SourceTable), 2112 (Rec in OnPreXmlPort with no request
+            // page) and 2114 (CurrPage in a request page with SourceTable).
+            ObjKind::XmlPort => {
+                (lower == "rec" && sc.rec.is_none() && (object_level || in_request_page))
+                    || (lower == "currpage" && in_request_page)
+            }
             _ => false,
         } && !is_callee;
         let judged = absent_system_variable
