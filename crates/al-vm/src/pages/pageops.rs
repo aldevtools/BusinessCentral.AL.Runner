@@ -167,6 +167,7 @@ impl Session {
                     s.lookup_set = used;
                     s.static_lookup = used;
                     s.statement_run = !used && record.is_some();
+                    s.field_run = used && record.is_some() && field;
                 }
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
                 // lacks (a negative one or 0 goes on; pages/lt-page-run-overloads-testpart/P106RunErrors.al: Err_WrongTableRecord,

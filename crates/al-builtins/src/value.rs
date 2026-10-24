@@ -684,6 +684,9 @@ pub struct PageState {
     /// `Page.RunModal(Id, Rec)` called as a statement: not a lookup (pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:916),
     /// and whether `Rec` takes the row the page closed on is not pinned: a later use of `Rec` refuses when that row differs.
     pub statement_run: bool,
+    /// `Page.RunModal(Id, Rec, Field)` with its return value used: a close by the platform after the handler returned hands the
+    /// row back as an action does (pages/lt-f3-pages/F3TrappedAndModal.al:235 Card_HandlerEditsOnly, :341 List_HandlerDoesNothing).
+    pub field_run: bool,
     /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
     /// (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al), so it marks no assumption.
     pub refresh_pinned: bool,
@@ -839,6 +842,7 @@ impl PageState {
             stale: false,
             lookup_set: false,
             statement_run: false,
+            field_run: false,
             refresh_pinned: false,
             refresh_by_update: false,
             refresh_update_false: false,

@@ -42,6 +42,18 @@ codeunit 69943 T
         if Format(Act) + '|' + Seen + '|' + Row."Code" + '|' + Row.GetFilters() <> 'LookupOK|cur=B;rows=BC|C|Code: B..C' then
             Error('%1', Format(Act) + '|' + Seen + '|' + Row."Code" + '|' + Row.GetFilters());
     end;
+    [Test] [HandlerFunctions('ListH')]
+    procedure FieldArgHandlerDoesNothing()
+    var Row: Record "FA Row"; Act: Action;
+    begin
+        Seed();
+        Row.Get('A');
+        GoTo := 'B';
+        Mode := 3;
+        Act := Page.RunModal(Page::"FA List", Row, Row.Name);
+        if Format(Act) + '|' + Row."Code" <> 'LookupCancel|B' then
+            Error('%1', Format(Act) + '|' + Row."Code");
+    end;
     [Test] [HandlerFunctions('CardH')]
     procedure VariantRecRefCard()
     var Row: Record "FA Row"; RecRef: RecordRef; Back: RecordRef; V: Variant; Act: Action; S: Text;
@@ -86,7 +98,7 @@ codeunit 69943 T
             repeat Codes += P."Code".Value(); until not P.Next();
         Seen += ';rows=' + Codes;
         if GoTo <> '' then P.GoToKey(GoTo);
-        P.OK().Invoke();
+        if Mode <> 3 then P.OK().Invoke();
     end;
     [ModalPageHandler]
     procedure CardH(var P: TestPage "FA Card")
@@ -103,7 +115,7 @@ codeunit 69943 T
 #[test]
 fn a_field_argument_or_a_variant_holding_a_record_ref_runs_the_page_as_bc_does() {
     let o = outcomes_in(SRC, "T");
-    assert_eq!(o.len(), 3);
+    assert_eq!(o.len(), 4);
     for (name, outcome) in o {
         assert_eq!(format!("{outcome:?}"), "Pass", "{name}");
     }

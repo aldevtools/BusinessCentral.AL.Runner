@@ -1635,7 +1635,7 @@ impl Session {
         // PageRunModalTargetMovingItsRecAndTheCallersRecord, called as a statement: `Row` stays on B).
         let statement = st.borrow().statement_run;
         let hands_back = action == "LookupOK"
-            || (action == "LookupCancel" && via_action)
+            || (action == "LookupCancel" && (via_action || st.borrow().field_run))
             || (statement && via_action && (action == "OK" || action == "Cancel"));
         if hands_back && self.has_source(st) && (on_row || on_new) {
             let fields = self.page_rec(st).borrow().fields.clone();
