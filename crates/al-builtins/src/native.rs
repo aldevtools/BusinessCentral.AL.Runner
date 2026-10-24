@@ -1239,11 +1239,15 @@ const FIELD_FORMAT_STRINGS: &[&str] = &[
     "<Integer>.<Decimals>",
 ];
 
+/// The places measured with `FIELD_FORMAT_STRINGS`: DecimalPlaces 2:2, 0:0, 3:5 and 0:5, AutoFormatType 1 (2:2), 2 (2:5) and
+/// 10 with `<Precision,1:1>` (AtPrecisionStandardFormat2.al:883-1047). Other places are not pinned and are refused.
+const FIELD_FORMAT_PLACES: &[(u32, u32)] = &[(2, 2), (0, 0), (3, 5), (0, 5), (2, 5), (1, 1)];
+
 /// A string of `FIELD_FORMAT_STRINGS` on a field of `(min, max)` places: the value is first rounded half away from zero to
 /// `max` places (0:0 writes 1234.5678 as `1235` and -0.5 as `-1`, `<Integer>` of it `1`: the integer code drops the sign), then
 /// `<Decimals>` shows at least `min` places (2:2 writes 5 as `.00`, 0:5 as nothing, 3:5 -0.5 as `.500`), and `<Decimals,3>`
 /// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047). A negative value that rounds to
-/// zero is not measured and is refused.
+/// zero, and places outside `FIELD_FORMAT_PLACES`, are not measured and are refused.
 fn format_field_string(
     ctx: &mut dyn Ctx,
     d: rust_decimal::Decimal,
@@ -1251,6 +1255,11 @@ fn format_field_string(
     template: &str,
     (min, max): (u32, u32),
 ) -> Result<Value, Signal> {
+    if !FIELD_FORMAT_PLACES.contains(&(min, max)) {
+        return Err(Signal::Unsupported(format!(
+            "Format of a Decimal field with places {min}:{max} with `{template}` (only the measured places are pinned)"
+        )));
+    }
     let rounded = d.round_dp_with_strategy(max, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
     if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() {
         return Err(Signal::Unsupported(format!(

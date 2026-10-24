@@ -11,11 +11,14 @@ use std::rc::Rc;
 
 type Out = Result<Value, Signal>;
 
+/// An entry of `CALLSTACKS`: the cell of an `ErrorInfo` value and its `Callstack`.
+type CallstackEntry = (std::rc::Weak<RefCell<LibraryValue>>, Rc<str>);
+
 thread_local! {
     /// The `Callstack` of a collected error, by the cell of the `ErrorInfo` value that carries it (`set_callstack_of`; `copy_of`
     /// hands it on to the copy). A side table: the state struct of an `ErrorInfo` has no field for it. A `Weak` keeps its cell's
     /// address from being reused while the entry lives; dead entries go at the next insert.
-    static CALLSTACKS: RefCell<Vec<(std::rc::Weak<RefCell<LibraryValue>>, Rc<str>)>> = const { RefCell::new(Vec::new()) };
+    static CALLSTACKS: RefCell<Vec<CallstackEntry>> = const { RefCell::new(Vec::new()) };
 }
 
 fn callstack_of(cell: &Rc<RefCell<LibraryValue>>) -> Option<Rc<str>> {
@@ -42,7 +45,9 @@ pub fn set_callstack_of(v: &Value, stack: &str) {
 }
 
 /// `Callstack`: empty until the error is raised (session/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable); a
-/// collected error has the frames of its `Error` call (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358).
+/// collected error has the frames of its `Error` call and then the untracked mark, so it is not empty and no text function reads
+/// it (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358 pins only the frames of the test's own app; al-vm
+/// `collected_call_stack`).
 fn callstack(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let cell = match &r {
         Some(Value::Library(_, cell)) => Some(cell.clone()),

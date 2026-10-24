@@ -54,11 +54,11 @@ impl Session {
         Some(out)
     }
 
-    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them
-    /// (misc/lt-probes-needed-2/PnBErrorsCollections.al:329-358, RO_CollectedErrorInfo_Internal_And_Client; the test reads the
-    /// frames of its own app only). Under the test runner BC 27.5 lists the runner's frames below the test's and 28.5 and 29.0
-    /// do not (writer RO's measurement, not asserted): on BC 27 the stack ends with `UNTRACKED_CALL_STACK`, so a read refuses.
-    /// A frame with no pinned format is `UNTRACKED_CALL_STACK` too.
+    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them, then
+    /// `UNTRACKED_CALL_STACK`. The corpus keeps only the lines of its own app after it drops CR and splits at LF
+    /// (misc/lt-probes-needed-2/PnBErrorsCollections.al:282-306 and :329-358, RO_CollectedErrorInfo_Internal_And_Client), so
+    /// the rest of the text (the test runner's frames, which writer RO saw on BC 27.5 and not on 28.5 or 29.0, CR, a trailing
+    /// separator) is not pinned: with the mark the stack is not empty and no text function reads it.
     pub(crate) fn collected_call_stack(&self) -> String {
         if self.events.unpinned_event_depth > 0 {
             return UNTRACKED_CALL_STACK.to_string();
@@ -72,10 +72,7 @@ impl Session {
                 frame_line(&self.engine.program, object, frame).unwrap_or_else(|| UNTRACKED_CALL_STACK.to_string())
             })
             .collect();
-        let before_28 = self.engine.target.as_ref().is_some_and(|t| t.bc.major < 28);
-        if !self.runner_frames.is_empty() && before_28 {
-            lines.push(UNTRACKED_CALL_STACK.to_string());
-        }
+        lines.push(UNTRACKED_CALL_STACK.to_string());
         lines.join("\n")
     }
 

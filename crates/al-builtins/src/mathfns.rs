@@ -175,10 +175,6 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
-    #[track_caller]
-    fn refused(r: Result<Value, Signal>) {
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?} should be a refusal");
-    }
 
     #[test]
     fn round_half_away_from_zero() {

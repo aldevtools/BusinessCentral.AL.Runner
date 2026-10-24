@@ -31,6 +31,7 @@ table 87392 "FS Ro Row"
         field(3; DP00; Decimal) { DecimalPlaces = 0 : 0; }
         field(4; DP35; Decimal) { DecimalPlaces = 3 : 5; }
         field(5; DP05; Decimal) { DecimalPlaces = 0 : 5; }
+        field(6; DP13; Decimal) { DecimalPlaces = 1 : 3; }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -123,6 +124,11 @@ codeunit 87391 C
                 begin
                     Row.DP22 := -0.001;
                     exit(Format(Row.DP22, 0, '<Integer>'));
+                end;
+            3:
+                begin
+                    Row.DP13 := 5;
+                    exit(Format(Row.DP13, 0, '<Decimals>'));
                 end;
         end;
     end;
@@ -298,10 +304,11 @@ fn format_strings_on_decimal_places_fields() {
     }
 }
 
-/// A format string RO did not measure, and a negative value that rounds to zero, stay refused.
+/// A format string RO did not measure, a negative value that rounds to zero, and places the corpus does not pin (1:3) stay
+/// refused.
 #[test]
 fn unpinned_field_format_strings_are_refused() {
-    for which in [1, 2] {
+    for which in [1, 2, 3] {
         let r = call("29.0", "Unpinned", vec![Value::Integer(which)]);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{which}: {r:?}");
     }

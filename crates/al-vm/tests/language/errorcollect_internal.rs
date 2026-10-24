@@ -1,7 +1,7 @@
 //! A collected `ErrorInfo` read back through `GetCollectedErrors` (al-runner issue 5766; corpus
 //! misc/lt-probes-needed-2/PnBErrorsCollections.al:263-375, RO_CollectedErrorInfo_*): an Internal error's Message is the generic
 //! text with its correlation id after a line break, its other properties are kept, and Callstack lists the frames from the
-//! `Error` call out to the caller, innermost first, a line feed between them. Left at the end of the scope it raises the generic
+//! `Error` call out to the caller, innermost first; the rest of its text is not pinned. Left at the end of the scope it raises the generic
 //! text with a backslash before the correlation id.
 
 const SRC: &str = r#"
@@ -74,6 +74,26 @@ codeunit 70550 "LT PnB ErrorInfo"
         exit(Info.Callstack);
     end;
 
+    procedure StackNotEmpty(): Boolean
+    var
+        Info: ErrorInfo;
+        Count: Integer;
+    begin
+        RoCollect(ErrorType::Client, true, Count, Info);
+        exit(Info.Callstack <> '');
+    end;
+
+    procedure StackLines(): Integer
+    var
+        Info: ErrorInfo;
+        Count: Integer;
+        Lf: Text[1];
+    begin
+        RoCollect(ErrorType::Client, true, Count, Info);
+        Lf[1] := 10;
+        exit(Info.Callstack.Split(Lf).Count());
+    end;
+
     procedure KeptAtScopeExit(): Text
     var
         Info: ErrorInfo;
@@ -130,11 +150,17 @@ fn a_collected_internal_error_hides_its_message_and_keeps_the_rest() {
     );
 }
 
-/// RO_CollectedErrorInfo_Internal_And_Client `internal callstack`: from the Error call out, innermost first.
+/// RO_CollectedErrorInfo_Internal_And_Client `internal callstack`: from the Error call out, innermost first. The test keeps only
+/// the lines of its own app after it drops CR and splits at LF, so the rest of the text (other apps' frames, CR, a trailing
+/// separator) is not pinned: the stack ends with the untracked mark and no text function reads it.
 #[test]
 fn a_collected_error_has_the_call_stack_of_its_error_call() {
     let stack = run("Stack");
-    let frames: Vec<&str> = stack.split('\n').collect();
+    let (frames, rest) = stack
+        .split_once(al_builtins::native::UNTRACKED_CALL_STACK)
+        .unwrap_or_else(|| panic!("no untracked mark: {stack:?}"));
+    assert_eq!(rest, "", "{stack:?}");
+    let frames: Vec<&str> = frames.split('\n').filter(|f| !f.is_empty()).collect();
     assert_eq!(frames.len(), 3, "{stack:?}");
     assert!(
         frames[0].starts_with("\"LT PnB ErrorInfo\"(CodeUnit 70550).RoRaiseFull line 9"),
@@ -148,6 +174,19 @@ fn a_collected_error_has_the_call_stack_of_its_error_call() {
         frames[2].starts_with("\"LT PnB ErrorInfo\"(CodeUnit 70550).Stack line 5"),
         "{stack:?}"
     );
+}
+
+/// al-runner issue 5766 Q4_CollectedErrorInfo_HasCallstack: the Callstack of a collected error is not empty. How many lines it
+/// has is not pinned: the split refuses.
+#[test]
+fn a_collected_call_stack_is_not_empty_and_its_lines_are_not_read() {
+    assert!(al_testkit::boolean(al_testkit::run_in(
+        SRC,
+        "LT PnB ErrorInfo",
+        "StackNotEmpty"
+    )));
+    let r = al_testkit::run_in(SRC, "LT PnB ErrorInfo", "StackLines");
+    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
 /// PnBErrorsCollections.al:360-375 RO_CollectedErrorInfo_Internal_NotCleared_ScopeExit.
