@@ -2517,7 +2517,28 @@ impl Session {
                     self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
-                let set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
+                let mut set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
+                // A SystemId that Init() or Clear(SystemId) in the table's OnInsert, or Init() in an OnBeforeInsertEvent subscriber,
+                // made the null Guid: the row is stored with a new id, neither the one the trigger saw nor a preset one, with or
+                // without InsertWithSystemId, and the variable holds the stored id (record/lt-qr-systemid-insert-events/
+                // QrSystemIdTests.al:393-530, AL Runner issue 5803). A table extension's insert triggers, the database trigger and the
+                // User trigger running then are not pinned.
+                if let (Some(i), Some(Value::Guid(g))) = (id_slot, &set_by_code)
+                    && *g == [0; 16]
+                    && !rec.borrow().temporary
+                {
+                    let ext = run
+                        && (!self.ext_triggers(&t, "OnBeforeInsert").is_empty()
+                            || !self.ext_triggers(&t, "OnInsert").is_empty());
+                    if ext || self.global_enabled(&t, GlobalOp::Insert)? || self.is_user_row(&t, false) {
+                        return unsupported(
+                            "a SystemId an Insert event or trigger cleared, with table extension insert triggers, the database trigger or the User trigger: not pinned",
+                        );
+                    }
+                    let id = Value::Guid(self.fresh_system_id());
+                    rec.borrow_mut().fields[i] = id.clone();
+                    set_by_code = Some(id);
+                }
                 // The database event follows the table's triggers and precedes the write
                 // (record/TestTriggerDispatchOrder.al:TriggerOrder_Insert_RecordPipeline_IsStable).
                 self.global_trigger(&t, GlobalOp::Insert, rec, None)?;

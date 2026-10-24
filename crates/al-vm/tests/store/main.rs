@@ -40,6 +40,7 @@ mod set_view_caption;
 mod sql_data_type;
 mod stale_buffer;
 mod store_values;
+mod systemid_cleared_on_insert;
 mod table_globals;
 mod tableext_relation_modify;
 mod temp_sums_by_ref;
