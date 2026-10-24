@@ -450,6 +450,10 @@ pub(crate) struct Unit {
     run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     /// See `Scratch::hub`.
     hub: bool,
+    /// BC runs it on the TestRunnerHub (`corpus.rs` `on_hub`), before the codeunits runner 130450 runs.
+    hub_leg: bool,
+    /// See `Scratch::onrun_carry`.
+    onrun_carry: bool,
     /// See `Scratch::leak`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
 }
@@ -485,6 +489,9 @@ pub(crate) struct Scratch {
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// A test or the `OnRun` trigger read or wrote one of `leak`.
     leak_hit: bool,
+    /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
+    /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
+    onrun_carry: bool,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -563,6 +570,7 @@ fn run_unit(
             run_only: u.run_only.clone(),
             hub: u.hub,
             leak: u.leak.clone(),
+            onrun_carry: u.onrun_carry,
             ..Default::default()
         };
         if u.coverage {

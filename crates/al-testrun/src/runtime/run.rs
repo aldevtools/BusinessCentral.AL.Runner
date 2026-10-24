@@ -254,12 +254,19 @@ pub(crate) fn run_codeunit_core(
     session.mark_install_end();
     session.in_test_codeunit = true;
     session.isolation_from_hub = scratch.hub && isolation != TestIsolation::Codeunit;
+    session.hub_disabled = scratch.hub && isolation == TestIsolation::Disabled;
     session.test_object = Some(object);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
     // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.
     let company_open = if execute {
         crate::install::CompanyOpenWrites::default()
     } else {
+        // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
+        // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
+        // (docs/probes-needed.md, WorkDate row).
+        if let Err(why) = crate::install::login_work_date(lowered, &mut session) {
+            return all(Outcome::NotRun(why));
+        }
         match crate::install::test_session_company_open(lowered, &mut session) {
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
@@ -281,6 +288,9 @@ pub(crate) fn run_codeunit_core(
     }
     let changes_from = session.store_mut().change_counter();
     let carried_from = carries.then(|| session.capture_baseline());
+    // Under runner 130450 what the OnRun trigger writes reaches the later codeunits (`Scratch::onrun_carry`).
+    let onrun_from = (scratch.onrun_carry && !execute).then(|| session.capture_baseline());
+    let mut onrun_left: Option<Carried> = None;
     // The tables an earlier Disabled codeunit left rows in (`Scratch::leak`): a read of one is noted, and the codeunit
     // then runs again from what that codeunit left (`corpus.rs`).
     let leak: BTreeSet<u32> = scratch.leak.as_deref().cloned().unwrap_or_default();
@@ -348,7 +358,30 @@ pub(crate) fn run_codeunit_core(
                     "OnRun: ends while Consistent(false) marks a table (the runner's commit is not pinned)".into(),
                 ));
             }
-            Ok(_) => session.commit_transaction(),
+            Ok(_) => {
+                session.commit_transaction();
+                // OnRun ran outside the codeunit isolation of runner 130450: the later codeunits start from what it left,
+                // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
+                if let Some(start) = &onrun_from {
+                    let everything = session.storage_or_sequences_differ(start);
+                    let mut baseline = session.capture_baseline();
+                    baseline.workspace_installs = Some(skipped_installs.clone());
+                    // The rows OnRun wrote are in the session company only.
+                    baseline.install_rows = Some(session.install_rows());
+                    onrun_left = Some(Carried {
+                        baseline: Some(baseline),
+                        tables: session.store_mut().tables_changed_since(changes_from),
+                        unfinished: everything.then(|| {
+                            format!(
+                                "an earlier test codeunit, {}, changed isolated storage or a number sequence in its OnRun \
+                                 trigger, which under the test runner 130450 every later codeunit sees: that is not followed",
+                                obj.name
+                            )
+                        }),
+                        everything,
+                    });
+                }
+            }
             Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
                 return all(Outcome::NotRun(r));
             }
@@ -900,6 +933,9 @@ pub(crate) fn run_codeunit_core(
             everything,
         };
         CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+    }
+    if let Some(left) = onrun_left {
+        CARRIED.with(|c| *c.borrow_mut() = Some(left));
     }
     out
 }

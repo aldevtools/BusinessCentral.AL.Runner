@@ -178,8 +178,9 @@ codeunit 50631 "After"
     assert!(not_run(outcome(&o, "A1_Reads"), "Disabled"), "{o:?}");
 }
 
-// The hub runs only codeunits without handlers (QuCommitIsolation.al:11-13); which runner BC's CI uses for one with
-// handlers, and so its isolation and its place in the order, is not pinned.
+// The hub runs only codeunits without handlers (QuCommitIsolation.al:11-13); one with handlers runs under runner 130450 as
+// Codeunit isolation (RqIsolationModes.al:673-839). RequiredTestIsolation = None is not pinned, and neither is whether a
+// later codeunit with handlers sees what a Disabled codeunit left.
 #[test]
 fn what_the_hub_does_not_pin_is_refused() {
     let o = run(
@@ -221,8 +222,10 @@ codeunit 50644 "HandlerReader"
 "#,
         true,
     );
-    assert!(not_run(outcome(&o, "H1"), "RequiredTestIsolation"), "{o:?}");
-    assert!(not_run(outcome(&o, "R1"), "OnRun"), "{o:?}");
+    // A codeunit with handlers runs under runner 130450, as Codeunit isolation (RqIsolationModes.al:673-839).
+    assert_eq!(outcome(&o, "H1"), &Outcome::Pass, "{o:?}");
+    // A codeunit with an OnRun trigger is pinned now (RqIsolationModes.al:396-472).
+    assert_eq!(outcome(&o, "R1"), &Outcome::Pass, "{o:?}");
     assert!(not_run(outcome(&o, "N1"), "None"), "{o:?}");
     assert_eq!(outcome(&o, "D1"), &Outcome::Pass, "{o:?}");
     assert!(not_run(outcome(&o, "HR1"), "Disabled"), "{o:?}");
@@ -240,8 +243,7 @@ codeunit 50650 "DOnRun"
     Subtype = Test;
     RequiredTestIsolation = Disabled;
     var Rows: Codeunit "Rows";
-    trigger OnRun() begin end;
-    [Test] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); end;
+    [Test] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); SerialNumber(); end;
 }
 codeunit 50651 "Reader"
 {
@@ -257,7 +259,7 @@ codeunit 50652 "Unrelated"
 "#,
         true,
     );
-    assert!(not_run(outcome(&o, "D1"), "OnRun"), "{o:?}");
+    assert!(not_run(outcome(&o, "D1"), "SerialNumber"), "{o:?}");
     assert!(not_run(outcome(&o, "R1"), "was"), "{o:?}");
     assert_eq!(outcome(&o, "U1"), &Outcome::Pass, "{o:?}");
     let o = run(
@@ -281,8 +283,8 @@ codeunit 50661 "Later"
 }
 
 // StartSession in a test raises TestStartSessionNotAllowed under a runner's TestIsolation = Codeunit
-// (session/TestStartSessionRecord.al). Whether BC starts a session in a codeunit the TestRunnerHub runs under
-// RequiredTestIsolation = Function or Disabled is not pinned (al-runner issue 5609): refused, never the Codeunit error.
+// (session/TestStartSessionRecord.al) and under RequiredTestIsolation = Function on the TestRunnerHub
+// (RqIsolationModes.al:454-462). Under Disabled BC starts the session (:573-600), which is not modelled: refused.
 const START_SESSION: &str = r#"
 codeunit 50640 "Started" { trigger OnRun() begin end; }
 codeunit 50641 "SF"
@@ -300,12 +302,125 @@ codeunit 50642 "SD"
 "#;
 
 #[test]
-fn start_session_under_the_hub_is_refused() {
+fn start_session_under_the_hub_fails_under_function_and_is_refused_under_disabled() {
     let o = run(START_SESSION, true);
-    for t in ["SF1", "SD1"] {
-        match outcome(&o, t) {
-            Outcome::NotRun(why) => assert!(why.contains("StartSession"), "{t}: {why}"),
-            other => panic!("{t}: {other:?}"),
-        }
+    assert_eq!(
+        outcome(&o, "SF1"),
+        &Outcome::Fail(
+            "Sessions can only be started in tests that are run by a TestRunner that has TestIsolation set to Disabled.".into()
+        ),
+        "{o:?}"
+    );
+    match outcome(&o, "SD1") {
+        Outcome::NotRun(why) => assert!(why.contains("StartSession"), "{why}"),
+        other => panic!("SD1: {other:?}"),
     }
+}
+
+// RqIsolationModes.al:396-472 (RQ_F01-RQ_F04, hub, BC 28+): under RequiredTestIsolation = Function a codeunit with an OnRun
+// trigger runs: OnRun runs once, its writes (committed and left open) survive into every test, a test's own write does not
+// reach the next test, and StartSession fails with TestStartSessionNotAllowed (:454-462).
+const FUNCTION_ONRUN: &str = r#"
+codeunit 50630 "FO"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+    var Rows: Codeunit "Rows"; Calls: Integer;
+    trigger OnRun() begin Calls += 1; Rows.Put('ORCM'); Commit(); Rows.Put('ORNC'); end;
+    [Test] procedure FO1_Writes() begin if Rows.Count() <> 2 then Error('t1 rows: %1', Rows.Count()); Rows.Put('T1'); end;
+    [Test] procedure FO2_SeesOnRunOnly() begin if Rows.Count() <> 2 then Error('t2 rows: %1', Rows.Count()); if Calls <> 1 then Error('calls %1', Calls); end;
+    [Test] procedure FO3_StartSession()
+    var Id: Integer; R: Record "Row";
+    begin
+        asserterror Session.StartSession(Id, Codeunit::"Rows", CompanyName(), R);
+        if GetLastErrorCode() <> 'TestStartSessionNotAllowed' then Error('code %1', GetLastErrorCode());
+        if GetLastErrorText() <> 'Sessions can only be started in tests that are run by a TestRunner that has TestIsolation set to Disabled.' then Error('text %1', GetLastErrorText());
+    end;
+}
+codeunit 50631 "FO Next"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+    var Rows: Codeunit "Rows";
+    [Test] procedure FO11_NextCodeunitSeesNothing() begin if Rows.Count() <> 0 then Error('next rows: %1', Rows.Count()); end;
+}
+"#;
+
+#[test]
+fn function_isolation_on_the_hub_keeps_what_onrun_wrote_for_each_test() {
+    let o = run(FUNCTION_ONRUN, true);
+    for t in [
+        "FO1_Writes",
+        "FO2_SeesOnRunOnly",
+        "FO3_StartSession",
+        "FO11_NextCodeunitSeesNothing",
+    ] {
+        assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
+    }
+}
+
+// RqIsolationModes.al:532-568 and :616 (RQ_D01, RQ_D02, RQ_D11, hub, BC 28+): under RequiredTestIsolation = Disabled a
+// codeunit with an OnRun trigger runs: the tests see OnRun's writes and each other's, and so does the next codeunit.
+const DISABLED_ONRUN: &str = r#"
+codeunit 50640 "DO"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    var Rows: Codeunit "Rows";
+    trigger OnRun() begin Rows.Put('ORCM'); Commit(); Rows.Put('ORNC'); end;
+    [Test] procedure DO1_Writes() begin if Rows.Count() <> 2 then Error('t1 rows: %1', Rows.Count()); Rows.Put('T1'); end;
+    [Test] procedure DO2_SeesAll() begin if Rows.Count() <> 3 then Error('t2 rows: %1', Rows.Count()); end;
+}
+codeunit 50641 "DO Next"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    var Rows: Codeunit "Rows";
+    [Test] procedure DO11_NextCodeunitSeesAll() begin if Rows.Count() <> 3 then Error('next rows: %1', Rows.Count()); end;
+}
+"#;
+
+#[test]
+fn disabled_isolation_on_the_hub_keeps_what_onrun_wrote_for_the_later_codeunits() {
+    let o = run(DISABLED_ONRUN, true);
+    for t in ["DO1_Writes", "DO2_SeesAll", "DO11_NextCodeunitSeesAll"] {
+        assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
+    }
+}
+
+// RqIsolationModes.al:357-369 #else (RQ_C11 on BC 27): under Microsoft's runner 130450 a test codeunit's OnRun runs outside
+// the codeunit isolation, so what it wrote, committed or not, reaches the later codeunits; the tests' writes do not.
+const ONRUN_130450: &str = r#"
+codeunit 50650 "CO"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    var Rows: Codeunit "Rows";
+    trigger OnRun() begin Rows.Put('ORCM'); end;
+    [Test] procedure CO1_SeesOnRun() begin if Rows.Count() <> 1 then Error('rows: %1', Rows.Count()); Rows.Put('T1'); end;
+}
+codeunit 50651 "CO Next"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    var Rows: Codeunit "Rows";
+    [Test] procedure CO11_NextCodeunitReads() begin if Rows.Count() <> 1 then Error('next rows: %1', Rows.Count()); end;
+    [Test] procedure CO12_ReadsNothing() begin end;
+}
+"#;
+
+#[test]
+fn under_runner_130450_what_onrun_wrote_reaches_the_later_codeunits() {
+    let o = run(ONRUN_130450, false);
+    for t in ["CO1_SeesOnRun", "CO11_NextCodeunitReads", "CO12_ReadsNothing"] {
+        assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
+    }
+    // A codeunit on the TestRunnerHub (BC 28+, no handlers, TestPermissions = Disabled) rolls OnRun's writes back
+    // (RqIsolationModes.al:357-362).
+    let o = run(ONRUN_130450, true);
+    assert_eq!(
+        outcome(&o, "CO11_NextCodeunitReads"),
+        &Outcome::Fail("next rows: 0".into()),
+        "{o:?}"
+    );
 }

@@ -294,6 +294,10 @@ pub trait Ctx: FormatCtx {
     fn install_scope(&self) -> bool {
         false
     }
+    /// Whether an install routine runs in BC's install session, which has no client (al-vm `set_install_without_client`).
+    fn install_without_client(&self) -> bool {
+        false
+    }
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false
@@ -301,6 +305,10 @@ pub trait Ctx: FormatCtx {
     /// Whether the test codeunit runs under its RequiredTestIsolation = Function or Disabled, as BC's TestRunnerHub runs
     /// it, instead of under a test runner codeunit's TestIsolation.
     fn isolation_from_hub(&self) -> bool {
+        false
+    }
+    /// The TestRunnerHub runs the test codeunit under RequiredTestIsolation = Disabled.
+    fn hub_disabled(&self) -> bool {
         false
     }
     /// `Error(ErrorInfo)` of a collectible error: inside a `[ErrorBehavior(Collect)]` scope the
@@ -1909,8 +1917,12 @@ fn log_audit_message(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value])
 /// `Hyperlink(Url)` asks the client to open a page. A test has no handler for it, so the platform raises
 /// `Unhandled UI: Hyperlink <url>` (record/ProbeClearAllSetKeyHyperlink.al:322-338, BC 27.5); a routine
 /// that only mentions the call still runs.
-fn hyperlink(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+fn hyperlink(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let url = text_arg(args, 0)?;
+    // Install code has no client: Hyperlink does nothing there (install/lt-outside-install-ui/RlInstallUi.al:224).
+    if c.install_without_client() {
+        return Ok(Value::Null);
+    }
     Err(Signal::Error(Box::new(AlError {
         message: format!("Unhandled UI: Hyperlink {url}"),
         code: "MissingUIHandler".into(),
@@ -1956,12 +1968,13 @@ fn start_session(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Res
             Value::Null
         });
     }
-    // Whether BC starts a session in a test codeunit the TestRunnerHub runs under RequiredTestIsolation = Function or
-    // Disabled is not pinned (al-runner issue 5609; the corpus pins only Codeunit isolation).
-    if c.in_test_run() && c.isolation_from_hub() {
+    // Under RequiredTestIsolation = Disabled on the TestRunnerHub BC starts the session, it runs and its writes are seen
+    // (codeunit/lt-qu-commit-isolation/RqIsolationModes.al:573-600, al-runner issue 5609); a second session is not modelled.
+    // Under Function it fails as under Codeunit (:454-462).
+    if c.in_test_run() && c.isolation_from_hub() && c.hub_disabled() {
         return unsupported(
-            "StartSession in a test codeunit run under its RequiredTestIsolation = Function or Disabled (--isolation \
-             required): whether BC starts the session there is not pinned",
+            "StartSession in a test codeunit run under its RequiredTestIsolation = Disabled (--isolation required): BC \
+             starts the session there, and a second session is not modelled",
         );
     }
     if c.in_test_run() {

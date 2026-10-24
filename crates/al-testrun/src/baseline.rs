@@ -284,6 +284,9 @@ pub fn run_traced(
         let without_client =
             no_client && no_client_from.is_some_and(|f| f <= k) && no_client_to.is_some_and(|t| k <= t);
         session.set_no_client(without_client);
+        // An app's install code runs in BC's install session, which has no client (`Session::set_install_without_client`);
+        // Company-Initialize and the company build keep their own rules.
+        session.set_install_without_client(!is_step && company_initialize_root != Some(k));
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
         if no_company {
             session.set_company("");
@@ -301,6 +304,7 @@ pub fn run_traced(
             session.call_parameterless_subscriber(oi, ri)
         };
         session.set_no_client(false);
+        session.set_install_without_client(false);
         if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {

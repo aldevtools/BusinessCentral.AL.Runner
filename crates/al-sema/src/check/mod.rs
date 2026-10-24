@@ -351,6 +351,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
             c.reach_install_events(roots.baseline, install_code);
             c.reach_test_runner();
+            c.reach_login_work_date();
             timings.baseline = started.elapsed();
             let started = std::time::Instant::now();
             let demand = c.run_demand(roots.workers.map_or_else(check_workers, |w| w.clamp(1, 32)), objects);

@@ -1539,7 +1539,7 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("TableType `CDS`"), "{why}");
 }
 
-/// An install codeunit that cannot run (here: Confirm outside a test method) holds back the tests that touch the
+/// An install codeunit that cannot run (here: Confirm, which raises CallbackNotAllowed in install code) holds back the tests that touch the
 /// tables it could have written. AllObj and AllObjWithCaption are listed from the compiled objects only, so an
 /// install that reads them changes nothing a test reads there: a test that reads them still runs
 /// (install/lt-cm-install-leads/CmInstallObjects.al:73-79 reads AllObjWithCaption and then calls Confirm).

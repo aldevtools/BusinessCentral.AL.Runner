@@ -316,11 +316,17 @@ impl al_builtins::native::Ctx for Session {
     fn install_scope(&self) -> bool {
         self.install_scope
     }
+    fn install_without_client(&self) -> bool {
+        self.install_without_client
+    }
     fn in_test_run(&self) -> bool {
         self.in_test_codeunit
     }
     fn isolation_from_hub(&self) -> bool {
         self.isolation_from_hub
+    }
+    fn hub_disabled(&self) -> bool {
+        self.hub_disabled
     }
     fn enum_members(&self, id: u32) -> Option<Vec<(i32, String)>> {
         self.note_enum(id);

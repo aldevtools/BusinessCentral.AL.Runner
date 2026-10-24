@@ -36,6 +36,12 @@ pub const COMPANY_INITIALIZE: u32 = 2;
 /// 132553 "Block Changes to System Tables" (:65-75). They are found by id only, as the runner's `AllObj` check does.
 pub const TEST_RUNNER_CODEUNITS: [u32; 4] = [131006, 130301, 130302, 132553];
 
+/// Base Application's `LogInManagement`: when a session with a client opens the company, its `CompanyOpen` sets WorkDate to
+/// `GetDefaultWorkDate()` (al-testrun `install::login_work_date`).
+pub const LOGIN_MANAGEMENT: u32 = 40;
+/// The procedure of [`LOGIN_MANAGEMENT`] the test session's start calls.
+pub const LOGIN_WORK_DATE: &str = "GetDefaultWorkDate";
+
 /// An object nothing in the compile refers to.
 pub const NONE: u8 = 0;
 /// Lowered, with its routines stubbed.
@@ -430,6 +436,29 @@ impl Checker<'_> {
                 && o.id.is_some_and(|id| TEST_RUNNER_CODEUNITS.contains(&id))
             {
                 self.reach_run(i);
+            }
+        }
+    }
+
+    /// [`LOGIN_WORK_DATE`] of a dependency's codeunit [`LOGIN_MANAGEMENT`]: the test session calls it when it opens the
+    /// company, and nothing in the apps names that call.
+    pub(super) fn reach_login_work_date(&self) {
+        if self.demand.borrow().is_none() {
+            return;
+        }
+        for i in 0..self.ws.objects.len() {
+            let o = &self.ws.objects[i];
+            if o.kind == ObjKind::Codeunit
+                && o.id == Some(LOGIN_MANAGEMENT)
+                && o.name.eq_ignore_ascii_case("LogInManagement")
+                && self.ws.is_dependency(i)
+                && self.ws.usable(i)
+            {
+                for r in self.routines_of(i).iter() {
+                    if !r.is_trigger() && r.name().eq_ignore_ascii_case(LOGIN_WORK_DATE) {
+                        self.reach(i, usize::from(r.syntax().text_range().start()));
+                    }
+                }
             }
         }
     }

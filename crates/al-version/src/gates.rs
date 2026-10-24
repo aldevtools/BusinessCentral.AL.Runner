@@ -203,7 +203,8 @@ pub enum Gate {
     AutoFormatAmountFieldRoundsFrom28,
     /// The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub from BC 28, under the codeunit's
     /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the
-    /// CI's harness, not of the platform (codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 36-39). Consumed by
+    /// CI's harness, not of the platform (codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 36-39; the BC28PLUS
+    /// guards of codeunit/lt-qu-commit-isolation/RqIsolationModes.al mark the same difference, :38-41). Consumed by
     /// `al-test-cli` (`RunOptions::required_isolation`).
     TestRunnerHubRequiredIsolationFrom28,
     /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
@@ -892,10 +893,16 @@ impl Gate {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "304-308",
             }],
-            Gate::TestRunnerHubRequiredIsolationFrom28 => &[Evidence {
-                file: "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al",
-                lines: "443,531,724",
-            }],
+            Gate::TestRunnerHubRequiredIsolationFrom28 => &[
+                Evidence {
+                    file: "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al",
+                    lines: "443,531,724",
+                },
+                Evidence {
+                    file: "codeunit/lt-qu-commit-isolation/RqIsolationModes.al",
+                    lines: "357,419,493,578,600,625",
+                },
+            ],
             Gate::HttpHeaderNameRulesProbedFrom28 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "282",

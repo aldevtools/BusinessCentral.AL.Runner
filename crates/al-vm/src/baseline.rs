@@ -25,6 +25,10 @@ pub struct Baseline {
     /// The company data codeunit (Microsoft's DemoTool) built the company to its end before this capture: its setup rows
     /// (General Ledger Setup) are the ones BC's own build writes.
     pub company_built: bool,
+    /// The tables the install code left rows in, when that is not every table that holds rows: a baseline a test
+    /// codeunit's OnRun added to (al-testrun run.rs, runner 130450) keeps the set of the baseline it started from. A
+    /// company BC creates holds the install rows, not those. Not part of the bytes: such a baseline stays on its thread.
+    pub install_rows: Option<std::collections::BTreeSet<u32>>,
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
@@ -184,6 +188,7 @@ impl Baseline {
             last_stamp,
             workspace_installs,
             company_built,
+            install_rows: None,
         })
     }
 
@@ -236,6 +241,7 @@ impl Session {
             last_stamp: self.last_stamp,
             workspace_installs: None,
             company_built: false,
+            install_rows: None,
         }
     }
 
@@ -260,6 +266,11 @@ impl Session {
     }
 
     /// Replaces the session's data with the baseline's (a new session starts here).
+    /// The tables the install code left rows in, as the session's baseline gave them (`Baseline::install_rows`).
+    pub fn install_rows(&self) -> std::collections::BTreeSet<u32> {
+        self.baseline_rows.clone()
+    }
+
     pub fn restore_baseline(&mut self, b: &Baseline) {
         let provider = self.store.virtual_tables();
         self.store = b.store.clone().attached(provider);
@@ -275,7 +286,7 @@ impl Session {
         // first test would otherwise be stamped hours after CurrentDateTime (corpus record/TestSystemFieldStampsContracts.al:
         // Insert_StampsBothFieldsWithTheUtcClock_SystemIdIsSetBeforeOnInsert).
         self.last_stamp = b.last_stamp.min(self.now_millis());
-        self.baseline_rows = b.nonempty_tables();
+        self.baseline_rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
         self.company_built = b.company_built;
     }
 }
@@ -322,6 +333,7 @@ mod tests {
             last_stamp: 639_277_389_274_520,
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
             company_built: true,
+            install_rows: None,
         }
     }
 

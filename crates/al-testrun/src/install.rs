@@ -13,7 +13,9 @@
 //! per-database part runs last, with `CompanyName()` empty (`:138-140`). The order of the routines inside one app and part
 //! is not known (A2): the runtime runs them in program order and refuses every test that can see that order.
 
+use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
+use al_builtins::value::Value;
 use al_sema::lower::Lowered;
 use al_vm::{Engine, InstallFacts, Session};
 use std::collections::{BTreeMap, BTreeSet};
@@ -355,6 +357,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     let mut skipped = Vec::new();
     let company = session.set_company("");
     session.set_company(&company);
+    // BC's install session has no client (`Session::set_install_without_client`).
+    session.set_install_without_client(true);
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
@@ -411,6 +415,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         }
     }
     session.set_install_session_id(None);
+    session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
     session.commit_transaction();
@@ -575,6 +580,48 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
         }
     }
     Ok(wrote)
+}
+
+/// What the login code does to WorkDate when the test session opens the company: Base Application's `LogInManagement`
+/// (codeunit 40) sets it to `GetDefaultWorkDate()`, the date of the last G/L entry in a demo company, else the WorkDate it
+/// had. Pinned: WorkDate in the test codeunit's OnRun and in its first test is that date in a demo company with G/L
+/// entries (session/lt-outside-workdate/RlWorkDateAtStart.al:47-52, al-runner issue 5743); install code still sees today
+/// (install/lt-outside-install-ui/RlInstallUi.al:212, :240). The rest of the login code (language, user personalization,
+/// application areas) does not run here, as before. Without the codeunit, or in a session without a client, nothing changes.
+pub(crate) fn login_work_date(lowered: &Lowered, session: &mut Session) -> Result<(), String> {
+    if !session.has_interactive_client() {
+        return Ok(());
+    }
+    let objs = &lowered.program.objects;
+    let Some(object) = objs.iter().position(|o| {
+        o.is_kind(al_ir::ObjKind::Codeunit)
+            && o.id == Some(al_sema::check::demand::LOGIN_MANAGEMENT)
+            && o.name.eq_ignore_ascii_case("LogInManagement")
+    }) else {
+        return Ok(());
+    };
+    let Some(routine) = objs[object].routines.iter().position(|r| {
+        !r.is_trigger && r.params == 0 && r.name.eq_ignore_ascii_case(al_sema::check::demand::LOGIN_WORK_DATE)
+    }) else {
+        return Ok(());
+    };
+    let why =
+        |what: String| format!("the login code that sets WorkDate when the test session opens the company: {what}");
+    if let Some(reason) = crate::runtime::blocked_reason(lowered, object, routine) {
+        return Err(why(reason));
+    }
+    // LogInManagement is a SingleInstance codeunit: the session's one instance keeps what the call set.
+    let instance = session.codeunit_instance(object);
+    match session.call(object, routine, instance, Vec::new()) {
+        Ok((Value::Date(day, false), _)) => {
+            session.set_work_date(day);
+            Ok(())
+        }
+        Ok((other, _)) => Err(why(format!("GetDefaultWorkDate answered {}", other.describe()))),
+        Err(Signal::Unsupported(r)) => Err(why(r)),
+        Err(Signal::Error(e)) => Err(why(format!("failed (not pinned): {}", e.message))),
+        Err(_) => Err(why("stopped (not pinned)".into())),
+    }
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.
