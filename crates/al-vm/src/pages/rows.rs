@@ -2971,8 +2971,8 @@ impl Session {
     /// A ModalPageHandler that raised an error left its page open: the platform still asks the close, the parts first with
     /// None, then the page with its own action, and RunModal raises the handler's error (pages/lt-modal-query-close-veto/
     /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
-    /// for a refusal: when neither the page nor a part declares OnQueryClosePage nothing is asked that a test could see, and
-    /// the page closes as before; a close the trigger allows, or one with an unsaved row, is refused.
+    /// for a refusal by a page with open parts; a page without parts, or one where no close trigger is declared, closes as before
+    /// without asking; a close the trigger allows, or one with an unsaved row, is refused.
     fn close_modal_after_handler_error(&mut self, st: &St) -> Result<(), Signal> {
         let parts: Vec<St> = st
             .borrow()
@@ -2981,8 +2981,11 @@ impl Session {
             .map(|(_, c)| c.clone())
             .filter(|c| c.borrow().open)
             .collect();
+        // Kept, not pinned: a page without open parts closes without its close triggers, as before (handlers/
+        // TestPageModalQueryClose_Tests.al PlainModal_HasNoBuiltInCancelAction, codeunit 60338's dialog cases,
+        // TestPageQueryCloseError_Tests.al ErrorInQueryClosePage_*, P106RunInstance.al P106_Inst_RunModal_List pass through it).
         let asks = self.declares(st, "onqueryclosepage") || parts.iter().any(|p| self.declares(p, "onqueryclosepage"));
-        if !asks {
+        if !asks || parts.is_empty() {
             return Ok(());
         }
         if st.borrow().dirty || st.borrow().draft || !st.borrow().hidden_parts.is_empty() {
