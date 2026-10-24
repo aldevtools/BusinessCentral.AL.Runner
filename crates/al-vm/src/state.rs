@@ -98,6 +98,14 @@ pub(crate) struct PageClients {
     pub(crate) test_open: bool,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
+    /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code
+    /// did to that tree meanwhile (`pages/shown.rs`).
+    pub(crate) shown_frames: Vec<(
+        *const RefCell<al_builtins::value::PageState>,
+        Vec<crate::pages::ShownNote>,
+    )>,
+    /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
+    pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.

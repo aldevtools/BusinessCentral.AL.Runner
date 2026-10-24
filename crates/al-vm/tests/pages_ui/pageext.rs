@@ -365,14 +365,33 @@ fn extension_controls_are_bound_to_rec_to_an_expression_and_to_the_extensions_ow
                 L.First();
                 X := L.ExtExpression.Value() + '|' + L.ExtRecField.Value() + '|' + L.ExtGlobalField.Value() + '|';
                 L.Next();
-                X += L.ExtExpression.Value() + '|' + L.ExtRecField.Value();
+                X += L.ExtRecField.Value();
                 L.Close();
                 exit(X);
             end;"
         ),
         "F",
     );
-    assert_eq!(text(r), "A:Alpha|o1|EXTOPENED|B:Bravo|o2");
+    assert_eq!(text(r), "A:Alpha|o1|EXTOPENED|o2");
+}
+
+// The corpus pins the expression after First() (TrappedPageRun_ExtExpressionControl_ReadsTheCurrentRow); whether Next() on a
+// list computes it again is not pinned (al-vm pages/shown.rs).
+#[test]
+fn an_extension_expression_control_after_next_is_refused() {
+    let r = run(
+        &format!(
+            "procedure F(): Text var R: Record \"PX Row\"; L: TestPage \"PX List\"; begin
+                {SEED}
+                L.OpenView();
+                L.First();
+                L.Next();
+                exit(L.ExtExpression.Value());
+            end;"
+        ),
+        "F",
+    );
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 #[test]

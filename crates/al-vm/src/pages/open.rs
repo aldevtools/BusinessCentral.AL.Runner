@@ -556,6 +556,10 @@ impl Session {
         {
             st.borrow_mut().settled_first_row = true;
         }
+        // Every page of the tree computes its expression values as it opens (QjPartPropagation.al:4635 `opened`).
+        if !as_part {
+            self.shown_opened(st);
+        }
         Ok(handler)
     }
 

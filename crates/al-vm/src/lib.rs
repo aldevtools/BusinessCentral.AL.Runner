@@ -879,6 +879,8 @@ impl Session {
                 sent_notifications: Vec::new(),
             },
             pages: PageClients {
+                shown_frames: Vec::new(),
+                shown_controls: std::collections::HashMap::new(),
                 saved_values: std::collections::HashMap::new(),
                 traps: Vec::new(),
                 scope_unpinned: Vec::new(),

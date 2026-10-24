@@ -182,6 +182,8 @@ mod pageops;
 mod refill;
 mod rows;
 mod runobject;
+mod shown;
+pub(crate) use shown::ShownNote;
 
 impl Session {
     /// `TP.Ctl`: a handle on control `control` of the test page `page`.

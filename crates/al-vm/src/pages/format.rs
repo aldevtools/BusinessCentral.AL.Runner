@@ -61,7 +61,7 @@ impl Session {
                 let v = inst.borrow().globals[slot].clone();
                 Ok(v)
             }
-            ir::Binding::Expr(r) => self.control_routine(st, idx, r),
+            ir::Binding::Expr(r) => self.shown_value(st, idx, |s| s.control_routine(st, idx, r)),
             // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
             ir::Binding::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             ir::Binding::None => unsupported("a control without a source"),
