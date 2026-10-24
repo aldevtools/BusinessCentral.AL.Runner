@@ -1343,6 +1343,112 @@ fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> 
     Ok(out)
 }
 
+/// The text Page Control Field reports for a Visible, Enabled or Editable expression `value` of a control the page `page_id`
+/// itself declares, when its form is pinned (errors/lt-ms-refusals-132/P132PageControlVisible.al:134-264, AL Runner issue 5786):
+/// a page variable as `p<id>p<id><Name>`, `Rec.<Field>` as the field's name, in double quotes only when it is not a plain
+/// identifier; `not <operand>`, `<operand> > <whole number>` and `<operand> and <operand>`, written with single spaces. `globals`
+/// are the page's variables as declared, `fields` the source table's field names. Any other form is `None`.
+pub fn control_expr_text(value: &str, page_id: u32, globals: &[String], fields: &[String]) -> Option<String> {
+    #[derive(PartialEq)]
+    enum Tok {
+        Ident(String),
+        Quoted(String),
+        Dot,
+        Gt,
+        Int(String),
+    }
+    let mut toks = Vec::new();
+    let mut cs = value.chars().peekable();
+    while let Some(&c) = cs.peek() {
+        if c.is_whitespace() {
+            cs.next();
+        } else if c == '.' {
+            cs.next();
+            toks.push(Tok::Dot);
+        } else if c == '>' {
+            cs.next();
+            toks.push(Tok::Gt);
+        } else if c == '"' {
+            cs.next();
+            let mut s = String::new();
+            loop {
+                match cs.next()? {
+                    '"' => break,
+                    ch => s.push(ch),
+                }
+            }
+            toks.push(Tok::Quoted(s));
+        } else if c.is_ascii_digit() {
+            let mut s = String::new();
+            while let Some(&d) = cs.peek().filter(|d| d.is_ascii_digit()) {
+                s.push(d);
+                cs.next();
+            }
+            toks.push(Tok::Int(s));
+        } else if c.is_alphanumeric() || c == '_' {
+            let mut s = String::new();
+            while let Some(&d) = cs.peek().filter(|d| d.is_alphanumeric() || **d == '_') {
+                s.push(d);
+                cs.next();
+            }
+            toks.push(Tok::Ident(s));
+        } else {
+            return None;
+        }
+    }
+    let plain = |n: &str| {
+        n.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+            && n.chars().all(|c| c.is_alphanumeric() || c == '_')
+    };
+    let keyword = |t: Option<&Tok>, k: &str| matches!(t, Some(Tok::Ident(s)) if s.eq_ignore_ascii_case(k));
+    // An operand: a page variable or a field of Rec.
+    let operand = |i: &mut usize| -> Option<String> {
+        match toks.get(*i)? {
+            Tok::Ident(r) if r.eq_ignore_ascii_case("rec") && toks.get(*i + 1) == Some(&Tok::Dot) => {
+                let name = match toks.get(*i + 2)? {
+                    Tok::Ident(n) | Tok::Quoted(n) => n,
+                    _ => return None,
+                };
+                let f = fields.iter().find(|f| f.eq_ignore_ascii_case(name))?;
+                *i += 3;
+                Some(if plain(f) { f.clone() } else { format!("\"{f}\"") })
+            }
+            Tok::Ident(n) if !["not", "and", "or", "rec"].iter().any(|k| n.eq_ignore_ascii_case(k)) => {
+                let g = globals.iter().find(|g| g.trim_matches('"').eq_ignore_ascii_case(n))?;
+                // A name that is also a field of the source table: which one BC means is not pinned.
+                if fields.iter().any(|f| f.eq_ignore_ascii_case(n)) || !plain(g) {
+                    return None;
+                }
+                *i += 1;
+                Some(format!("p{page_id}p{page_id}{g}"))
+            }
+            _ => None,
+        }
+    };
+    let mut i = 0;
+    let text = if keyword(toks.first(), "not") {
+        i = 1;
+        format!("not {}", operand(&mut i)?)
+    } else {
+        let left = operand(&mut i)?;
+        match toks.get(i) {
+            Some(Tok::Gt) => match toks.get(i + 1)? {
+                Tok::Int(n) => {
+                    i += 2;
+                    format!("{left} > {n}")
+                }
+                _ => return None,
+            },
+            t if keyword(t, "and") => {
+                i += 1;
+                format!("{left} and {}", operand(&mut i)?)
+            }
+            _ => left,
+        }
+    };
+    (i == toks.len()).then_some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1823,110 +1929,4 @@ mod tests {
         assert!(parse_run_object("Table 18").is_err());
         assert!(parse_run_object("Page").is_err());
     }
-}
-
-/// The text Page Control Field reports for a Visible, Enabled or Editable expression `value` of a control the page `page_id`
-/// itself declares, when its form is pinned (errors/lt-ms-refusals-132/P132PageControlVisible.al:134-264, AL Runner issue 5786):
-/// a page variable as `p<id>p<id><Name>`, `Rec.<Field>` as the field's name, in double quotes only when it is not a plain
-/// identifier; `not <operand>`, `<operand> > <whole number>` and `<operand> and <operand>`, written with single spaces. `globals`
-/// are the page's variables as declared, `fields` the source table's field names. Any other form is `None`.
-pub fn control_expr_text(value: &str, page_id: u32, globals: &[String], fields: &[String]) -> Option<String> {
-    #[derive(PartialEq)]
-    enum Tok {
-        Ident(String),
-        Quoted(String),
-        Dot,
-        Gt,
-        Int(String),
-    }
-    let mut toks = Vec::new();
-    let mut cs = value.chars().peekable();
-    while let Some(&c) = cs.peek() {
-        if c.is_whitespace() {
-            cs.next();
-        } else if c == '.' {
-            cs.next();
-            toks.push(Tok::Dot);
-        } else if c == '>' {
-            cs.next();
-            toks.push(Tok::Gt);
-        } else if c == '"' {
-            cs.next();
-            let mut s = String::new();
-            loop {
-                match cs.next()? {
-                    '"' => break,
-                    ch => s.push(ch),
-                }
-            }
-            toks.push(Tok::Quoted(s));
-        } else if c.is_ascii_digit() {
-            let mut s = String::new();
-            while let Some(&d) = cs.peek().filter(|d| d.is_ascii_digit()) {
-                s.push(d);
-                cs.next();
-            }
-            toks.push(Tok::Int(s));
-        } else if c.is_alphanumeric() || c == '_' {
-            let mut s = String::new();
-            while let Some(&d) = cs.peek().filter(|d| d.is_alphanumeric() || **d == '_') {
-                s.push(d);
-                cs.next();
-            }
-            toks.push(Tok::Ident(s));
-        } else {
-            return None;
-        }
-    }
-    let plain = |n: &str| {
-        n.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
-            && n.chars().all(|c| c.is_alphanumeric() || c == '_')
-    };
-    let keyword = |t: Option<&Tok>, k: &str| matches!(t, Some(Tok::Ident(s)) if s.eq_ignore_ascii_case(k));
-    // An operand: a page variable or a field of Rec.
-    let operand = |i: &mut usize| -> Option<String> {
-        match toks.get(*i)? {
-            Tok::Ident(r) if r.eq_ignore_ascii_case("rec") && toks.get(*i + 1) == Some(&Tok::Dot) => {
-                let name = match toks.get(*i + 2)? {
-                    Tok::Ident(n) | Tok::Quoted(n) => n,
-                    _ => return None,
-                };
-                let f = fields.iter().find(|f| f.eq_ignore_ascii_case(name))?;
-                *i += 3;
-                Some(if plain(f) { f.clone() } else { format!("\"{f}\"") })
-            }
-            Tok::Ident(n) if !["not", "and", "or", "rec"].iter().any(|k| n.eq_ignore_ascii_case(k)) => {
-                let g = globals.iter().find(|g| g.trim_matches('"').eq_ignore_ascii_case(n))?;
-                // A name that is also a field of the source table: which one BC means is not pinned.
-                if fields.iter().any(|f| f.eq_ignore_ascii_case(n)) || !plain(g) {
-                    return None;
-                }
-                *i += 1;
-                Some(format!("p{page_id}p{page_id}{g}"))
-            }
-            _ => None,
-        }
-    };
-    let mut i = 0;
-    let text = if keyword(toks.first(), "not") {
-        i = 1;
-        format!("not {}", operand(&mut i)?)
-    } else {
-        let left = operand(&mut i)?;
-        match toks.get(i) {
-            Some(Tok::Gt) => match toks.get(i + 1)? {
-                Tok::Int(n) => {
-                    i += 2;
-                    format!("{left} > {n}")
-                }
-                _ => return None,
-            },
-            t if keyword(t, "and") => {
-                i += 1;
-                format!("{left} and {}", operand(&mut i)?)
-            }
-            _ => left,
-        }
-    };
-    (i == toks.len()).then_some(text)
 }
