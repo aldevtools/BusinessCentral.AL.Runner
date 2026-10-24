@@ -731,12 +731,17 @@ fn write(h: &Handle, out: &mut String) -> Result<(), Signal> {
                 let (y, m, day) = crate::format::civil_from_day(d);
                 write_string(out, &format!("{y:04}-{m:02}-{day:02}"));
             }
-            // A time with milliseconds adds three digits, a date-time seven (json/TestProbeJsonContracts.al:
-            // ValueTypes_DurationTimeDateTime: `10:00:00.123`, `2024-01-15T10:20:30.0450000Z`).
-            Value::Time(t) if t > 0 && ((t - 1) % 1000 == 0 || (t - 1) % 10 != 0) => {
+            // A time with milliseconds adds them without trailing zeros, as `Format(T, 0, 9)`; a date-time adds seven digits
+            // (json/TestProbeJsonContracts.al:ValueTypes_DurationTimeDateTime: `10:00:00.123`, `2024-01-15T10:20:30.0450000Z`;
+            // misc/lt-outside-format-json-list/RwJsonTimeMs.al:116 RW_JsonTime_InMemory_Milliseconds: `.001`, `.01`, `.12`, `.5`).
+            Value::Time(t) if t > 0 => {
                 let ms = (t - 1) % 1000;
                 let s = (t - 1) / 1000;
-                let frac = if ms == 0 { String::new() } else { format!(".{ms:03}") };
+                let frac = if ms == 0 {
+                    String::new()
+                } else {
+                    format!(".{}", format!("{ms:03}").trim_end_matches('0'))
+                };
                 write_string(out, &format!("{:02}:{:02}:{:02}{frac}", s / 3600, s / 60 % 60, s % 60));
             }
             Value::DateTime(ms) if ms > 0 => {
