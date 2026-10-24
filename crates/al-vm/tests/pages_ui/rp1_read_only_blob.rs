@@ -31,6 +31,13 @@ page 69997 "RB List"
     } }
     trigger OnModifyRecord(): Boolean var L: Codeunit "RB Log"; begin L.Add('M'); exit(true); end;
 }
+page 69999 "RB Card"
+{
+    PageType = Card; SourceTable = "RB Row"; ModifyAllowed = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field(Code; Rec.Code) { } } }
+    actions { area(Processing) { action(Nothing) { trigger OnAction() var L: Codeunit "RB Log"; begin L.Add('A'); end; } } }
+    trigger OnModifyRecord(): Boolean var L: Codeunit "RB Log"; begin L.Add('M'); exit(true); end;
+}
 codeunit 69998 C
 {
     local procedure Seed(WithStack: Boolean)
@@ -45,6 +52,15 @@ codeunit 69998 C
     begin
         Seed(false);
         P.OpenView();
+        P.Nothing.Invoke();
+        P.Close();
+        exit(L.Take());
+    end;
+    procedure CardNothing(): Text
+    var P: TestPage "RB Card"; L: Codeunit "RB Log";
+    begin
+        Seed(true);
+        P.OpenEdit();
         P.Nothing.Invoke();
         P.Close();
         exit(L.Take());
@@ -86,4 +102,10 @@ fn an_action_that_writes_the_blob_is_refused() {
         run_in(SRC, "C", "WriteStack"),
         Err(al_builtins::native::Signal::Unsupported(_))
     ));
+}
+
+#[test]
+fn a_card_saves_nothing_either_under_an_assumption() {
+    // Assumption page-unwritten-blob-no-change-other-page (Tests-ERM Edit Posted Documents).
+    assert_eq!(text(run_in(SRC, "C", "CardNothing")), "A;");
 }

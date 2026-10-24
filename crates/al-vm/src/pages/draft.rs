@@ -607,8 +607,13 @@ impl Session {
         if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
             // A Blob no stream wrote is not a change, also after a CalcFields loaded what it holds: an action that changes nothing
             // runs no modify trigger and leaves the row alone (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316, :370, :394,
-            // :420, :447; a table without a Blob :340).
+            // :420, :447 on a List; a table without a Blob :340). Another page type is assumed (page-unwritten-blob-no-change-other-page).
             if Self::same_but_unwritten_blobs(&rec.borrow().fields, &self.page_xrec_fields(st)) {
+                if !self.is_list_page(st) {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::PageUnwrittenBlobNoChangeOtherPage,
+                    );
+                }
                 st.borrow_mut().dirty = false;
                 return Ok(());
             }

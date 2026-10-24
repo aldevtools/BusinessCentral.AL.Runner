@@ -493,6 +493,12 @@ registry! {
         tests: "The first-row path is reached by Item Tracking Lines (a temporary Worksheet whose OnOpenPage changes the key) in many tests of Tests-SCM-Reservation, Tests-SCM-Warehouse, Tests-SCM and Tests-ERM; they pass in Microsoft's CI.",
         probe: "A Worksheet page over a temporary table whose OnOpenPage fills it or moves Rec (Get of row 2, FindLast), and one whose OnOpenPage calls SetCurrentKey and then Get: run modally, in lookup mode and with Page.Run, with and without OnNextRecord: which row the TestPage shows, and the OnAfterGetRecord/OnAfterGetCurrRecord order.",
     },
+    PageUnwrittenBlobNoChangeOtherPage => {
+        id: "page-unwritten-blob-no-change-other-page",
+        assumed: "On a page whose ModifyAllowed is false, a Blob of Rec that no stream wrote since it was read (also after a CalcFields loaded it) is no change of the row, so the page saves nothing after an action or a SetValue: pinned for a List (pages/lt-outside-worksheet/RmReadOnlyBlob.al:316-:470); assumed for any other page type.",
+        tests: "Tests-ERM Edit Posted Documents (codeunit 134658) PostedServiceInvoiceUpdateSetValuesOK and PostedServiceInvoiceUpdateSetValuesCancel (Posted Serv. Inv. - Update); they pass in Microsoft's CI.",
+        probe: "RmReadOnlyBlob.al's table under a Card with ModifyAllowed = false (Editable true and false): a no-change action and a SetValue on another control, then Close: the log of OnModifyRecord and the table's OnModify.",
+    },
     ListOtherKeyOtherMoves => {
         id: "list-other-key-other-moves",
         assumed: "A plain list (no OnFindRecord or OnNextRecord, with OnAfterGetRecord and OnAfterGetCurrRecord) that opened in a key other than the primary key reads each row once more at the open and at Next and Previous (pinned: pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:345 QR_List_OpenView_SetCurrentKeyGet and the QS_Key*_List_* tests from :856). GoToKey and GoToRecord over a view the client holds whole read once more at each step of their scan (pinned: pages/lt-outside-worksheet/RmInitValueKey.al:231 RM_List_OpenEdit `goto log`). Assumed: First, Last, GoToKey and GoToRecord over a longer view, and a refill of its rows while Rec stays in that key and order read as in the primary key, without the extra read; so does the open of such a list whose view has one row or more rows than a window holds (unless OnOpenPage left Rec on a row other than the first: refused).",
