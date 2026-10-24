@@ -25,8 +25,8 @@ pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
 /// The Feature Key table: ID, `Enabled` (None or All Users per row), `Mandatory By` (the wave the mandatory-by version falls in),
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
-/// also record/TestFieldLenAndFeatureKeyContracts.al:83-125. The three lists are the newest minor of each major; other
-/// minors differ in a few rows and are refused. The Description columns are not pinned.
+/// also record/TestFieldLenAndFeatureKeyContracts.al:83-125. The three lists are the newest minor of each major; 27.0 and
+/// 28.0 differ in one row, minors the corpus did not measure are refused. The Description columns are not pinned.
 pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>) -> Vec<Entry> {
     // (ID, Enabled is All Users, Mandatory By Version major, Can Try, Is One Way, Data Update Required)
     type Row = (&'static str, bool, u32, bool, bool, bool);
@@ -116,8 +116,8 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
     ];
     use al_version::FeatureKeyRows;
     let rows = match al_version::feature_key_rows(target) {
-        Some(FeatureKeyRows::Bc27) => ROWS_FIRST,
-        Some(FeatureKeyRows::Bc28) => ROWS_SECOND,
+        Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => ROWS_FIRST,
+        Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => ROWS_SECOND,
         Some(FeatureKeyRows::Bc29) => ROWS_THIRD,
         None => {
             return vec![Entry::poisoned_prefix(
@@ -128,11 +128,18 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             )];
         }
     };
+    // 27.0 and 28.0 differ from the newest minor of their major in one row: SemanticMetadataSearch is None on 27.0 (RowsA)
+    // and All Users on 28.0 (RowsC), record/PFFeatureKeyColumns.al:96-160.
+    let flipped = matches!(
+        al_version::feature_key_rows(target),
+        Some(FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0)
+    );
     rows.iter()
-        .map(|(id, all_users, version, can_try, one_way, data_update)| {
+        .map(|&(id, all_users, version, can_try, one_way, data_update)| {
+            let all_users = all_users != (flipped && id == "SemanticMetadataSearch");
             let mut r = blank(t);
-            r[pos(t, 1)] = Value::Text((*id).into());
-            r[pos(t, 2)] = option(t, 2, i32::from(*all_users));
+            r[pos(t, 1)] = Value::Text(id.into());
+            r[pos(t, 2)] = option(t, 2, i32::from(all_users));
             // The wave text of the mandatory-by version: 28.0 is 2026 Wave 1, then one wave per half year.
             let wave = match version {
                 28 => "2026 Wave 1 (from April to September 2026)",
@@ -141,9 +148,9 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
                 _ => "2027 Wave 2 (from October 2027 to March 2028)",
             };
             r[pos(t, 5)] = Value::Text(wave.into());
-            r[pos(t, 6)] = Value::Boolean(*can_try);
-            r[pos(t, 7)] = Value::Boolean(*one_way);
-            r[pos(t, 8)] = Value::Boolean(*data_update);
+            r[pos(t, 6)] = Value::Boolean(can_try);
+            r[pos(t, 7)] = Value::Boolean(one_way);
+            r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
             // Description (3), "Learn More Link" (4) and "Description In English" (10): no corpus test reads them.
             for col in [3, 4, 10] {

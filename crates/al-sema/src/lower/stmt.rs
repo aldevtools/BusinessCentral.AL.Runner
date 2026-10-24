@@ -428,6 +428,27 @@ impl Lowerer<'_> {
         (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n)).then(|| list.to_string())
     }
 
+    /// Whether `arg` is a Decimal table field that declares how it is formatted (`DecimalPlaces`, `AutoFormatType` or
+    /// `AutoFormatExpression`). StrSubstNo, Message and Error `%n` of such a field are not pinned (al-runner issue 5791:
+    /// BC gives `70.00` for an AutoFormatType = 1 field; docs/probes-needed.md).
+    pub(crate) fn decimal_field_declares_format(&mut self, arg: &SyntaxNode) -> bool {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return false;
+        };
+        self.members[table]
+            .fields
+            .iter()
+            .find(|f| f.id == field)
+            .is_some_and(|f| {
+                matches!(f.ty, Ty::Decimal)
+                    && f.properties.iter().any(|(k, _)| {
+                        ["DecimalPlaces", "AutoFormatType", "AutoFormatExpression"]
+                            .iter()
+                            .any(|n| k.eq_ignore_ascii_case(n))
+                    })
+            })
+    }
+
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
     /// `AutoFormatExpression` (type 10), else the 2:2 of a blank-expression amount (type 1) or 2:5 of a unit amount (type 2)
     /// (pages/lt-page-autoformat-lookups/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/lt-page-presentation-properties/

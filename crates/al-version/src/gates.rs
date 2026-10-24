@@ -923,20 +923,24 @@ pub fn has(target: Option<&Target>, gate: Gate) -> bool {
     target.is_none_or(|t| t.has(gate))
 }
 
-/// Which list of Feature Key rows a target has (record/PFFeatureKeyColumns.al keys them on the version of the application):
-/// the rows differ per minor, and were measured on the newest minor of each major. The 27.0 and 28.0 rows differ from
-/// those and are not served.
+/// Which list of Feature Key rows a target has (record/PFFeatureKeyColumns.al:41-94 keys them on the version of the
+/// application): 27.0 (`RowsA`), 27.3 and 27.5 (`RowsB`), 28.0 (`RowsC`), 28.1 to 28.5 (`RowsD`, al-runner issue 5790) and
+/// 29.0 (`RowsE`). The minors the corpus did not measure (27.1, 27.2, 27.4, 28.6 and on, 29.1 and on) are not served.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureKeyRows {
+    Bc27_0,
     Bc27,
+    Bc28_0,
     Bc28,
     Bc29,
 }
 
 pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
     match target.map(|t| (t.bc.major, t.bc.minor))? {
-        (27, _) => Some(FeatureKeyRows::Bc27),
-        (28, 5) => Some(FeatureKeyRows::Bc28),
+        (27, 0) => Some(FeatureKeyRows::Bc27_0),
+        (27, 3 | 5) => Some(FeatureKeyRows::Bc27),
+        (28, 0) => Some(FeatureKeyRows::Bc28_0),
+        (28, 1..=5) => Some(FeatureKeyRows::Bc28),
         (29, 0) => Some(FeatureKeyRows::Bc29),
         _ => None,
     }

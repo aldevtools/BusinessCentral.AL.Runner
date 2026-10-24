@@ -636,7 +636,14 @@ impl Lowerer<'_> {
                             || id.starts_with("Dialog.Message#")
                             || id.starts_with("Dialog.Error#"))
                     {
-                        ir::Arg::Value(self.format_option_field(true, false, a)?)
+                        if self.decimal_field_declares_format(a) {
+                            // Refused when it runs: Base Application substitutes such fields on many paths a test never reaches.
+                            ir::Arg::Value(ir::Expr::Refused(
+                                "StrSubstNo, Message or Error %n of a Decimal field with DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
+                            ))
+                        } else {
+                            ir::Arg::Value(self.format_option_field(true, false, a)?)
+                        }
                     } else {
                         ir::Arg::Value(self.expr(a)?)
                     });

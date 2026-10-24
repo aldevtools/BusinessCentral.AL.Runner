@@ -2082,3 +2082,75 @@ codeunit 50000 "T" { Subtype = Test;
     );
     passes(&o, "Editable");
 }
+
+// al-runner issue 5790: Feature Key rows per minor (record/PFFeatureKeyColumns.al:41-94). 28.1 to 28.5 have one list,
+// 28.0 another (SemanticMetadataSearch All Users); 27.0 differs from 27.3 and 27.5 in the same row; a minor the corpus
+// did not measure (27.1) is refused, also for a Get.
+#[test]
+fn feature_key_rows_follow_the_measured_minors() {
+    let main = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Concurrent() var K: Record "Feature Key"; begin
+    if not K.Get('ConcurrentInventoryPosting') then Error('no row');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled); end;
+  [Test] procedure SemanticAllUsers() var K: Record "Feature Key"; begin
+    K.Get('SemanticMetadataSearch');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled); end;
+  [Test] procedure SemanticNone() var K: Record "Feature Key"; begin
+    K.Get('SemanticMetadataSearch');
+    if Format(K.Enabled) <> 'None' then Error('enabled %1', K.Enabled); end; }"#;
+    let roots = al_sema::check::Roots::default;
+    let outcome = |o: &[(String, Outcome)], test: &str| o.iter().find(|(n, _)| n == test).map(|(_, o)| o.clone());
+    for (bc, semantic) in [
+        ("28.1.0.0", "SemanticNone"),
+        ("28.4.0.0", "SemanticNone"),
+        ("28.0.0.0", "SemanticAllUsers"),
+        ("27.0.0.0", "SemanticNone"),
+        ("27.3.0.0", "SemanticAllUsers"),
+    ] {
+        let o = outcomes_bc("main", main, roots(), bc);
+        assert_eq!(outcome(&o, "Concurrent"), Some(Outcome::Pass), "{bc}: {o:?}");
+        assert_eq!(outcome(&o, semantic), Some(Outcome::Pass), "{bc}: {o:?}");
+    }
+    let o = outcomes_bc("main", main, roots(), "27.1.0.0");
+    assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
+}
+
+// al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served; a read of
+// the Editable column is refused (what BC reports there is not pinned, docs/probes-needed.md).
+#[test]
+fn page_control_field_refuses_only_the_column_that_holds_an_expression() {
+    let o = outcomes(
+        r#"table 50105 "Repro Cost Line 50105"
+{
+    fields { field(1; "Entry No."; Integer) { } field(2; Quantity; Decimal) { } field(3; "Allow Edit"; Boolean) { } }
+    keys { key(PK; "Entry No.") { } }
+}
+page 50106 "Repro Cost Line List 50106"
+{
+    PageType = List;
+    SourceTable = "Repro Cost Line 50105";
+    layout { area(Content) { repeater(Lines) {
+        field("Entry No."; Rec."Entry No.") { }
+        field(HiddenQuantity; Rec.Quantity) { Editable = Rec."Allow Edit"; Visible = false; }
+    } } }
+}
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure VisibleFalse() var P: Record "Page Control Field"; IsVisible: Boolean; begin
+    P.SetRange(PageNo, Page::"Repro Cost Line List 50106");
+    P.SetRange(ControlName, 'HiddenQuantity');
+    if not P.FindFirst() then Error('no row');
+    if not Evaluate(IsVisible, P.Visible) then Error('not a Boolean: %1', P.Visible);
+    if IsVisible then Error('visible %1', P.Visible); end;
+  [Test] procedure EditableRead() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"Repro Cost Line List 50106");
+    P.SetRange(ControlName, 'HiddenQuantity');
+    P.FindFirst();
+    if P.Editable <> '"Allow Edit"' then Error('editable %1', P.Editable); end; }"#,
+    );
+    assert!(
+        o.iter().any(|(n, o)| n == "VisibleFalse" && *o == Outcome::Pass),
+        "{o:?}"
+    );
+    let why = not_run(&o, "EditableRead");
+    assert!(why.contains("editable is an expression"), "{why}");
+}
