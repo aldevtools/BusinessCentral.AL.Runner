@@ -597,18 +597,11 @@ fn a_by_value_copy_of_rec_of_a_run_page_link_target_has_no_filters() {
 // Real BC fills the linked fields of Rec in that OnOpenPage, and GetFilters() of a copy of Rec reads '' (corpus issue 712, writer
 // QZ). The runtime holds the link as a filter, so the reads of Rec's filters, view and rows refuse there. GetFilter of one field
 // runs (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), and so does CurrentKey
-// (handlers/TestPageActionRunPageView.al:134).
+// (handlers/TestPageActionRunPageView.al:134). GetFilters and GetRangeMin/GetRangeMax of Rec itself read the link
+// (assumption run-page-link-open-rec-filters, writer RT's pages/lt-outside-worksheet-2/RtLinkRange.al; tests/outside_rt_pages.rs).
 #[test]
 fn filter_and_view_reads_of_rec_in_onopenpage_of_a_run_page_link_target_are_refused() {
-    let ops = [
-        "GetFilters",
-        "GetView",
-        "HasFilter",
-        "GetRangeMin",
-        "Count",
-        "IsEmpty",
-        "FindFirst",
-    ];
+    let ops = ["GetView", "HasFilter", "Count", "IsEmpty", "FindFirst"];
     let mut tests = String::from(
         "[PageHandler] procedure Handler(var P: TestPage \"RO Lines Op Reader\") begin P.Close(); end;
         local procedure Read(Op: Text) var H: Record \"RO Head\"; L: Record \"RO Line\"; P: Codeunit \"RO Probe\"; Host: TestPage \"RO Reader Host\"; begin
