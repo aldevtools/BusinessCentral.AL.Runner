@@ -1,7 +1,8 @@
 //! A List read inside a `foreach` over the same list. `IndexOf` there does not count as a change: the corpus calls
 //! `Ordinals.IndexOf(Index)` inside `foreach Index in Ordinals` (misc/lt-u-obsolete-pending/UObsoletePending.al:35-36) and
 //! passes on real BC. The methods that change a list raise "Collection was modified" (collections/RefSemantics.al:343, :365,
-//! :387, :408). The other reads are not pinned there, so the loop refuses after one of them.
+//! :387, :408). Count, Get, Get(i, var), Contains, LastIndexOf and GetRange do not either (collections/RefSemantics.al:566
+//! PW_Foreach_ListReadsWhileIterating), also through a by-value List parameter (:594 RW_Foreach_ReadAndAddThroughByValueParam).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -25,18 +26,18 @@ fn index_of_inside_a_foreach_over_the_list_runs() {
 }
 
 #[test]
-fn other_reads_inside_a_foreach_over_the_list_are_refused() {
-    for read in [
-        "s += L.Count();",
-        "s += L.Get(1);",
-        "if L.Get(2, x) then s += x;",
-        "if L.Contains(i) then s += 1;",
-        "s += L.LastIndexOf(i);",
-        "R := L.GetRange(1, 2);",
+fn other_reads_inside_a_foreach_over_the_list_run() {
+    for (read, want) in [
+        ("s += L.Count();", 9),
+        ("s += L.Get(1);", 30),
+        ("if L.Get(2, x) then s += x;", 60),
+        ("if L.Contains(i) then s += 1;", 3),
+        ("s += L.LastIndexOf(i);", 6),
+        ("R := L.GetRange(1, 2); s += R.Count();", 6),
     ] {
         match run(read) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("IndexOf"), "{read}: {why}"),
-            other => panic!("{read}: expected a refusal, got {other:?}"),
+            Ok(Value::Integer(n)) => assert_eq!(n, want, "{read}"),
+            other => panic!("{read}: {other:?}"),
         }
     }
 }

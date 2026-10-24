@@ -1206,8 +1206,9 @@ fn format_decimal_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Va
     };
     if let (Value::Decimal(d), Some(places), 0 | 1 | 2 | 9) = (&args[0], places, std) {
         // The amount field is pinned for formats 0, 2 and 9 on values of two decimals or more (AtPrecisionStandardFormat2.al:
-        // 663-723: 1234.5678, -0.005).
-        if gated && (std == 1 || d.normalize().scale() < 2) {
+        // 663-723: 1234.5678, -0.005), and for format 0 on any value (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+        // `Amt1NoExpr`: 70, 0, 1234.5 give `70.00`, `0.00`, `1,234.50` from BC 28).
+        if gated && (std == 1 || (std != 0 && d.normalize().scale() < 2)) {
             return Err(Signal::Unsupported(format!(
                 "Format of an amount field (AutoFormatType 1 without AutoFormatExpression) of {d} in format {std} (not pinned)"
             )));
