@@ -1010,6 +1010,8 @@ impl CorpusRuntime {
                             impact: opts.impact_trace,
                             run_only: None,
                             hub: false,
+                            hub_leg: false,
+                            onrun_carry: false,
                             leak: None,
                         });
                     }
@@ -1028,8 +1030,9 @@ impl CorpusRuntime {
                     };
                     // The corpus CI on BC 28 and later runs a codeunit without handlers through the TestRunnerHub, under
                     // its RequiredTestIsolation (`RunOptions::required_isolation`).
+                    let hub_path = suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none();
                     let this = match isolation {
-                        Ok(i) if suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() => {
+                        Ok(i) if hub_path => {
                             hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true)))
                         }
                         Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
@@ -1042,6 +1045,8 @@ impl CorpusRuntime {
                             id,
                             isolation: *i,
                             hub: *hub,
+                            hub_leg: on_hub(lowered, oi, *hub, hub_path),
+                            onrun_carry: !on_hub(lowered, oi, *hub, hub_path) && onrun_writes(lowered, oi),
                             leak: None,
                             without_baseline: false,
                             coverage: opts.coverage,
@@ -1128,31 +1133,36 @@ impl CorpusRuntime {
                 Run(usize),
                 Refused(usize, String),
             }
-            let mut chain: Vec<(usize, u32, Link)> = (0..units.len())
-                .filter(|&k| units[k].hub && units[k].isolation == TestIsolation::Disabled)
-                .map(|k| (units[k].si, units[k].id, Link::Run(k)))
+            // Codeunits runner 130450 runs whose OnRun can write (`Unit::onrun_carry`) join the chain after them: the hub runs
+            // its codeunits first (RqIsolationModes.al:12), and each carries what its OnRun left (leg 1).
+            let mut chain: Vec<(usize, u8, u32, Link)> = (0..units.len())
+                .filter(|&k| (units[k].hub && units[k].isolation == TestIsolation::Disabled) || units[k].onrun_carry)
+                .map(|k| (units[k].si, u8::from(units[k].onrun_carry), units[k].id, Link::Run(k)))
                 .chain(
                     refused_disabled
                         .into_iter()
-                        .map(|(si, id, oi, why)| (si, id, Link::Refused(oi, why))),
+                        .map(|(si, id, oi, why)| (si, 0, id, Link::Refused(oi, why))),
                 )
                 .collect();
-            chain.sort_by_key(|(si, id, _)| (*si, *id));
+            chain.sort_by_key(|(si, leg, id, _)| (*si, *leg, *id));
+            // Whether a codeunit sees what a chain member (suite, id, leg) left: a later id, and for an OnRun carry one that
+            // runner 130450 runs too.
+            let sees = |si: usize, id: u32, leg: u8, u: &Unit| si == u.si && id < u.id && (leg == 0 || !u.hub_leg);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
-            let mut carried: Vec<(usize, u32, super::run::Carried)> = Vec::new();
-            for (si, id, link) in chain {
-                let before = carried.iter().rev().find(|(s, _, _)| *s == si);
+            let mut carried: Vec<(usize, u32, u8, super::run::Carried)> = Vec::new();
+            for (si, leg, id, link) in chain {
+                let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
                 let mut left = match link {
                     Link::Run(k) => {
-                        units[k].leak = before.map(|(_, _, c)| Arc::new(c.tables.clone()));
+                        units[k].leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
                         let start = match before {
-                            Some((_, _, c)) => c.baseline.as_ref(),
+                            Some((_, _, _, c)) => c.baseline.as_ref(),
                             None => baseline.as_ref(),
                         };
                         let mut r = run_unit(&engine, lowered, start, &units[k], None, limit);
                         let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
-                        if let (Some((_, _, b)), Ok(done)) = (before, &mut r.result) {
+                        if let (Some((_, _, _, b)), Ok(done)) = (before, &mut r.result) {
                             if done.5.leak_hit || b.everything {
                                 if let Some(why) = &b.unfinished {
                                     refuse_all(&mut done.0, why);
@@ -1164,7 +1174,7 @@ impl CorpusRuntime {
                     }
                     Link::Refused(oi, why) => not_run_link(lowered, oi, why),
                 };
-                if let Some((_, _, b)) = before {
+                if let Some((_, _, _, b)) = before {
                     left.tables.extend(b.tables.iter().copied());
                     left.unfinished = left.unfinished.or_else(|| b.unfinished.clone());
                     left.everything |= b.everything;
@@ -1172,12 +1182,12 @@ impl CorpusRuntime {
                         left.baseline = b.baseline.clone();
                     }
                 }
-                carried.push((si, id, left));
+                carried.push((si, id, leg, left));
             }
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             for u in units.iter_mut() {
-                if let Some((_, _, c)) = carried.iter().rev().find(|(si, id, _)| *si == u.si && *id < u.id) {
+                if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
                     if u.leak.is_none() {
                         u.leak = Some(Arc::new(c.tables.clone()));
                     }
@@ -1258,13 +1268,10 @@ impl CorpusRuntime {
                 })
             };
             for (k, mut r) in rest.into_iter().zip(results) {
-                let before = carried
-                    .iter()
-                    .rev()
-                    .find(|(si, id, _)| *si == units[k].si && *id < units[k].id);
+                let before = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
                 let hit =
-                    r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || before.is_some_and(|(_, _, c)| c.everything);
-                if let (true, Some((_, _, c))) = (hit, before) {
+                    r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || before.is_some_and(|(_, _, _, c)| c.everything);
+                if let (true, Some((_, _, leg, c))) = (hit, before) {
                     let o = &lowered.program.objects[units[k].oi];
                     let handlers = o.routines.iter().any(|r| {
                         r.attributes
@@ -1275,7 +1282,7 @@ impl CorpusRuntime {
                         Some(why) => Some(why.clone()),
                         // BC's CI runs a codeunit with handlers through another runner than the TestRunnerHub
                         // (QuCommitIsolation.al:11-13): whether it runs before or after the Disabled codeunit is not pinned.
-                        None if handlers => Some(
+                        None if handlers && *leg == 0 => Some(
                             "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and \
                              whether BC runs this codeunit, which has handlers, before or after it is not pinned"
                                 .to_string(),
@@ -1713,8 +1720,8 @@ fn baseline_key(
 
 /// The isolation BC's TestRunnerHub runs test codeunit `oi` under: its `RequiredTestIsolation`, `None` when that is
 /// Codeunit or not set (the codeunit then runs as under Microsoft's runner 130450, QuCommitIsolation.al:331-399 and
-/// :719-860 QU_C and QU_N). What the corpus pins are codeunits without handlers or an `OnRun` trigger
-/// (QuCommitIsolation.al:10-16); the rest is refused, with the reason.
+/// :719-860 QU_C and QU_N). What the corpus pins are codeunits without handlers (QuCommitIsolation.al:10-16), with or
+/// without an `OnRun` trigger (RqIsolationModes.al); the rest is refused, with the reason.
 fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, String> {
     let o = &lowered.program.objects[oi];
     let Some(value) = o
@@ -1745,16 +1752,39 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
              isolation, is not pinned"
         ));
     }
-    if o.routines
-        .iter()
-        .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))
-    {
-        return Err(format!(
-            "RequiredTestIsolation = {name} on a test codeunit with an OnRun trigger: what the isolation does with the \
-             writes of OnRun is not pinned"
-        ));
-    }
+    // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
+    // state each test returns to, under Disabled they persist like the tests' (RqIsolationModes.al:396-472, :532-616).
     Ok(Some(isolation))
+}
+
+/// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
+/// on the hub path (`RunOptions::required_isolation`, no runner codeunit) a codeunit without handlers and with
+/// TestPermissions = Disabled, which the hub runs under Codeunit isolation (RqIsolationModes.al:9-15). The hub runs its
+/// codeunits before runner 130450 runs the others (:12).
+fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
+    let o = &lowered.program.objects[oi];
+    hub || (hub_path
+        && !o.routines.iter().any(|r| {
+            r.attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+        })
+        && o.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled")))
+}
+
+/// Whether the `OnRun` trigger of test codeunit `oi` can write a table. Under Microsoft's runner 130450 it runs outside the
+/// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunit/lt-qu-commit-isolation/
+/// RqIsolationModes.al:357-369, :493-505 and :616, the `#else` branches the BC 27 legs run), so such a codeunit carries
+/// what its OnRun left to them (`Unit::onrun_carry`). On the TestRunnerHub, Codeunit and Function isolation roll it back
+/// (:357-362, :493-498) and Disabled carries it with the rest.
+fn onrun_writes(lowered: &Lowered, oi: usize) -> bool {
+    let o = &lowered.program.objects[oi];
+    o.routines
+        .iter()
+        .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))
+        .is_some_and(|r| !crate::baseline::tables_written(lowered, oi, r).is_empty())
 }
 
 /// Every outcome of a codeunit becomes not run, for `why`.

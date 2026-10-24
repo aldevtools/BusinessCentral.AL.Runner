@@ -181,6 +181,11 @@ pub fn may_observe_baseline(lowered: &Lowered, tests: &[usize]) -> Option<String
         seen_objects: HashSet::new(),
         seen_routines: HashSet::new(),
         queue: Vec::new(),
+        login: objects.iter().any(|o| {
+            o.is_kind(al_ir::ObjKind::Codeunit)
+                && o.id == Some(al_sema::check::demand::LOGIN_MANAGEMENT)
+                && o.name.eq_ignore_ascii_case("LogInManagement")
+        }),
     };
     for &t in tests {
         if walk.seen_objects.insert(t) {
@@ -347,6 +352,9 @@ struct Walk<'a> {
     seen_objects: HashSet<usize>,
     seen_routines: HashSet<(usize, usize)>,
     queue: Vec<(usize, usize)>,
+    /// The program has Base Application's login code, which sets the test session's WorkDate from the G/L entries
+    /// (`install::login_work_date`): a read of WorkDate can then see what the baseline wrote.
+    login: bool,
 }
 
 type Check = Result<(), String>;
@@ -567,6 +575,9 @@ impl Walk<'_> {
             }
             Expr::InterfaceTest { value, .. } => self.expr(value),
             Expr::Builtin { id, receiver, args, .. } => {
+                if self.login && id.name().starts_with("System.WorkDate#") {
+                    return Err("reads WorkDate, which the login code takes from the G/L entries".into());
+                }
                 builtin(id.name())?;
                 if let Some(r) = receiver {
                     self.arg(r)?;
@@ -746,6 +757,16 @@ mod tests {
             codeunit 60002 T {{ Subtype = Test; [Test] procedure P() begin end; }}"
         );
         assert!(verdict(&src, &["T"]).is_some_and(|w| w.contains("Reset State Before Test Run")));
+    }
+
+    /// With Base Application's login code, the test session's WorkDate comes from the G/L entries (al-runner issue 5743): a
+    /// test that reads WorkDate may see what the baseline wrote. Without it WorkDate is today and the read is pure.
+    #[test]
+    fn a_workdate_read_observes_the_baseline_only_with_the_login_code() {
+        let test = "codeunit 60002 T { Subtype = Test; [Test] procedure P() begin if WorkDate() = 0D then; end; }";
+        assert_eq!(verdict(test, &["T"]), None);
+        let login = format!("codeunit 40 LogInManagement {{ procedure GetDefaultWorkDate(): Date begin exit(Today()); end; }}\n{test}");
+        assert!(verdict(&login, &["T"]).is_some_and(|w| w.contains("WorkDate")));
     }
 
     /// Starting, clearing and stopping the permissions mock touch no data (corpus permissions/

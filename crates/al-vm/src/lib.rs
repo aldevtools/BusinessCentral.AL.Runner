@@ -585,6 +585,8 @@ pub struct Session {
     /// The test codeunit runs under its RequiredTestIsolation = Function or Disabled, as BC's TestRunnerHub runs it
     /// (al-testrun `RunOptions::required_isolation`), not under a test runner codeunit's TestIsolation.
     pub isolation_from_hub: bool,
+    /// That isolation is Disabled (`isolation_from_hub` set).
+    pub hub_disabled: bool,
     /// The test runner's step that assigns the permission sets of a test method runs (codeunit 130302 "Set State Test
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
@@ -828,6 +830,7 @@ impl Session {
             tx_model: TxModel::default(),
             in_test_codeunit: false,
             isolation_from_hub: false,
+            hub_disabled: false,
             runner_permission_step: false,
             test_object: None,
             http_policy: None,
@@ -1238,6 +1241,20 @@ impl Session {
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
     pub fn set_install_without_client(&mut self, on: bool) {
         self.install_without_client = on;
+    }
+
+    /// Sets the session's WorkDate to the day number `day`, as `WorkDate(d)` does.
+    pub fn set_work_date(&mut self, day: i32) {
+        self.work_date = Some(day);
+    }
+
+    /// Whether the session has a client that is not a background session: BC's login code runs only then
+    /// (Base Application `LogInManagement.CompanyOpen`, guarded by GuiAllowed and a client type other than Background).
+    pub fn has_interactive_client(&self) -> bool {
+        !self.install_without_client
+            && !self.no_client
+            && self.host.identity.gui_allowed()
+            && self.host.identity.current_client_type() != al_host::ClientType::Background
     }
 
     /// Whether an install routine runs (`set_install_scope`).

@@ -668,6 +668,31 @@ fn an_install_codeunit_that_shows_a_message_keeps_its_setup_row() {
     }
 }
 
+// Al-runner issue 5743: when the test session opens the company, Base Application's LogInManagement sets WorkDate to
+// GetDefaultWorkDate() (the last G/L entry's date in a demo company), so OnRun and the first test see that date
+// (session/lt-outside-workdate/RlWorkDateAtStart.al:47-52); install code still sees today (install/lt-outside-install-ui/
+// RlInstallUi.al:212). Here codeunit 40 stands in for Base Application's.
+#[test]
+fn the_test_session_starts_on_the_login_work_date() {
+    let o = outcomes(
+        "table 60900 Seen { fields { field(1; K; Code[10]) { } field(2; D; Date) { } field(3; IsToday; Boolean) { } } }
+            codeunit 40 LogInManagement {
+                procedure GetDefaultWorkDate(): Date begin exit(20240115D); end; }
+            codeunit 60907 Inst { Subtype = Install;
+                trigger OnInstallAppPerCompany() var R: Record Seen; begin R.K := 'INSTALL'; R.IsToday := WorkDate() = Today(); R.Insert(); end; }
+            codeunit 60102 T { Subtype = Test;
+                var OnRunDate: Date;
+                trigger OnRun() begin OnRunDate := WorkDate(); end;
+                [Test] procedure OnRunAndTest() begin
+                    if OnRunDate <> 20240115D then Error('OnRun %1', OnRunDate);
+                    if WorkDate() <> 20240115D then Error('test %1', WorkDate()); end;
+                [Test] procedure InstallSawToday() var R: Record Seen; begin R.Get('INSTALL'); if not R.IsToday then Error('install'); end; }",
+    );
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
+    }
+}
+
 // ADR-046 amendment 1, A5: in the per-database part, IsEmpty and FindFirst of a per-company table fail with the text BC
 // gives (install/lt-bf-install-probes/BfInstallTests.al:138-139; reads in TryFunctions at BfInstallFixtures.al:131-146).
 // The code BC gave (DB:Ok) is not pinned yet, so a read of it is refused.

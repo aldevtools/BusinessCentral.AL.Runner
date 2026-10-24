@@ -307,6 +307,10 @@ pub trait Ctx: FormatCtx {
     fn isolation_from_hub(&self) -> bool {
         false
     }
+    /// The TestRunnerHub runs the test codeunit under RequiredTestIsolation = Disabled.
+    fn hub_disabled(&self) -> bool {
+        false
+    }
     /// `Error(ErrorInfo)` of a collectible error: inside a `[ErrorBehavior(Collect)]` scope the
     /// session keeps a copy and the call returns normally (`true`); outside one it is raised like
     /// any other error (`false`).
@@ -1886,12 +1890,13 @@ fn start_session(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Res
             Value::Null
         });
     }
-    // Whether BC starts a session in a test codeunit the TestRunnerHub runs under RequiredTestIsolation = Function or
-    // Disabled is not pinned (al-runner issue 5609; the corpus pins only Codeunit isolation).
-    if c.in_test_run() && c.isolation_from_hub() {
+    // Under RequiredTestIsolation = Disabled on the TestRunnerHub BC starts the session, it runs and its writes are seen
+    // (codeunit/lt-qu-commit-isolation/RqIsolationModes.al:573-600, al-runner issue 5609); a second session is not modelled.
+    // Under Function it fails as under Codeunit (:454-462).
+    if c.in_test_run() && c.isolation_from_hub() && c.hub_disabled() {
         return unsupported(
-            "StartSession in a test codeunit run under its RequiredTestIsolation = Function or Disabled (--isolation \
-             required): whether BC starts the session there is not pinned",
+            "StartSession in a test codeunit run under its RequiredTestIsolation = Disabled (--isolation required): BC \
+             starts the session there, and a second session is not modelled",
         );
     }
     if c.in_test_run() {
