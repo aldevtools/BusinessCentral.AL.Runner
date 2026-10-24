@@ -119,11 +119,33 @@ fn already_open_or_nameless(r: Option<&Value>, name: &str) -> Result<(), Signal>
     Ok(())
 }
 
+/// A name in a subfolder of `TemporaryPath()` (`\\TEMP\\`) that does not exist: `Create` and `Open` fail with InvalidPath and
+/// "Could not find a part of the path '<path>'." and no folder is made (al-language-onprem/lt-file-type/FileErrors.al:216-241
+/// P110_InvalidPaths `create_in_missing_dir`, `open_in_missing_dir`, `exists_in_missing_dir`; Windows BC 29.0). Windows names
+/// the path with `\\` for each `/` (FileErrors.al:236, lt-o-system-onprem/OBlobAndSession.al:154); the Linux image keeps the
+/// `/`, a Linux artifact. The in-memory file system has no folders, so every such subfolder is missing there.
+fn missing_folder(c: &dyn Ctx, name: &str) -> Result<(), Signal> {
+    let Some(rest) = name.strip_prefix("\\TEMP\\") else {
+        return Ok(());
+    };
+    let Some(cut) = rest.rfind(['/', '\\']) else {
+        return Ok(());
+    };
+    if c.fs_dir_exists(&name[..name.len() - rest.len() + cut]) {
+        return Ok(());
+    }
+    crate::native::raise(
+        format!("Could not find a part of the path '{}'.", name.replace('/', "\\")),
+        "InvalidPath",
+    )
+}
+
 /// `Create(Name [, Encoding])`: a new empty file, or an existing one emptied; open for writing.
 fn create(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = path(a, 0)?;
     let enc = Encoding::from_arg(a)?;
     already_open_or_nameless(r.as_deref(), &name)?;
+    missing_folder(c, &name)?;
     if let Err(e) = c.fs_write(&name, &[]) {
         return fs_failure(c, &format!("File.Create({name}): {e}"));
     }
@@ -144,6 +166,7 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = path(a, 0)?;
     let enc = Encoding::from_arg(a)?;
     already_open_or_nameless(r.as_deref(), &name)?;
+    missing_folder(c, &name)?;
     // A file of content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): the open file is
     // an opaque buffer, so its streams only move it on (CopyStream) and any look at it is refused.
     let carried = c.fs_carried_mark(&name);

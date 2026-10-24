@@ -498,7 +498,8 @@ pub trait FileSystem {
     fn serves_path(&self, _path: &str) -> bool {
         false
     }
-    /// Whether the folder exists (for a path [`FileSystem::serves_path`] accepts).
+    /// Whether the folder exists (for a path [`FileSystem::serves_path`] accepts, and for the folder of a `File.Create` or
+    /// `File.Open` name under `TemporaryPath()`).
     fn dir_exists(&self, _path: &str) -> bool {
         false
     }

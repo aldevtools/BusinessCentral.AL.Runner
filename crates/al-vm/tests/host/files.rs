@@ -242,3 +242,23 @@ fn blob_import_reads_the_file_into_the_blob() {
         "the name it returns is not pinned"
     );
 }
+
+/// A write into a folder under TemporaryPath() that does not exist fails with InvalidPath and creates nothing; Open of a file
+/// there fails the same way (al-language-onprem/lt-file-type/FileErrors.al:216-241 P110_InvalidPaths, Windows BC 29.0).
+#[test]
+fn create_and_open_in_a_missing_folder_fail_with_invalid_path() {
+    let t = text(
+        "F: File; P: Text; R: Text;",
+        "P := TemporaryPath() + 'nodir/x.tmp';
+         if not TryCreate(F, P) then R := GetLastErrorText() + '|' + GetLastErrorCode();
+         if not TryOpen(F, P) then R += '#' + GetLastErrorText() + '|' + GetLastErrorCode();
+         exit(R + '#' + Format(File.Exists(P)));
+         end;
+         [TryFunction] local procedure TryCreate(var F: File; P: Text) begin F.Create(P); end;
+         [TryFunction] local procedure TryOpen(var F: File; P: Text) begin F.Open(P);",
+    );
+    assert_eq!(
+        t,
+        "Could not find a part of the path '\\TEMP\\nodir\\x.tmp'.|InvalidPath#Could not find a part of the path '\\TEMP\\nodir\\x.tmp'.|InvalidPath#No"
+    );
+}

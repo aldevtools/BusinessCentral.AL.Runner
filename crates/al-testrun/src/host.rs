@@ -226,6 +226,11 @@ impl FileSystem for DirFileSystem {
     fn remove(&mut self, path: &str) -> bool {
         self.resolve(path).is_some_and(|p| std::fs::remove_file(p).is_ok())
     }
+    /// A folder the user put into the files directory: File.Create and File.Open into a subfolder of TemporaryPath() that
+    /// does not exist fail (al-builtins file.rs `missing_folder`).
+    fn dir_exists(&self, path: &str) -> bool {
+        self.resolve(path).is_some_and(|p| p.is_dir())
+    }
 }
 
 #[cfg(test)]
