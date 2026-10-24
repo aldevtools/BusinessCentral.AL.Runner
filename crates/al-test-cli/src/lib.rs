@@ -3,6 +3,7 @@
 pub use al_testrun::{baseline, deps, dotnet, explain, host, isolation, runtime, target};
 
 pub mod args;
+pub mod awaiting;
 pub mod behavior_coverage;
 pub mod config;
 pub mod corpus;
