@@ -862,6 +862,9 @@ impl Session {
                 lock_timeout: true,
                 lock_timeout_duration: 10,
                 committed_row_version: 0,
+                rows_touched: Vec::new(),
+                locked_tables: Vec::new(),
+                rolled_back: false,
                 last_commit_wrote: false,
                 deferred_insert: None,
                 deferred_raised: 0,
@@ -972,6 +975,9 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
+        self.tx.rows_touched.clear();
+        self.tx.locked_tables.clear();
+        self.tx.rolled_back = false;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
@@ -1034,6 +1040,9 @@ impl Session {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
+        self.tx.rows_touched.clear();
+        self.tx.locked_tables.clear();
+        self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         // The Tenant Media rows a Modify or Delete of this transaction removed come back with the rows.
         let removed = std::mem::take(&mut self.media_removed.0);
@@ -1093,6 +1102,7 @@ impl Session {
                     dirty_base: None,
                     is_dirty_base: al_builtins::value::DirtyBase::Fresh,
                     last_modify: None,
+                    row_origin: None,
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,

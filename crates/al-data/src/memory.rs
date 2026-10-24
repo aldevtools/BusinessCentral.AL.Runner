@@ -583,6 +583,29 @@ impl MemStore {
         ))
     }
 
+    /// The row with primary key `pk` of table `t` as the last commit left it (`None`: no such row was committed). A
+    /// table nothing wrote to is the backing's.
+    pub fn committed_get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Option<Row> {
+        bump();
+        let slot = slot(cx, t);
+        match self.committed.get(&slot) {
+            Some(table) => table.get(&Key(pk.to_vec())).cloned(),
+            None => self
+                .backing
+                .as_ref()?
+                .rows(&slot.0, slot.1)?
+                .0
+                .get(&Key(pk.to_vec()))
+                .cloned(),
+        }
+    }
+
+    /// Whether a write since the last commit changed table `t` (and no rollback undid it).
+    pub fn written_since_commit(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        let slot = slot(cx, t);
+        self.versions.get(&slot) != self.committed_versions.get(&slot)
+    }
+
     /// Whether any write since the last commit or rollback is pending.
     pub fn has_uncommitted(&self) -> bool {
         !(self.tables.ptr_eq(&self.committed) || (self.tables.is_empty() && self.committed.is_empty()))

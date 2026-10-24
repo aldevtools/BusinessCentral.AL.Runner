@@ -22,6 +22,14 @@ pub(crate) struct TxState {
     pub(crate) lock_timeout_duration: i64,
     /// The highest rowversion handed out when the last `Commit` ran: rows at or below it are durable.
     pub(crate) committed_row_version: i64,
+    /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
+    /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
+    /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
+    pub(crate) rows_touched: Vec<(u32, Option<String>, Vec<Value>)>,
+    /// The tables a `Record.LockTable` locked since the last Commit or rollback.
+    pub(crate) locked_tables: Vec<u32>,
+    /// A rollback ran since the last Commit.
+    pub(crate) rolled_back: bool,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is

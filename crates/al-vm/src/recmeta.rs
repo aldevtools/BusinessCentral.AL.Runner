@@ -559,6 +559,8 @@ impl Session {
                 // (codeunit/TestCodeunitRunWriteTransaction.al:211-252 RN_LockTable_WriteTransactionState, _Temporary_).
                 if !rec.borrow().temporary {
                     self.tx.lock_tx = true;
+                    let table = rec.borrow().table;
+                    self.tx.locked_tables.push(table);
                 }
                 Ok(Value::Null)
             }
@@ -1654,6 +1656,7 @@ impl Session {
                     marked_only: false,
                     position: None,
                     last_modify: None,
+                    row_origin: None,
                     globals: shared.share(),
                     ..r.clone()
                 }

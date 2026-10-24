@@ -978,6 +978,10 @@ pub struct RecordState {
     /// The row this variable's last Modify wrote. A later Modify of the unchanged buffer, after a rollback undid that write,
     /// writes nothing (record/lt-record-conversion-assumptions/StaleBuffer.al:76-86).
     pub last_modify: Option<Vec<Value>>,
+    /// Where the buffer's row version came from: the variable's own Insert or a Get (with that version and the number of
+    /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
+    /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
+    pub row_origin: Option<RowOrigin>,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -986,6 +990,17 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (handlers/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// See [`RecordState::row_origin`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowOrigin {
+    /// The variable's own Insert (else a Get).
+    pub insert: bool,
+    /// The row version the buffer got.
+    pub version: i64,
+    /// The session's commit count at that moment.
+    pub commits: u64,
 }
 
 /// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters

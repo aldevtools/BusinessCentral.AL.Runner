@@ -109,3 +109,182 @@ codeunit 69989 M
 fn modify_that_replaces_a_media_removes_the_old_media() {
     assert_eq!(text(al_testkit::run_in(MEDIA, "M", "Replace")), "YesNoYes");
 }
+
+// AL Runner issue 5805: a buffer made stale before a Commit, written after the Commit, depending on what the new
+// transaction did to the row first (corpus record/TestRecordStaleBufferWrite.al:395-690, writer RU).
+const RU: &str = r#"
+table 69995 "RU Row"
+{
+    fields { field(1; Id; Integer) { } field(2; Note; Text[20]) { } field(3; Qty; Integer) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 69996 RU
+{
+    local procedure InsertRow(var Row: Record "RU Row")
+    begin
+        Row.Init(); Row.Id := 5; Row.Note := 'start'; Row.Insert(false);
+    end;
+
+    local procedure ChangeAndCommit()
+    var Other: Record "RU Row";
+    begin
+        Other.Get(5); Other.Note := 'other'; Other.Modify(false); Commit();
+    end;
+
+    local procedure Write(var Row: Record "RU Row"): Text
+    begin
+        Row.Qty := 5;
+        Row.Modify(false);
+        exit('ok');
+    end;
+
+    local procedure Modified(var Row: Record "RU Row"): Text
+    var Stored: Record "RU Row";
+    begin
+        Row.Qty := 5; Row.Modify(false);
+        Stored.Get(5);
+        exit('ok|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    local procedure Refused(var Row: Record "RU Row"): Text
+    var Stored: Record "RU Row";
+    begin
+        Row.Qty := 5;
+        asserterror Row.Modify(false);
+        Stored.Get(5);
+        exit(GetLastErrorCode() + '|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    procedure InsertNothing(): Text
+    var Row: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); exit(Refused(Row));
+    end;
+
+    procedure InsertLaterUnchanged(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.Get(5); Later.Modify(false); exit(Modified(Row));
+    end;
+
+    procedure InsertWriterAgain(): Text
+    var Row: Record "RU Row"; Other: Record "RU Row";
+    begin
+        InsertRow(Row);
+        Other.Get(5); Other.Note := 'other'; Other.Modify(false); Commit();
+        Other.Modify(false);
+        exit(Modified(Row));
+    end;
+
+    procedure InsertLockTableGet(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.LockTable(); Later.Get(5); exit(Modified(Row));
+    end;
+
+    procedure InsertGetOnly(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.Get(5); exit(Refused(Row));
+    end;
+
+    procedure InsertGetChange(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.Get(5); Later.Note := 'later'; Later.Modify(false); exit(Modified(Row));
+    end;
+
+    procedure InsertUnchangedThenCommit(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.Get(5); Later.Modify(false); Commit(); exit(Refused(Row));
+    end;
+
+    procedure GetBufferUnchanged(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); Commit(); Row.Get(5); ChangeAndCommit(); Later.Get(5); Later.Modify(false); exit(Refused(Row));
+    end;
+
+    procedure GetBufferLockTableGet(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); Commit(); Row.Get(5); ChangeAndCommit(); Later.LockTable(); Later.Get(5); exit(Refused(Row));
+    end;
+
+    procedure GetBufferChange(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); Commit(); Row.Get(5); ChangeAndCommit(); Later.Get(5); Later.Note := 'later'; Later.Modify(false); exit(Refused(Row));
+    end;
+
+    procedure DeleteNothing(): Text
+    var Row: Record "RU Row"; Stored: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit();
+        asserterror Row.Delete(false);
+        exit(GetLastErrorCode() + '|' + Format(Stored.Get(5)));
+    end;
+
+    procedure DeleteAfterUnchanged(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row"; Stored: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Later.Get(5); Later.Modify(false);
+        Row.Delete(false);
+        exit('ok|' + Format(Stored.Get(5)));
+    end;
+
+    // Not pinned: another row of the table written in the new transaction.
+    procedure InsertOtherRowWritten(): Text
+    var Row: Record "RU Row"; Two: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Two.Id := 6; Two.Insert(); exit(Write(Row));
+    end;
+
+    // Not pinned: a second Commit between the Insert and the transaction that modified the row.
+    procedure InsertTwoCommits(): Text
+    var Row: Record "RU Row"; Later: Record "RU Row";
+    begin
+        InsertRow(Row); ChangeAndCommit(); Commit(); Later.Get(5); Later.Modify(false); exit(Write(Row));
+    end;
+}
+"#;
+
+#[test]
+fn a_stale_insert_buffer_is_written_once_the_new_transaction_modified_or_locked_the_row() {
+    let run = |p: &str| text(al_testkit::run_in(RU, "RU", p));
+    // TestRecordStaleBufferWrite.al:481, :551, :586: refused, the row keeps the committed change.
+    assert_eq!(run("InsertNothing"), "DB:RecordChanged|other|0");
+    assert_eq!(run("InsertGetOnly"), "DB:RecordChanged|other|0");
+    assert_eq!(run("InsertUnchangedThenCommit"), "DB:RecordChanged|other|0");
+    // :495, :513, :533, :567: accepted, the stale buffer wins.
+    assert_eq!(run("InsertLaterUnchanged"), "ok|start|5");
+    assert_eq!(run("InsertWriterAgain"), "ok|start|5");
+    assert_eq!(run("InsertLockTableGet"), "ok|start|5");
+    assert_eq!(run("InsertGetChange"), "ok|start|5");
+}
+
+#[test]
+fn a_stale_get_buffer_stays_refused_whatever_the_new_transaction_did() {
+    let run = |p: &str| text(al_testkit::run_in(RU, "RU", p));
+    // TestRecordStaleBufferWrite.al:604, :623, :642.
+    assert_eq!(run("GetBufferUnchanged"), "DB:RecordChanged|other|0");
+    assert_eq!(run("GetBufferLockTableGet"), "DB:RecordChanged|other|0");
+    assert_eq!(run("GetBufferChange"), "DB:RecordChanged|other|0");
+}
+
+#[test]
+fn a_stale_delete_follows_the_same_rule() {
+    let run = |p: &str| text(al_testkit::run_in(RU, "RU", p));
+    // TestRecordStaleBufferWrite.al:662, :676.
+    assert_eq!(run("DeleteNothing"), "DB:RecordChanged|Yes");
+    assert_eq!(run("DeleteAfterUnchanged"), "ok|No");
+}
+
+#[test]
+fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
+    for p in ["InsertOtherRowWritten", "InsertTwoCommits"] {
+        let r = al_testkit::run_in(RU, "RU", p);
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{p}: {r:?}");
+    }
+}
