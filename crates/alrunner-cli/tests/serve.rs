@@ -1281,6 +1281,77 @@ fn entries_run_their_own_tests_with_their_own_resources_on_one_compile() {
     assert_eq!(lines.last().unwrap()["cached"], true, "{lines:?}");
 }
 
+/// Issue 5798: through `entries`, every test line has `codeunit` and `method`, as the one-shot `--output-json` row does;
+/// a method name that holds a dot cannot be split back out of `name`.
+#[test]
+fn entries_give_every_test_line_its_codeunit_and_method_also_for_a_dotted_name() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "dots",
+        "codeunit 50990 \"Dot Name Tests\"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure \"Dot.Step\"()
+    begin
+    end;
+
+    [Test]
+    procedure PlainStep()
+    begin
+    end;
+}",
+    );
+    let mut s = started();
+    for request in [
+        json!({"command": "runTests", "sourcePaths": [a], "entries": [{"id": "NONE|1"}]}),
+        json!({"command": "runTests", "sourcePaths": [a]}),
+    ] {
+        s.send(request.clone());
+        let lines = s.until_summary();
+        let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+        assert_eq!(tests.len(), 2, "{request}: {lines:?}");
+        for (name, method) in [
+            ("Codeunit50990.Dot.Step", "Dot.Step"),
+            ("Codeunit50990.PlainStep", "PlainStep"),
+        ] {
+            let l = tests
+                .iter()
+                .find(|l| l["name"] == name)
+                .unwrap_or_else(|| panic!("{name}: {lines:?}"));
+            assert_eq!(
+                (&l["codeunit"], &l["method"]),
+                (&json!(50990), &json!(method)),
+                "{request}: {l}"
+            );
+        }
+    }
+}
+
+/// Issue 5793: a `test` line of a test the summed Sleep time stopped says `clock: "virtual"`, as the JSON row does.
+#[test]
+fn a_test_line_of_a_test_the_sleep_time_stopped_says_the_clock_was_virtual() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "sleepstop",
+        "codeunit 50413 \"Sleep Stop\" { Subtype = Test;
+            [Test] procedure ShortSleep() begin Sleep(1500); end;
+            [Test] procedure LongSleep() begin Sleep(600000); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--test-timeout", "3"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    let line = |n: &str| lines.iter().find(|l| l["name"] == n).cloned().unwrap();
+    let long = line("Codeunit50413.LongSleep");
+    assert_eq!(long["message"], "Test exceeded 3s timeout.", "{lines:?}");
+    assert_eq!(long["clock"], "virtual", "{lines:?}");
+    assert!(line("Codeunit50413.ShortSleep").get("clock").is_none(), "{lines:?}");
+}
+
 /// Issue 5635: what an entry may not say is an error of the request.
 #[test]
 fn entries_that_cannot_run_are_an_error_of_the_request() {

@@ -722,13 +722,19 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
     }
 }
 
-/// A `test` line of v2: the row of the JSON document, with `stackFrames` split out of the stack text.
+/// A `test` line of v2: the row of the JSON document, with `stackFrames` split out of the stack text. `codeunit`,
+/// `codeunitName` and `method` are on every line, as on the row: a method name may hold a dot, so `name` cannot be split
+/// back (issue 5798).
 fn test_line(row: &mut Map<String, Value>) -> Map<String, Value> {
     let mut line = Map::new();
     line.insert("type".into(), json!("test"));
     for key in [
         "name",
+        "codeunit",
+        "codeunitName",
+        "method",
         "status",
+        "clock",
         "durationMs",
         "sleptMs",
         "message",

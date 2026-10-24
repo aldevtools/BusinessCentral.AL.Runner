@@ -267,7 +267,8 @@ pub fn stack_lines(stack: &str) -> Vec<String> {
 /// - A test that did not run is `error` with the message `NotRun: out-of-scope: <reason>`, and `notRun: true`; one that
 ///   the time limit stopped is `error` with `Test exceeded <N>s timeout.` (the sentence v2 used). So `errors` counts the
 ///   tests not run, and `skipped` is 0.
-/// - `codeunit`, `codeunitName` and `method` are v3's additions.
+/// - `codeunit`, `codeunitName` and `method` are v3's additions, and so is `clock` on the row of a test the time limit
+///   stopped: `virtual` when its `Sleep` time stopped it, `cpu` when its CPU time did (issue 5793).
 pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
     json_tdd(results, exit_code, wall_s, None)
 }
@@ -380,6 +381,9 @@ pub fn json_row(
         Outcome::Fail(m) => ("fail", Some(m.clone())),
         Outcome::NotRun(why) => {
             t.insert("notRun".into(), json!(true));
+            if let Some(clock) = stopped_by_clock(why) {
+                t.insert("clock".into(), json!(clock));
+            }
             ("error", Some(not_run_message(why)))
         }
     };
@@ -394,6 +398,21 @@ pub fn json_row(
         t.insert("stackTrace".into(), json!(stack_lines(call_stack).join("\n")));
     }
     t
+}
+
+/// The clock that stopped a test the time limit stopped (issue 5793): `virtual` when the time its `Sleep` calls asked
+/// for passed the limit (`Sleep` does not wait, so the stop took less real time than the limit names), `cpu` when its
+/// CPU time did. `None` for any other test. `durationMs` stays the real time in both cases.
+fn stopped_by_clock(why: &str) -> Option<&'static str> {
+    let rest = why.strip_prefix("the test used more than the time limit of ")?;
+    let (_, unit) = rest.split_once(' ')?;
+    if unit.starts_with("s of CPU time") {
+        Some("cpu")
+    } else if unit.starts_with("s and was stopped") && why.contains("its Sleep calls asked to wait") {
+        Some("virtual")
+    } else {
+        None
+    }
 }
 
 /// The message of a not-run test in the JSON document: v2's timeout sentence for a test the time limit stopped, else the
@@ -727,6 +746,31 @@ mod tests {
             (Some("error"), Some("NotRun: out-of-scope: no provider"))
         );
         assert_eq!(t[3]["message"], "Test exceeded 5s timeout.");
+        assert_eq!(t[3]["clock"], "cpu");
+        assert!(t[0].get("clock").is_none() && t[2].get("clock").is_none());
+    }
+
+    /// Issue 5793: a test the summed Sleep time stopped (a virtual clock) has the same message as one the CPU limit
+    /// stopped, and `clock: "virtual"` tells the two apart. `durationMs` stays the real time.
+    #[test]
+    fn json_marks_a_test_the_sleep_time_stopped_as_stopped_on_the_virtual_clock() {
+        let mut slept = r(
+            1,
+            "A",
+            "LongSleep",
+            Outcome::NotRun(
+                "the test used more than the time limit of 3 s and was stopped (--test-timeout-secs): its Sleep calls asked to wait 600000 ms in total (Sleep does not wait here; the time it asks for counts toward the limit)"
+                    .into(),
+            ),
+        );
+        slept.time = std::time::Duration::from_millis(7);
+        let rs = [slept];
+        let refs: Vec<&TestResult> = rs.iter().collect();
+        let v: serde_json::Value = serde_json::from_str(&json(&refs, 7, 0.1)).unwrap();
+        let t = &v["tests"][0];
+        assert_eq!(t["message"], "Test exceeded 3s timeout.");
+        assert_eq!(t["clock"], "virtual");
+        assert_eq!(t["durationMs"], 7);
     }
 
     #[test]

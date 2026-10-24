@@ -409,7 +409,10 @@ OUTPUT
                          `message`, `stackTrace`, and `passed`, `failed`, `errors`,
                          `skipped`, `total`, `notRun`, `exitCode`, `wallSeconds`. A test that did not
                          run is `error` with the message `NotRun: out-of-scope: <reason>`; one the
-                         time limit stopped is `error` with `Test exceeded <N>s timeout.`. When the
+                         time limit stopped is `error` with `Test exceeded <N>s timeout.` and `clock`:
+                         `virtual` when its Sleep time stopped it (Sleep does not wait, so
+                         `durationMs`, the real time, is below the limit), `cpu` when its CPU
+                         time did. When the
                          selection matches no test (exit 6) the document has no rows and
                          `warnings` says why. Without
                          FILE the document is the only thing on stdout and the report goes to
