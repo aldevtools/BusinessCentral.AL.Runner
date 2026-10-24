@@ -648,6 +648,26 @@ fn install_code_runs_without_a_client() {
     }
 }
 
+// The reporter's shape of al-runner issue 5751: an install codeunit writes its setup row, then shows a Message, plain or
+// behind `if GuiAllowed()` (pins as above, RlInstallUi.al:214-218).
+#[test]
+fn an_install_codeunit_that_shows_a_message_keeps_its_setup_row() {
+    let o = outcomes(
+        "table 60900 Setup { fields { field(1; K; Code[10]) { } field(2; Gui; Boolean) { } } }
+            codeunit 60907 Inst { Subtype = Install;
+                trigger OnInstallAppPerCompany() var R: Record Setup; begin
+                    R.K := 'PLAIN'; R.Gui := GuiAllowed(); R.Insert(); Message('Setup done.');
+                    if GuiAllowed() then Message('Guarded.');
+                    R.K := 'AFTER'; R.Insert(); end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure SetupRowStays() var R: Record Setup; begin R.Get('PLAIN'); R.Get('AFTER'); end;
+                [Test] procedure GuiAllowedIsFalseInInstallCode() var R: Record Setup; begin R.Get('PLAIN'); if R.Gui then Error('GuiAllowed'); end; }",
+    );
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
+    }
+}
+
 // ADR-046 amendment 1, A5: in the per-database part, IsEmpty and FindFirst of a per-company table fail with the text BC
 // gives (install/lt-bf-install-probes/BfInstallTests.al:138-139; reads in TryFunctions at BfInstallFixtures.al:131-146).
 // The code BC gave (DB:Ok) is not pinned yet, so a read of it is refused.
