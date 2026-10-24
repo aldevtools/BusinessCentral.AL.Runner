@@ -570,7 +570,11 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // (record/lt-as-records/AsTestFieldTexts.al:153: from BC 28 the TestField of a Byte has an escaped form that is not pinned,
     // so they are refused there), and 85180 List_OfRecordRef (collections/lt-cs-odd-leads/CsCollections.al:594: from BC 28 the
     // test reads more of a global that an earlier refused test of the codeunit could change, so it is not run there).
-    assert!(out.contains("runtime: 6 case(s) differ between versions"), "{out}");
+    // Corpus bump 64 adds 13, all of codeunit/lt-qu-commit-isolation/RqIsolationModes.al, which pass on BC 27 only: there
+    // runner 130450 runs every codeunit and StartSession fails as pinned. On BC 28 and 29 the hub runs 88510 under Disabled,
+    // where BC starts the session (:573-600) and the runtime does not run a second session, so RQ_D03 is refused and what
+    // the Disabled codeunits leave is not known: RQ_D04, RQ_D11 and the 130450 codeunits after them (88512-88515) are not run.
+    assert!(out.contains("runtime: 19 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

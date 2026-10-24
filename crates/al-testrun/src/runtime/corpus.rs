@@ -1742,16 +1742,14 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
             ));
         }
     };
-    let name = isolation.name();
+    // A codeunit with handlers runs under runner 130450 whatever its RequiredTestIsolation says: Codeunit isolation, and
+    // StartSession fails as there (RqIsolationModes.al:9-15, :673-839 RQ_WF and RQ_WD, every version).
     if o.routines.iter().any(|r| {
         r.attributes
             .iter()
             .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
     }) {
-        return Err(format!(
-            "RequiredTestIsolation = {name} on a test codeunit with handlers: which test runner BC uses for it, and so its \
-             isolation, is not pinned"
-        ));
+        return Ok(None);
     }
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
     // state each test returns to, under Disabled they persist like the tests' (RqIsolationModes.al:396-472, :532-616).

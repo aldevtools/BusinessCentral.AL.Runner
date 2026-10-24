@@ -178,8 +178,9 @@ codeunit 50631 "After"
     assert!(not_run(outcome(&o, "A1_Reads"), "Disabled"), "{o:?}");
 }
 
-// The hub runs only codeunits without handlers (QuCommitIsolation.al:11-13); which runner BC's CI uses for one with
-// handlers, and so its isolation and its place in the order, is not pinned.
+// The hub runs only codeunits without handlers (QuCommitIsolation.al:11-13); one with handlers runs under runner 130450 as
+// Codeunit isolation (RqIsolationModes.al:673-839). RequiredTestIsolation = None is not pinned, and neither is whether a
+// later codeunit with handlers sees what a Disabled codeunit left.
 #[test]
 fn what_the_hub_does_not_pin_is_refused() {
     let o = run(
@@ -221,7 +222,8 @@ codeunit 50644 "HandlerReader"
 "#,
         true,
     );
-    assert!(not_run(outcome(&o, "H1"), "RequiredTestIsolation"), "{o:?}");
+    // A codeunit with handlers runs under runner 130450, as Codeunit isolation (RqIsolationModes.al:673-839).
+    assert_eq!(outcome(&o, "H1"), &Outcome::Pass, "{o:?}");
     // A codeunit with an OnRun trigger is pinned now (RqIsolationModes.al:396-472).
     assert_eq!(outcome(&o, "R1"), &Outcome::Pass, "{o:?}");
     assert!(not_run(outcome(&o, "N1"), "None"), "{o:?}");
@@ -241,8 +243,7 @@ codeunit 50650 "DOnRun"
     Subtype = Test;
     RequiredTestIsolation = Disabled;
     var Rows: Codeunit "Rows";
-    [Test] [HandlerFunctions('MH')] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); Message('x'); end;
-    [MessageHandler] procedure MH(M: Text[1024]) begin end;
+    [Test] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); SerialNumber(); end;
 }
 codeunit 50651 "Reader"
 {
@@ -258,7 +259,7 @@ codeunit 50652 "Unrelated"
 "#,
         true,
     );
-    assert!(not_run(outcome(&o, "D1"), "handlers"), "{o:?}");
+    assert!(not_run(outcome(&o, "D1"), "SerialNumber"), "{o:?}");
     assert!(not_run(outcome(&o, "R1"), "was"), "{o:?}");
     assert_eq!(outcome(&o, "U1"), &Outcome::Pass, "{o:?}");
     let o = run(
