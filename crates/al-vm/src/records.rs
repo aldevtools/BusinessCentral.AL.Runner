@@ -1795,7 +1795,16 @@ impl Session {
     /// "Agent Task Impl.".TaskExists, whose only read of the table is IsEmpty after two SetRange calls and ReadIsolation).
     /// Every other read or write of it stays refused by its provider ("has no provider").
     fn agent_task_check(&self, t: &TableDef, rec: &Rec, method: RecordOp) -> Result<(), Signal> {
-        if method != RecordOp::IsEmpty || rec.borrow().temporary {
+        if rec.borrow().temporary {
+            return Ok(());
+        }
+        // IsEmpty on Agent Task (RhAgentSession.al:74-88) and Get on Agent ("Agent Impl.".GetAgent, RhAgentSession.al:101-145,
+        // AL Runner issue 5787), for a new and a null id.
+        let id = self.engine.program.objects[t.object as usize].id;
+        if !matches!(
+            (method, id),
+            (RecordOp::IsEmpty, Some(2000000262)) | (RecordOp::Get, Some(2000000260))
+        ) {
             return Ok(());
         }
         let object = &self.engine.program.objects[t.object as usize];
@@ -1811,7 +1820,7 @@ impl Session {
                 .get(app)
                 .is_some_and(|a| a.publisher == "Microsoft")
         });
-        if !platform || object.id != Some(2000000262) || !microsoft {
+        if !platform || !microsoft {
             return Ok(());
         }
         Err(crate::transactions::al_error_code(

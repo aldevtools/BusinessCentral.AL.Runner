@@ -2198,3 +2198,32 @@ codeunit 50001 H { procedure InsertFail() var A: Record "Active Session"; begin 
     );
     not_run(&o, "DuplicateText");
 }
+
+// Agent.GetDisplayName, GetUserName and IsActive (System Application, through "Agent Impl.".GetAgent): Get on the platform table
+// Agent fails with the agent service's error, code DB:Ok, for a new and for a null id, also inside a TryFunction
+// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787). The same read from a partner app and any
+// other operation on the table are not pinned: refused.
+#[test]
+fn agent_get_from_microsoft_code_reports_agents_unavailable() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure GetAgent() var Exists: Boolean; N: Guid; begin
+      ClearLastError();
+      if TryGet(CreateGuid()) then Error('no error');
+      if GetLastErrorText() <> 'Agents are temporarily unavailable. Please try again later. You can check the Business Central Admin Center and Microsoft 365 Service Health dashboard for updates.' then Error(GetLastErrorText());
+      if GetLastErrorCode() <> 'DB:Ok' then Error(GetLastErrorCode());
+      if TryGet(N) then Error('null id');
+  end;
+  [TryFunction] local procedure TryGet(Id: Guid) var Agent: Record Agent; begin
+      if not Agent.Get(Id) then Error('not found');
+  end;
+  [Test] procedure AgentCount() var Agent: Record Agent; begin if Agent.Count() = 0 then; end; }"#;
+    let o = outcomes_app("ms-sysapp", src, al_sema::check::Roots::default());
+    assert_eq!(
+        o.iter().find(|(n, _)| n == "GetAgent").map(|(_, o)| o),
+        Some(&Outcome::Pass),
+        "{o:?}"
+    );
+    assert!(not_run(&o, "AgentCount").contains("has no provider"));
+    let partner = outcomes(src);
+    assert!(not_run(&partner, "GetAgent").contains("has no provider"));
+}
