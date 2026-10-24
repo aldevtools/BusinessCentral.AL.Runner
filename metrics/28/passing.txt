@@ -5552,10 +5552,12 @@
 68697 Suite_Fields
 68699 A_FirstTest_SetsAnArea
 68703 CancelPreviousTask_OnRowMove
+68703 ErrorLevel_Ignore
 68703 FailingTask_DatabaseErrorCode
 68703 FailingTask_ErrorCodeAndText
 68703 QP_CompletedTaskId_AgainstPageVariable_OpenView
 68703 RunPageBackgroundTask_CompletionTriggerAndTaskId
+68703 RunPageBackgroundTask_FailingWorker_WithCompletionTriggers
 68703 TwoTasks_NewPageVariableCountsFromOneAgain
 68703 TwoTasks_OrderAndIds_AcrossRows
 68703 Worker_Delete
@@ -13272,6 +13274,9 @@
 77510 AC_HttpRequestType_Case
 77510 AC_HttpRequestType_Format
 77510 AC_HttpRequestType_Variable
+77516 AC_PageBackgroundTaskErrorLevel_Case
+77516 AC_PageBackgroundTaskErrorLevel_Format
+77516 AC_PageBackgroundTaskErrorLevel_Variable
 77518 AC_PageStyle_Case
 77518 AC_PageStyle_Format
 77518 AC_PageStyle_Variable
@@ -14001,6 +14006,9 @@
 81676 XmlPort_DefaultFieldsValidation_True_InOrder
 81676 XmlPort_DefaultFieldsValidation_Unset
 81676 XmlPort_DefaultFieldsValidation_Unset_InOrder
+81684 EnqueueBackgroundTask_WithHandlers
+81684 RunPageBackgroundTask_WithHandlers
+81685 RunPageBackgroundTask_NoHandlers
 81861 Counters_NotNegative
 81861 Counters_NothingBetween
 81861 Counters_TableOperations
