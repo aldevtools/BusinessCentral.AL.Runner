@@ -1219,8 +1219,14 @@ fn sleep_time_past_the_test_timeout_is_reported_as_a_timeout() {
         let r = row(&j, &format!("Codeunit50410.{t}"));
         assert_eq!(r["message"], "Test exceeded 3s timeout.", "{r}");
         assert_eq!(r["notRun"], true, "{r}");
+        // Issue 5793: the Sleep time stopped it, not the real clock. The row says so, and `durationMs` stays the real
+        // time the test took (far below the 3 s it names).
+        assert_eq!(r["clock"], "virtual", "{r}");
+        assert!(r.get("durationMs").map_or(0, |d| d.as_u64().unwrap()) < 3000, "{r}");
     }
-    assert_eq!(row(&j, "Codeunit50410.UnderTheLimit")["status"], "pass");
+    let under = row(&j, "Codeunit50410.UnderTheLimit");
+    assert_eq!(under["status"], "pass");
+    assert!(under.get("clock").is_none(), "only a stopped test has `clock`: {under}");
 }
 
 /// LethAL asked for the summed `Sleep` time of a test as its own field: `sleptMs` on the row of `--output-json` is the

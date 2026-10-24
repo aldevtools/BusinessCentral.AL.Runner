@@ -116,7 +116,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `tests[].sleptMs` | absent | the time the test's `Sleep` calls asked for, in milliseconds, summed; absent on a test that did not sleep | New. `Sleep` returns at once in v3, so `durationMs` does not hold this time; the sum counts toward the time limit. Add it to `durationMs` for the time the test would have taken on BC. |
 | `tests[].notRun` | absent | `true` on a test that did not run | New. v3 refuses what it cannot answer instead of running it (hard rule 4). Count these separately. |
 | not-run tests | no such thing in v2 | a row with `status: "error"`, `notRun: true`, `message: "NotRun: out-of-scope: <reason>"` | The prefix `<Type>: out-of-scope: ` is the form LethAL reads as "the runner refused" (not a killed mutant). Treat it as "unknown", not "killed". |
-| timed-out test | row with `Test exceeded <N>s timeout.` | the same sentence, `status: "error"`, `notRun: true` | none |
+| timed-out test | row with `Test exceeded <N>s timeout.` | the same sentence, `status: "error"`, `notRun: true`, and `clock`: `virtual` when the test's `Sleep` time passed the limit, `cpu` when its CPU time did | `Sleep` does not wait in v3, so a `virtual` stop takes less real time than the limit names; `durationMs` stays the real time. A `virtual` stop is not evidence that the test hangs on BC (issue 5793). |
 | `passed`, `failed`, `total`, `wallSeconds` | present | present | none |
 | `errors` | tests that errored | **the tests not run** (the same number as `notRun`) | Read `notRun` for the meaning. |
 | `skipped` | present | always 0 | none |
@@ -203,8 +203,9 @@ Differences a client must adapt to:
    dependency cache (a minute with Microsoft's apps, then 3 GB resident); with the cache on disk it takes as long as a
    one-shot run. Repeats take 0.2 to 2 s.
    A panic in a test is reported as an error for that test and the server goes on.
-3. `test` lines have `type`, `name`, `status` (`pass`, `fail`, `error`), `durationMs`, `sleptMs` (as in
-   `--output-json`, section 4), `message`, `stackTrace`,
+3. `test` lines have `type`, `name`, `codeunit`, `codeunitName`, `method` (use these instead of splitting `name`: a
+   method name may hold a dot), `status` (`pass`, `fail`, `error`), `clock` on a timed-out test, `durationMs`,
+   `sleptMs` (as in `--output-json`, section 4), `message`, `stackTrace`,
    `stackFrames` (the AL stack split into lines), and `notRun: true` for a test that did not run (status `error`, message
    `NotRun: out-of-scope: <reason>`; see section 4). `errorKind`, `alSourceFile`, `alSourceLine` are not sent.
 4. The `summary` has `exitCode` (the exit code of `al-runner test`, section 5), `passed`, `failed`, `errors` (= not run),
