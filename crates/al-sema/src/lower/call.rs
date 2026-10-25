@@ -648,6 +648,7 @@ impl Lowerer<'_> {
                         // Refused when it runs for the shapes no corpus test measures (a unit amount without an expression,
                         // an expression that is not blank, DecimalPlaces beside another AutoFormat).
                         let pinned = self.decimal_field_format_unpinned(a).is_none();
+                        let unit_amount = if pinned { self.unit_amount_subst_field(a) } else { None };
                         match self.decimal_field_places(a) {
                             _ if !self.decimal_field_declares_format(a) || self.decimal_field_is_plain(a) => {
                                 ir::Arg::Value(self.format_option_field(true, false, a)?)
@@ -664,6 +665,24 @@ impl Lowerer<'_> {
                                 ],
                                 ret_used: true,
                             }),
+                            // A unit amount without an expression or with a field of the row: the places of a page control,
+                            // resolved when it runs (al-runner issue 5827, assumption strsubstno-unit-amount-field).
+                            _ if unit_amount.is_some() => {
+                                let (record, field_no) = unit_amount.expect("checked");
+                                ir::Arg::Value(ir::Expr::Builtin {
+                                    id: builtin_id("System.FormatAutoFormatField#1")?,
+                                    receiver: None,
+                                    args: vec![
+                                        ir::Arg::Value(self.expr(a)?),
+                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                        ir::Arg::Value(ir::Expr::Load(record)),
+                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(field_no as i32))),
+                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))),
+                                    ],
+                                    ret_used: true,
+                                })
+                            }
                             _ => ir::Arg::Value(ir::Expr::Refused(
                                 "StrSubstNo, Message or Error %n of a Decimal field with this DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
                             )),

@@ -1006,6 +1006,9 @@ pub struct RowOrigin {
     pub version: i64,
     /// The session's commit count at that moment.
     pub commits: u64,
+    /// The buffer's version is that of its own Modify(false) after its own Insert, in the same transaction (assumption
+    /// stale-insert-buffer-own-modify).
+    pub own_modify: bool,
 }
 
 /// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters

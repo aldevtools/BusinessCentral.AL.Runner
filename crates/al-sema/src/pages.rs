@@ -319,6 +319,19 @@ pub fn plain_name(text: &str) -> Option<String> {
     .then(|| t.to_string())
 }
 
+/// `Var.Field` as its two plain names (`Settings."Avail. Filter"`); `None` for any other text.
+pub fn var_and_field(text: &str) -> Option<(String, String)> {
+    let t = text.trim();
+    let mut quoted = false;
+    let dot = t.char_indices().find_map(|(i, c)| {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        (c == '.' && !quoted).then_some(i)
+    })?;
+    Some((plain_name(&t[..dot])?, plain_name(&t[dot + 1..])?))
+}
+
 /// Global variable names (lower case) declared in `obj`.
 pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
     obj.var_decls()
