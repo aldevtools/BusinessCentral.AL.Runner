@@ -11,10 +11,10 @@ pub enum OnRunRows {
     /// leaves the runner's `OnRun` row out (`al-test-cli` `oracle::RUNNER_PSEUDO_CASE`).
     #[default]
     PerTest,
-    /// BC 27.5: a codeunit whose OnRun raises has no rows at all (its codeunit line is Skipped); one that does not
+    /// Before `Gate::TestCodeunitOnRunRowFrom28`: a codeunit whose OnRun raises has no rows at all (its codeunit line is Skipped); one that does not
     /// raise has no row for its OnRun.
     Bc27,
-    /// BC 28.5 and 29.0: a declared OnRun has a row `OnRun`: failed with the error's text when it raises, and then the
+    /// From `Gate::TestCodeunitOnRunRowFrom28` on: a declared OnRun has a row `OnRun`: failed with the error's text when it raises, and then the
     /// test methods have no rows; else passed, before the rows of the tests.
     Bc28,
 }
@@ -23,9 +23,13 @@ pub enum OnRunRows {
 pub const ON_RUN_ROW: &str = "OnRun";
 
 impl OnRunRows {
-    /// The shape of a BC major.
-    pub fn of_major(major: u32) -> OnRunRows {
-        if major >= 28 { OnRunRows::Bc28 } else { OnRunRows::Bc27 }
+    /// The shape of a target.
+    pub fn of_target(target: &al_version::Target) -> OnRunRows {
+        if target.has(al_version::Gate::TestCodeunitOnRunRowFrom28) {
+            OnRunRows::Bc28
+        } else {
+            OnRunRows::Bc27
+        }
     }
 }
 

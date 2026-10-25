@@ -1370,7 +1370,7 @@ fn test_inner(
             .or_else(|| affected.as_ref().map(crate::affected::Affected::narrow)),
         object_hashes: affected.is_some(),
         // A test codeunit's OnRun is reported as BC's test runner of the target major does (al-runner issue 5748).
-        on_run_rows: al_testrun::runtime::OnRunRows::of_major(u32::from(chosen.target.bc.major)),
+        on_run_rows: al_testrun::runtime::OnRunRows::of_target(&chosen.target),
         tdd: a.tdd,
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.

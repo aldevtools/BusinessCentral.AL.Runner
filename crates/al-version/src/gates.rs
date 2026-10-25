@@ -206,6 +206,14 @@ pub enum Gate {
     /// `media-exportstream-jfif-dpi-jpeg-kept` (al-builtins media.rs, a Windows BC 29.0 probe); the evidence is the BC 29 guard of
     /// the same file for the export of an imported media (MediaFiles.al:515). To remove once that probe lands in the corpus.
     JpegMediaSetKeptFrom29,
+    /// Microsoft's test runner reports a declared `OnRun` of a test codeunit as a row `OnRun` of its own from BC 28: failed
+    /// with the error's text when it raises (and then the test methods have no rows), else passed. On BC 27 a codeunit whose
+    /// OnRun raises has no rows at all. Runner reporting, not platform behavior AL code sees. Measured by corpus writer RL in
+    /// the corpus CI on 27.5, 28.5 and 29.0 (probe commit c69419f6 of `al-runtime-rs-staging-rl`,
+    /// codeunit/lt-outside-onrun-error/RlOnRunError.al; al-runner issue 5748). No evidence guard: the probe fails the corpus
+    /// CI by design, so it cannot stay in the green corpus. Consumed by `al-testrun` `OnRunRows::of_target`, under the
+    /// assumption `test-codeunit-onrun-rows`.
+    TestCodeunitOnRunRowFrom28,
 }
 
 impl Gate {
@@ -262,6 +270,7 @@ impl Gate {
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::DocxMediaRezippedFrom29,
         Gate::JpegMediaSetKeptFrom29,
+        Gate::TestCodeunitOnRunRowFrom28,
     ];
 
     /// The first BC major with the new behaviour.
@@ -318,13 +327,28 @@ impl Gate {
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
-            | Gate::TestRunnerHubRequiredIsolationFrom28 => 28,
+            | Gate::TestRunnerHubRequiredIsolationFrom28
+            | Gate::TestCodeunitOnRunRowFrom28 => 28,
+        }
+    }
+
+    /// For a gate that no green corpus case can pin (its probe fails the corpus CI by design): where both sides were
+    /// measured on real BC. Such a gate has no [`Gate::evidence`]; every other gate has `None` here.
+    pub fn measured_outside_corpus(self) -> Option<&'static str> {
+        match self {
+            Gate::TestCodeunitOnRunRowFrom28 => Some(
+                "corpus writer RL, corpus CI runs of probe commit c69419f6 (branch al-runtime-rs-staging-rl, \
+                 codeunit/lt-outside-onrun-error/RlOnRunError.al) on 27.5, 28.5 and 29.0: the XUnit rows per major",
+            ),
+            _ => None,
         }
     }
 
     /// The corpus guards that pin both sides.
     pub fn evidence(self) -> &'static [Evidence] {
         match self {
+            // Measured in the corpus CI, not a green corpus case (`measured_outside_corpus`).
+            Gate::TestCodeunitOnRunRowFrom28 => &[],
             Gate::AutoFormatAmountFieldRoundsFrom28 => &[
                 Evidence {
                     file: "types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al",
@@ -1017,7 +1041,10 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for g in Gate::ALL {
             assert!(seen.insert(*g), "{g:?} listed twice");
-            assert!(!g.evidence().is_empty(), "{g:?} has no corpus evidence");
+            assert!(
+                g.evidence().is_empty() == g.measured_outside_corpus().is_some(),
+                "{g:?} needs corpus evidence, or (only when no green corpus case can pin it) a measurement outside the corpus, not both"
+            );
         }
     }
 }
