@@ -416,7 +416,8 @@ OUTPUT
                          selection matches no test (exit 6) the document has no rows and
                          `warnings` says why. Without
                          FILE the document is the only thing on stdout and the report goes to
-                         stderr. `--output-json=FILE` also works. See docs/integrations/migrating-tools-to-v3.md.
+                         stderr. `--output-json=FILE` also works.
+                         See https://aldev.tools/al-runner/tool-protocol/.
     --timings            Compile phases and the slowest test codeunits.
 
 TEST-FIRST
@@ -611,7 +612,7 @@ SERVE
                          one `entrySummary` line per entry with its `exitCode`; an entry that matches no
                          test has exit code 6 and `warnings`, and so has the request). `test` is one text.
     --affected-store FILE  serve: where affectedOnly requests read and write the stored result.
-                         Fields and answers: docs/integrations/migrating-tools-to-v3.md, section 4b.
+                         Fields and answers: https://aldev.tools/al-runner/tool-protocol/, section 4b.
 
 DEBUG
     al-runner debug      A Debug Adapter Protocol server (AL Runner v2's `--dap`): compiles the apps,
@@ -621,7 +622,8 @@ DEBUG
     --port [N]           Listen on 127.0.0.1:N (default 4711, also without --port; 0 picks a free port).
                          The port is printed on stderr.
                          The other options are those of `test`; --output-json, --impact-of, --recipe and
-                         --explain are refused. Tests run one after the other. See docs/debugging.md.
+                         --explain are refused. Tests run one after the other.
+                         See https://aldev.tools/al-runner/debugging/.
 
 WARM
     al-runner warm [PATH.bak] [--bc-version BUILD] [--country CODE] [--cache-dir DIR] [--no-download]

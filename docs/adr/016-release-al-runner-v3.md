@@ -718,7 +718,7 @@ every way. For the tools that call v2 (ALchemist, LethAL; see docs/integrations/
   (no `al-runner` launcher). Where a v2 interface shape is a poor decision, v3 changes it and
   documents the change.
 - **Tools adapt when they move to v3.** A migration document for tool authors,
-  `docs/integrations/migrating-tools-to-v3.md`, lists every difference (command, flags,
+  `docs/manual/tool-protocol.md`, lists every difference (command, flags,
   `--version` text, JSON fields, protocol messages, exit codes) with the exact change a tool
   needs. It is written so an AI-assisted maintainer can apply it directly, and it grows with
   each step below.

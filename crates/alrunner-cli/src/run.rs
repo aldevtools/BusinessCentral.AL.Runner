@@ -856,7 +856,7 @@ fn test_inner(
         return Ok(6);
     }
     // Al-runner issue 5704: an entry whose own selection matches no test gets the signal a whole request gets (exit
-    // code 6, the reason in `warnings`), and the request's exit code is 6 (section 5 of migrating-tools-to-v3.md ranks
+    // code 6, the reason in `warnings`), and the request's exit code is 6 (section 5 of docs/manual/tool-protocol.md ranks
     // 6 over 1, 8 and 7). Decided from the tests found, not the results, so a cancelled entry is not counted as empty.
     let empty_entries: Vec<bool> = entry_selections
         .iter()

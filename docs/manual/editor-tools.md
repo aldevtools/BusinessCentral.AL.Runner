@@ -1,6 +1,6 @@
 ---
 title: "Editor and tool integration"
-weight: 9
+weight: 90
 ---
 
 ## `al-runner serve`
@@ -50,7 +50,7 @@ the like. Options that select tests or write reports (`--filter`, `--junit`,
 `--recipe` and `--impact-of`.
 
 The complete field list and the answers are in
-[Migrating tools to version 3](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/integrations/migrating-tools-to-v3.md), section 4b.
+[Tool protocol](tool-protocol.md), section 4b.
 
 ## Debugging
 
@@ -73,7 +73,7 @@ al-runner debug --port 4711 ./MyApp ./MyApp.Test  # DAP on 127.0.0.1:4711
   Microsoft's apps included. A breakpoint on a statement no selected test reaches comes
   back unverified, with the reason.
 
-The complete protocol is in [docs/debugging.md](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/debugging.md).
+The complete protocol is in [Debugging](debugging.md).
 
 ## Coverage output
 

@@ -1,6 +1,6 @@
 ---
 title: "Running Microsoft's tests"
-weight: 7
+weight: 70
 ---
 
 Microsoft's own test apps are the best check of how closely AL Runner matches
@@ -78,7 +78,7 @@ redesigned. The recipe cannot be combined with the company and disabled-test opt
 keep 20. `--test-timeout-secs N` sets another, and `0` removes it. `Sleep` does not
 wait, but the time it asks for counts toward the limit. For example, Tests-Dimension
 `TestGetShortcutDimCached` sleeps 60.5 seconds and passes on Business Central, so it
-is a timeout row at the default. Run it with `--test-timeout 120`.
+is a timeout row at the default. Run it with `--test-timeout-secs 120`.
 
 ## Only the tests your extension can affect
 
@@ -171,3 +171,17 @@ al-runner test Tests-ERM.Source.zip --disabled-tests path/to/BCApps/src/Disabled
 
 Those tests still run and are marked `disabled_by_microsoft` in the summary and the
 JUnit file. Add `--parity` to skip them.
+
+## How many of Microsoft's tests run
+
+Measured on 2026-10-16 with all of Microsoft's Base Application test apps together,
+on Business Central 27.5, with the demo data:
+
+| Tests | Passed | Failed | Not run |
+|---:|---:|---:|---:|
+| 40300 | 16848 | 2508 | 20944 |
+
+Most of Microsoft's tests are still refused. These numbers are the result of AL
+Runner. They are not compared with real Business Central test by test, so a pass
+here is not a measured match. Many failures come from setup data the demo backup
+lacks; see [Known gaps in the demo data](test-data.md#known-gaps-in-the-demo-data).

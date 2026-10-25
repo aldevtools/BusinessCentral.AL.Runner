@@ -166,6 +166,22 @@ and the routine that catches it (`asserterror`, a TryFunction call, a guarded
 `Codeunit.Run`) adds the last. The line format, and which parts the corpus pins, are in
 that file's header and in `docs/probes-needed.md`.
 
+## Apps in the corpus
+
+| App | Role |
+|---|---|
+| `tests/al-language` (Target = Cloud) | The main test app. |
+| `tests/al-language-internals-fixture` | A dependency of the test app (CI publishes it first). Loaded as a second app: some `codeunit/` tests call its objects across the app boundary (`ALT Internal Codeunit`, `ALT Cross Compute`). |
+| `tests/al-language-xapp-a`, `-b`, `-c` | Cross-app fixtures (no tests) the test app depends on: B depends on the internals fixture and A, C on A and B. Used by `events/lt-bw-subscriber-order` and `tableextension/lt-bw-cross-app`. |
+| `tests/al-language-onprem` (Target = OnPrem) | Not in the main oracle (a separate CI job and artifact). Run as the `onprem` suite against its own oracle (`oracle/README.md`). |
+| `tests/al-language-isolation-probe` | Only in the Windows nightly, under two custom test runners. Run as the `isolation-function` and `isolation-codeunit` suites (BC 28 only). |
+| `tests/must-not-compile` | AL files the real compiler rejects, each with the expected AL codes. |
+
+The runner loads every corpus app the test app depends on (directly or through another of them) from source, in
+dependency order, before the test app: `al_testrun::deps::corpus_source_dirs` reads the `app.json` files of the folders
+next to the test app. No list of folders is kept in the runtime. Language coverage per area is in
+`docs/corpus-coverage.md`. The first inventory of the corpus (2026-10-13) is in `docs/history/corpus-inventory.md`.
+
 ## Budgets (tests, run in CI in release)
 
 | Budget | Limit | Today |

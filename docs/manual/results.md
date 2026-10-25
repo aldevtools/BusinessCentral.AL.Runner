@@ -1,6 +1,6 @@
 ---
 title: "Reading results"
-weight: 4
+weight: 40
 ---
 
 A pass or a failure is meant to match real Business Central. When AL Runner cannot
@@ -25,6 +25,25 @@ There are three kinds:
    a table it reads, the codeunit's shared state, or the sequence of random
    numbers. The reason says "this failure is not trusted" and keeps the original
    error. A test stopped by the time limit counts as such an earlier test.
+
+## All outcome labels
+
+| Label | Meaning | Counts for the exit code as |
+|---|---|---|
+| passed | The test ran to its end without an error. | a pass |
+| flagged | A pass that relies on an unprobed assumption (see below). | a pass |
+| stubbed | With `--tdd`: the test ran a stub for a procedure that does not exist yet. It also passed or failed. | its own pass or failure |
+| failed | The test raised an error or failed an assertion. | 1 |
+| not run | AL Runner refused the test and gives the reason. | 7 (8 when the .NET helper could not be used) |
+| not trusted | A failure that an earlier refused test could explain. It is reported as not run. | 7 |
+| timeout | The time limit stopped the test. It is reported as not run, with `Test exceeded <N>s timeout.` | 7 |
+| skipped | With `--affected`: the change cannot affect the test, so it did not run and keeps its stored outcome. | 1 when it failed last time, else nothing |
+| not selected | With `test-microsoft`: the test does not reach your extension, so it did not run. | nothing |
+| `disabled_by_microsoft` | A mark, not an outcome: Microsoft's list of disabled tests names the test. It still runs. `--parity` skips it. | its own outcome |
+
+In `--output-json`, a timed-out test has a `clock` field: `cpu` when its CPU time
+passed the limit, `virtual` when the time its `Sleep` calls asked for did. `Sleep`
+does not wait, so a `virtual` stop takes less real time than the limit.
 
 ## Flagged passes
 
@@ -77,7 +96,7 @@ raised in (innermost first):
   and `stackTrace`, plus `passed`, `failed`, `errors`, `skipped`, `total`, `notRun`,
   `exitCode` and `wallSeconds`. A test that did not run is `error` with the message
   `NotRun: out-of-scope: <reason>`. A test the time limit stopped is `error` with
-  `Test exceeded <N>s timeout.` Without FILE, the document is the only thing on
+  `Test exceeded <N>s timeout.` and a `clock` field (`cpu` or `virtual`). Without FILE, the document is the only thing on
   stdout and the report goes to stderr.
 - `--coverage`, `--coverage-out FILE`, `--coverage-json FILE`: see [Editor and tool integration](editor-tools.md).
 
@@ -98,24 +117,10 @@ return 0. Use it while the runtime is an alpha, so refused tests do not fail a j
 
 ## Known risks
 
-1. Some behavior was written before the measurement rule and has no corpus test
-   yet. Corpus tests are being added for it.
-2. A flagged pass depends on its assumption. When a corpus test measures the
-   behavior and disagrees, the runtime is changed to match Business Central.
-3. The corpus runs Business Central in a Linux container, which Microsoft does not
-   support. Results that look like a container difference are checked on
-   Microsoft's Windows container first. Where the two differ, the runtime refuses the case.
-4. Microsoft's own tests are not compared with real Business Central test by test.
-   Their pass rate is the result of this runtime.
-5. Permissions are not enforced. Every access is granted, so a test that expects a
-   permission error fails here.
-6. The "not trusted" rule covers failures only. A test that passes after a refused
-   test stays a pass, even if the refused test would have changed its data on
-   Business Central.
+[How results are checked](how-it-works.md) explains how results are compared with real
+Business Central, and lists the known risks.
 
 ## Reporting a wrong result
 
 A test that passes or fails here and behaves differently on real Business Central
-is the most useful report. Open a GitHub issue with the "Alpha feedback" template.
-Include `al-runner --version`, the Business Central version, the test name, what
-you expected, and the output of `--explain TEST`.
+is the most useful report. [Reporting a problem](feedback.md) says what to include.
