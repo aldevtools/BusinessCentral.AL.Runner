@@ -1773,9 +1773,14 @@ impl Session {
                 self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
                 Value::Boolean(true)
             ) {
-                let triggers = ["onfindrecord", "onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
-                    .iter()
-                    .any(|t| self.declares(st, t));
+                let triggers = [
+                    "onfindrecord",
+                    "onnextrecord",
+                    "onaftergetrecord",
+                    "onaftergetcurrrecord",
+                ]
+                .iter()
+                .any(|t| self.declares(st, t));
                 let mut settled = None;
                 if !triggers {
                     for step in [1, -1] {

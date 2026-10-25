@@ -34,7 +34,10 @@ fn of(out: &[(String, Outcome)], n: &str) -> Outcome {
 }
 
 fn hits_of(hits: &[(String, Vec<Assumption>)], n: &str) -> Vec<Assumption> {
-    hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone()).unwrap_or_default()
+    hits.iter()
+        .find(|(t, _)| t == n)
+        .map(|(_, h)| h.clone())
+        .unwrap_or_default()
 }
 
 // al-runner issue 5826: RunObject + RunPageLink to a List that declares SourceTableView.
@@ -294,9 +297,18 @@ codeunit 50117 "Repro Update Filter Tests"
 #[test]
 fn update_after_a_validate_filter_left_the_row_settles_as_after_an_action() {
     let (out, hits) = run(UPDATE_VALIDATE, "Repro Update Filter Tests");
-    for t in ["FilterLeavesMiddleRow", "FilterLeavesLaterRow", "FilterLeavesFirstRow", "FilterLeavesLastRow"] {
+    for t in [
+        "FilterLeavesMiddleRow",
+        "FilterLeavesLaterRow",
+        "FilterLeavesFirstRow",
+        "FilterLeavesLastRow",
+    ] {
         assert_eq!(of(&out, t), Outcome::Pass, "{t}");
-        assert_eq!(hits_of(&hits, t), vec![Assumption::UpdateFromValidateSettlesAsAfterAction], "{t}");
+        assert_eq!(
+            hits_of(&hits, t),
+            vec![Assumption::UpdateFromValidateSettlesAsAfterAction],
+            "{t}"
+        );
     }
 }
 
@@ -429,11 +441,19 @@ codeunit 50123 "Repro Open Outside View Tests"
 #[test]
 fn database_worksheet_in_a_secondary_key_opens_where_the_rec_lands() {
     let (out, hits) = run(WORKSHEET_KEY, "Repro Open Outside View Tests");
-    for t in ["SecondaryKeyRecBeforeTheView", "SecondaryKeyRecInsideTheView", "PrimaryKeyRecBeforeTheView"] {
+    for t in [
+        "SecondaryKeyRecBeforeTheView",
+        "SecondaryKeyRecInsideTheView",
+        "PrimaryKeyRecBeforeTheView",
+    ] {
         assert_eq!(of(&out, t), Outcome::Pass, "{t}");
     }
     for t in ["SecondaryKeyRecBeforeTheView", "SecondaryKeyRecInsideTheView"] {
-        assert_eq!(hits_of(&hits, t), vec![Assumption::DbWorksheetSecondaryKeyOpensOnRec], "{t}");
+        assert_eq!(
+            hits_of(&hits, t),
+            vec![Assumption::DbWorksheetSecondaryKeyOpensOnRec],
+            "{t}"
+        );
     }
     // The primary key is pinned (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263-417).
     assert_eq!(hits_of(&hits, "PrimaryKeyRecBeforeTheView"), vec![]);

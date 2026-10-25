@@ -276,14 +276,19 @@ impl Session {
             }
             return unsupported("RunPageOnRec, RunPageLink or RunPageView on a target page without a source table");
         }
-        if mode == PageMode::New {
-            return unsupported("RunPageMode = Create with RunPageOnRec, RunPageLink or RunPageView (not pinned)");
-        }
         // A target that declares SourceTableView combines it with the handed record as Page.Run does (`open_page`): what its
         // OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card: RunPageLink
         // shows `id=0 filters=Grp: 2`, RunPageOnRec the host's row 3 and no filters, RunPageView no filters). The rows and the
         // open row of a List are only what the reporter's real-BC repro shows (al-runner issue 5826): an assumption.
         let target_view = al_ir::ObjectFacts::of(obj).has_source_table_view;
+        // RunPageMode = Create beside them: the target's OnOpenPage sees the handed record, then the new row starts blank,
+        // a linked field stamped (pages/W1RunObject.al:388 Create_WithOnRec_Link_View, a Card: `id=3`, `filters=Grp: 2`,
+        // `filters=`; misc/lt-probes-needed-7/PnGRunObjectOptions.al:65 CreateModeCombinations, a Card with RunPageOnRec
+        // `Card.OnNewRecord;Card.AGCR(,)`, :89 CreateModeWithLinkAndView, a List with RunPageLink `List.AGCR(RP2,RP2)` and with
+        // RunPageView `List.AGCR(,)`). A List with RunPageOnRec, or a target with SourceTableView, is not pinned.
+        if mode == PageMode::New && (target_view || (ro.on_rec && self.is_list(target))) {
+            return unsupported("RunPageMode = Create with RunPageOnRec, RunPageLink or RunPageView (not pinned)");
+        }
         if target_view {
             if self.is_list(target) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunPageLinkTargetView);
