@@ -651,7 +651,7 @@ registry! {
     ResetClearsLoadFields => {
         id: "reset-clears-load-fields",
         assumed: "Reset drops the record's SetLoadFields request: the next fetch loads every field. The corpus case record/lt-record-read/RcAMisc.al:808-830 (SetLoadFields_Blank_Resets_To_All `afterReset`) passes either way, because it fetches the full row first.",
-        tests: "No Microsoft test: al-runner issue 5764 Q3 (the reporter's SetLoadFields(Description); Reset; FindFirst reads AreFieldsLoaded(Notes) Yes on real BC 28.1).",
+        tests: "No Microsoft test: al-runner issue 5764 Q3 (the reporter's SetLoadFields(Description); Reset; FindFirst reads AreFieldsLoaded(Notes) Yes on the reporter's real BC container).",
         probe: "SetLoadFields(a field), Reset, then FindFirst with no fetch before: AreFieldsLoaded of a field not in the request. Also after AddLoadFields, and Init and Clear in place of Reset.",
         awaiting: Awaiting {
             issues: &[5764],

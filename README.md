@@ -469,7 +469,8 @@ load it.
   helper sources and builds the helper into the cache on first use. Without the
   SDK these tests are not run, with a reason.
 - Many features are missing. See `docs/status.md` and `docs/al-runner-v2-parity.md`.
-- No watch mode. `al-runner debug` is a Debug Adapter Protocol server for breakpoints, stepping and
+- No watch mode: it was rejected for 3.0.0, because `serve` keeps the compile warm and
+  `--affected` reruns only what a change affects. `al-runner debug` is a Debug Adapter Protocol server for breakpoints, stepping and
   locals (`docs/debugging.md`). `al-runner serve` and `--coverage` (Cobertura XML,
   `--coverage-json`) exist. `serve` speaks AL Runner v2's JSON-lines protocol (`runTests`,
   `execute`, `cancel`, `shutdown`). All requests run in the one server process, which keeps the
@@ -504,17 +505,18 @@ says which.
 
 | Area | What AL Runner does | What to do instead |
 |---|---|---|
-| Email, outbound HTTP, web service endpoints | Not run. No network, no server | Put the call behind an AL interface and fake it in the test |
+| Outbound HTTP | Answered by an `[HttpClientHandler]` in the test. A call with no handler raises the error Business Central raises under `BlockOutboundRequests` | Add an `[HttpClientHandler]` to the test |
+| Email, web service endpoints | Not run. No network, no server | Put the call behind an AL interface and fake it in the test |
 | Cloud storage, Key Vault, external data connections | Not run | Same |
 | File upload and download dialogs | Not run (needs a browser) | Test with streams |
 | Report rendering to PDF, Word or Excel | Not run. The XML dataset works | Assert on the dataset |
 | Background jobs, `StartSession` | Tasks are created and never run. A second session is not started | Call the code the task would run |
 | Licensing, permission enforcement | Everything is granted. Denial paths cannot be tested | Use a real service tier |
 | Apps that ship without AL source | Not run. The message names the app | Provide an `.app` with source |
-| Watch mode | Not available | Not available yet |
+| Watch mode | Rejected for 3.0.0 | Use `serve`, which keeps the compile warm, or `--affected` |
 
 The full list, with reasons and open questions, is
-[ADR-027](docs/adr/027-scope.md) (Proposed).
+[ADR-027](docs/adr/027-scope.md) (Accepted).
 
 ## Command lines
 
