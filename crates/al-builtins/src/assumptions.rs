@@ -632,22 +632,6 @@ registry! {
         tests: "No. Series - Batch Impl.UpdateNoSeriesLine (Get, TransferFields from the batch's temporary line, Modify(true)) in Gen. Jnl.-Post Batch; 110 Tests-ERM tests (for example Payment Export Validation UT CustLedgEntryBankAccountMissingFormat).",
         probe: "A buffer read by FindFirst, by assignment from another variable and by TransferFields from a temporary copy, made stale by a Commit, then the row written in the new transaction (changed and unchanged Modify), then a Modify through the buffer: accepted or DB:RecordChanged, and the stored row.",
     },
-    DeferredInsertFailsAtTestEnd => {
-        id: "deferred-insert-fails-at-test-end",
-        assumed: "A test that ends while the error of a statement-form duplicate-key Insert is still deferred fails with that error ('The record in table <table> already exists. Identification fields and values: <key>='<value>''), raised by the test runner with no AL frame of the test, and its work is rolled back; a row committed before stays. Only under TestIsolation = Codeunit and the default TransactionModel; any other shape is not run. Measured on Windows BC of the newest major (corpus master ccb6e72f, IsolProbeFixture.Codeunit.al T8-T11) and on BC on Linux of the major before by the reporter (al-runner issue 5788); the pin waits for the Windows nightly of the isolation probe app.",
-        tests: "No Microsoft test: al-runner issue 5788 (a user's test ends with a duplicate-key Insert; on BC it fails at its end).",
-        probe: "None new: T8-T11 of tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al, once the Windows nightly records them in the isolation oracle on all three majors. Wanted later: the same under TestIsolation = Function and Disabled and under TransactionModel AutoRollback.",
-        awaiting: Awaiting {
-            issues: &[5603, 5788],
-            files: &[
-                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T8_EndsWithDeferredDuplicateInsert",
-                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T9_RowOfT8IsGoneAfterItsDeferredDuplicate",
-                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T10_EndsWithDeferredDuplicateInsertAfterCommit",
-                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T11_CommittedRowOfT10IsGone",
-            ],
-            since: "2026-10-25",
-        },
-    },
     TestCodeunitOnRunRows => {
         id: "test-codeunit-onrun-rows",
         assumed: "How the runner reports the OnRun trigger of a test codeunit. From the gate TestCodeunitOnRunRowFrom28 on: a declared OnRun gets a row 'OnRun' of its own, failed with the error's text when it raises (and then the test methods have no rows), else passed. Before that gate: a codeunit whose OnRun raises has no rows at all. Measured by corpus writer RL in the corpus CI (the three supported majors on Linux, probe commit c69419f6 on branch al-runtime-rs-staging-rl, codeunit/lt-outside-onrun-error/RlOnRunError.al); not a green corpus case, because the probe codeunit fails the corpus CI by design.",
