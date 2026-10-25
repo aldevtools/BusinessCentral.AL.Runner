@@ -172,8 +172,13 @@ pub struct SqlCount {
 /// What a counter value is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlForm {
-    /// A read of one counter. Two reads of the same epoch have only classified segments between them.
-    Read { counter: SqlCounter, epoch: u32 },
+    /// A read of one counter. Two reads of the same epoch have only classified segments between them; two reads of the
+    /// same epoch and chain have only segments between them whose size the corpus pins (al-vm `sqlcount.rs`).
+    Read {
+        counter: SqlCounter,
+        epoch: u32,
+        chain: u32,
+    },
     /// The difference of two reads of one epoch, or a sum of such differences whose sign is certain.
     Delta,
 }
