@@ -621,13 +621,18 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
             .unwrap_or_else(|| panic!("no suite {n}"))
     };
     assert_eq!(get("onprem")["counts"]["total"], 371);
-    assert_eq!(get("isolation-function")["counts"]["total"], 7);
-    assert_eq!(get("isolation-function")["counts"]["pass"], 7);
-    // The control: real BC fails T5 under Codeunit isolation, and the runtime fails it too.
+    // Real BC fails T8 and T10 (a deferred duplicate-key Insert at the end of the test) under both runners,
+    // and the runtime fails them too.
+    let function = get("isolation-function");
+    assert_eq!(function["counts"]["total"], 9);
+    assert_eq!(function["counts"]["pass"], 9);
+    assert_eq!(function["bc_failed"], 2);
+    assert_eq!(function["bc_failed_reproduced"], 2);
+    // The control: real BC also fails T5 and T11 under Codeunit isolation, and the runtime fails them too.
     let control = get("isolation-codeunit");
-    assert_eq!(control["counts"]["pass"], 6);
-    assert_eq!(control["bc_failed"], 1);
-    assert_eq!(control["bc_failed_reproduced"], 1);
+    assert_eq!(control["counts"]["pass"], 7);
+    assert_eq!(control["bc_failed"], 4);
+    assert_eq!(control["bc_failed_reproduced"], 4);
 }
 
 // BC 27 and 29 have no isolation oracle (the probe only ran in the BC 28.4 nightly).
