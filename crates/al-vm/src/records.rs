@@ -2026,9 +2026,13 @@ impl Session {
         // field the linked value (pages/lt-outside-worksheet-2/
         // RtLinkRange.al:275 RT_Lr_StatusAndCode_Trap_H1 `A:Order No.: H1, Status: Released`, `Min:H1;Max:H1`, :335 a Code-only
         // link, :354 const, :373 a filter(..) range `Min:H1;Max:H2`). Filters in another group, or several on the field, are not
-        // pinned.
+        // pinned. The target's SourceTableView puts its filters in group 2 beside the link, and GetFilters in group 0 reads the
+        // link alone (pages/W1RunObject.al:420 ViewTargetLink `id=0 filters=Grp: 2` on a Card with `where(Grp = const(1))`).
         let link_read = match method {
-            RecordOp::GetFilters => rec.borrow().filters.iter().all(|f| f.group == 0),
+            RecordOp::GetFilters => {
+                let r = rec.borrow();
+                r.filter_group == 0 && r.filters.iter().all(|f| f.group == 0 || f.group == 2)
+            }
             RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
                 let pos = arg_pos(args, 0)?;
                 let r = rec.borrow();

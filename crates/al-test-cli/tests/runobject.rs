@@ -137,8 +137,8 @@ page 61062 "RO Refused Host"
     layout { area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } } }
     actions { area(Processing) {
         action(Closing) { RunObject = Page "RO Closing Card"; }
-        action(OnRecWithView) { RunObject = Page "RO View Card"; RunPageOnRec = true; }
-        action(CreateOnRec) { RunObject = Page "RO Card"; RunPageMode = Create; RunPageOnRec = true; }
+        action(OnRecWithView) { RunObject = Page "RO View Card"; RunPageMode = Create; RunPageOnRec = true; }
+        action(CreateOnRec) { RunObject = Page "RO Refused Host"; RunPageMode = Create; RunPageOnRec = true; }
         action(Missing) { RunObject = Page "No Such Page"; }
         action(Odd) { RunObject = Page "RO Card"; RunPageMode = Strange; }
     } }
@@ -545,7 +545,12 @@ fn what_the_corpus_does_not_pin_is_refused_when_the_action_is_invoked() {
         [Test] procedure UnknownMode() var H: TestPage \"RO Refused Host\"; begin Seed(); H.OpenEdit(); H.First(); H.Odd.Invoke(); end;"
     ));
     let why = |name: &str| got.iter().find(|(n, _)| n == name).unwrap().1.clone();
-    assert!(why("OnRecWithSourceTableView").contains("SourceTableView"), "{got:?}");
+    // Create mode on a target with SourceTableView, and on a List with RunPageOnRec (pages/W1RunObject.al:388 and
+    // misc/lt-probes-needed-7/PnGRunObjectOptions.al:65 pin a Card, :89 a List with a link or a view).
+    assert!(
+        why("OnRecWithSourceTableView").contains("RunPageMode = Create"),
+        "{got:?}"
+    );
     assert!(why("CreateOnRec").contains("RunPageMode = Create"), "{got:?}");
     assert!(why("MissingTarget").contains("outside the workspace"), "{got:?}");
     assert!(why("UnknownMode").contains("RunPageMode = strange"), "{got:?}");
