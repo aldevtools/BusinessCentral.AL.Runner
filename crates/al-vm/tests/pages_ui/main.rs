@@ -8,6 +8,7 @@ mod control_entry;
 mod control_properties;
 mod control_text;
 mod control_values;
+mod control_var_field;
 mod curr_field_no_assign;
 mod draft_key_by_action;
 mod empty_list_action;

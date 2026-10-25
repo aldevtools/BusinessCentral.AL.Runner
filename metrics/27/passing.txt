@@ -5853,10 +5853,12 @@
 69304 TempSourcePage_ReadWriteLikeAStoredOne
 69304 Update_InOnAfterGetCurrRecord_Card
 69304 Update_InOnOpenPage_Card
+69305 Create_WithOnRec_Link_View
 69305 PlainOnRec_FromStoredHostRow_Contrast
 69305 SourceTableView_PlusRecordFilterOnAnotherField
 69305 SourceTableView_PlusRecordFilterOnTheSameField
 69305 SourceTableView_RecordWithoutFilter
+69305 TargetWithSourceTableView_OrNoSourceTable
 69306 Part_HiddenByExpressionOrStatically_OnInit
 69306 Part_Visible_And_Enabled
 69306 PendingPartEdit_IsSavedBeforeTheHostCloses
@@ -7272,6 +7274,8 @@
 70187 RunUndeclaredPageType
 70187 RunWorksheetPageType
 70188 CardOnRecAndPlain
+70188 CreateModeCombinations
+70188 CreateModeWithLinkAndView
 70189 HandedRecordWithAnotherKeyAndDirection
 70189 HandedRecordWithoutFilters
 70189 NoRecordHanded

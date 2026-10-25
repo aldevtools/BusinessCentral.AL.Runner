@@ -76,6 +76,7 @@ mod setter_call;
 mod sql_counter_sizes;
 mod sql_counters;
 mod strsubstno_decimal_field_places;
+mod strsubstno_unit_amount_field;
 mod table_ext_base_vars;
 mod temp_record_array;
 mod ternary_args;

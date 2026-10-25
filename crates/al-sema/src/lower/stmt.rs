@@ -552,6 +552,33 @@ impl Lowerer<'_> {
         }
     }
 
+    /// `arg` as a unit-amount Decimal table field (AutoFormatType 2, no DecimalPlaces) without an AutoFormatExpression or with
+    /// one that is no text: the place of its record and its number, for StrSubstNo, Message and Error `%n` (al-runner issue
+    /// 5827; the runtime refuses an expression that is no field of the row).
+    pub(crate) fn unit_amount_subst_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize)> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return None;
+        };
+        let f = self.members[table].fields.iter().find(|f| f.id == field)?;
+        let prop = |n: &str| {
+            f.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                .map(|(_, v)| v.trim().to_string())
+        };
+        if !matches!(f.ty, Ty::Decimal)
+            || prop("AutoFormatType").as_deref() != Some("2")
+            || prop("DecimalPlaces").is_some()
+            || prop("AutoFormatExpression").is_some_and(|e| e.starts_with('\''))
+        {
+            return None;
+        }
+        match self.place(arg).ok()? {
+            ir::Place::Field(base, _) => Some((*base, field as usize)),
+            _ => None,
+        }
+    }
+
     /// Whether `arg` is a Decimal table field whose AutoFormatExpression is an expression (not a text): `Format` of it in
     /// code applies the field's AutoFormat, evaluated with the record when it runs (types/lt-auto-format-currency/
     /// QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode). Gives the place of the record and the

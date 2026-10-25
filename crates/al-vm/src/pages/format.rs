@@ -137,6 +137,48 @@ impl Session {
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
         let field = self.control_field(st, idx);
+        // A control bound to a field of another record variable of the page: only that field's OptionCaption is used, outside a
+        // repeater (al-runner issue 5822, the reporter's real-BC repro; assumption other-record-control-option-caption). Its other
+        // formatting properties are not pinned and refused.
+        let var_field = ctl
+            .var_field
+            .and_then(|(t, p)| engine.program.objects[t].table.as_ref().map(|tb| tb.fields[p].clone()));
+        let mut var_captions = None;
+        if let Some(vf) = &var_field {
+            let has = |n: &str| {
+                vf.properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                    .map(|(_, v)| v.clone())
+            };
+            for n in [
+                "DecimalPlaces",
+                "AutoFormatType",
+                "AutoFormatExpression",
+                "BlankZero",
+                "BlankNumbers",
+                "ClosingDates",
+                "OptionCaptionML",
+            ] {
+                if has(n).is_some() {
+                    return unsupported(format!(
+                        "a control bound to field {} of another record variable, which declares {n} (not pinned)",
+                        vf.name
+                    ));
+                }
+            }
+            if let Some(c) = has("OptionCaption")
+                .filter(|_| ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none())
+            {
+                if self.in_repeater(st, idx) {
+                    return unsupported(format!(
+                        "a repeater control bound to Option field {} of another record variable, which declares an OptionCaption (not pinned)",
+                        vf.name
+                    ));
+                }
+                var_captions = Some(c);
+            }
+        }
         let from_field = |n: &str| {
             field.as_ref().and_then(|f| {
                 f.properties
@@ -308,6 +350,12 @@ impl Session {
                 from_field("optioncaption").map(|c| unquote(&c).split(',').map(str::to_string).collect());
         }
         if f.option_captions.is_none() {
+            if let Some(c) = var_captions {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OtherRecordControlOptionCaption);
+                f.option_captions = Some(unquote(&c).split(',').map(str::to_string).collect());
+            }
+        }
+        if f.option_captions.is_none() {
             // Without captions an option shows its member names, a blank member as nothing.
             f.option_captions = from_field("optionmembers").map(|c| {
                 unquote(&c)
@@ -470,6 +518,86 @@ impl Session {
             }
         } else {
             self.auto_format_places(&kind, &expr)?
+        };
+        Ok(format!("{min}:{max}"))
+    }
+
+    /// The places StrSubstNo, Message and Error `%n` give a unit-amount Decimal field (AutoFormatType 2) numbered `field_no` of
+    /// `record`, without an AutoFormatExpression or with a field of the row: those of a page control (`auto_format_places`),
+    /// the currency's Unit-Amount Decimal Places for a currency. Not pinned: the reporter's real-BC repro of al-runner issue 5827
+    /// (assumption strsubstno-unit-amount-field) measures a blank currency and no expression under a General Ledger Setup of
+    /// 2:5 only, which a page control's 2:5 and the setup's places both give; under any other setup, or none, it is refused.
+    pub(crate) fn unit_amount_subst_places_of(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
+        let Value::Record(rec) = record else {
+            return unsupported("StrSubstNo of a unit-amount field of something that is no record");
+        };
+        let engine = self.engine();
+        let table = rec.borrow().table as usize;
+        let Some(f) = engine.program.objects[table]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.iter().find(|f| f.id as usize == field_no))
+            .cloned()
+        else {
+            return unsupported("StrSubstNo of a unit-amount field the table does not have");
+        };
+        let prop = |n: &str| {
+            f.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                .map(|(_, v)| v.trim().to_string())
+        };
+        if prop("AutoFormatType").as_deref() != Some("2") || prop("DecimalPlaces").is_some() {
+            return unsupported(format!(
+                "StrSubstNo of field {} that is no unit amount without DecimalPlaces (not pinned)",
+                f.name
+            ));
+        }
+        let expr = match prop("AutoFormatExpression") {
+            None => String::new(),
+            Some(text) => {
+                if !is_field_reference(&text) {
+                    return unsupported(format!(
+                        "StrSubstNo of unit-amount field {} whose AutoFormatExpression `{text}` is no field of the row (not pinned)",
+                        f.name
+                    ));
+                }
+                if let Some(why) = f.auto_format_refusal.clone() {
+                    return unsupported(why);
+                }
+                let Some((object, routine)) = f.auto_format_expression else {
+                    return unsupported(format!(
+                        "StrSubstNo of field {} whose AutoFormatExpression is an expression that did not compile",
+                        f.name
+                    ));
+                };
+                let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+                match self.call_on_record(object, routine, probe, None, Vec::new())?.0 {
+                    Value::Text(t) | Value::Code(t) => t.into_string(),
+                    other => {
+                        return unsupported(format!(
+                            "the AutoFormatExpression of field {} gave a {}",
+                            f.name,
+                            other.describe()
+                        ));
+                    }
+                }
+            }
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StrSubstNoUnitAmountField);
+        let (min, max) = if expr.trim().is_empty() {
+            match self.setup_places(true, "") {
+                Ok((2, 5)) => (2, 5),
+                Ok((min, max)) => {
+                    return unsupported(format!(
+                        "StrSubstNo of unit-amount field {} without a currency under General Ledger Setup's Unit-Amount Decimal Places {min}:{max} (only 2:5 is measured)",
+                        f.name
+                    ));
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            self.auto_format_places("2", &expr)?
         };
         Ok(format!("{min}:{max}"))
     }
