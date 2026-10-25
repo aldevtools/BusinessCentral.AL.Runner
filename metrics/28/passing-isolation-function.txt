@@ -1,5 +1,6 @@
 # Corpus cases the runtime passes. CI fails if any of these stops passing.
 # Regenerate with `al-test-cli --update-baseline`; never edit by hand to hide a regression.
+61302 T11_CommittedRowOfT10IsGone
 61302 T1_SetsGlobalCounterSingleInstanceAndRow
 61302 T2_GlobalSetByT1IsStillSet
 61302 T3_CallCounterCountsEveryEarlierTest
@@ -7,3 +8,4 @@
 61302 T5_RowInsertedByT1IsRolledBack
 61302 T6_RowInsertedByOnRunIsStillThere
 61302 T7_OnRunRanOnceOnThisInstance
+61302 T9_RowOfT8IsGoneAfterItsDeferredDuplicate

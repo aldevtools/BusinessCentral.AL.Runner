@@ -661,20 +661,19 @@ pub(crate) fn run_codeunit_core(
                     // A duplicate-key Insert whose error is still deferred when the test ends: the next access to the
                     // table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). At the end of the
                     // test the runner raises it: the test fails with the error, whose AL call stack has no frame of the
-                    // test, and is rolled back; a row committed before stays. Measured on Windows BC 29.0 for
-                    // TestIsolation = Codeunit and the default TransactionModel only (corpus master ccb6e72f,
-                    // tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al T8-T11; al-runner issue 5788):
-                    // a registered assumption until the Windows nightly pins it. Any other shape is not run.
+                    // test, and is rolled back (tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al:118-160,
+                    // T8-T11, under TestIsolation = Codeunit and Function, oracle of BC 28.5). A row committed before stays
+                    // under Codeunit; under Function the checkpoint restore removes it (T11). Measured for the default
+                    // TransactionModel only: AutoRollback is not run. TestIsolation = Disabled is refused before the run.
                     let result = match result {
                         Ok(_) if unexecuted.is_empty() => match session.deferred_insert_table() {
-                            Some(_) if isolation == TestIsolation::Codeunit && model == al_vm::TxModel::AutoCommit => {
-                                al_builtins::assumptions::assume(Assumption::DeferredInsertFailsAtTestEnd);
+                            Some(_) if model == al_vm::TxModel::AutoCommit => {
                                 let mut e = session.take_deferred_insert_error().expect("checked");
                                 e.call_stack.clear();
                                 Err(Signal::Error(Box::new(e)))
                             }
                             Some(t) => Err(Signal::Unsupported(format!(
-                                "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is measured only for TestIsolation = Codeunit and the default TransactionModel"
+                                "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is measured only for the default TransactionModel"
                             ))),
                             None => result,
                         },

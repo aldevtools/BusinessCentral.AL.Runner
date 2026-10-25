@@ -44,7 +44,7 @@ fn real_bc(file: &str) -> Vec<oracle::XunitCase> {
 
 fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
     let bc = real_bc(file);
-    assert_eq!(bc.len(), 7, "the probe has seven methods");
+    assert_eq!(bc.len(), 11, "the probe has eleven methods");
     for c in &bc {
         let ours = rt.outcome_in(suite, &c.case.id);
         match (&c.message, &ours) {
@@ -57,12 +57,15 @@ fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
 }
 
 #[test]
-fn under_function_isolation_all_seven_methods_pass_as_they_do_in_bc() {
+fn under_function_isolation_every_method_ends_as_in_bc() {
+    // T8 and T10 fail with the deferred duplicate-key error, the rest pass
+    // (IsolProbeFixture.Codeunit.al:118-160).
     agree(&run(), "function", "xunit-isolation-function.xml");
 }
 
 #[test]
-fn under_codeunit_isolation_t5_fails_with_bcs_message_and_the_rest_pass() {
+fn under_codeunit_isolation_t5_fails_with_bcs_message_and_every_method_ends_as_in_bc() {
+    // Also T8, T10 (the deferred duplicate-key error) and T11 (the committed row of T10 stays).
     let rt = run();
     agree(&rt, "codeunit", "xunit-isolation-codeunit.xml");
     let t5 = rt.outcome_in(

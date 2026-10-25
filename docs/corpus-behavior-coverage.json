@@ -1,5 +1,5 @@
 {
-  "corpus_commit": "30c54354fcf46294e49475af8bea1342fe72c538",
+  "corpus_commit": "adef046c95a76c822bb75167ed79af09feb46ddf",
   "dimensions": [
     {
       "catalog": 191,
@@ -16468,7 +16468,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 4055,
+        "line": 4048,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
