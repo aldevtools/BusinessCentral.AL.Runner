@@ -648,6 +648,39 @@ registry! {
             since: "2026-10-25",
         },
     },
+    RunPageLinkTargetView => {
+        id: "run-page-link-target-view",
+        assumed: "A List reached by an action's RunObject with RunPageOnRec, RunPageLink or RunPageView, whose page declares SourceTableView, combines the two as Page.Run with a record does (P145PageRunView.al): the link in filter group 0, the view's filters in group 2, the view's SORTING and ORDER set the key and direction; it lists the rows of both and opens on the first. What the target's OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card); the rows and the open row of a List are not. Measured by the reporter on BC 29 (al-runner issue 5826).",
+        tests: "No Microsoft test: al-runner issue 5826 (RunPageLink to Item Ledger Entries, page 38, whose view is sorting(\"Entry No.\") order(descending)).",
+        probe: "RunPageLink to a List with SourceTableView = sorting(...) order(descending), = where(...), and both, RunPageView beside it: the open row and the rows from First/Next.",
+        awaiting: Awaiting {
+            issues: &[5826],
+            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzRunPageLinkView.al"],
+            since: "2026-10-25",
+        },
+    },
+    UpdateFromValidateSettlesAsAfterAction => {
+        id: "update-from-validate-settles-as-after-action",
+        assumed: "CurrPage.Update called from a control's OnValidate on a list whose filters no longer hold the row it stands on settles on the next row of the view after the old key, else the one before it, as after an action (pages/lt-ai-list-order/AiListOrderTests.al:311, :477). Only on a page that declares none of OnFindRecord, OnNextRecord, OnAfterGetRecord and OnAfterGetCurrRecord: the reads there are not pinned. A view left without rows stays refused. Measured by the reporter on BC 29 (al-runner issue 5824).",
+        tests: "No Microsoft test: al-runner issue 5824 (a Worksheet whose header filter field's OnValidate calls SetRange and CurrPage.Update(false)).",
+        probe: "A Worksheet and a List whose header field's OnValidate sets a filter that leaves the current row, then CurrPage.Update(false) and Update(true): the current row, the rows from First/Next, and the trigger log; a filter that leaves no row.",
+        awaiting: Awaiting {
+            issues: &[5824],
+            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al"],
+            since: "2026-10-25",
+        },
+    },
+    DbWorksheetSecondaryKeyOpensOnRec => {
+        id: "db-worksheet-secondary-key-opens-on-rec",
+        assumed: "A Worksheet over a database table, opened without a record, whose OnOpenPage left Rec on a row in a key other than the primary key, opens on the row `=><` from Rec reaches in that key, in lookup mode too, as it does in the primary key (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263-417). Only on a page that declares none of OnNextRecord, OnAfterGetRecord and OnAfterGetCurrRecord: the reads there are not pinned. Measured by the reporter on BC 29 (al-runner issue 5825).",
+        tests: "No Microsoft test: al-runner issue 5825 (page 1328 Purch. Order From Sales Order, run in lookup mode by codeunit 1018 Purchase Doc. From Job).",
+        probe: "A database Worksheet whose OnOpenPage sets a secondary key and leaves Rec before, inside and after the view it then sets: the open row for RunModal in lookup mode, OpenEdit and OpenView.",
+        awaiting: Awaiting {
+            issues: &[5825],
+            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al"],
+            since: "2026-10-25",
+        },
+    },
 }
 
 thread_local! {

@@ -1763,6 +1763,9 @@ impl Session {
         // pages/lt-ai-list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain). Tests-SCM 137831
         // BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord reaches it: Bin Contents (page 7374) filters to a location
         // without rows in a control's OnValidate.
+        // On a page without the row triggers, the list settles on the next row of the view after the old key, else the one
+        // before it, as after an action: only the reporter's real-BC repro shows it (al-runner issue 5824), an assumption.
+        // With a row trigger, or a view left without rows, it stays refused.
         if by_update && self.is_list(st) && !st.borrow().dirty {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
             self.ret_used = true;
@@ -1770,9 +1773,30 @@ impl Session {
                 self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
                 Value::Boolean(true)
             ) {
-                return unsupported(
-                    "CurrPage.Update on a list whose filters left the row it stands on, outside an action (which row it shows then is not pinned)",
+                let triggers = ["onfindrecord", "onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
+                    .iter()
+                    .any(|t| self.declares(st, t));
+                let mut settled = None;
+                if !triggers {
+                    for step in [1, -1] {
+                        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+                        self.ret_used = true;
+                        if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?, Value::Integer(n) if n != 0)
+                        {
+                            settled = Some(probe.borrow().fields.clone());
+                            break;
+                        }
+                    }
+                }
+                let Some(fields) = settled else {
+                    return unsupported(
+                        "CurrPage.Update on a list whose filters left the row it stands on, outside an action (which row it shows then is not pinned)",
+                    );
+                };
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::UpdateFromValidateSettlesAsAfterAction,
                 );
+                rec.borrow_mut().fields = fields;
             }
         }
         if !st.borrow().dirty {
