@@ -105,6 +105,9 @@ impl al_builtins::native::Ctx for Session {
     fn auto_format_field_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         self.auto_format_field_places_of(record, field_no)
     }
+    fn unit_amount_subst_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
+        self.unit_amount_subst_places_of(record, field_no)
+    }
     fn last_error(&self) -> AlError {
         self.last_error.clone()
     }

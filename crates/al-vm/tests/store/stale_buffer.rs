@@ -305,3 +305,106 @@ fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{p}: {r:?}");
     }
 }
+
+// al-runner issue 5823: the variable's own Modify(false) after its own Insert, in the transaction the last Commit closed. The
+// reporter's real-BC repro (29.0.54011.55407, 5/5 green): the buffer follows the Insert-buffer rule. Not pinned by the corpus
+// yet (assumption stale-insert-buffer-own-modify, awaiting record/lt-sb-stale-own-modify/SbStaleOwnModify.al).
+const OWN: &str = r#"
+table 50110 "Repro Stale Row"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Note; Text[30]) { } field(3; Qty; Integer) { } field(4; Stamp; Integer) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+codeunit 50111 T
+{
+    local procedure InsertRow(No: Code[20]; var Row: Record "Repro Stale Row")
+    begin
+        Row.Init(); Row."No." := No; Row.Note := 'start'; Row.Insert(true);
+    end;
+
+    local procedure OtherWrite(No: Code[20]; NewNote: Text[30])
+    var Other: Record "Repro Stale Row";
+    begin
+        Other.Get(No); Other.Note := NewNote; Other.Modify(false);
+    end;
+
+    local procedure UnchangedWrite(No: Code[20])
+    var Other: Record "Repro Stale Row";
+    begin
+        Other.Get(No); Other.Modify(false);
+    end;
+
+    local procedure WriteStale(var Row: Record "Repro Stale Row"): Text
+    var Stored: Record "Repro Stale Row";
+    begin
+        Row.Qty := 5; Row.Modify(false);
+        Stored.Get(Row."No.");
+        exit('ok|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    local procedure Refused(var Row: Record "Repro Stale Row"): Text
+    var Stored: Record "Repro Stale Row";
+    begin
+        Row.Qty := 5;
+        asserterror Row.Modify(false);
+        Stored.Get(Row."No.");
+        exit(GetLastErrorCode() + '|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    procedure OwnModifyOtherWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('S2', Row); Row.Stamp := 1; Row.Modify(false);
+        OtherWrite('S2', 'other'); Commit(); OtherWrite('S2', 'other');
+        exit(WriteStale(Row));
+    end;
+
+    procedure OwnModifyRefused(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('S3', Row); Row.Stamp := 1; Row.Modify(false);
+        OtherWrite('S3', 'other'); Commit();
+        exit(Refused(Row));
+    end;
+
+    procedure OwnModifyUnchangedWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('S5', Row); Row.Stamp := 1; Row.Modify(false);
+        OtherWrite('S5', 'other'); Commit(); UnchangedWrite('S5');
+        exit(WriteStale(Row));
+    end;
+
+    procedure InsertOnlyOtherWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('S1', Row);
+        OtherWrite('S1', 'other'); Commit(); OtherWrite('S1', 'other');
+        exit(WriteStale(Row));
+    end;
+
+    procedure InsertOnlyRefused(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('S4', Row);
+        OtherWrite('S4', 'other'); Commit();
+        exit(Refused(Row));
+    end;
+}
+"#;
+
+#[test]
+fn a_stale_buffer_that_did_its_own_insert_and_modify_follows_the_insert_rule() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let run = |p: &str| text(al_testkit::run_in(OWN, "T", p));
+    take_hits();
+    assert_eq!(run("OwnModifyOtherWrite"), "ok|start|5");
+    assert!(take_hits().contains(&Assumption::StaleInsertBufferOwnModify));
+    assert_eq!(run("OwnModifyUnchangedWrite"), "ok|start|5");
+    assert_eq!(run("OwnModifyRefused"), "DB:RecordChanged|other|0");
+    assert!(take_hits().contains(&Assumption::StaleInsertBufferOwnModify));
+    // The pinned Insert-only shapes stay clean passes (TestRecordStaleBufferWrite.al:481, :513).
+    assert_eq!(run("InsertOnlyOtherWrite"), "ok|start|5");
+    assert_eq!(run("InsertOnlyRefused"), "DB:RecordChanged|other|0");
+    assert!(!take_hits().contains(&Assumption::StaleInsertBufferOwnModify));
+}

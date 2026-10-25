@@ -648,6 +648,39 @@ registry! {
             since: "2026-10-25",
         },
     },
+    StaleInsertBufferOwnModify => {
+        id: "stale-insert-buffer-own-modify",
+        assumed: "A record variable that did its own Insert and then one own Modify(false) in the same transaction, made stale by the next Commit, follows the rule of a buffer from its own Insert (TestRecordStaleBufferWrite.al:395-690): written, the stale buffer winning, once the new transaction modified the row (changed or not); refused with DB:RecordChanged with nothing in between. Measured by the reporter on Windows BC 29.0.54011.55407 (al-runner issue 5823). A Modify(true), a second own Modify or an own Modify in a later transaction keep the rule of a buffer of another origin.",
+        tests: "No Microsoft test: al-runner issue 5823 (3 tests of a partner app).",
+        probe: "Insert(true), own Modify(false), another variable's Modify and a Commit, then a changed and an unchanged Modify in the new transaction, then a Modify through the buffer: accepted and the stored row, or DB:RecordChanged with nothing in between. Wanted beside it: own Modify(true), two own Modifies, own Rename, own Modify then Delete, LockTable Get and a plain Get in the new transaction.",
+        awaiting: Awaiting {
+            issues: &[5823],
+            files: &["tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al"],
+            since: "2026-10-25",
+        },
+    },
+    StrSubstNoUnitAmountField => {
+        id: "strsubstno-unit-amount-field",
+        assumed: "StrSubstNo, Message and Error %n of a Decimal table field with AutoFormatType 2 (a unit amount) and no AutoFormatExpression, or an AutoFormatExpression that is a field of the row, substitute the value with the unit-amount places a page control shows: the currency's Unit-Amount Decimal Places, and 2:5 for a blank or missing currency. Run only while General Ledger Setup holds Unit-Amount Decimal Places 2:5 for a blank or missing currency (the setup measured). Measured by the reporter on Windows BC 29.0.54011.55407 (al-runner issue 5827).",
+        tests: "No Microsoft test: al-runner issue 5827 (1 test of a partner app).",
+        probe: "StrSubstNo, Message and Error %1 of AutoFormatType 1, 2, 4 and 5 fields with Rec.\"Currency Code\" (blank, set, no currency row) and without an expression, under General Ledger Setup places 2:5 and other places, and a currency of 3:3.",
+        awaiting: Awaiting {
+            issues: &[5827],
+            files: &["tests/al-language/misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al"],
+            since: "2026-10-25",
+        },
+    },
+    OtherRecordControlOptionCaption => {
+        id: "other-record-control-option-caption",
+        assumed: "A page control bound to an Option field of another record variable of the page (`Settings.\"Avail. Filter\"`) shows the field's OptionCaption, as a control bound to a field of Rec does. Other formatting properties of such a field (DecimalPlaces, AutoFormat, BlankZero, OptionCaptionML, ClosingDates) are not run. Measured by the reporter on Windows BC 29.0.54011.55407 (al-runner issue 5822).",
+        tests: "No Microsoft test: al-runner issue 5822 (1 test of a partner app).",
+        probe: "A control bound to a field of a global record and of a temporary record: OptionCaption, OptionCaptionML, a blank member, DecimalPlaces, AutoFormatType 1 and 2 with a field expression, BlankZero; on a header group and in a repeater.",
+        awaiting: Awaiting {
+            issues: &[5822],
+            files: &["tests/al-language/pages/lt-sa-other-record-control/SaOtherRecordControl.al"],
+            since: "2026-10-25",
+        },
+    },
 }
 
 thread_local! {

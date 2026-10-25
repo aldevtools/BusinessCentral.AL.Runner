@@ -864,7 +864,12 @@ fn walk_control<V: RefVisitor>(
         run_object,
         action_ref: _,
         prop_texts: _,
+        var_field,
     } = c;
+    if let Some((table, field)) = var_field {
+        fld(v, field, TableOf::object(Some(*table)));
+        obj(v, table);
+    }
     // The routines of `binding`, `triggers` and `PropVal::Routine` belong to the extension that
     // owns the control; those of the page itself are positions in the page.
     let owner_ref = *owner;
