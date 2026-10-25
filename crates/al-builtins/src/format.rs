@@ -37,6 +37,12 @@ pub trait FormatCtx {
     fn carries_unread(&self) -> bool {
         false
     }
+    /// Why a read of the caption of value `ordinal` of enum `id` (`None`: of any of its values) is refused: a translation
+    /// file of its app could change it in the language in force (ADR-053 step 1). None where the context has no program.
+    fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        let _ = (id, ordinal);
+        None
+    }
 }
 
 /// A context without the format region, for the plain en-US text a region then rewrites.
@@ -57,6 +63,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn carries_unread(&self) -> bool {
         self.0.carries_unread()
+    }
+    fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        self.0.enum_caption_refused(id, ordinal)
     }
 }
 
@@ -456,7 +465,12 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Enum(..) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Option")),
         Value::Enum(id, o) => match standard {
             2 | 9 => o.to_string(),
-            _ => ctx.enum_name(*id, *o),
+            _ => {
+                if let Some(why) = ctx.enum_caption_refused(*id, Some(*o)) {
+                    return Err(FormatFail::Unsupported(why));
+                }
+                ctx.enum_name(*id, *o)
+            }
         },
         // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (platform/lt-platform-members/
         // PlTGuid.al:Format_Numbers, NullGuid_Values); the others are not pinned for a Guid.

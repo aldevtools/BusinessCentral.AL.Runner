@@ -1494,6 +1494,9 @@ impl Session {
         match &t.fields[pos].ty {
             RtType::Enum(id) => {
                 self.note_enum(*id);
+                if let Some(why) = self.enum_caption_refusal(*id, None) {
+                    return unsupported(why);
+                }
                 let o = &self.engine.program.objects[*id as usize];
                 let members = o
                     .enum_values
@@ -1513,6 +1516,14 @@ impl Session {
                 // A table field's OptionCaptionML gives the captions of the session language (record/lt-x-table-props/
                 // XTablePropsTests.al:219-232).
                 let ml = self.field_property(t, pos, "OptionCaptionML");
+                // An OptionCaption a translation file of its app could change in the language in force (ADR-053 step 1).
+                if ml.is_some() || self.field_property(t, pos, "OptionCaption").is_some() {
+                    if let Some(why) = self.translated_read_refusal(t.object as usize, || {
+                        format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
+                    }) {
+                        return unsupported(why);
+                    }
+                }
                 let captions: Vec<String> = match (ml, self.field_property(t, pos, "OptionCaption")) {
                     (Some(ml), _) if session_language => {
                         let language = al_builtins::format::FormatCtx::language(self);

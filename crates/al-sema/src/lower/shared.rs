@@ -192,6 +192,8 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         local_labels: HashMap::default(),
         global_textconsts: Default::default(),
         local_textconsts: Default::default(),
+        global_locked_labels: Default::default(),
+        local_locked_labels: Default::default(),
         global_var_attrs: HashMap::default(),
         local_var_attrs: HashMap::default(),
         run_refusals: Default::default(),
@@ -473,6 +475,9 @@ pub(crate) fn lower_object<'a>(
             }
             if is_textconst(v.type_ref().as_ref()) {
                 lw.global_textconsts.insert(n.to_lowercase());
+            }
+            if v.type_ref().as_ref().is_some_and(label_locked) {
+                lw.global_locked_labels.insert(n.to_lowercase());
             }
             if let Some(why) = refusal {
                 global_reasons.push(format!("global `{n}`: {why}"));
@@ -1073,6 +1078,22 @@ pub(crate) fn label_text(t: &ast::TypeRef) -> Option<String> {
         .collect();
     let pick = texts.iter().find(|(lang, _)| lang.text().eq_ignore_ascii_case("ENU"))?;
     Some(unquote(pick.1.text()))
+}
+
+/// Whether a `Label` declaration says `Locked = true`: the compiler writes no translation unit for it, so no translation file
+/// changes its text (ADR-053 decision 2).
+pub(crate) fn label_locked(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    toks.windows(3).any(|w| {
+        w[0].text().eq_ignore_ascii_case("locked")
+            && w[1].kind() == SyntaxKind::Eq
+            && w[2].text().eq_ignore_ascii_case("true")
+    })
 }
 
 /// Whether a declaration is of type `TextConst`.

@@ -193,6 +193,9 @@ pub(crate) struct Lowerer<'a> {
     /// The Label-typed variables declared `TextConst`, by lowercase name (a Label and a TextConst share `Ty::Label`).
     global_textconsts: std::collections::HashSet<String>,
     local_textconsts: std::collections::HashSet<String>,
+    /// The Label variables declared `Locked = true`, by lowercase name: no translation changes them (ADR-053 step 1).
+    global_locked_labels: std::collections::HashSet<String>,
+    local_locked_labels: std::collections::HashSet<String>,
     /// Attributes of variables the lowering reads (`shared::var_attribute_names`), by lowercase name.
     global_var_attrs: HashMap<String, Vec<String>>,
     local_var_attrs: HashMap<String, Vec<String>>,

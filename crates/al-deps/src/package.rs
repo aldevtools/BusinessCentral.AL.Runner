@@ -349,6 +349,23 @@ pub fn read_resources(app: &[u8], vars: &Vars) -> Result<Vec<(String, Vec<u8>)>,
     })
 }
 
+/// Whether `name` (a path relative to the app, `/` or `\\` separators, any case) is a translation file BC applies: an `.xlf`
+/// under `Translations/` that is not the compiler's generated `*.g.xlf` (ADR-053 decision 1).
+pub fn is_translation_file(name: &str) -> bool {
+    let lower = name.replace('\\', "/").to_ascii_lowercase();
+    lower.starts_with("translations/") && lower.ends_with(".xlf") && !lower.ends_with(".g.xlf")
+}
+
+/// Whether a package (`.app` or source archive) holds a translation file ([`is_translation_file`]).
+pub fn ships_translations(app: &[u8], vars: &Vars) -> Result<bool, PackageError> {
+    with_archive(app, 0, vars, &mut |zip, _, _| {
+        Ok(zip
+            .entries
+            .iter()
+            .any(|e| is_translation_file(&percent_decode_once(&e.name))))
+    })
+}
+
 /// `%20` to a space, once. Entry names in packages are encoded twice by the packer.
 pub(crate) fn percent_decode_once(name: &str) -> String {
     let b = name.as_bytes();
@@ -447,6 +464,21 @@ mod tests {
         let (_, src) = read_package(&app).unwrap();
         assert_eq!(src[0].0, "src/Azure%20Function/F.al");
         assert_eq!(src[0].1, "codeunit 1 F { }");
+    }
+
+    #[test]
+    fn a_package_ships_translations_when_it_holds_an_xlf_under_translations_that_is_not_generated() {
+        let generated = app_with(&[("src/A.al", "codeunit 1 A { }"), ("Translations/App.g.xlf", "<x/>")]);
+        assert!(!ships_translations(&generated, &Vars::default()).unwrap());
+        let dutch = app_with(&[
+            ("src/A.al", "codeunit 1 A { }"),
+            ("Translations/App.g.xlf", "<x/>"),
+            ("Translations/AL%2520Runner%2520Repros.nl-BE.xlf", "<x/>"),
+        ]);
+        assert!(ships_translations(&dutch, &Vars::default()).unwrap());
+        assert!(is_translation_file("translations\\App.de-DE.XLF"));
+        assert!(!is_translation_file("src/Translations.al"));
+        assert!(!is_translation_file("other/App.de-DE.xlf"));
     }
 
     #[test]
