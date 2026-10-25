@@ -75,10 +75,10 @@ Excel sheet lists (35), Data Compression entry list (2).
 
 ### What BC does
 
-- The AL compiler binds each alias at compile time by loading the assembly (ADR-014 section 3, `docs/dotnet-generic.md`
+- The AL compiler binds each alias at compile time by loading the assembly (ADR-014 section 3, `docs/history/dotnet-generic.md`
   section 1.1). It therefore knows the CLR type of every member access and picks the AL type, operator and
   conversion statically. These expressions compile in BC because it can reflect over the assembly.
-- At run time the emitted C# is late-bound reflection through `NavDotNet` (`docs/dotnet-generic.md` section 1.2,
+- At run time the emitted C# is late-bound reflection through `NavDotNet` (`docs/history/dotnet-generic.md` section 1.2,
   item 6): `Text` is `string`, `Decimal` is `decimal`, `Date`, `Time`, `DateTime` are `DateTime`, `InStream`,
   `OutStream` and `Stream` are `System.IO.Stream`. The reverse direction (a .NET `int` seen as an AL `Integer`,
   a `Stream` accepted where an `OutStream` is expected) is what the compiler's type mapping does. It is **not

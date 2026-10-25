@@ -85,13 +85,13 @@ Documents for contributors:
 - `docs/demo-data-differences.md`: where the demo backup differs from Microsoft's test database, with proof.
 - `docs/bcdb.md`: the `.bak` and `.bacpac` reader.
 - `docs/al-runner-v2-parity.md`: which features of AL Runner v2 exist in the current version.
-- `docs/dotnet-examples.md` and `docs/dotnet-generic.md`: how Microsoft's AL uses `DotNet`, and the options.
+- `docs/dotnet-examples.md`: how Microsoft's AL uses `DotNet`.
 - `docs/probes-needed.md`: behavior taken from documentation only, waiting for a probe on real BC.
-- `docs/corpus-inventory.md`: what the corpus contains.
+- `docs/corpus-coverage.md`: which parts of the AL language the corpus covers.
 - `docs/agents/brief.md`: the working method for implementation agents.
 - `oracle/`: the real-BC results the pass rate is measured against.
 - `metrics/<major>/passing.txt`: the cases that must keep passing, per BC major.
-- `docs/history/`: the original spike brief and report.
+- `docs/history/`: the original spike brief and report, and retired research notes.
 
 ## License
 
