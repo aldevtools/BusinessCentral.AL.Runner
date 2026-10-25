@@ -1,5 +1,5 @@
 //! StrSubstNo, Message and Error `%n` of a unit-amount Decimal field (AutoFormatType 2) without an AutoFormatExpression or
-//! with `Rec."Currency Code"` (al-runner issue 5827, the reporter's real-BC repro on 29.0.54011.55407): the value shows the
+//! with `Rec."Currency Code"` (al-runner issue 5827, the reporter's real-BC repro): the value shows the
 //! unit-amount places a page control shows, the currency's, else the 2:5 of General Ledger Setup. Not pinned by the corpus
 //! yet (assumption strsubstno-unit-amount-field, awaiting misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al); a setup of other
 //! places is not run.

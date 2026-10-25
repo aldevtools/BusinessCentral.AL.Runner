@@ -1,5 +1,5 @@
 //! A control bound to a field of another record variable of the page (`Settings."Avail. Filter"`, al-runner issue 5822, the
-//! reporter's real-BC repro on 29.0.54011.55407): an Option field shows its OptionCaption, as a control bound to Rec's field
+//! reporter's real-BC repro): an Option field shows its OptionCaption, as a control bound to Rec's field
 //! does. Not pinned by the corpus yet (assumption other-record-control-option-caption, awaiting pages/lt-sa-other-record-control/
 //! SaOtherRecordControl.al). The field's other formatting properties are refused until probed.
 

@@ -307,7 +307,7 @@ fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
 }
 
 // al-runner issue 5823: the variable's own Modify(false) after its own Insert, in the transaction the last Commit closed. The
-// reporter's real-BC repro (29.0.54011.55407, 5/5 green): the buffer follows the Insert-buffer rule. Not pinned by the corpus
+// reporter's real-BC repro (5/5 green on Windows): the buffer follows the Insert-buffer rule. Not pinned by the corpus
 // yet (assumption stale-insert-buffer-own-modify, awaiting record/lt-sb-stale-own-modify/SbStaleOwnModify.al).
 const OWN: &str = r#"
 table 50110 "Repro Stale Row"
