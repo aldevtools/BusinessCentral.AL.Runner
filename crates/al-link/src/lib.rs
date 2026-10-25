@@ -1727,6 +1727,7 @@ mod tests {
                 run_object: None,
                 action_ref: None,
                 prop_texts: vec![],
+                var_field: None,
             },
             pred,
             parent: None,

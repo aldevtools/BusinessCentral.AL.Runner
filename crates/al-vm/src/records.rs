@@ -1229,6 +1229,11 @@ impl Session {
             || self.store_for(rec).written_since_commit(cx, t);
         match origin.filter(|o| o.version == mine) {
             Some(o) if o.insert && o.commits + 1 == self.commits => {
+                // A buffer whose own Modify(false) followed its own Insert in that transaction follows the same rule: not
+                // pinned, the reporter's real-BC repro of al-runner issue 5823 (assumption stale-insert-buffer-own-modify).
+                if o.own_modify {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StaleInsertBufferOwnModify);
+                }
                 if touched && !self.tx.rolled_back {
                     return Ok(StaleVerdict::Written);
                 }
@@ -1659,6 +1664,7 @@ impl Session {
                 insert: false,
                 version: *v,
                 commits: self.commits,
+                own_modify: false,
             }),
             _ => None,
         };
@@ -2742,6 +2748,7 @@ impl Session {
                                 insert: true,
                                 version: v,
                                 commits,
+                                own_modify: false,
                             });
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
@@ -2903,6 +2910,15 @@ impl Session {
                 // same for the events). A row a page saves carries the page's own previous row
                 // (record/TestXRecDriverContracts.al:32-51 Record_Modify_FromPage_xRecHoldsPreviousValue).
                 let stored_row = stored.clone();
+                // The buffer's version before this Modify and its origin, for the own Modify after an own Insert below.
+                let version_before = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| {
+                    let r = rec.borrow();
+                    (
+                        i,
+                        if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 },
+                        r.row_origin,
+                    )
+                });
                 if let Some(old) = &stored {
                     self.check_modify_auto_increment(&t, rec, old, run)?;
                 }
@@ -3001,6 +3017,27 @@ impl Session {
                         if !rec.borrow().temporary {
                             let image = rec.borrow().fields.clone();
                             rec.borrow_mut().last_modify = Some(image);
+                            // The first own Modify(false) after the variable's own Insert, in the Insert's transaction, keeps the
+                            // Insert origin at the new version (assumption stale-insert-buffer-own-modify, al-runner issue 5823).
+                            // A Modify(true), a second own Modify or one in a later transaction leaves the origin behind, as before.
+                            if let Some((i, was, Some(o))) = version_before
+                                && o.insert
+                                && o.version == was
+                            {
+                                let now = if let Value::BigInteger(n) = &rec.borrow().fields[i] {
+                                    *n
+                                } else {
+                                    0
+                                };
+                                if now != was {
+                                    let keep = !run && !o.own_modify && o.commits == self.commits;
+                                    rec.borrow_mut().row_origin = keep.then_some(al_builtins::value::RowOrigin {
+                                        version: now,
+                                        own_modify: true,
+                                        ..o
+                                    });
+                                }
+                            }
                             let company = rec.borrow().company.clone();
                             self.tx.rows_touched.push((t.object, company, pk.clone()));
                         }

@@ -128,6 +128,7 @@ impl Lowerer<'_> {
                     run_object: None,
                     action_ref: None,
                     prop_texts: Vec::new(),
+                    var_field: None,
                 });
                 continue;
             }
@@ -225,6 +226,7 @@ impl Lowerer<'_> {
                 }
             }
             let mut binding = ir::Binding::None;
+            let mut var_field = None;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
@@ -308,7 +310,28 @@ impl Lowerer<'_> {
                     Some(crate::pages::Source::Expr) => {
                         let off = usize::from(sec.syntax().text_range().start()) - ow.base;
                         match routine_named(&ow, &crate::pages::synthetic_name("source", off)) {
-                            Some(r) => binding = ir::Binding::Expr(r),
+                            Some(r) => {
+                                binding = ir::Binding::Expr(r);
+                                // A field of a record variable of the page itself: the runtime formats the control from
+                                // that field's properties (al-runner issue 5822).
+                                if raw.owner.is_none() {
+                                    var_field =
+                                        args.get(1)
+                                            .and_then(|a| crate::pages::var_and_field(a))
+                                            .and_then(|(v, f)| {
+                                                let g = globals.iter().find(|g| g.name.eq_ignore_ascii_case(&v))?;
+                                                let RtType::Record(t, _) = g.ty else {
+                                                    return None;
+                                                };
+                                                let t = t as usize;
+                                                let p = self.members[t]
+                                                    .fields
+                                                    .iter()
+                                                    .position(|x| x.name.eq_ignore_ascii_case(&f))?;
+                                                Some((t, p))
+                                            });
+                                }
+                            }
                             // A control of an extension that names a variable of the base object
                             // (`pages::needed` made no routine for it).
                             None => {
@@ -397,6 +420,7 @@ impl Lowerer<'_> {
                 run_object,
                 action_ref,
                 prop_texts,
+                var_field,
             });
         }
         let base = owner_of(None);

@@ -209,6 +209,13 @@ pub trait Ctx: FormatCtx {
             "Format of a field with an AutoFormatExpression outside a session".into(),
         ))
     }
+    /// The places `min:max` StrSubstNo, Message and Error `%n` give the unit-amount field (AutoFormatType 2) numbered `field_no` of
+    /// `record` (assumption strsubstno-unit-amount-field). Refused where the context has no session.
+    fn unit_amount_subst_places(&mut self, _record: &Value, _field_no: usize) -> Result<String, Signal> {
+        Err(Signal::Unsupported(
+            "StrSubstNo of a unit-amount field outside a session".into(),
+        ))
+    }
     /// `CopyStream` where one side is a `DotNet` stream (ADR-024). `None` where the context has no
     /// .NET host.
     fn copy_stream_dotnet(&mut self, _out: &Value, _src: &Value, _count: Option<i64>) -> Option<Result<(), Signal>> {
@@ -1324,7 +1331,12 @@ fn format_auto_format_field(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut
         }
     };
     let record = args.get(3).cloned().unwrap_or(Value::Null);
-    let places = ctx.auto_format_field_places(&record, pos)?;
+    // A sixth argument 1: StrSubstNo, Message or Error `%n` of a unit-amount field (al-sema `unit_amount_subst_field`).
+    let places = if matches!(args.get(5), Some(Value::Integer(1))) {
+        ctx.unit_amount_subst_places(&record, pos)?
+    } else {
+        ctx.auto_format_field_places(&record, pos)?
+    };
     let mut rest = vec![
         args[0].clone(),
         args[1].clone(),

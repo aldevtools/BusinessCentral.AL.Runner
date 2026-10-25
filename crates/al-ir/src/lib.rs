@@ -909,6 +909,10 @@ pub struct Control {
     /// form the corpus pins: (lower-case property name, text). An expression property without an entry reports nothing.
     #[serde(default)]
     pub prop_texts: Vec<(String, String)>,
+    /// For a control whose source is a field of a record variable of the page (`Settings."Avail. Filter"`): the table's
+    /// object index and the field's position in it.
+    #[serde(default)]
+    pub var_field: Option<(usize, usize)>,
 }
 
 /// The action an `actionref` delegates to.
