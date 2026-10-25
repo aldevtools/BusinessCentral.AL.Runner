@@ -55,6 +55,9 @@ struct Selection {
     excludes: Vec<String>,
     /// `--parity`: the tests Microsoft turns off are not picked.
     parity: Option<Arc<al_testrun::disabled::DisabledTests>>,
+    /// The codeunits whose `OnRun` row (`OnRunRows::Bc28`) the selection reports: those it picks a test of, as BC runs
+    /// the OnRun trigger of every codeunit it runs a test of. Filled once the tests are found (`with_on_run`).
+    on_run: std::collections::BTreeSet<u32>,
 }
 
 /// `Codeunit<ID>.<Method>`, the name AL Runner v2 reports and accepts.
@@ -83,7 +86,20 @@ impl Selection {
         }
     }
 
+    /// The selection with `on_run` filled from the tests found.
+    fn with_on_run(mut self, found: &[Found]) -> Selection {
+        self.on_run = found
+            .iter()
+            .filter(|f| f.tests.iter().any(|t| self.picks(f.id, t)))
+            .map(|f| f.id)
+            .collect();
+        self
+    }
+
     fn picks(&self, codeunit: u32, test: &str) -> bool {
+        if test == al_testrun::runtime::ON_RUN_ROW && self.on_run.contains(&codeunit) {
+            return true;
+        }
         let by_filter = self.filters.iter().any(|f| Self::matches(f, codeunit, test));
         let by_exact = self
             .exact
@@ -796,7 +812,9 @@ fn test_inner(
             .chain(a.explain.iter().filter(|_| a.codeunits.is_empty()))
             .cloned()
             .collect(),
-    };
+        on_run: Default::default(),
+    }
+    .with_on_run(&found);
     // A request with entries (issue 5635): each entry selects its own tests; the run compiles for all of them.
     let entries: Vec<Entry> = warm.as_deref().map(|w| w.entries.clone()).unwrap_or_default();
     for name in entries.iter().flat_map(|e| e.resources.keys()) {
@@ -811,10 +829,13 @@ fn test_inner(
     }
     let entry_selections: Vec<Selection> = entries
         .iter()
-        .map(|e| Selection {
-            filters: e.filters.clone(),
-            excludes: e.excludes.clone(),
-            ..selection.clone()
+        .map(|e| {
+            Selection {
+                filters: e.filters.clone(),
+                excludes: e.excludes.clone(),
+                ..selection.clone()
+            }
+            .with_on_run(&found)
         })
         .collect();
     let picks = |id: u32, t: &str| {
@@ -1348,6 +1369,8 @@ fn test_inner(
             .and_then(|c| c.narrow.clone())
             .or_else(|| affected.as_ref().map(crate::affected::Affected::narrow)),
         object_hashes: affected.is_some(),
+        // A test codeunit's OnRun is reported as BC's test runner of the target major does (al-runner issue 5748).
+        on_run_rows: al_testrun::runtime::OnRunRows::of_target(&chosen.target),
         tdd: a.tdd,
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
@@ -1867,9 +1890,10 @@ fn test_inner(
         );
         al_testrun::flagged::save_hits(&al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()), &rows);
         if let Some(n) = a.top_assumptions {
-            println!("\n{}", al_testrun::flagged::render_top(&rows, n));
+            say!("\n{}", al_testrun::flagged::render_top(&rows, n));
         } else if counts.flagged > 0 && !a.quiet {
-            println!(
+            // On stderr with `--output-json` on stdout, as the rest of the report.
+            say!(
                 "\n{}",
                 style::cyan(&format!(
                     "{} passes ran through an unprobed assumption (flagged); --top-assumptions ranks the assumptions, --list-assumptions describes them.",

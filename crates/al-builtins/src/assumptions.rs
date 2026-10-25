@@ -659,6 +659,17 @@ registry! {
             since: "2026-10-25",
         },
     },
+    TestCodeunitOnRunRows => {
+        id: "test-codeunit-onrun-rows",
+        assumed: "How the runner reports the OnRun trigger of a test codeunit. From the gate TestCodeunitOnRunRowFrom28 on: a declared OnRun gets a row 'OnRun' of its own, failed with the error's text when it raises (and then the test methods have no rows), else passed. Before that gate: a codeunit whose OnRun raises has no rows at all. Measured by corpus writer RL in the corpus CI (the three supported majors on Linux, probe commit c69419f6 on branch al-runtime-rs-staging-rl, codeunit/lt-outside-onrun-error/RlOnRunError.al); not a green corpus case, because the probe codeunit fails the corpus CI by design.",
+        tests: "No Microsoft test: al-runner issue 5748 (a user's test codeunit whose OnRun raises; owner decision 2026-10-25 to mirror the reporting of the newer majors).",
+        probe: "The probe of commit c69419f6 (al-runtime-rs-staging-rl): a test codeunit whose OnRun raises and one whose OnRun does not, read from the XUnit result per major. It cannot stay in the green corpus; an oracle of runner rows would need a corpus leg that expects a red codeunit.",
+        awaiting: Awaiting {
+            issues: &[5748],
+            files: &["tests/al-language/codeunit/lt-outside-onrun-error/RlOnRunError.al"],
+            since: "2026-10-25",
+        },
+    },
 }
 
 thread_local! {

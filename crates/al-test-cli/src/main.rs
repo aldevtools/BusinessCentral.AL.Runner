@@ -657,6 +657,8 @@ fn run_version(
         quiet_baseline: false,
         impact_trace: false,
         narrow: None,
+        // The oracle leaves the runner's OnRun row out (oracle::RUNNER_PSEUDO_CASE).
+        on_run_rows: runtime::OnRunRows::PerTest,
         tdd: false,
         object_hashes: false,
         debug_ready: None,
