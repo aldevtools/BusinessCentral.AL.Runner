@@ -224,6 +224,10 @@ Answered on 2026-10-13 and recorded in ADR-013 (and, for `DotNet`, on 2026-10-13
 - `al-host` holds the capability traits the core crates use: the clock, identity and session
   defaults, the random seed, `DotNet` and the test-data tables. The network is not there yet.
 
+## Roadmap: deferred until users ask (owner, 2026-10-25)
+
+- **App translations** (issue 5772, ADR-053): applying an app's own `Translations/*.xlf` under another `GlobalLanguage`. Today a read that a translation could change, after a switch away from 1033, is refused. Full support waits for more user feedback, or for a time when the issue queue is empty.
+
 ## Next targets (owner, 2026-10-13; state on 2026-10-14)
 
 1. **Microsoft's own Base App test buckets.** Started. `al-runner` runs them

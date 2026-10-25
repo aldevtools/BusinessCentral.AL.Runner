@@ -17,7 +17,7 @@ adds some start-up overhead, which should be small. Releases of the package that
 predate the wrapper still contain the version 2 engine and keep working.
 
 If you maintain a tool that calls AL Runner, read
-[Migrating tools from AL Runner v2 to v3](../integrations/migrating-tools-to-v3.md).
+[Migrating tools from AL Runner v2 to v3](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/integrations/migrating-tools-to-v3.md).
 
 ## What changes for you
 
