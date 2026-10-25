@@ -352,6 +352,7 @@ pub fn load_project_with(
             layout_files: Vec::new(),
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
+            translations: d.translations,
         });
         summary.push(format!("{} {}", d.app.name, d.version));
         lazy.push(d.lazy);

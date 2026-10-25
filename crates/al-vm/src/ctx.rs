@@ -49,6 +49,9 @@ impl al_builtins::format::FormatCtx for Session {
             _ => None,
         }
     }
+    fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        self.enum_caption_refusal(id, ordinal)
+    }
     /// The caption a value declares, else its name (types/TestEnumCaption.al).
     fn enum_name(&self, id: u32, value: i32) -> String {
         self.note_enum(id);
@@ -67,6 +70,9 @@ impl al_builtins::format::FormatCtx for Session {
 impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
+    }
+    fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
+        Session::translated_app_read(self, app, what)
     }
 
     fn http_send(

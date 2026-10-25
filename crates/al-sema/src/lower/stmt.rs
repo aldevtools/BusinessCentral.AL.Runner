@@ -24,6 +24,7 @@ impl Lowerer<'_> {
         self.locals.clear();
         self.local_labels.clear();
         self.local_textconsts.clear();
+        self.local_locked_labels.clear();
         self.local_var_attrs.clear();
         self.tys.clear();
         self.tys_on = true;
@@ -118,6 +119,9 @@ impl Lowerer<'_> {
                 }
                 if is_textconst(v.type_ref().as_ref()) {
                     self.local_textconsts.insert(n.to_lowercase());
+                }
+                if v.type_ref().as_ref().is_some_and(label_locked) {
+                    self.local_locked_labels.insert(n.to_lowercase());
                 }
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
@@ -294,7 +298,11 @@ impl Lowerer<'_> {
     /// A member named through the field, `Format(Row.Opt::Two)`, shows its caption too (misc/lt-probes-needed-2/
     /// PnBRecordMisc.al:96, :113: `Dos`).
     pub(crate) fn format_option_field(&mut self, plain: bool, number9: bool, arg: &SyntaxNode) -> L<ir::Expr> {
-        let value = self.expr(arg)?;
+        let mut value = self.expr(arg)?;
+        // Its captions are refused where a translation file could change them (ADR-053 step 1).
+        if let Some((object, what)) = self.option_caption_owner(arg) {
+            value = self.translated_text(value, object, what)?;
+        }
         let member = arg.kind() == SyntaxKind::ScopeExpr;
         let field_node = if member {
             match arg.children().next() {

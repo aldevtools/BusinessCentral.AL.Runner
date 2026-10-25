@@ -171,6 +171,7 @@ fn manifests() -> Vec<Manifest> {
             target: String::new(),
             layout_files: Vec::new(),
             id_ranges: Vec::new(),
+            translations: false,
             symbols: vec![],
         })
         .collect()

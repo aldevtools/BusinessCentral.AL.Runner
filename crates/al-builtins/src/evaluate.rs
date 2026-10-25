@@ -1390,6 +1390,10 @@ fn evaluate_with_max(
                 .flatten();
             // A sign is allowed before the digits and an ordinal no member has is kept, with format 9 too
             // (P86Eval.al, codeunit "LT P86 Eval Enum": `+5`, `00`, `11`).
+            // The captions a translation file could change in the language in force are refused (ADR-053 step 1).
+            if let Some(why) = c.enum_caption_refused(*id, None) {
+                return unsupported(why);
+            }
             let captions = c.enum_captions(*id);
             let found = ordinal
                 .or_else(|| {

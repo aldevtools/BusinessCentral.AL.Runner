@@ -66,6 +66,9 @@ pub struct Manifest {
     pub layout_files: Vec<(String, Vec<u8>)>,
     /// `idRanges` of the app's own app.json (`from`, `to`): the ids `--tdd` gives stub declarations (ADR-051 decision 10).
     pub id_ranges: Vec<(u32, u32)>,
+    /// The app ships a translation file (`Translations/*.xlf` that is not the generated `*.g.xlf`): BC translates its
+    /// labels and captions under another language, which the runtime refuses (ADR-053 step 1, al-runner issue 5772).
+    pub translations: bool,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -170,6 +173,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .as_bool()
             .unwrap_or(false),
         layout_files: load_layout_files(dir),
+        translations: al_deps::load::ships_translations(dir),
         id_ranges: manifest["idRanges"]
             .as_array()
             .into_iter()
