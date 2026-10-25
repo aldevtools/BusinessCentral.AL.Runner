@@ -632,6 +632,17 @@ registry! {
         tests: "No. Series - Batch Impl.UpdateNoSeriesLine (Get, TransferFields from the batch's temporary line, Modify(true)) in Gen. Jnl.-Post Batch; 110 Tests-ERM tests (for example Payment Export Validation UT CustLedgEntryBankAccountMissingFormat).",
         probe: "A buffer read by FindFirst, by assignment from another variable and by TransferFields from a temporary copy, made stale by a Commit, then the row written in the new transaction (changed and unchanged Modify), then a Modify through the buffer: accepted or DB:RecordChanged, and the stored row.",
     },
+    ResetClearsLoadFields => {
+        id: "reset-clears-load-fields",
+        assumed: "Reset drops the record's SetLoadFields request: the next fetch loads every field. The corpus case record/lt-record-read/RcAMisc.al:808-830 (SetLoadFields_Blank_Resets_To_All `afterReset`) passes either way, because it fetches the full row first.",
+        tests: "No Microsoft test: al-runner issue 5764 Q3 (the reporter's SetLoadFields(Description); Reset; FindFirst reads AreFieldsLoaded(Notes) Yes on the reporter's real BC container).",
+        probe: "SetLoadFields(a field), Reset, then FindFirst with no fetch before: AreFieldsLoaded of a field not in the request. Also after AddLoadFields, and Init and Clear in place of Reset.",
+        awaiting: Awaiting {
+            issues: &[5764],
+            files: &["tests/al-language/record/lt-outside-records/ResetClearsLoadFields.al"],
+            since: "2026-10-25",
+        },
+    },
     RunPageLinkTargetView => {
         id: "run-page-link-target-view",
         assumed: "A List reached by an action's RunObject with RunPageOnRec, RunPageLink or RunPageView, whose page declares SourceTableView, combines the two as Page.Run with a record does (P145PageRunView.al): the link in filter group 0, the view's filters in group 2, the view's SORTING and ORDER set the key and direction; it lists the rows of both and opens on the first. What the target's OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card); the rows and the open row of a List are not. Measured by the reporter on real BC of the newest major (al-runner issue 5826).",
