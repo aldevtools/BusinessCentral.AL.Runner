@@ -162,7 +162,7 @@ al-runner test ./MyApp ./MyApp.Test --tdd
   record, page or report variable, on `Rec`, `CurrPage` or `this`; a bare call of a
   procedure the object does not declare; a call whose argument count no overload
   takes; a missing field; a missing enum value; and a missing codeunit, table or enum,
-  which is declared for the run (ADR-051). A call on a TestPage, an interface or a
+  which is declared for the run. A call on a TestPage, an interface or a
   built-in type stays an error.
   A call site whose type the use does not reveal is refused, and its test is not run.
 - `serve` takes it as the `tdd` field of `runTests`, or `serve --tdd`.

@@ -170,5 +170,4 @@ al-runner test Tests-ERM.Source.zip --disabled-tests path/to/BCApps/src/Disabled
 ```
 
 Those tests still run and are marked `disabled_by_microsoft` in the summary and the
-JUnit file. Add `--parity` to skip them. For the measurements of Microsoft's Base
-Application test buckets, see [docs/alrunner-buckets.md](../alrunner-buckets.md).
+JUnit file. Add `--parity` to skip them.

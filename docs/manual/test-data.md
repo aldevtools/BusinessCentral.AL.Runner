@@ -29,7 +29,7 @@ tables the reader failed on (with its text), and columns left out.
 | `al-runner warm [PATH.bak]` | Open the backup once and keep its page map and catalog in the cache. The first open verifies the whole file (2 to 3 seconds on a 900 MB backup); later opens take milliseconds. Run it before a demo on a new machine. |
 
 The reader behind this is `al-bcdb`, a Rust reader for `.bak` and `.bacpac` files
-that needs no SQL Server. See [docs/bcdb.md](../bcdb.md).
+that needs no SQL Server.
 
 ## Other countries
 

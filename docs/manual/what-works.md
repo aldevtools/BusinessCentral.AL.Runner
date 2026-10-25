@@ -3,9 +3,8 @@ title: "What works and what is refused"
 weight: 11
 ---
 
-The goal is the whole AL language. How much runs today is in the status table in
-the [README](../../README.md) and in [docs/status.md](../status.md). The scope
-decisions are [ADR-027](../adr/027-scope.md).
+The goal is the whole AL language. How much runs today is in the status table
+below.
 
 ## The rule
 
@@ -36,8 +35,7 @@ test counts as passing only when it passes here and passed on real Business Cent
 different result or an error. About 435 passes on each version run through an
 unprobed assumption and are counted as flagged. Microsoft's own Base Application
 test buckets mostly do not run yet: the full run of 2026-10-16 held 40300 tests,
-of which 16848 passed, 2508 failed and 20944 were not run
-([docs/alrunner-buckets.md](../alrunner-buckets.md)).
+of which 16848 passed, 2508 failed and 20944 were not run.
 
 ## Runs as Business Central does
 
