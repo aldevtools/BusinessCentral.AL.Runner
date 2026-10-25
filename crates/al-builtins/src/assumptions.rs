@@ -656,6 +656,9 @@ registry! {
         awaiting: Awaiting {
             issues: &[5764],
             files: &["tests/al-language/record/lt-outside-records/ResetClearsLoadFields.al"],
+            since: "2026-10-25",
+        },
+    },
     RunPageLinkTargetView => {
         id: "run-page-link-target-view",
         assumed: "A List reached by an action's RunObject with RunPageOnRec, RunPageLink or RunPageView, whose page declares SourceTableView, combines the two as Page.Run with a record does (P145PageRunView.al): the link in filter group 0, the view's filters in group 2, the view's SORTING and ORDER set the key and direction; it lists the rows of both and opens on the first. What the target's OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card); the rows and the open row of a List are not. Measured by the reporter on real BC of the newest major (al-runner issue 5826).",
