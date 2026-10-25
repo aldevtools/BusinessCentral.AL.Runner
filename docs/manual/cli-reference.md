@@ -1,6 +1,6 @@
 ---
 title: "Command line reference"
-weight: 5
+weight: 50
 ---
 
 `al-runner --help` is the complete list and is generated from the code. When the

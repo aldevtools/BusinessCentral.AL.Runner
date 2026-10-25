@@ -1,6 +1,6 @@
 ---
 title: "Getting started"
-weight: 2
+weight: 20
 ---
 
 ## Install
@@ -140,16 +140,9 @@ version of the run gives way to the feed's copy.
 ## Choosing the Business Central version
 
 `--bc-version V` takes a major (`28`), a major and minor (`28.5`), or an exact
-build (four numbers). Without it, AL Runner picks the first rule that applies:
-
-1. The build of the tests, when they are Microsoft's own test apps.
-2. The build of the Microsoft packages in your package folders, when it is of the
-   target major and not below the `application` and `platform` versions in `app.json`.
-3. The newest published build of the target major.
-
-The target major is the major of `application` in `app.json`, else the newest
-major AL Runner is verified against (29). `--verbose` prints which rule chose the
-build. The corpus is checked against 27, 28 and 29.
+build (four numbers). Without it, AL Runner picks the build from your `app.json` and
+your package folders. AL Runner is checked against Business Central 27.5, 28.5 and
+29.0. [Supported versions](versions.md) has the rules and the platforms.
 
 ## Next
 

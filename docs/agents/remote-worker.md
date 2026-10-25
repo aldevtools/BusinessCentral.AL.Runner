@@ -57,10 +57,10 @@ Worktrees share the clone's settings and need nothing else.
 3. `cargo build --release`
 4. `./target/release/al-test-cli --root .`
    The first run downloads Microsoft artifacts and takes longer.
-5. Compare the counts with the table in `README.md` ("Status") and
+5. Compare the counts with the table in `docs/manual/what-works.md` ("Status") and
    `docs/status.md`. On `main` today every BC version (27.5, 28.5 and 29.0)
    shows 0 failing, and the same cases are not run on each. If your numbers
-   differ, `README.md` may lag behind `main`. The ratchet is the check: the
+   differ, that table may lag behind `main`. The ratchet is the check: the
    exit code must be 0. Exit code 1 means a baseline case no longer passes,
    and 2 is a setup error. Fix setup problems before you take any task.
 6. `./check.sh` must pass on a clean `main`. It takes minutes.

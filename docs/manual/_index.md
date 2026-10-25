@@ -20,17 +20,23 @@ explains what a pass, a failure and "not run" each mean.
 ## Where to start
 
 - **[Getting started](getting-started.md)**: install it and run your tests.
+- **[Supported versions](versions.md)**: Business Central versions, platforms and release channels.
 - **[Writing tests](writing-tests.md)**: apps, test codeunits, selecting tests, isolation, test-first work.
 - **[Reading results](results.md)**: what you can trust, and how to find out why a test did not run.
+- **[How results are checked](how-it-works.md)**: why results can be trusted, and the known risks.
 - **[Command line reference](cli-reference.md)**: every command and flag.
 - **[Test data](test-data.md)**: the CRONUS demo company, other countries, the RapidStart package company.
 - **[Running Microsoft's tests](microsoft-tests.md)**: `test-microsoft`, the recipe, and the Microsoft tests your extension can affect.
 - **[Continuous integration](ci.md)**: GitHub Actions, caching, exit codes.
 - **[Editor and tool integration](editor-tools.md)**: the `serve` protocol, coverage output.
+- **[Tool protocol](tool-protocol.md)**: the command line, JSON and `serve` contract for tool authors.
+- **[Debugging](debugging.md)**: `al-runner debug`, breakpoints and stepping from an editor.
 - **[Impact analysis](impact.md)**: what an extension changes in other apps' tests.
 - **[What works and what is refused](what-works.md)**: the supported surface and the deliberate limits.
+- **[Roadmap](roadmap.md)**: what is deferred, experimental, not built yet or decided against.
 - **[Migrating from version 2](migrating-from-v2.md)**: command and flag changes.
 - **[Troubleshooting](troubleshooting.md)**: what common messages mean.
+- **[Reporting a problem](feedback.md)**: a wrong result, a refused feature you need, or a crash.
 
 ## What it is for
 
