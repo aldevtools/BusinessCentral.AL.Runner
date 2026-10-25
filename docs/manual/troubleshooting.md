@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting"
-weight: 13
+weight: 130
 ---
 
 ## Many tests are "not run"
@@ -29,6 +29,10 @@ from the demo company. Check that test data was restored: `--verbose` prints the
 test data line and its exclusions. Without test data (`--no-test-data`, or no backup
 could be had), Microsoft's tests mostly fail on missing setup data. See
 [Test data](test-data.md).
+
+Some setup is missing from the demo backup itself. Those tests fail even with test
+data. [Known gaps in the demo data](test-data.md#known-gaps-in-the-demo-data) lists
+the tables and the messages.
 
 ## The first run takes a long time
 
@@ -85,8 +89,5 @@ The macOS and Linux binaries are not signed. The Windows binary is signed. See
 
 ## Something else
 
-If a result differs from real Business Central, open an issue with the "Alpha
-feedback" template at
-[aldevtools/BusinessCentral.AL.Runner](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/new/choose).
-Include `al-runner --version`, the Business Central version, the test name, what you
-expected, and the output of `--explain TEST`.
+If a result differs from real Business Central, a test you need is not run, or AL
+Runner crashes, see [Reporting a problem](feedback.md).

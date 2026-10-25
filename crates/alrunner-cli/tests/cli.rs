@@ -2178,3 +2178,167 @@ fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(text(&o).contains("Tests: 1 total, 1 passed"), "{}", text(&o));
 }
+
+/// Al-runner issue 5748: a test codeunit whose OnRun raises, one whose OnRun does not, one without OnRun.
+const ONRUN: &str = r#"
+codeunit 50981 "R537 OnRun Tests"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    begin
+        Error('boom 537 onrun');
+    end;
+
+    [Test]
+    procedure AfterThrowingOnRun()
+    begin
+    end;
+
+    [Test]
+    procedure AfterThrowingOnRunTwo()
+    begin
+    end;
+}
+
+codeunit 50982 "R537 Quiet OnRun Tests"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    begin
+    end;
+
+    [Test]
+    procedure QuietPasses()
+    begin
+    end;
+}
+
+codeunit 50983 "R537 No OnRun Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PlainPasses()
+    begin
+    end;
+}
+"#;
+
+fn onrun_app(root: &Path) -> PathBuf {
+    let dir = root.join("onrun");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005748", "OnRun", &[]),
+    );
+    write(&dir, "src/Tests.al", ONRUN);
+    dir
+}
+
+fn names(doc: &serde_json::Value) -> Vec<String> {
+    doc["tests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+// Measured by corpus writer RL in the corpus CI (probe commit c69419f6, codeunit/lt-outside-onrun-error/RlOnRunError.al):
+// BC 28.5 and 29.0 report one failed row `OnRun` with the error's text and no rows for the test methods, and a passed
+// `OnRun` row for a declared OnRun that does not raise; BC 27.5 reports no rows for the codeunit whose OnRun raises.
+#[test]
+fn a_test_codeunit_whose_on_run_raises_is_reported_as_bc_28_and_29_report_it() {
+    let d = tempfile::tempdir().unwrap();
+    let app = onrun_app(d.path());
+    let junit = d.path().join("junit.xml");
+    for version in ["28.5.0.0", "29.0.0.0"] {
+        let o = alrunner(&[
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--bc-version",
+            version,
+            "--output-json",
+            "--junit",
+            junit.to_str().unwrap(),
+        ]);
+        assert_eq!(code(&o), 1, "a failed OnRun row is a failure: {}", text(&o));
+        let v = json_of(&o);
+        assert_eq!(
+            names(&v),
+            [
+                "Codeunit50981.OnRun",
+                "Codeunit50982.OnRun",
+                "Codeunit50982.QuietPasses",
+                "Codeunit50983.PlainPasses"
+            ],
+            "{version}: {v}"
+        );
+        let failed = row(&v, "Codeunit50981.OnRun");
+        assert_eq!(
+            (failed["status"].as_str(), failed["message"].as_str()),
+            (Some("fail"), Some("boom 537 onrun")),
+            "{failed}"
+        );
+        assert!(failed.get("notRun").is_none(), "{failed}");
+        assert_eq!(row(&v, "Codeunit50982.OnRun")["status"], "pass");
+        assert_eq!(
+            (
+                v["total"].as_u64(),
+                v["passed"].as_u64(),
+                v["failed"].as_u64(),
+                v["notRun"].as_u64()
+            ),
+            (Some(4), Some(3), Some(1), Some(0))
+        );
+        // The rows rest on an unprobed assumption: the passed OnRun row is a flagged pass.
+        assert!(
+            String::from_utf8_lossy(&o.stderr)
+                .contains("Tests: 4 total, 3 passed (1 flagged: rely on unprobed assumptions), 1 failed, 0 not run"),
+            "{}",
+            text(&o)
+        );
+        let x = std::fs::read_to_string(&junit).unwrap();
+        assert!(
+            x.contains("name=\"OnRun\"") && x.contains("<failure message=\"boom 537 onrun\""),
+            "{x}"
+        );
+        assert!(!x.contains("AfterThrowingOnRun"), "{x}");
+        assert!(x.contains("test-codeunit-onrun-rows"), "{x}");
+    }
+    // A selection of one test of the codeunit still reports its OnRun row, and only that.
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--output-json",
+        "--filter",
+        "AfterThrowingOnRunTwo",
+    ]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert_eq!(names(&json_of(&o)), ["Codeunit50981.OnRun"]);
+}
+
+#[test]
+fn a_test_codeunit_whose_on_run_raises_has_no_rows_on_bc_27() {
+    let d = tempfile::tempdir().unwrap();
+    let app = onrun_app(d.path());
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--bc-version",
+        "27.5.46862.48827",
+        "--output-json",
+    ]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let v = json_of(&o);
+    assert_eq!(
+        names(&v),
+        ["Codeunit50982.QuietPasses", "Codeunit50983.PlainPasses"],
+        "{v}"
+    );
+}

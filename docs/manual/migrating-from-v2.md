@@ -1,6 +1,6 @@
 ---
 title: "Migrating from version 2"
-weight: 12
+weight: 120
 ---
 
 Version 3 replaces version 2. Version 2 was written in C# on top of Business
@@ -17,7 +17,7 @@ adds some start-up overhead, which should be small. Releases of the package that
 predate the wrapper still contain the version 2 engine and keep working.
 
 If you maintain a tool that calls AL Runner, read
-[Migrating tools from AL Runner v2 to v3](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/integrations/migrating-tools-to-v3.md).
+[Tool protocol](tool-protocol.md).
 
 ## What changes for you
 

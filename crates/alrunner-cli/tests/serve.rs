@@ -1607,3 +1607,38 @@ fn test_isolation_required_runs_each_codeunit_under_its_required_test_isolation(
     let l = s.line();
     assert!(l["error"].as_str().is_some_and(|e| e.contains("required")), "{l}");
 }
+
+// Al-runner issue 5748: the OnRun rows of BC 28 and 29 are test lines of the stream too.
+#[test]
+fn run_tests_streams_the_on_run_rows() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "onrun",
+        "codeunit 50981 \"Raises\" { Subtype = Test; trigger OnRun() begin Error('boom 537 onrun'); end; [Test] procedure T1() begin end; }
+codeunit 50982 \"Quiet\" { Subtype = Test; trigger OnRun() begin end; [Test] procedure T2() begin end; }",
+    );
+    let mut s = Server::start(&["--no-download"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    // The codeunits may run on threads of their own: the lines are compared in name order.
+    let mut tests: Vec<(String, String)> = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| (l["name"].as_str().unwrap().into(), l["status"].as_str().unwrap().into()))
+        .collect();
+    tests.sort();
+    assert_eq!(
+        tests,
+        [
+            ("Codeunit50981.OnRun".to_string(), "fail".to_string()),
+            ("Codeunit50982.OnRun".to_string(), "pass".to_string()),
+            ("Codeunit50982.T2".to_string(), "pass".to_string()),
+        ],
+        "{lines:?}"
+    );
+    assert_eq!(lines.last().unwrap()["exitCode"], 1, "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}

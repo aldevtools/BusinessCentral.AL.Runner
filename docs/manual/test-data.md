@@ -1,6 +1,6 @@
 ---
 title: "Test data"
-weight: 6
+weight: 60
 ---
 
 ## The demo company
@@ -56,6 +56,36 @@ Microsoft's CI builds the company of some test lanes with its own tools (the
 DemoTool for the Legacy lane, the Contoso Demo Tool for the IntegrationTest and
 Uncategorized lanes). AL Runner does not build these companies by default. The
 support for it is experimental and will be redesigned.
+
+## Known gaps in the demo data
+
+Microsoft's tests were written for a test database that is set up further than the
+CRONUS backup in the artifact. When a test needs setup the backup lacks, it fails.
+This is a gap in the data, not a defect of AL Runner. Most rows below were confirmed
+by setting the value in a small extra app, after which the tests passed. The others
+were found by reading the backup.
+
+| Table and field | In the backup | Typical message |
+|---|---|---|
+| Sales & Receivables Setup and Purchases & Payables Setup: `Posted Prepmt. Inv. Nos.`, `Posted Prepmt. Cr. Memo Nos.` | empty | "You cannot get a No. Series Line with empty No. Series Code." |
+| Sales & Receivables Setup: `Return Receipt on Credit Memo`; Purchases & Payables Setup: `Return Shipment on Credit Memo` | No | "You cannot get a No. Series Line with empty No. Series Code." |
+| Sales & Receivables Setup: `Direct Debit Mandate Nos.` | empty | "Direct Debit Mandate Nos. must have a value in Sales & Receivables Setup" |
+| Service Mgt. Setup: `Service Quote Nos.` | empty | "Service Quote Nos. must have a value in Service Mgt. Setup" |
+| Inventory Setup: `Internal Movement Nos.` | empty | "Internal Movement Nos. must have a value in Inventory Setup" |
+| Whse. Worksheet Template | no rows | "There is no Whse. Worksheet Template within the filter." |
+| Warehouse Journal Template and Batch | no rows | "There is no Warehouse Journal Template within the filter." |
+| Item Journal Batch | only ITEM/DEFAULT, with no No. Series | "There is no Item Journal Batch within the filter." or "Enter the document no." |
+| Service Cost, Service Zone, Service Item | no rows | "There is no Service Cost within the filter." |
+| General Posting Setup | (DOMESTIC, FREIGHT) and (DOMESTIC, MISC) missing; some discount accounts blank | "The General Posting Setup does not exist" or "... is missing in General Posting Setup" |
+| VAT Posting Setup | (DOMESTIC, blank) missing | "The VAT Posting Setup does not exist" |
+| Inventory Posting Setup | some location and group pairs missing; Interim and WIP accounts blank | "The Inventory Posting Setup does not exist" or "WIP Account is missing in Inventory Posting Setup" |
+| Cost Type, Cost Journal Template, Cost Journal Batch, G/L Budget Name | no rows | "The Cost Journal Template table is empty" |
+| Responsibility Center, Warehouse Entry, Phys. Invt. Counting Period | no rows | "The ... table is empty." |
+| FA Depreciation Book: `FA Posting Group` | blank | "FA Posting Group must have a value in FA Depreciation Book" |
+| General Ledger Setup: `Additional Reporting Currency` | EUR in the 28 and 29 backups, blank in 27.5 | cost amounts that differ by rounding |
+
+These were found on the W1 backup of Business Central 27.5, unless the row says
+otherwise.
 
 ## Microsoft's test apps
 

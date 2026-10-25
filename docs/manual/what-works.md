@@ -1,6 +1,6 @@
 ---
 title: "What works and what is refused"
-weight: 11
+weight: 110
 ---
 
 The goal is the whole AL language. How much runs today is in the status table
@@ -33,9 +33,8 @@ test counts as passing only when it passes here and passed on real Business Cent
 
 "Failing" is a case where real Business Central passed and AL Runner gave a
 different result or an error. About 435 passes on each version run through an
-unprobed assumption and are counted as flagged. Microsoft's own Base Application
-test buckets mostly do not run yet: the full run of 2026-10-16 held 40300 tests,
-of which 16848 passed, 2508 failed and 20944 were not run.
+unprobed assumption and are counted as flagged. Most of Microsoft's own Base
+Application tests do not run yet; see [Running Microsoft's tests](microsoft-tests.md#how-many-of-microsofts-tests-run).
 
 ## Runs as Business Central does
 
@@ -65,7 +64,7 @@ of which 16848 passed, 2508 failed and 20944 were not run.
 | Test data | CRONUS from the artifact, loaded per table on first touch | Only the demo company. |
 | Identity | User `TESTUSER`, tenant `default`, company `My Company`, session 1 | Tests that probe real authentication or other users. |
 | Environment | `--environment saas` (default) or `onprem` | Server topology is fixed. |
-| Clock | The system clock. `Sleep(n)` does not wait. | A test sees a jump, not a delay. |
+| Clock | Starts at the system time and moves forward 1 ms on every read. `Sleep(n)` moves it n ms and does not wait. | A test sees a jump, not a delay. |
 | Client UI | Handlers and the `TestPage` client | No pixels, no layout, no add-ins. |
 | Permissions | Everything is granted | A test that expects "access denied" fails here. |
 | Task scheduler | `CanCreateTask` is false. `CreateTask` returns an id and never runs the task. | A task never executes. |
@@ -103,8 +102,7 @@ a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 
 ## Not available yet
 
-- Watch mode. It was rejected for 3.0.0, because `serve` keeps the compile warm and `--affected` skips unaffected tests. See [Editor and tool integration](editor-tools.md).
-- The Legacy, IntegrationTest and Uncategorized lanes of `--recipe microsoft`. They need Microsoft's demo company, and building it is experimental and off by default.
-- Builds for platforms other than Linux x64, Windows x64 and macOS arm64.
+What is deferred, experimental, not built yet or decided against is listed in the
+[Roadmap](roadmap.md).
 
 If you hit a "not run" that none of this explains, see [Reading results](results.md).

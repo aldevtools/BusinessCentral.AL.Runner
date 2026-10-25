@@ -14008,6 +14008,10 @@
 81861 Counters_TableOperations
 81861 Counters_TemporaryOperations
 81861 Counters_Type
+81861 RO_Counters_Sizes_Inserts
+81861 RO_Counters_Sizes_Reads
+81861 RO_Counters_Sizes_Writes
+81861 RO_Counters_StatementBudget_Repro
 81865 Repro_SemicolonList_Decimal
 81865 ResultNotUsed_Errors
 81865 Separators_BigInteger
