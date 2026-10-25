@@ -128,6 +128,13 @@ pub trait Ctx: FormatCtx {
         Err(Signal::Unsupported("an HttpClient call needs a session".into()))
     }
 
+    /// Refuses a read of a text of the app with id `app` (`what`, for the reason) that a translation file of the app could
+    /// change in the language in force (ADR-053 step 1, `System.TranslatedText#1`). A context without a program has none.
+    fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
+        let _ = (app, what);
+        Ok(())
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
@@ -763,6 +770,15 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     // The routine that created this InStream on its own local hands it back and ends: it reads as empty
     // (streams/lt-dc-stream-leads/DcInStreamScope.al:107-166).
     ("InStream.OwnerOutOfScope#1", crate::stream::owner_out_of_scope),
+    // A Label or an OptionCaption list of an app (value, app id, what is read): the value as it is, refused where a translation
+    // file of the app could change it in the language in force (ADR-053 step 1, al-runner issue 5772).
+    ("System.TranslatedText#1", |c, _, a| {
+        if let [value, Value::Text(app), Value::Text(what)] = a {
+            c.translated_app_read(app, what)?;
+            return Ok(value.clone());
+        }
+        unsupported("System.TranslatedText with other arguments than a value, an app id and a text")
+    }),
     // An interface assigned from another interface variable: one that holds no implementation raises
     // (codeunit/lt-enums-interfaces/OjT71047.al:250-251, Uninitialized_AssignedFromUninitialized `af224`).
     ("Interface.AssertAssigned#1", |_, _, a| match a.first() {
@@ -907,6 +923,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "Variant.IntoOption#1",
     "Text.MaxStrLenOfVarParameter#1",
     "InStream.OwnerOutOfScope#1",
+    "System.TranslatedText#1",
 ];
 
 /// Every name that gets a [`BuiltinId`]: the catalog's overloads of every version, the registered natives
@@ -2692,6 +2709,7 @@ pub(crate) mod tests {
             "Variant.IntoInteger#1",
             "Variant.IntoOption#1",
             "InStream.OwnerOutOfScope#1",
+            "System.TranslatedText#1",
         ];
         for id in registered_ids().into_iter().filter(|id| !derived.contains(id)) {
             assert!(ids.iter().any(|i| i == id), "{id} is not a catalog overload id");

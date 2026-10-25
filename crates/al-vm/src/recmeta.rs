@@ -217,6 +217,9 @@ impl Session {
         if let Some(why) = self.field_caption_class_refusal(t, pos) {
             return unsupported(why);
         }
+        if let Some(why) = self.field_caption_translated(t, pos) {
+            return unsupported(why);
+        }
         let has_caption = self.field_property(t, pos, "Caption").is_some();
         if t.fields[pos].id >= 2_000_000_000 && !has_caption {
             return unsupported(format!("the caption of system field {}", t.fields[pos].name));
@@ -1059,6 +1062,9 @@ impl Session {
                 let mut byte_unpinned = false;
                 match (&current, want) {
                     (Value::Integer(_), Value::Enum(id, o)) => {
+                        if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
+                            return unsupported(why);
+                        }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o))
                     }
                     (Value::Text(_) | Value::Code(_), Value::Guid(g)) => {

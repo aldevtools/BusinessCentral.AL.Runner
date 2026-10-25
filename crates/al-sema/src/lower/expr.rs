@@ -240,6 +240,60 @@ impl Lowerer<'_> {
         })
     }
 
+    /// A read of a Label of object `object`: its text, through `System.TranslatedText#1` when a translation file of the
+    /// object's app could change it (`translatable`: not a `TextConst` and not `Locked = true`), which refuses the read in a
+    /// language other than 1033 when the app ships one (ADR-053 step 1, al-runner issue 5772).
+    pub(crate) fn label_read(&self, text: String, translatable: bool, object: usize) -> L<ir::Expr> {
+        let value = ir::Expr::Const(ir::Const::Text(text.clone()));
+        if !translatable {
+            return Ok(value);
+        }
+        self.translated_text(value, object, format!("the Label '{text}'"))
+    }
+
+    /// `value` through `System.TranslatedText#1`: the same value, refused in a language other than 1033 when the app of
+    /// object `object` ships a translation file (ADR-053 step 1). `what` names the text for the reason.
+    pub(crate) fn translated_text(&self, value: ir::Expr, object: usize, what: String) -> L<ir::Expr> {
+        let app = self.ws.apps[self.ws.objects[object].app].id.clone();
+        Ok(ir::Expr::Builtin {
+            id: super::call::builtin_id("System.TranslatedText#1")?,
+            receiver: None,
+            args: vec![
+                ir::Arg::Value(value),
+                ir::Arg::Value(ir::Expr::Const(ir::Const::Text(app))),
+                ir::Arg::Value(ir::Expr::Const(ir::Const::Text(what))),
+            ],
+            ret_used: true,
+        })
+    }
+
+    /// For an Option field with an `OptionCaption` or `OptionCaptionML`: the object that declares it and what a read of its
+    /// captions is called, for [`Self::translated_text`].
+    pub(crate) fn option_caption_owner(&mut self, arg: &SyntaxNode) -> Option<(usize, String)> {
+        let node = if arg.kind() == SyntaxKind::ScopeExpr {
+            arg.children().next()?
+        } else {
+            arg.clone()
+        };
+        let Some(Res::Field { table, id: field }) = self.res(&node).cloned() else {
+            return None;
+        };
+        let f = self.members[table].fields.iter().find(|f| f.id == field)?;
+        let captioned = matches!(f.ty, Ty::Option(_))
+            && f.properties
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML"));
+        captioned.then(|| {
+            (
+                f.declared_in.unwrap_or(table),
+                format!(
+                    "the OptionCaption of field {} of table {}",
+                    f.name, self.ws.objects[table].name
+                ),
+            )
+        })
+    }
+
     pub(crate) fn constant(&self, n: &SyntaxNode) -> L<ir::Const> {
         let t = sig_tokens(n).into_iter().next().ok_or("empty literal")?;
         let text = t.text();
@@ -660,15 +714,21 @@ impl Lowerer<'_> {
                     _ => Err("`this.<variable of the base>` in this extension (what BC raises is not pinned)".into()),
                 },
                 Some(Res::Local(name)) if self.local_labels.contains_key(&name) => {
-                    Ok(ir::Expr::Const(ir::Const::Text(self.local_labels[&name].clone())))
+                    let text = self.local_labels[&name].clone();
+                    let plain = self.local_textconsts.contains(&name) || self.local_locked_labels.contains(&name);
+                    self.label_read(text, !plain, self.oi)
                 }
                 Some(Res::Global(name)) if self.global_labels.contains_key(&name) => {
-                    Ok(ir::Expr::Const(ir::Const::Text(self.global_labels[&name].clone())))
+                    let text = self.global_labels[&name].clone();
+                    let plain = self.global_textconsts.contains(&name) || self.global_locked_labels.contains(&name);
+                    self.label_read(text, !plain, self.oi)
                 }
-                // A Label of the base object is its text.
-                Some(Res::BaseGlobal(name)) if self.base_var(&name)?.2.is_some() => Ok(ir::Expr::Const(
-                    ir::Const::Text(self.base_var(&name)?.2.unwrap_or_default()),
-                )),
+                // A Label of the base object is its text. Whether it is Locked is not looked up: it is read as translatable.
+                Some(Res::BaseGlobal(name)) if self.base_var(&name)?.2.is_some() => {
+                    let text = self.base_var(&name)?.2.unwrap_or_default();
+                    let base = self.base_object().map_or(self.oi, |(b, ..)| b);
+                    self.label_read(text, true, base)
+                }
                 // `CurrXmlPort` in an xmlport is the running instance (P94Fixtures.al:317 `currXMLport.Filename()`).
                 Some(Res::Global(name))
                     if name == "currxmlport"

@@ -172,7 +172,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Dimension | Catalog | Pinned | Used by Microsoft | Microsoft-used and unpinned | of those, runtime does not read |
 |---|---:|---:|---:|---:|---:|
 | Triggers per object kind | 191 | 187 | 128 | 0 | 0 |
-| Object properties per object kind | 1346 | 801 | 1074 | 545 | 524 |
+| Object properties per object kind | 1346 | 801 | 1074 | 545 | 515 |
 | Platform and system events | 123 | 37 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
@@ -194,9 +194,9 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | Group | Name | MS uses | Runtime reads | Corpus uses (not reached) |
 |---|---|---:|---|---:|
 | report | `Comment` | 456 | yes | 0 |
-| table | `Locked` | 220 | no | 0 |
+| table | `Locked` | 220 | yes | 0 |
 | report/field | `TableRelation` | 189 | yes | 0 |
-| report | `Locked` | 87 | no | 0 |
+| report | `Locked` | 87 | yes | 0 |
 | page | `ContextSensitiveHelpPage` | 36 | yes | 0 |
 | report/labels | `ReportNameLabel` | 21 | no | 0 |
 | report/labels | `AboutTheReportLabel` | 20 | no | 0 |
@@ -210,23 +210,23 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | tableextension | `Comment` | 13 | yes | 0 |
 | pageextension/field | `Importance` | 10 | no | 0 |
 | report/labels | `PageCaption` | 9 | yes | 0 |
+| table/field | `Locked` | 8 | yes | 0 |
 | report/labels | `PostingDateCaption` | 8 | no | 0 |
-| table/field | `Locked` | 8 | no | 0 |
 | xmlport/field | `TableRelation` | 6 | yes | 0 |
 | xmlport/group | `ShowCaption` | 6 | no | 0 |
 | report/dataitem | `Comment` | 5 | yes | 0 |
 | report/labels | `PostingDateFilterLabel` | 5 | no | 0 |
 | report/labels | `TotalCaption` | 5 | no | 0 |
+| page/field | `Locked` | 4 | yes | 0 |
 | table | `MaxLength` | 4 | yes | 0 |
-| page/field | `Locked` | 4 | no | 0 |
 | report/labels | `DescCaption` | 4 | no | 0 |
 | report/labels | `DescriptionCaption` | 4 | no | 0 |
 | report/labels | `DocNoCaption` | 4 | no | 0 |
 | report/labels | `EntryNoCaption` | 4 | no | 0 |
 | report/labels | `PeriodCaption` | 4 | no | 0 |
+| page/action | `Locked` | 3 | yes | 0 |
 | report/field | `DateFormula` | 3 | yes | 0 |
 | report/label | `CaptionClass` | 3 | yes | 0 |
-| page/action | `Locked` | 3 | no | 0 |
 | report/labels | `AcctNameCaption` | 3 | no | 0 |
 | report/labels | `AmountRecognizedCaption` | 3 | no | 0 |
 | report/labels | `BalAsOfDateCaption` | 3 | no | 0 |
@@ -244,8 +244,8 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `TypeCaption` | 3 | no | 0 |
 | report/labels | `UnitOfMeasureCaption` | 3 | no | 0 |
 | pageextension | `Comment` | 2 | yes | 0 |
+| report/dataitem | `Locked` | 2 | yes | 0 |
 | report/labels | `Page` | 2 | yes | 0 |
-| report/dataitem | `Locked` | 2 | no | 0 |
 | report/labels | `AmountCaption` | 2 | no | 0 |
 | report/labels | `CopyCaption` | 2 | no | 0 |
 | report/labels | `CustNameCaption` | 2 | no | 0 |
@@ -271,6 +271,8 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `TotalLbl` | 2 | no | 0 |
 | table | `ExternalSchema` | 2 | no | 0 |
 | page | `MaxLength` | 1 | yes | 0 |
+| pageextension | `Locked` | 1 | yes | 0 |
+| pageextension/action | `Locked` | 1 | yes | 0 |
 | report/field | `Width` | 1 | yes | 0 |
 | report/labels | `Amount` | 1 | yes | 0 |
 | report/labels | `Capacity` | 1 | yes | 0 |
@@ -278,8 +280,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `ReportName` | 1 | yes | 0 |
 | report/labels | `Warning` | 1 | yes | 0 |
 | reportextension | `Comment` | 1 | yes | 0 |
-| pageextension | `Locked` | 1 | no | 0 |
-| pageextension/action | `Locked` | 1 | no | 0 |
+| xmlport | `Locked` | 1 | yes | 0 |
 | pageextension/group | `ShowAs` | 1 | no | 0 |
 | report/labels | `AbleToMakeQtyCaption` | 1 | no | 0 |
 | report/labels | `AboutTheReportLbl` | 1 | no | 0 |
@@ -442,7 +443,6 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `ESCaption` | 1 | no | 0 |
 | report/labels | `EstoniaCaption` | 1 | no | 0 |
 | report/labels | `EU3PartyItemTradeAmtCaption` | 1 | no | 0 |
-| report/labels | `EU3PartyServiceTradeAmtCaption` | 1 | no | 0 |
 
 295 more in `corpus-behavior-coverage.json`.
 

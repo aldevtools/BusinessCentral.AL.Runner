@@ -169,6 +169,10 @@ pub struct AppInfo {
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,
+    /// The app ships a translation file (`Translations/*.xlf`, not the generated `*.g.xlf`): in a language other than
+    /// 1033 BC translates its labels and captions, which the runtime refuses to read (ADR-053 step 1). Set by the runner.
+    #[serde(default)]
+    pub translations: bool,
 }
 
 /// A `.NET` type declared by a `dotnet { }` block.

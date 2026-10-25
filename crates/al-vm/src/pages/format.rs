@@ -795,6 +795,24 @@ impl Session {
     pub(super) fn control_caption(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
+        // A caption a translation file of the page's app, or of the source field's, could change in the language in force
+        // (ADR-053 step 1).
+        let page = st.borrow().object as usize;
+        let what = || {
+            format!(
+                "the caption of control {} of page {}",
+                ctl.name, engine.program.objects[page].name
+            )
+        };
+        if let Some(why) = self.translated_read_refusal(page, what).or_else(|| {
+            if al_builtins::format::FormatCtx::language(self) == 1033 {
+                return None;
+            }
+            let table = self.control_field(st, idx)?.declared_in?;
+            self.translated_read_refusal(table as usize, what)
+        }) {
+            return unsupported(why);
+        }
         // CaptionClass `3,<text>` is a caption the platform resolves to <text>
         // (corpus autoformat/TestAutoFormatExpressionTiming.al, WorkingCaptionClass_OpensAndReadsItsCaption).
         let class = match ctl.prop("captionclass") {
@@ -988,6 +1006,14 @@ impl Session {
         let base = self.page_caption(st);
         let engine = self.engine();
         let object = st.borrow().object as usize;
+        // A caption a translation file of the page's app could change in the language in force (ADR-053 step 1).
+        if st.borrow().caption.is_none() {
+            if let Some(why) = self.translated_read_refusal(object, || {
+                format!("the caption of page {}", engine.program.objects[object].name)
+            }) {
+                return unsupported(why);
+            }
+        }
         let has_prop = |name: &str| {
             engine.program.objects[object]
                 .properties
