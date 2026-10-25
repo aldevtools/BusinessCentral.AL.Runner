@@ -123,6 +123,37 @@ codeunit 69522 T { Subtype = Test;
     );
 }
 
+/// al-runner issue 5761: the reporter's statement budget, 10 inserts and a Count right after a Commit, within (0, 100].
+/// Pin: session/lt-bl-sql-counters/SqlCounters.al:282-305 (RO_Counters_StatementBudget_Repro, 3 statements); 11 inserts
+/// are not measured and refuse.
+#[test]
+fn issue_5761_statement_budget_of_inserts_and_count() {
+    let test = |n: u32| {
+        format!(
+            "
+table 50124 \"Repro Row 50124\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[30]) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+codeunit 50125 T {{ Subtype = Test; TestPermissions = Disabled;
+  [Test] procedure P() var Row: Record \"Repro Row 50124\"; Before: BigInteger; After: BigInteger; Executed: BigInteger; i: Integer;
+  begin
+    Row.DeleteAll();
+    Commit();
+    Before := SessionInformation.SqlStatementsExecuted();
+    for i := 1 to {n} do begin Row.Init(); Row.Id := i; Row.Name := 'Row'; Row.Insert(); end;
+    if Row.Count() <> {n} then Error('Expected {n} rows.');
+    After := SessionInformation.SqlStatementsExecuted();
+    Executed := After - Before;
+    if not ((Executed > 0) and (Executed <= 100)) then Error('The statements executed are outside the budget of 1 to 100.');
+  end; }}"
+        )
+    };
+    all_pass(run_with_deps(&[], &test(10)));
+    let results = run_with_deps(&[], &test(11));
+    assert!(
+        matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("SQL counter")),
+        "{results:?}"
+    );
+}
+
 /// Issue 297: a page extension adds to the `Creation` action area of a page that declares no actions, and a TestPage of
 /// the page opens and closes. Pin: pages/W1ActionAreas.al:44-115 and :137-157 (ExtensionActions_InImplicitAreas_Run: the
 /// extension adds to Navigation, Creation, Reporting, Processing and Prompting of a page with no actions).

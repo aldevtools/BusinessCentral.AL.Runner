@@ -106,15 +106,15 @@ fn temporary_record_operations_change_nothing() {
     assert_eq!(text(run(&s, "F")), ["statements same, rows same"; 6].join("|"));
 }
 
-/// An exact count is not pinned: comparing with a number other than 0 refuses.
+/// An exact count is not pinned for a Get of one row of three (only its sign): comparing with a number other than 0 refuses.
 #[test]
 fn an_exact_count_is_refused() {
     let s = src(
-        "procedure F(): Boolean begin Mark(); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore = 1); end;",
+        "procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore = 1); end;",
     );
     refused(run(&s, "F"), "SQL counter");
     let s = src(
-        "procedure F(): Boolean begin Mark(); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore <= 5); end;",
+        "procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore <= 5); end;",
     );
     refused(run(&s, "F"), "SQL counter");
 }
@@ -134,7 +134,7 @@ fn other_uses_of_a_counter_are_refused() {
         "procedure F(): Text begin Message('%1', SessionInformation.SqlRowsRead()); end;",
         "procedure F(): Text var Row: Record Row; begin Row.Id := SessionInformation.SqlRowsRead(); end;",
         "procedure F(): Text var D: Decimal; begin D := SessionInformation.SqlRowsRead(); end;",
-        "procedure F(): Text var B: BigInteger; begin Mark(); B := (SessionInformation.SqlRowsRead() - RowsBefore) * 2; end;",
+        "procedure F(): Text var B: BigInteger; Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); B := (SessionInformation.SqlRowsRead() - RowsBefore) * 2; end;",
         "procedure F(): Text var L: List of [BigInteger]; begin L.Add(SessionInformation.SqlRowsRead()); end;",
     ] {
         refused(run(&src(body), "F"), "SQL counter");
@@ -157,17 +157,18 @@ fn the_two_counters_do_not_compare() {
     refused(run(&s, "F"), "SQL counter");
 }
 
-/// A difference keeps its taint through a global, a Variant and a parameter.
+/// A difference whose size is not pinned (a Get of one row of three) keeps its taint through a global, a Variant and a
+/// parameter.
 #[test]
 fn a_difference_through_a_variant_keeps_its_sign_only() {
     let body = |check: &str| {
         src(&format!(
             "var G: Variant;
             local procedure Check(B: BigInteger): Boolean begin exit({check}); end;
-            procedure F(): Boolean begin Mark(); G := SessionInformation.SqlRowsRead() - RowsBefore; exit(Check(G)); end;"
+            procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); G := SessionInformation.SqlRowsRead() - RowsBefore; exit(Check(G)); end;"
         ))
     };
-    assert!(boolean(run(&body("B = 0"), "F")));
+    assert!(boolean(run(&body("B > 0"), "F")));
     refused(run(&body("B = 7"), "F"), "SQL counter");
 }
 
