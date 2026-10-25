@@ -288,11 +288,22 @@ impl Session {
     }
 
     pub(crate) fn caption_refused(&self, object: usize) -> Option<String> {
-        self.engine.program.objects[object]
+        let o = &self.engine.program.objects[object];
+        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::CAPTION_REFUSED) {
+            return Some(v.clone());
+        }
+        // A declared caption a translation file of its app could change in the language in force (ADR-053 step 1).
+        if al_builtins::format::FormatCtx::language(self) == 1033 {
+            return None;
+        }
+        let captioned = o
             .properties
             .iter()
-            .find(|(k, _)| k == al_ir::CAPTION_REFUSED)
-            .map(|(_, v)| v.clone())
+            .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"));
+        if !captioned {
+            return None;
+        }
+        self.translated_read_refusal(object, || format!("the caption of {} {}", o.kind.label(), o.name))
     }
 
     /// `No.='A'` style identification of a row's primary key. A key value whose format is not

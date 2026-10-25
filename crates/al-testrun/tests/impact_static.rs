@@ -453,6 +453,7 @@ fn select_in_run(base: &str) -> (Vec<Option<String>>, Option<Vec<String>>) {
         target: String::new(),
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
+        translations: false,
         symbols: vec![],
     };
     type Seen = Option<(Vec<Option<String>>, Option<Vec<String>>)>;
@@ -539,6 +540,7 @@ fn traced() -> CorpusRuntime {
         target: String::new(),
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
+        translations: false,
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
