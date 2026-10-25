@@ -80,10 +80,37 @@ pub enum Presence {
     Landed,
 }
 
-/// Which of `w`'s files exist under `corpus_root` (the corpus checkout, the folder holding `tests/`).
+/// An awaited entry, `file` or `file::Test` (one test of a file already in the corpus): the file and the test.
+pub fn split(entry: &str) -> (&str, Option<&str>) {
+    match entry.split_once("::") {
+        Some((f, t)) => (f, Some(t)),
+        None => (entry, None),
+    }
+}
+
+/// Whether the awaited `entry` is in the corpus under `corpus_root`: its file, and for `file::Test` a procedure of
+/// that name in it (names compare without case, as in AL).
+fn present(corpus_root: &Path, entry: &str) -> bool {
+    let (file, test) = split(entry);
+    let path = corpus_root.join(file);
+    let Some(test) = test else {
+        return path.is_file();
+    };
+    let test = test.to_ascii_lowercase();
+    std::fs::read_to_string(&path).is_ok_and(|src| {
+        src.lines().any(|l| {
+            let l = l.trim_start().to_ascii_lowercase();
+            l.strip_prefix("procedure ")
+                .and_then(|r| r.trim_start().strip_prefix(test.as_str()))
+                .is_some_and(|r| r.trim_start().starts_with('('))
+        })
+    })
+}
+
+/// Which of `w`'s files (or tests) exist under `corpus_root` (the corpus checkout, the folder holding `tests/`).
 pub fn presence(corpus_root: &Path, w: &Awaiting) -> Presence {
     let (present, missing): (Vec<&'static str>, Vec<&'static str>) =
-        w.files.iter().partition(|f| corpus_root.join(f).is_file());
+        w.files.iter().partition(|f| present(corpus_root, f));
     if missing.is_empty() {
         Presence::Landed
     } else if present.is_empty() {
@@ -122,7 +149,15 @@ pub enum Verdict {
 
 /// The verdict on `id`, from the cases of all awaited files.
 pub fn verdict(id: &str, w: &Awaiting, cases: &[AwaitedCase]) -> Verdict {
-    let mine: Vec<&AwaitedCase> = cases.iter().filter(|c| w.files.contains(&c.file.as_str())).collect();
+    let mine: Vec<&AwaitedCase> = cases
+        .iter()
+        .filter(|c| {
+            w.files.iter().any(|f| match split(f) {
+                (file, None) => file == c.file,
+                (file, Some(t)) => file == c.file && t.eq_ignore_ascii_case(&c.name),
+            })
+        })
+        .collect();
     if mine.is_empty() {
         return Verdict::NoCases;
     }

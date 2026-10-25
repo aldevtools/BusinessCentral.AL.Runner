@@ -78,3 +78,24 @@ fn the_summary_is_one_line_oldest_first() {
         "{out}{err}"
     );
 }
+
+/// An awaited test in a file that is already in the corpus (`file::Test`): the pin lands when the test is there
+/// (al-runner issue 5788, whose pin adds tests to an existing isolation probe file).
+#[test]
+fn an_awaited_test_of_a_present_file_waits_until_the_test_is_there() {
+    let extra = format!("next-whole-decimal;5806;2020-01-02;{PRESENT}::Duration_NoSuchAwaitedTest");
+    let (code, out, err) = cli(&["--awaiting-assumptions", "--summary"], Some(&extra));
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(
+        out.contains("next-whole-decimal (al-runner #5806, since 2020-01-02, waiting)"),
+        "{out}{err}"
+    );
+    let extra = format!("next-whole-decimal;5806;2020-01-02;{PRESENT}::duration_oneDayIs86400000Ms");
+    let (code, out, err) = cli(&["--awaiting-assumptions"], Some(&extra));
+    assert_eq!(code, 1, "{out}{err}");
+    assert!(
+        out.contains("assumption `next-whole-decimal` (al-runner #5806, waiting since 2020-01-02): the pin landed: remove the assumption and cite the pin"),
+        "{out}{err}"
+    );
+    assert!(out.contains("1 awaited test(s) pass as on real BC"), "{out}{err}");
+}

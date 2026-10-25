@@ -83,7 +83,8 @@ pub struct Info {
 pub struct Awaiting {
     /// The al-runner issue number(s) the assumption serves.
     pub issues: &'static [u32],
-    /// The corpus test file(s) that will pin it, relative to the corpus root (`tests/al-language/...al`).
+    /// The corpus test file(s) that will pin it, relative to the corpus root (`tests/al-language/...al`); for a test
+    /// that will be added to a file already in the corpus, `<file>::<test procedure>`.
     pub files: &'static [&'static str],
     /// The day the entry started waiting, `YYYY-MM-DD` (`--awaiting-assumptions --summary` lists the oldest first).
     pub since: &'static str,
@@ -631,6 +632,22 @@ registry! {
         tests: "No. Series - Batch Impl.UpdateNoSeriesLine (Get, TransferFields from the batch's temporary line, Modify(true)) in Gen. Jnl.-Post Batch; 110 Tests-ERM tests (for example Payment Export Validation UT CustLedgEntryBankAccountMissingFormat).",
         probe: "A buffer read by FindFirst, by assignment from another variable and by TransferFields from a temporary copy, made stale by a Commit, then the row written in the new transaction (changed and unchanged Modify), then a Modify through the buffer: accepted or DB:RecordChanged, and the stored row.",
     },
+    DeferredInsertFailsAtTestEnd => {
+        id: "deferred-insert-fails-at-test-end",
+        assumed: "A test that ends while the error of a statement-form duplicate-key Insert is still deferred fails with that error ('The record in table <table> already exists. Identification fields and values: <key>='<value>''), raised by the test runner with no AL frame of the test, and its work is rolled back; a row committed before stays. Only under TestIsolation = Codeunit and the default TransactionModel; any other shape is not run. Measured on Windows BC 29.0 (corpus master ccb6e72f, IsolProbeFixture.Codeunit.al T8-T11) and on BC 28.4 on Linux by the reporter (al-runner issue 5788); the pin waits for the Windows nightly of the isolation probe app.",
+        tests: "No Microsoft test: al-runner issue 5788 (a user's test ends with a duplicate-key Insert; on BC it fails at its end).",
+        probe: "None new: T8-T11 of tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al, once the Windows nightly records them in the isolation oracle on 27.5, 28.5 and 29.0. Wanted later: the same under TestIsolation = Function and Disabled and under TransactionModel AutoRollback.",
+        awaiting: Awaiting {
+            issues: &[5603, 5788],
+            files: &[
+                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T8_EndsWithDeferredDuplicateInsert",
+                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T9_RowOfT8IsGoneAfterItsDeferredDuplicate",
+                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T10_EndsWithDeferredDuplicateInsertAfterCommit",
+                "tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al::T11_CommittedRowOfT10IsGone",
+            ],
+            since: "2026-10-25",
+        },
+    },
 }
 
 thread_local! {
@@ -868,6 +885,8 @@ mod tests {
             out.push(format!("{id}: `awaiting` names no corpus file"));
         }
         for f in w.files {
+            // `file::Test`: one test of a file already in the corpus.
+            let f = f.split_once("::").map_or(*f, |(f, _)| f);
             if !f.starts_with("tests/") || !f.ends_with(".al") || f.contains('\\') || f.contains("..") {
                 out.push(format!(
                     "{id}: awaited corpus file `{f}` must be a path relative to the corpus root, `tests/<app>/.../<file>.al`"

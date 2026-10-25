@@ -347,6 +347,11 @@ impl Session {
             .map(|(t, _)| self.engine.program.objects[*t].name.clone())
     }
 
+    /// Takes the error of a duplicate-key `Insert` that is still deferred, for the test runner at the end of a test.
+    pub fn take_deferred_insert_error(&mut self) -> Option<AlError> {
+        self.tx.deferred_insert.take().map(|(_, e)| e)
+    }
+
     pub fn inconsistent_table(&self) -> Option<String> {
         self.tx
             .inconsistent

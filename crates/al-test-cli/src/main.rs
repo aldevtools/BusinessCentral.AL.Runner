@@ -186,7 +186,7 @@ fn awaiting_assumptions(
     // Run exactly the awaited files of the landed entries; the verdict, not the ratchet, decides.
     let mut files: Vec<String> = landed
         .iter()
-        .flat_map(|e| e.awaiting.files.iter().map(|f| f.to_string()))
+        .flat_map(|e| e.awaiting.files.iter().map(|f| awaiting::split(f).0.to_string()))
         .collect();
     files.sort();
     files.dedup();
