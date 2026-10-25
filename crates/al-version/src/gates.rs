@@ -365,6 +365,11 @@ impl Gate {
                     file: "misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al",
                     lines: "99,104,127,132,155,160,183,188",
                 },
+                // AutoFormatType 1, 4 and 5 without an expression, in StrSubstNo and Format (al-builtins format_auto_format_field).
+                Evidence {
+                    file: "misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al",
+                    lines: "193,199,204,216",
+                },
             ],
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",

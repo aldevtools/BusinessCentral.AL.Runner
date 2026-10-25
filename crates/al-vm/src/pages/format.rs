@@ -165,7 +165,7 @@ impl Session {
                 // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
                 if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
                     return unsupported(format!(
-                        "a control bound to Option field {} of another record variable before BC 29 (the member names were seen on Linux only; not pinned)",
+                        "a control bound to Option field {} of another record variable on a BC version before the gate OtherRecordOptionCaptionFrom29 (the member names were seen on Linux only; not pinned)",
                         vf.name
                     ));
                 }
