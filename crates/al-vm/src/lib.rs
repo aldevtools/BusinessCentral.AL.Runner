@@ -64,6 +64,7 @@ mod sqlcount;
 mod sqltime;
 mod testdata;
 mod transactions;
+mod translations;
 mod ui;
 mod usertable;
 mod views;

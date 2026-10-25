@@ -1782,7 +1782,7 @@
           "ms_uses": 2933,
           "name": "Locked",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "_fixtures/Assert.al:11"
         },
         {
@@ -2556,7 +2556,7 @@
           "ms_uses": 312,
           "name": "Locked",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "handlers/TestPageVariableControl_Page.al:151"
         },
         {
@@ -2727,7 +2727,7 @@
           "ms_uses": 220,
           "name": "Locked",
           "pinned": false,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": null
         },
         {
@@ -3352,6 +3352,15 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:257"
         },
         {
+          "corpus_uses": 0,
+          "group": "report",
+          "ms_uses": 87,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 1,
           "group": "table/field",
           "ms_uses": 87,
@@ -3359,15 +3368,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "recordref/lt-refs/RfTObjects.al:70"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "report",
-          "ms_uses": 87,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 5,
@@ -4981,6 +4981,15 @@
           "site": "pages/lt-report-page-properties/03-report-props.al:11"
         },
         {
+          "corpus_uses": 0,
+          "group": "table/field",
+          "ms_uses": 8,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 18,
           "group": "xmlport",
           "ms_uses": 8,
@@ -5024,15 +5033,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "platform/lt-aw-fresh-tenant/AwObjects.al:29"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "table/field",
-          "ms_uses": 8,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 1,
@@ -5476,6 +5476,15 @@
           "site": "pages/lt-ab-group-properties/ABLayouts.al:21"
         },
         {
+          "corpus_uses": 0,
+          "group": "page/field",
+          "ms_uses": 4,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 2,
           "group": "page/field",
           "ms_uses": 4,
@@ -5620,15 +5629,6 @@
           "site": "pages/lt-report-page-properties/07-controladdin-images.al:10"
         },
         {
-          "corpus_uses": 0,
-          "group": "page/field",
-          "ms_uses": 4,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
-        },
-        {
           "corpus_uses": 5,
           "group": "page/fileuploadaction",
           "ms_uses": 4,
@@ -5771,6 +5771,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pages/lt-z-page-props/ZPageProps.al:57"
+        },
+        {
+          "corpus_uses": 0,
+          "group": "page/action",
+          "ms_uses": 3,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
         },
         {
           "corpus_uses": 1,
@@ -6023,15 +6032,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pages/lt-report-page-properties/06-xmlport-unbound.al:22"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "page/action",
-          "ms_uses": 3,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 2,
@@ -6412,6 +6412,15 @@
           "site": "report/lt-u-report-props/UReportObjects.al:10"
         },
         {
+          "corpus_uses": 0,
+          "group": "report/dataitem",
+          "ms_uses": 2,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 3,
           "group": "report/field",
           "ms_uses": 2,
@@ -6473,15 +6482,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-report-page-properties/03-report-props.al:12"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "report/dataitem",
-          "ms_uses": 2,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 1,
@@ -6779,6 +6779,24 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pageext/lt-u-page-props/UPageObjects.al:409"
+        },
+        {
+          "corpus_uses": 0,
+          "group": "pageextension",
+          "ms_uses": 1,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "pageextension/action",
+          "ms_uses": 1,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
         },
         {
           "corpus_uses": 1,
@@ -7096,6 +7114,15 @@
           "site": "pages/lt-page-presentation-properties/P119TableExt.al:20"
         },
         {
+          "corpus_uses": 0,
+          "group": "xmlport",
+          "ms_uses": 1,
+          "name": "Locked",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 6,
           "group": "xmlport/tableelement",
           "ms_uses": 1,
@@ -7132,15 +7159,6 @@
           "site": "pageext/lt-page-ext-properties/PageFileUpload.al:33"
         },
         {
-          "corpus_uses": 0,
-          "group": "pageextension",
-          "ms_uses": 1,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
-        },
-        {
           "corpus_uses": 1,
           "group": "pageextension/action",
           "ms_uses": 1,
@@ -7148,15 +7166,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pageext/lt-u-page-props/UPageObjects.al:370"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "pageextension/action",
-          "ms_uses": 1,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 1,
@@ -11378,15 +11387,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pageext/lt-page-ext-properties/TableSqlIndex.al:21"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "xmlport",
-          "ms_uses": 1,
-          "name": "Locked",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 1,
@@ -15928,7 +15928,7 @@
         "code": "Evaluate",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1513,
+        "line": 1517,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -15937,7 +15937,7 @@
         "code": "",
         "file": "crates/al-builtins/src/evaluate.rs",
         "generic": false,
-        "line": 1516,
+        "line": 1520,
         "pinned": true,
         "site": "codeunit/TestCrossAppDispatch.al:61",
         "template": "Evaluate"
@@ -16045,7 +16045,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 769,
+        "line": 785,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16378,7 +16378,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1480,
+        "line": 1481,
         "pinned": true,
         "site": "record/TestCalcFieldsTruncateUniqueContracts.al:179",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16450,7 +16450,7 @@
         "code": "DB:NoFilter",
         "file": "crates/al-vm/src/recmeta.rs",
         "generic": false,
-        "line": 439,
+        "line": 442,
         "pinned": true,
         "site": "fieldref/lt-range-min-max-types/RangeMinMaxTypes.al:204",
         "template": "Specify a filter for the % field in the % table."
@@ -16468,7 +16468,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 3952,
+        "line": 3963,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."

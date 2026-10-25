@@ -95,6 +95,7 @@ fn run() -> CorpusRuntime {
         symbols: vec![],
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
+        translations: false,
     };
     CorpusRuntime::try_run_suites_with(
         vec![

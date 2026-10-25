@@ -251,6 +251,8 @@ pub struct DependencyApp {
     pub preprocessor_symbols: Vec<String>,
     /// The packaged resources (`resources/` of a compiled package): name relative to the folder, content.
     pub resources: Resources,
+    /// The package ships a translation file (`crate::package::is_translation_file`), ADR-053 step 1.
+    pub translations: bool,
 }
 
 #[derive(Debug, Default)]
@@ -442,13 +444,46 @@ pub fn plan_dependencies_labeled(
 /// Packaged resources: name relative to the resource folder, content.
 pub type Resources = Vec<(String, Vec<u8>)>;
 
-/// The packaged resources of the package at `path`. A folder has none; a package file is read a second time here.
-fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<Resources, String> {
+/// The packaged resources of the package at `path`, and whether it ships a translation file ([`ships_translations`]). A
+/// folder has no resources; a package file is read a second time here.
+fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<(Resources, bool), String> {
     if !path.is_file() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), ships_translations(path)));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    crate::package::read_resources(&bytes, &vars_for(path, hint)).map_err(|e| format!("{}: {e}", path.display()))
+    let vars = vars_for(path, hint);
+    let at = |e: crate::package::PackageError| format!("{}: {e}", path.display());
+    Ok((
+        crate::package::read_resources(&bytes, &vars).map_err(at)?,
+        crate::package::ships_translations(&bytes, &vars).map_err(at)?,
+    ))
+}
+
+/// Whether the app at `path` ships a translation file (`crate::package::is_translation_file`): a folder's `Translations/`
+/// folder holds one, or a package file has such an entry. A package that cannot be read ships none here (reading its
+/// sources reports the error).
+pub fn ships_translations(path: &Path) -> bool {
+    if path.is_dir() {
+        let mut stack = vec![path.join("Translations")];
+        while let Some(d) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else { continue };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if let Ok(rel) = p.strip_prefix(path) {
+                    if crate::package::is_translation_file(&rel.to_string_lossy()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| crate::package::ships_translations(&bytes, &vars_for(path, None)).ok())
+        .unwrap_or(false)
 }
 
 /// Reads the sources of the packages a plan chose, side by side.
@@ -484,7 +519,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
         })
         .collect();
     // The resources of the same packages (`NavApp.GetResource` of a dependency app reads its own).
-    let mut resources: std::collections::VecDeque<Result<Resources, String>> = to_read
+    let mut resources: std::collections::VecDeque<Result<(Resources, bool), String>> = to_read
         .par_iter()
         .map(|path| read_resources_at(path, req.source_build))
         .collect();
@@ -516,7 +551,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
                 Read::Eager(m, s) => (*m, Some(s), None),
                 Read::Lazy(l) => (l.manifest.clone(), None, Some(*l)),
             };
-        let app_resources = resources.pop_front().expect("one read per package")?;
+        let (app_resources, translations) = resources.pop_front().expect("one read per package")?;
         let role = if manifest.id.eq_ignore_ascii_case(SYSTEM_APP_ID) {
             Role::Platform
         } else {
@@ -555,6 +590,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
             lazy: lazy.map(|l| l.source),
             preprocessor_symbols: manifest.preprocessor_symbols.clone(),
             resources: app_resources,
+            translations,
         });
     }
     loaded.notes = notes;

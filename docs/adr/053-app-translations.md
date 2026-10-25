@@ -217,6 +217,24 @@ labels), once P1 has shown no side effects of the feature.
 
 P1, P2, P3, P4 and P11 come first: they decide the lookup rule. The others decide which reads are refused in step 1.
 
+### 7. Step 1 as built (2026-10-25, decided without owner review)
+
+- Rule: in a language other than 1033 (`GlobalLanguage`, or the report's language while a report runs), a read of a
+  translatable text refuses when the object's app, or the app of an extension of it, ships **any** translation file,
+  whatever its `target-language`. Which file applies (exact culture, fallback) is not pinned (P3), so the language of the
+  file is not looked at. Decision 4's "a file for the session language" is the narrower form of the same rule.
+- Not used: "refuse whenever the language is not 1033". It refuses 18 baseline cases that the corpus pins under 1031 for
+  its own apps, which ship no translation file (the source text stays).
+- Language 1033 is never refused, also not with an `en-US` file (P2 open).
+- Reads covered: section 2's Labels (not `Locked`), enum captions (`Format`, `Evaluate`, FieldRef members, TestField texts),
+  OptionCaption and OptionCaptionML of fields, table and field captions (TableCaption, RecordRef.Caption, Format of a
+  RecordId, FieldCaption, FieldRef.Caption, error texts naming a table caption), TestPage and control captions. A report
+  SaveAs with labels or IncludeCaption was already refused outside 1033 and 1031. Not covered yet: platform error texts
+  around a field caption, action captions, `InstructionalText`, `ToolTip`, `AllObjWithCaption` (docs/probes-needed.md).
+- Code: `crates/al-vm/src/translations.rs`; the lowering wraps a Label read and an Option field's captions in the
+  invented builtin `System.TranslatedText#1` (value, app id, what is read). `AppInfo::translations` is set by the runner
+  from `al_deps::load::ships_translations`.
+
 ## Consequences
 
 - Step 1 (refuse) turns silent wrong answers into refusals for every test that reads a translated text in another
