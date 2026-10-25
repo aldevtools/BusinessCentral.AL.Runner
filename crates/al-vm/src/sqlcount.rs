@@ -1,6 +1,6 @@
 //! The model behind `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
-//! The corpus pins the sign of a counter's change between two reads, never a count
+//! The corpus pins the sign of a counter's change between two reads, and its size only for the shapes [`sized`] lists
 //! (session/lt-bl-sql-counters/SqlCounters.al). So a read gives a tainted value (`Value::SqlCount`,
 //! `al_builtins::sqlcount`), and between two reads of a counter the VM classifies what ran (a segment):
 //!
@@ -13,6 +13,11 @@
 //! A classified segment adds one to the counter for each pinned increase; any other segment (an operation or an order no test
 //! pins, AL code run by a trigger or subscriber, store access outside a record method, a Commit or a rollback) starts a new
 //! epoch: reads of different epochs do not compare, so a test that would observe the unknown change is refused.
+//!
+//! The size of the change is pinned for nine shapes, each measured right after a Commit (no store access between the Commit
+//! and the first read) on a table of one Integer key field and one Text field that held exactly the rows the shape needs,
+//! for N = 1, 2, 5, 10, 20 (SqlCounters.al:204-395, [`sized`]). Such a segment adds its size and keeps the read's chain, so
+//! the difference of two reads of one chain is a plain number; a segment classified only by its sign starts a new chain.
 //! Logging starts with the session's first read: what ran before it is not known, so a context that reaches back past it is
 //! not classified.
 
@@ -31,8 +36,11 @@ struct Event {
     trigger: bool,
     /// AL code ran inside (a trigger, a subscriber), or the method ran inside another record method.
     nested: bool,
-    /// The primary key, for Insert, Modify and Delete.
+    /// The primary key, for Get, Insert, Modify and Delete.
     key: Option<Vec<Value>>,
+    /// The rows of the table before the method, when the record and its table are of the shape [`sized`] knows: a table
+    /// of one Integer key field and one Text field, a record with no filter, key, order, load or isolation set.
+    rows_before: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +52,8 @@ enum Kind {
     Insert,
     Modify,
     Delete,
+    Init,
+    DeleteAll,
     Other,
 }
 
@@ -56,6 +66,8 @@ fn kind(m: RecordOp) -> Kind {
         RecordOp::Insert => Kind::Insert,
         RecordOp::Modify => Kind::Modify,
         RecordOp::Delete => Kind::Delete,
+        RecordOp::Init => Kind::Init,
+        RecordOp::DeleteAll => Kind::DeleteAll,
         _ => Kind::Other,
     }
 }
@@ -71,6 +83,10 @@ struct Cursor {
     commits: u64,
     resets: u64,
     outside: u64,
+    /// The read came right after a Commit: no store access since.
+    clean: bool,
+    /// Reads of one chain differ by pinned sizes only.
+    chain: u32,
 }
 
 /// The session's counter state.
@@ -90,6 +106,19 @@ pub(crate) struct SqlCounters {
     open: u32,
     stmt: Cursor,
     rows: Cursor,
+    /// The store operations of this thread right after the last Commit (`al_data::memory::store_ops`), kept while inactive
+    /// too: a measurement may start with the session's first read.
+    ops_at_commit: Option<u64>,
+    /// The last chain handed out.
+    chains: u32,
+}
+
+/// What ran between two reads of a counter.
+enum Change {
+    /// A pinned size.
+    Exact(i64),
+    /// Only the sign is pinned: increased or not.
+    Sign(bool),
 }
 
 /// What a record method noted on entry (`SqlCounters::enter`).
@@ -136,6 +165,7 @@ impl SqlCounters {
         table: u32,
         args: &[Value],
         key: Option<Vec<Value>>,
+        rows_before: Option<usize>,
         result: &Result<Value, al_builtins::native::Signal>,
     ) {
         self.open -= 1;
@@ -151,7 +181,7 @@ impl SqlCounters {
             (_, Ok(_)) => true,
             (_, Err(_)) => false,
         };
-        let trigger = matches!(kind, Kind::Insert | Kind::Modify | Kind::Delete)
+        let trigger = matches!(kind, Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll)
             && !matches!(args.first(), None | Some(Value::Boolean(false)));
         self.log.push(Event {
             kind,
@@ -161,6 +191,7 @@ impl SqlCounters {
             trigger,
             nested: !e.outer || calls != e.calls,
             key,
+            rows_before,
         });
         if self.log.len() > LOG_CAP {
             self.reset();
@@ -177,11 +208,12 @@ impl SqlCounters {
 
     /// Whether `m` needs its primary key noted.
     pub(crate) fn wants_key(m: RecordOp) -> bool {
-        matches!(kind(m), Kind::Insert | Kind::Modify | Kind::Delete)
+        matches!(kind(m), Kind::Get | Kind::Insert | Kind::Modify | Kind::Delete)
     }
 
     /// A Commit made the data durable.
     pub(crate) fn committed(&mut self) {
+        self.ops_at_commit = Some(al_data::memory::store_ops());
         if self.active {
             self.commit_mark = Some(self.base + self.log.len());
             self.trim();
@@ -190,6 +222,7 @@ impl SqlCounters {
 
     /// A rollback: what the table held since the Commit is gone, and with it the context.
     pub(crate) fn rolled_back(&mut self) {
+        self.ops_at_commit = None;
         self.resets += 1;
         self.commit_mark = None;
     }
@@ -222,23 +255,39 @@ impl SqlCounters {
             SqlCounter::Statements => &self.stmt,
             SqlCounter::RowsRead => &self.rows,
         };
-        let change = if cur.read && cur.commits == commits && cur.resets == self.resets && cur.outside == outside {
-            self.classify(cur.at, now).map(|(s, r)| match counter {
-                SqlCounter::Statements => s,
-                SqlCounter::RowsRead => r,
-            })
-        } else {
+        let change = if !(cur.read && cur.commits == commits && cur.resets == self.resets && cur.outside == outside) {
             None
+        } else if cur.at == now {
+            // Nothing between the reads (SqlCounters.al:105-119).
+            Some(Change::Exact(0))
+        } else if let Some(size) = cur.clean.then(|| sized(self.events(cur.at, now))).flatten() {
+            Some(Change::Exact(pick(counter, size)))
+        } else {
+            self.classify(cur.at, now)
+                .map(|signs| Change::Sign(pick(counter, signs)))
         };
         let resets = self.resets;
+        let clean = self.ops_at_commit == Some(al_data::memory::store_ops());
+        let fresh = {
+            self.chains = self.chains.wrapping_add(1);
+            self.chains
+        };
         let cur = match counter {
             SqlCounter::Statements => &mut self.stmt,
             SqlCounter::RowsRead => &mut self.rows,
         };
         match change {
-            Some(up) => cur.n += i64::from(up),
-            None => cur.epoch += 1,
+            Some(Change::Exact(size)) => cur.n += size,
+            Some(Change::Sign(up)) => {
+                cur.n += i64::from(up);
+                cur.chain = fresh;
+            }
+            None => {
+                cur.epoch += 1;
+                cur.chain = fresh;
+            }
         }
+        cur.clean = clean;
         cur.read = true;
         cur.at = now;
         cur.commits = commits;
@@ -249,6 +298,7 @@ impl SqlCounters {
             form: SqlForm::Read {
                 counter,
                 epoch: cur.epoch,
+                chain: cur.chain,
             },
         });
         self.trim();
@@ -328,6 +378,108 @@ fn step_len(evs: &[Event], want: Kind) -> Option<usize> {
     }
 }
 
+/// The part of a (statements, rows read) pair that is `counter`'s.
+fn pick<T>(counter: SqlCounter, (statements, rows): (T, T)) -> T {
+    match counter {
+        SqlCounter::Statements => statements,
+        SqlCounter::RowsRead => rows,
+    }
+}
+
+/// The N the sizes were measured for (SqlCounters.al:261-267).
+const SIZED_N: [usize; 5] = [1, 2, 5, 10, 20];
+/// Statements of N inserts, and of N inserts and a Count, into an empty table (SqlCounters.al:323-332): inserts are buffered.
+const INSERT_STATEMENTS: [i64; 5] = [0, 0, 1, 2, 4];
+const INSERT_COUNT_STATEMENTS: [i64; 5] = [2, 3, 2, 3, 5];
+
+/// The pinned size (statements, rows read) of a segment that started right after a Commit, where the corpus measured it
+/// (SqlCounters.al:204-395, `RoMeasure`), with N the rows the table held then (the inserts: the rows inserted):
+///
+/// - N times Init and Insert into an empty table: 0/0, 0/0, 1/0, 2/0, 4/0; with a Count after them: 2/1, 3/1, 2/1, 3/1, 5/1;
+/// - N Gets of distinct rows: N/N; N Gets of one row: 1/1; a FindSet with Next to the end: 1/(N+1);
+/// - N times Get and Modify of distinct rows: 2N/2N; Get and Delete: 2N/N; a DeleteAll: 1/0; a Count: 1/1.
+///
+/// Every event is a method that succeeded, without RunTrigger and without AL code inside, on one table of the measured
+/// shape ([`Event::rows_before`]). Anything else (another N, order, mix, table or record state) is not sized.
+fn sized(seg: &[Event]) -> Option<(i64, i64)> {
+    let first = seg.first()?;
+    let rows = first.rows_before?;
+    if seg.len() > 2 * SIZED_N[4] + 1
+        || seg
+            .iter()
+            .any(|e| e.rows_before.is_none() || e.table != first.table || e.temp || e.nested || e.trigger)
+    {
+        return None;
+    }
+    let index = |n: usize| SIZED_N.iter().position(|&m| m == n);
+    let same_key = |a: &Event, b: &Event| match (&a.key, &b.key) {
+        (Some(x), Some(y)) => al_builtins::ops::compare_keys(x, y),
+        _ => false,
+    };
+    let distinct = |evs: &[&Event]| {
+        evs.iter().all(|e| e.key.is_some())
+            && evs
+                .iter()
+                .enumerate()
+                .all(|(i, a)| evs[i + 1..].iter().all(|b| !same_key(a, b)))
+    };
+    // Only the last Next of a FindSet loop does not move (`step_len` checks it).
+    if seg.iter().any(|e| !e.ok && e.kind != Kind::Next) {
+        return None;
+    }
+    if first.kind == Kind::Init {
+        let counted = seg.len() % 2 == 1;
+        let pairs = if counted { &seg[..seg.len() - 1] } else { seg };
+        if rows != 0
+            || (counted && seg[seg.len() - 1].kind != Kind::Count)
+            || !pairs
+                .chunks(2)
+                .all(|p| p[0].kind == Kind::Init && p[1].kind == Kind::Insert)
+        {
+            return None;
+        }
+        let i = index(pairs.len() / 2)?;
+        return Some(if counted {
+            (INSERT_COUNT_STATEMENTS[i], 1)
+        } else {
+            (INSERT_STATEMENTS[i], 0)
+        });
+    }
+    index(rows)?;
+    let n = rows as i64;
+    match first.kind {
+        Kind::Get if seg.len() == rows && seg.iter().all(|e| e.kind == Kind::Get) => {
+            let gets: Vec<&Event> = seg.iter().collect();
+            if distinct(&gets) {
+                Some((n, n))
+            } else if seg.iter().all(|e| same_key(e, first)) {
+                Some((1, 1))
+            } else {
+                None
+            }
+        }
+        Kind::Get if seg.len() == 2 * rows => {
+            let write = seg[1].kind;
+            let pairs_ok = seg
+                .chunks(2)
+                .all(|p| p[0].kind == Kind::Get && p[1].kind == write && same_key(&p[0], &p[1]));
+            let gets: Vec<&Event> = seg.iter().step_by(2).collect();
+            if !pairs_ok || !distinct(&gets) {
+                return None;
+            }
+            match write {
+                Kind::Modify => Some((2 * n, 2 * n)),
+                Kind::Delete => Some((2 * n, n)),
+                _ => None,
+            }
+        }
+        Kind::FindSet if seg.len() == rows + 1 && step_len(seg, Kind::FindSet) == Some(seg.len()) => Some((1, n + 1)),
+        Kind::DeleteAll if seg.len() == 1 => Some((1, 0)),
+        Kind::Count if seg.len() == 1 => Some((1, 1)),
+        _ => None,
+    }
+}
+
 /// The segment is exactly one pinned step (on a temporary record any of them, in any order).
 fn one_step(seg: &[Event]) -> Option<()> {
     let k = seg[0].kind;
@@ -371,7 +523,7 @@ mod tests {
         let first = c.read(SqlCounter::Statements, 0);
         for _ in 0..(3 * LOG_CAP) {
             let e = c.enter(0);
-            c.leave(e, 0, RecordOp::Get, true, 1, &[], None, &Ok(Value::Boolean(true)));
+            c.leave(e, 0, RecordOp::Get, true, 1, &[], None, None, &Ok(Value::Boolean(true)));
         }
         assert!(c.log.len() <= LOG_CAP);
         let Value::SqlCount(a) = first else { panic!() };

@@ -2087,6 +2087,7 @@ impl Session {
     #[inline(never)]
     fn record_op_counted(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let entry = self.sql.enter(self.calls_made);
+        let rows_before = self.sql_sized_rows(rec);
         let r = self.record_op_tracked(method, rec, args);
         let (temp, table) = {
             let s = rec.borrow();
@@ -2100,8 +2101,51 @@ impl Session {
             None
         };
         let calls = self.calls_made;
-        self.sql.leave(entry, calls, method, temp, table, args, key, &r);
+        self.sql
+            .leave(entry, calls, method, temp, table, args, key, rows_before, &r);
         r
+    }
+
+    /// The rows of `rec`'s table, when the record and the table are of the shape whose SQL counter sizes the corpus measured
+    /// (session/lt-bl-sql-counters/SqlCounters.al:7-20, :204-276): a database table of one Integer key field and one Text
+    /// field, and a record with no filter, mark, key, order, load fields, auto-calculated fields, isolation or company set.
+    fn sql_sized_rows(&mut self, rec: &Rec) -> Option<usize> {
+        {
+            let s = rec.borrow();
+            let plain = !s.temporary
+                && !s.crm
+                && s.company.is_none()
+                && s.filters.is_empty()
+                && !s.marked_only
+                && s.read_isolation == 0
+                && s.security_filtering == 0
+                && s.key == 0
+                && s.adhoc.is_none()
+                && s.ascending
+                && s.field_descending == 0
+                && s.load.request.is_none()
+                && s.auto_calc.is_empty()
+                && s.run_page_link.is_none()
+                && s.unpinned_buffer.is_none();
+            if !plain {
+                return None;
+            }
+        }
+        let t = self.table(rec).ok()?;
+        let user: Vec<&al_data::FieldDef> = t.fields.iter().filter(|f| f.id < 2_000_000_000).collect();
+        let shape = matches!(
+            &user[..],
+            [k, v] if k.stored && v.stored && k.ty == RtType::Integer && matches!(v.ty, RtType::Text(_))
+        ) && t.keys.first().is_some_and(|k| k[..] == [0])
+            && t.keys
+                .iter()
+                .skip(1)
+                .all(|k| k.iter().all(|&i| t.fields[i].id >= 2_000_000_000));
+        if !shape {
+            return None;
+        }
+        let cx = self.cx_for(rec, &t).ok()?;
+        self.store_for(rec).count(&cx, &t, &[]).ok()
     }
 
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {

@@ -1,8 +1,8 @@
 //! The values of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
-//! BC counts real SQL work; the corpus pins only properties of the count, never a number
-//! (session/lt-bl-sql-counters/SqlCounters.al:4: "only properties are observed (sign of a difference, equal or not), never a
-//! count"). The runtime's counters are a model: the VM adds one for each pinned increase between two reads
+//! BC counts real SQL work; the corpus pins properties of the count (session/lt-bl-sql-counters/SqlCounters.al:4: "only
+//! properties are observed (sign of a difference, equal or not)"), and the size of the change only for the shapes
+//! SqlCounters.al:204-395 measured (issue 5761). The runtime's counters are a model: the VM adds one for each pinned increase between two reads
 //! (`al-vm/src/sqlcount.rs`). So a value read from a counter is tainted ([`Value::SqlCount`]): it may be stored in a
 //! BigInteger or a Variant, passed on, and subtracted from another read of the same counter, and it may reach a comparison
 //! only where the pins decide the answer:
@@ -11,6 +11,9 @@
 //! - two reads of the same counter with only classified segments between them (the same epoch), or a difference of two such
 //!   reads against 0 or against another difference whose sign makes the answer certain (the sign of a change:
 //!   SqlCounters.al:51-58, :105-202).
+//!
+//! Two reads of one chain have between them only segments whose size the corpus pins (al-vm `sqlcount.rs`): their
+//! difference is that size, a plain BigInteger (SqlCounters.al:204-395).
 //!
 //! Every other use (another number, Format, a text, a record field, a list, a Decimal, `*`, `/`) would show the model's
 //! number, which nothing pins: it is refused.
@@ -35,7 +38,7 @@ pub fn refusal_text(what: &str) -> String {
 
 /// An operand of a tainted operation.
 enum Opnd {
-    Read(i64, SqlCounter, u32),
+    Read(i64, SqlCounter, u32, u32),
     Delta(i64),
     Zero,
     Other,
@@ -44,7 +47,7 @@ enum Opnd {
 fn opnd(v: &Value) -> Opnd {
     match v {
         Value::SqlCount(c) => match c.form {
-            SqlForm::Read { counter, epoch } => Opnd::Read(c.n, counter, epoch),
+            SqlForm::Read { counter, epoch, chain } => Opnd::Read(c.n, counter, epoch, chain),
             SqlForm::Delta => Opnd::Delta(c.n),
         },
         Value::Integer(0) | Value::BigInteger(0) => Opnd::Zero,
@@ -76,7 +79,10 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         (Arith::Add | Arith::Sub, Opnd::Read(..) | Opnd::Delta(_), Opnd::Zero) => Some(l.clone()),
         (Arith::Add, Opnd::Zero, Opnd::Read(..) | Opnd::Delta(_)) => Some(r.clone()),
         (Arith::Sub, Opnd::Zero, Opnd::Delta(b)) => Some(delta(-b)),
-        (Arith::Sub, Opnd::Read(a, ca, ea), Opnd::Read(b, cb, eb)) if ca == cb && ea == eb => Some(delta(a - b)),
+        (Arith::Sub, Opnd::Read(a, ca, ea, ha), Opnd::Read(b, cb, eb, hb)) if ca == cb && ea == eb && ha == hb => {
+            Some(Value::BigInteger(a - b))
+        }
+        (Arith::Sub, Opnd::Read(a, ca, ea, _), Opnd::Read(b, cb, eb, _)) if ca == cb && ea == eb => Some(delta(a - b)),
         (Arith::Add | Arith::Sub, Opnd::Delta(a), Opnd::Delta(b)) => certain_sum(a, neg(b)).map(delta),
         _ => None,
     };
@@ -86,7 +92,7 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
 /// The sign of `l - r` where the pins decide it, for an operator that needs the whole order.
 fn certain_order(l: &Opnd, r: &Opnd) -> Option<Ordering> {
     match (l, r) {
-        (Opnd::Read(a, ca, ea), Opnd::Read(b, cb, eb)) if ca == cb && ea == eb => Some(a.cmp(b)),
+        (Opnd::Read(a, ca, ea, _), Opnd::Read(b, cb, eb, _)) if ca == cb && ea == eb => Some(a.cmp(b)),
         (Opnd::Delta(a), Opnd::Delta(b)) => certain_sum(*a, -*b).map(|d| d.cmp(&0)),
         (Opnd::Delta(a), Opnd::Zero) => Some(a.cmp(&0)),
         (Opnd::Zero, Opnd::Delta(b)) => Some(0.cmp(b)),
@@ -141,14 +147,33 @@ impl Cmp {
 mod tests {
     use super::*;
 
-    fn read(n: i64, epoch: u32) -> Value {
+    fn read_in(n: i64, epoch: u32, chain: u32) -> Value {
         Value::SqlCount(SqlCount {
             n,
             form: SqlForm::Read {
                 counter: SqlCounter::Statements,
                 epoch,
+                chain,
             },
         })
+    }
+
+    /// A read whose chain is its number: two reads of one epoch with different numbers know only the sign of the change.
+    fn read(n: i64, epoch: u32) -> Value {
+        read_in(n, epoch, n as u32)
+    }
+
+    #[test]
+    fn a_difference_of_two_reads_of_one_chain_is_its_size() {
+        assert!(matches!(
+            arith(Arith::Sub, &read_in(5, 1, 7), &read_in(2, 1, 7)).unwrap(),
+            Value::BigInteger(3)
+        ));
+        assert!(matches!(
+            arith(Arith::Sub, &read_in(5, 1, 7), &read_in(2, 1, 8)).unwrap(),
+            Value::SqlCount(_)
+        ));
+        assert!(arith(Arith::Sub, &read_in(5, 2, 7), &read_in(2, 1, 7)).is_err());
     }
 
     #[test]
