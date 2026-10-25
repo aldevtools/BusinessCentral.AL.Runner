@@ -137,9 +137,11 @@ impl Session {
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
         let field = self.control_field(st, idx);
-        // A control bound to a field of another record variable of the page: only that field's OptionCaption is used, outside a
-        // repeater (al-runner issue 5822, the reporter's real-BC repro; assumption other-record-control-option-caption). Its other
-        // formatting properties are not pinned and refused.
+        // A control bound to a field of another record variable of the page takes that field's OptionCaption (from BC 29), enum
+        // captions, DecimalPlaces, AutoFormatType and AutoFormatExpression (a field of the row read from that record), in a group
+        // and in a repeater, as a control bound to a field of Rec does; it does not take BlankZero, BlankNumbers or ClosingDates
+        // (pages/lt-sa-other-record-control/SaOtherRecordControl.al:9-15, SA_Option_EveryMember, SA_Enum_Bool_Date_Text,
+        // SA_Decimal_*). OptionCaptionML there is not pinned and refused.
         let var_field = ctl
             .var_field
             .and_then(|(t, p)| engine.program.objects[t].table.as_ref().map(|tb| tb.fields[p].clone()));
@@ -151,36 +153,50 @@ impl Session {
                     .find(|(k, _)| k.eq_ignore_ascii_case(n))
                     .map(|(_, v)| v.clone())
             };
-            for n in [
-                "DecimalPlaces",
-                "AutoFormatType",
-                "AutoFormatExpression",
-                "BlankZero",
-                "BlankNumbers",
-                "ClosingDates",
-                "OptionCaptionML",
-            ] {
-                if has(n).is_some() {
-                    return unsupported(format!(
-                        "a control bound to field {} of another record variable, which declares {n} (not pinned)",
-                        vf.name
-                    ));
-                }
+            if has("OptionCaptionML").is_some() {
+                return unsupported(format!(
+                    "a control bound to field {} of another record variable, which declares OptionCaptionML (not pinned)",
+                    vf.name
+                ));
             }
             if let Some(c) = has("OptionCaption")
                 .filter(|_| ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none())
             {
-                if self.in_repeater(st, idx) {
+                // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
+                if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
                     return unsupported(format!(
-                        "a repeater control bound to Option field {} of another record variable, which declares an OptionCaption (not pinned)",
+                        "a control bound to Option field {} of another record variable before BC 29 (the member names were seen on Linux only; not pinned)",
                         vf.name
                     ));
                 }
                 var_captions = Some(c);
             }
         }
+        // The field whose DecimalPlaces and AutoFormat the control takes, and the record its AutoFormatExpression reads.
+        let format_field = field.clone().or_else(|| var_field.clone());
+        let format_rec = if field.is_none() && var_field.is_some() {
+            let Some(slot) = ctl.var_slot else {
+                return unsupported(
+                    "a control bound to a field of another record variable whose variable is not known",
+                );
+            };
+            match self.owner_instance(st, None).borrow().globals[slot].clone() {
+                Value::Record(r) => Some(r),
+                _ => return unsupported("a control bound to a field of another record variable that holds no record"),
+            }
+        } else {
+            None
+        };
         let from_field = |n: &str| {
             field.as_ref().and_then(|f| {
+                f.properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                    .map(|(_, v)| v.clone())
+            })
+        };
+        let from_format_field = |n: &str| {
+            format_field.as_ref().and_then(|f| {
                 f.properties
                     .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case(n))
@@ -198,8 +214,8 @@ impl Session {
         // `field_expression` is its text.
         let mut field_expression = None;
         if ctl.prop("autoformatexpression").is_none() {
-            if let Some(f) = field.as_ref() {
-                let text = from_field("autoformatexpression");
+            if let Some(f) = format_field.as_ref() {
+                let text = from_format_field("autoformatexpression");
                 if text.as_deref().is_some_and(|e| !is_text_literal(e)) {
                     // BC runs an expression that calls a procedure when the page fetches the row (open, Next,
                     // GoToRecord), not when the text is read (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:421
@@ -228,7 +244,7 @@ impl Session {
                             f.name
                         ));
                     }
-                    let rec = self.page_rec(st);
+                    let rec = format_rec.clone().unwrap_or_else(|| self.page_rec(st));
                     field_expression = match self.call_on_record(object, routine, rec, None, Vec::new())?.0 {
                         Value::Text(t) | Value::Code(t) => Some(t.into_string()),
                         other => {
@@ -243,7 +259,7 @@ impl Session {
             }
         }
         // The field's AutoFormatExpression: what its expression gave, else its literal text.
-        let field_afe = field_expression.or_else(|| from_field("autoformatexpression").map(|e| unquote(&e)));
+        let field_afe = field_expression.or_else(|| from_format_field("autoformatexpression").map(|e| unquote(&e)));
         // The precision of the table field's AutoFormatExpression beats the control's DecimalPlaces when the control names no
         // expression of its own (pages/lt-page-autoformat-lookups/P113AutoFormat.al: PDec `DecimalPlaces = 1 : 1` over a field
         // with `<Precision,3:3>` shows three places).
@@ -255,7 +271,7 @@ impl Session {
         let mut f = ControlFormat {
             decimal_places: field_precision.or_else(|| {
                 lit("decimalplaces")
-                    .or_else(|| from_field("decimalplaces"))
+                    .or_else(|| from_format_field("decimalplaces"))
                     .and_then(|p| pagefmt::parse_decimal_places(&p))
             }),
             ..Default::default()
@@ -281,7 +297,7 @@ impl Session {
             // amount or a unit amount, from the currency the expression names
             // (autoformat/PWAutoFormatTypes.al, see `auto_format_places`).
             if f.decimal_places.is_none() {
-                let kind = lit("autoformattype").or_else(|| from_field("autoformattype"));
+                let kind = lit("autoformattype").or_else(|| from_format_field("autoformattype"));
                 if let Some(kind) = kind
                     .as_deref()
                     .map(str::trim)
@@ -351,7 +367,6 @@ impl Session {
         }
         if f.option_captions.is_none() {
             if let Some(c) = var_captions {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OtherRecordControlOptionCaption);
                 f.option_captions = Some(unquote(&c).split(',').map(str::to_string).collect());
             }
         }
@@ -1273,6 +1288,15 @@ impl Session {
         // CueGroup_SetValue_IsSilentlyIgnored).
         if matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Caption) {
             return Ok(false);
+        }
+        // A control bound to a field of another record variable of the page follows the control, not the field's Editable = false
+        // (pages/lt-sa-other-record-control/SaOtherRecordControl.al:785 SA_Editable_Visible `edit-GLocked` Yes, `edit-GNotEditable`
+        // No). A control bound to another expression (`Format(Settings."Avail. Filter")`) reads No there (`edit-GOptText`), which
+        // one shape does not pin for every expression: refused.
+        if matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Expr(_))
+            && page_of(&engine, st).controls[idx].var_field.is_none()
+        {
+            return unsupported("Editable() of a control bound to an expression (not pinned)");
         }
         let mut cue = page_of(&engine, st).controls[idx].parent;
         while let Some(p) = cue {

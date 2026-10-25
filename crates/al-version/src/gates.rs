@@ -200,6 +200,11 @@ pub enum Gate {
     /// corpus ignores (al-language-onprem/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
     /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
     DocxMediaRezippedFrom29,
+    /// A page control bound to an Option field of another record variable of the page shows the field's OptionCaption from BC 29
+    /// (Windows and the Linux CI legs); BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect whose Windows
+    /// check is queued (pages/lt-sa-other-record-control/SaOtherRecordControl.al:13-15, the BC29PLUS guards). Consumed by `al-vm`
+    /// pages/format.rs `control_format`: before 29 such a control is refused.
+    OtherRecordOptionCaptionFrom29,
     /// Corpus bump 61 pinned that `MediaSet.ImportFile` of a .jpg file holding a JPEG keeps the file's bytes on BC 29 and BC 27
     /// and 28 re-encode it. Corpus bump 62 dropped that assertion (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus
     /// issue 723), so `MediaSet.ExportFile` no longer consumes this gate. Its one consumer is the registered assumption
@@ -269,6 +274,7 @@ impl Gate {
         Gate::HttpHeaderNameRulesProbedFrom28,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::DocxMediaRezippedFrom29,
+        Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::TestCodeunitOnRunRowFrom28,
     ];
@@ -304,6 +310,7 @@ impl Gate {
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
             | Gate::DocxMediaRezippedFrom29
+            | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
@@ -362,6 +369,10 @@ impl Gate {
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",
                 lines: "506,511",
+            }],
+            Gate::OtherRecordOptionCaptionFrom29 => &[Evidence {
+                file: "pages/lt-sa-other-record-control/SaOtherRecordControl.al",
+                lines: "284,290,295,300",
             }],
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/media/MediaFiles.al",

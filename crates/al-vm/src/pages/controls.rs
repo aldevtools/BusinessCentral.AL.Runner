@@ -881,6 +881,10 @@ impl Session {
                 self.page_validate_event(st, "onbeforevalidateevent", &element)?;
             }
             if let Some(r) = ctl.trigger("onvalidate") {
+                if self.has_source(st) {
+                    let filters = format!("{:?}", self.page_rec(st).borrow().filters);
+                    st.borrow_mut().filters_before_validate = Some(filters);
+                }
                 if let Err(e) = self.control_routine(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);

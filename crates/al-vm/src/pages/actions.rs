@@ -1477,6 +1477,120 @@ impl Session {
         unsupported("an action left the list's view without rows (not pinned)")
     }
 
+    /// `CurrPage.Update` in a control's OnValidate that changed the filters of the page's record, on a list (a Worksheet or a
+    /// List, no part) that reads its rows from the table and declares OnAfterGetRecord and OnAfterGetCurrRecord: the client reads
+    /// the rows as after an action, without the read of the row before them (`read_list_again_from_row`). It stands on the row,
+    /// else on the next row of the filtered view after the old key, else on the one before it; a view left without rows shows a
+    /// blank row, and from the blank row a view with rows again opens on its first row (pages/lt-rz-outside-page-moves/
+    /// RzUpdateFromValidate.al:27-99 the Worksheet, Update(false) and Update(true), :126 and :151 the filter removed again,
+    /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). `false` for every other page or call: the refresh runs as before.
+    fn refresh_after_validate_filter(
+        &mut self,
+        st: &St,
+        filters_before: Option<String>,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<bool, Signal> {
+        let Some(before) = filters_before else {
+            return Ok(false);
+        };
+        let shape = {
+            let s = st.borrow();
+            s.open && !s.dirty && !s.draft && s.host.is_none() && !s.new_line
+        };
+        if !shape
+            || !self.has_source(st)
+            || !self.is_list(st)
+            || !self.declares(st, "onaftergetrecord")
+            || !self.declares(st, "onaftergetcurrrecord")
+        {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        if before == format!("{:?}", rec.borrow().filters) {
+            return Ok(false);
+        }
+        match (self.declares(st, "onfindrecord"), self.declares(st, "onnextrecord")) {
+            (true, true) if st.borrow().cursor == Cursor::Row && !st.borrow().view_left => {
+                self.refresh_list_with_find_as(st, true)?;
+                return Ok(true);
+            }
+            (false, false) => {}
+            _ => return Ok(false),
+        }
+        let on_row = st.borrow().cursor == Cursor::Row;
+        if on_row && self.stored_row(&rec)?.is_none() {
+            return Ok(false);
+        }
+        if !on_row && st.borrow().cursor != Cursor::None {
+            return Ok(false);
+        }
+        let curr = |this: &mut Self| -> Result<(), Signal> {
+            let r = (|| {
+                if without_curr {
+                    return Ok(true);
+                }
+                this.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                this.page_event(st, "onaftergetcurrrecordevent", None, None)
+            })();
+            this.torn_down_on_error(st, r)?;
+            st.borrow_mut().refresh = false;
+            if !without_parts {
+                this.sync_parts(st)?;
+            }
+            Ok(())
+        };
+        if self.view_row_count(st)? == 0 {
+            if !on_row {
+                return Ok(false);
+            }
+            // No row left: a blank row, its key from a single-valued filter, and OnAfterGetCurrRecord on it (RZ_PlainWs_B_Empty
+            // `A:filter B;A:done B;C:`).
+            {
+                let mut s = st.borrow_mut();
+                s.cursor = Cursor::None;
+                s.window = Vec::new();
+                s.focus = None;
+                s.focus_in_row = false;
+            }
+            let table = rec.borrow().table as usize;
+            let fresh = self.initial_fields(table);
+            rec.borrow_mut().fields = fresh;
+            self.stamp_from_filters(st, false)?;
+            curr(self)?;
+            return Ok(true);
+        }
+        if !on_row {
+            // From the blank row: the first row of the view (RZ_PlainWs_B_Empty_ThenCleared `R:A;...;R:F;R:A;R:A;C:A`).
+            self.ret_used = true;
+            if !matches!(
+                self.record_op(RecordOp::Find, &rec, &mut [Value::Text("-".into())])?,
+                Value::Boolean(true)
+            ) {
+                return Ok(false);
+            }
+            let mut s = st.borrow_mut();
+            s.cursor = Cursor::Row;
+            s.window_from_start = true;
+        }
+        // The client reads the new view from its first row: the rows it held do not matter.
+        st.borrow_mut().window_from_start = true;
+        let key = self.row_key(&rec)?;
+        self.read_list_again_from_row_as(st, &rec, &key, false)?;
+        let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut pk)?;
+        self.populate_current(st)?;
+        curr(self)?;
+        // The rows the client held are those of the old filters: the next move reads the new view (RZ_PlainWs_B_G1 `next`
+        // `Yes|E`, `rows` `A,C,E,`).
+        let mut s = st.borrow_mut();
+        s.window.clear();
+        s.window_from_start = false;
+        s.window_top_unread = false;
+        Ok(true)
+    }
+
     /// The reads of an action on a list whose cursor is not on the first row: the row again, the rows from it on (up to 20),
     /// the row again when the view goes on past it, the rows back to the first one, and the row twice more before the refresh's
     /// own read. Pinned by misc/lt-probes-needed-6/PnF05ActionReads.al:Action_List_LaterRow (row 2 and 3 of 3 rows: 7 and 6
@@ -1485,6 +1599,18 @@ impl Session {
     /// and misc/lt-probes-needed-7/PnGListUpdate.al:ListModifyWithAndWithoutUpdate (`U2;U2;U3;U2;U1;U2;U2;C`). Only a page that declares both row triggers and serves its rows from the table is
     /// pinned; the identities of the rows beyond the window held are the table order.
     fn read_list_again_from_row(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<(), Signal> {
+        self.read_list_again_from_row_as(st, rec, key, true)
+    }
+
+    /// [`Self::read_list_again_from_row`]; `read_first` false leaves out the read of the row before the others (a refresh after a
+    /// control's OnValidate, `refresh_after_validate_filter`).
+    fn read_list_again_from_row_as(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        key: &[Value],
+        read_first: bool,
+    ) -> Result<(), Signal> {
         let ok = self.declares(st, "onaftergetrecord") && st.borrow().window_from_start;
         if !ok {
             // Other shapes are not pinned: the refresh alone stays (docs/probes-needed.md).
@@ -1504,7 +1630,9 @@ impl Session {
         let mut rows = Vec::new();
         let save_after = std::mem::take(&mut st.borrow_mut().save_after_first_read);
         let read_xrec = save_after.then(|| self.page_xrec_fields(st));
-        self.populate_current(st)?;
+        if read_first {
+            self.populate_current(st)?;
+        }
         if let Some(x) = read_xrec {
             self.set_xrec_fields(st, x);
             st.borrow_mut().dirty = true;
@@ -1676,7 +1804,11 @@ impl Session {
         let without_parts = std::mem::take(&mut st.borrow_mut().refresh_without_parts);
         let read_done = std::mem::take(&mut st.borrow_mut().refresh_read_done);
         let by_update = std::mem::take(&mut st.borrow_mut().refresh_by_update);
+        let filters_before = std::mem::take(&mut st.borrow_mut().filters_before_validate);
         if !std::mem::take(&mut st.borrow_mut().refresh) || read_done {
+            return Ok(());
+        }
+        if by_update && self.refresh_after_validate_filter(st, filters_before, without_curr, without_parts)? {
             return Ok(());
         }
         // A page that shows no stored row (an empty view, or a list on its new line) whose view now has rows, for example
@@ -1764,8 +1896,9 @@ impl Session {
         // BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord reaches it: Bin Contents (page 7374) filters to a location
         // without rows in a control's OnValidate.
         // On a page without the row triggers, the list settles on the next row of the view after the old key, else the one
-        // before it, as after an action: only the reporter's real-BC repro shows it (al-runner issue 5824), an assumption.
-        // With a row trigger, or a view left without rows, it stays refused.
+        // before it, as after an action (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:9-12: the same row on the Worksheet
+        // and the List, with and without OnFindRecord and OnNextRecord; without the row triggers nothing else is seen). The pages
+        // with the row triggers go through `refresh_after_validate_filter`; there, or with a view left without rows, it stays refused.
         if by_update && self.is_list(st) && !st.borrow().dirty {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
             self.ret_used = true;
@@ -1798,9 +1931,6 @@ impl Session {
                         "CurrPage.Update on a list whose filters left the row it stands on, outside an action (which row it shows then is not pinned)",
                     );
                 };
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::UpdateFromValidateSettlesAsAfterAction,
-                );
                 rec.borrow_mut().fields = fields;
             }
         }
@@ -1837,7 +1967,17 @@ impl Session {
     /// `Next` moves the record (assumption update-refresh-list-onfindrecord), and a view that fills
     /// a window stays refused.
     fn refresh_list_with_find(&mut self, st: &St) -> Result<(), Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::UpdateRefreshListOnFindRecord);
+        self.refresh_list_with_find_as(st, false)
+    }
+
+    /// [`Self::refresh_list_with_find`]; `after_validate`: the refresh after a control's OnValidate changed the filters, on a list
+    /// with OnFindRecord, OnNextRecord and both row triggers. Pinned there (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al
+    /// RZ_LoggedWs_B_G1 `A:done B;F:=>=Yes;R:C;N:1=1;R:E;N:1=0;R:C;N:-1=-1;R:A;N:-1=0;R:C;F:==Yes;R:C;C:C`, RZ_LoggedWs_A_G2, the
+    /// Update(true) case): no read of the row first, and `=><` when `=>` finds nothing (RZ_LoggedWs_F_G1 `F:=>=No;F:=><=Yes;R:E`).
+    fn refresh_list_with_find_as(&mut self, st: &St, after_validate: bool) -> Result<(), Signal> {
+        if !after_validate {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::UpdateRefreshListOnFindRecord);
+        }
         let rec = self.page_rec(st);
         let view_left = std::mem::take(&mut st.borrow_mut().view_left);
         let with_current = self.declares(st, "onaftergetcurrrecord");
@@ -1865,9 +2005,11 @@ impl Session {
                     rec.borrow_mut().fields = fields;
                 }
             }
-            self.page_trigger(st, "onaftergetrecord", vec![])?;
+            if !after_validate {
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+            }
         }
-        if !self.nav_find(st, "=>")? {
+        if !self.nav_find(st, "=>")? && !(after_validate && self.nav_find(st, "=><")?) {
             return unsupported("OnFindRecord finds no row after CurrPage.Update on a list (not pinned)");
         }
         let mut forward = Vec::new();

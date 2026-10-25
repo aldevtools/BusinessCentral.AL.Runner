@@ -632,49 +632,11 @@ registry! {
         tests: "No. Series - Batch Impl.UpdateNoSeriesLine (Get, TransferFields from the batch's temporary line, Modify(true)) in Gen. Jnl.-Post Batch; 110 Tests-ERM tests (for example Payment Export Validation UT CustLedgEntryBankAccountMissingFormat).",
         probe: "A buffer read by FindFirst, by assignment from another variable and by TransferFields from a temporary copy, made stale by a Commit, then the row written in the new transaction (changed and unchanged Modify), then a Modify through the buffer: accepted or DB:RecordChanged, and the stored row.",
     },
-    ResetClearsLoadFields => {
-        id: "reset-clears-load-fields",
-        assumed: "Reset drops the record's SetLoadFields request: the next fetch loads every field. The corpus case record/lt-record-read/RcAMisc.al:808-830 (SetLoadFields_Blank_Resets_To_All `afterReset`) passes either way, because it fetches the full row first.",
-        tests: "No Microsoft test: al-runner issue 5764 Q3 (the reporter's SetLoadFields(Description); Reset; FindFirst reads AreFieldsLoaded(Notes) Yes on the reporter's real BC container).",
-        probe: "SetLoadFields(a field), Reset, then FindFirst with no fetch before: AreFieldsLoaded of a field not in the request. Also after AddLoadFields, and Init and Clear in place of Reset.",
-        awaiting: Awaiting {
-            issues: &[5764],
-            files: &["tests/al-language/record/lt-outside-records/ResetClearsLoadFields.al"],
-            since: "2026-10-25",
-        },
-    },
-    RunPageLinkTargetView => {
-        id: "run-page-link-target-view",
-        assumed: "A List reached by an action's RunObject with RunPageOnRec, RunPageLink or RunPageView, whose page declares SourceTableView, combines the two as Page.Run with a record does (P145PageRunView.al): the link in filter group 0, the view's filters in group 2, the view's SORTING and ORDER set the key and direction; it lists the rows of both and opens on the first. What the target's OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card); the rows and the open row of a List are not. Measured by the reporter on real BC of the newest major (al-runner issue 5826).",
-        tests: "No Microsoft test: al-runner issue 5826 (RunPageLink to Item Ledger Entries, page 38, whose view is sorting(\"Entry No.\") order(descending)).",
-        probe: "RunPageLink to a List with SourceTableView = sorting(...) order(descending), = where(...), and both, RunPageView beside it: the open row and the rows from First/Next.",
-        awaiting: Awaiting {
-            issues: &[5826],
-            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzRunPageLinkView.al"],
-            since: "2026-10-25",
-        },
-    },
-    UpdateFromValidateSettlesAsAfterAction => {
-        id: "update-from-validate-settles-as-after-action",
-        assumed: "CurrPage.Update called from a control's OnValidate on a list whose filters no longer hold the row it stands on settles on the next row of the view after the old key, else the one before it, as after an action (pages/lt-ai-list-order/AiListOrderTests.al:311, :477). Only on a page that declares none of OnFindRecord, OnNextRecord, OnAfterGetRecord and OnAfterGetCurrRecord: the reads there are not pinned. A view left without rows stays refused. Measured by the reporter on real BC of the newest major (al-runner issue 5824).",
-        tests: "No Microsoft test: al-runner issue 5824 (a Worksheet whose header filter field's OnValidate calls SetRange and CurrPage.Update(false)).",
-        probe: "A Worksheet and a List whose header field's OnValidate sets a filter that leaves the current row, then CurrPage.Update(false) and Update(true): the current row, the rows from First/Next, and the trigger log; a filter that leaves no row.",
-        awaiting: Awaiting {
-            issues: &[5824],
-            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al"],
-            since: "2026-10-25",
-        },
-    },
-    DbWorksheetSecondaryKeyOpensOnRec => {
-        id: "db-worksheet-secondary-key-opens-on-rec",
-        assumed: "A Worksheet over a database table, opened without a record, whose OnOpenPage left Rec on a row in a key other than the primary key, opens on the row `=><` from Rec reaches in that key, in lookup mode too, as it does in the primary key (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263-417). Only on a page that declares none of OnNextRecord, OnAfterGetRecord and OnAfterGetCurrRecord: the reads there are not pinned. Measured by the reporter on real BC of the newest major (al-runner issue 5825).",
-        tests: "No Microsoft test: al-runner issue 5825 (page 1328 Purch. Order From Sales Order, run in lookup mode by codeunit 1018 Purchase Doc. From Job).",
-        probe: "A database Worksheet whose OnOpenPage sets a secondary key and leaves Rec before, inside and after the view it then sets: the open row for RunModal in lookup mode, OpenEdit and OpenView.",
-        awaiting: Awaiting {
-            issues: &[5825],
-            files: &["tests/al-language/pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al"],
-            since: "2026-10-25",
-        },
+    RunObjectTargetViewWithoutLink => {
+        id: "run-object-target-view-without-link",
+        assumed: "A List reached by an action's RunObject with RunPageOnRec, or with RunPageView and no RunPageLink, whose page declares SourceTableView, combines the two as RunPageLink does (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al): the view's filters in group 2, the action's RunPageView where filter in group 3, the target's SORTING and ORDER kept; it lists the rows of both and opens on the first. RunPageLink beside the view is pinned by that file.",
+        tests: "No Microsoft test: the reporter shape with RunPageLink is pinned; RunPageOnRec and RunPageView alone keep the same rule.",
+        probe: "RunPageOnRec, and RunPageView without RunPageLink, to a List with SourceTableView = sorting(...) order(descending), = where(...), and both: the open row, the rows from First/Next and Filter.GetFilter of the view's field.",
     },
     StaleInsertBufferOwnModify => {
         id: "stale-insert-buffer-own-modify",
@@ -684,17 +646,6 @@ registry! {
         awaiting: Awaiting {
             issues: &[5823],
             files: &["tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al"],
-            since: "2026-10-25",
-        },
-    },
-    OtherRecordControlOptionCaption => {
-        id: "other-record-control-option-caption",
-        assumed: "A page control bound to an Option field of another record variable of the page (`Settings.\"Avail. Filter\"`) shows the field's OptionCaption, as a control bound to a field of Rec does. Other formatting properties of such a field (DecimalPlaces, AutoFormat, BlankZero, OptionCaptionML, ClosingDates) are not run. Measured by the reporter on real BC on Windows (the newest major) (al-runner issue 5822).",
-        tests: "No Microsoft test: al-runner issue 5822 (1 test of a partner app).",
-        probe: "A control bound to a field of a global record and of a temporary record: OptionCaption, OptionCaptionML, a blank member, DecimalPlaces, AutoFormatType 1 and 2 with a field expression, BlankZero; on a header group and in a repeater.",
-        awaiting: Awaiting {
-            issues: &[5822],
-            files: &["tests/al-language/pages/lt-sa-other-record-control/SaOtherRecordControl.al"],
             since: "2026-10-25",
         },
     },

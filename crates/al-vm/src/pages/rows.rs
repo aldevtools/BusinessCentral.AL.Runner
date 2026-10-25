@@ -2220,7 +2220,22 @@ impl Session {
                     }
                     found
                 }
-                Cursor::Row => self.nav_next(st, -1)?,
+                Cursor::Row => {
+                    let moved = self.nav_next(st, -1)?;
+                    // On a Worksheet over a database table in a key other than the primary key, a First right after a Previous that
+                    // found no row before the first one reads nothing (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al
+                    // RZ_RunModal_RecBeforeView `after close log`: `previous again` then `First` add no read).
+                    if !moved
+                        && matches!(
+                            self.engine.object_facts[st.borrow().object as usize].page_type,
+                            Some(al_ir::PageType::Worksheet)
+                        )
+                        && self.reads_once_more_in_its_key(st)
+                    {
+                        st.borrow_mut().settled_first_row = true;
+                    }
+                    moved
+                }
                 Cursor::None => false,
             },
             _ => unreachable!(),

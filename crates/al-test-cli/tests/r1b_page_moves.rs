@@ -1,6 +1,5 @@
 //! Three page moves al-runner refused, each from a reporter's repro that passes on real BC 29 (al-runner issues 5824, 5825,
-//! 5826). What the corpus pins runs clean; the rest runs on a registered assumption that awaits the writer's files in
-//! pages/lt-rz-outside-page-moves/.
+//! 5826). The corpus pins all three (pages/lt-rz-outside-page-moves/): they run clean, no assumption is marked.
 
 use al_testkit::{blocked, compile};
 use al_testrun::Outcome;
@@ -174,9 +173,9 @@ fn run_page_link_to_a_list_with_a_source_table_view_applies_both() {
     let (out, hits) = run(LINK_VIEW, "Repro Link To View Tests");
     assert_eq!(of(&out, "LinkToDescendingView"), Outcome::Pass);
     assert_eq!(of(&out, "LinkToWhereView"), Outcome::Pass);
-    // The rows and the open row of a List reached this way are the assumption (the Page.Run one is not marked).
+    // Pinned by pages/lt-rz-outside-page-moves/RzRunPageLinkView.al.
     for t in ["LinkToDescendingView", "LinkToWhereView"] {
-        assert_eq!(hits_of(&hits, t), vec![Assumption::RunPageLinkTargetView], "{t}");
+        assert_eq!(hits_of(&hits, t), Vec::<Assumption>::new(), "{t}");
     }
 }
 
@@ -304,11 +303,7 @@ fn update_after_a_validate_filter_left_the_row_settles_as_after_an_action() {
         "FilterLeavesLastRow",
     ] {
         assert_eq!(of(&out, t), Outcome::Pass, "{t}");
-        assert_eq!(
-            hits_of(&hits, t),
-            vec![Assumption::UpdateFromValidateSettlesAsAfterAction],
-            "{t}"
-        );
+        assert_eq!(hits_of(&hits, t), Vec::<Assumption>::new(), "{t}");
     }
 }
 
@@ -449,11 +444,7 @@ fn database_worksheet_in_a_secondary_key_opens_where_the_rec_lands() {
         assert_eq!(of(&out, t), Outcome::Pass, "{t}");
     }
     for t in ["SecondaryKeyRecBeforeTheView", "SecondaryKeyRecInsideTheView"] {
-        assert_eq!(
-            hits_of(&hits, t),
-            vec![Assumption::DbWorksheetSecondaryKeyOpensOnRec],
-            "{t}"
-        );
+        assert_eq!(hits_of(&hits, t), Vec::<Assumption>::new(), "{t}");
     }
     // The primary key is pinned (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263-417).
     assert_eq!(hits_of(&hits, "PrimaryKeyRecBeforeTheView"), vec![]);

@@ -913,6 +913,9 @@ pub struct Control {
     /// object index and the field's position in it.
     #[serde(default)]
     pub var_field: Option<(usize, usize)>,
+    /// For a control with a `var_field`: the slot of that record variable among the page's globals.
+    #[serde(default)]
+    pub var_slot: Option<usize>,
 }
 
 /// The action an `actionref` delegates to.

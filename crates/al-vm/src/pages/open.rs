@@ -1028,9 +1028,14 @@ impl Session {
             return Ok(());
         }
         let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
-        if !matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List))
-            || st.borrow().lookup
-            || self.declares(st, "onnextrecord")
+        // A Worksheet over a database table reads the row first by every route, run modally and in lookup mode too
+        // (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al RZ_Lookup_RecBeforeView `O:HDR;R:HDR;R:X;...`,
+        // RZ_RunModal_*, RZ_OpenEdit_*, RZ_OpenView_*, also when Rec is the first row of the view, RZ_Lookup_RecFirstOfView).
+        let worksheet = matches!(page_type, Some(al_ir::PageType::Worksheet)) && !self.declares(st, "onnextrecord");
+        if !worksheet
+            && (!matches!(page_type, Some(al_ir::PageType::Card | al_ir::PageType::List))
+                || st.borrow().lookup
+                || self.declares(st, "onnextrecord"))
         {
             return Ok(());
         }
@@ -1046,7 +1051,7 @@ impl Session {
         if Self::same_key(&pk, &blank) {
             return Ok(());
         }
-        if st.borrow().modal {
+        if st.borrow().modal && !worksheet {
             if self.is_list(st) {
                 return unsupported(
                     "a list run modally without a record whose OnOpenPage left Rec on a row in a key other than the primary key (not pinned)",
@@ -1198,17 +1203,12 @@ impl Session {
                 return Ok(true);
             }
         }
-        // The same Worksheet in another key opens on the row `=><` from Rec reaches in that key, in lookup mode too: only the
-        // reporter's real-BC repro shows it (al-runner issue 5825), an assumption. Without the row triggers: what they read
-        // on the way is not pinned.
-        if worksheet_type
-            && !rec.borrow().temporary
-            && rec.borrow().key != 0
-            && !["onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
-                .iter()
-                .any(|t| self.declares(st, t))
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DbWorksheetSecondaryKeyOpensOnRec);
+        // The same Worksheet in another key opens on the row `=><` from Rec reaches in that key, by every route, in lookup mode
+        // too, with the row triggers reading as in the primary key (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al:
+        // RZ_Lookup_RecBeforeView `O:HDR;R:HDR;R:X;R:Y;R:X;R:X;R:X;C:X`, RecInsideView, RecAfterView, RecBetweenViewRows,
+        // RecBeforeBySecondaryAfterByPrimary, RecFirstOfView, and the RunModal, OpenEdit and OpenView routes). OnNextRecord is not
+        // pinned.
+        if worksheet_type && !rec.borrow().temporary && rec.borrow().key != 0 && !self.declares(st, "onnextrecord") {
             return Ok(true);
         }
         if !pinned_type || (st.borrow().lookup && !pinned_lookup) || self.declares(st, "onnextrecord") {

@@ -1728,6 +1728,7 @@ mod tests {
                 action_ref: None,
                 prop_texts: vec![],
                 var_field: None,
+                var_slot: None,
             },
             pred,
             parent: None,

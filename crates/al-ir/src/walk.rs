@@ -865,6 +865,7 @@ fn walk_control<V: RefVisitor>(
         action_ref: _,
         prop_texts: _,
         var_field,
+        var_slot: _,
     } = c;
     if let Some((table, field)) = var_field {
         fld(v, field, TableOf::object(Some(*table)));

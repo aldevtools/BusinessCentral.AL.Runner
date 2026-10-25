@@ -55,6 +55,24 @@ impl Session {
                         }
                         return Ok(Value::Text(x.to_string().into()));
                     }
+                    // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
+                    // reads `1` (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
+                    // RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned.
+                    (RtType::Boolean, Some(e @ (FilterExpr::Range(Some(_), Some(_)) | FilterExpr::Eq(_))))
+                        if matches!(first.as_ref().map(|f| f.group), Some(2 | 3)) =>
+                    {
+                        let ends = match e {
+                            FilterExpr::Range(Some(a), Some(b)) => (a, b),
+                            FilterExpr::Eq(a) => (a, a),
+                            _ => unreachable!("matched above"),
+                        };
+                        return match ends {
+                            (Value::Boolean(true), Value::Boolean(true)) => Ok(Value::Text("1".to_string().into())),
+                            _ => unsupported(
+                                "TestFilter.GetFilter of a Boolean that a page or action view filters to false (not pinned)",
+                            ),
+                        };
+                    }
                     (RtType::Option(_), Some(FilterExpr::Range(Some(_), Some(_)))) => {
                         return unsupported("TestFilter.GetFilter of an Option field filtered by a value (not pinned)");
                     }

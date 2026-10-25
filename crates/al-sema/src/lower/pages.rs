@@ -129,6 +129,7 @@ impl Lowerer<'_> {
                     action_ref: None,
                     prop_texts: Vec::new(),
                     var_field: None,
+                    var_slot: None,
                 });
                 continue;
             }
@@ -227,6 +228,7 @@ impl Lowerer<'_> {
             }
             let mut binding = ir::Binding::None;
             let mut var_field = None;
+            let mut var_slot = None;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
@@ -315,12 +317,13 @@ impl Lowerer<'_> {
                                 // A field of a record variable of the page itself: the runtime formats the control from
                                 // that field's properties (al-runner issue 5822).
                                 if raw.owner.is_none() {
-                                    var_field =
+                                    let found =
                                         args.get(1)
                                             .and_then(|a| crate::pages::var_and_field(a))
                                             .and_then(|(v, f)| {
-                                                let g = globals.iter().find(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                                let RtType::Record(t, _) = g.ty else {
+                                                let slot =
+                                                    globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+                                                let RtType::Record(t, _) = globals[slot].ty else {
                                                     return None;
                                                 };
                                                 let t = t as usize;
@@ -328,8 +331,9 @@ impl Lowerer<'_> {
                                                     .fields
                                                     .iter()
                                                     .position(|x| x.name.eq_ignore_ascii_case(&f))?;
-                                                Some((t, p))
+                                                Some(((t, p), slot))
                                             });
+                                    (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
                                 }
                             }
                             // A control of an extension that names a variable of the base object
@@ -421,6 +425,7 @@ impl Lowerer<'_> {
                 action_ref,
                 prop_texts,
                 var_field,
+                var_slot,
             });
         }
         let base = owner_of(None);

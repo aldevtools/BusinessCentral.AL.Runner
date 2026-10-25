@@ -3804,13 +3804,10 @@ impl Session {
                 r.field_descending = 0;
                 // Reset sets ReadIsolation back to Default (misc/lt-cv-odd-leads/CvReadIsolationState.al:43-44, :58).
                 r.read_isolation = 0;
-                // Reset drops the SetLoadFields request: the next fetch loads every field (al-runner issue 5764 Q3,
-                // the reporter's run on real BC 28.1). Not pinned by the corpus: record/lt-record-read/RcAMisc.al:808-830
-                // passes either way, so the path marks its assumption.
-                if r.load.request.is_some() {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ResetClearsLoadFields);
-                    r.load.request = None;
-                }
+                // Reset drops the SetLoadFields request: the next fetch loads every field, the fields in hand stay loaded until
+                // then (record/lt-outside-records/ResetClearsLoadFields.al:59-179, after AddLoadFields and with filters too; Init
+                // keeps the request, :181, and Clear drops it, :196).
+                r.load.request = None;
                 Ok(Value::Null)
             }
             RecordOp::SetCurrentKey => {

@@ -278,8 +278,11 @@ impl Session {
         }
         // A target that declares SourceTableView combines it with the handed record as Page.Run does (`open_page`): what its
         // OnOpenPage reads is pinned (pages/W1RunObject.al:410 TargetWithSourceTableView_OrNoSourceTable, a Card: RunPageLink
-        // shows `id=0 filters=Grp: 2`, RunPageOnRec the host's row 3 and no filters, RunPageView no filters). The rows and the
-        // open row of a List are only what the reporter's real-BC repro shows (al-runner issue 5826): an assumption.
+        // shows `id=0 filters=Grp: 2`, RunPageOnRec the host's row 3 and no filters, RunPageView no filters). On a List, RunPageLink
+        // and the target's view both apply, a sorting order(descending) view opens on its first row in that order, a where view on
+        // its first row, and the action's RunPageView where filter is added while its sorting does not replace the target's
+        // (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al, the RZ_Link_* tests). RunPageOnRec, and RunPageView without
+        // RunPageLink, on such a List are not pinned: an assumption.
         let target_view = al_ir::ObjectFacts::of(obj).has_source_table_view;
         // RunPageMode = Create beside them: the target's OnOpenPage sees the handed record, then the new row starts blank,
         // a linked field stamped (pages/W1RunObject.al:388 Create_WithOnRec_Link_View, a Card: `id=3`, `filters=Grp: 2`,
@@ -290,8 +293,9 @@ impl Session {
             return unsupported("RunPageMode = Create with RunPageOnRec, RunPageLink or RunPageView (not pinned)");
         }
         if target_view {
-            if self.is_list(target) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunPageLinkTargetView);
+            let linked = ro.link.as_ref().is_some_and(|l| !l.entries.is_empty());
+            if self.is_list(target) && (ro.on_rec || !linked) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunObjectTargetViewWithoutLink);
             }
             target.borrow_mut().run_object_record = true;
         }
