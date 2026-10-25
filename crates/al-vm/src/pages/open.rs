@@ -327,7 +327,9 @@ impl Session {
         if let (Some(view), true) = (source_view, has_source) {
             // A view that names an ORDER on a page run on a record: nothing pins it, so it is read as the view alone is
             // (the view's direction wins), on an assumption.
-            if record.is_some() && view.to_ascii_lowercase().contains("order(") {
+            // A record an action's RunObject hands it has its own assumption (run-page-link-target-view, runobject.rs).
+            let run_object = std::mem::take(&mut st.borrow_mut().run_object_record);
+            if record.is_some() && !run_object && view.to_ascii_lowercase().contains("order(") {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageRunRecordViewOrderApplies);
             }
             let rec = self.page_rec(st);
@@ -1195,6 +1197,19 @@ impl Session {
             if worksheet_type || list_lookup_on_last {
                 return Ok(true);
             }
+        }
+        // The same Worksheet in another key opens on the row `=><` from Rec reaches in that key, in lookup mode too: only the
+        // reporter's real-BC repro shows it (al-runner issue 5825), an assumption. Without the row triggers: what they read
+        // on the way is not pinned.
+        if worksheet_type
+            && !rec.borrow().temporary
+            && rec.borrow().key != 0
+            && !["onnextrecord", "onaftergetrecord", "onaftergetcurrrecord"]
+                .iter()
+                .any(|t| self.declares(st, t))
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DbWorksheetSecondaryKeyOpensOnRec);
+            return Ok(true);
         }
         if !pinned_type || (st.borrow().lookup && !pinned_lookup) || self.declares(st, "onnextrecord") {
             return unsupported(

@@ -425,6 +425,9 @@ pub struct PageState {
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
+    /// The record the page opens on came from an action's RunObject (RunPageOnRec, RunPageLink or RunPageView), not from
+    /// Page.Run: the open reads it once.
+    pub run_object_record: bool,
     /// Set by the opener for the page's next open: the values an action's `RunPageLink` fills into Rec before OnOpenPage
     /// (field position, value), with the link's filters (`RecordState::run_page_link`). `None`: the link fills nothing pinned.
     pub open_rec_fill: Option<RunPageLinkFill>,
@@ -759,6 +762,7 @@ impl PageState {
             opened_on_moved_rec: false,
             onopenpage_kept_rec: false,
             open_rec_unpinned: None,
+            run_object_record: false,
             open_rec_fill: None,
             temp_reads_once_more: false,
             reads_once_more_in: None,
