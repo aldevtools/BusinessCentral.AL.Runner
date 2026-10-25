@@ -1,6 +1,6 @@
 ---
 title: "Continuous integration"
-weight: 8
+weight: 80
 ---
 
 AL Runner needs no Docker, no SQL Server and no license, so it runs on an ordinary

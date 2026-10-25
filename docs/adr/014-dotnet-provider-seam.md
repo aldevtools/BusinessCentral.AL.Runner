@@ -11,7 +11,7 @@ name (`NavDotNet`). The runtime is Rust and has no .NET.
 
 ADR-013 decision 8 refuses every `DotNet` use until the owner decides. The
 research is in `docs/dotnet-examples.md` (five real cases) and
-`docs/dotnet-generic.md` (options, BC's resolution rules, what the server
+`docs/history/dotnet-generic.md` (options, BC's resolution rules, what the server
 classes need). Section 3 of the second page compares four ways to serve the
 calls. This ADR records the owner's choice and specifies the seam.
 
@@ -86,7 +86,7 @@ Rules:
 - A type the registry does not know goes to the host provider.
 - With no provider, or a provider that is unavailable, the call is refused.
 - The registry may also hold stand-ins for hot standard-library classes later
-  (`docs/dotnet-generic.md` section 3d). A stand-in is added only when it is
+  (`docs/history/dotnet-generic.md` section 3d). A stand-in is added only when it is
   measured faster or must work without .NET, and it must pass the same tests as
   the sidecar path. The sidecar path is the oracle for the stand-in.
 
@@ -140,7 +140,7 @@ pub trait DotNetSession {
 
 ### 3. How a `DotNet` alias resolves
 
-BC's rule (decompiled, `docs/dotnet-generic.md` section 1.2): the `dotnet { }`
+BC's rule (decompiled, `docs/history/dotnet-generic.md` section 1.2): the `dotnet { }`
 block names an assembly and a type. At run time `NavAutomationHelper` calls
 `Assembly.Load(fullName)`. If the framework does not supply it, the
 `AssemblyResolve` handler tries, in order:
@@ -194,7 +194,7 @@ that reads our own configuration. This is the part we do differently on purpose.
 
 ### 4. Value marshalling
 
-Follow BC's `NavDotNet` conversion table (`docs/dotnet-generic.md` section 1.2,
+Follow BC's `NavDotNet` conversion table (`docs/history/dotnet-generic.md` section 1.2,
 item 6). The wire carries a tagged value.
 
 | AL type | Wire / .NET type | Direction | Note |
@@ -489,7 +489,7 @@ Reading the numbers:
 6. Overload choice cases where two candidates fit (`Convert.ToBase64String`
    with `Array` and an `Integer`).
 7. Each registry member of the four server classes, as in
-   `docs/dotnet-generic.md` section 4.
+   `docs/history/dotnet-generic.md` section 4.
 
 ## Consequences
 

@@ -7,7 +7,7 @@ LethAL run unchanged). State: research, written 2026-10-15. No runtime code chan
 
 - Both tools drive AL Runner v2 through its command line and a JSON-lines server. v3 had
   `al-runner test` only when this was written; `al-runner serve` and `al-runner debug` exist now
-  (`migrating-tools-to-v3.md`).
+  (`docs/manual/tool-protocol.md`).
 - LethAL can run on v3 earliest, with one-shot mode only. It needs a v2-shaped
   `--output-json`, `--isolation test`, `--exclude-test`, qualified test names and a few
   accepted-and-ignored flags. No server needed. No conflict with the "server deferred" direction.
@@ -117,7 +117,7 @@ Needs AL Runner >= 2.11.0 (`src/runner/alRunnerManager.ts:11`).
 | A15 | Crash handling: if the process dies before any `test` line, respawn and resend once. After a `test` line, fail the request. | `serverProcess.ts:234-266` | n/a | Client logic. v3 must exit non-zero on a crash. |
 | A16 | Source path format in responses: absolute, forward slashes. Older relative forms are still matched. | `decorations.ts:595-610`; `serverProcess.ts:15-26` | n/a | v3 must emit absolute forward-slash paths in `coverage[].file` and `loops[].file`. |
 | A17 | Ignores stderr (does not read it) | `serverProcess.ts:138` (stdout only) | n/a | None. The `[server] request n done` marker is not needed. |
-| A18 | Debugger: `DebugAdapterExecutable(path, ['--dap','stdio', ...sourcePaths])`. Debug type `alchemist`. Launch config fields `bundleDir`, `sourcePaths`, `testFilter` are ALchemist's own. They are not sent to the runner. | `debugAdapterFactory.ts:56-98`; `debugLaunch.ts:31-47`; `package.json:162-212` | Partial (ED-9) | `al-runner debug --stdio APP...` (`docs/debugging.md`). See 1.3 for the DAP surface. |
+| A18 | Debugger: `DebugAdapterExecutable(path, ['--dap','stdio', ...sourcePaths])`. Debug type `alchemist`. Launch config fields `bundleDir`, `sourcePaths`, `testFilter` are ALchemist's own. They are not sent to the runner. | `debugAdapterFactory.ts:56-98`; `debugLaunch.ts:31-47`; `package.json:162-212` | Partial (ED-9) | `al-runner debug --stdio APP...` (`docs/manual/debugging.md`). See 1.3 for the DAP surface. |
 | A19 | Says "stepping acts as continue" | `debugLaunch.ts:61-62` | n/a | Out of date: v2 now implements step. v3 should implement step. Tool text is the tool owner's to fix. |
 | A20 | Environment: `ALCHEMIST_RUNNER_PATH` (its own). Sends no `AL_RUNNER_*` variable. | `alRunnerManager.ts:49` | n/a | None. |
 
@@ -214,7 +214,7 @@ Each step is useful alone. Order is smallest first.
 
 | Step | What | Unblocks | Size | Needs owner |
 |---|---|---|---|---|
-| 1 (done, branch tools-step-1; see migrating-tools-to-v3.md) | `al-runner test` accepts `--output-json` (v2 shape, section 1.2), `--isolation test|codeunit|disabled`, `--exclude-test`, qualified-name `--test`, `--define`, `--auto-provision` (ignored), and reads `AL_RUNNER_TEST_TIMEOUT_SEC`. Not-run tests become rows. Timeouts use v2's sentence. | LethAL one-shot (section 3.3) | 3 to 5 | #3 (version), #4 (exit 7), and #2 only for spelling. Flags that v3 already plans (`--output-json`, `--isolation`, `--exclude-test`) do not conflict. |
+| 1 (done, branch tools-step-1; see docs/manual/tool-protocol.md) | `al-runner test` accepts `--output-json` (v2 shape, section 1.2), `--isolation test|codeunit|disabled`, `--exclude-test`, qualified-name `--test`, `--define`, `--auto-provision` (ignored), and reads `AL_RUNNER_TEST_TIMEOUT_SEC`. Not-run tests become rows. Timeouts use v2's sentence. | LethAL one-shot (section 3.3) | 3 to 5 | #3 (version), #4 (exit 7), and #2 only for spelling. Flags that v3 already plans (`--output-json`, `--isolation`, `--exclude-test`) do not conflict. |
 | 2 | `--coverage --coverage-out` (Cobertura) in the positions the compiled input has. Per-test file is one run per test already. | LethAL coverage (L19), gate R item 5 | 4 to 6 | none (needs IR positions, which exist) |
 | 3 | `al-runner serve`: ready line, `runTests` stream, `summary` with `protocolVersion:2`, `shutdown`, `{"error"}`, field warnings and refusals, `--package-cache`, `--define`, `--test-timeout` start flags, stderr request marker. No warm state: compile per request. | LethAL server mode (S1 to S10). ALchemist Test Explorer without inline values. | 5 to 7, plus a short ADR for the wire protocol | #1, #2 |
 | 4 (done, ADR-028 item 9) | `serve` adds `execute` (inline `code` or one `OnRun` codeunit), `cancel` side channel (flag checked between tests), `coverage` and `perTestCoverage` tables on both commands. | ALchemist scratch runs (A11), cancel (A13), coverage (A10); LethAL `perTestCoverage` (S6) | 5 to 8 | none beyond #1 |

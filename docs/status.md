@@ -1,95 +1,34 @@
 # Status and roadmap
 
-As of `main` on 2026-10-14. Oracles: BC 27.5, 28.5 and 29.0 (corpus CI runs 38534169906,
-38536067343 and 38537727198), corpus `6219bf4`.
-Regenerate the numbers with
-`./target/release/al-test-cli --root . --markdown pass-rate.md`; CI uploads
-the same report as a `pass-rate-<date>` artifact. The markdown is one line per BC
-version (counts, rate, total time). Per-area counts and phase times are in `--json`.
+This page holds what implementation work needs: what is built, the open decisions and the known debt. It keeps
+no pass counts, because they go stale within a day. For the current numbers:
+
+- `./target/release/al-test-cli --root . --all-versions` runs the corpus on BC 27.5, 28.5 and 29.0 and compares
+  them; `--markdown pass-rate.md` writes the one-line-per-version report that CI uploads as a `pass-rate-<date>`
+  artifact, and `--json` adds per-area counts and phase times.
+- `--top-refusals 15` ranks what is refused (add `--top-refusals-area AREA` for one folder).
+- `al-test-cli --must-not-compile DIR [--bc-version N]` checks the must-not-compile cases.
+- The dated user-facing summary is the "Status" table in `docs/manual/what-works.md`.
+- Microsoft's test buckets: `docs/alrunner-buckets.md`.
 
 ## BC versions (ADR-015)
 
-One oracle and one ratchet per BC major. `al-test-cli --root .` runs the newest;
-`--bc-version N` picks one; `--all-versions` runs all three and compares them.
+One oracle and one ratchet per BC major (`metrics/<major>/passing.txt`). `al-test-cli --root .` runs the newest;
+`--bc-version N` picks one; `--all-versions` runs all three and compares them. On BC 27.5 the corpus compiles
+Microsoft's apps from the corpus's own `.alpackages`; the other versions take them from the artifact of the
+matching build. The OnPrem app and the isolation probe each have their own oracle, ratchet and report line, and
+are not part of the overall count (`oracle/README.md`). There is no isolation oracle for BC 27 and 29
+(`docs/probes-needed.md`).
 
-| BC major | Oracle leg | Baseline | Passing | Failing | Not run | Version gates active |
-|---|---|---|---:|---:|---:|---|
-| 27 | 27.5 | `metrics/27/passing.txt` | 4913 of 5147 | 0 | 234 | none |
-| 28 | 28.5 | `metrics/28/passing.txt` | 4913 of 5147 | 0 | 234 | none |
-| 29 | 29.0 | `metrics/29/passing.txt` | 4913 of 5147 | 0 | 234 | Integer sum into BigInteger FlowField; min and max over SystemRowVersion |
+## Must-not-compile
 
-The same 5147 cases run on every version, and the same 234 are not run. On BC 28.5 and 29.0 the
-corpus compiles Microsoft's apps from the corpus's 27.5 `.alpackages`. Only the test libraries
-(Any, System Application Test Library, Permissions Mock) come from the artifact of the matching
-version.
-
-### Other test apps (2026-10-14)
-
-Each has its own oracle, ratchet and report line, and is not part of the overall count
-(`oracle/README.md`).
-
-| App | Oracle | Pass | Total | Why the rest does not run |
-|---|---|---:|---:|---|
-| OnPrem (27, 28, 29) | CI run, small artifact | 42 | 64 | 22 are not run. 16 need a platform table with no row provider yet (Object Metadata 12, Object 2, Tenant Profile Page Metadata 2), 4 need Published Application columns that no corpus test pins, 2 compare Blob values. No `DotNet` in the app |
-| Isolation probe under a Function runner (28) | Windows nightly, BC 28.4 | 7 | 7 | |
-| Isolation probe under a Codeunit runner (28) | same artifact | 6 | 6 | BC fails `T5` here on purpose; so does the runtime |
-
-There is no isolation oracle for BC 27 and 29 (`docs/probes-needed.md`).
-
-## Overall
-
-**4913 / 5147 pass (95.5%), 0 fail, 234 not run**, the same on BC 27.5, 28.5 and 29.0.
-Measured on 2026-10-14 on a shared 12-thread machine under load: the corpus run takes 2.9 to
-6.2 s with Microsoft's apps (six runs) and 0.4 to 0.9 s with `--no-deps` (five runs). Base
-Application and the other Microsoft apps are compiled from source on every run of `al-test-cli`, on demand. `al-runner test` keeps their complete compile in a compile cache (ADR-022, `<cache dir>/compile/`); `al-test-cli --compile-cache` does the same for the corpus job. Numbers with the cache are in ADR-022.
-
-| Area | Total | Pass | Not run | Rate |
-|---|---:|---:|---:|---:|
-| collections | 84 | 83 | 1 | 98.8% |
-| error-handling | 82 | 81 | 1 | 98.8% |
-| text | 132 | 130 | 2 | 98.5% |
-| types | 392 | 381 | 11 | 97.2% |
-| fieldref | 126 | 122 | 4 | 96.8% |
-| record | 1076 | 1034 | 42 | 96.1% |
-| query | 146 | 140 | 6 | 95.9% |
-| handlers | 1171 | 1121 | 50 | 95.7% |
-| codeunit | 281 | 268 | 13 | 95.4% |
-| streams | 60 | 57 | 3 | 95.0% |
-| session | 447 | 410 | 37 | 91.7% |
-| errorinfo | 23 | 21 | 2 | 91.3% |
-| media | 23 | 21 | 2 | 91.3% |
-| pageapplicationarea | 76 | 69 | 7 | 90.8% |
-| xmlport | 62 | 55 | 7 | 88.7% |
-| profile | 16 | 14 | 2 | 87.5% |
-| tableextensiontrigger | 13 | 10 | 3 | 76.9% |
-| permissions | 58 | 37 | 21 | 63.8% |
-| pageextensioncontrol | 28 | 17 | 11 | 60.7% |
-| reportextensiontrigger | 10 | 6 | 4 | 60.0% |
-| network | 5 | 0 | 5 | 0.0% |
-
-Every test passes in 19 more areas (836 tests): access-control, autoformat, dateformulacontrol, extensionevents, filterpage, install, json, pageextensionpart, pageextensiontrigger, pagefindrecord, pagesave, pageupdate, recordref, tableextension, testfilter, testpageclose, testpageteardown, testpart, xml.
-
-## Must-not-compile (2026-10-14)
-
-The corpus repo holds AL files the real compiler rejects (`tests/must-not-compile`, branch `master`; the
-submodule does not carry them yet). Each records the AL codes (`// @expect AL0161 | text`). The front end must
-report the same codes. Run: `al-test-cli --must-not-compile DIR [--bc-version N]`, or
-`AL_MNC_DIR=DIR cargo test -p al-test-cli --test must_not_compile`; the test skips with a message when the folder is absent.
-Our own diagnostics keep their `AR` codes; the AL ones are `alcodes.rs` and `check/infer.rs` (`al_unresolved_name`).
-
-| BC major | Cases | Match | Mismatch | Not checked |
-|---|---:|---:|---:|---:|
-| 27, 28, 29 | 16 | 15 | 0 | 1 |
-
-Match: AL0161 (2 cases), AL0440, AL0162, AL0118, AL0296 (2), AL0124, AL0365, AL0132 (4), AL0385, AL0197.
-AL0122 (cases 0069, 0070, 0074, 0075): an Integer variable into a Text, a text literal into an Integer, and an
-enum into an enum of another type whose target does not state `AssignmentCompatibility = true`.
-Not checked: 0008 (AL0175, `=` between two DotNet class objects): an enum is comparable and a class is not, and the
-front end has no assembly metadata. Message text is compared as a note only (the corpus README: the text is a
+The corpus repo holds AL files the real compiler rejects (`tests/must-not-compile`). Each records the AL codes
+(`// @expect AL0161 | text`). The front end must report the same codes. Run: `al-test-cli --must-not-compile DIR
+[--bc-version N]`, or `AL_MNC_DIR=DIR cargo test -p al-test-cli --test must_not_compile`; the test skips with a
+message when the folder is absent. Our own diagnostics keep their `AR` codes; the AL ones are `alcodes.rs` and
+`check/infer.rs` (`al_unresolved_name`). Message text is compared as a note only (the corpus README: the text is a
 reference). A case whose code the front end does not implement is "not checked" with that reason, never a pass.
 Each check rejects only the shape its case pins; the wider rules are in `docs/probes-needed.md`.
-A run of the workspace's code prints `compile: error ALnnnn ...` on stderr and goes on; nothing is refused by it yet.
-Guard against rejecting code BC accepts: the corpus (27, 28, 29), Tests-ERM and NP Retail give no such line and the same counts.
 
 ## Platform tables (ADR-019)
 
@@ -158,29 +97,8 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
 
 ## Largest remaining blockers
 
-234 tests are not run on each BC version, for 107 distinct reasons
-(`al-test-cli --root . --top-refusals 15`, BC 29.0). Each test is counted under the first thing
-that stops it. The 15 most common reasons:
-
-| Tests | What stops it |
-|---:|---|
-| 16 | Permissions of tenant sets: the platform keeps the last composed set per setup version, which is not modelled (`TestMetadataExpandedPermission.al:196-207`) |
-| 13 | `RecordId.GetRecord` is not implemented |
-| 11 | `foreach` over a `DotNet` value is refused until a corpus test pins it (ADR-014) |
-| 9 | A table with `TableType = CRM` is served by a table connection, which the runtime does not model |
-| 6 | `OnQueryClosePage` in a page extension is not supported |
-| 5 | `DotNet` class `Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper` is neither registered nor classified pure (ADR-014) |
-| 5 | A part page with a control of kind `cuegroup` is not supported |
-| 5 | A `DotNet` value passed to `Format`: its type is only known at run time |
-| 5 | Reading Code Coverage Tests Run after a coverage recording: the runtime records no coverage |
-| 5 | Reading Code Coverage after a coverage recording: same |
-| 4 | Page extension code on members of the base page is not lowered yet |
-| 4 | `Report.DefaultLayout` is not implemented |
-| 4 | The User Personalization row of the session user: BC creates it at client sign-in and no corpus test pins its content (`docs/probes-needed.md`) |
-| 3 | `Evaluate` into DateTime with a format that no corpus test pins |
-| 3 | `GetRangeMin` without a filter: the error text is not pinned |
-
-The other 92 reasons account for 136 tests.
+Run `al-test-cli --root . --top-refusals 15` for the current list. Each test is counted under the first thing that
+stops it.
 
 ## Open decisions for the project owner
 
@@ -225,6 +143,8 @@ Answered on 2026-10-13 and recorded in ADR-013 (and, for `DotNet`, on 2026-10-13
   defaults, the random seed, `DotNet` and the test-data tables. The network is not there yet.
 
 ## Roadmap: deferred until users ask (owner, 2026-10-25)
+
+The user-facing roadmap is `docs/manual/roadmap.md`. A deferred or experimental item goes on both pages.
 
 - **App translations** (issue 5772, ADR-053): applying an app's own `Translations/*.xlf` under another `GlobalLanguage`. Today a read that a translation could change, after a switch away from 1033, is refused. Full support waits for more user feedback, or for a time when the issue queue is empty.
 

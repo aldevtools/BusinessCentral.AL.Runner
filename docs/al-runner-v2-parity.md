@@ -44,7 +44,7 @@ migration guides say how to move.
 Terms: a **bundle** is a folder with an `app.json` (v2's name; AL Runner says "app
 folder"). The **corpus** is the AL language test corpus, the oracle (ADR-007).
 The **migration guides** are `docs/manual/migrating-from-v2.md` (for users) and
-`docs/integrations/migrating-tools-to-v3.md` (for tools such as ALchemist and
+`docs/manual/tool-protocol.md` (for tools such as ALchemist and
 LethAL).
 
 ## 1. Inputs
@@ -152,7 +152,7 @@ LethAL).
 The interface points of ALchemist and LethAL are in
 [`docs/integrations/alchemist-lethal.md`](integrations/alchemist-lethal.md), and the
 steps for each tool in
-[`docs/integrations/migrating-tools-to-v3.md`](integrations/migrating-tools-to-v3.md).
+[`docs/manual/tool-protocol.md`](manual/tool-protocol.md).
 
 | ID | Feature | v2 reference | Status | AL Runner today |
 |---|---|---|---|---|
@@ -164,7 +164,7 @@ steps for each tool in
 | ED-6 | `captureValues`: local variable values after each statement | `AlValueCapture.cs` | Done | ADR-030 (still Proposed); migrating-tools, section 4b. |
 | ED-7 | `iterationTracking`: per-loop iteration records | `AlIterationTracker.cs` | Done | ADR-030; migrating-tools, section 4b. |
 | ED-8 | Per-statement hit counts, per-test coverage | `AlCoverageTracker.cs` | Done | `coverage` and `perTestCoverage` in `serve`; `--coverage-json` (migrating-tools, section 4a). |
-| ED-9 | `--dap [PORT]` and `--dap stdio`: breakpoints, stepping, stack, locals | `Infrastructure/AlDapSession.cs`, `docs/dap-mode.md` | Done | `al-runner debug [--stdio \| --port [N]]` (ADR-048; `docs/debugging.md`; PRs 5628, 5633, 5636). Also in dependency apps compiled from source. |
+| ED-9 | `--dap [PORT]` and `--dap stdio`: breakpoints, stepping, stack, locals | `Infrastructure/AlDapSession.cs`, `docs/dap-mode.md` | Done | `al-runner debug [--stdio \| --port [N]]` (ADR-048; `docs/manual/debugging.md`; PRs 5628, 5633, 5636). Also in dependency apps compiled from source. |
 | ED-10 | ALchemist drives `--server` and `--dap stdio` | `docs/server-mode.md` | Partial | AL Runner's side is done (PR 5637; migrating-tools, section 9). Missing: ALchemist must start the new commands, and its owner has not confirmed (ADR-016 gate R4). |
 | ED-11 | LethAL drives `--server` and `--output-json`; matches failure text | `LethAL/packages/runner/src/al-runner-transport.ts` | Partial | AL Runner's side is done (migrating-tools, section 8). Missing: LethAL's changes, and its owner's confirmation (gate R4). |
 | ED-12 | No telemetry; no network use except downloads | `--guide` | Done | Same. |
@@ -173,7 +173,7 @@ steps for each tool in
 
 These rows are the long tail. The corpus tracks them. On 2026-10-21 the corpus
 passed 81-82% on BC 27.5, 28.5 and 29.0, with 0 failing; the rest is refused with a
-reason (`README.md`, "Status"). Per-area numbers are in `docs/status.md`, which is
+reason (`docs/manual/what-works.md`, "Status"). Per-area numbers are in `docs/status.md`, which is
 older.
 
 | ID | Feature | v2 reference | Status | AL Runner today |

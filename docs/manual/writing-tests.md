@@ -1,6 +1,6 @@
 ---
 title: "Writing tests"
-weight: 3
+weight: 30
 ---
 
 Tests for AL Runner are ordinary Business Central test codeunits. There is no
