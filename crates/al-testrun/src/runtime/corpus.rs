@@ -1013,6 +1013,7 @@ impl CorpusRuntime {
                             hub_leg: false,
                             onrun_carry: false,
                             leak: None,
+                            on_run_rows: OnRunRows::PerTest,
                         });
                     }
                     continue;
@@ -1055,6 +1056,7 @@ impl CorpusRuntime {
                             clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
                             impact: opts.impact_trace,
                             run_only: pass.run_only.clone(),
+                            on_run_rows: opts.on_run_rows,
                         }),
                         Err(why) => {
                             if suite.runner.is_none() && opts.required_isolation && requires_disabled(o) {

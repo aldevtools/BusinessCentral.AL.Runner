@@ -1,6 +1,34 @@
 //! What a compile produces and keeps (`Compiled`), the warm slot (`Warm`), and what a run asks for.
 use super::*;
 
+/// How the `OnRun` trigger of a test codeunit shows in the results of a run. Measured in the corpus CI by writer RL
+/// (al-runner issue 5748; probe commit c69419f6 of `al-runtime-rs-staging-rl`, not a green corpus case): what Microsoft's
+/// test runner reports, which AL code does not see. The rows are flagged with the assumption
+/// `test-codeunit-onrun-rows`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnRunRows {
+    /// No row of its own: an OnRun that raises makes every test of the codeunit not run. The corpus job: the oracle
+    /// leaves the runner's `OnRun` row out (`al-test-cli` `oracle::RUNNER_PSEUDO_CASE`).
+    #[default]
+    PerTest,
+    /// BC 27.5: a codeunit whose OnRun raises has no rows at all (its codeunit line is Skipped); one that does not
+    /// raise has no row for its OnRun.
+    Bc27,
+    /// BC 28.5 and 29.0: a declared OnRun has a row `OnRun`: failed with the error's text when it raises, and then the
+    /// test methods have no rows; else passed, before the rows of the tests.
+    Bc28,
+}
+
+/// The name of the row of a test codeunit's `OnRun` trigger (`OnRunRows::Bc28`), as BC's XUnit result names it.
+pub const ON_RUN_ROW: &str = "OnRun";
+
+impl OnRunRows {
+    /// The shape of a BC major.
+    pub fn of_major(major: u32) -> OnRunRows {
+        if major >= 28 { OnRunRows::Bc28 } else { OnRunRows::Bc27 }
+    }
+}
+
 /// What a run is asked to do beyond running everything.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
@@ -58,6 +86,8 @@ pub struct RunOptions {
     /// baseline then runs with the trace on (`NarrowInput::baseline`) instead of being read from the compile cache.
     /// `None`: the selection stays.
     pub narrow: Option<Narrow>,
+    /// How the `OnRun` trigger of a test codeunit shows in the results (`al-runner test` picks it by the BC major).
+    pub on_run_rows: OnRunRows,
     /// `al-runner test --tdd` (ADR-051): a call in a test app of a procedure that does not exist runs as a stub.
     pub tdd: bool,
     /// `al-runner test --affected` (ADR-050 decision 3): lowering hashes the symbolic form of each workspace object

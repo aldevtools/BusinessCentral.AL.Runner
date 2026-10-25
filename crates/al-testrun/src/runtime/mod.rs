@@ -456,6 +456,8 @@ pub(crate) struct Unit {
     onrun_carry: bool,
     /// See `Scratch::leak`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
+    /// See `RunOptions::on_run_rows`.
+    on_run_rows: OnRunRows,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -492,6 +494,8 @@ pub(crate) struct Scratch {
     /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
     /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
     onrun_carry: bool,
+    /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
+    on_run_rows: OnRunRows,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -571,6 +575,7 @@ fn run_unit(
             hub: u.hub,
             leak: u.leak.clone(),
             onrun_carry: u.onrun_carry,
+            on_run_rows: u.on_run_rows,
             ..Default::default()
         };
         if u.coverage {
