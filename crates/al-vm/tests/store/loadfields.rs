@@ -534,3 +534,15 @@ fn reset_clears_the_load_fields_and_init_keeps_them() {
     assert_eq!(text("", &body).unwrap(), "No");
     assert!(take_hits().is_empty());
 }
+
+// record/lt-outside-records/ResetClearsLoadFields.al:111 ResetThenGet_AfterEarlierFullGet `control without Reset`: a full Get, then
+// SetLoadFields and a Get of another row: the fields the request does not name are not loaded.
+#[test]
+fn a_partial_get_of_another_row_after_a_full_get_loads_only_the_request() {
+    let body = format!(
+        "{SEED} Rec.Get(1); Rec.SetLoadFields(Rec.Name); Rec.Get(2); {} {} exit(a);",
+        yn("Rec.AreFieldsLoaded(Rec.Name)"),
+        yn("Rec.AreFieldsLoaded(Rec.Note)")
+    );
+    assert_eq!(text("", &body).unwrap(), "YesNo");
+}

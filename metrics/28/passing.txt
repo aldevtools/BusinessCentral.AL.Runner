@@ -15187,6 +15187,7 @@
 88871 ResetAfterPartialFetch_KeepsBufferThenRefetchLoadsAll
 88871 ResetThenFindFirst_NoEarlierFetch
 88871 ResetThenFindSet_NoEarlierFetch
+88871 ResetThenGet_AfterEarlierFullGet
 88871 ResetThenGet_NoEarlierFetch
 88871 ResetWithFilters_ClearsFiltersAndLoadFields
 88920 RZ_LoggedWs_A_G2

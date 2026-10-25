@@ -1487,7 +1487,7 @@ impl Session {
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
-        filters_before: Option<String>,
+        filters_before: Option<Vec<al_builtins::filter::FieldFilter>>,
         without_curr: bool,
         without_parts: bool,
     ) -> Result<bool, Signal> {
@@ -1507,7 +1507,14 @@ impl Session {
             return Ok(false);
         }
         let rec = self.page_rec(st);
-        if before == format!("{:?}", rec.borrow().filters) {
+        let now = rec.borrow().filters.clone();
+        let same = before.len() == now.len()
+            && before.iter().zip(&now).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            });
+        if same {
             return Ok(false);
         }
         match (self.declares(st, "onfindrecord"), self.declares(st, "onnextrecord")) {

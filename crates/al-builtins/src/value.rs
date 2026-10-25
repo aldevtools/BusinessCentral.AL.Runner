@@ -701,9 +701,9 @@ pub struct PageState {
     pub refresh_by_update: bool,
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
-    /// The filters of the page's record (their debug text) when a control's OnValidate began, for the refresh a
-    /// `CurrPage.Update` in it asks for (`al-vm` `refresh_after_validate_filter`).
-    pub filters_before_validate: Option<String>,
+    /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
+    /// (`al-vm` `refresh_after_validate_filter`).
+    pub filters_before_validate: Option<Vec<crate::filter::FieldFilter>>,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,

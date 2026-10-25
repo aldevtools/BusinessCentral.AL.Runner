@@ -131,8 +131,11 @@ impl Session {
                 } else {
                     // Another row: what the old buffer held is not known to carry over, except after a load of every missing
                     // field, which carries nothing (P81LoadFields.al:1047-1120 `key_after_next_loaded_*`).
+                    // A Get of another row after a whole fetched row carries nothing either (record/lt-outside-records/
+                    // ResetClearsLoadFields.al:111 ResetThenGet_AfterEarlierFullGet `control without Reset`: `notes=No`).
                     let carried = match &old.have {
                         _ if old.missing_loaded => FieldSet::Of(Vec::new()),
+                        FieldSet::All if via_get => FieldSet::Of(Vec::new()),
                         FieldSet::All => FieldSet::All,
                         FieldSet::Of(h) => FieldSet::Of(h.iter().copied().filter(|p| !have.contains(p)).collect()),
                     };

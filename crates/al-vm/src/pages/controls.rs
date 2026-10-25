@@ -882,7 +882,7 @@ impl Session {
             }
             if let Some(r) = ctl.trigger("onvalidate") {
                 if self.has_source(st) {
-                    let filters = format!("{:?}", self.page_rec(st).borrow().filters);
+                    let filters = self.page_rec(st).borrow().filters.clone();
                     st.borrow_mut().filters_before_validate = Some(filters);
                 }
                 if let Err(e) = self.control_routine(st, idx, r) {
