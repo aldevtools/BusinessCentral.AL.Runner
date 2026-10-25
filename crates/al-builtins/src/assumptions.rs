@@ -634,9 +634,9 @@ registry! {
     },
     DeferredInsertFailsAtTestEnd => {
         id: "deferred-insert-fails-at-test-end",
-        assumed: "A test that ends while the error of a statement-form duplicate-key Insert is still deferred fails with that error ('The record in table <table> already exists. Identification fields and values: <key>='<value>''), raised by the test runner with no AL frame of the test, and its work is rolled back; a row committed before stays. Only under TestIsolation = Codeunit and the default TransactionModel; any other shape is not run. Measured on Windows BC 29.0 (corpus master ccb6e72f, IsolProbeFixture.Codeunit.al T8-T11) and on BC 28.4 on Linux by the reporter (al-runner issue 5788); the pin waits for the Windows nightly of the isolation probe app.",
+        assumed: "A test that ends while the error of a statement-form duplicate-key Insert is still deferred fails with that error ('The record in table <table> already exists. Identification fields and values: <key>='<value>''), raised by the test runner with no AL frame of the test, and its work is rolled back; a row committed before stays. Only under TestIsolation = Codeunit and the default TransactionModel; any other shape is not run. Measured on Windows BC of the newest major (corpus master ccb6e72f, IsolProbeFixture.Codeunit.al T8-T11) and on BC on Linux of the major before by the reporter (al-runner issue 5788); the pin waits for the Windows nightly of the isolation probe app.",
         tests: "No Microsoft test: al-runner issue 5788 (a user's test ends with a duplicate-key Insert; on BC it fails at its end).",
-        probe: "None new: T8-T11 of tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al, once the Windows nightly records them in the isolation oracle on 27.5, 28.5 and 29.0. Wanted later: the same under TestIsolation = Function and Disabled and under TransactionModel AutoRollback.",
+        probe: "None new: T8-T11 of tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al, once the Windows nightly records them in the isolation oracle on all three majors. Wanted later: the same under TestIsolation = Function and Disabled and under TransactionModel AutoRollback.",
         awaiting: Awaiting {
             issues: &[5603, 5788],
             files: &[
