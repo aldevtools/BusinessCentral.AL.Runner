@@ -10,6 +10,11 @@ use al_version::{BcVersion, Target};
 use al_vm::{Engine, Session};
 
 const SRC: &str = r#"
+table 98 "General Ledger Setup"
+{
+    fields { field(1; "Primary Key"; Code[10]) { } field(2; "Amount Decimal Places"; Text[5]) { } field(3; "Unit-Amount Decimal Places"; Text[5]) { } }
+    keys { key(PK; "Primary Key") { } }
+}
 table 87390 "FP Row"
 {
     fields
@@ -74,8 +79,13 @@ codeunit 87391 C
     end;
 
     procedure Fields(): Text
-    var Row: Record "FP Row";
+    var Row: Record "FP Row"; Setup: Record "General Ledger Setup";
     begin
+        // Format of a unit amount without an expression takes the setup's places, run only under the measured 2:2 and 2:5
+        // (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al).
+        Setup."Amount Decimal Places" := '2:2';
+        Setup."Unit-Amount Decimal Places" := '2:5';
+        Setup.Insert();
         Row.Amt := 1234.5678;
         Row.UnitAmt := 1234.5678;
         Row.Custom := 1234.5678;

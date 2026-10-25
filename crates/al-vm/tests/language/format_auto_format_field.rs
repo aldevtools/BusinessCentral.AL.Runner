@@ -85,9 +85,9 @@ fn format_in_code_applies_the_fields_auto_format_expression() {
     );
 }
 
-/// AutoFormatType 4 with an expression is not observed in code (only 1, 2 and 10 are): refused.
+/// AutoFormatType 4 with a field of the row takes the amount places of the currency, as type 1 does
+/// (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `f2A4`).
 #[test]
-fn format_in_code_of_an_unpinned_auto_format_type_is_refused() {
-    let r = al_testkit::run_in(SRC, "QI AF Test", "TypeFour");
-    assert!(matches!(&r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+fn format_in_code_of_auto_format_type_four_takes_the_amount_places() {
+    assert_eq!(text(al_testkit::run_in(SRC, "QI AF Test", "TypeFour")), "1,234.568");
 }
