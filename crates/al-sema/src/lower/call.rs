@@ -321,13 +321,27 @@ impl Lowerer<'_> {
                         return Ok(ir::Expr::Refused(why));
                     }
                 }
-                let decimal_field_places = if id == "System.Format#1" || id == "System.Format#2" {
-                    args.first().and_then(|a| self.decimal_field_places(a))
+                // `Format(Rec.Field)` of an AutoFormatType 2, 4 or 5 field without an expression takes the setup's places when it runs
+                // (`auto_format_field_without_expression`); with a length or format, `decimal_field_places` decides as before.
+                let without_expression = if id == "System.Format#1" && args.len() == 1 {
+                    args.first().and_then(|a| self.auto_format_field_without_expression(a))
                 } else {
                     None
                 };
+                let decimal_field_places =
+                    if (id == "System.Format#1" || id == "System.Format#2") && without_expression.is_none() {
+                        args.first().and_then(|a| self.decimal_field_places(a))
+                    } else {
+                        None
+                    };
                 let auto_format_field = if id == "System.Format#1" && decimal_field_places.is_none() {
-                    args.first().and_then(|a| self.auto_format_expression_field(a))
+                    match &without_expression {
+                        Some((record, pos, kind)) => Some((record.clone(), *pos, *kind)),
+                        None => args
+                            .first()
+                            .and_then(|a| self.auto_format_expression_field(a))
+                            .map(|(record, pos)| (record, pos, 0)),
+                    }
                 } else {
                     None
                 };
@@ -643,17 +657,29 @@ impl Lowerer<'_> {
                     {
                         // A Decimal field that declares its format is substituted as `Format(Rec.Field)`, the version gate
                         // of an amount without an expression included (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
-                        // RW_StrSubstNo_DecimalField_TempRecord, :214 a row read with Get, :293 Message and Error). The places
-                        // are lost through any other carrier (:242: a variable, `(Rec.F)`, `Rec.F + 0`, a FieldRef).
-                        // Refused when it runs for the shapes no corpus test measures (a unit amount without an expression,
-                        // an expression that is not blank, DecimalPlaces beside another AutoFormat).
-                        let pinned = self.decimal_field_format_unpinned(a).is_none();
-                        let unit_amount = if pinned { self.unit_amount_subst_field(a) } else { None };
-                        match self.decimal_field_places(a) {
+                        // RW_StrSubstNo_DecimalField_TempRecord, :214 a row read with Get, :293 Message and Error; misc/
+                        // lt-sa-unit-amount-subst/SaUnitAmountSubst.al: AutoFormatType 1, 2, 4 and 5 with a field of the row, a
+                        // constant code or no expression, Message and Error too). The places are lost through any other carrier
+                        // (RwDecimalFieldPlaces.al:242: a variable, `(Rec.F)`, `Rec.F + 0`, a FieldRef; SaUnitAmountSubst.al
+                        // `varA2`). The shapes no corpus test measures are refused (DecimalPlaces beside another AutoFormat).
+                        let unpinned = self.decimal_field_format_unpinned(a);
+                        let without_expression = self.auto_format_field_without_expression(a);
+                        let places = if without_expression.is_none() {
+                            self.decimal_field_places(a)
+                        } else {
+                            None
+                        };
+                        let expression = if without_expression.is_none() && places.is_none() {
+                            self.auto_format_expression_field(a).map(|(record, pos)| (record, pos, 0))
+                        } else {
+                            None
+                        };
+                        match (places, without_expression.or(expression)) {
                             _ if !self.decimal_field_declares_format(a) || self.decimal_field_is_plain(a) => {
                                 ir::Arg::Value(self.format_option_field(true, false, a)?)
                             }
-                            Some((places, mode)) if pinned && mode != 2 => ir::Arg::Value(ir::Expr::Builtin {
+                            _ if unpinned.is_some() => ir::Arg::Value(ir::Expr::Refused(unpinned.expect("checked"))),
+                            (Some((places, mode)), _) => ir::Arg::Value(ir::Expr::Builtin {
                                 id: builtin_id("System.FormatDecimalField#1")?,
                                 receiver: None,
                                 args: vec![
@@ -665,25 +691,20 @@ impl Lowerer<'_> {
                                 ],
                                 ret_used: true,
                             }),
-                            // A unit amount without an expression or with a field of the row: the places of a page control,
-                            // resolved when it runs (al-runner issue 5827, assumption strsubstno-unit-amount-field).
-                            _ if unit_amount.is_some() => {
-                                let (record, field_no) = unit_amount.expect("checked");
-                                ir::Arg::Value(ir::Expr::Builtin {
-                                    id: builtin_id("System.FormatAutoFormatField#1")?,
-                                    receiver: None,
-                                    args: vec![
-                                        ir::Arg::Value(self.expr(a)?),
-                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
-                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
-                                        ir::Arg::Value(ir::Expr::Load(record)),
-                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(field_no as i32))),
-                                        ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))),
-                                    ],
-                                    ret_used: true,
-                                })
-                            }
-                            _ => ir::Arg::Value(ir::Expr::Refused(
+                            (None, Some((record, field_no, kind))) => ir::Arg::Value(ir::Expr::Builtin {
+                                id: builtin_id("System.FormatAutoFormatField#1")?,
+                                receiver: None,
+                                args: vec![
+                                    ir::Arg::Value(self.expr(a)?),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))),
+                                    ir::Arg::Value(ir::Expr::Load(record)),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(field_no as i32))),
+                                    ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(kind))),
+                                ],
+                                ret_used: true,
+                            }),
+                            (None, None) => ir::Arg::Value(ir::Expr::Refused(
                                 "StrSubstNo, Message or Error %n of a Decimal field with this DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
                             )),
                         }
@@ -726,12 +747,14 @@ impl Lowerer<'_> {
                     }
                 }
                 // The record and the field's position go along: the places come from the field's AutoFormatExpression when it runs.
-                if let (true, Some((record, pos))) = (emit_id == "System.FormatAutoFormatField#1", auto_format_field) {
+                // A sixth argument: the AutoFormatType of a field without an expression (`auto_format_field_without_expression`), else 0.
+                if let (true, Some((record, pos, kind))) = (emit_id == "System.FormatAutoFormatField#1", auto_format_field) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Load(record)));
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(pos as i32))));
+                    out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(kind))));
                 }
                 // The places, and when they hold (`decimal_field_places`: always, from BC 28 only, or under the measured format
                 // strings only).

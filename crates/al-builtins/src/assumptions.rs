@@ -676,17 +676,6 @@ registry! {
             since: "2026-10-25",
         },
     },
-    StrSubstNoUnitAmountField => {
-        id: "strsubstno-unit-amount-field",
-        assumed: "StrSubstNo, Message and Error %n of a Decimal table field with AutoFormatType 2 (a unit amount) and no AutoFormatExpression, or an AutoFormatExpression that is a field of the row, substitute the value with the unit-amount places a page control shows: the currency's Unit-Amount Decimal Places, and 2:5 for a blank or missing currency. Run only while General Ledger Setup holds Unit-Amount Decimal Places 2:5 for a blank or missing currency (the setup measured). Measured by the reporter on real BC on Windows (the newest major) (al-runner issue 5827).",
-        tests: "No Microsoft test: al-runner issue 5827 (1 test of a partner app).",
-        probe: "StrSubstNo, Message and Error %1 of AutoFormatType 1, 2, 4 and 5 fields with Rec.\"Currency Code\" (blank, set, no currency row) and without an expression, under General Ledger Setup places 2:5 and other places, and a currency of 3:3.",
-        awaiting: Awaiting {
-            issues: &[5827],
-            files: &["tests/al-language/misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al"],
-            since: "2026-10-25",
-        },
-    },
     OtherRecordControlOptionCaption => {
         id: "other-record-control-option-caption",
         assumed: "A page control bound to an Option field of another record variable of the page (`Settings.\"Avail. Filter\"`) shows the field's OptionCaption, as a control bound to a field of Rec does. Other formatting properties of such a field (DecimalPlaces, AutoFormat, BlankZero, OptionCaptionML, ClosingDates) are not run. Measured by the reporter on real BC on Windows (the newest major) (al-runner issue 5822).",

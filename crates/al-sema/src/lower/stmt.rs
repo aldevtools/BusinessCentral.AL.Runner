@@ -498,6 +498,9 @@ impl Lowerer<'_> {
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
             (None | Some("0"), None) | (Some("1"), Some("''")) => None,
+            // A unit amount whose expression is no text: the AutoFormat wins (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
+            // `A2Dp`, DecimalPlaces 0:1: `1,234.5000` with a currency of 4:4 unit-amount places).
+            (Some("2"), Some(e)) if !e.starts_with('\'') => None,
             _ => Some(format!(
                 "Format of Decimal field {} with DecimalPlaces and an AutoFormat beside it (not pinned: only AutoFormatType = 1 \
                  with a blank AutoFormatExpression is)",
@@ -533,6 +536,13 @@ impl Lowerer<'_> {
         if prop("AutoFormatType").as_deref() == Some("1") && prop("AutoFormatExpression").as_deref() == Some("''") {
             return Some(("2:2".into(), 0));
         }
+        // A unit amount whose expression is no text: its places come from the expression when it runs, DecimalPlaces beside it
+        // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`).
+        if prop("AutoFormatType").as_deref() == Some("2")
+            && prop("AutoFormatExpression").is_some_and(|e| !e.starts_with('\''))
+        {
+            return None;
+        }
         if let Some(p) = prop("DecimalPlaces").filter(|p| digits(p)) {
             return Some((p.replace(' ', ""), 0));
         }
@@ -552,10 +562,11 @@ impl Lowerer<'_> {
         }
     }
 
-    /// `arg` as a unit-amount Decimal table field (AutoFormatType 2, no DecimalPlaces) without an AutoFormatExpression or with
-    /// one that is no text: the place of its record and its number, for StrSubstNo, Message and Error `%n` (al-runner issue
-    /// 5827; the runtime refuses an expression that is no field of the row).
-    pub(crate) fn unit_amount_subst_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize)> {
+    /// `arg` as a Decimal table field with AutoFormatType 2, 4 or 5, no AutoFormatExpression and no DecimalPlaces: the place of its
+    /// record, its number and its AutoFormatType. `Format` of it (without a length or format) and StrSubstNo, Message and Error `%n`
+    /// take the places of General Ledger Setup when it runs (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `A2No`, `A4No`,
+    /// `A5No`).
+    pub(crate) fn auto_format_field_without_expression(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
@@ -566,15 +577,17 @@ impl Lowerer<'_> {
                 .find(|(k, _)| k.eq_ignore_ascii_case(n))
                 .map(|(_, v)| v.trim().to_string())
         };
-        if !matches!(f.ty, Ty::Decimal)
-            || prop("AutoFormatType").as_deref() != Some("2")
-            || prop("DecimalPlaces").is_some()
-            || prop("AutoFormatExpression").is_some_and(|e| e.starts_with('\''))
-        {
+        let kind = match prop("AutoFormatType").as_deref() {
+            Some("2") => 2,
+            Some("4") => 4,
+            Some("5") => 5,
+            _ => return None,
+        };
+        if !matches!(f.ty, Ty::Decimal) || prop("DecimalPlaces").is_some() || prop("AutoFormatExpression").is_some() {
             return None;
         }
         match self.place(arg).ok()? {
-            ir::Place::Field(base, _) => Some((*base, field as usize)),
+            ir::Place::Field(base, _) => Some((*base, field as usize, kind)),
             _ => None,
         }
     }
@@ -591,12 +604,17 @@ impl Lowerer<'_> {
         if !matches!(f.ty, Ty::Decimal) {
             return None;
         }
-        let expr = f
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatExpression"))
-            .map(|(_, v)| v.trim().to_string())?;
-        if expr.starts_with('\'') {
+        let prop = |n: &str| {
+            f.properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                .map(|(_, v)| v.trim().to_string())
+        };
+        let expr = prop("AutoFormatExpression")?;
+        // A constant currency code is pinned for an amount and a unit amount (SaUnitAmountSubst.al `A1Lit`, `A2Lit`: the
+        // currency's places); a blank text keeps its fixed places (`decimal_field_places`).
+        let constant_code = matches!(prop("AutoFormatType").as_deref(), Some("1" | "2")) && expr.len() > 2;
+        if expr.starts_with('\'') && !constant_code {
             return None;
         }
         match self.place(arg).ok()? {

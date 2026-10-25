@@ -448,7 +448,9 @@ impl Session {
     /// `Format` in code of the field numbered `field_no` of `record`, a Decimal table field whose AutoFormatExpression is an expression: BC
     /// applies the field's AutoFormat outside a page too (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:400-418
     /// QI_TableFieldExpression_FormatInCode: a field of the row for types 1 and 2, the places of its currency; a procedure for
-    /// type 10, the precision of the format it answers). The lowering sends only those shapes here.
+    /// type 10, the precision of the format it answers). Types 4 and 5 with a field of the row, 1 and 2 with a constant
+    /// currency code, and 2, 4 and 5 without an expression are pinned by misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
+    /// (1 and 4 amounts, 2 and 5 unit amounts). The lowering sends only those shapes here.
     pub(crate) fn auto_format_field_places_of(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         let Value::Record(rec) = record else {
             return unsupported("Format of an AutoFormat field of something that is no record");
@@ -466,35 +468,59 @@ impl Session {
         if let Some(why) = f.auto_format_refusal.clone() {
             return unsupported(why);
         }
-        let Some((object, routine)) = f.auto_format_expression else {
-            return unsupported(format!(
-                "Format of field {} whose AutoFormatExpression is an expression that did not compile",
-                f.name
-            ));
-        };
         let kind = f
             .properties
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
             .map(|(_, v)| v.trim().to_string())
             .unwrap_or_default();
-        let text = f
+        // No currency (no expression, or one that gives a blank code): the places of General Ledger Setup, run only while it holds
+        // the places the probe measured (2:2 for an amount, 2:5 for a unit amount; SaUnitAmountSubst.al SetSetup). Under other
+        // places BC keeps the setup it read first in the session (the file's header), which is not modelled.
+        let unit = matches!(kind.as_str(), "2" | "5");
+        let measured = if unit { (2, 5) } else { (2, 2) };
+        let setup_measured = |this: &mut Self, why: &str| -> Result<String, Signal> {
+            let places = this.setup_places(unit, "")?;
+            if places != measured {
+                return unsupported(format!(
+                    "Format of field {} with AutoFormatType {kind} and {why} under General Ledger Setup places {}:{} (only {}:{} is measured)",
+                    f.name, places.0, places.1, measured.0, measured.1
+                ));
+            }
+            Ok(format!("{}:{}", measured.0, measured.1))
+        };
+        let Some(text) = f
             .properties
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatExpression"))
             .map(|(_, v)| v.trim().to_string())
-            .unwrap_or_default();
+        else {
+            return setup_measured(self, "no AutoFormatExpression");
+        };
+        // A constant currency code (a text literal) of an amount or unit amount: that currency's places (SaUnitAmountSubst.al
+        // `A1Lit`, `A2Lit`).
+        if matches!(kind.as_str(), "1" | "2") && text.len() > 2 && text.starts_with('\'') && text.ends_with('\'') {
+            let code = text[1..text.len() - 1].replace("''", "'");
+            let (min, max) = self.auto_format_places(&kind, &code)?;
+            return Ok(format!("{min}:{max}"));
+        }
         let pinned = match kind.as_str() {
-            "1" | "2" => is_field_reference(&text),
+            "1" | "2" | "4" | "5" => is_field_reference(&text),
             "10" => text.contains('('),
             _ => false,
         };
         if !pinned {
             return unsupported(format!(
-                "Format in code of field {} with AutoFormatType {kind} and the AutoFormatExpression `{text}` (only a field of the row for types 1 and 2 and a procedure for type 10 are pinned)",
+                "Format in code of field {} with AutoFormatType {kind} and the AutoFormatExpression `{text}` (only a field of the row for types 1, 2, 4 and 5 and a procedure for type 10 are pinned)",
                 f.name
             ));
         }
+        let Some((object, routine)) = f.auto_format_expression else {
+            return unsupported(format!(
+                "Format of field {} whose AutoFormatExpression is an expression that did not compile",
+                f.name
+            ));
+        };
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         let expr = match self.call_on_record(object, routine, probe, None, Vec::new())?.0 {
             Value::Text(t) | Value::Code(t) => t.into_string(),
@@ -506,6 +532,9 @@ impl Session {
                 ));
             }
         };
+        if kind != "10" && expr.trim().is_empty() {
+            return setup_measured(self, "a blank currency code");
+        }
         let (min, max) = if kind == "10" {
             match pagefmt::parse_precision(&expr) {
                 Some(p) => p,
@@ -518,86 +547,6 @@ impl Session {
             }
         } else {
             self.auto_format_places(&kind, &expr)?
-        };
-        Ok(format!("{min}:{max}"))
-    }
-
-    /// The places StrSubstNo, Message and Error `%n` give a unit-amount Decimal field (AutoFormatType 2) numbered `field_no` of
-    /// `record`, without an AutoFormatExpression or with a field of the row: those of a page control (`auto_format_places`),
-    /// the currency's Unit-Amount Decimal Places for a currency. Not pinned: the reporter's real-BC repro of al-runner issue 5827
-    /// (assumption strsubstno-unit-amount-field) measures a blank currency and no expression under a General Ledger Setup of
-    /// 2:5 only, which a page control's 2:5 and the setup's places both give; under any other setup, or none, it is refused.
-    pub(crate) fn unit_amount_subst_places_of(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
-        let Value::Record(rec) = record else {
-            return unsupported("StrSubstNo of a unit-amount field of something that is no record");
-        };
-        let engine = self.engine();
-        let table = rec.borrow().table as usize;
-        let Some(f) = engine.program.objects[table]
-            .table
-            .as_ref()
-            .and_then(|t| t.fields.iter().find(|f| f.id as usize == field_no))
-            .cloned()
-        else {
-            return unsupported("StrSubstNo of a unit-amount field the table does not have");
-        };
-        let prop = |n: &str| {
-            f.properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(n))
-                .map(|(_, v)| v.trim().to_string())
-        };
-        if prop("AutoFormatType").as_deref() != Some("2") || prop("DecimalPlaces").is_some() {
-            return unsupported(format!(
-                "StrSubstNo of field {} that is no unit amount without DecimalPlaces (not pinned)",
-                f.name
-            ));
-        }
-        let expr = match prop("AutoFormatExpression") {
-            None => String::new(),
-            Some(text) => {
-                if !is_field_reference(&text) {
-                    return unsupported(format!(
-                        "StrSubstNo of unit-amount field {} whose AutoFormatExpression `{text}` is no field of the row (not pinned)",
-                        f.name
-                    ));
-                }
-                if let Some(why) = f.auto_format_refusal.clone() {
-                    return unsupported(why);
-                }
-                let Some((object, routine)) = f.auto_format_expression else {
-                    return unsupported(format!(
-                        "StrSubstNo of field {} whose AutoFormatExpression is an expression that did not compile",
-                        f.name
-                    ));
-                };
-                let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-                match self.call_on_record(object, routine, probe, None, Vec::new())?.0 {
-                    Value::Text(t) | Value::Code(t) => t.into_string(),
-                    other => {
-                        return unsupported(format!(
-                            "the AutoFormatExpression of field {} gave a {}",
-                            f.name,
-                            other.describe()
-                        ));
-                    }
-                }
-            }
-        };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::StrSubstNoUnitAmountField);
-        let (min, max) = if expr.trim().is_empty() {
-            match self.setup_places(true, "") {
-                Ok((2, 5)) => (2, 5),
-                Ok((min, max)) => {
-                    return unsupported(format!(
-                        "StrSubstNo of unit-amount field {} without a currency under General Ledger Setup's Unit-Amount Decimal Places {min}:{max} (only 2:5 is measured)",
-                        f.name
-                    ));
-                }
-                Err(e) => return Err(e),
-            }
-        } else {
-            self.auto_format_places("2", &expr)?
         };
         Ok(format!("{min}:{max}"))
     }
