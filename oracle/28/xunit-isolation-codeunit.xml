@@ -1,26 +1,64 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <assemblies>
-  <assembly name="61302 Isol Probe Fixture" test-framework="PS Test Runner" run-date="2026-10-18" run-time="13:07:02" total="7" passed="6" failed="1" skipped="0" time="0.044">
-    <collection name="Isol Probe Fixture" total="7" passed="6" failed="1" skipped="0" time="0.044">
-      <test name="Isol Probe Fixture:T1_SetsGlobalCounterSingleInstanceAndRow" method="T1_SetsGlobalCounterSingleInstanceAndRow" time="0.01" result="Pass" />
-      <test name="Isol Probe Fixture:T2_GlobalSetByT1IsStillSet" method="T2_GlobalSetByT1IsStillSet" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T3_CallCounterCountsEveryEarlierTest" method="T3_CallCounterCountsEveryEarlierTest" time="0.007" result="Pass" />
-      <test name="Isol Probe Fixture:T4_SingleInstanceSetByT1IsStillSet" method="T4_SingleInstanceSetByT1IsStillSet" time="0.004" result="Pass" />
-      <test name="Isol Probe Fixture:T5_RowInsertedByT1IsRolledBack" method="T5_RowInsertedByT1IsRolledBack" time="0.007" result="Fail">
+  <assembly name="61302 Isol Probe Fixture" test-framework="PS Test Runner" run-date="2026-10-25" run-time="08:23:49" total="11" passed="7" failed="4" skipped="0" time="0.064">
+    <collection name="Isol Probe Fixture" total="11" passed="7" failed="4" skipped="0" time="0.064">
+      <test name="Isol Probe Fixture:T1_SetsGlobalCounterSingleInstanceAndRow" method="T1_SetsGlobalCounterSingleInstanceAndRow" time="0.013" result="Pass" />
+      <test name="Isol Probe Fixture:T2_GlobalSetByT1IsStillSet" method="T2_GlobalSetByT1IsStillSet" time="0.004" result="Pass" />
+      <test name="Isol Probe Fixture:T3_CallCounterCountsEveryEarlierTest" method="T3_CallCounterCountsEveryEarlierTest" time="0.004" result="Pass" />
+      <test name="Isol Probe Fixture:T4_SingleInstanceSetByT1IsStillSet" method="T4_SingleInstanceSetByT1IsStillSet" time="0.003" result="Pass" />
+      <test name="Isol Probe Fixture:T5_RowInsertedByT1IsRolledBack" method="T5_RowInsertedByT1IsRolledBack" time="0.003" result="Fail">
         <failure>
           <message>The row T1 inserted is still there in T5: the database was not rolled back after T1 (expected under TestIsolation = Codeunit, not Function)</message>
           <stack-trace>Isol Probe Fixture(CodeUnit 61302).T5_RowInsertedByT1IsRolledBack line 6 - AL Language Isolation Probe by AL Language version 1.0.0.0
-Test Runner - Mgt(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.5.54151.56443
+Test Runner - Mgt(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.5.54151.56865
 Isol Probe Runner Codeunit(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-Test Suite Mgt.(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.5.54151.56443
-Test Suite Mgt.(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.5.54151.56443
-Test Suite Mgt.(CodeUnit 130456).RunNextTest line 20 - Test Runner by Microsoft version 28.5.54151.56443
-Command Line Test Tool(Page 130455).RunNextTest - OnAction(Trigger) line 7 - Test Runner by Microsoft version 28.5.54151.56443
+Test Suite Mgt.(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunNextTest line 20 - Test Runner by Microsoft version 28.5.54151.56865
+Command Line Test Tool(Page 130455).RunNextTest - OnAction(Trigger) line 7 - Test Runner by Microsoft version 28.5.54151.56865
 </stack-trace>
         </failure>
       </test>
-      <test name="Isol Probe Fixture:T6_RowInsertedByOnRunIsStillThere" method="T6_RowInsertedByOnRunIsStillThere" time="0.006" result="Pass" />
-      <test name="Isol Probe Fixture:T7_OnRunRanOnceOnThisInstance" method="T7_OnRunRanOnceOnThisInstance" time="0.007" result="Pass" />
+      <test name="Isol Probe Fixture:T6_RowInsertedByOnRunIsStillThere" method="T6_RowInsertedByOnRunIsStillThere" time="0.003" result="Pass" />
+      <test name="Isol Probe Fixture:T7_OnRunRanOnceOnThisInstance" method="T7_OnRunRanOnceOnThisInstance" time="0.006" result="Pass" />
+      <test name="Isol Probe Fixture:T8_EndsWithDeferredDuplicateInsert" method="T8_EndsWithDeferredDuplicateInsert" time="0.007" result="Fail">
+        <failure>
+          <message>The record in table Isol Probe Row already exists. Identification fields and values: Key='RXDUP'</message>
+          <stack-trace>Test Runner - Mgt(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.5.54151.56865
+Isol Probe Runner Codeunit(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
+Test Suite Mgt.(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunNextTest line 20 - Test Runner by Microsoft version 28.5.54151.56865
+Command Line Test Tool(Page 130455).RunNextTest - OnAction(Trigger) line 7 - Test Runner by Microsoft version 28.5.54151.56865
+</stack-trace>
+        </failure>
+      </test>
+      <test name="Isol Probe Fixture:T9_RowOfT8IsGoneAfterItsDeferredDuplicate" method="T9_RowOfT8IsGoneAfterItsDeferredDuplicate" time="0.007" result="Pass" />
+      <test name="Isol Probe Fixture:T10_EndsWithDeferredDuplicateInsertAfterCommit" method="T10_EndsWithDeferredDuplicateInsertAfterCommit" time="0.007" result="Fail">
+        <failure>
+          <message>The record in table Isol Probe Row already exists. Identification fields and values: Key='RXCOMMIT'</message>
+          <stack-trace>Test Runner - Mgt(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.5.54151.56865
+Isol Probe Runner Codeunit(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
+Test Suite Mgt.(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunNextTest line 20 - Test Runner by Microsoft version 28.5.54151.56865
+Command Line Test Tool(Page 130455).RunNextTest - OnAction(Trigger) line 7 - Test Runner by Microsoft version 28.5.54151.56865
+</stack-trace>
+        </failure>
+      </test>
+      <test name="Isol Probe Fixture:T11_CommittedRowOfT10IsGone" method="T11_CommittedRowOfT10IsGone" time="0.007" result="Fail">
+        <failure>
+          <message>The row T10 inserted and committed before its duplicate (RXCOMMIT) is still there in T11: the Commit outlived the failed test</message>
+          <stack-trace>Isol Probe Fixture(CodeUnit 61302).T11_CommittedRowOfT10IsGone line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
+Test Runner - Mgt(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.5.54151.56865
+Isol Probe Runner Codeunit(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
+Test Suite Mgt.(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.5.54151.56865
+Test Suite Mgt.(CodeUnit 130456).RunNextTest line 20 - Test Runner by Microsoft version 28.5.54151.56865
+Command Line Test Tool(Page 130455).RunNextTest - OnAction(Trigger) line 7 - Test Runner by Microsoft version 28.5.54151.56865
+</stack-trace>
+        </failure>
+      </test>
     </collection>
   </assembly>
 </assemblies>

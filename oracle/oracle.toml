@@ -66,17 +66,17 @@ baseline = "metrics/28/passing-dotnet.txt"
 
 # The isolation probe runs only in the corpus's Windows nightly (workflow "Nightly Windows", never
 # in the Linux legs), under two custom test runners. The one nightly artifact that holds it is
-# run 39127745894 (2026-10-18, BC 28.5, corpus staging 92aeaa7, whose tests/ are identical to the
-# pin's; only nightly-windows.yml differs: it sets the app runtime per BC version). There is no oracle for BC 27 and 29.
+# run 40168383221 (2026-10-25, BC 28.5 build 28.5.54151.56865, sandbox, corpus master ccb6e72f, which
+# adds the probe's T8-T11; an earlier oracle came from run 39127745894 on 92aeaa7). There is no oracle for BC 27 and 29.
 [[version.suite]]
 name = "isolation-function"
 app = "corpus/tests/al-language-isolation-probe"
 format = "xunit"
 runner = 61300
 bc_version = "28.5"
-corpus_commit = "92aeaa757c2e510d2f9d75359b4b97763869fda6"
-workflow_run = 39127745894
-artifact_id = 12137159749
+corpus_commit = "ccb6e72f8bb3d4146ddc89100b7094da713df8dd"
+workflow_run = 40168383221
+artifact_id = 12591974942
 oracle = "28/xunit-isolation-function.xml"
 baseline = "metrics/28/passing-isolation-function.txt"
 
@@ -88,9 +88,9 @@ app = "corpus/tests/al-language-isolation-probe"
 format = "xunit"
 runner = 61301
 bc_version = "28.5"
-corpus_commit = "92aeaa757c2e510d2f9d75359b4b97763869fda6"
-workflow_run = 39127745894
-artifact_id = 12137159749
+corpus_commit = "ccb6e72f8bb3d4146ddc89100b7094da713df8dd"
+workflow_run = 40168383221
+artifact_id = 12591974942
 oracle = "28/xunit-isolation-codeunit.xml"
 baseline = "metrics/28/passing-isolation-codeunit.txt"
 
