@@ -708,6 +708,33 @@ registry! {
             since: "2026-10-27",
         },
     },
+    FieldRefOrdinalFromOptionValue => {
+        id: "fieldref-ordinal-from-option-value",
+        assumed: "FieldRef.GetEnumValueCaptionFromOrdinalValue and GetEnumValueNameFromOrdinalValue take an Option value (FieldRef.Value of an Option field) as the ordinal it holds. An Enum value and other types stay refused.",
+        tests: "No Microsoft test: al-runner issue 5987, the reporter's repro green on real BC (the caption of the first member of an Option field, read by GetEnumValueCaptionFromOrdinalValue(FieldRef.Value())).",
+        probe: "An Option field and an Enum field read through a FieldRef: GetEnumValueCaptionFromOrdinalValue and GetEnumValueNameFromOrdinalValue of FieldRef.Value(), for the first and a later member. Corpus writer SO (branch al-runtime-rs-staging-so).",
+        awaiting: Awaiting {
+            issues: &[5987],
+            files: &[
+                "tests/al-language/fieldref/TestFieldRefEnumOrdinalByIndex.al::SO_OptionField_ValueAsOrdinalArgument_ReproShape",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    MediaFilterNullGuid => {
+        id: "media-filter-null-guid",
+        assumed: "SetFilter on a Media field with the null Guid as text (`00000000-0000-0000-0000-000000000000`, braced or not, in a filter such as `<>...`) compares the field's media id with the null Guid: an empty Media field equals it. Another Guid text and any other text stay refused.",
+        tests: "No Microsoft test: al-runner issue 5991, the reporter's repro green on real BC (FieldRef.SetFilter('<>00000000-0000-0000-0000-000000000000') on a Media field finds no row whose field is empty).",
+        probe: "SetFilter on a Media field with `<>` and `=` the null Guid, braced and plain, an empty text and the media id of a filled field, then FindSet, IsEmpty, Count and GetFilter. Corpus writer SO (branch al-runtime-rs-staging-so).",
+        awaiting: Awaiting {
+            issues: &[5991],
+            files: &[
+                "tests/al-language/media/lt-so-media-filter/SoMediaFilter.al::SO_MediaFilter_FieldRefReproShape",
+                "tests/al-language/media/lt-so-media-filter/SoMediaFilter.al::SO_MediaFilter_NullGuidForms",
+            ],
+            since: "2026-10-28",
+        },
+    },
 }
 
 thread_local! {

@@ -43,6 +43,7 @@ mod event_recursion_code;
 mod event_var_nested;
 mod events;
 mod exec;
+mod fieldref_option_ordinal_arg;
 mod fieldref_text_into_integer;
 mod filtergroup_assign;
 mod for_date;

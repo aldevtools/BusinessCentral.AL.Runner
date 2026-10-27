@@ -5528,6 +5528,7 @@
 68569 ValueArray_SmallerAndLargerArgument
 68569 VarArray_LargerArgument
 68569 VarArray_SmallerArgument_Length
+68571 ExportStream_OfAnEmptyField
 68571 ImportStream_ReturnValueAndMediaId
 68571 ImportStream_SecondImportIntoTheSameField
 68571 MediaSet_ImportStreamItemsAndOutOfRangeItem
@@ -12873,6 +12874,7 @@
 74204 MediaEmpty
 74204 MediaExportAfterReload
 74204 MediaExportStream
+74204 MediaExportStreamEmpty
 74204 MediaIdIsGuidType
 74204 MediaImportEmptyDescription
 74204 MediaImportEmptyStream
