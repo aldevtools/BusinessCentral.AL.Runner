@@ -158,7 +158,11 @@ pub fn lower_layer_with(
     }
     // A layer's result holds only the objects lowered here, so the blocks below are not decoded.
     let blocks = provided_blocks(&ws, n_prov, below)?;
-    let provided = Provided { src: below, blocks };
+    let provided = Provided {
+        src: below,
+        blocks,
+        shared: None,
+    };
     let members = crate::members::build(&ws);
     let mut roots = crate::check::Roots {
         eager: true,
@@ -235,7 +239,11 @@ pub fn compile_loaded_cached(
         Ok(b) => b,
         Err(why) => return Err(Box::new((ws, why))),
     };
-    let provided = Provided { src, blocks };
+    let provided = Provided {
+        src,
+        blocks,
+        shared: Some(src_shared.clone()),
+    };
     let cache_blocks = blocks_started.elapsed();
     let started = std::time::Instant::now();
     let members = crate::members::build(&ws);
@@ -249,7 +257,6 @@ pub fn compile_loaded_cached(
     let started = std::time::Instant::now();
     let mut lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), false)
         .expect("a cache that passed its checks lowers");
-    lazy_cached_objects(&mut lowered, &src_shared);
     lowered.timings = CompileTimings {
         load,
         members: members_time,
@@ -277,16 +284,19 @@ pub fn compile_loaded_cached(
     Ok((ws, lowered))
 }
 
-/// Puts the objects the cache supplies into `lowered`'s program as slots that decode on first touch (see
-/// [`compile_loaded_cached`]).
-fn lazy_cached_objects(lowered: &mut Lowered, src: &std::sync::Arc<dyn crate::provided::DepSource + Send>) {
-    let program = std::sync::Arc::get_mut(&mut lowered.program).expect("the program of a compile is not shared yet");
+/// Puts the objects the cache supplies into `program` as slots that decode on first touch (see
+/// [`compile_loaded_cached`]): `objects` are the linked objects, `None` for those.
+pub(crate) fn lazy_cached_objects(
+    program: &mut ir::Program,
+    lowered: &mut Lowered,
+    objects: Vec<Option<ir::Object>>,
+    src: &std::sync::Arc<dyn crate::provided::DepSource + Send>,
+) {
     let provided = &lowered.provided;
     let source = std::sync::Arc::new(crate::provided::CachedObjects::new(
         src.clone(),
         lowered.pos_ranges.iter().map(|r| r.0).collect(),
     ));
-    let objects = std::mem::take(&mut program.objects);
     // The heads of each layer are decoded on its first ask, on several threads, inside a `OnceLock`. Asked first from
     // the parallel loop below, a thread waiting in that decode could take another item of the loop and ask the same
     // `OnceLock` again: a deadlock. So they are asked here, on one thread, first.
@@ -296,25 +306,18 @@ fn lazy_cached_objects(lowered: &mut Lowered, src: &std::sync::Arc<dyn crate::pr
     // On several threads: the heads of about ten thousand objects in a run on Base Application.
     let heads: Vec<ir::ObjectHead> = {
         use rayon::prelude::*;
-        (0..objects.len())
-            .into_par_iter()
-            .map(|oi| {
-                if provided[oi] {
-                    src.head(oi).clone()
-                } else {
-                    ir::ObjectHead::of(&objects[oi])
-                }
+        objects
+            .par_iter()
+            .enumerate()
+            .map(|(oi, o)| match o {
+                Some(o) if !provided[oi] => ir::ObjectHead::of(o),
+                _ => src.head(oi).clone(),
             })
             .collect()
     };
     let heads: std::sync::Arc<[ir::ObjectHead]> = heads.into();
-    let finished: Vec<Option<ir::Object>> = objects
-        .into_vec()
-        .into_iter()
-        .enumerate()
-        .map(|(oi, o)| (!provided[oi]).then_some(o))
-        .collect();
-    program.objects = ir::Objects::lazy_with_heads(finished, source.clone(), heads);
+    debug_assert!(objects.iter().enumerate().all(|(oi, o)| o.is_none() == provided[oi]));
+    program.objects = ir::Objects::lazy_with_heads(objects, source.clone(), heads);
     program.positions.set_source(source.clone());
     lowered.cached_objects = Some(source);
     if std::env::var_os("ALRUNNER_EAGER_DECODE").is_some() {

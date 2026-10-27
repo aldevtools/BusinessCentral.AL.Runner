@@ -317,12 +317,7 @@ pub(crate) fn lower_object<'a>(
             expansions: Vec::new(),
             page_mods: Default::default(),
             sym: None,
-            implements: Vec::new(),
-            enum_impls: Vec::new(),
-            enum_ordinals: Vec::new(),
             key_owners: Vec::new(),
-            fields: Vec::new(),
-            controls: Vec::new(),
         };
     }
     let obj = ws.object_ast(oi);
@@ -798,12 +793,7 @@ pub(crate) fn lower_object<'a>(
         expansions: lw.expansions.take().list,
         page_mods: lw.page_mods.take(),
         sym: None,
-        enum_impls: Vec::new(),
-        enum_ordinals: Vec::new(),
-        implements: Vec::new(),
         key_owners,
-        fields: Vec::new(),
-        controls: Vec::new(),
     }
 }
 
