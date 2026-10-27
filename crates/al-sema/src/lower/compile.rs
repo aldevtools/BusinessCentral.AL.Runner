@@ -297,24 +297,25 @@ pub(crate) fn lazy_cached_objects(
         src.clone(),
         lowered.pos_ranges.iter().map(|r| r.0).collect(),
     ));
-    // The heads of each layer are decoded on its first ask, on several threads, inside a `OnceLock`. Asked first from
-    // the parallel loop below, a thread waiting in that decode could take another item of the loop and ask the same
-    // `OnceLock` again: a deadlock. So they are asked here, on one thread, first.
-    for oi in (0..objects.len()).filter(|&oi| provided[oi]) {
-        src.head(oi);
-    }
-    // On several threads: the heads of about ten thousand objects in a run on Base Application.
-    let heads: Vec<ir::ObjectHead> = {
-        use rayon::prelude::*;
-        objects
-            .par_iter()
-            .enumerate()
-            .map(|(oi, o)| match o {
+    // The heads the cache stored, decoded for the program and moved into it (ADR-054), except the few of the objects
+    // compiled here.
+    // (The source holds the dependency objects, the workspace's follow.)
+    let mut stored = src
+        .heads_owned()
+        .into_iter()
+        .map(Some)
+        .chain(std::iter::repeat_with(|| None));
+    let heads: Vec<ir::ObjectHead> = objects
+        .iter()
+        .enumerate()
+        .map(|(oi, o)| {
+            let h = stored.next().flatten();
+            match o {
                 Some(o) if !provided[oi] => ir::ObjectHead::of(o),
-                _ => src.head(oi).clone(),
-            })
-            .collect()
-    };
+                _ => h.expect("the cache holds the head of an object it supplies"),
+            }
+        })
+        .collect();
     let heads: std::sync::Arc<[ir::ObjectHead]> = heads.into();
     debug_assert!(objects.iter().enumerate().all(|(oi, o)| o.is_none() == provided[oi]));
     program.objects = ir::Objects::lazy_with_heads(objects, source.clone(), heads);
