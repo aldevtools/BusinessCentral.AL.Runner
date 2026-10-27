@@ -270,3 +270,17 @@ the lazy/eager decode leg.
   eager-decode run with the lazy one (and CI runs it). `al_cache::FORMAT` 17. Warm repro: 170 objects decoded;
   instructions 5.08 G to 2.79 G; compile 0.22 s to 0.19 s (the index facts at open and the link of the
   placeholders are what is left, step 4).
+
+- 2026-10-27, step 3 (rest): `field_key_rows` (a `Field.Get` by key) finds its tables through the heads; the Code
+  Coverage rows find each object's position ids without reading cached positions (`Positions::ids_by_object`).
+  Test plan item 5: `start_up_and_one_field_get_decode_only_a_few_objects` (al-testrun `compile_cache.rs`) decodes 2
+  of 416 objects (416 before the `field_key_rows` change).
+
+- 2026-10-27, step 4 (first part): the facts leave the index; they sit after the heads in zstd chunks of 256 and are
+  decoded at open on several threads. The index holds a CRC-32 of every MiB between the header and the index, checked
+  at open (decision 6): a flipped byte anywhere is refused at open (`al-cache` test
+  `a_flipped_byte_anywhere_is_refused_at_open`). The placeholders of the cached objects and the program's heads are
+  made on several threads. `al_cache::FORMAT` 18. Warm repro: cache open 0.05 s to 0.01 s, compile 0.18 s to 0.13 s,
+  instructions about the same (2.4 G). Left: the per-routine refusal reasons and calls are still copied for every
+  cached object at start (`Lowered::unsupported`, `calls`; about 11 ms), the heads are still cloned (about 7 ms) and
+  link still builds its name space from all units (about 22 ms).
