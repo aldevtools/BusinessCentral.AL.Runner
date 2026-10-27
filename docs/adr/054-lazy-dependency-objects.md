@@ -284,3 +284,10 @@ the lazy/eager decode leg.
   instructions about the same (2.4 G). Left: the per-routine refusal reasons and calls are still copied for every
   cached object at start (`Lowered::unsupported`, `calls`; about 11 ms), the heads are still cloned (about 7 ms) and
   link still builds its name space from all units (about 22 ms).
+
+- 2026-10-27, step 4 (link of the cached objects): a cached object gets no piece, staged object, placeholder unit or
+  default object any more. `al_link::link_items` takes `Item::Placeholder` (the facts other objects ask of it, read in
+  place from the cache) and returns no object for it; `Lowered::unsupported` and `calls` read a cached object's lists
+  from its facts (`lower/routine_lists.rs`); `ir::Objects` boxes its slots. Demo (`al-runner test app test`, warm,
+  median of 5): compile 0.15 s to 0.12 s, instructions 3.84 G to 3.61 G; warm repro: compile 0.13 s to 0.10 s,
+  2.46 G to 2.23 G.
