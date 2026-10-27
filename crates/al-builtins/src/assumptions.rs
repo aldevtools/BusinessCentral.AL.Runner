@@ -648,7 +648,9 @@ registry! {
         probe: "A list page with SourceTableView = where(D = filter('')) over rows with a blank and a set date: the rows it lists, and GetFilter(D) of its Rec; the same through SetView.",
         awaiting: Awaiting {
             issues: &[5958],
-            files: &["tests/al-language/pages/lt-sh-outside-pages/ShBlankDateView.al"],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_Rows",
+            ],
             since: "2026-10-27",
         },
     },
