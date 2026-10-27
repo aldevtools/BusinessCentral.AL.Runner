@@ -11,7 +11,7 @@ use super::objects::{Catalog, ident, prop, string_lit, truthy};
 use super::{Blank, Providers, blank, pos};
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
-use al_ir::{Field, Object};
+use al_ir::{Field, ObjectHead as Object};
 
 const OBSOLETE_STATES: &[&str] = &["No", "Pending", "Removed"];
 const DATA_CLASSIFICATIONS: &[&str] = &[
@@ -151,7 +151,7 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
     let mut out = Vec::new();
     // Every row of a table holds the table's id as TableNo (`table_entries`), so only the tables of that id can hold it.
     // Found by the heads, so that one lookup makes only those objects, not every object a cache supplies (ADR-054).
-    let heads = c.objects.heads();
+    let heads = c.objects;
     for (i, _) in heads
         .iter()
         .enumerate()

@@ -33,7 +33,7 @@ const PAGE_TYPES: &[(&str, i32)] = &[
 ];
 
 /// The table a page shows: the table of its `Rec`.
-fn source_table<'a>(c: &'a Catalog, o: &Object) -> Option<&'a Object> {
+fn source_table<'a>(c: &'a Catalog, o: &Object) -> Option<&'a al_ir::ObjectHead> {
     let slot = o.rec_slot?;
     match o.globals.get(slot).map(|g| &g.ty) {
         Some(RtType::Record(t, _)) => Some(&c.objects[*t as usize]),
@@ -73,7 +73,7 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`. Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
-fn view_text(o: &Object, table: Option<&Object>, table_objects: &al_ir::Objects) -> Result<String, String> {
+fn view_text(o: &Object, table: Option<&al_ir::ObjectHead>, table_objects: &al_ir::Objects) -> Result<String, String> {
     let Some(v) = prop(o, "SourceTableView") else {
         return Ok(String::new());
     };
@@ -247,7 +247,7 @@ impl StripCi for str {
 }
 
 /// The ids of the fields `DataCaptionFields` names, comma-joined.
-fn caption_fields(o: &Object, table: Option<&Object>) -> Result<String, String> {
+fn caption_fields(o: &Object, table: Option<&al_ir::ObjectHead>) -> Result<String, String> {
     let Some(v) = prop(o, "DataCaptionFields") else {
         return Ok(String::new());
     };
@@ -279,10 +279,12 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for o in c.objects {
-        let (Some(id), al_ir::ObjKind::Page) = (o.id, o.kind) else {
+    for (i, h) in c.objects.iter().enumerate() {
+        let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };
+        // A row reads the page's controls: only the pages are made.
+        let o = &c.full[i];
         let mut key = blank.row();
         key[pos(t, 1)] = Value::Integer(id as i32);
         match page_metadata_row(&c, o, t, key.clone()) {
@@ -300,7 +302,7 @@ fn effective_prop<'a>(c: &'a Catalog, o: &'a Object, name: &str) -> Result<Optio
     let own = o.id.filter(|_| o.kind == al_ir::ObjKind::Page);
     // From the catalog's index: this runs four times for every page of the program when Page Metadata is first read.
     let from_extensions: Vec<&str> = (c.page_extensions_of(own).iter())
-        .filter_map(|e| prop(e, name))
+        .filter_map(|e| prop(*e, name))
         .collect();
     match from_extensions.as_slice() {
         [] => Ok(prop(o, name)),
@@ -386,7 +388,7 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
     r[pos(t, 12)] = Value::Text(text_prop(o, "EntitySetName", 250).into());
     r[pos(t, 13)] = Value::Text(text_prop(o, "EntityName", 250).into());
     r[pos(t, 14)] = Value::Integer(src_id as i32);
-    r[pos(t, 15)] = Value::Text(view_text(o, src, c.objects)?.into());
+    r[pos(t, 15)] = Value::Text(view_text(o, src, c.full)?.into());
     for (id, name) in [(16, "InsertAllowed"), (17, "ModifyAllowed"), (18, "DeleteAllowed")] {
         r[pos(t, id)] = Value::Boolean(allowed(c, o, name)?);
     }
@@ -457,10 +459,12 @@ pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for o in c.objects {
-        let (Some(id), al_ir::ObjKind::Page) = (o.id, o.kind) else {
+    for (i, h) in c.objects.iter().enumerate() {
+        let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };
+        // The controls are in the page itself: only the pages are made.
+        let o = &c.full[i];
         let Some(page) = &o.page else {
             let mut k = blank.row();
             k[pos(t, 1)] = Value::Integer(id as i32);
@@ -504,7 +508,7 @@ pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
 fn control_row(
     c: &Catalog,
     o: &Object,
-    src: Option<&Object>,
+    src: Option<&al_ir::ObjectHead>,
     ctl: &al_ir::Control,
     t: &TableDef,
     r: &mut Row,
@@ -519,7 +523,7 @@ fn control_row(
     r[pos(t, 7)] = bool_prop(o, ctl, "editable", "True")?;
     r[pos(t, 8)] = bool_prop(o, ctl, "visible", "true")?;
     // The variables a control can name are the globals of the object that declares it.
-    let owner = ctl.owner.map_or(o, |e| &c.objects[e]);
+    let owner = ctl.owner.map_or(o, |e| &c.full[e]);
     match &ctl.binding {
         Binding::Field(fp) => {
             let table = src.and_then(|s| s.table.as_ref()).ok_or_else(|| {

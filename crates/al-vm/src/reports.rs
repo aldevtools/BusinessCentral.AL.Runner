@@ -256,10 +256,17 @@ impl Session {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported("Report.DefaultLayout with an id that is not an integer");
                 };
-                let Some(o) = self.engine.program.objects.iter().find(|o| {
-                    (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
-                        && o.id == u32::try_from(*n).ok()
-                }) else {
+                // Found from the heads, so only that report is made (ADR-054).
+                let objects = &self.engine.program.objects;
+                let Some(o) = objects
+                    .heads()
+                    .iter()
+                    .position(|o| {
+                        (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
+                            && o.id == u32::try_from(*n).ok()
+                    })
+                    .map(|i| &objects[i])
+                else {
                     // The missing-object error, its result used or not (report/lt-report-members-testrequestpage/
                     // P91Static.al:113-115, ids 0, 71999 and -1).
                     if let Some(why) = self.missing_may_be_skipped("Report", i64::from(*n)) {

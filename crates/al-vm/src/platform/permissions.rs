@@ -174,7 +174,6 @@ pub(super) type Cache = std::cell::RefCell<Option<(u64, Rc<Mat>)>>;
 // filed under Object Type Table Data, not Table). An uppercase letter is a direct grant (Yes), a lowercase
 // one an indirect grant (Indirect): the language documents it, no corpus test fixes it.
 
-use al_ir::Object;
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 
@@ -234,13 +233,16 @@ fn last_name(s: &str) -> String {
     parts.pop().unwrap_or_default().trim().to_string()
 }
 
-fn parse_grants(o: &Object, ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>) -> Result<Vec<Grant>, String> {
+fn parse_grants<O: al_ir::ObjectInfo + ?Sized>(
+    o: &O,
+    ids: &dyn Fn(al_ir::ObjKind, &str) -> Result<u32, String>,
+) -> Result<Vec<Grant>, String> {
     let Some(text) = prop(o, "Permissions") else {
         return Ok(Vec::new());
     };
     let mut out: Vec<Grant> = Vec::new();
     for entry in split_entries(text) {
-        let bad = |why: &str| format!("permission set '{}': `{entry}` {why}", o.name);
+        let bad = |why: &str| format!("permission set '{}': `{entry}` {why}", o.name());
         let (head, mask) = entry.rsplit_once('=').ok_or_else(|| bad("has no permission mask"))?;
         let head = head.trim();
         let (kind_word, name) = head

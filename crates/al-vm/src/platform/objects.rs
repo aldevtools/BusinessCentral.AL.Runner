@@ -12,9 +12,9 @@
 use super::mat::Entry;
 use super::{Blank, Providers, ids, option, pos};
 use crate::Engine;
-use al_builtins::value::{RtType, Value};
+use al_builtins::value::Value;
 use al_data::{Row, TableDef};
-use al_ir::Object;
+use al_ir::{Object, ObjectHead, ObjectInfo};
 use std::collections::HashMap;
 
 /// The option ordinal of the AllObj "Object Type" member for an object kind, if the kind is listed.
@@ -64,8 +64,8 @@ fn carries_app_id(kind: al_ir::ObjKind) -> bool {
 }
 
 /// The value of property `name` as written in the object body.
-pub(super) fn prop<'a>(o: &'a Object, name: &str) -> Option<&'a str> {
-    o.properties
+pub(super) fn prop<'a, O: ObjectInfo + ?Sized>(o: &'a O, name: &str) -> Option<&'a str> {
+    o.properties()
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.trim())
@@ -150,7 +150,11 @@ const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 
 /// What the program says about each object, by name and by owner.
 pub(super) struct Catalog<'a> {
-    pub objects: &'a al_ir::Objects,
+    /// The heads of the objects: what a pass over all of them reads, so a run over a compile cache makes no object
+    /// for it (ADR-054).
+    pub objects: &'a [ObjectHead],
+    /// The objects themselves, for what a head does not hold (made on first touch).
+    pub full: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
     /// The lookups by name and id, built on first use: a provider that reads only `objects` and `apps` (a Field row by
     /// its key) does not pay for them.
@@ -162,16 +166,19 @@ struct Maps<'a> {
     /// (base kind, lower-case name) to the ids of the objects of that name.
     names: HashMap<(al_ir::ObjKind, String), Vec<u32>>,
     /// Table id to the first table object of that id.
-    tables: HashMap<u32, &'a Object>,
+    tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
-    page_extensions: HashMap<u32, Vec<&'a Object>>,
+    page_extensions: HashMap<u32, Vec<usize>>,
+    #[allow(dead_code)]
+    _objects: std::marker::PhantomData<&'a Object>,
 }
 
 impl<'a> Catalog<'a> {
     pub(super) fn new(engine: &'a Engine) -> Catalog<'a> {
         let program = &engine.program;
         Catalog {
-            objects: &program.objects,
+            objects: program.objects.heads(),
+            full: &program.objects,
             apps: &program.apps,
             maps: std::cell::OnceCell::new(),
         }
@@ -180,14 +187,14 @@ impl<'a> Catalog<'a> {
     fn maps(&self) -> &Maps<'a> {
         self.maps.get_or_init(|| {
             let mut m = Maps::default();
-            for o in self.objects {
+            for (i, o) in self.objects.iter().enumerate() {
                 if let (al_ir::ObjKind::PageExtension, Some(base)) = (o.kind, o.extends_id) {
-                    m.page_extensions.entry(base).or_default().push(o);
+                    m.page_extensions.entry(base).or_default().push(i);
                 }
                 if let Some(id) = o.id {
                     m.names.entry((o.kind, o.name.to_lowercase())).or_default().push(id);
                     if o.kind == al_ir::ObjKind::Table {
-                        m.tables.entry(id).or_insert(o);
+                        m.tables.entry(id).or_insert(i);
                     }
                 }
             }
@@ -196,20 +203,20 @@ impl<'a> Catalog<'a> {
     }
 
     /// The page extensions of page `id`, in program order (none for `None`).
-    pub(super) fn page_extensions_of(&self, id: Option<u32>) -> &[&'a Object] {
+    pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
         id.and_then(|id| self.maps().page_extensions.get(&id))
-            .map_or(&[], Vec::as_slice)
+            .map_or_else(Vec::new, |v| v.iter().map(|&i| &self.full[i]).collect())
     }
 
     /// The first table object with this id.
-    pub(super) fn table_by_id(&self, id: u32) -> Option<&'a Object> {
-        self.maps().tables.get(&id).copied()
+    pub(super) fn table_by_id(&self, id: u32) -> Option<&'a ObjectHead> {
+        self.maps().tables.get(&id).map(|&i| &self.objects[i])
     }
 
     /// The manifest id of the app that owns `o`; empty for the platform's own objects, which no
     /// app owns (AL Runner leaves them without an owner).
-    pub(super) fn owner(&self, o: &Object) -> [u8; 16] {
-        let Some(app) = self.apps.get(o.app as usize) else {
+    pub(super) fn owner<O: ObjectInfo + ?Sized>(&self, o: &O) -> [u8; 16] {
+        let Some(app) = self.apps.get(o.app() as usize) else {
             return [0; 16];
         };
         if app.id.eq_ignore_ascii_case(al_sema_platform_app_id()) {
@@ -297,42 +304,42 @@ pub(super) fn truncate(s: &str, max: usize) -> String {
 
 /// The object caption: the `Caption` property's literal, else the object name. A tableextension's row names it by its name:
 /// its Caption is the caption of the table it extends (tableextension/TestTableExtFieldModify.al:174-179).
-pub(super) fn caption(o: &Object) -> String {
-    if o.kind == al_ir::ObjKind::TableExtension {
-        return o.name.clone();
+pub(super) fn caption<O: ObjectInfo + ?Sized>(o: &O) -> String {
+    if o.kind() == al_ir::ObjKind::TableExtension {
+        return o.name().to_string();
     }
     prop(o, "Caption")
         .and_then(string_lit)
-        .unwrap_or_else(|| o.name.clone())
+        .unwrap_or_else(|| o.name().to_string())
 }
 
 /// [`caption`] as a column value, cut to `max` characters: unknown where a tableextension sets the table's caption over another
 /// (`al_ir::CAPTION_REFUSED`).
-fn caption_value(o: &Object, max: usize) -> Value {
-    match o.properties.iter().find(|(k, _)| k == al_ir::CAPTION_REFUSED) {
+fn caption_value<O: ObjectInfo + ?Sized>(o: &O, max: usize) -> Value {
+    match o.properties().iter().find(|(k, _)| k == al_ir::CAPTION_REFUSED) {
         Some((_, why)) => Value::Unknown(why.clone().into()),
         None => Value::Text(truncate(&caption(o), max).into()),
     }
 }
 
 /// `is_platform`, for the Field table's package columns.
-pub(super) fn platform_object(o: &Object) -> bool {
+pub(super) fn platform_object<O: ObjectInfo + ?Sized>(o: &O) -> bool {
     is_platform(o)
 }
 
 /// The App Package ID and App Runtime Package ID AllObj reports for `o`.
-pub(super) fn package_ids(c: &Catalog, o: &Object) -> ([u8; 16], [u8; 16]) {
+pub(super) fn package_ids<O: ObjectInfo + ?Sized>(c: &Catalog, o: &O) -> ([u8; 16], [u8; 16]) {
     (package_of(c, o), runtime_package_id(c, o))
 }
 
-fn namespace(o: &Object) -> String {
+fn namespace(o: &ObjectHead) -> String {
     o.namespace.clone().unwrap_or_default()
 }
 
 // ---- AllObj and AllObjWithCaption -----------------------------------------------------------------
 
 /// The text of "Object Subtype" for an object (AllObjWithCaption).
-fn subtype_text(c: &Catalog, o: &Object) -> Result<String, String> {
+fn subtype_text(c: &Catalog, o: &ObjectHead) -> Result<String, String> {
     let kind = o.kind;
     let unknown = |what: &str, v: &str| format!("{kind} '{}': {what} `{v}` is not understood", o.name);
     Ok(match kind {
@@ -374,8 +381,8 @@ fn subtype_text(c: &Catalog, o: &Object) -> Result<String, String> {
 pub(super) fn entries(
     c: &Catalog,
     t: &TableDef,
-    wanted: impl Fn(&Object) -> Option<Vec<(u32, Value)>>,
-    build: impl Fn(&Object, &mut Row) -> Result<(), String>,
+    wanted: impl Fn(&ObjectHead) -> Option<Vec<(u32, Value)>>,
+    build: impl Fn(&ObjectHead, &mut Row) -> Result<(), String>,
 ) -> Vec<Entry> {
     let mut out = Vec::new();
     let blank = Blank::new(t);
@@ -400,12 +407,12 @@ pub(super) fn entries(
 }
 
 /// A platform object (a system table): it has a package id, shared by all of them, and no runtime package id.
-fn is_platform(o: &Object) -> bool {
-    o.id.is_some_and(|id| id >= 2_000_000_000)
+fn is_platform<O: ObjectInfo + ?Sized>(o: &O) -> bool {
+    o.id().is_some_and(|id| id >= 2_000_000_000)
 }
 
 /// The package id AllObj reports for `o`: the owning app's, or the platform's own for a platform object.
-fn package_of(c: &Catalog, o: &Object) -> [u8; 16] {
+fn package_of<O: ObjectInfo + ?Sized>(c: &Catalog, o: &O) -> [u8; 16] {
     if is_platform(o) {
         ids::package_id([0x70; 16])
     } else {
@@ -416,11 +423,11 @@ fn package_of(c: &Catalog, o: &Object) -> [u8; 16] {
 /// "App Runtime Package ID": the package id for an object of the app under test, a different one for an object of a
 /// dependency app (Base Application), and none for a platform object (metadata/W6AllObj.al:
 /// AllObj_PackageIds_ThisApp_BaseApp_Platform, BC 27.5 and 29.0).
-fn runtime_package_id(c: &Catalog, o: &Object) -> [u8; 16] {
+fn runtime_package_id<O: ObjectInfo + ?Sized>(c: &Catalog, o: &O) -> [u8; 16] {
     if is_platform(o) {
         return [0; 16];
     }
-    let dependency = c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
+    let dependency = c.apps.get(o.app() as usize).is_some_and(|a| a.dependency);
     ids::runtime_package_id(c.owner(o), dependency)
 }
 
@@ -428,8 +435,8 @@ fn runtime_package_id(c: &Catalog, o: &Object) -> [u8; 16] {
 const TEST_RUNNER_CODEUNITS: std::ops::RangeInclusive<u32> = 130_450..=130_455;
 
 /// A table declared `ObsoleteState = Moved`.
-fn moved(o: &Object) -> bool {
-    o.kind == al_ir::ObjKind::Table && al_ir::ObjectFacts::of(o).moved
+fn moved(o: &ObjectHead) -> bool {
+    o.kind == al_ir::ObjKind::Table && al_ir::ObjectFacts::of_properties(&o.properties).moved
 }
 
 pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -465,7 +472,6 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     for id in TEST_RUNNER_CODEUNITS {
         let present = c
             .objects
-            .heads()
             .iter()
             .any(|o| o.id == Some(id) && object_type(o.kind) == Some(5));
         if !present {
@@ -640,12 +646,10 @@ pub(super) fn codeunit_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> 
 }
 
 /// The id of the table a codeunit's `TableNo` names; 0 for none.
-fn table_no(c: &Catalog, o: &Object) -> Result<u32, String> {
+fn table_no(c: &Catalog, o: &ObjectHead) -> Result<u32, String> {
     // A compiled codeunit has `Rec`: a global of the table's record type.
-    if let Some(slot) = o.rec_slot {
-        if let Some(RtType::Record(t, _)) = o.globals.get(slot).map(|g| &g.ty) {
-            return Ok(c.objects[*t as usize].id.unwrap_or(0));
-        }
+    if let Some(t) = o.rec_table {
+        return Ok(c.objects[t as usize].id.unwrap_or(0));
     }
     match prop(o, "TableNo") {
         None => Ok(0),
@@ -679,7 +683,7 @@ fn ordinal_of(members: &[&str], text: &str) -> Option<i32> {
 }
 
 /// The ids of the fields a table's `DataCaptionFields` names, comma-joined (empty without the property).
-fn data_caption_field_ids(o: &Object) -> Result<String, String> {
+fn data_caption_field_ids(o: &ObjectHead) -> Result<String, String> {
     let Some(v) = prop(o, "DataCaptionFields") else {
         return Ok(String::new());
     };

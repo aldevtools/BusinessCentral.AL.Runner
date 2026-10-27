@@ -31,6 +31,54 @@ pub struct ObjectHead {
     pub routine_count: u32,
     /// The routines that publish or subscribe to an event, in routine order.
     pub events: Vec<EventRoutine>,
+    /// The table object of the implicit `Rec` (`Object::rec_slot`), when it is a record: a codeunit's `TableNo` as
+    /// resolved (the Codeunit Metadata table reads it).
+    pub rec_table: Option<u32>,
+}
+
+/// What both an object and its head say about the object, for code that reads either.
+pub trait ObjectInfo {
+    fn kind(&self) -> ObjKind;
+    fn id(&self) -> Option<u32>;
+    fn name(&self) -> &str;
+    fn app(&self) -> u32;
+    fn properties(&self) -> &[(String, String)];
+}
+
+impl ObjectInfo for Object {
+    fn kind(&self) -> ObjKind {
+        self.kind
+    }
+    fn id(&self) -> Option<u32> {
+        self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn app(&self) -> u32 {
+        self.app
+    }
+    fn properties(&self) -> &[(String, String)] {
+        &self.properties
+    }
+}
+
+impl ObjectInfo for ObjectHead {
+    fn kind(&self) -> ObjKind {
+        self.kind
+    }
+    fn id(&self) -> Option<u32> {
+        self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn app(&self) -> u32 {
+        self.app
+    }
+    fn properties(&self) -> &[(String, String)] {
+        &self.properties
+    }
 }
 
 /// A routine that declares an event attribute (`IntegrationEvent`, `BusinessEvent`, `InternalEvent` or
@@ -89,6 +137,10 @@ impl ObjectHead {
             report_ext_base: o.report_ext.as_ref().map(|x| x.base),
             routine_count: o.routines.len() as u32,
             events,
+            rec_table: o.rec_slot.and_then(|s| match o.globals.get(s).map(|g| &g.ty) {
+                Some(RtType::Record(t, _)) => Some(*t),
+                _ => None,
+            }),
         }
     }
 

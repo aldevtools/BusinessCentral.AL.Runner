@@ -284,3 +284,9 @@ the lazy/eager decode leg.
   instructions about the same (2.4 G). Left: the per-routine refusal reasons and calls are still copied for every
   cached object at start (`Lowered::unsupported`, `calls`; about 11 ms), the heads are still cloned (about 7 ms) and
   link still builds its name space from all units (about 22 ms).
+
+- 2026-10-27, regression fix: the object-list platform tables (AllObj, AllObjWithCaption, Application Object Metadata,
+  CodeUnit, Table, XmlPort and Query Metadata, Key, Field, Event Subscription, the permission sets) read the heads,
+  and the page and report tables make only their pages and reports. `ObjectHead::rec_table` added (`al_cache::FORMAT`
+  19). Test: `reading_the_object_lists_decodes_only_a_few_objects` (red: 416 of 416 decoded). Enforced Digital
+  Vouchers Tests (19 dependencies, 10 916 objects): 10 916 to 180 objects decoded, run 0.26 s to 0.02 s.
