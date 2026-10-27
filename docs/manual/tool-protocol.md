@@ -113,7 +113,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
 | `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
-| `compilationErrors` | present when non-empty | present on exit 3: no rows, every count 0, `[{file, errors[]}]` as in v2 | Exit 3 covers the AL compiler errors the must-not-compile corpus pins. Other code AL Runner cannot compile becomes `notRun` rows: treat all-rows-`notRun` as "not scorable" too (see LethAL, below). |
+| `compilationErrors` | present when non-empty | present on exit 3: no rows, every count 0, `[{file, errors[]}]` as in v2 | Exit 3 covers the AL compiler errors the must-not-compile corpus pins, and source of an app under test that AL Runner's parser does not accept (that line has the parser's message and no AL code, `<file>(<line>,<column>): error: <message>`). Other code AL Runner cannot compile becomes `notRun` rows: treat all-rows-`notRun` as "not scorable" too (see LethAL, below). |
 | `executionErrors`, `suiteErrors`, `companyInitFailures` | present when non-empty | absent | none |
 | `codeunit`, `codeunitName`, `method` | absent | present | New. Use them instead of splitting `name`. |
 | `tests[].generatedStubs` | with `--tdd`, on a test that reaches a stub | the same, only on a test that **ran** a stub; plus `tests[].stubbed: true` | The form is v2's: `"<Object>: procedure \"<Name>\"(Arg1: <Type>, ...): <Type>"`, and for declarations `"<Table>: field \"<Name>\": <Type>"`, `"<Enum>: value \"<Name>\""` and `"<kind> \"<Name>\" (id N)"`. `status` is the test's own outcome; a stubbed pass is `pass`. |
@@ -240,7 +240,7 @@ Differences a client must adapt to:
 | 0 | all passed | all selected tests passed |
 | 1 | a test failed or errored | a test failed |
 | 2 | bundle could not execute, bad flag | bad invocation or the run could not start |
-| 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the must-not-compile corpus pins; no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
+| 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the must-not-compile corpus pins, or source of an app under test that AL Runner's parser does not accept (no AL code on that line); no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
 | 6 | `--test` matched nothing | the selection matched nothing |
 | 7 | (none) | some tests were not run. `--allow-not-run` makes it 0. |
 | 8 | (none) | tests were not run because the .NET helper could not be used (a problem of the machine). |
@@ -289,7 +289,7 @@ Changes in LethAL:
    `NotRun: out-of-scope: <reason>`. Also read `notRun: true`. A row with `notRun` is "runner refused", never "killed".
 5. **Timeouts** (`al-runner-backend.ts:79-93`): unchanged sentence. The limit is CPU time in v3.
 6. **Compile failure** (`al-runner-contract.ts` fact `compile-failure-not-scorable`): a mutant that the AL compiler
-   rejects gives exit 3 when the must-not-compile corpus pins the error, else rows with `notRun: true`. Score both as "not scorable".
+   rejects gives exit 3 when the must-not-compile corpus pins the error or AL Runner's parser rejects the source, else rows with `notRun: true`. Score both as "not scorable".
 7. **Assertion screen** (`assertion-screen.ts:36-44, 78-90`): do not depend on `NavNCLDialogException: ` or
    `InvalidOperationException: out-of-scope:`. Messages are the BC text.
 8. **Stderr** (`al-runner-transport.ts:106-210`): see section 7.

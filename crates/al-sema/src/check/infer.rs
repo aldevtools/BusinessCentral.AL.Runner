@@ -644,6 +644,40 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0132 (corpus must-not-compile 1780-inherited-default-method-on-codeunit-variable.al:1, al-runner issue 5917):
+    /// `C.Name(...)` on a `Codeunit` variable whose codeunit an app under test declares, where `Name` is no procedure
+    /// of it (a local one is AL0161, `al_codeunit_access`), no variable of it and no method of `Codeunit` in any version
+    /// of the catalog. A codeunit of a dependency app is not judged.
+    pub(crate) fn al_unknown_codeunit_member(&mut self, sc: &Scope, node: &SyntaxNode, base: &Ty, name: &str) {
+        let Ty::Object(ObjKind::Codeunit, cname) = base else {
+            return;
+        };
+        if self.ws.is_dependency(sc.oi) {
+            return;
+        }
+        let Some(ci) = self.resolve(sc, ObjKind::Codeunit, cname) else {
+            return;
+        };
+        if self.ws.is_dependency(ci)
+            || !self.members[ci].procedures_named(name).is_empty()
+            || crate::base_access::declares_var(&self.ws.object_ast(ci), name)
+            || !self
+                .catalog
+                .overloads(kind_receiver(ObjKind::Codeunit), name)
+                .is_empty()
+            || !self.catalog.hidden(kind_receiver(ObjKind::Codeunit), name).is_empty()
+        {
+            return;
+        }
+        let shown = crate::alcodes::quoted_if_needed(&self.ws.objects[ci].name);
+        self.diag(
+            sc,
+            node,
+            "AL0132",
+            format!("'Codeunit {shown}' does not contain a definition for '{name}'"),
+        );
+    }
+
     /// AL0132 for a method that a library type does not have (corpus must-not-compile 0107 `Length` on a Text, 0224
     /// `Contain` on a Text, 0225 `Length` on a List, 0226 `Size` on a Dictionary, 0228 `Put` on a JsonObject,
     /// 0229 `Send2` on an HttpClient, 0230 `Fieldd` on a RecordRef, 0233 `Invert` on a Boolean, 0234 `Size` on a
@@ -1068,6 +1102,8 @@ impl<'a> Checker<'a> {
                         self.diag(sc, node, "AR1002", self.no_member(&mname, &base_ty));
                         self.al_unknown_record_member(sc, node, &base_ty, &mname);
                         self.al_unknown_builtin_member(sc, node, &base_ty, &mname);
+                        // alc reports it at the member name (issue 5917: `(10,18)` for `Logic.NoSuch(1, 1)`).
+                        self.al_unknown_codeunit_member(sc, kids.get(1).unwrap_or(node), &base_ty, &mname);
                         E::Val(Ty::Unknown)
                     }
                 }
