@@ -298,12 +298,17 @@ fn a_stale_buffer_of_another_origin_whose_row_the_transaction_wrote_is_written()
     assert_eq!(text(al_testkit::run_in(RU, "RU", "FindBufferWritten")), "start|5");
 }
 
+// An Insert of another row of the table after the Commit writes the stale buffer (corpus branch al-runtime-rs-staging-sh,
+// record/lt-sb-stale-own-modify/SbStaleOwnModify.al:692 SH_OwnModify_OneCommit_AnotherRowInsert; al-runner issue 5954).
+#[test]
+fn a_stale_insert_buffer_after_an_insert_of_another_row_is_written() {
+    assert_eq!(text(al_testkit::run_in(RU, "RU", "InsertOtherRowWritten")), "ok");
+}
+
 #[test]
 fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
-    for p in ["InsertOtherRowWritten", "InsertTwoCommits"] {
-        let r = al_testkit::run_in(RU, "RU", p);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{p}: {r:?}");
-    }
+    let r = al_testkit::run_in(RU, "RU", "InsertTwoCommits");
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "InsertTwoCommits: {r:?}");
 }
 
 // al-runner issue 5823: the variable's own writes after its own Insert or Get, in the transaction the last Commit closed

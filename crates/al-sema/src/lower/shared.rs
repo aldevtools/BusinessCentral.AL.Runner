@@ -718,7 +718,13 @@ pub(crate) fn lower_object<'a>(
         match ext_captions.as_slice() {
             [] => {}
             [(k, v)] if !own && k.eq_ignore_ascii_case("Caption") => properties.push((k.clone(), v.clone())),
-            _ => properties.push((
+            _ => {
+                if let [(k, v)] = ext_captions.as_slice() {
+                    if k.eq_ignore_ascii_case("Caption") {
+                        properties.push((ir::EXT_CAPTION_OVER_OWN.into(), v.clone()));
+                    }
+                }
+                properties.push((
                 ir::CAPTION_REFUSED.into(),
                 format!(
                     "the caption of table {}, which a tableextension sets {} (which caption BC shows is not pinned)",
@@ -729,7 +735,8 @@ pub(crate) fn lower_object<'a>(
                         "with CaptionML or more than once"
                     }
                 ),
-            )),
+            ))
+            }
         }
     }
     let (table, key_owners) = if o.kind == ObjKind::Table && ws.usable(oi) {

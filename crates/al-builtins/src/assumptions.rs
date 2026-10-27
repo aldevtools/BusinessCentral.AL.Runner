@@ -581,6 +581,133 @@ registry! {
             since: "2026-10-25",
         },
     },
+
+
+
+    BigTextValueCopy => {
+        id: "bigtext-value-copy",
+        assumed: "A BigText is a value: `B := A` copies its text, a by-value parameter (of a procedure or an event) gets a copy the callee's AddText does not reach, and a returned BigText is a copy; a `var` parameter is the caller's own BigText. Nothing in the corpus tells a copy from a shared BigText yet.",
+        tests: "No Microsoft test: al-runner issue 5940, the reporter's repro green on real BC (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
+        probe: "`B := A` then A.AddText: B's length; a by-value parameter whose callee calls AddText: the caller's length; Clear of a copy: the original's length; a var parameter's AddText: the caller's length.",
+        awaiting: Awaiting {
+            issues: &[5940],
+            files: &[
+                "tests/al-language/text/TestBigText.al::BigText_Assign_CopiesTheValue",
+                "tests/al-language/text/TestBigText.al::BigText_Parameters_ByValueCopies_VarShares",
+                "tests/al-language/text/TestBigText.al::BigText_ClearOfACopy_KeepsTheOriginal",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    SelfUnbindSkipsRestOfRaise => {
+        id: "self-unbind-skips-rest-of-raise",
+        assumed: "A manual subscriber instance that unbinds itself (UnbindSubscription(this)) while one of its subscriber methods runs is not called again in that raise: its later subscriber methods for the same event are skipped. An instance another subscriber unbinds during the raise is refused (not pinned).",
+        tests: "No Microsoft test: al-runner issue 5941, the reporter's repro green on real BC (`A:stop;after-unbind`, method B not called).",
+        probe: "A manual codeunit with two subscribers to one event whose first calls UnbindSubscription(this): which methods run in that raise; and a second manual codeunit whose subscriber, running first, unbinds the first codeunit's instance.",
+        awaiting: Awaiting {
+            issues: &[5941],
+            files: &[
+                "tests/al-language/handlers/ProbeEventSubscriberOrder.al::ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    FieldRefTextIntoIntegerError => {
+        id: "fieldref-text-into-integer-error",
+        assumed: "Assigning a text of two letters or more to FieldRef.Value of an Integer, BigInteger or Decimal field, or an empty text to an Integer field, raises `The value \"<text>\" can't be evaluated into type <Type>.` (Evaluate:Format) from the gate FieldRefTextNumberEvaluateErrorFrom28 on and `The type Nav<Type> is unknown.` (NotSupportedType) before it, and leaves the field as it was. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
+        tests: "No Microsoft test: al-runner issue 5942, the reporter's repro green on real BC (also reached through Data Type Management.SetFieldValue).",
+        probe: "Pinned by writer SH: fieldref/TestFieldRefValue.al FieldRef_Value_TextIntoInteger_ErrorText and FieldRef_Value_TextIntoNumberTypes (corpus PR 748).",
+        awaiting: Awaiting {
+            issues: &[5942],
+            files: &[
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoInteger_ErrorText",
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoNumberTypes",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    RecursiveEventCallCode => {
+        id: "recursive-event-call-code",
+        assumed: "A call chain that reaches the call-depth ceiling while an event subscriber is on the stack raises the code `RecursiveEventCall:StackOverflow` and `Excessive recursion has been detected in event subscriber function <subscriber> for event <event> that is raised in <CodeUnit|Table> <id>.`, at the same depth as plain recursion: `None` for an event a codeunit publishes, `OnAfterModifyEvent` for that table event; the text of another event is not pinned (reads of it refuse). Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
+        tests: "No Microsoft test: al-runner issue 5944, the reporter's repro green on real BC (an OnAfterModifyEvent subscriber that calls Modify(true) on the record again).",
+        probe: "Pinned by writer SH: codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al (corpus PR 748). Still wanted: the text for a business event and other table events.",
+        awaiting: Awaiting {
+            issues: &[5944],
+            files: &[
+                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ThroughAnIntegrationEvent_ErrorCodeAndText",
+                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ModifyInOnAfterModifyEvent_ErrorCodeAndText",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    GroupEnabledDisablesField => {
+        id: "group-enabled-disables-field",
+        assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says, on every page type and for a group Enabled bound to an expression. Pinned are a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card field without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card); a field with `Enabled = true` there, another page type or an expression is a flagged pass.",
+        tests: "No Microsoft test: al-runner issue 5945, the reporter's repro green on real BC (a card's field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
+        probe: "A card and a list with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
+        awaiting: Awaiting {
+            issues: &[5945],
+            files: &[
+                "tests/al-language/pages/lt-ap-testpage-642/ApTestPageTests.al::Ap16_GroupEnabledFalse_FieldEnabledTrue",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    RelationErrorExtCaption => {
+        id: "relation-error-ext-caption",
+        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own. TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
+        tests: "No Microsoft test: al-runner issue 5955, the reporter's repro green on real BC (Validate of a field related to Work Center, extended with a Caption; two tests of a partner app).",
+        probe: "A table with a Caption and one tableextension with a Caption: the TableRelation error of a Validate, TableCaption, RecordRef.Caption, the error of a Get that finds nothing and of TestField.",
+        awaiting: Awaiting {
+            issues: &[5955],
+            files: &[
+                "tests/al-language/tableextension/TestTableExtFieldTableRelation.al::TableExt_CaptionOfRelatedTable_InValidateErrorText",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    StaleOwnInsertTwoCommitsOtherInsert => {
+        id: "stale-own-insert-two-commits-other-insert",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back; with no write of the table, or an Insert into another table only, BC refuses it. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus. Other writes of the table beside that Insert are not told apart.",
+        tests: "No Microsoft test: al-runner issue 5954, the reporter's repro green on real BC (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order; four tests of a partner app).",
+        probe: "Pinned by writer SH: record/lt-sb-stale-own-modify/SbStaleOwnModify.al SH_OwnModify_* (corpus PR 748). Still wanted: a Modify of another row instead of an Insert, three Commits.",
+        awaiting: Awaiting {
+            issues: &[5954],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_AnotherRowInsert",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_OneCommit_AnotherRowInsert",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_NothingAfter",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_OtherTableInsertAfter",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    PageMetadataViewNotBlankDate => {
+        id: "page-metadata-view-not-blank-date",
+        assumed: "The SourceTableView column of Page Metadata shows a `where(<Date field> = filter(<> ''))` condition as `Field<n>=FILTER(<>'')`, in the form of the pinned integer range (misc/W2PageMetadata.al:395). Only the `Field<n>=` part is known from real BC.",
+        tests: "No Microsoft test: al-runner issue 5957, the reporter's repro green on real BC (Page Management reads the Page Metadata of a lookup page with this view; one test of a partner app).",
+        probe: "Page Metadata.SourceTableView of pages with where(D = filter(<> '')), where(D = filter('')) and where(C = filter(<> '')) on a Date and a Code field.",
+        awaiting: Awaiting {
+            issues: &[5957],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_PageMetadata",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    ViewBlankDateFilter => {
+        id: "view-blank-date-filter",
+        assumed: "A view condition `filter('')` on a Date field (a page's SourceTableView or SetView) selects the blank date, as `filter(0D)` does in a SourceTableView (pages/lt-cd-testpage-leads/CdTestPageLeads.al:521 Item58_SourceTableView_Filter0D) and `filter('')` of a TableRelation or CalcFormula selects the blank value (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al).",
+        tests: "No Microsoft test: al-runner issue 5958, the reporter's repro green on real BC (a list page with where(Date = filter('')) opens on the blank-date row and Next() is false; two tests of a partner app).",
+        probe: "A list page with SourceTableView = where(D = filter('')) over rows with a blank and a set date: the rows it lists, and GetFilter(D) of its Rec; the same through SetView.",
+        awaiting: Awaiting {
+            issues: &[5958],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_Rows",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

@@ -71,7 +71,12 @@ pub enum Gate {
     RequestPageExtensionRecordTriggerOrderFrom28,
     /// `FieldRef.Value` set from an Option text that is not a value: the Evaluate error from BC 28, `The type NavOption is unknown.` before (record/lt-u-table-field-props/UTableCdsOrdinals.al, corpus bump 26). Not consumed yet.
     OptionFieldRefSetEvaluateErrorFrom28,
-    /// `AL:MetadataNotFound` for an unknown report id names the calling test codeunit from BC 28, and `Test Runner - Mgt.` before (report/lt-t-validate-layout/TValidateLayout.al, corpus bump 26). Not consumed yet.
+    /// `FieldRef.Value` set from a text that is no number on an Integer, BigInteger or Decimal field: the Evaluate error
+    /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
+    /// error for an Option field is pinned (record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175); for numbers it is
+    /// pinned on corpus branch al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al, commit 67c7900c, al-runner issue 5942).
+    FieldRefTextNumberEvaluateErrorFrom28,
+    /// `AL:MetadataNotFound` for an unknown report id names the calling test codeunit from BC 28, and `Test Runner - Mgt.` before (report/lt-t-validate-layout/TValidateLayout.al, corpus bump 26; the layout members and DefaultLayout in report/lt-report-requestpage-query-members/P105LytInitSM.al). Not consumed yet.
     MetadataNotFoundNamesTheCallerFrom28,
     /// The fully qualified name overloads of Report.Run, Page.Run and RecordRef.Open exist from BC 28 (runtime 17.0); the test file is compiled from BC 28 on (report/lt-t-fqn-run/LtTFqnRun.al, corpus bump 26). Not consumed yet.
     FullyQualifiedNameRunAndOpenFrom28,
@@ -253,6 +258,7 @@ impl Gate {
         Gate::GetTextArgumentEvaluateErrorFrom28,
         Gate::RequestPageExtensionRecordTriggerOrderFrom28,
         Gate::OptionFieldRefSetEvaluateErrorFrom28,
+        Gate::FieldRefTextNumberEvaluateErrorFrom28,
         Gate::MetadataNotFoundNamesTheCallerFrom28,
         Gate::FullyQualifiedNameRunAndOpenFrom28,
         Gate::ControlAddInNotInstantiatedErrorFrom28,
@@ -340,6 +346,7 @@ impl Gate {
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::MetadataNotFoundNamesTheCallerFrom28
             | Gate::FullyQualifiedNameRunAndOpenFrom28
             | Gate::ControlAddInNotInstantiatedErrorFrom28
@@ -554,10 +561,21 @@ impl Gate {
                 file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
                 lines: "170,175",
             }],
-            Gate::MetadataNotFoundNamesTheCallerFrom28 => &[Evidence {
-                file: "report/lt-t-validate-layout/TValidateLayout.al",
-                lines: "144,150",
+            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[Evidence {
+                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                lines: "170,175",
             }],
+            Gate::MetadataNotFoundNamesTheCallerFrom28 => &[
+                Evidence {
+                    file: "report/lt-t-validate-layout/TValidateLayout.al",
+                    lines: "144,150",
+                },
+                // The layout members and DefaultLayout for a missing report id, called from the test method.
+                Evidence {
+                    file: "report/lt-report-requestpage-query-members/P105LytInitSM.al",
+                    lines: "170,187,204,221",
+                },
+            ],
             Gate::FullyQualifiedNameRunAndOpenFrom28 => &[
                 Evidence {
                     file: "misc/lt-cu-odd-leads/CuWriteTxTests.al",
