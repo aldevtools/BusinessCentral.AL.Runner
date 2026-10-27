@@ -5,16 +5,17 @@
 //! `al-runner cache clear` and is replaced by `--rebuild-compile-cache`. There is no second cache.
 //!
 //! The file is the [`BaselineRun`]: the data the install code left, the notes about roots that did not run to their
-//! end, and the instant the run began. The file is written to a name of its own and renamed, so a reader never sees
-//! half a file; a file that cannot be read is removed and the install code runs.
+//! end, the instant the run began, and the recorded runs of the login code over the baseline
+//! (`install::login_work_date`, added by the first run that records one, [`keep_login`]). The file is written to a name
+//! of its own and renamed, so a reader never sees half a file; a file that cannot be read is removed and the install code runs.
 
 use crate::baseline::BaselineRun;
-use al_builtins::value_codec::{Reader, put_i64, put_str, put_u8, put_u32};
+use al_builtins::value_codec::{Reader, put_i64, put_str, put_u8, put_u32, put_u64};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x02";
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x03";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -77,6 +78,20 @@ pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
             put_str(&mut out, f);
         }
     }
+    put_u32(&mut out, run.login.len() as u32);
+    for l in &run.login {
+        put_str(&mut out, &l.company);
+        put_i64(&mut out, i64::from(l.work_date));
+        put_i64(&mut out, i64::from(l.day));
+        put_u32(&mut out, l.globals.len() as u32);
+        for &(g, d, f) in &l.globals {
+            put_u32(&mut out, g as u32);
+            put_i64(&mut out, i64::from(d));
+            put_u8(&mut out, f as u8);
+        }
+        put_u64(&mut out, l.hits as u64);
+        put_u64(&mut out, (l.hits >> 64) as u64);
+    }
     put_u8(&mut out, 1);
     let baseline = run.baseline.to_bytes()?;
     out.extend_from_slice(&baseline);
@@ -114,6 +129,27 @@ pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
             fields,
         });
     }
+    let mut login = Vec::new();
+    for _ in 0..r.u32()? {
+        let company = r.str()?;
+        let work_date = i32::try_from(r.i64()?).ok()?;
+        let day = i32::try_from(r.i64()?).ok()?;
+        let mut globals = Vec::new();
+        for _ in 0..r.u32()? {
+            let g = r.u32()? as usize;
+            let d = i32::try_from(r.i64()?).ok()?;
+            let f = r.u8()? != 0;
+            globals.push((g, d, f));
+        }
+        let hits = u128::from(r.u64()?) | (u128::from(r.u64()?) << 64);
+        login.push(crate::baseline::LoginRecord {
+            company,
+            work_date,
+            day,
+            globals,
+            hits,
+        });
+    }
     if r.u8()? != 1 {
         return None;
     }
@@ -128,6 +164,7 @@ pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
             total,
             restored,
             trace: None,
+            login,
         },
         started_at,
     ))
@@ -225,6 +262,19 @@ pub fn write(dir: &Path, key: &str, run: &BaselineRun, started_at: i64) {
     crate::compile_cache::prune(dir, &[target]);
 }
 
+/// Adds the login runs `login` to the file kept under `key` when it does not hold them yet (`install::login_work_date`
+/// recorded them over the baseline the file holds). Best effort, like [`write`].
+pub fn keep_login(dir: &Path, key: &str, login: &[crate::baseline::LoginRecord]) {
+    let path = file(dir, key);
+    let Ok(bytes) = std::fs::read(&path) else { return };
+    let Some((mut run, at)) = decode(&bytes) else { return };
+    if login.iter().all(|l| run.login.contains(l)) {
+        return;
+    }
+    run.login = login.to_vec();
+    write(dir, key, &run, at);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,12 +291,34 @@ mod tests {
             total: 18,
             restored: Vec::new(),
             trace: None,
+            login: vec![crate::baseline::LoginRecord {
+                company: "CRONUS".into(),
+                work_date: 739_000,
+                day: 739_100,
+                globals: vec![(3, 739_100, false), (5, 0, true)],
+                hits: 1 << 100 | 5,
+            }],
         }
     }
 
     fn same(a: &BaselineRun, b: &BaselineRun) -> bool {
-        (&a.unseeded, a.filled, &a.notes, a.ran, a.total, a.baseline.to_bytes())
-            == (&b.unseeded, b.filled, &b.notes, b.ran, b.total, b.baseline.to_bytes())
+        (
+            &a.unseeded,
+            a.filled,
+            &a.notes,
+            a.ran,
+            a.total,
+            &a.login,
+            a.baseline.to_bytes(),
+        ) == (
+            &b.unseeded,
+            b.filled,
+            &b.notes,
+            b.ran,
+            b.total,
+            &b.login,
+            b.baseline.to_bytes(),
+        )
     }
 
     #[test]

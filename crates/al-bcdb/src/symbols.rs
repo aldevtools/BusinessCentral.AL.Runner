@@ -346,6 +346,16 @@ pub fn eq_ci(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b) || (!a.is_ascii() || !b.is_ascii()) && a.to_uppercase() == b.to_uppercase()
 }
 
+/// A key two names share exactly when [`eq_ci`] holds for them, for a lookup by name: the name upper-cased. Two ASCII
+/// names that differ only in ASCII case upper-case alike, and for any other pair `eq_ci` compares the upper-cased forms.
+pub fn ci_key(name: &str) -> String {
+    if name.is_ascii() {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_uppercase()
+    }
+}
+
 fn name_compat(al_name: &str, sql_name: &str) -> bool {
     eq_ci(&normalize_sql_name(al_name), sql_name)
 }
@@ -427,4 +437,44 @@ fn extract_symbol_reference(mut bytes: Vec<u8>, origin: &str, depth: usize) -> R
     Err(crate::invalid!(
         "{origin}: no SymbolReference.json and no single inner .app in the package"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A lookup by [`ci_key`] finds exactly the names [`eq_ci`] calls equal (the backup provider's table index and the
+    /// read planner's column sets rely on it).
+    #[test]
+    fn ci_key_agrees_with_eq_ci() {
+        let names = [
+            "G_L Entry",
+            "g_l entry",
+            "G_L ENTRY",
+            "G_L Entry$ext",
+            "Straße",
+            "STRASSE",
+            "strasse",
+            "Ärger",
+            "ärger",
+            "ÄRGER",
+            "ı",
+            "I",
+            "i",
+            "İ",
+            "ſ",
+            "s",
+            "S",
+            "ﬁ",
+            "FI",
+            "Customer",
+            "Customer ",
+            "",
+        ];
+        for a in names {
+            for b in names {
+                assert_eq!(eq_ci(a, b), ci_key(a) == ci_key(b), "{a:?} and {b:?}");
+            }
+        }
+    }
 }
