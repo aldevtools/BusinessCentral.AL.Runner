@@ -71,6 +71,11 @@ pub enum Gate {
     RequestPageExtensionRecordTriggerOrderFrom28,
     /// `FieldRef.Value` set from an Option text that is not a value: the Evaluate error from BC 28, `The type NavOption is unknown.` before (record/lt-u-table-field-props/UTableCdsOrdinals.al, corpus bump 26). Not consumed yet.
     OptionFieldRefSetEvaluateErrorFrom28,
+    /// `FieldRef.Value` set from a text that is no number on an Integer, BigInteger or Decimal field: the Evaluate error
+    /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
+    /// error for an Option field is pinned (record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175); for numbers it is
+    /// pinned on corpus branch al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al, commit 67c7900c, al-runner issue 5942).
+    FieldRefTextNumberEvaluateErrorFrom28,
     /// `AL:MetadataNotFound` for an unknown report id names the calling test codeunit from BC 28, and `Test Runner - Mgt.` before (report/lt-t-validate-layout/TValidateLayout.al, corpus bump 26). Not consumed yet.
     MetadataNotFoundNamesTheCallerFrom28,
     /// The fully qualified name overloads of Report.Run, Page.Run and RecordRef.Open exist from BC 28 (runtime 17.0); the test file is compiled from BC 28 on (report/lt-t-fqn-run/LtTFqnRun.al, corpus bump 26). Not consumed yet.
@@ -253,6 +258,7 @@ impl Gate {
         Gate::GetTextArgumentEvaluateErrorFrom28,
         Gate::RequestPageExtensionRecordTriggerOrderFrom28,
         Gate::OptionFieldRefSetEvaluateErrorFrom28,
+        Gate::FieldRefTextNumberEvaluateErrorFrom28,
         Gate::MetadataNotFoundNamesTheCallerFrom28,
         Gate::FullyQualifiedNameRunAndOpenFrom28,
         Gate::ControlAddInNotInstantiatedErrorFrom28,
@@ -340,6 +346,7 @@ impl Gate {
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
             | Gate::OptionFieldRefSetEvaluateErrorFrom28
+            | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::MetadataNotFoundNamesTheCallerFrom28
             | Gate::FullyQualifiedNameRunAndOpenFrom28
             | Gate::ControlAddInNotInstantiatedErrorFrom28
@@ -551,6 +558,10 @@ impl Gate {
                 lines: "1236",
             }],
             Gate::OptionFieldRefSetEvaluateErrorFrom28 => &[Evidence {
+                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                lines: "170,175",
+            }],
+            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[Evidence {
                 file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
                 lines: "170,175",
             }],

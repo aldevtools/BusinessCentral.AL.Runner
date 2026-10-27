@@ -2444,3 +2444,18 @@ codeunit 50000 "T" { Subtype = Test;
     }
     passes(&outcomes(src), "Caption");
 }
+
+/// "Page Metadata".SourceTableView of a page whose view is `where(<Date field> = filter(<> ''))` is returned and names the
+/// field (al-runner issue 5957, the reporter's repro on real BC; assumption `page-metadata-view-not-blank-date`).
+#[test]
+fn a_not_blank_date_view_is_in_page_metadata() {
+    let o = outcomes(
+        r#"table 50001 "Entry" { fields { field(1; "No."; Integer) { } field(2; "Starting Date"; Date) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "Dated" { PageType = List; SourceTable = Entry; SourceTableView = where("Starting Date" = filter(<> ''));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure NotBlank() var M: Record "Page Metadata"; begin
+    M.Get(50002); if M.SourceTableView <> 'WHERE(Field2=FILTER(<>''''))' then Error('view %1', M.SourceTableView); end; }"#,
+    );
+    passes(&o, "NotBlank");
+}

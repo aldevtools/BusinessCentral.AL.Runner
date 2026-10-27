@@ -1321,6 +1321,44 @@ impl Session {
                     {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
+                    // A text that is no number into an Integer, BigInteger or Decimal field raises the Evaluate error from BC 28 and
+                    // `The type Nav<Type> is unknown.` before; the field keeps its value. Pinned on corpus branch
+                    // al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al:FieldRef_Value_TextIntoInteger_ErrorText,
+                    // FieldRef_Value_TextIntoNumberTypes, commit 67c7900c; al-runner issue 5942; assumption
+                    // `fieldref-text-into-integer-error` until the corpus bump): `abc` into each type, an empty text into an Integer.
+                    if let Value::Text(s) | Value::Code(s) = v {
+                        let s = s.as_str();
+                        let letters = s.len() > 1 && s.bytes().all(|b| b.is_ascii_alphabetic());
+                        let (ty, nav, empty_pinned) = match field.ty {
+                            RtType::Integer => ("Integer", "NavInteger", true),
+                            RtType::BigInteger => ("BigInteger", "NavBigInteger", false),
+                            RtType::Decimal => ("Decimal", "NavDecimal", false),
+                            _ => ("", "", false),
+                        };
+                        if !ty.is_empty() && (letters || s.is_empty()) {
+                            if s.is_empty() && !empty_pinned {
+                                return unsupported(format!("FieldRef.Value := '' on a {ty} field (not pinned)"));
+                            }
+                            al_builtins::assumptions::assume(
+                                al_builtins::assumptions::Assumption::FieldRefTextIntoIntegerError,
+                            );
+                            let (message, code) = if self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28) {
+                                (
+                                    format!("The value \"{s}\" can't be evaluated into type {ty}."),
+                                    "Evaluate:Format",
+                                )
+                            } else {
+                                (format!("The type {nav} is unknown."), "NotSupportedType")
+                            };
+                            return Err(al_builtins::native::Signal::Error(Box::new(
+                                al_builtins::native::AlError {
+                                    message,
+                                    code: code.into(),
+                                    ..Default::default()
+                                },
+                            )));
+                        }
+                    }
                     let converted = ops::number_into_text_field(v, &field.ty, &*self);
                     let v = match converted {
                         Some(r) => r?,
