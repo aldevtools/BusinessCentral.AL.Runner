@@ -601,12 +601,8 @@ codeunit 50121 T
 
 #[test]
 fn a_stale_buffer_read_by_get_in_the_writing_transaction_follows_the_insert_rule() {
-    use al_builtins::assumptions::{self, Assumption};
-    let run = |p: &str| {
-        assumptions::clear_hits();
-        let out = text(al_testkit::run_in(GET_TX, "T", p));
-        (out, assumptions::take_hits())
-    };
+    // Pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al:467-640 (the SF_ tests).
+    let run = |p: &str| text(al_testkit::run_in(GET_TX, "T", p));
     for p in [
         "GetOtherWrite",
         "OwnInsertModifyGetOtherWrite",
@@ -614,15 +610,10 @@ fn a_stale_buffer_read_by_get_in_the_writing_transaction_follows_the_insert_rule
         "GetBySystemIdLockTableGet",
         "GetBySystemIdOtherWrite",
     ] {
-        let (out, hits) = run(p);
-        assert_eq!(out, "ok|start|5", "{p}");
-        assert!(
-            hits.contains(&Assumption::StaleGetBufferInWriteTransaction),
-            "{p}: {hits:?}"
-        );
+        assert_eq!(run(p), "ok|start|5", "{p}");
     }
     // The controls: nothing between the Commit and the stale Modify, and a Get after the Insert's Commit (RU_Stale_GetBuffer_*).
     for p in ["GetNothingRefused", "GetAfterCommitRefused"] {
-        assert_eq!(run(p).0, "DB:RecordChanged|other|0", "{p}");
+        assert_eq!(run(p), "DB:RecordChanged|other|0", "{p}");
     }
 }

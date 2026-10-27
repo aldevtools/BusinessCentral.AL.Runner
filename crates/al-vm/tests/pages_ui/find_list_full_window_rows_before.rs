@@ -345,7 +345,8 @@ fn a_full_first_window_with_rows_before_steps_back_over_every_row_above() {
     let mut b = Built::from_source(SRC);
     assumptions::clear_hits();
     assert_eq!(text(b.run_in("T", "ListOpens")), LIST);
-    assert!(assumptions::take_hits().contains(&Assumption::ListOpenFullWindowRowsBefore));
+    // Nine rows above: pinned (PnF06FindListMoves.al:1947); only the stop at a full window above is assumed.
+    assert!(!assumptions::take_hits().contains(&Assumption::ListOpenFullWindowRowsBefore));
 }
 
 #[test]

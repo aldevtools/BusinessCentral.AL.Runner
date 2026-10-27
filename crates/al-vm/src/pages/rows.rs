@@ -1078,13 +1078,12 @@ impl Session {
         forward: Vec<al_builtins::value::WindowRow>,
         full: bool,
     ) -> Result<(), Signal> {
-        if st.borrow().host.is_some() {
-            if !full {
-                return unsupported(
-                    "the open read of a part with OnFindRecord and OnNextRecord that has rows before the first one read (not pinned)",
-                );
-            }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
+        // A ListPart with a full first window reads as a page of its own (misc/lt-probes-needed-6/PnF06FindListMoves.al:1968
+        // SF_DayHost_RunWithFilter_OpensPart; al-runner issue 5887).
+        if st.borrow().host.is_some() && !full {
+            return unsupported(
+                "the open read of a part with OnFindRecord and OnNextRecord that has rows before the first one read (not pinned)",
+            );
         }
         let rec = self.page_rec(st);
         let mut before = Vec::new();
@@ -1535,11 +1534,8 @@ impl Session {
         };
         if held_above {
             // See `PageState::window_held_above`: Next inside the rows held reads nothing (AiListOrderTests.al:1090, :1127
-            // `next_log` empty), Previous too (not pinned: al-runner issue 5887 `previous=10:`, assumption
-            // list-open-full-window-rows-before); other moves are not pinned.
-            if how == PageMethod::Previous {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
-            }
+            // `next_log` empty), Previous too (misc/lt-probes-needed-6/PnF06FindListMoves.al:1947
+            // SF_DayList_OpensOnDayTen_Next_Previous `previous` `10|`); other moves are not pinned.
             let rec = self.page_rec(st);
             let key = self.row_key(&rec)?;
             let s = st.borrow();

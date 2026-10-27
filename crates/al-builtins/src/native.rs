@@ -681,6 +681,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("RequestPage.LookupMode#1", vm_only),
     ("RequestPage.ObjectId#1", vm_only),
     ("RequestPage.Activate#1", vm_only),
+    ("Report.GetSubstituteReportId#1", vm_only),
     ("Report.DefaultLayout#1", vm_only),
     ("Report.DefaultLayout#2", vm_only),
     ("Report.RDLCLayout#1", vm_only),

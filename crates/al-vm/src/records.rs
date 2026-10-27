@@ -900,6 +900,19 @@ impl Session {
 
     /// The row as the store keeps it: FlowFields and FlowFilters hold no data, whatever the
     /// buffer shows after CalcFields or an assignment.
+    /// The FlowFilter fields of `t`. A temporary row keeps the FlowFilter values its Insert wrote, and a Modify keeps them as
+    /// the Insert left them (record/lt-flowfield-write/DiFwWriteTests.al:937 SF_FlowFilter_TemporaryTableType_InsertThenRead,
+    /// :975 SF_FlowFilter_TemporaryVariable_InsertThenRead; al-runner issue 5857).
+    fn flow_filter_positions(&self, t: &TableDef) -> Vec<usize> {
+        let schema = self.engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        (0..t.fields.len())
+            .filter(|&i| t.fields[i].id < 2_000_000_000 && schema.fields[i].flow_filter)
+            .collect()
+    }
+
     pub(crate) fn stored_view(&mut self, t: &TableDef, row: &[Value]) -> Vec<Value> {
         row.iter()
             .enumerate()
@@ -1296,12 +1309,10 @@ impl Session {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
             Some(o) if o.own_write && o.commits + 1 == self.commits => {
+                // A buffer that read the row by Get, GetBySystemId or FindFirst in the transaction that wrote it, with no own write
+                // since, follows the same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:467-640, the SF_ tests; al-runner
+                // issue 5913).
                 if touched && !self.tx.rolled_back {
-                    if o.read_in_write_tx {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::StaleGetBufferInWriteTransaction,
-                        );
-                    }
                     return Ok(StaleVerdict::Written);
                 }
                 if contact {
@@ -2919,7 +2930,14 @@ impl Session {
                     }
                     return r;
                 }
-                let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
+                let mut view = self.stored_view(&t, &row);
+                // A temporary row keeps the FlowFilter values the Insert wrote (`flow_filter_positions`).
+                if rec.borrow().temporary {
+                    for i in self.flow_filter_positions(&t) {
+                        view[i] = row[i].clone();
+                    }
+                }
+                let mut stored = Self::to_store(rec, view);
                 if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
                     // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
                     // (errors/lt-ms-refusals-130/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
@@ -3219,6 +3237,13 @@ impl Session {
                     for (i, f) in t.fields.iter().enumerate() {
                         if !f.stored && f.id < 2_000_000_000 && !schema.fields[i].flow_filter {
                             view[i] = row[i].clone();
+                        }
+                    }
+                    // A FlowFilter value is not written by the Modify: the row keeps what the Insert stored
+                    // (`flow_filter_positions`, DiFwWriteTests.al:937 `Get(1) after Modify`).
+                    if let Some(old) = stored_row.as_deref() {
+                        for i in self.flow_filter_positions(&t) {
+                            view[i] = old[i].clone();
                         }
                     }
                 }
@@ -4406,6 +4431,26 @@ impl Session {
                 if let Some(unique_key) = self.unique_violation(rec, &t, &row, Some(&old_pk))? {
                     rec.borrow_mut().fields = old.clone();
                     return self.fail_unique(&t, unique_key, &row);
+                }
+                // A temporary row whose Insert stored a FlowFilter value (`flow_filter_positions`): what a Rename keeps is not pinned.
+                if rec.borrow().temporary {
+                    let ff = self.flow_filter_positions(&t);
+                    if !ff.is_empty() {
+                        let stored_old = self
+                            .store_for(rec)
+                            .get(&cx, &t, &old_pk)
+                            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                        if let Some(o) = stored_old
+                            && ff.iter().any(|&i| {
+                                ops::compare(&o[i], &self.default_value(&t.fields[i].ty)).ok()
+                                    != Some(std::cmp::Ordering::Equal)
+                            })
+                        {
+                            return unsupported(
+                                "a Rename of a temporary row whose Insert stored a FlowFilter value (not pinned)",
+                            );
+                        }
+                    }
                 }
                 let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
                 if self.sql_columns(rec, &t, &mut stored)?.is_some() {
