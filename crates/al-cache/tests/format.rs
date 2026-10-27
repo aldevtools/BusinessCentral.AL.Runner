@@ -46,6 +46,10 @@ fn blocks(e: &Entry) -> Vec<al_sema::provided::DepBlock> {
     (0..e.len()).map(|i| e.block(i).expect("block")).collect()
 }
 
+fn heads(e: &Entry) -> Vec<al_ir::ObjectHead> {
+    (0..e.len()).map(|i| e.head(i).clone()).collect()
+}
+
 #[test]
 fn a_set_survives_the_round_trip() {
     let set = set();
@@ -56,8 +60,11 @@ fn a_set_survives_the_round_trip() {
     assert_eq!(e.len(), set.facts.len());
     for i in 0..e.len() {
         assert_eq!(e.facts(i), &set.facts[i], "facts of object {i}");
+        assert_eq!(e.head(i), &set.heads[i], "head of object {i}");
     }
     assert!(blocks(&e) == set.blocks, "blocks differ");
+    // ADR-054: the heads are stored, and a table's head carries its linked table.
+    assert!(set.heads.iter().any(|h| h.table.is_some()));
 }
 
 #[test]
@@ -92,13 +99,13 @@ fn a_truncated_file_is_refused_whatever_its_length() {
 }
 
 /// Flip every byte of the file in turn. Either the damage is found (at open or when the blocks
-/// are read), or what is read is exactly what was written. It is never something else.
+/// and heads are read), or what is read is exactly what was written. It is never something else.
 #[test]
 fn a_damaged_file_is_refused_or_reads_the_same() {
     let good = build(&set(), &key());
     let want = {
         let e = Entry::open(good.clone(), &key()).unwrap();
-        blocks(&e)
+        (blocks(&e), heads(&e))
     };
     let (mut refused, mut same) = (0, 0);
     for at in 0..good.len() {
@@ -111,7 +118,7 @@ fn a_damaged_file_is_refused_or_reads_the_same() {
         match e.verify() {
             Err(_) => refused += 1,
             Ok(()) => {
-                let got = blocks(&e);
+                let got = (blocks(&e), heads(&e));
                 assert!(got == want, "a flipped byte at {at} changed what is read");
                 same += 1;
             }
@@ -121,6 +128,27 @@ fn a_damaged_file_is_refused_or_reads_the_same() {
         refused > good.len() * 9 / 10,
         "{refused} of {} flips refused ({same} read the same)",
         good.len()
+    );
+}
+
+/// ADR-054 decision 6, test plan item 1: blocks are decoded on first touch, so the open checks the whole file. A flipped
+/// byte anywhere (header, dictionary, blocks, heads, facts or index) is refused at open, before any test runs.
+#[test]
+fn a_flipped_byte_anywhere_is_refused_at_open() {
+    let good = build(&set(), &key());
+    let opened: Vec<usize> = (0..good.len())
+        .filter(|&at| {
+            let mut bad = good.clone();
+            bad[at] ^= 0x41;
+            Entry::open(bad, &key()).is_ok()
+        })
+        .collect();
+    assert!(
+        opened.is_empty(),
+        "{} of {} flipped bytes opened, first at {:?}",
+        opened.len(),
+        good.len(),
+        &opened[..opened.len().min(5)]
     );
 }
 
@@ -211,7 +239,7 @@ fn one_and_two_report_extensions_round_trip_in_object_id_order() {
     let ids: Vec<Option<u32>> = two
         .report_extensions
         .iter()
-        .map(|&i| set.blocks[i as usize].object.as_ref().and_then(|o| o.object.id))
+        .map(|&i| set.blocks[i as usize].object.as_ref().and_then(|o| o.id))
         .collect();
     assert_eq!(ids, vec![Some(50013), Some(50014)], "declared in the other order");
     let bytes = build(&set, &key());
@@ -295,6 +323,7 @@ fn layer_files_stacked_equal_the_complete_compile() {
     assert_eq!(stack.len(), complete.facts.len());
     for i in 0..stack.len() {
         assert_eq!(stack.facts(i), &complete.facts[i], "facts of object {i}");
+        assert_eq!(stack.head(i), &complete.heads[i], "head of object {i}");
         assert!(stack.block(i).unwrap() == complete.blocks[i], "block {i}");
     }
 }

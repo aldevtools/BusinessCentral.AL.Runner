@@ -5,14 +5,19 @@
 //!                      hash, file length, hash of the header so far
 //! dict    the zstd dictionary the blocks share
 //! blocks  zstd(postcard(DepBlock)) per object, with the dictionary and a content checksum
-//! index   zstd(postcard(Index)): the facts of every object, where each block sits
+//! heads   zstd(postcard(Vec<ObjectHead>)) per 256 objects, with a content checksum, read on the first ask
+//! facts   zstd(postcard(Vec<DepFacts>)) per 256 objects, with a content checksum, decoded at open on several threads
+//! index   zstd(postcard(Index)): where each block and chunk sits, a CRC-32 of every MiB from the dictionary to the index
 //! ```
 //!
-//! Open reads the header and the index. A damaged header, index or dictionary is refused at open
-//! (a hash each). A damaged block is refused when it is read (zstd's content checksum, then the
-//! decoder). A file of the wrong length is refused at open. Nothing in a refused file is used.
+//! Open reads the header, the index and the facts, and checks the CRC-32 of every MiB between the header and the
+//! index (ADR-054 decision 6): the blocks are decoded when a test first touches their object, so a damaged byte
+//! anywhere is refused at open, before any test runs. A damaged header, index or dictionary is refused at open (a hash
+//! each), as is a file of the wrong length. A block is checked again when it is read (zstd's content checksum, then
+//! the decoder). Nothing in a refused file is used.
 
 use crate::Key;
+use al_ir::ObjectHead;
 use al_sema::provided::{DepBlock, DepFacts, DepLayer, DepSet, DepSource, LayerSource};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -22,6 +27,13 @@ const MAGIC: &[u8; 8] = b"ALRCDEP\0";
 const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 8 + 32;
 const LEVEL: i32 = 3;
 const DICT_SIZE: usize = 512 * 1024;
+/// How many heads one chunk of the head region holds (the chunks decode on several threads).
+const HEAD_CHUNK: usize = 256;
+/// How many objects' facts one chunk of the fact region holds (the chunks decode on several threads at open).
+const FACT_CHUNK: usize = 256;
+/// The bytes each CRC-32 of the region between the header and the index covers (the pieces are checked on several
+/// threads at open).
+const CRC_PIECE: usize = 1 << 20;
 /// The training samples: about this many bytes of blocks, taken evenly.
 const SAMPLE_BYTES: usize = 24 << 20;
 
@@ -64,12 +76,37 @@ struct Index {
     base_len: u64,
     /// The program index of each slot (`DepLayer::objects`).
     objects: Vec<u32>,
-    facts: Vec<DepFacts>,
+    /// The facts of the objects, `FACT_CHUNK` slots per chunk, each chunk `zstd(postcard(Vec<DepFacts>))` with a
+    /// content checksum. Decoded at open.
+    fact_chunks: Vec<BlockRef>,
+    /// The heads of the objects (ADR-054 decision 2), `HEAD_CHUNK` slots per chunk, each chunk
+    /// `zstd(postcard(Vec<ObjectHead>))` with a content checksum. Read on the first ask, not at open.
+    head_chunks: Vec<BlockRef>,
     parse_problems: Vec<(String, String)>,
     blocks: Vec<BlockRef>,
     dict_offset: u64,
     dict_len: u64,
     dict_sha: [u8; 32],
+    /// The CRC-32 of each `CRC_PIECE` bytes from the end of the header to the index (the last piece is shorter).
+    region_crcs: Vec<u32>,
+}
+
+/// The CRC-32 of each `CRC_PIECE` bytes of `region`.
+fn region_crcs(region: &[u8]) -> Vec<u32> {
+    region.par_chunks(CRC_PIECE).map(crc32fast::hash).collect()
+}
+
+/// `items` in chunks of `n`, each `zstd(postcard(chunk))` with a content checksum: (raw length, bytes).
+fn chunks<T: Serialize + Sync>(items: &[T], n: usize) -> Vec<(usize, Vec<u8>)> {
+    items
+        .par_chunks(n)
+        .map(|chunk| {
+            let raw = postcard::to_stdvec(chunk).expect("a chunk serializes");
+            let mut c = zstd::bulk::Compressor::new(LEVEL).expect("a zstd compressor");
+            c.include_checksum(true).expect("checksum flag");
+            (raw.len(), c.compress(&raw).expect("a chunk compresses"))
+        })
+        .collect()
 }
 
 fn sha(bytes: &[u8]) -> [u8; 32] {
@@ -100,6 +137,7 @@ pub fn build_layer_with_dictionary(layer: &DepLayer, key: &Key, dictionary: &[u8
 
 fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared_dict: Option<&[u8]>) -> Vec<u8> {
     assert_eq!(set.facts.len(), set.blocks.len(), "one block per object");
+    assert_eq!(set.facts.len(), set.heads.len(), "one head per object");
     assert_eq!(set.facts.len(), objects.len(), "one object index per block");
     let raw: Vec<Vec<u8>> = set
         .blocks
@@ -142,15 +180,43 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
         });
         at += c.len() as u64;
     }
+    // The heads and then the facts, after the blocks.
+    let heads = chunks(&set.heads, HEAD_CHUNK);
+    let facts = chunks(&set.facts, FACT_CHUNK);
+    let mut refs = |parts: &[(usize, Vec<u8>)]| {
+        let mut out = Vec::with_capacity(parts.len());
+        for (raw_len, c) in parts {
+            out.push(BlockRef {
+                offset: at,
+                len: c.len() as u32,
+                raw_len: *raw_len as u32,
+            });
+            at += c.len() as u64;
+        }
+        out
+    };
+    let head_chunks = refs(&heads);
+    let fact_chunks = refs(&facts);
+    let mut region = Vec::with_capacity((at - HEADER as u64) as usize);
+    region.extend_from_slice(&dict);
+    for c in compressed
+        .iter()
+        .chain(heads.iter().map(|h| &h.1))
+        .chain(facts.iter().map(|f| &f.1))
+    {
+        region.extend_from_slice(c);
+    }
     let index = Index {
         base_len: base_len as u64,
         objects: objects.to_vec(),
-        facts: set.facts.clone(),
+        fact_chunks,
+        head_chunks,
         parse_problems: set.parse_problems.clone(),
         blocks: block_refs,
         dict_offset,
         dict_len: dict.len() as u64,
         dict_sha: sha(&dict),
+        region_crcs: region_crcs(&region),
     };
     let index_raw = postcard::to_stdvec(&index).expect("the index serializes");
     let index_bytes = zstd::bulk::compress(&index_raw, LEVEL).expect("the index compresses");
@@ -168,10 +234,7 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
     let header_hash = sha(&out);
     out.extend_from_slice(&header_hash);
     debug_assert_eq!(out.len(), HEADER);
-    out.extend_from_slice(&dict);
-    for c in &compressed {
-        out.extend_from_slice(c);
-    }
+    out.extend_from_slice(&region);
     out.extend_from_slice(&index_bytes);
     assert_eq!(out.len() as u64, total_len, "the layout is as planned");
     out
@@ -181,7 +244,23 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
 pub struct Entry {
     bytes: Vec<u8>,
     index: Index,
+    /// The facts of every slot, decoded at open.
+    facts: Vec<DepFacts>,
     dict: zstd::dict::DecoderDictionary<'static>,
+    /// The heads, decoded on the first ask.
+    heads: std::sync::OnceLock<Vec<ObjectHead>>,
+}
+
+/// The chunk `r` of `bytes` (`what` chunk `i`), decompressed and decoded.
+fn read_chunk<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    r: &BlockRef,
+    what: &str,
+    i: usize,
+) -> Result<T, CacheError> {
+    let packed = &bytes[r.offset as usize..r.offset as usize + r.len as usize];
+    let raw = zstd::bulk::decompress(packed, r.raw_len as usize).map_err(zstd_err)?;
+    postcard::from_bytes(&raw).map_err(|e| CacheError::Damaged(format!("{what} chunk {i} decode: {e}")))
 }
 
 fn u64_at(b: &[u8], at: usize) -> u64 {
@@ -239,7 +318,10 @@ impl Entry {
         if sha(dict_bytes) != index.dict_sha {
             return Err(CacheError::Damaged("dictionary".into()));
         }
-        if index.facts.len() != index.blocks.len() || index.objects.len() != index.blocks.len() {
+        if index.fact_chunks.len() != index.blocks.len().div_ceil(FACT_CHUNK)
+            || index.head_chunks.len() != index.blocks.len().div_ceil(HEAD_CHUNK)
+            || index.objects.len() != index.blocks.len()
+        {
             return Err(CacheError::Damaged("object count".into()));
         }
         // The objects ascend; those from `base_len` on are the layer's own, with no gap.
@@ -261,21 +343,58 @@ impl Entry {
                 return Err(CacheError::Damaged("object indexes".into()));
             }
         }
-        for b in &index.blocks {
+        for b in index.blocks.iter().chain(&index.head_chunks).chain(&index.fact_chunks) {
             let end = (b.offset as usize).checked_add(b.len as usize);
             if end.is_none_or(|e| e > index_offset) || (b.offset as usize) < dict_end {
                 return Err(CacheError::Damaged("block span".into()));
             }
         }
+        // Every byte between the header and the index (ADR-054 decision 6).
+        if region_crcs(&bytes[HEADER..index_offset]) != index.region_crcs {
+            return Err(CacheError::Damaged("a CRC-32 of the blocks, heads or facts".into()));
+        }
+        let fact_chunks: Vec<Vec<DepFacts>> = (0..index.fact_chunks.len())
+            .into_par_iter()
+            .map(|i| {
+                let facts: Vec<DepFacts> = read_chunk(&bytes, &index.fact_chunks[i], "facts", i)?;
+                let want = FACT_CHUNK.min(index.blocks.len() - i * FACT_CHUNK);
+                if facts.len() != want {
+                    return Err(CacheError::Damaged(format!("fact chunk {i} holds {}", facts.len())));
+                }
+                Ok(facts)
+            })
+            .collect::<Result<_, _>>()?;
+        let facts = fact_chunks.into_iter().flatten().collect();
         let dict = zstd::dict::DecoderDictionary::copy(dict_bytes);
-        Ok(Entry { bytes, index, dict })
+        Ok(Entry {
+            bytes,
+            index,
+            facts,
+            dict,
+            heads: std::sync::OnceLock::new(),
+        })
     }
 
     /// Reads every block. For CI and `cache verify`: a damaged block anywhere is found.
     pub fn verify(&self) -> Result<(), CacheError> {
         (0..self.index.blocks.len())
             .into_par_iter()
-            .try_for_each(|i| self.read_block(i).map(|_| ()))
+            .try_for_each(|i| self.read_block(i).map(|_| ()))?;
+        (0..self.index.head_chunks.len())
+            .into_par_iter()
+            .try_for_each(|i| self.read_head_chunk(i).map(|_| ()))
+    }
+
+    fn read_head_chunk(&self, i: usize) -> Result<Vec<ObjectHead>, CacheError> {
+        let heads: Vec<ObjectHead> = read_chunk(&self.bytes, &self.index.head_chunks[i], "head", i)?;
+        let want = HEAD_CHUNK.min(self.index.blocks.len() - i * HEAD_CHUNK);
+        if heads.len() != want {
+            return Err(CacheError::Damaged(format!(
+                "head chunk {i} holds {} heads",
+                heads.len()
+            )));
+        }
+        Ok(heads)
     }
 
     fn read_block(&self, i: usize) -> Result<DepBlock, CacheError> {
@@ -284,6 +403,18 @@ impl Entry {
         let mut d = zstd::bulk::Decompressor::with_prepared_dictionary(&self.dict).map_err(zstd_err)?;
         let raw = d.decompress(packed, r.raw_len as usize).map_err(zstd_err)?;
         postcard::from_bytes(&raw).map_err(|e| CacheError::Damaged(format!("block {i} decode: {e}")))
+    }
+
+    /// The heads of all slots. A chunk that fails its check after the open passed is an internal error (ADR-054 owner
+    /// decision 2), as a damaged block is for the object that reads it.
+    fn heads(&self) -> &[ObjectHead] {
+        self.heads.get_or_init(|| {
+            let chunks: Vec<Vec<ObjectHead>> = (0..self.index.head_chunks.len())
+                .into_par_iter()
+                .map(|i| self.read_head_chunk(i).unwrap_or_else(|e| panic!("compile cache: {e}")))
+                .collect();
+            chunks.into_iter().flatten().collect()
+        })
     }
 
     /// The size of the file.
@@ -329,7 +460,10 @@ impl DepSource for Entry {
                 .count()
     }
     fn facts(&self, object: usize) -> &DepFacts {
-        &self.index.facts[self.slot_of(object)]
+        &self.facts[self.slot_of(object)]
+    }
+    fn head(&self, object: usize) -> &ObjectHead {
+        &self.heads()[self.slot_of(object)]
     }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
         self.read_block(self.slot_of(object)).map_err(|e| e.to_string())
@@ -347,7 +481,10 @@ impl LayerSource for Entry {
         &self.index.objects
     }
     fn facts_at(&self, slot: usize) -> &DepFacts {
-        &self.index.facts[slot]
+        &self.facts[slot]
+    }
+    fn head_at(&self, slot: usize) -> &ObjectHead {
+        &self.heads()[slot]
     }
     fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
         self.read_block(slot).map_err(|e| e.to_string())

@@ -210,6 +210,9 @@ jobs:
           status=0
           ./target/release/al-test-cli --all-versions --require-dotnet --no-ratchet --require-compile-cache \
             --json cached-pass-rate.json --markdown cached-pass-rate.md --junit cached-junit.xml || status=1
+          # ADR-054: the same with every cached object decoded at start; it must equal the lazy decode.
+          ALRUNNER_EAGER_DECODE=1 ./target/release/al-test-cli --all-versions --require-dotnet --no-ratchet \
+            --require-compile-cache --junit eagerdecode-junit.xml > /dev/null || status=1
           tools/cache_vs_uncached.sh compare . || status=1
           exit $status
 

@@ -385,6 +385,11 @@ pub struct SymObject {
     /// marker and a routine's `pos` hold an index into this list). Link moves them to their place
     /// in `Program::positions`. Their `object` and `routine` are the object's own.
     pub positions: Vec<SrcPos>,
+    /// For a placeholder: how many source positions the object has. Link keeps their ids free, as a hole of the
+    /// position table that the program's source fills (ADR-054), so the ids of every object are those of a complete
+    /// compile. Not part of the stored form.
+    #[serde(skip)]
+    pub reserved_positions: u32,
 }
 
 /// A fast hash for the interning tables of lowering and link, whose keys are small integers and short

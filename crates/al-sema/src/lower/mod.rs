@@ -40,6 +40,8 @@ pub struct Lowered {
     pub provided: Vec<bool>,
     /// What a variable of a page, report or xmlport can drive (see `Driven`); set with `provided`.
     driven: Option<DrivenCtx>,
+    /// Per object a compile cache supplied, per routine: `DepFacts::drivers`. Empty for the others.
+    pub(crate) drivers: Vec<Vec<Vec<al_builtins::value::RtType>>>,
     /// With `lower_for_cache`: the lowered dependency objects and what the lowering of others
     /// reads about them, ready to be stored.
     pub exported: Option<crate::provided::DepSet>,
@@ -66,6 +68,9 @@ pub struct Lowered {
     /// on the place of the object in the program) and the objects that form refers to. `None` for an object a compile
     /// cache supplied or nothing lowered. Empty when off.
     pub object_hashes: Vec<Option<ObjectHash>>,
+    /// In a run whose dependency objects come from a compile cache: the source that decodes them on first touch
+    /// (ADR-054), which counts what it decoded. `None` otherwise.
+    pub cached_objects: Option<std::sync::Arc<crate::provided::CachedObjects>>,
 }
 
 /// See [`Lowered::object_hashes`].
@@ -157,10 +162,9 @@ impl Lowered {
         if !self.provided.get(o).copied().unwrap_or(false) {
             return;
         }
-        if let Some(d) = &self.driven {
-            let object = &self.program.objects[o];
-            let routine = &object.routines[r];
-            driven_edges(d, routine.locals.iter().chain(&object.globals), out);
+        // From the facts the cache stored, so the object is not decoded to answer (ADR-054).
+        if let (Some(d), Some(types)) = (&self.driven, self.drivers.get(o).and_then(|t| t.get(r))) {
+            driven_edges_of_types(d, types.iter(), out);
         }
     }
 }

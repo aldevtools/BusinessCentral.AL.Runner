@@ -439,6 +439,7 @@ pub(crate) fn localize(
         field_numbers: Vec::new(),
         object,
         positions,
+        reserved_positions: 0,
     })
 }
 

@@ -10,6 +10,7 @@ mod facts;
 mod head;
 mod objects;
 mod objkind;
+mod positions;
 pub mod sym;
 pub mod types;
 pub mod walk;
@@ -18,6 +19,7 @@ pub use facts::{FieldClass, FieldFacts, ObjectFacts, PageType, TableType};
 pub use head::{EventRoutine, ObjectHead, is_event_attribute};
 pub use objects::{ObjectSource, Objects};
 pub use objkind::{ObjKind, UnknownKind};
+pub use positions::{PositionSource, Positions};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Program {
@@ -36,7 +38,7 @@ pub struct Program {
     /// Source positions of statements and routine declarations. A [`Stmt::Pos`] marker and
     /// [`Routine::pos`] hold an index into this table (`docs/architecture.md`, "Source positions").
     #[serde(default)]
-    pub positions: Vec<SrcPos>,
+    pub positions: Positions,
     /// Event subscribers of dependency objects that were not compiled (ADR-013 decision 6), for
     /// events the runtime can raise. BC would run them; this program has no code for them, so
     /// raising such an event is refused instead of running without them.
@@ -124,7 +126,7 @@ pub const NO_POS: u32 = u32::MAX;
 /// Where a statement or a routine declaration sits in the source. Lines and columns count from 1.
 /// The column is a byte column. Page files that declare computed properties are numbered as
 /// the author wrote them, not as the compiler's expanded text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SrcPos {
     /// Index into `Program::sources`.
     pub file: u32,
@@ -1708,7 +1710,7 @@ mod tests {
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
             sources: vec![],
-            positions: vec![],
+            positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {
                 publisher: Some(0),
                 platform: PlatformPublisher::None,

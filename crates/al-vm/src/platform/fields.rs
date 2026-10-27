@@ -150,8 +150,14 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
     let mut out = Vec::new();
     // Every row of a table holds the table's id as TableNo (`table_entries`), so only the tables of that id can hold it.
-    for o in c.objects.iter().filter(|o| o.id.is_some_and(|id| id as i32 == *tid)) {
-        table_entries(&c, o, t, &blank, user_name_fields, Some(*no), &mut out);
+    // Found by the heads, so that one lookup makes only those objects, not every object a cache supplies (ADR-054).
+    let heads = c.objects.heads();
+    for (i, _) in heads
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| h.kind == al_ir::ObjKind::Table && h.id.is_some_and(|id| id as i32 == *tid))
+    {
+        table_entries(&c, &c.objects[i], t, &blank, user_name_fields, Some(*no), &mut out);
     }
     out.retain(|e| {
         let key = t.primary_key(&e.row);

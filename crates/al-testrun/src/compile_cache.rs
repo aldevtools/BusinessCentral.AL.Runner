@@ -76,13 +76,24 @@ pub struct LayerReport {
 
 /// The layers of a dependency set, opened, lowest first.
 pub struct Layers {
-    entries: Vec<Entry>,
+    entries: Vec<std::sync::Arc<Entry>>,
 }
 
 impl Layers {
     /// The layers as one source of lowered dependency objects. An error says they do not fit.
     pub fn stack(&self) -> Result<Stack<'_>, String> {
-        Stack::new(self.entries.iter().map(|e| e as &dyn LayerSource).collect())
+        Stack::new(self.entries.iter().map(|e| &**e as &dyn LayerSource).collect())
+    }
+
+    /// [`Layers::stack`] that shares the layers, for a program that decodes the objects on first touch (ADR-054).
+    pub fn shared_stack(&self) -> Result<std::sync::Arc<dyn al_sema::provided::DepSource + Send>, String> {
+        let stack = Stack::from_shared(
+            self.entries
+                .iter()
+                .map(|e| e.clone() as std::sync::Arc<dyn LayerSource + Send>)
+                .collect(),
+        )?;
+        Ok(std::sync::Arc::new(stack))
     }
 
     /// The number of dependency objects in all layers.
@@ -96,7 +107,7 @@ impl Layers {
 
     /// Reads every block of every layer (CI, `--build-compile-cache`).
     pub fn verify(&self) -> Result<(), al_cache::CacheError> {
-        self.entries.iter().try_for_each(Entry::verify)
+        self.entries.iter().try_for_each(|e| e.verify())
     }
 
     /// The dependency files that did not parse when the layers were built.
@@ -666,7 +677,10 @@ pub fn open_or_build_with(
     report.bytes = report.layers.iter().map(|l| l.bytes).sum();
     report.file = keep.last().cloned().unwrap_or_default();
     let layers = Layers {
-        entries: entries.into_iter().map(|e| e.expect("every layer is open")).collect(),
+        entries: entries
+            .into_iter()
+            .map(|e| std::sync::Arc::new(e.expect("every layer is open")))
+            .collect(),
     };
     if let Err(why) = layers.stack() {
         // Layers made for each other by their keys always fit; this is a defect. Drop the files so

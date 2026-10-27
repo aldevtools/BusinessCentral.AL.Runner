@@ -212,6 +212,34 @@ Each step keeps the zero-difference runs at 0.
 4. Related, outside this ADR: the in-process .NET stand-ins may answer `TimeZoneInfo.GetUtcOffset` (ADR-038 member
    list), and the artifact cache may trust file size and modification time and run the CRC only when either changed.
 
+## Amendment: objects stored linked (Accepted, owner 2026-10-27)
+
+Amends decision 4 ("link on first touch"). The compile cache stores each dependency object already linked: the
+extensions of the dependency set merged in, every reference a program position, the relations derived. A touch only
+decodes the block; there is no link and no merge at run time. Objects that the workspace extends or implements are
+lowered and linked again as today ("compiled again because the workspace extends or implements what they embed",
+`provided::relower_set`), with the cached objects as placeholders in the link.
+
+What this means in the build:
+
+1. A block holds the linked object (`DepBlock::object`), the object's source positions and the id of its first
+   position in the build's program (`DepBlock::pos_start`). The symbolic form is no longer stored: no run reads it.
+2. Routine bodies are stored linked too. They stay lazy (a body is its own byte string, decoded on first read); the
+   only work left for them at a touch is moving their position ids when the run has them elsewhere
+   (`Routine::shift_positions`, deferred like any body fixup). Measured on the warm repro: 170 of 9 887 objects are
+   decoded, 0.01 s in total, so there is nothing to gain from more laziness inside an object.
+3. Per routine refusal reasons, direct calls and the types of the variables that can drive other objects
+   (`DepFacts::unsupported`, `calls`, `drivers`) move from the block to the object's facts, so `Lowered::unsupported`,
+   `calls` and `calls_of` never decode an object. `DepFacts::positions` holds the object's position count.
+4. Position ids stay those of a complete compile: link keeps a placeholder's ids free (`SymObject::reserved_positions`)
+   and the position table (`al_ir::Positions`) reads a free range from the object's block on first use
+   (`PositionSource`). So `decode_all` of a cached program equals the eager compile, positions included (test plan
+   item 4, the `provided.rs` fixtures).
+
+Why it is safe: dependency objects come first in the program, so their positions are the same in the build and in a
+run; an object whose linked form depends on the workspace (its extensions, implementers, or anything it embeds) is in
+the relower set and never comes from a block. The zero-difference runs (uncached, eager decode, demand) check it.
+
 ## Conformance
 
 Test plan items 1 to 7; the zero-difference runs of `tools/cache_vs_uncached.sh` and `tools/demand_vs_eager.sh` with
@@ -229,3 +257,30 @@ the lazy/eager decode leg.
   objects they run. Tests: `al-vm` `lazy_objects` (items 3 and 5 on a small program). Heads are not yet stored in the
   cache entry (next step).
 
+- 2026-10-27, step 2 (heads, second part): the cache entry stores the head of every object (`DepSet::heads`;
+  `al_cache::FORMAT` 16), made by the cache and layer build from the objects as linked. They sit after the blocks in
+  chunks of 256, each with a zstd content checksum, and are decoded on the first `DepSource::head`, not at open. Tests: the `provided.rs` fixtures compare every stored head with the head of the object as the run linked it
+  (item 2), `al-cache` round-trips them (item 1); `AL_CHECK_HEADS=1` makes the same check on a real entry (0 differences
+  on BC 27, 28 and 29 with their suites). Nothing reads the stored heads yet.
+
+- 2026-10-27, step 3 (decode on first touch, amendment above): a cached run starts with every cached object as an
+  empty slot, its head from the entry and its positions as a hole of the position table
+  (`provided::CachedObjects`); `ALRUNNER_EAGER_DECODE=1` decodes all of them at start. `--timings` prints how many
+  objects were decoded on first touch and the time. Differential: `tools/cache_vs_uncached.sh` compares an
+  eager-decode run with the lazy one (and CI runs it). `al_cache::FORMAT` 17. Warm repro: 170 objects decoded;
+  instructions 5.08 G to 2.79 G; compile 0.22 s to 0.19 s (the index facts at open and the link of the
+  placeholders are what is left, step 4).
+
+- 2026-10-27, step 3 (rest): `field_key_rows` (a `Field.Get` by key) finds its tables through the heads; the Code
+  Coverage rows find each object's position ids without reading cached positions (`Positions::ids_by_object`).
+  Test plan item 5: `start_up_and_one_field_get_decode_only_a_few_objects` (al-testrun `compile_cache.rs`) decodes 2
+  of 416 objects (416 before the `field_key_rows` change).
+
+- 2026-10-27, step 4 (first part): the facts leave the index; they sit after the heads in zstd chunks of 256 and are
+  decoded at open on several threads. The index holds a CRC-32 of every MiB between the header and the index, checked
+  at open (decision 6): a flipped byte anywhere is refused at open (`al-cache` test
+  `a_flipped_byte_anywhere_is_refused_at_open`). The placeholders of the cached objects and the program's heads are
+  made on several threads. `al_cache::FORMAT` 18. Warm repro: cache open 0.05 s to 0.01 s, compile 0.18 s to 0.13 s,
+  instructions about the same (2.4 G). Left: the per-routine refusal reasons and calls are still copied for every
+  cached object at start (`Lowered::unsupported`, `calls`; about 11 ms), the heads are still cloned (about 7 ms) and
+  link still builds its name space from all units (about 22 ms).
