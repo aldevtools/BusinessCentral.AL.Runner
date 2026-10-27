@@ -412,6 +412,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
+    /// The open read of a list with OnFindRecord and OnNextRecord stepped back from a full first window over the rows above it
+    /// (assumption list-open-full-window-rows-before, al-runner issue 5887): the client holds those rows and the window, this
+    /// many in all. Next and Previous inside them read nothing; other moves are refused. Stale once the window has another length.
+    pub window_held_above: Option<usize>,
     /// The page is landing on its first row as it opens (the reads of a view that ends inside the window differ there).
     pub landing_first: bool,
     /// The page opens on the row its OnOpenPage left Rec on, not the first of the view: a list's open read also reads the
@@ -534,6 +538,9 @@ pub struct PageState {
     /// move reads next is not pinned (misc/lt-probes-needed-7/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
     pub action_landed_on_new_row: bool,
+    /// A refresh after a control's OnValidate changed a list's filters read more rows than a window holds: what the client holds
+    /// then is not pinned, a move is refused (assumption validate-filter-refresh-window, al-runner issue 5914).
+    pub validate_refresh_unheld: bool,
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
@@ -779,6 +786,7 @@ impl PageState {
             window_whole: false,
             view_read_to_end: false,
             window_read_up: false,
+            window_held_above: None,
             window_top_unread: false,
             landing_first: false,
             open_reads_above: false,
@@ -828,6 +836,7 @@ impl PageState {
             read_after_goto_prev: false,
             empty_list_row_behind: false,
             action_landed_on_new_row: false,
+            validate_refresh_unheld: false,
             static_lookup: false,
             triggers_run: 0,
             refresh_read_done: false,

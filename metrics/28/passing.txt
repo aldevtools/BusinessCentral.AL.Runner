@@ -14272,7 +14272,9 @@
 78861 OpenOnRow_SetPositionInOnOpenPage
 78861 OpenOnRow_SetPositionInOnOpenPage_LastRow
 78861 OpenOnRow_SetPositionInOnOpenPage_Next
+78862 OpenOnRow_TenthOfForty_Pos
 78862 PageRun_RecordOnFifthRow
+78862 PageRun_RecordOnTenthOfForty_Nav
 78862 PageRun_RecordWithFilterOnFifthRow
 78862 Paging_GoToKeyThenWalk_Nav
 78862 Paging_GoToKey_Nav
