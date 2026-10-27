@@ -2512,12 +2512,30 @@ impl Session {
         let stamped = rec.borrow().fields.clone();
         rec.borrow_mut().fields = fresh.clone();
         if !Self::same_values(&stamped, &fresh) {
-            if !self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? {
+            let Some(related) = self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? else {
                 return unsupported(
                     "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
                 );
-            }
+            };
             rec.borrow_mut().fields = stamped.clone();
+            // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
+            // there the blank Rec takes it as without the relation; without it nothing runs (al-runner issue 5951, the reporter's
+            // repro on real BC; awaiting RtFilteredGoneRow.al SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, _BatchMissing).
+            if !related.is_empty() {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlankRecKeyFilterTableRelation);
+            }
+            for pos in related {
+                self.ret_used = false;
+                match self.record_op(
+                    RecordOp::Validate,
+                    rec,
+                    &mut [Value::Integer(pos as i32), stamped[pos].clone()],
+                ) {
+                    Ok(_) => {}
+                    Err(Signal::Error(_)) => return self.blank_rec_relation_failed(st, rec),
+                    Err(e) => return Err(e),
+                }
+            }
         }
         {
             let mut s = st.borrow_mut();
@@ -2548,16 +2566,41 @@ impl Session {
         Ok(())
     }
 
+    /// The relation check of a value the blank Rec takes failed (registered assumption `blank-rec-key-filter-table-relation`):
+    /// the error is swallowed, no trigger runs, then or at a later action, and the list shows no row. What Rec and xRec hold
+    /// and what GetLastErrorText reads are not known: a read of them is refused.
+    fn blank_rec_relation_failed(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
+        let unknown: Vec<Value> = rec
+            .borrow()
+            .fields
+            .iter()
+            .map(|_| {
+                Value::Unknown(std::sync::Arc::from(
+                    "Rec of a filtered list whose blank Rec failed the table relation of a filter value (not pinned)",
+                ))
+            })
+            .collect();
+        rec.borrow_mut().fields = unknown.clone();
+        self.set_xrec_fields(st, unknown);
+        self.last_error = al_builtins::native::unpinned_error();
+        let mut s = st.borrow_mut();
+        s.refresh = false;
+        s.cursor = Cursor::None;
+        s.gone_blank_no_new_line = false;
+        Ok(())
+    }
+
     /// Whether every value the filters stamp on the blank Rec (`stamped` against `fresh`) is of the pinned form (see
-    /// `settle_on_blank_rec`): one `SetRange` value of a primary-key field in filter group 0 or 2, on a field without OnValidate,
-    /// table relation or validate subscriber, on a page without PopulateAllFields.
+    /// `settle_on_blank_rec`): one `SetRange` value of a primary-key field in filter group 0 or 2, on a field without OnValidate
+    /// or validate subscriber, on a page without PopulateAllFields. `Some` holds the fields among them with a TableRelation,
+    /// which the caller checks under an assumption; `None` is not pinned.
     fn blank_rec_takes_key_filters(
         &mut self,
         st: &St,
         rec: &Rec,
         stamped: &[Value],
         fresh: &[Value],
-    ) -> Result<bool, Signal> {
+    ) -> Result<Option<Vec<usize>>, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         if engine.program.objects[object]
@@ -2565,8 +2608,9 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("PopulateAllFields") && v.trim().eq_ignore_ascii_case("true"))
         {
-            return Ok(false);
+            return Ok(None);
         }
+        let mut related = Vec::new();
         let table = self.table(rec)?;
         let schema = engine.program.objects[table.object as usize]
             .table
@@ -2592,16 +2636,18 @@ impl Session {
             if !pinned_filter
                 || !table.keys[0].contains(&pos)
                 || f.on_validate.is_some()
-                || f.relation
                 || !f.ext_before_validate.is_empty()
                 || !f.ext_after_validate.is_empty()
                 || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
                 || self.listened(&table, "onaftervalidateevent", Some(&f.name))?
             {
-                return Ok(false);
+                return Ok(None);
+            }
+            if f.relation {
+                related.push(pos);
             }
         }
-        Ok(true)
+        Ok(Some(related))
     }
 
     /// A list that serves its rows from OnFindRecord lost its current row to an action. The client asks
