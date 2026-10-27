@@ -1657,6 +1657,19 @@ impl Session {
         instance: Rc<RefCell<Instance>>,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        let facts = self.engine.routine_facts(object, routine);
+        self.call_with_facts(object, routine, instance, args, facts)
+    }
+
+    /// [`Session::call`] with the routine's facts already looked up by the caller (one lookup per call, not one per step).
+    pub(crate) fn call_with_facts(
+        &mut self,
+        object: usize,
+        routine: usize,
+        instance: Rc<RefCell<Instance>>,
+        args: Vec<Value>,
+        facts: RoutineFacts,
+    ) -> Result<(Value, Vec<Value>), Signal> {
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
         }
@@ -1685,10 +1698,10 @@ impl Session {
         // The builtin being run (a record write that runs triggers and events) keeps its own
         // `ret_used`: the callee's builtins must not change it.
         let ret_used = self.ret_used;
-        let r = if self.engine.routine_facts(object, routine).publisher {
+        let r = if facts.publisher {
             self.publish(object, routine, instance, args)
         } else {
-            self.call_inner(object, routine, instance, args)
+            self.call_inner(object, routine, instance, args, facts)
         };
         self.ret_used = ret_used;
         self.depth -= 1;
@@ -1711,6 +1724,7 @@ impl Session {
         routine: usize,
         instance: Rc<RefCell<Instance>>,
         args: Vec<Value>,
+        facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         self.events.next_is_subscriber = false;
@@ -1853,7 +1867,6 @@ impl Session {
             };
         }
         self.return_vec(args);
-        let facts = engine.routine_facts(object, routine);
         let var_lens = if facts.var_lens {
             std::mem::take(&mut self.events.next_var_lens)
         } else {
