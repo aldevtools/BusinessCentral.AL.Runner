@@ -678,17 +678,19 @@ impl CorpusRuntime {
         };
         let suites = &suites[..];
         let compile_errors = super::compile_errors(ws, lowered, order);
-        // A parse error alone does not stop the run (`CompileError`): its file's routines refuse instead.
-        if opts.stop_on_compile_errors && compile_errors.iter().any(|e| !e.code.is_empty()) {
-            // A debugger answers its client's `launch` with the first error; no test runs.
-            if let (Some(ready), Some(e)) = (&opts.debug_ready, compile_errors.iter().find(|e| !e.code.is_empty())) {
+        // A parse error stops the run too (al-runner issue 5916; `alrunner-cli` `run.rs` says why).
+        if opts.stop_on_compile_errors && !compile_errors.is_empty() {
+            // A debugger answers its client's `launch` with the first error; no test runs. A parse error has no AL code.
+            if let (Some(ready), Some(e)) = (&opts.debug_ready, compile_errors.first()) {
+                let code = if e.code.is_empty() {
+                    String::new()
+                } else {
+                    format!("{} ", e.code)
+                };
                 (ready.0)(&DebugReady {
                     program: &lowered.program,
                     order,
-                    first_error: Some(format!(
-                        "error {} {}:{}:{}: {}",
-                        e.code, e.file, e.line, e.column, e.message
-                    )),
+                    first_error: Some(format!("error {code}{}:{}:{}: {}", e.file, e.line, e.column, e.message)),
                 });
             }
             return CorpusRuntime {
