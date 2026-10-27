@@ -58,6 +58,7 @@ version = "3.0.0-alpha.7"
 dependencies = [
  "al-ir",
  "al-sema",
+ "crc32fast",
  "postcard",
  "rayon",
  "serde",

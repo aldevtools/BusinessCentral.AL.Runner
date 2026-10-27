@@ -131,6 +131,27 @@ fn a_damaged_file_is_refused_or_reads_the_same() {
     );
 }
 
+/// ADR-054 decision 6, test plan item 1: blocks are decoded on first touch, so the open checks the whole file. A flipped
+/// byte anywhere (header, dictionary, blocks, heads, facts or index) is refused at open, before any test runs.
+#[test]
+fn a_flipped_byte_anywhere_is_refused_at_open() {
+    let good = build(&set(), &key());
+    let opened: Vec<usize> = (0..good.len())
+        .filter(|&at| {
+            let mut bad = good.clone();
+            bad[at] ^= 0x41;
+            Entry::open(bad, &key()).is_ok()
+        })
+        .collect();
+    assert!(
+        opened.is_empty(),
+        "{} of {} flipped bytes opened, first at {:?}",
+        opened.len(),
+        good.len(),
+        &opened[..opened.len().min(5)]
+    );
+}
+
 #[test]
 fn garbage_is_not_a_cache_file() {
     assert!(Entry::open(vec![], &key()).is_err());
