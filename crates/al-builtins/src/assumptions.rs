@@ -283,9 +283,17 @@ registry! {
     },
     ListOpenFullWindowRowsBefore => {
         id: "list-open-full-window-rows-before",
-        assumed: "The open read of a list or part with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full and whose OnNextRecord(-1) from the first row answers a step, ends as a list with OnAfterGetCurrRecord does: OnFindRecord('=') and the first row read again (`R20;R1;N(-1);F(=);R1`). Pinned only with OnAfterGetCurrRecord (PnF06FindListMoves.al FindList_Ascending_25Rows) and, without it, for an OnNextRecord(-1) that answers 0.",
-        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets.",
-        probe: "A temporary ListPart whose OnFindRecord and OnNextRecord walk a position global (rows on every day, inserted on demand) and whose OnAfterGetRecord sets that global from Rec, logging each call; the host card refills it from its OnAfterGetRecord (DeleteAll, CurrPage.Update). Log the reads at open and after the host moves with Next, and read a part field before and after. The same list as a page of its own, opened on day 10 of 40.",
+        assumed: "The open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full and whose OnNextRecord(-1) from the first row answers a step, reads each row it steps back to and asks OnNextRecord(-1) again until it answers 0, with no OnFindRecord('=') and no read of the first row again; pinned for a page of its own with 9 rows above (pages/lt-ai-list-order/AiListOrderTests.al:1090 PageRun_RecordOnTenthOfForty_Nav, :1127 OpenOnRow_TenthOfForty_Pos, where Next reads nothing). Assumed: a ListPart does the same; Previous inside the rows held reads nothing; a step back that reaches 20 rows above stops there and asks no more (as the descending find list's step back does, PnF06FindListMoves.al RK_DescKind_FindNext_21Rows). Other moves after such an open are refused.",
+        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets. al-runner issue 5887: the reporter's repro green 2/2 on real BC (a list of its own and a ListPart, opened on day 10 of 40); the pin is on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "A temporary ListPart whose OnFindRecord and OnNextRecord walk a position global (rows on every day, inserted on demand) and whose OnAfterGetRecord sets that global from Rec, logging each call; the host card refills it from its OnAfterGetRecord (DeleteAll, CurrPage.Update). Log the reads at open and after the host moves with Next, and read a part field before and after. The same list as a page of its own, opened on day 10 of 40, and on day 30 (more than a window above), then First, Last and GoToKey.",
+        awaiting: Awaiting {
+            issues: &[5887],
+            files: &[
+                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayList_OpensOnDayTen_Next_Previous",
+                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayHost_RunWithFilter_OpensPart",
+            ],
+            since: "2026-10-27",
+        },
     },
     SetValueWholeNumberIntoTextControl => {
         id: "setvalue-whole-number-into-text-control",
@@ -579,6 +587,25 @@ registry! {
             issues: &[5748],
             files: &["tests/al-language/codeunit/lt-outside-onrun-error/RlOnRunError.al"],
             since: "2026-10-25",
+        },
+    },
+    ValidateFilterRefreshWindow => {
+        id: "validate-filter-refresh-window",
+        assumed: "After CurrPage.Update in a control's OnValidate that changed the filters of a Worksheet or List (both row triggers, rows from the table), the client holds the rows the refresh read from the row it settled on: the next move reads as on a page without a refresh (the row twice in the primary key, three times in another key), and a GoToRecord steps from the first row of the view when the refresh found rows before the current one. In a key other than the primary key the refresh first reads the row it starts from once more, the row the page stood on even when the new filter excludes it. The refresh's own reads in the primary key and the row it settles on are pinned (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al); the moves after it and the reads in another key are the reporters' real-BC runs.",
+        tests: "No Microsoft test: al-runner issues 5914 and 5888, the reporter's repros green 7/7 and 4/4 on real BC (5 tests of a partner app); pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "A Worksheet with both row triggers whose header field's OnValidate sets or clears a filter on Rec and calls CurrPage.Update(false), in the primary key and after SetCurrentKey in OnOpenPage, four rows: the reads of the refresh (filter keeps the row, drops it, cleared again), then Next and GoToRecord after it.",
+        awaiting: Awaiting {
+            issues: &[5914, 5888],
+            files: &[
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterKeepsRow_Next",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterDropsRow_Next_Clear_GoToRecord",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterKeepsRow_GoToRecord",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Key_FilterKeepsRow_Next",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Key_FilterDropsRow_Next_Clear_GoToRecord",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Pk_FilterKeepsRow_Next",
+                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Pk_FilterDropsRow_Next_Clear_GoToRecord",
+            ],
+            since: "2026-10-27",
         },
     },
 }
