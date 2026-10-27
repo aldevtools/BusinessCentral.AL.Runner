@@ -32,7 +32,7 @@ pub use exec::{disassemble as exec_disassemble, report as exec_report};
 pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
 #[doc(hidden)]
-pub use platform::field_get_by_key_differences;
+pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 mod callstack;
 mod companies;
 mod dataset;

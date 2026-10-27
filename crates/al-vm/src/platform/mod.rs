@@ -839,27 +839,27 @@ impl VirtualTables for Providers {
     }
 }
 
-/// For a test (al-test-cli tests/platform_tables.rs): for each key, what a `Get` of the Field table answers from the rows of
-/// that key alone and what it answers from the full listing, both as text. Every key of the listing is checked, then
-/// `extra` (keys the listing may lack). A key whose two answers differ is returned with both.
+/// A key of the Field table with what a `Get` of it answers from the full listing and from the rows of that key alone.
+pub type FieldGetByKey = (
+    Vec<Value>,
+    Result<Option<Row>, StoreError>,
+    Result<Option<Row>, StoreError>,
+);
+
+/// For a test (al-test-cli tests/platform_tables.rs): for every key of the Field listing, then for `extra` (keys the
+/// listing may lack), what a `Get` answers from the listing and from the rows of that key alone ([`FieldGetByKey`]).
+/// `None` when the program has no Field table or the listing is refused.
 #[doc(hidden)]
-pub fn field_get_by_key_differences(
-    engine: &Arc<Engine>,
-    extra: &[(i32, i32)],
-) -> Result<(usize, Vec<String>), String> {
+pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Option<Vec<FieldGetByKey>> {
     let p = Providers::new(
         engine,
         Ident::of(&al_host::Host::default()),
         Rc::default(),
         al_builtins::media::MediaStore::default(),
     );
-    let oi = p
-        .served
-        .iter()
-        .position(|k| *k == Some(Virtual::Field))
-        .ok_or("the program has no Field table")?;
-    let t = engine.tables[oi].clone().ok_or("the Field table has no definition")?;
-    let listing = p.listed(&t, Virtual::Field).map_err(|e| format!("{e:?}"))?;
+    let oi = p.served.iter().position(|k| *k == Some(Virtual::Field))?;
+    let t = engine.tables[oi].clone()?;
+    let listing = p.listed(&t, Virtual::Field).ok()?;
     let mut keys: Vec<Vec<Value>> = Vec::new();
     let mut i = 0;
     while let Some(row) = listing.row_at(i) {
@@ -867,20 +867,14 @@ pub fn field_get_by_key_differences(
         i += 1;
     }
     keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
-    let show = |r: Result<Option<Row>, StoreError>| format!("{:?}", r.map(|r| r.map(|r| fields::field_get(&t, r))));
-    let mut differences = Vec::new();
-    for pk in &keys {
-        let by_listing = show(listing.get(&t, pk));
-        let by_key = show(
-            fields::field_key_rows(&p, &t, pk)
-                .map(|rows| mat::Mat::new(&t, rows).get(&t, pk))
-                .ok_or("not two integers")?,
-        );
-        if by_listing != by_key {
-            differences.push(format!("{pk:?}: listing {by_listing}, by key {by_key}"));
-        }
-    }
-    Ok((keys.len(), differences))
+    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&t, r)));
+    keys.into_iter()
+        .map(|pk| {
+            let by_listing = field_get(listing.get(&t, &pk));
+            let by_key = field_get(mat::Mat::new(&t, fields::field_key_rows(&p, &t, &pk)?).get(&t, &pk));
+            Some((pk, by_listing, by_key))
+        })
+        .collect()
 }
 
 #[cfg(test)]

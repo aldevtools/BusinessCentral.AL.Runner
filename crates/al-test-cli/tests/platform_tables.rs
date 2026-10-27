@@ -2426,8 +2426,15 @@ codeunit 50000 "T" { Subtype = Test;
         ),
     ] {
         let (engine, _) = engine_over("main", src, None, roots, bc);
-        let (checked, differences) = al_vm::field_get_by_key_differences(&engine, &extra).unwrap();
-        assert!(checked > 100, "{bc}: only {checked} keys");
+        let pairs = al_vm::field_get_by_key_pairs(&engine, &extra).expect("the Field table is listed");
+        assert!(pairs.len() > 100, "{bc}: only {} keys", pairs.len());
+        let differences: Vec<String> = pairs
+            .iter()
+            .filter_map(|(pk, by_listing, by_key)| {
+                let (a, b) = (format!("{by_listing:?}"), format!("{by_key:?}"));
+                (a != b).then(|| format!("{pk:?}: listing {a}, by key {b}"))
+            })
+            .collect();
         assert!(
             differences.is_empty(),
             "{bc}: {} differences: {:#?}",
