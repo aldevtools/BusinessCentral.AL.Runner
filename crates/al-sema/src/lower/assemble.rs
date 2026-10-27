@@ -830,11 +830,7 @@ pub(crate) fn lower_core(
     export: bool,
 ) -> Result<Lowered, String> {
     let catalog = al_builtins::catalog::Catalog::load();
-    let (src, mut blocks, kept): (
-        Option<&dyn crate::provided::DepSource>,
-        Vec<Option<crate::provided::DepBlock>>,
-        Option<std::sync::Arc<dyn crate::provided::DepSource + Send>>,
-    ) = match provided {
+    let (src, mut blocks, kept) = match provided {
         Some(p) => (Some(p.src), p.blocks, p.shared),
         None => (None, Vec::new(), None),
     };
@@ -1903,7 +1899,7 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
 /// (the check), and the symbolic objects (for a cache).
 struct Linking {
     /// The program without its objects, the objects (`None`: supplied by the cache) and `Linked::pos_ranges`.
-    linked: (ir::Program, Vec<Option<ir::Object>>, Vec<(u32, u32)>),
+    linked: al_link::LinkedItems,
     expected: Option<Expected>,
     /// With `LinkOptions::hash`: `Lowered::object_hashes`.
     hashes: Vec<Option<super::ObjectHash>>,
@@ -1971,6 +1967,7 @@ struct Staged {
 /// are, and link gives every object its position. `base` holds everything that is not an object.
 /// With `check`, the program is also built the way lowering used to build it, and a difference
 /// is an error (`AL_CHECK_LINK=1`).
+#[allow(clippy::too_many_arguments)] // the pieces, the program and what the lowering knew about them
 fn link_pieces(
     mut staged: StagedList,
     base: ir::Program,

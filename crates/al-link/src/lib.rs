@@ -634,6 +634,10 @@ pub fn link<'k>(
     Ok(Linked { program, pos_ranges })
 }
 
+/// What [`link_items`] gives: the program without its objects, the objects (`None` for a placeholder item) and
+/// [`Linked::pos_ranges`].
+pub type LinkedItems = (Program, Vec<Option<Object>>, Vec<(u32, u32)>);
+
 /// [`link`] of [`Item`]s. The program comes back without its objects: they are the list beside it, `None` for a
 /// [`Item::Placeholder`] (no object is made for it). The third value is [`Linked::pos_ranges`].
 pub fn link_items<'k>(
@@ -641,7 +645,7 @@ pub fn link_items<'k>(
     mut base: Program,
     workers: usize,
     routines: &'k (dyn Fn(usize) -> &'k [LocalKey] + Sync),
-) -> Result<(Program, Vec<Option<Object>>, Vec<(u32, u32)>), Box<LinkError>> {
+) -> Result<LinkedItems, Box<LinkError>> {
     debug_assert!(base.objects.is_empty() && base.positions.is_empty());
     // What each symbolic object's tables mean in the program: the position of every key.
     let merges;
