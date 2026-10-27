@@ -648,7 +648,9 @@ registry! {
         probe: "A table with a Caption and one tableextension with a Caption: the TableRelation error of a Validate, TableCaption, RecordRef.Caption, the error of a Get that finds nothing and of TestField.",
         awaiting: Awaiting {
             issues: &[5955],
-            files: &["tests/al-language/tableextension/lt-sh-outside-ext-caption/ShExtCaptionRelation.al"],
+            files: &[
+                "tests/al-language/tableextension/TestTableExtFieldTableRelation.al::TableExt_CaptionOfRelatedTable_InValidateErrorText",
+            ],
             since: "2026-10-27",
         },
     },
