@@ -658,7 +658,7 @@ impl Session {
         if try_call {
             self.enter_used_try();
         }
-        let result = self.call(object, routine, inst, values);
+        let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
         }
