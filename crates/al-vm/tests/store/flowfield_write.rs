@@ -599,3 +599,95 @@ fn a_stored_record_handed_to_a_temporary_parameter_has_no_marks() {
     );
     assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
 }
+
+// al-runner issue 5857: a temporary row keeps the FlowFilter value its Insert wrote; a Modify does not write a new one
+// (record/lt-flowfield-write/DiFwWriteTests.al:937 SF_FlowFilter_TemporaryTableType_InsertThenRead, :975
+// SF_FlowFilter_TemporaryVariable_InsertThenRead). A Rename of such a row is not pinned.
+const TEMP_FF: &str = r#"
+table 50320 TB
+{
+    TableType = Temporary;
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+        field(2; "Doc"; Code[20]) { FieldClass = FlowFilter; }
+        field(3; Description; Text[30]) { }
+    }
+}
+table 50321 NP
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; "Date Filter"; Date) { FieldClass = FlowFilter; }
+    }
+}
+codeunit 50322 T
+{
+    procedure TableType(): Text
+    var
+        B: Record TB;
+        R: Text;
+    begin
+        B.Init(); B."Entry No." := 1; B.Doc := 'DOC-001'; B.Description := 'First'; B.Insert();
+        B.Init(); B."Entry No." := 2; B.Doc := 'DOC-002'; B.Description := 'Second'; B.Insert();
+        R := B.Doc;
+        B.FindFirst();
+        R += '|' + B.Description + ':' + B.Doc + ':' + B.GetFilter(Doc);
+        B.Next();
+        R += '|' + B.Description + ':' + B.Doc;
+        B.Get(1);
+        B.Doc := 'DOC-009';
+        B.Modify();
+        B.Get(2);
+        B.Get(1);
+        R += '|' + B.Doc + '|' + Format(B.Count());
+        exit(R);
+    end;
+
+    procedure TempVariable(): Text
+    var
+        P: Record NP temporary;
+        R: Text;
+    begin
+        P.Init(); P."No." := 1; P."Date Filter" := 20260110D; P.Insert();
+        P.Init(); P."No." := 2; P."Date Filter" := 20260210D; P.Insert();
+        P.FindFirst();
+        R := Format(P."No.") + ':' + Format(P."Date Filter", 0, 9);
+        P.Get(2);
+        R += '|' + Format(P."No.") + ':' + Format(P."Date Filter", 0, 9);
+        exit(R);
+    end;
+
+    procedure RenameRefused()
+    var
+        P: Record NP temporary;
+    begin
+        P."No." := 1; P."Date Filter" := 20260110D; P.Insert();
+        P.Rename(5);
+    end;
+
+    procedure RenameWithoutValue(): Text
+    var
+        P: Record NP temporary;
+    begin
+        P."No." := 1; P.Insert();
+        P.Rename(5);
+        exit(Format(P.Count()));
+    end;
+}
+"#;
+
+#[test]
+fn a_temporary_row_keeps_the_flowfilter_value_of_its_insert() {
+    assert_eq!(
+        text(run_in(TEMP_FF, "T", "TableType")),
+        "DOC-002|First:DOC-001:|Second:DOC-002|DOC-001|2"
+    );
+    assert_eq!(text(run_in(TEMP_FF, "T", "TempVariable")), "1:2026-01-10|2:2026-02-10");
+    assert_eq!(text(run_in(TEMP_FF, "T", "RenameWithoutValue")), "1");
+    match run_in(TEMP_FF, "T", "RenameRefused") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("FlowFilter"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
