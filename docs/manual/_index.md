@@ -12,10 +12,17 @@ Application, Base Application, the test libraries) are compiled from Microsoft's
 own AL source. Your tests therefore run against Microsoft's real code, not
 against stubs. It is one binary. It needs no .NET and no Microsoft DLLs.
 
+**For testing only. Not for production use.** AL Runner is a developer tool: use
+it on your own machine while you write code, and in your build pipelines for fast
+feedback. Do not use it to run AL code in production or against production data.
+Do not rely on it alone to decide that an app is ready for production: before you
+deploy, run your tests at least once in a way Microsoft supports, for example in a
+Business Central container on Windows (BcContainerHelper) or with AL-Go for GitHub.
+
 **Version 3 is an alpha.** It replaces version 2, which was written in C# and is
 frozen. Many tests are still reported as "not run", and results can change
-between builds. Do not gate a pipeline on it yet. [Reading results](results.md)
-explains what a pass, a failure and "not run" each mean.
+between builds. [Reading results](results.md) explains what a pass, a failure and
+"not run" each mean.
 
 ## Where to start
 
