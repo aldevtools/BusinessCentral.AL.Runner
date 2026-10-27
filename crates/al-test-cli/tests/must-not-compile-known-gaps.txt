@@ -311,7 +311,6 @@
 28 1864-testpage-cannot-reach-pending-special-controls
 29 1691-subscriber-reads-rec-currfieldno
 29 1720-permissionsetextension-excludedpermissionsets
-29 1780-inherited-default-method-on-codeunit-variable
 29 1833-bigtext-to-text-assignment
 29 1864-testpage-cannot-reach-pending-special-controls
 # corpus bumps 31 and 32: new cases the front end does not decide yet
