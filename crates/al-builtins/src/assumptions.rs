@@ -648,7 +648,9 @@ registry! {
         probe: "Page Metadata.SourceTableView of pages with where(D = filter(<> '')), where(D = filter('')) and where(C = filter(<> '')) on a Date and a Code field.",
         awaiting: Awaiting {
             issues: &[5957],
-            files: &["tests/al-language/misc/lt-sh-outside-page-views/ShPageMetadataView.al"],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_PageMetadata",
+            ],
             since: "2026-10-27",
         },
     },
