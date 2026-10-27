@@ -906,6 +906,20 @@ impl Session {
                     if !rec.borrow().filters.is_empty() {
                         if self.nav_find(st, "=>")? {
                             st.borrow_mut().cursor = Cursor::Row;
+                            // A list that lands on the first row of its view reads it as a list opened on its first row does:
+                            // the window, the row once more, then OnAfterGetCurrRecord, and First afterwards reads nothing
+                            // (misc/lt-probes-needed-7/PnGRunObjectOptions.al:130 LinkAndViewOnAList `link`, an action's
+                            // RunPageLink on the key handing the list the host's row: `List.AGR(RP2,Two);List.AGR(RP2,Two);
+                            // List.AGCR(RP2,RP2)`, the same reads as a handed record that names no row, PnGNewRecord.al:50
+                            // HandedRecordNonKeyFilters). Landing on another row of the view keeps the reads it had before.
+                            if self.is_list(st) && self.on_first_row_of_view(&rec)? {
+                                st.borrow_mut().landing_first = true;
+                                let r = self.arrive(st);
+                                st.borrow_mut().landing_first = false;
+                                r?;
+                                st.borrow_mut().window_from_start = true;
+                                return Ok(());
+                            }
                             return self.arrive(st);
                         }
                     } else {
@@ -2114,6 +2128,19 @@ impl Session {
     /// Lands on the first row of the view when the page opens: a stored row, else
     /// the new-row line, else nothing. The expressions of the controls are evaluated for
     /// an empty view too (corpus autoformat/TestAutoFormatExpressionTiming.al:5-12).
+    /// Whether `rec` stands on the first row of its view (found on a copy, so `rec` does not move).
+    fn on_first_row_of_view(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(false);
+        }
+        Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(rec)?))
+    }
+
     pub(super) fn page_first_row(&mut self, st: &St) -> Result<(), Signal> {
         // A page that serves its rows from OnFindRecord is asked `=><` when it opens (corpus
         // pageext/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord, `open`).
