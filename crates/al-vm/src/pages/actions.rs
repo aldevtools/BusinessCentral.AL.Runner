@@ -1362,6 +1362,20 @@ impl Session {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
                 Ok(())
             }
+            // A Worksheet with the new-row line opened for edit on an empty view, left on that line by an action that inserted
+            // rows through another record variable: the next action first reads the line, OnAfterGetRecord on the blank Rec
+            // (al-runner issue 5960, the reporter's repro on real BC; registered assumption `empty-worksheet-filled-by-action`,
+            // awaiting RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `create log = R:0;N:0;C:0;N:0;C:0;`).
+            (EmptyShape::EditList, _)
+                if self.engine.object_facts[st.borrow().object as usize].page_type
+                    == Some(al_ir::PageType::Worksheet) =>
+            {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+                self.calc_row_flowfields(st)?;
+                self.populate_expressions(st)?;
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+                Ok(())
+            }
             _ => unsupported(
                 "an action on a page that shows no row while its view holds rows (what the client reads first is not pinned)",
             ),
@@ -1391,11 +1405,63 @@ impl Session {
             return Ok(false);
         }
         let n = self.view_row_count(st)?;
-        if n > 1 {
-            return Ok(false);
-        }
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
+        if n > 1 {
+            // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
+            // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
+            // it with a blank xRec and goes back to its new-row line (al-runner issue 5960, the reporter's repro on real BC;
+            // registered assumption `empty-worksheet-filled-by-action`, awaiting RmWorksheetGoneRow.al
+            // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate and _FillThenWalk `calculate log =
+            // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; a view longer than a window is refused.
+            let worksheet =
+                self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
+            if shape != EmptyShape::EditList || !worksheet || self.stored_row(&rec)?.is_some() {
+                return Ok(false);
+            }
+            if n as usize > Self::WINDOW {
+                return unsupported(
+                    "an action that stored more rows than a window into an empty Worksheet standing on its new-row line (not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+            st.borrow_mut().refresh = false;
+            st.borrow_mut().save_record_called = false;
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            let mut rows = Vec::new();
+            self.ret_used = true;
+            if matches!(
+                self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+                Value::Boolean(true)
+            ) {
+                loop {
+                    rows.push(probe.borrow().fields.clone());
+                    self.ret_used = true;
+                    if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
+                    {
+                        break;
+                    }
+                }
+            }
+            {
+                let mut s = st.borrow_mut();
+                s.cursor = Cursor::Row;
+                s.draft = false;
+                s.dirty = false;
+                s.blank_on_open = false;
+            }
+            for r in rows.iter().chain([&rows[0], &rows[0]]) {
+                rec.borrow_mut().fields = r.clone();
+                self.populate_current(st)?;
+            }
+            let blank = self.initial_fields(table);
+            self.set_xrec_fields(st, blank);
+            self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+            self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+            self.land_on_new_line(st)?;
+            st.borrow_mut().empty_list_row_behind = true;
+            return Ok(true);
+        }
         if n == 0 {
             // A page opened for view still shows nothing, also when the action stored a row the view hides (pages/W1ShowRow.al:277
             // FilteredList_InsertedRowTheViewHides, a page without row triggers). Which triggers run then is not pinned.
@@ -1404,6 +1470,8 @@ impl Session {
             }
             st.borrow_mut().refresh = false;
             st.borrow_mut().save_record_called = false;
+            // No row is behind the line any more (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `first` No).
+            st.borrow_mut().empty_list_row_behind = false;
             self.land_on_new_line(st)?;
             self.land_on_new_line(st)?;
             return Ok(true);
@@ -1489,6 +1557,26 @@ impl Session {
             s.draft = false;
             s.dirty = false;
         }
+        // The other rows of the view, which the client read after the action (`empty_page_after_action` with two rows or more).
+        let mut rest = Vec::new();
+        loop {
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
+            {
+                break;
+            }
+            let f = probe.borrow().fields.clone();
+            rest.push(al_builtins::value::WindowRow {
+                key: self.table(&probe)?.primary_key(&f),
+                stored: f.clone(),
+                shown: f,
+            });
+            if rest.len() >= Self::WINDOW {
+                return unsupported(
+                    "First after an action stored more rows than a window behind the new-row line of an empty list (not pinned)",
+                );
+            }
+        }
         self.populate_current(st)?;
         self.populate_current(st)?;
         let key = self.row_key(&rec)?;
@@ -1501,6 +1589,13 @@ impl Session {
                 shown,
             }];
             s.window_from_start = true;
+            // With more rows the client holds them all and walks them as on a list it opened, then onto its new-row line
+            // (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenWalk `walk log = R:10000;R:10000;C:10000;R:20000;R:20000;
+            // C:20000;N:0;C:0;`; registered assumption `empty-worksheet-filled-by-action`).
+            if !rest.is_empty() {
+                s.window.extend(rest);
+                s.view_read_to_end = true;
+            }
         }
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;

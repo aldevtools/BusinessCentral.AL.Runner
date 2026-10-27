@@ -708,6 +708,20 @@ registry! {
             since: "2026-10-27",
         },
     },
+    EmptyWorksheetFilledByAction => {
+        id: "empty-worksheet-filled-by-action",
+        assumed: "A Worksheet with the new-row line (AutoSplitKey, DelayedInsert) opened for edit on an empty view, after an action that stored two rows or more (up to a window) through another record variable without CurrPage.Update: the client reads each row of the view once, the first row twice more, runs OnAfterGetCurrRecord on it with a blank xRec and goes back to its new-row line; First then reads the first row twice. A later action first reads the new line (OnAfterGetRecord on the blank Rec), whatever number of rows the view holds. Pinned with two rows.",
+        tests: "No Microsoft test: al-runner issue 5960, the reporter's repro green on real BC (page 7372 Bin Creation Worksheet: Calculate Bins, then Create Bins; 2 tests of a partner app).",
+        probe: "The Worksheet of RmWorksheetGoneRow.al SH_WsWithNew_ with a second action that keeps the rows, with CurrPage.Update in the first action, and with Next or Last instead of First.",
+        awaiting: Awaiting {
+            issues: &[5960],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate",
+                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_WsWithNew_EmptyOpen_FillThenWalk",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
