@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 mod body;
 mod facts;
+mod head;
 mod objects;
 mod objkind;
 pub mod sym;
@@ -14,6 +15,7 @@ pub mod types;
 pub mod walk;
 pub use body::{Body, BodyFixup};
 pub use facts::{FieldClass, FieldFacts, ObjectFacts, PageType, TableType};
+pub use head::{EventRoutine, ObjectHead, is_event_attribute};
 pub use objects::{ObjectSource, Objects};
 pub use objkind::{ObjKind, UnknownKind};
 

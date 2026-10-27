@@ -292,7 +292,7 @@ impl Session {
                     _ => None,
                 })
                 .collect();
-            if engine.facts[s.object][s.routine].var_lens {
+            if engine.routine_facts(s.object, s.routine).var_lens {
                 self.events.next_var_lens = map
                     .iter()
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))

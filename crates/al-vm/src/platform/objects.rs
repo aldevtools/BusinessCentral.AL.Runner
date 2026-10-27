@@ -456,6 +456,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     for id in TEST_RUNNER_CODEUNITS {
         let present = c
             .objects
+            .heads()
             .iter()
             .any(|o| o.id == Some(id) && object_type(o.kind) == Some(5));
         if !present {

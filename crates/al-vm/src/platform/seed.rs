@@ -187,7 +187,7 @@ impl Session {
     pub(crate) fn seed_platform_rows(&mut self, i: &Ident) {
         let engine = self.engine.clone();
         let mut wrote = false;
-        for (oi, o) in engine.program.objects.iter().enumerate() {
+        for (oi, o) in engine.program.objects.heads().iter().enumerate() {
             let (Some(id), al_ir::ObjKind::Table) = (o.id, if o.uncompiled { al_ir::ObjKind::Other } else { o.kind })
             else {
                 continue;

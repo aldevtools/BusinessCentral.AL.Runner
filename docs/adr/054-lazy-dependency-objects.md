@@ -216,3 +216,16 @@ Each step keeps the zero-difference runs at 0.
 
 Test plan items 1 to 7; the zero-difference runs of `tools/cache_vs_uncached.sh` and `tools/demand_vs_eager.sh` with
 the lazy/eager decode leg.
+
+## Built
+
+- 2026-10-27, step 1: `Program::objects` is a list of slots (`al_ir::Objects`), all still built finished.
+- 2026-10-27, step 2 (heads, first part): `al_ir::ObjectHead` and `Objects::heads` (given with a lazy list, otherwise
+  computed from the objects once and dropped on any change of the list). `Engine::with_config` (table definitions,
+  table, field and object facts, codeunit map), `events::Registry::build`, the bytecode table and the routine facts
+  (both now made per object on first call), the reach index, the platform table lists and the start-up passes of the
+  test runner (test selection, install plan and facts, baseline steps, observe) read heads. Measured on the warm repro
+  with a program whose dependency slots start empty and heads given: start-up and a run of 11 tests make only the
+  objects they run. Tests: `al-vm` `lazy_objects` (items 3 and 5 on a small program). Heads are not yet stored in the
+  cache entry (next step).
+

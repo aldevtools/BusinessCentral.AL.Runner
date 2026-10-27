@@ -537,14 +537,24 @@ pub(crate) struct Chunk {
     pub temps: u16,
 }
 
-/// One lazily built chunk per routine, per object.
+/// One lazily built chunk per routine, per object. The table is sized from the object heads, so building it makes no
+/// object of the program (ADR-054).
 type ChunkTable = Vec<Vec<OnceLock<Option<Box<Chunk>>>>>;
+
+fn chunk_table(program: &ir::Program) -> ChunkTable {
+    program
+        .objects
+        .heads()
+        .iter()
+        .map(|h| (0..h.routine_count).map(|_| OnceLock::new()).collect())
+        .collect()
+}
 
 /// The chunks of a program, compiled the first time a routine is called (every routine runs as bytecode).
 pub(crate) struct ExecProgram {
-    chunks: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
+    chunks: ChunkTable,
     /// The captured form of a routine (value capture and iteration tracking), built on first use by a capture.
-    captured: Vec<Vec<OnceLock<Option<Box<Chunk>>>>>,
+    captured: ChunkTable,
     /// The debug form of a routine (ADR-048), built on first use by a session with a debugger. The table itself is
     /// built on first use too, so a run without a debugger does not allocate it.
     debug: OnceLock<ChunkTable>,
@@ -553,16 +563,8 @@ pub(crate) struct ExecProgram {
 impl ExecProgram {
     pub(crate) fn new(program: &ir::Program) -> ExecProgram {
         ExecProgram {
-            chunks: program
-                .objects
-                .iter()
-                .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
-                .collect(),
-            captured: program
-                .objects
-                .iter()
-                .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
-                .collect(),
+            chunks: chunk_table(program),
+            captured: chunk_table(program),
             debug: OnceLock::new(),
         }
     }
@@ -576,13 +578,7 @@ impl ExecProgram {
 
     /// The debug form of routine `routine` of object `object` (ADR-048).
     pub(crate) fn debug_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
-        let table = self.debug.get_or_init(|| {
-            program
-                .objects
-                .iter()
-                .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
-                .collect()
-        });
+        let table = self.debug.get_or_init(|| chunk_table(program));
         table[object][routine]
             .get_or_init(|| compile::compile_debug(&program.objects[object].routines[routine]).map(Box::new))
             .as_deref()
@@ -590,13 +586,13 @@ impl ExecProgram {
 
     /// The chunk of routine `routine` of object `object`, if it compiles.
     pub(crate) fn chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
-        let cell = &self.chunks[object][routine];
-        cell.get_or_init(|| {
-            let c = compile(&program.objects[object].routines[routine], false)?;
-            STATS.routines.fetch_add(1, Ordering::Relaxed);
-            Some(Box::new(c))
-        })
-        .as_deref()
+        self.chunks[object][routine]
+            .get_or_init(|| {
+                let c = compile(&program.objects[object].routines[routine], false)?;
+                STATS.routines.fetch_add(1, Ordering::Relaxed);
+                Some(Box::new(c))
+            })
+            .as_deref()
     }
 }
 

@@ -203,7 +203,8 @@ pub(crate) struct ReachIndex {
 
 impl ReachIndex {
     pub fn new(events: &al_vm::events::Registry, lowered: &Lowered) -> ReachIndex {
-        let objs = &lowered.program.objects;
+        // Heads only: the index makes no object (ADR-054).
+        let objs = lowered.program.objects.heads();
         let mut by_id = HashMap::new();
         let mut extensions: HashMap<(ObjKind, u32), Vec<usize>> = HashMap::new();
         for (i, o) in objs.iter().enumerate() {
@@ -244,13 +245,13 @@ impl ReachIndex {
         global_triggers.dedup();
         let summaries = objs
             .iter()
-            .map(|o| o.routines.iter().map(|_| OnceLock::new()).collect())
+            .map(|o| (0..o.routine_count).map(|_| OnceLock::new()).collect())
             .collect();
         let mut first_routine = Vec::with_capacity(objs.len() + 1);
         let mut total = 0;
         for o in objs {
             first_routine.push(total);
-            total += o.routines.len();
+            total += o.routine_count as usize;
         }
         first_routine.push(total);
         ReachIndex {
@@ -1150,7 +1151,7 @@ mod tests {
     }
 
     fn routine(l: &Lowered, object: &str, name: &str) -> (usize, usize) {
-        let o = l.program.objects.iter().position(|o| o.name == object).unwrap();
+        let o = l.program.objects.heads().iter().position(|o| o.name == object).unwrap();
         let r = l.program.objects[o]
             .routines
             .iter()

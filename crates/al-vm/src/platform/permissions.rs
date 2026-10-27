@@ -156,7 +156,7 @@ impl Providers {
     /// The schema of the stored Tenant Permission Set table, if the program compiled it.
     pub(super) fn tenant_permission_set_def(&self) -> Option<Arc<TableDef>> {
         let engine = self.engine();
-        let oi = engine.program.objects.iter().position(|o| {
+        let oi = engine.program.objects.heads().iter().position(|o| {
             o.is_kind(al_ir::ObjKind::Table) && o.id == Some(TENANT_PERMISSION_SET) && o.table.is_some()
         })?;
         engine.tables[oi].clone()
@@ -527,6 +527,7 @@ impl Providers {
             let Some(oi) = engine
                 .program
                 .objects
+                .heads()
                 .iter()
                 .position(|o| o.is_kind(al_ir::ObjKind::Table) && o.id == Some(id) && o.table.is_some())
             else {

@@ -159,6 +159,7 @@ fn frame_line(program: &ir::Program, object: usize, frame: CallFrame) -> Option<
             let table = match obj.kind {
                 ObjKind::TableExtension => program
                     .objects
+                    .heads()
                     .iter()
                     .find(|o| o.kind == ObjKind::Table && o.id.is_some() && o.id == obj.extends_id)?
                     .table

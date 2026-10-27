@@ -651,6 +651,7 @@ pub fn facts(lowered: &al_sema::lower::Lowered) -> Vec<ObjectFacts> {
             if let Some(b) = o.extends_id.and_then(|id| {
                 program
                     .objects
+                    .heads()
                     .iter()
                     .position(|e| e.kind == ObjKind::Enum && e.id == Some(id))
             }) {

@@ -44,7 +44,7 @@ fn error(message: impl Into<String>) -> Signal {
 /// Whether `name` (a page's name or id as a table property writes it) is a page of a dependency app
 /// that was not compiled.
 fn names_uncompiled_page(engine: &Engine, name: &str) -> bool {
-    engine.program.objects.iter().any(|o| {
+    engine.program.objects.heads().iter().any(|o| {
         o.is_shell_of(al_ir::ObjKind::Page)
             && (o.name.eq_ignore_ascii_case(name) || o.id.is_some_and(|i| i.to_string() == name))
     })
