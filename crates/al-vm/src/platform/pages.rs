@@ -73,7 +73,7 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`. Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
-fn view_text(o: &Object, table: Option<&Object>, table_objects: &[Object]) -> Result<String, String> {
+fn view_text(o: &Object, table: Option<&Object>, table_objects: &al_ir::Objects) -> Result<String, String> {
     let Some(v) = prop(o, "SourceTableView") else {
         return Ok(String::new());
     };
@@ -152,7 +152,7 @@ fn view_text(o: &Object, table: Option<&Object>, table_objects: &[Object]) -> Re
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
 /// (TestPageMetadataSourceObject.al:61-80 declares `Status = const(Active)` and expects `CONST(2)`), a number as written,
 /// a Text value without its quotes (W2PageMetadata.al:394 `CONST(x)`, :397 `CONST(a b)`).
-fn const_text(f: &al_ir::Field, value: &str, table_objects: &[Object]) -> Option<String> {
+fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> Option<String> {
     let plain = |v: &str| !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
     match &f.ty {
         RtType::Text(_) => {
@@ -228,7 +228,7 @@ fn split_top(body: &str) -> Option<Vec<&str>> {
     (!parts.iter().any(|p| p.is_empty())).then_some(parts)
 }
 
-fn objects_enum_ordinal(objects: &[Object], enum_object: u32, member: &str) -> Option<i32> {
+fn objects_enum_ordinal(objects: &al_ir::Objects, enum_object: u32, member: &str) -> Option<i32> {
     objects[enum_object as usize]
         .enum_values
         .iter()

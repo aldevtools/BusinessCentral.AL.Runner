@@ -234,11 +234,17 @@ impl Session {
 
     /// After an OnDrillDown that turned MarkedOnly on for Rec and called `CurrPage.Update(false)`, a list with OnAfterGetRecord or
     /// OnAfterGetCurrRecord drops the rows it held, so its moves read the marked rows from the table, as a list without those
-    /// triggers does (al-runner issue 5844, the reporter's run on real BC; not pinned by the corpus yet).
+    /// triggers does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016). With CurrPage.Update(false) and the row
+    /// triggers, a page with a part in the content or FactBoxes area does the same (al-runner issue 5886, the reporter's run on
+    /// real BC; assumption drilldown-marked-only-with-part until writer SF's pins SF_WithPart_* and SF_WithFactBox_* land); the
+    /// other shapes of a page with parts stay as they were.
     fn drilldown_marked_only_refresh(&mut self, st: &St, method: PageMethod, marked_only_before: bool) {
-        let shape = {
+        let (shape, with_parts) = {
             let s = st.borrow();
-            method == PageMethod::DrillDown && s.open && s.host.is_none() && s.parts.is_empty() && !s.draft
+            (
+                method == PageMethod::DrillDown && s.open && s.host.is_none() && !s.draft,
+                !s.parts.is_empty(),
+            )
         };
         if !shape
             || marked_only_before
@@ -259,6 +265,9 @@ impl Session {
         // page without the row triggers only (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422
         // DrilldownWithoutUpdateListAndGoTo); with them the later TestPage calls are refused.
         if !st.borrow().refresh {
+            if with_parts {
+                return;
+            }
             if row_triggers {
                 st.borrow_mut().marked_only_unpinned = true;
             } else {
@@ -269,7 +278,10 @@ impl Session {
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return;
         }
-        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016).
+        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part, see above.
+        if with_parts {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedOnlyWithPart);
+        }
         let mut s = st.borrow_mut();
         s.window.clear();
         s.window_from_start = false;
@@ -1710,12 +1722,8 @@ impl Session {
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
         self.populate_current(st)?;
         curr(self)?;
-        // The rows the client held are those of the old filters: the next move reads the new view (RZ_PlainWs_B_G1 `next`
-        // `Yes|E`, `rows` `A,C,E,`).
-        let mut s = st.borrow_mut();
-        s.window.clear();
-        s.window_from_start = false;
-        s.window_top_unread = false;
+        // The client holds the rows the refresh read (`read_list_again_from_row_as`).
+        st.borrow_mut().window_top_unread = false;
         Ok(true)
     }
 
@@ -1747,6 +1755,18 @@ impl Session {
         let find = self.declares(st, "onfindrecord");
         let with_current = self.declares(st, "onaftergetcurrrecord");
         let mut pk = key.to_vec();
+        // A list that reads each row once more in its key (`reads_once_more_in_its_key`) reads the row it starts from once more
+        // first, and once more before the refresh's own read (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al SG_Key_FourRows_Moves
+        // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
+        // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
+        let once_more = self.still_reads_once_more(st);
+        if once_more && !read_first {
+            // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
+            // (al-runner issue 5888: `R3;R4;R2;R4;R4;R4;C4` for a filter that drops row 3). Not pinned: the reporter's real-BC
+            // repro (assumption validate-filter-refresh-window).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ValidateFilterRefreshWindow);
+            self.populate_current(st)?;
+        }
         let view_left = match self.row_after_view_left(rec)? {
             Some(fields) => {
                 rec.borrow_mut().fields = fields;
@@ -1792,17 +1812,7 @@ impl Session {
             })
         };
         rows.push(row(self)?);
-        // A list that reads each row once more in its key (`reads_once_more_in_its_key`) reads the row it starts from once more
-        // here, and once more before the refresh's own read (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al SG_Key_FourRows_Moves
-        // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
-        // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
-        let once_more = self.still_reads_once_more(st);
-        if once_more && !read_first {
-            return unsupported(
-                "the reads of a refresh after a control's OnValidate on a list in a key other than the primary key (not pinned)",
-            );
-        }
-        if once_more {
+        if once_more && read_first {
             self.populate_current(st)?;
         }
         let mut moved = false;
@@ -1834,13 +1844,22 @@ impl Session {
                 self.populate_current(st)?;
             }
         }
+        // The rows read on the way back, nearest first.
+        let mut back = Vec::new();
         if has_before || find {
             // The way back is read in blocks of 20 rows: after a block the client reads the row it started from, then goes on from the
             // last row of the block again (pages/lt-testpage-list-rows/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged:
             // `G100;G30;...;G11;G100;G11;G10;...;G1;G100;G100;C100`).
             let mut block = 0;
             while self.nav_next(st, -1)? {
+                let key = self.row_key(rec)?;
+                let stored = rec.borrow().fields.clone();
                 self.populate_current(st)?;
+                back.push(al_builtins::value::WindowRow {
+                    key,
+                    stored,
+                    shown: rec.borrow().fields.clone(),
+                });
                 block += 1;
                 if block == Self::WINDOW && !find {
                     let stop = rec.borrow().fields.clone();
@@ -1891,6 +1910,26 @@ impl Session {
             s.window = rows;
             s.window_from_start = true;
             s.settled_first_row = true;
+        } else if !read_first {
+            // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
+            // view to the window after the row it settled on: the next move reads as on a page without a refresh (al-runner issue
+            // 5914, `next=3:R3;R3;C3;` in the primary key, and a GoToRecord from a later row steps from the first row:
+            // `gotorecord=3:R1;R1;C1;R2;R2;C2;R3;R3;C3;`; 5888, `next=1:R1;R1;R1;C1;` in another key). Not pinned: the reporters'
+            // real-BC repros (assumption validate-filter-refresh-window). The rows the client held before are those of the old
+            // filters (RZ_PlainWs_B_G1 `next` `Yes|E`, `rows` `A,C,E,`). More rows than a window: what the client holds is not
+            // pinned, the next move is refused.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ValidateFilterRefreshWindow);
+            let mut s = st.borrow_mut();
+            if back.len() + rows.len() > Self::WINDOW {
+                s.window = Vec::new();
+                s.window_from_start = false;
+                s.validate_refresh_unheld = true;
+            } else {
+                back.reverse();
+                back.extend(rows);
+                s.window = back;
+                s.window_from_start = true;
+            }
         }
         Ok(())
     }
