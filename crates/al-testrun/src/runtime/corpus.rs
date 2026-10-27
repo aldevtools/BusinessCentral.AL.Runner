@@ -799,7 +799,7 @@ impl CorpusRuntime {
             // An entry with resource files of its own (issue 5635): whether the install code read resources is known
             // only when it runs here.
             .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
-            .and_then(|(key, cc)| {
+            .and_then(|((key, frame), cc)| {
                 // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
                 let backed = |mut run: crate::baseline::BaselineRun| {
                     run.baseline = run.baseline.backed_by(&engine);
@@ -808,7 +808,7 @@ impl CorpusRuntime {
                 match keep {
                     // A warm server reads the file once and keeps what it holds, over the test data as far as its
                     // tests read it (al-runner issue 5856). The test data and the program must be the same.
-                    true => crate::baseline_cache::read_kept(&cc.dir, key, &kept_backing(&engine), backed),
+                    true => crate::baseline_cache::read_kept(&cc.dir, key, frame, &kept_backing(&engine), backed),
                     false => crate::baseline_cache::read(&cc.dir, key).map(|(run, at)| (backed(run), at, false)),
                 }
             })
@@ -869,11 +869,12 @@ impl CorpusRuntime {
             opts.compile_cache.as_ref(),
             baseline_run.as_ref(),
         ) {
+            let (key, frame) = key;
             // The clock has started by now if the install code read it; if not, no row carries it and it starts here.
             crate::baseline_cache::write(&cc.dir, key, run, crate::host::SystemClock::run_start());
             // A warm server's next request takes the baseline as the file holds it (al-runner issue 5856).
             if keep {
-                let _ = crate::baseline_cache::read_kept(&cc.dir, key, &kept_backing(&engine), |mut run| {
+                let _ = crate::baseline_cache::read_kept(&cc.dir, key, frame, &kept_backing(&engine), |mut run| {
                     run.baseline = run.baseline.backed_by(&engine);
                     run
                 });
@@ -1595,7 +1596,7 @@ impl CorpusRuntime {
             o.clear();
         }
         let tests_time = tests_started.elapsed();
-        if let (Some(key), Some(cc), Some((origin, read))) = (
+        if let (Some((key, _)), Some(cc), Some((origin, read))) = (
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
             login_origin.as_ref(),
@@ -1864,6 +1865,9 @@ fn take_kept_engines(
 /// the rows and the clock agree as they do in a run that began then and ran the install code. The day only bounds how
 /// far in the past a run may think it began.
 ///
+/// The second text is the frame of the key: all of it but the source of the apps (`KeyBuilder::finish_frame`), what a
+/// warm server's baseline carried over an edit must match (`baseline_cache::carry`).
+///
 /// Not kept at all: a run that reads test data, runs .NET, lets `File` use a real directory, reads the real clock as
 /// it goes, records, compares two executable forms or has a test runner of its own: what such a run does is not in
 /// the key.
@@ -1877,7 +1881,7 @@ fn baseline_key(
     target: Option<&al_version::Target>,
     dotnet: &al_vm::dotnet::DotNetConfig,
     opts: &RunOptions,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let report = report?;
     opts.compile_cache.as_ref()?;
     if opts.trace
@@ -1921,7 +1925,7 @@ fn baseline_key(
             // The preprocessor symbols the app was parsed with: they select the code that is compiled.
             let symbols: Vec<&str> = ws.symbols_of(i).iter().map(String::as_str).collect();
             key.text("app_symbols", &symbols.join(","));
-            key.bytes("source", &crate::compile_cache::source_hash(app));
+            key.source("source", &crate::compile_cache::source_hash(app));
             // The install code can read the app's resource files, and a warm server hands it new ones without a new
             // compile (issue 5635).
             for (name, content) in lowered
@@ -1958,7 +1962,7 @@ fn baseline_key(
         "base_access",
         &std::env::var("AL_UNPINNED_BASE_ACCESS").unwrap_or_default(),
     );
-    Some(key.finish())
+    Some((key.finish(), key.finish_frame()))
 }
 
 /// The isolation BC's TestRunnerHub runs test codeunit `oi` under: its `RequiredTestIsolation`, `None` when that is
