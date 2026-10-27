@@ -56,8 +56,11 @@ fn a_set_survives_the_round_trip() {
     assert_eq!(e.len(), set.facts.len());
     for i in 0..e.len() {
         assert_eq!(e.facts(i), &set.facts[i], "facts of object {i}");
+        assert_eq!(e.head(i), &set.heads[i], "head of object {i}");
     }
     assert!(blocks(&e) == set.blocks, "blocks differ");
+    // ADR-054: the heads are stored, and a table's head carries its linked table.
+    assert!(set.heads.iter().any(|h| h.table.is_some()));
 }
 
 #[test]
@@ -295,6 +298,7 @@ fn layer_files_stacked_equal_the_complete_compile() {
     assert_eq!(stack.len(), complete.facts.len());
     for i in 0..stack.len() {
         assert_eq!(stack.facts(i), &complete.facts[i], "facts of object {i}");
+        assert_eq!(stack.head(i), &complete.heads[i], "head of object {i}");
         assert!(stack.block(i).unwrap() == complete.blocks[i], "block {i}");
     }
 }

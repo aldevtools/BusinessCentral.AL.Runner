@@ -103,6 +103,8 @@ pub trait DepSource: Sync {
         self.len() == 0
     }
     fn facts(&self, object: usize) -> &DepFacts;
+    /// The head of `object`, as the build linked it (ADR-054).
+    fn head(&self, object: usize) -> &ir::ObjectHead;
     /// The block of `object`, read and checked now. An error means the source is damaged.
     fn block(&self, object: usize) -> Result<DepBlock, String>;
     /// Dependency files that did not parse when the set was built, as (path, why). A run that
@@ -117,6 +119,9 @@ pub trait DepSource: Sync {
 pub struct DepSet {
     pub facts: Vec<DepFacts>,
     pub blocks: Vec<DepBlock>,
+    /// The head of each object (ADR-054 decision 2), from the object as the build linked it: what a pass over all
+    /// objects reads, so a run reads no block to make it.
+    pub heads: Vec<ir::ObjectHead>,
     pub parse_problems: Vec<(String, String)>,
 }
 
@@ -126,6 +131,9 @@ impl DepSource for DepSet {
     }
     fn facts(&self, object: usize) -> &DepFacts {
         &self.facts[object]
+    }
+    fn head(&self, object: usize) -> &ir::ObjectHead {
+        &self.heads[object]
     }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
         Ok(self.blocks[object].clone())
@@ -168,6 +176,7 @@ pub trait LayerSource: Sync {
     /// The program index of each slot (see [`DepLayer::objects`]).
     fn objects(&self) -> &[u32];
     fn facts_at(&self, slot: usize) -> &DepFacts;
+    fn head_at(&self, slot: usize) -> &ir::ObjectHead;
     /// The block of `slot`, read and checked now.
     fn block_at(&self, slot: usize) -> Result<DepBlock, String>;
     fn parse_problems(&self) -> &[(String, String)];
@@ -182,6 +191,9 @@ impl LayerSource for DepLayer {
     }
     fn facts_at(&self, slot: usize) -> &DepFacts {
         &self.set.facts[slot]
+    }
+    fn head_at(&self, slot: usize) -> &ir::ObjectHead {
+        &self.set.heads[slot]
     }
     fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
         Ok(self.set.blocks[slot].clone())
@@ -244,6 +256,10 @@ impl DepSource for Stack<'_> {
     fn facts(&self, object: usize) -> &DepFacts {
         let (l, s) = self.at[object];
         self.layers[l as usize].facts_at(s as usize)
+    }
+    fn head(&self, object: usize) -> &ir::ObjectHead {
+        let (l, s) = self.at[object];
+        self.layers[l as usize].head_at(s as usize)
     }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
         let (l, s) = self.at[object];
@@ -482,6 +498,7 @@ codeunit 60004 WUse { procedure W() var R: Record T; begin R.WX := 1; R.DX := 2;
         assert!(eager.unsupported == cached.unsupported, "the refusals differ");
         assert!(calls(&eager) == calls(&cached), "the call graphs differ");
         assert_eq!(eager.dependency, cached.dependency);
+        assert_heads_match(&set, &cached);
         relowered
     }
 
@@ -676,12 +693,36 @@ codeunit 60031 WBar implements IWork { procedure Bump(): Integer begin exit(3); 
                 "block of object {oi} `{}` differs",
                 complete.facts[oi].name
             );
+            assert!(
+                stack.head(oi) == &complete.heads[oi],
+                "head of object {oi} `{}` differs",
+                complete.facts[oi].name
+            );
         }
         assert_eq!(stack.parse_problems(), &complete.parse_problems[..]);
         overrides
     }
 
     use crate::provided::LayerSource;
+
+    /// ADR-054 test plan item 2: the stored head of every object the run takes from `src` equals the head of that object
+    /// as the run linked it.
+    pub(crate) fn assert_heads_match(src: &dyn DepSource, run: &Lowered) {
+        let mut compared = 0;
+        for oi in 0..src.len() {
+            if !run.provided[oi] {
+                continue;
+            }
+            let linked = ir::ObjectHead::of(&run.program.objects[oi]);
+            assert!(
+                src.head(oi) == &linked,
+                "the stored head of object {oi} `{}` differs from the linked object",
+                linked.name
+            );
+            compared += 1;
+        }
+        assert!(compared > 0, "no object came from the source");
+    }
 
     #[test]
     fn a_layer_that_changes_nothing_below_it_overrides_nothing() {
@@ -815,5 +856,6 @@ codeunit 61004 QUse { procedure W() var R: Record T; begin R.QX := 1; R.WX := 2;
         assert!(eager.unsupported == cached.unsupported, "the refusals differ");
         assert!(calls(&eager) == calls(&cached), "the call graphs differ");
         assert_eq!(eager.dependency, cached.dependency);
+        assert_heads_match(&stack, &cached);
     }
 }

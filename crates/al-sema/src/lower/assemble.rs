@@ -1271,6 +1271,10 @@ pub(crate) fn lower_core(
             return Err("AL_CHECK_LINK: the source position ranges differ".into());
         }
     }
+    if let Some(set) = exported.as_mut() {
+        // Heads from the objects as linked, after the relations (ADR-054 decision 2).
+        set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
+    }
     out.exported = exported;
     if src.is_some() {
         out.driven = Some(shared.driven.clone());

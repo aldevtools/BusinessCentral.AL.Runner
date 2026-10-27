@@ -5,7 +5,7 @@
 //!                      hash, file length, hash of the header so far
 //! dict    the zstd dictionary the blocks share
 //! blocks  zstd(postcard(DepBlock)) per object, with the dictionary and a content checksum
-//! index   zstd(postcard(Index)): the facts of every object, where each block sits
+//! index   zstd(postcard(Index)): the facts and the head of every object, where each block sits
 //! ```
 //!
 //! Open reads the header and the index. A damaged header, index or dictionary is refused at open
@@ -13,6 +13,7 @@
 //! decoder). A file of the wrong length is refused at open. Nothing in a refused file is used.
 
 use crate::Key;
+use al_ir::ObjectHead;
 use al_sema::provided::{DepBlock, DepFacts, DepLayer, DepSet, DepSource, LayerSource};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,8 @@ struct Index {
     /// The program index of each slot (`DepLayer::objects`).
     objects: Vec<u32>,
     facts: Vec<DepFacts>,
+    /// The head of each object (ADR-054 decision 2).
+    heads: Vec<ObjectHead>,
     parse_problems: Vec<(String, String)>,
     blocks: Vec<BlockRef>,
     dict_offset: u64,
@@ -100,6 +103,7 @@ pub fn build_layer_with_dictionary(layer: &DepLayer, key: &Key, dictionary: &[u8
 
 fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared_dict: Option<&[u8]>) -> Vec<u8> {
     assert_eq!(set.facts.len(), set.blocks.len(), "one block per object");
+    assert_eq!(set.facts.len(), set.heads.len(), "one head per object");
     assert_eq!(set.facts.len(), objects.len(), "one object index per block");
     let raw: Vec<Vec<u8>> = set
         .blocks
@@ -146,6 +150,7 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
         base_len: base_len as u64,
         objects: objects.to_vec(),
         facts: set.facts.clone(),
+        heads: set.heads.clone(),
         parse_problems: set.parse_problems.clone(),
         blocks: block_refs,
         dict_offset,
@@ -239,7 +244,10 @@ impl Entry {
         if sha(dict_bytes) != index.dict_sha {
             return Err(CacheError::Damaged("dictionary".into()));
         }
-        if index.facts.len() != index.blocks.len() || index.objects.len() != index.blocks.len() {
+        if index.facts.len() != index.blocks.len()
+            || index.heads.len() != index.blocks.len()
+            || index.objects.len() != index.blocks.len()
+        {
             return Err(CacheError::Damaged("object count".into()));
         }
         // The objects ascend; those from `base_len` on are the layer's own, with no gap.
@@ -331,6 +339,9 @@ impl DepSource for Entry {
     fn facts(&self, object: usize) -> &DepFacts {
         &self.index.facts[self.slot_of(object)]
     }
+    fn head(&self, object: usize) -> &ObjectHead {
+        &self.index.heads[self.slot_of(object)]
+    }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
         self.read_block(self.slot_of(object)).map_err(|e| e.to_string())
     }
@@ -348,6 +359,9 @@ impl LayerSource for Entry {
     }
     fn facts_at(&self, slot: usize) -> &DepFacts {
         &self.index.facts[slot]
+    }
+    fn head_at(&self, slot: usize) -> &ObjectHead {
+        &self.index.heads[slot]
     }
     fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
         self.read_block(slot).map_err(|e| e.to_string())

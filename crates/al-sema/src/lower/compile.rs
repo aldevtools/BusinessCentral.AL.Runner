@@ -182,11 +182,12 @@ pub fn lower_layer_with(
     };
     // Facts and direct calls of an object taken from `below` are not complete in the export, and
     // are not needed: only the objects lowered here are kept.
-    for (oi, (facts, block)) in all.facts.into_iter().zip(all.blocks).enumerate() {
+    for (oi, ((facts, block), head)) in all.facts.into_iter().zip(all.blocks).zip(all.heads).enumerate() {
         if !lowered.provided[oi] {
             layer.objects.push(oi as u32);
             layer.set.facts.push(facts);
             layer.set.blocks.push(block);
+            layer.set.heads.push(head);
         }
     }
     layer.set.parse_problems = ws.lazy_parse_problems_from(n_below_apps);
@@ -255,6 +256,22 @@ pub fn compile_loaded_cached(
         cache_blocks,
     };
     drop(members);
+    // `AL_CHECK_HEADS=1`: the stored head of every object taken from the cache equals the head of the object as this run
+    // linked it (ADR-054 test plan item 2, on real entries).
+    if std::env::var_os("AL_CHECK_HEADS").is_some() {
+        for oi in (0..src.len()).filter(|&oi| lowered.provided[oi]) {
+            let linked = ir::ObjectHead::of(&lowered.program.objects[oi]);
+            if src.head(oi) != &linked {
+                return Err(Box::new((
+                    ws,
+                    format!(
+                        "AL_CHECK_HEADS: the stored head of object {oi} `{}` differs from the linked object",
+                        linked.name
+                    ),
+                )));
+            }
+        }
+    }
     Ok((ws, lowered))
 }
 
