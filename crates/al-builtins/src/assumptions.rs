@@ -283,17 +283,9 @@ registry! {
     },
     ListOpenFullWindowRowsBefore => {
         id: "list-open-full-window-rows-before",
-        assumed: "The open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full and whose OnNextRecord(-1) from the first row answers a step, reads each row it steps back to and asks OnNextRecord(-1) again until it answers 0, with no OnFindRecord('=') and no read of the first row again; pinned for a page of its own with 9 rows above (pages/lt-ai-list-order/AiListOrderTests.al:1090 PageRun_RecordOnTenthOfForty_Nav, :1127 OpenOnRow_TenthOfForty_Pos, where Next reads nothing). Assumed: a ListPart does the same; Previous inside the rows held reads nothing; a step back that reaches 20 rows above stops there and asks no more (as the descending find list's step back does, PnF06FindListMoves.al RK_DescKind_FindNext_21Rows). Other moves after such an open are refused.",
-        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets. al-runner issue 5887: the reporter's repro green 2/2 on real BC (a list of its own and a ListPart, opened on day 10 of 40); the pin is on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
-        probe: "A temporary ListPart whose OnFindRecord and OnNextRecord walk a position global (rows on every day, inserted on demand) and whose OnAfterGetRecord sets that global from Rec, logging each call; the host card refills it from its OnAfterGetRecord (DeleteAll, CurrPage.Update). Log the reads at open and after the host moves with Next, and read a part field before and after. The same list as a page of its own, opened on day 10 of 40, and on day 30 (more than a window above), then First, Last and GoToKey.",
-        awaiting: Awaiting {
-            issues: &[5887],
-            files: &[
-                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayList_OpensOnDayTen_Next_Previous",
-                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayHost_RunWithFilter_OpensPart",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "The open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full, steps back with OnNextRecord(-1) and reads each row until it answers 0 (pinned with 9 rows above, for a page of its own and a ListPart: pages/lt-ai-list-order/AiListOrderTests.al:1090, :1127, misc/lt-probes-needed-6/PnF06FindListMoves.al:1947, :1968). Assumed: a step back that reaches 20 rows above stops there and asks no more (as the descending find list's step back does, PnF06FindListMoves.al RK_DescKind_FindNext_21Rows).",
+        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets.",
+        probe: "The list of PnF06FindListMoves.al SF_DayList_OpensOnDayTen_Next_Previous (rows on every day 1 to 40), opened on day 30 (more than a window above): the reads at open, then Previous, First and GoToKey.",
     },
     SetValueWholeNumberIntoTextControl => {
         id: "setvalue-whole-number-into-text-control",
@@ -589,58 +581,9 @@ registry! {
             since: "2026-10-25",
         },
     },
-    StaleGetBufferInWriteTransaction => {
-        id: "stale-get-buffer-in-write-transaction",
-        assumed: "A buffer that read the row by Get or GetBySystemId in the transaction that wrote the version it read (an Insert or Modify of the row before that transaction's Commit), with no own write since, follows the Insert-buffer rule after the Commit (record/TestRecordStaleBufferWrite.al:395-690): its stale Modify is written once the new transaction wrote the row or read it by Get after a LockTable, and refused with nothing in between. A buffer read by Get after the Commit that followed the write stays refused (:604-660).",
-        tests: "No Microsoft test: al-runner issue 5913, the reporter's repro green 8/8 on real BC (two tests of a partner app); pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
-        probe: "Insert, then Get (and GetBySystemId) through another variable in the same transaction, another variable's Modify, Commit, then the new transaction writes the row, or LockTable and Get, or does nothing; then a Modify through the Get buffer: accepted or DB:RecordChanged, and the stored row.",
-        awaiting: Awaiting {
-            issues: &[5913],
-            files: &[
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_OtherWriteCommit_OtherChangedWrite",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_OwnModifyThenGet_OtherWriteCommit_OtherChangedWrite",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_OtherWriteCommit_LockTableGet",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_OwnModifyThenGetBySystemId_OtherWriteCommit_LockTableGet",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_Delete_OtherWriteCommit_OtherChangedWrite",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    DrilldownMarkedOnlyWithPart => {
-        id: "drilldown-marked-only-with-part",
-        assumed: "After a field's OnDrillDown turned MarkedOnly on for Rec and called CurrPage.Update(false), a list with OnAfterGetRecord or OnAfterGetCurrRecord that has a part (in the content area or in the FactBoxes area) lists only the marked rows, as the same page without a part does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016).",
-        tests: "No Microsoft test: al-runner issue 5886, the reporter's repro green 6/6 on real BC; pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
-        probe: "The drilldown of ScDrillDownMarkedOnly.al on a Worksheet with both row triggers and a ListPart with a SubPageLink, in the content area and in the FactBoxes area: First/Next and GoToRecord of the unmarked row.",
-        awaiting: Awaiting {
-            issues: &[5886],
-            files: &[
-                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_ListAndGoTo",
-                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_GoToRecordMissesTheUnmarkedRow",
-                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_ListAndGoTo",
-                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_GoToRecordMissesTheUnmarkedRow",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    ValidateFilterRefreshWindow => {
-        id: "validate-filter-refresh-window",
-        assumed: "After CurrPage.Update in a control's OnValidate that changed the filters of a Worksheet or List (both row triggers, rows from the table), the client holds the rows the refresh read from the row it settled on: the next move reads as on a page without a refresh (the row twice in the primary key, three times in another key), and a GoToRecord steps from the first row of the view when the refresh found rows before the current one. In a key other than the primary key the refresh first reads the row it starts from once more, the row the page stood on even when the new filter excludes it. The refresh's own reads in the primary key and the row it settles on are pinned (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al); the moves after it and the reads in another key are the reporters' real-BC runs.",
-        tests: "No Microsoft test: al-runner issues 5914 and 5888, the reporter's repros green 7/7 and 4/4 on real BC (5 tests of a partner app); pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
-        probe: "A Worksheet with both row triggers whose header field's OnValidate sets or clears a filter on Rec and calls CurrPage.Update(false), in the primary key and after SetCurrentKey in OnOpenPage, four rows: the reads of the refresh (filter keeps the row, drops it, cleared again), then Next and GoToRecord after it.",
-        awaiting: Awaiting {
-            issues: &[5914, 5888],
-            files: &[
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterKeepsRow_Next",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterDropsRow_Next_Clear_GoToRecord",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_PlainWs_FilterKeepsRow_GoToRecord",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Key_FilterKeepsRow_Next",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Key_FilterDropsRow_Next_Clear_GoToRecord",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Pk_FilterKeepsRow_Next",
-                "tests/al-language/pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al::SF_Pk_FilterDropsRow_Next_Clear_GoToRecord",
-            ],
-            since: "2026-10-27",
-        },
-    },
+
+
+
     BigTextValueCopy => {
         id: "bigtext-value-copy",
         assumed: "A BigText is a value: `B := A` copies its text, a by-value parameter (of a procedure or an event) gets a copy the callee's AddText does not reach, and a returned BigText is a copy; a `var` parameter is the caller's own BigText. Nothing in the corpus tells a copy from a shared BigText yet.",

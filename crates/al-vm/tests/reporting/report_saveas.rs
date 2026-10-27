@@ -464,7 +464,8 @@ report 68398 "Probe Caption Sources"
     }
 }
 
-// Declared labels and an IncludeCaption column: the order of the two kinds of label is not pinned (report/PZReportLabels.al).
+// Declared labels and an IncludeCaption column on a report of two data items: the order of the two kinds of label is not pinned
+// (ReportMergerLabelsSM.al pins one data item).
 report 68397 "Probe Labels Both"
 {
     ProcessingOnly = false;
@@ -476,10 +477,27 @@ report 68397 "Probe Labels Both"
             column(IdCol; Id) { IncludeCaption = true; }
             trigger OnPreDataItem() begin if FailEarly then Error('stopped before any row'); end;
         }
+        dataitem(Sibling; "Probe Rep Child") { }
     }
     labels { Declared = 'Declared label'; }
     var FailEarly: Boolean;
     procedure SetFailEarly(NewFailEarly: Boolean) begin FailEarly := NewFailEarly; end;
+}
+
+// One data item: the caption labels come first, then the declared ones (report/lt-report-layout-merger/ReportMergerLabelsSM.al:49).
+report 68395 "Probe Labels One Item"
+{
+    ProcessingOnly = false;
+
+    dataset
+    {
+        dataitem(P; "Probe Rep Parent")
+        {
+            column(IdCol; Id) { IncludeCaption = true; }
+            column(NameCol; Name) { IncludeCaption = true; }
+        }
+    }
+    labels { Declared = 'Declared label'; Other = 'Other label'; }
 }
 
 // Skip leaves a row out of the dataset.
@@ -1400,4 +1418,14 @@ fn declared_labels_with_an_include_caption_column_are_refused_only_when_the_data
         other => panic!("expected the trigger's error, got {other:?}"),
     }
     assert!(refusal(&body(false)).contains("the order of the two kinds of label is not pinned"));
+}
+
+#[test]
+fn caption_labels_come_before_declared_labels_on_a_report_of_one_data_item() {
+    let text = f("var H: Codeunit Helpers; P: Record \"Probe Rep Parent\"; begin
+            P.DeleteAll(); exit(H.Dataset(Report::\"Probe Labels One Item\", '')); end;");
+    assert!(
+        text.contains("<Labels>|    <Label name=\"IdColCaption\">Id</Label>|    <Label name=\"NameColCaption\">Name</Label>|    <Label name=\"Declared\">Declared label</Label>|    <Label name=\"Other\">Other label</Label>|  </Labels>"),
+        "{text}"
+    );
 }

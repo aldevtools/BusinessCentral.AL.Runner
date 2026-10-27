@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "7eceb6bb3b4056985e6853458b9f22d9ae3269da",
+  "corpus_commit": "86a9847904545b2256ed630f053e02ce29b0d1ce",
   "language": {
     "bc": "27-29",
-    "implemented": 1589,
+    "implemented": 1590,
     "methods": [
       {
         "bc": [
@@ -2218,7 +2218,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "errorinfo/TestErrorInfoType.al:205",
+        "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:131",
         "state": "implemented",
         "type": "ErrorInfo"
       },
@@ -2234,7 +2234,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean], [var Table], [Integer], [Integer], [Text], [Verbosity], [DataClassification], [Dictionary of [Text, Text]])",
-        "site": "errorinfo/TestErrorInfoErrorType.al:53",
+        "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:129",
         "state": "implemented",
         "type": "ErrorInfo"
       },
@@ -9295,7 +9295,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(OutStream)",
-        "site": "json/lt-json-typed-overloads/P101Streams.al:65",
+        "site": "json/lt-json-token-value/JsonTokenValueReadFromStream.al:380",
         "state": "implemented",
         "type": "JsonValue"
       },
@@ -13016,7 +13016,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Joker, ErrorInfo)",
-        "site": "handlers/PWRefusedBuiltins.al:118",
+        "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:132",
         "state": "implemented",
         "type": "Record"
       },
@@ -15987,7 +15987,7 @@
         "scope": "",
         "sig": "(Integer)",
         "site": "report/lt-report-members-testrequestpage/P91Unsure.al:67",
-        "state": "refused",
+        "state": "implemented",
         "type": "Report"
       },
       {
@@ -16210,7 +16210,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(var InStream)",
-        "site": "report/lt-report-requestpage-query-members/P105LytRdlc.al:43",
+        "site": "report/lt-report-requestpage-query-members/P105LytInitSM.al:90",
         "state": "implemented",
         "type": "Report"
       },
@@ -16704,7 +16704,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(var InStream)",
-        "site": "report/lt-report-requestpage-query-members/P105LytWord.al:43",
+        "site": "report/lt-report-requestpage-query-members/P105LytInitSM.al:94",
         "state": "implemented",
         "type": "Report"
       },
@@ -25652,7 +25652,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, Text)",
-        "site": "xml/XmlElement.al:59",
+        "site": "xml/XmlAttributes.al:631",
         "state": "implemented",
         "type": "XmlElement"
       },
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 133,
+    "refused": 132,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
@@ -28921,13 +28921,13 @@
           "id": "ErrorInfo.Create#1",
           "pinned": true,
           "signature": "ErrorInfo.Create static () -> ErrorInfo",
-          "site": "errorinfo/TestErrorInfoType.al:205"
+          "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:131"
         },
         {
           "id": "ErrorInfo.Create#2",
           "pinned": true,
           "signature": "ErrorInfo.Create static (Message: String, ?Collectible: Boolean, ?var Record: Record, ?FieldNo: Integer, ?PageNo: Integer, ?ControlName: String, ?Verbosity: Verbosity, ?DataClassification: DataClassification, ?CustomDimensions: Dictionary of [Text, Text]) -> ErrorInfo",
-          "site": "errorinfo/TestErrorInfoErrorType.al:53"
+          "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:129"
         },
         {
           "id": "ErrorInfo.Create#3",
@@ -31692,7 +31692,7 @@
           "id": "JsonValue.WriteTo#1",
           "pinned": true,
           "signature": "JsonValue.WriteTo inst (Data: OutStream) -> Boolean?",
-          "site": "json/lt-json-typed-overloads/P101Streams.al:65"
+          "site": "json/lt-json-token-value/JsonTokenValueReadFromStream.al:380"
         },
         {
           "id": "JsonValue.WriteTo#2",
@@ -33051,7 +33051,7 @@
           "id": "Record.FieldError#3",
           "pinned": true,
           "signature": "Record.FieldError inst (Field: Any, ErrorInfo: ErrorInfo)",
-          "site": "handlers/PWRefusedBuiltins.al:118"
+          "site": "error-handling/lt-last-error-text-forms/SnLastErrorTextMoreForms.al:132"
         },
         {
           "id": "Record.FieldName#1",
@@ -34260,7 +34260,7 @@
           "id": "Report.RDLCLayout#1",
           "pinned": true,
           "signature": "Report.RDLCLayout inst (var InStream: InStream) -> Boolean?",
-          "site": "report/lt-report-requestpage-query-members/P105LytRdlc.al:43"
+          "site": "report/lt-report-requestpage-query-members/P105LytInitSM.al:90"
         },
         {
           "id": "Report.RdlcLayout#2",
@@ -34446,7 +34446,7 @@
           "id": "Report.WordLayout#1",
           "pinned": true,
           "signature": "Report.WordLayout inst (var InStream: InStream) -> Boolean?",
-          "site": "report/lt-report-requestpage-query-members/P105LytWord.al:43"
+          "site": "report/lt-report-requestpage-query-members/P105LytInitSM.al:94"
         },
         {
           "id": "Report.WordLayout#2",
@@ -38076,7 +38076,7 @@
           "id": "XmlElement.Create#1",
           "pinned": true,
           "signature": "XmlElement.Create static (LocalName: Text, NamespaceUri: Text) -> XmlElement",
-          "site": "xml/XmlElement.al:59"
+          "site": "xml/XmlAttributes.al:631"
         },
         {
           "id": "XmlElement.Create#2",

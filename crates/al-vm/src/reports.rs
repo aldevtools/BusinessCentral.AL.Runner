@@ -252,6 +252,24 @@ impl Session {
                     }
                 }
             }
+            // Without a subscriber to SubstituteReport the id itself, also for 0 and an id no report has, with no error
+            // (report/lt-report-members-testrequestpage/P91Unsure.al:80 GetSubstituteReportId_Values `own` Yes, `zero` 0,
+            // `unknown` 71999). With a subscriber whether the event is raised and how is not pinned.
+            ids::REPORT_GETSUBSTITUTEREPORTID_1 => {
+                let Some(Value::Integer(n)) = args.first() else {
+                    return unsupported("Report.GetSubstituteReportId with an id that is not an integer");
+                };
+                if self
+                    .engine
+                    .events
+                    .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
+                {
+                    return unsupported(
+                        "Report.GetSubstituteReportId with a subscriber to SubstituteReport (only without one is it pinned)",
+                    );
+                }
+                Ok(Value::Integer(*n))
+            }
             ids::REPORT_DEFAULTLAYOUT_2 => {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported("Report.DefaultLayout with an id that is not an integer");
@@ -3258,7 +3276,14 @@ impl Session {
             names: &names,
             sender: None,
         };
-        self.raise(&call, &mut args)?;
+        // A SaveAs inside a TryFunction whose result is used: the merger's subscribers write without TryFunctionWrite (the
+        // static subscriber of handlers/TestReportLayoutByNameMergerCapture.al:47-75 inserts a row on every render, and the
+        // SaveAs of report/lt-report-layout-merger/ReportMergerLabelsSM.al:54-75 and :76-95 runs inside the used TrySaveAs,
+        // ReportMergerFixtures.al:367-380, and passes on BC).
+        let used_tries = std::mem::take(&mut self.tx.used_tries);
+        let raised = self.raise(&call, &mut args);
+        self.tx.used_tries = used_tries;
+        raised?;
         if matches!(args[6], Value::Boolean(true)) {
             Ok(Value::Boolean(true))
         } else {
@@ -3517,22 +3542,19 @@ impl Session {
     /// `ParentIdColCaption` then `ChildIdColCaption`).
     fn dataset_labels(&mut self, schema: &Schema) -> Result<(), Signal> {
         let engine = self.engine.clone();
-        // The labels the report and its extensions declare come first, base report then extensions, in declaration
-        // order (report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). Whether a column's caption label comes
-        // before or after them is not pinned, so a report with both is refused.
+        // The labels the report and its extensions declare, base report then extensions, in declaration order
+        // (report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). With a column's caption label too, on a report of one data
+        // item without extension labels, the caption labels come first (report/lt-report-layout-merger/ReportMergerLabelsSM.al:33,
+        // :49, :71, :93, in SaveAs Xml and in the merger's XmlData); other shapes with both kinds are not pinned and are refused.
         let mut declared: Vec<(String, String)> = schema.report().labels.clone();
+        let mut extension_labels = false;
         for &e in &schema.report().extensions {
             if let Some(x) = engine.program.objects[e].report_ext.as_ref() {
+                extension_labels |= !x.labels.is_empty();
                 declared.extend(x.labels.iter().cloned());
             }
         }
-        let has_declared = !declared.is_empty();
-        self.report
-            .dataset
-            .as_mut()
-            .expect("a SaveAs run has a dataset")
-            .labels
-            .extend(declared);
+        let mut captions: Vec<(String, String)> = Vec::new();
         for item in schema.report().items.iter() {
             for c in item
                 .columns
@@ -3550,20 +3572,27 @@ impl Session {
                     continue;
                 };
                 let label = (format!("{name}Caption"), self.field_caption(&t, pos));
-                let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
-                if has_declared {
-                    // Observable only in the written dataset (`Dataset::finish`).
-                    ds.labels_unpinned = Some(
-                        "a report with declared labels and a column with IncludeCaption (the order of the two kinds of label is not pinned)"
-                            .to_string(),
-                    );
-                    return Ok(());
-                }
-                if !ds.labels.contains(&label) {
-                    ds.labels.push(label);
+                if !captions.contains(&label) {
+                    captions.push(label);
                 }
             }
         }
+        let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
+        if !declared.is_empty() && !captions.is_empty() && (schema.report().items.len() != 1 || extension_labels) {
+            // Observable only in the written dataset (`Dataset::finish`).
+            ds.labels.extend(declared);
+            ds.labels_unpinned = Some(
+                "a report with declared labels and a column with IncludeCaption, with more than one data item or labels of an extension (the order of the two kinds of label is not pinned)"
+                    .to_string(),
+            );
+            return Ok(());
+        }
+        for label in captions {
+            if !ds.labels.contains(&label) {
+                ds.labels.push(label);
+            }
+        }
+        ds.labels.extend(declared);
         Ok(())
     }
 

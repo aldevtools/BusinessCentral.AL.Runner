@@ -1,6 +1,5 @@
 //! `CurrPage.Update(false)` in a field's OnValidate that changes the filters of a Worksheet list (al-runner issues 5914 and
-//! 5888, the reporter's runs on real BC 29.0.54011.55407, 7/7 and 4/4 tests; assumption validate-filter-refresh-window until
-//! corpus writer SF's pin lands). After the refresh the client holds the rows the refresh read, so the next move reads as
+//! 5888; pinned by pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:340-560, corpus writer SF; a List in another key is refused). After the refresh the client holds the rows the refresh read, so the next move reads as
 //! on a page without a refresh: in the primary key the row twice, in another key three times. In another key the refresh
 //! reads the row it starts from once more first, also when the new filter excludes it.
 
@@ -277,14 +276,11 @@ fn moves_without_a_filter_change_read_as_before() {
 // Issue 5914 (primary key): the move after the refresh reads the row twice, as without a refresh.
 #[test]
 fn a_move_after_a_validate_filter_refresh_in_the_primary_key_reads_as_without_one() {
-    use al_builtins::assumptions::{self, Assumption};
     let mut b = Built::from_source(&src());
-    assumptions::clear_hits();
     assert_eq!(
         run(&mut b, "PkFilterKeepsRow"),
         "open=1:R1;R2;R3;R4;R1;R1;C1; validate=1:R1;R3;R1;R1;C1; next=3:R3;R3;C3;"
     );
-    assert!(assumptions::take_hits().contains(&Assumption::ValidateFilterRefreshWindow));
     assert_eq!(
         run(&mut b, "PkFilterDropsRow"),
         "open=1:R1;R2;R3;R4;R1;R1;C1; validate=2:R2;R4;R2;R2;C2; next=4:R4;R4;C4; cleared=4:R4;R3;R2;R1;R4;R4;C4; \
@@ -315,6 +311,19 @@ fn a_move_after_a_validate_filter_refresh_past_a_window_is_refused() {
     match b.run_in("T", "PkManyRowsNextAfterFilter") {
         Err(al_builtins::native::Signal::Unsupported(why)) => {
             assert!(why.contains("more rows than the client holds"), "{why}")
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+// Not pinned: the same refresh on a List in another key (corpus writer SF pinned a Worksheet, RzUpdateFromValidate.al:476-544):
+// the refresh itself is refused.
+#[test]
+fn a_validate_filter_refresh_on_a_list_in_another_key_is_refused() {
+    let mut b = Built::from_source(&src().replace("PageType = Worksheet;", "PageType = List;"));
+    match b.run_in("T", "KeyFilterKeepsRow") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert!(why.contains("pinned on a Worksheet only"), "{why}")
         }
         other => panic!("expected a refusal, got {other:?}"),
     }

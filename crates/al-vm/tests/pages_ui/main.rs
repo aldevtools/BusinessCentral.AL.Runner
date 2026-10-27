@@ -1,6 +1,7 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of pages_ui/.
 
 mod action_moved_rec;
+mod assistedit_refresh;
 mod base_access;
 mod bg_task_error_level;
 mod bg_task_id;

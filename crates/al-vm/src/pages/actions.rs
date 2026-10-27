@@ -148,6 +148,8 @@ impl Session {
         };
         st.borrow_mut().refresh = false;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
+        let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
+            .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
         let result = if method == PageMethod::Lookup {
             // OnLookup(var Text): Boolean. The text it writes back replaces the field's value, and
             // the Boolean says whether the user picked anything (corpus
@@ -203,7 +205,13 @@ impl Session {
         // (pages/lt-page-runtime/P82Lookups.al:AssistEdit_Trigger, `OnAssistEdit;OnAfterGetRecord(L1)`). A DrillDown and a Lookup are not pinned to.
         // The row is not read again: a field the trigger set on the record stays (pages/lt-page-editability-width-lookups/
         // P115Lookups.al:P115_AssistEdit_Trigger `after = assisted`).
+        // A trigger that changed Rec gets no refresh: OnAfterGetRecord does not run (pages/lt-sn-assistedit-refresh/
+        // SnAssistEditRefresh.al:207 and :235 `set = OnAssistEdit(Set)`, on a card and on a list).
+        let changed_by_trigger = rec_before
+            .as_ref()
+            .is_some_and(|(before, _)| !Self::same_values(before, &self.page_rec(st).borrow().fields));
         if method == PageMethod::AssistEdit
+            && !changed_by_trigger
             && st.borrow().open
             && self.has_source(st)
             && st.borrow().cursor == Cursor::Row
@@ -212,12 +220,15 @@ impl Session {
             && !self.declares(st, "onnextrecord")
             && (self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord"))
         {
-            // On a List page the refresh is not pinned: P82Lookups.al pins it on a card, and on a list page BC logs no
-            // OnAfterGetRecord after the trigger (errors/lt-ms-refusals-129/P129CallstackPageControls.al:252, no
-            // `assistedit 2`) under conditions this runtime does not tell apart yet.
-            if self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List) {
+            // On a List page whose row holds no edit of the client the refresh reads the row as on a card
+            // (SnAssistEditRefresh.al:233-234 in edit mode, :257-258 in view mode). After the client edited the row BC logs no
+            // OnAfterGetRecord (errors/lt-ms-refusals-129/P129CallstackPageControls.al:252, no `assistedit 2`, after SetValue)
+            // under conditions this runtime does not tell apart yet: refused.
+            let edited = rec_before.as_ref().is_some_and(|(_, dirty)| *dirty);
+            if edited && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List)
+            {
                 return unsupported(
-                    "TestField.AssistEdit on a List page that declares OnAfterGetRecord: whether the page is refreshed afterwards is not pinned",
+                    "TestField.AssistEdit on a List page that declares OnAfterGetRecord, after the client edited the row: whether the page is refreshed afterwards is not pinned",
                 );
             }
             let r = (|| {
@@ -278,10 +289,9 @@ impl Session {
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return;
         }
-        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part, see above.
-        if with_parts {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedOnlyWithPart);
-        }
+        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part in the content area or in the
+        // FactBoxes area by :460 SF_WithPart_ListAndGoTo, :480 SF_WithPart_GoToRecordMissesTheUnmarkedRow, :494
+        // SF_WithFactBox_ListAndGoTo and :514 SF_WithFactBox_GoToRecordMissesTheUnmarkedRow (al-runner issue 5886).
         let mut s = st.borrow_mut();
         s.window.clear();
         s.window_from_start = false;
@@ -1763,9 +1773,13 @@ impl Session {
         let once_more = self.still_reads_once_more(st);
         if once_more && !read_first {
             // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
-            // (al-runner issue 5888: `R3;R4;R2;R4;R4;R4;C4` for a filter that drops row 3). Not pinned: the reporter's real-BC
-            // repro (assumption validate-filter-refresh-window).
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ValidateFilterRefreshWindow);
+            // (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
+            // SF_Key_FilterKeepsRow_Next; al-runner issue 5888). Pinned on a Worksheet only: on another page type it is refused.
+            if !self.is_worksheet(st) {
+                return unsupported(
+                    "the refresh of a list in another key after a control's OnValidate changed its filters (pinned on a Worksheet only)",
+                );
+            }
             self.populate_current(st)?;
         }
         let view_left = match self.row_after_view_left(rec)? {
@@ -1913,13 +1927,13 @@ impl Session {
             s.settled_first_row = true;
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
-            // view to the window after the row it settled on: the next move reads as on a page without a refresh (al-runner issue
-            // 5914, `next=3:R3;R3;C3;` in the primary key, and a GoToRecord from a later row steps from the first row:
-            // `gotorecord=3:R1;R1;C1;R2;R2;C2;R3;R3;C3;`; 5888, `next=1:R1;R1;R1;C1;` in another key). Not pinned: the reporters'
-            // real-BC repros (assumption validate-filter-refresh-window). The rows the client held before are those of the old
-            // filters (RZ_PlainWs_B_G1 `next` `Yes|E`, `rows` `A,C,E,`). More rows than a window: what the client holds is not
-            // pinned, the next move is refused.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ValidateFilterRefreshWindow);
+            // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
+            // from a later row steps from the first row (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:358
+            // SF_PlainWs_FilterKeepsRow_Next, :378 SF_PlainWs_FilterDropsRow_Next_Clear_GoToRecord, :406
+            // SF_PlainWs_FilterKeepsRow_GoToRecord, :476-544 the same in another key and in the primary key; al-runner issues 5914,
+            // 5888). The rows the client held before are those of the old filters (RZ_PlainWs_B_G1 `next` `Yes|E`, `rows`
+            // `A,C,E,`), and on a List First and Next list the rows of the new view (RzUpdateFromValidate.al RZ_PlainList_B_G1,
+            // RZ_PlainList_F_G1 `rows`). With more rows than a window what the client holds is not pinned: the next move is refused.
             let mut s = st.borrow_mut();
             if back.len() + rows.len() > Self::WINDOW {
                 s.window = Vec::new();
@@ -1939,6 +1953,10 @@ impl Session {
     /// changed the view so that the stored row the cursor stands on is outside it: the call itself reads the row (pages/lt-f3-pages/
     /// F3ListTests.al:72 Nav_ActionChangesViewThenUpdate `after_update` begins `AGR(R1003) | AGR(R1003) | OnlyBig done`, both reads
     /// before the action: the one after the GoToKey and the one before every action). Remembers it for the refresh.
+    fn is_worksheet(&self, st: &St) -> bool {
+        self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
+    }
+
     pub(super) fn note_view_left(&mut self, st: &St) -> Result<(), Signal> {
         if !self.is_list(st)
             || st.borrow().host.is_some()
