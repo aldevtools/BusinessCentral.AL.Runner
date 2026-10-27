@@ -982,9 +982,9 @@ no more: the decode moves from the start into the first call. The corpus run doe
 
 Not done: a zstd context per thread (about 1 % of the run, measured above); lazy objects.
 
-## Amendment (Proposed, 2026-10-27): build the missing layers of one run in one load (branch `adr-022-layers`)
+## Amendment (Accepted, owner 2026-10-27): build the missing layers of one run in one load (branch `adr-022-layers`)
 
-Status of this amendment: **Proposed**. It needs the owner's acceptance. Nothing is built.
+Status of this amendment: **Accepted** (owner, 2026-10-27). See "Owner decisions 2026-10-27" at its end.
 
 It changes how layers are built ("Owner decision 2026-10-15: layered entries", point 5). It does not change what a
 layer file holds, its key, or the format number.
@@ -1081,11 +1081,14 @@ warm run (all layers hit) does not change. Layer 1 (5.1 s) does not change; it i
 4. `tools/cache_vs_uncached.sh run` and `tools/demand_vs_eager.sh run`: 0 differences on BC 27, 28 and 29.
 5. The measurement above repeated, before and after, with the same command. The result is recorded in this ADR.
 
-### Open questions for the owner
+### Owner decisions 2026-10-27
 
-1. Is about 2 s (about 20 % of this app's cold build) worth the change, when the expected 4 to 5 s is not reachable?
-2. Should the one-pass compile of all upper layers (about 0.5 to 1 s more, harder to prove) be a follow-up?
-3. Should the old one-layer-at-a-time build stay behind an environment variable after the byte-equality test passes?
+1. **Accepted as proposed.** All missing layers of a run are built in one append-only workspace. Each layer file stays
+   byte-identical to a layer built alone; the key and the format number do not change. The saving of about 2 s is
+   worth the change.
+2. **The one-pass compile of the upper layers is not part of this amendment.** It is not planned with it.
+3. **The old one-layer-at-a-time build stays behind an environment variable** as an off switch (orchestrator's call,
+   like `ALRUNNER_EAGER_DECODE`).
 
 ## Consequences
 
