@@ -64,21 +64,21 @@ impl AppInstall {
     }
 }
 
-fn is_install(o: &al_ir::Object) -> bool {
+fn is_install(o: &al_ir::ObjectHead) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Install"))
 }
 
-fn is_single_instance(o: &al_ir::Object) -> bool {
+fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
 }
 
-fn per_company(o: &al_ir::Object) -> bool {
+fn per_company(o: &al_ir::ObjectHead) -> bool {
     !o.properties
         .iter()
         .any(|(k, v)| k.eq_ignore_ascii_case("DataPerCompany") && v.trim().eq_ignore_ascii_case("false"))
@@ -95,12 +95,12 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
         lowered.dependency[oi] == dependency && (dependency || !lowered.left_out.get(oi).copied().unwrap_or(false))
     };
     let mut routines: Vec<(usize, usize, Part)> = Vec::new();
-    for (oi, o) in objs.iter().enumerate() {
+    for (oi, o) in objs.heads().iter().enumerate() {
         if !usable(oi) || !is_install(o) {
             continue;
         }
         for part in [Part::Company, Part::Database] {
-            if let Some(ri) = o
+            if let Some(ri) = objs[oi]
                 .routines
                 .iter()
                 .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case(part.event()))
@@ -160,7 +160,7 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
             continue;
         }
         let obj = &objs[o];
-        if is_single_instance(obj) {
+        if is_single_instance(&objs.heads()[o]) {
             singles.insert(o);
         }
         for s in obj.routines[r].locals.iter().chain(&obj.globals) {
@@ -168,7 +168,7 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
                 read.insert(*t);
             }
             if let al_builtins::value::RtType::Codeunit(c) = &s.ty {
-                if objs.get(*c as usize).is_some_and(is_single_instance) {
+                if objs.heads().get(*c as usize).is_some_and(is_single_instance) {
                     singles.insert(*c as usize);
                 }
             }
@@ -211,7 +211,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 if !dependency && part == Part::Company {
                     for c in &closures {
                         for &t in &c.written {
-                            if objs.get(t as usize).is_some_and(|o| !per_company(o)) {
+                            if objs.heads().get(t as usize).is_some_and(|o| !per_company(o)) {
                                 add(
                                     &mut out.unknown,
                                     t,
@@ -339,7 +339,7 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
     for app in plan(lowered, events, true) {
         for &(o, r) in &app.company {
             for t in crate::baseline::tables_written(lowered, o, r) {
-                if objs.get(t as usize).is_some_and(|x| !per_company(x)) {
+                if objs.heads().get(t as usize).is_some_and(|x| !per_company(x)) {
                     shared.insert(name(t as usize));
                 }
             }
@@ -597,7 +597,7 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         return Ok(());
     }
     let objs = &lowered.program.objects;
-    let Some(object) = objs.iter().position(|o| {
+    let Some(object) = objs.heads().iter().position(|o| {
         o.is_kind(al_ir::ObjKind::Codeunit)
             && o.id == Some(al_sema::check::demand::LOGIN_MANAGEMENT)
             && o.name.eq_ignore_ascii_case("LogInManagement")
@@ -645,6 +645,23 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         let called = session.call(object, routine, instance, Vec::new());
         return finish(session, called, why);
     };
+    // A run recorded over the same baseline by an earlier run of the program, kept in the baseline's file
+    // ([`keep_login_records`]): it is taken as if this engine had recorded it.
+    let found = found.or_else(|| {
+        let record = kept_login_record(&key)?;
+        let run = MemoRun {
+            key: key.clone(),
+            day: record.day,
+            globals: record.globals,
+            hits: record.hits,
+        };
+        let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.runs.len() == MEMO_RUNS {
+            state.runs.remove(0);
+        }
+        state.runs.push(run.clone());
+        Some(run)
+    });
     if let Some(run) = found {
         drop(recording);
         memo.replays.fetch_add(1, Ordering::Relaxed);
@@ -692,6 +709,7 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
         match recorded {
             Some(run) => {
+                note_login_record(&run);
                 if state.runs.len() == MEMO_RUNS {
                     state.runs.remove(0);
                 }
@@ -721,6 +739,79 @@ fn finish(
         Err(Signal::Error(e)) => Err(why(format!("failed (not pinned): {}", e.message))),
         Err(_) => Err(why("stopped (not pinned)".into())),
     }
+}
+
+/// The login code's recorded runs per baseline origin, for the process: those read from a kept baseline's file
+/// ([`keep_login_records`]) and those recorded in this process ([`login_records`] gives them to the file). The origin
+/// names what the baseline holds; the file's key names the program, the test data and the runtime build, so a record
+/// is taken only over the baseline it was recorded on. The newest origins are kept.
+static LOGIN_RECORDS: Mutex<Vec<(u64, Vec<crate::baseline::LoginRecord>)>> = Mutex::new(Vec::new());
+
+/// How many baseline origins [`LOGIN_RECORDS`] keeps.
+const KEPT_ORIGINS: usize = 8;
+
+fn with_origin<R>(origin: u64, f: impl FnOnce(&mut Vec<crate::baseline::LoginRecord>) -> R) -> R {
+    let mut all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    let at = match all.iter().position(|(o, _)| *o == origin) {
+        Some(at) => at,
+        None => {
+            if all.len() == KEPT_ORIGINS {
+                all.remove(0);
+            }
+            all.push((origin, Vec::new()));
+            all.len() - 1
+        }
+    };
+    f(&mut all[at].1)
+}
+
+/// Makes the login runs read from the file of a kept baseline (origin `origin`) available to its sessions.
+pub(crate) fn keep_login_records(origin: u64, records: &[crate::baseline::LoginRecord]) {
+    if records.is_empty() {
+        return;
+    }
+    with_origin(origin, |kept| {
+        for r in records {
+            if !kept.contains(r) {
+                kept.push(r.clone());
+            }
+        }
+    });
+}
+
+/// The login runs known for the baseline of origin `origin`: read from its file or recorded in this process.
+pub(crate) fn login_records(origin: u64) -> Vec<crate::baseline::LoginRecord> {
+    let all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    all.iter()
+        .find(|(o, _)| *o == origin)
+        .map(|(_, r)| r.clone())
+        .unwrap_or_default()
+}
+
+fn note_login_record(run: &MemoRun) {
+    let record = crate::baseline::LoginRecord {
+        company: run.key.company.clone(),
+        work_date: run.key.work_date,
+        day: run.day,
+        globals: run.globals.clone(),
+        hits: run.hits,
+    };
+    with_origin(run.key.baseline, |kept| {
+        kept.retain(|r| !(r.company == record.company && r.work_date == record.work_date));
+        kept.push(record);
+        if kept.len() > MEMO_RUNS {
+            kept.remove(0);
+        }
+    });
+}
+
+fn kept_login_record(key: &MemoKey) -> Option<crate::baseline::LoginRecord> {
+    let all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    let (_, records) = all.iter().find(|(o, _)| *o == key.baseline)?;
+    records
+        .iter()
+        .find(|r| r.company == key.company && r.work_date == key.work_date)
+        .cloned()
 }
 
 /// How many recorded runs of the login code an engine keeps (the oldest goes first): one per state of the database a
@@ -845,8 +936,7 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
     if let Some(reason) = crate::runtime::blocked_reason(lowered, oi, ri) {
         return Some(reason);
     }
-    let o = &lowered.program.objects[oi];
-    let called = if is_install(o) {
+    let called = if is_install(&lowered.program.objects.heads()[oi]) {
         let inst = session.instance(oi);
         session.call(oi, ri, inst, Vec::new()).map(|_| ())
     } else {

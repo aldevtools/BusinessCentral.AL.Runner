@@ -391,7 +391,7 @@ impl Session {
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(prop))
                 .map(|(_, v)| v.trim().trim_matches('"').to_string())?;
-            engine.program.objects.iter().position(|o| {
+            engine.program.objects.heads().iter().position(|o| {
                 o.is_kind(al_ir::ObjKind::Page)
                     && (o.name.eq_ignore_ascii_case(&name) || o.id.is_some_and(|i| i.to_string() == name))
             })
@@ -625,7 +625,7 @@ impl Session {
                 ctl.name
             ));
         }
-        let page_object = engine.program.objects.iter().position(|o| {
+        let page_object = engine.program.objects.heads().iter().position(|o| {
             o.is_kind(al_ir::ObjKind::Page)
                 && (o.name.eq_ignore_ascii_case(target) || o.id.is_some_and(|i| i.to_string() == target))
         });
@@ -668,6 +668,7 @@ impl Session {
         engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| {
                 o.is_kind(al_ir::ObjKind::Page)
@@ -707,7 +708,7 @@ impl Session {
         let Some(card) = effective_prop(&engine, object, "CardPageId")?.map(|v| v.trim_matches('"').to_string()) else {
             return unsupported("the built-in Edit/View action of a list page with no CardPageId (not pinned)");
         };
-        let Some(target) = engine.program.objects.iter().position(|o| {
+        let Some(target) = engine.program.objects.heads().iter().position(|o| {
             o.is_kind(al_ir::ObjKind::Page)
                 && (o.name.eq_ignore_ascii_case(&card) || o.id.is_some_and(|i| i.to_string() == card))
         }) else {

@@ -39,6 +39,24 @@ pub struct BaselineRun {
     pub restored: Vec<al_data::memory::RestoredChange>,
     /// With [`run_traced`]: what the install code raised and touched (`impact_trace::keys`).
     pub trace: Option<Vec<String>>,
+    /// The recorded runs of the login code over this baseline (`install::login_work_date`), kept in its file of the
+    /// compile cache so that a later run replays them instead of running the code again.
+    pub login: Vec<LoginRecord>,
+}
+
+/// One recorded run of the login code that sets WorkDate when a test session opens the company
+/// (`install::login_work_date`), over a baseline no table of which changed since: the state it was recorded in (the
+/// company and the WorkDate before it ran) and what it left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginRecord {
+    pub company: String,
+    pub work_date: i32,
+    /// The WorkDate the login code answered.
+    pub day: i32,
+    /// The globals of LogInManagement the run may have changed (global index), and their Date values after it.
+    pub globals: Vec<(usize, i32, bool)>,
+    /// The assumption marks the run made.
+    pub hits: u128,
 }
 
 impl BaselineRun {
@@ -104,7 +122,9 @@ pub(crate) fn step_routine(
 ) -> Result<(usize, usize), String> {
     let objs = &lowered.program.objects;
     let Some(oi) = (0..objs.len()).find(|&oi| {
-        lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(step.codeunit)
+        lowered.dependency[oi]
+            && objs.heads()[oi].is_kind(al_ir::ObjKind::Codeunit)
+            && objs.heads()[oi].id == Some(step.codeunit)
     }) else {
         return Err(format!(
             "no dependency app has codeunit {} \"{}\"",
@@ -187,9 +207,9 @@ pub fn run_traced(
     }
     let company_initialize = (0..objs.len()).find(|&oi| {
         lowered.dependency[oi]
-            && objs[oi].is_kind(al_ir::ObjKind::Codeunit)
-            && objs[oi].id == Some(2)
-            && objs[oi].name.eq_ignore_ascii_case("Company-Initialize")
+            && objs.heads()[oi].is_kind(al_ir::ObjKind::Codeunit)
+            && objs.heads()[oi].id == Some(2)
+            && objs.heads()[oi].name.eq_ignore_ascii_case("Company-Initialize")
     });
     let mut company_initialize_root: Option<usize> = None;
     if let Some(oi) = company_initialize {
@@ -394,6 +414,7 @@ pub fn run_traced(
         total: roots.len(),
         restored,
         trace,
+        login: Vec::new(),
     })
 }
 
@@ -418,9 +439,9 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
     (0..objs.len())
         .filter(|&oi| {
             lowered.dependency[oi]
-                && objs[oi].table.is_some()
+                && objs.heads()[oi].table.is_some()
                 && matches!(
-                    (objs[oi].id, objs[oi].name.as_str()),
+                    (objs.heads()[oi].id, objs.heads()[oi].name.as_str()),
                     (Some(17), "G/L Entry")
                         | (Some(50), "Accounting Period")
                         | (Some(79), "Company Information")

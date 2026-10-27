@@ -159,3 +159,28 @@ fn a_damaged_catalog_section_is_rebuilt_without_losing_the_map() {
     BakSource::open_indexed(src, &store).unwrap();
     assert_eq!(store.saved.lock().unwrap().clone().unwrap(), good);
 }
+
+/// The SQL sequences are kept with the catalog: with the index kept, reading them reads no page (every test session of a
+/// run with test data asks for them; walking the system tables for them was about 30 M instructions per run), and they are
+/// the ones a walk of the file finds.
+#[test]
+fn the_sequences_are_kept_with_the_catalog() {
+    use al_bcdb::BcSource;
+    let store = Memory::default();
+    let (src, _) = counting();
+    BakSource::open_indexed(src, &store).unwrap();
+    let (src, reads) = counting();
+    let b = BakSource::open_indexed(src, &store).unwrap();
+    let after_open = reads.load(Ordering::SeqCst);
+    let kept = b.sequences().unwrap();
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        after_open,
+        "the kept sequences are read without a page"
+    );
+    let walked = BakSource::open(Box::new(fixture_bytes("typeprobe.bak")))
+        .unwrap()
+        .sequences()
+        .unwrap();
+    assert_eq!(kept, walked);
+}

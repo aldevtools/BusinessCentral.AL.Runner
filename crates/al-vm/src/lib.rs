@@ -31,6 +31,8 @@ pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
 pub use exec::{disassemble as exec_disassemble, report as exec_report};
 pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
+#[doc(hidden)]
+pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 mod callstack;
 mod companies;
 mod dataset;
@@ -136,7 +138,7 @@ pub struct Engine {
     pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
-    pub(crate) facts: Vec<Vec<RoutineFacts>>,
+    facts: Vec<std::sync::OnceLock<Box<[RoutineFacts]>>>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).
     pub(crate) exec: exec::ExecProgram,
     /// Per object, the ids of its source positions in ascending order, found when the Code Coverage table is first built.
@@ -251,8 +253,9 @@ impl Engine {
         dotnet: dotnet::DotNetConfig,
     ) -> Arc<Engine> {
         let program: Arc<ir::Program> = program.into();
-        let tables: Vec<Option<Arc<al_data::TableDef>>> = program
-            .objects
+        // Every pass here reads heads, so a program whose objects are made on first read makes none (ADR-054).
+        let heads = program.objects.heads();
+        let tables: Vec<Option<Arc<al_data::TableDef>>> = heads
             .iter()
             .enumerate()
             .map(|(i, o)| {
@@ -278,20 +281,8 @@ impl Engine {
             })
             .collect();
         let events = events::Registry::build(&program);
-        let facts = program
-            .objects
-            .iter()
-            .enumerate()
-            .map(|(o, obj)| {
-                obj.routines
-                    .iter()
-                    .enumerate()
-                    .map(|(r, routine)| routine_facts(routine, events.publishers.contains_key(&(o, r))))
-                    .collect()
-            })
-            .collect();
-        let table_facts: Vec<TableFacts> = program
-            .objects
+        let facts = (0..heads.len()).map(|_| std::sync::OnceLock::new()).collect();
+        let table_facts: Vec<TableFacts> = heads
             .iter()
             .map(|o| TableFacts {
                 // An Option InitValue written as a number no member is named (al-sema `option_init_ordinal`).
@@ -330,9 +321,11 @@ impl Engine {
                 }),
             })
             .collect();
-        let object_facts: Vec<ir::ObjectFacts> = program.objects.iter().map(ir::ObjectFacts::of).collect();
-        let field_facts: Vec<Vec<ir::FieldFacts>> = program
-            .objects
+        let object_facts: Vec<ir::ObjectFacts> = heads
+            .iter()
+            .map(|h| ir::ObjectFacts::of_properties(&h.properties))
+            .collect();
+        let field_facts: Vec<Vec<ir::FieldFacts>> = heads
             .iter()
             .map(|o| {
                 o.table
@@ -341,17 +334,16 @@ impl Engine {
                     .collect()
             })
             .collect();
-        let enumerable_fields = (0..program.objects.len()).map(|_| Default::default()).collect();
+        let enumerable_fields = (0..heads.len()).map(|_| Default::default()).collect();
         let mut unevaluable_init = std::collections::HashMap::new();
-        for (i, o) in program.objects.iter().enumerate() {
+        for (i, o) in heads.iter().enumerate() {
             for (pos, f) in o.table.iter().flat_map(|t| t.fields.iter().enumerate()) {
                 if let Some(message) = records::unevaluable_init_value(f) {
                     unevaluable_init.insert((i as u32, pos), message);
                 }
             }
         }
-        let unseeded = program
-            .objects
+        let unseeded = heads
             .iter()
             .enumerate()
             .filter(|(_, o)| {
@@ -363,7 +355,7 @@ impl Engine {
             .collect();
         let exec = exec::ExecProgram::new(&program);
         let mut codeunits: std::collections::HashMap<Option<u32>, CodeunitsWithId> = Default::default();
-        for (i, o) in program.objects.iter().enumerate() {
+        for (i, o) in heads.iter().enumerate() {
             if o.kind == ir::ObjKind::Codeunit {
                 let e = codeunits.entry(o.id).or_default();
                 e.any.get_or_insert(i);
@@ -402,6 +394,28 @@ impl Engine {
             served_tables: Default::default(),
             derived: Default::default(),
             install_facts: Default::default(),
+        })
+    }
+
+    /// What a call of routine `routine` of object `object` needs to know about it, worked out for all routines of the
+    /// object the first time one of them is asked about (the call makes the object anyway).
+    #[inline]
+    pub(crate) fn routine_facts(&self, object: usize, routine: usize) -> RoutineFacts {
+        match self.facts[object].get() {
+            Some(facts) => facts[routine],
+            None => self.object_routine_facts(object)[routine],
+        }
+    }
+
+    #[cold]
+    fn object_routine_facts(&self, object: usize) -> &[RoutineFacts] {
+        self.facts[object].get_or_init(|| {
+            self.program.objects[object]
+                .routines
+                .iter()
+                .enumerate()
+                .map(|(r, routine)| routine_facts(routine, self.events.publishers.contains_key(&(object, r))))
+                .collect()
         })
     }
 
@@ -1649,6 +1663,19 @@ impl Session {
         instance: Rc<RefCell<Instance>>,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        let facts = self.engine.routine_facts(object, routine);
+        self.call_with_facts(object, routine, instance, args, facts)
+    }
+
+    /// [`Session::call`] with the routine's facts already looked up by the caller (one lookup per call, not one per step).
+    pub(crate) fn call_with_facts(
+        &mut self,
+        object: usize,
+        routine: usize,
+        instance: Rc<RefCell<Instance>>,
+        args: Vec<Value>,
+        facts: RoutineFacts,
+    ) -> Result<(Value, Vec<Value>), Signal> {
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
             return Err(Signal::Unsupported(reason.clone()));
         }
@@ -1677,10 +1704,10 @@ impl Session {
         // The builtin being run (a record write that runs triggers and events) keeps its own
         // `ret_used`: the callee's builtins must not change it.
         let ret_used = self.ret_used;
-        let r = if self.engine.facts[object][routine].publisher {
+        let r = if facts.publisher {
             self.publish(object, routine, instance, args)
         } else {
-            self.call_inner(object, routine, instance, args)
+            self.call_inner(object, routine, instance, args, facts)
         };
         self.ret_used = ret_used;
         self.depth -= 1;
@@ -1703,6 +1730,7 @@ impl Session {
         routine: usize,
         instance: Rc<RefCell<Instance>>,
         args: Vec<Value>,
+        facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         self.events.next_is_subscriber = false;
@@ -1845,7 +1873,6 @@ impl Session {
             };
         }
         self.return_vec(args);
-        let facts = engine.facts[object][routine];
         let var_lens = if facts.var_lens {
             std::mem::take(&mut self.events.next_var_lens)
         } else {

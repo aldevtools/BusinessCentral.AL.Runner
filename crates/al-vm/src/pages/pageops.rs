@@ -115,7 +115,7 @@ impl Session {
                             .find(|(k, _)| k.eq_ignore_ascii_case("LookupPageId"))
                             .map(|(_, v)| v.trim().trim_matches('"').to_string());
                         if let Some(l) = lookup {
-                            let found = engine.program.objects.iter().find(|o| {
+                            let found = engine.program.objects.heads().iter().find(|o| {
                                 o.is_kind(al_ir::ObjKind::Page)
                                     && (o.name.eq_ignore_ascii_case(&l) || o.id.is_some_and(|i| i.to_string() == l))
                             });
@@ -133,6 +133,7 @@ impl Session {
                 let Some(object) = engine
                     .program
                     .objects
+                    .heads()
                     .iter()
                     .position(|o| o.is_kind(al_ir::ObjKind::Page) && o.id == Some(id))
                 else {
@@ -140,6 +141,7 @@ impl Session {
                     if engine
                         .program
                         .objects
+                        .heads()
                         .iter()
                         .any(|o| o.is_shell_of(al_ir::ObjKind::Page) && o.id == Some(id))
                     {

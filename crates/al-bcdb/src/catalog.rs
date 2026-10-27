@@ -130,6 +130,9 @@ pub struct Catalog {
     meta: Mutex<HashMap<i32, Arc<ObjectMeta>>>,
     rowset_cols: Mutex<HashMap<i64, Arc<Vec<PhysColumn>>>>,
     au_pages: Mutex<HashMap<i64, Arc<HashSet<i32>>>>,
+    /// The SQL sequences, when worked out at open ([`Catalog::keep_sequences`]) or kept in the index with the rest of
+    /// the catalog: [`Catalog::sequences`] then reads no page.
+    kept_sequences: Option<Vec<SqlSequence>>,
 }
 
 fn utf16(b: &[u8]) -> String {
@@ -248,7 +251,23 @@ impl Catalog {
             meta: Mutex::new(HashMap::new()),
             rowset_cols: Mutex::new(HashMap::new()),
             au_pages: Mutex::new(HashMap::new()),
+            kept_sequences: None,
         }
+    }
+
+    /// Works out the SQL sequences now, so that [`to_index_bytes`](Catalog::to_index_bytes) keeps them and
+    /// [`sequences`](Catalog::sequences) reads no page. A walk that fails keeps nothing: `sequences` walks again and
+    /// fails as before. Whether they are kept now.
+    pub fn keep_sequences(&mut self, pf: &PageFile) -> bool {
+        if self.kept_sequences.is_none() {
+            self.kept_sequences = self.walk_sequences(pf).ok();
+        }
+        self.kept_sequences.is_some()
+    }
+
+    /// Whether the SQL sequences are kept ([`keep_sequences`](Catalog::keep_sequences)).
+    pub fn has_kept_sequences(&self) -> bool {
+        self.kept_sequences.is_some()
     }
 
     /// The part of the catalog `open` reads from the system tables, as bytes a caller can keep:
@@ -281,6 +300,17 @@ impl Catalog {
             b.extend_from_slice(&o.object_id.to_le_bytes());
             b.extend_from_slice(&(o.name.len() as u32).to_le_bytes());
             b.extend_from_slice(o.name.as_bytes());
+        }
+        // The kept sequences follow the objects; without them the bytes end there (the layout before they were kept).
+        if let Some(seqs) = &self.kept_sequences {
+            put(&mut b, seqs.len() as u64);
+            for q in seqs {
+                b.extend_from_slice(&(q.name.len() as u32).to_le_bytes());
+                b.extend_from_slice(q.name.as_bytes());
+                for v in [q.start, q.increment, q.current] {
+                    put(&mut b, v as u64);
+                }
+            }
         }
         b
     }
@@ -339,7 +369,32 @@ impl Catalog {
             let name = String::from_utf8(take(n)?.to_vec()).ok()?;
             objects.push(SysObject { object_id, name });
         }
-        (at.get() == bytes.len()).then(|| Catalog::assemble(alloc_units, au_index, rowsets, objects, total))
+        let kept_sequences = if at.get() == bytes.len() {
+            None
+        } else {
+            let n = u64_()? as usize;
+            // Every sequence is at least 28 bytes: a count the bytes cannot hold is damage.
+            if n.checked_mul(28)? > bytes.len() {
+                return None;
+            }
+            let mut seqs = Vec::with_capacity(n);
+            for _ in 0..n {
+                let len = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
+                let name = String::from_utf8(take(len)?.to_vec()).ok()?;
+                seqs.push(SqlSequence {
+                    name,
+                    start: u64_()? as i64,
+                    increment: u64_()? as i64,
+                    current: u64_()? as i64,
+                });
+            }
+            Some(seqs)
+        };
+        (at.get() == bytes.len()).then(|| {
+            let mut c = Catalog::assemble(alloc_units, au_index, rowsets, objects, total);
+            c.kept_sequences = kept_sequences;
+            c
+        })
     }
 
     pub fn au_for_rowset(&self, rowset_id: i64) -> Result<&AllocUnit> {
@@ -373,6 +428,14 @@ impl Catalog {
     /// little-endian 64-bit integers (start, increment, minimum, maximum, current) and a flag byte. A row of another
     /// length or magic is skipped, never guessed.
     pub fn sequences(&self, pf: &PageFile) -> Result<Vec<SqlSequence>> {
+        match &self.kept_sequences {
+            Some(kept) => Ok(kept.clone()),
+            None => self.walk_sequences(pf),
+        }
+    }
+
+    /// [`sequences`](Catalog::sequences) read from the system tables.
+    fn walk_sequences(&self, pf: &PageFile) -> Result<Vec<SqlSequence>> {
         const SYSOBJVALUES_ID: i32 = 60;
         const SEQUENCE_VALUE_CLASS: u8 = 0x3f;
         let mut names: HashMap<i32, String> = HashMap::new();
@@ -975,5 +1038,52 @@ fn walk_leaf_run(
             ));
         }
         pid = np;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog(seqs: Option<Vec<SqlSequence>>) -> Catalog {
+        let objects = vec![SysObject {
+            object_id: 7,
+            name: "CRONUS$Customer".into(),
+        }];
+        let mut c = Catalog::assemble(Vec::new(), HashMap::new(), Vec::new(), objects, 1);
+        c.kept_sequences = seqs;
+        c
+    }
+
+    /// Kept sequences come back from the index bytes as they went in; bytes without them (the layout before they were
+    /// kept) read as a catalog that walks for them; a cut in the sequence part is damage.
+    #[test]
+    fn kept_sequences_round_trip_through_the_index_bytes() {
+        let seqs = vec![
+            SqlSequence {
+                name: "CRONUS International Ltd_$NoSeries$CUST".into(),
+                start: 1,
+                increment: 1,
+                current: 24,
+            },
+            SqlSequence {
+                name: "Straße".into(),
+                start: -5,
+                increment: -1,
+                current: i64::MIN,
+            },
+        ];
+        let with = catalog(Some(seqs.clone())).to_index_bytes();
+        assert_eq!(Catalog::from_index_bytes(&with).unwrap().kept_sequences, Some(seqs));
+        let without = catalog(None).to_index_bytes();
+        assert_eq!(Catalog::from_index_bytes(&without).unwrap().kept_sequences, None);
+        assert_eq!(
+            catalog(Some(Vec::new())).to_index_bytes().len(),
+            without.len() + 8,
+            "an empty list is kept too"
+        );
+        for cut in (without.len() + 1)..with.len() {
+            assert!(Catalog::from_index_bytes(&with[..cut]).is_none(), "cut at {cut}");
+        }
     }
 }

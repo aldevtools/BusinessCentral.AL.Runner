@@ -281,6 +281,11 @@ impl Mat {
         }
     }
 
+    /// Row `i` in key order, poisoned or not (a test walks the keys of a listing).
+    pub(crate) fn row_at(&self, i: usize) -> Option<&Row> {
+        self.rows.get(i)
+    }
+
     pub(crate) fn get(&self, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
         // A poisoned row known only by a key prefix stands for every key that starts with it: a Get of such a key cannot
         // answer that the row is missing (al-runner issue 5790: the one Feature Key row of a minor not measured).

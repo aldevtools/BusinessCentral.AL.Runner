@@ -618,7 +618,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/lt-event-var-through-sender/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
-        let facts = self.engine.facts[object][routine];
+        let facts = self.engine.routine_facts(object, routine);
         if facts.publisher {
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
@@ -658,7 +658,7 @@ impl Session {
         if try_call {
             self.enter_used_try();
         }
-        let result = self.call(object, routine, inst, values);
+        let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
         }

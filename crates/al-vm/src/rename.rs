@@ -33,7 +33,7 @@ impl Session {
     pub(crate) fn rename_references(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {
         let name = t.name.to_lowercase();
         let mut refs = Vec::new();
-        for (oi, o) in self.engine.program.objects.iter().enumerate() {
+        for (oi, o) in self.engine.program.objects.heads().iter().enumerate() {
             let Some(schema) = &o.table else { continue };
             for (pos, f) in schema.fields.iter().enumerate() {
                 if !f.relation {

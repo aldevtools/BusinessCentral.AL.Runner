@@ -11,7 +11,7 @@ use crate::FileSource;
 use al_bcdb::io::ByteSource as _;
 use al_bcdb::query::{self, BcTable, ReadRequest, plan_read_table_in};
 use al_bcdb::source::BcSource;
-use al_bcdb::symbols::{eq_ci, normalize_sql_name};
+use al_bcdb::symbols::{ci_key, eq_ci, normalize_sql_name};
 use al_bcdb::value::Value;
 use al_host::testdata::{Cell, TableError, TableProvider, TableRequest, TableRows, TestSequence};
 use std::path::{Path, PathBuf};
@@ -24,6 +24,9 @@ pub const DEFAULT_COMPANY: &str = "CRONUS International Ltd.";
 pub struct BackupProvider {
     src: Box<dyn BcSource>,
     tables: Vec<BcTable>,
+    /// The positions in `tables` of each table name (upper-cased, see [`ci_key`]), in list order: a read finds its
+    /// table without comparing its name with every table of the database.
+    by_name: std::collections::HashMap<String, Vec<usize>>,
     /// The company's name as it appears in table names (`CRONUS International Ltd_`).
     sql_company: String,
     /// The company's name as AL sees it (`CRONUS International Ltd.`).
@@ -205,9 +208,14 @@ impl BackupProvider {
         let file_name = source;
         let sql_company = pick_company(&companies, company, &file_name)?;
         let company = al_company_name(&*src, &tables, &sql_company);
+        let mut by_name: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+        for (i, t) in tables.iter().enumerate() {
+            by_name.entry(ci_key(&t.table_name)).or_default().push(i);
+        }
         Ok(BackupProvider {
             src,
             tables,
+            by_name,
             sql_company,
             company,
             source: file_name,
@@ -227,8 +235,11 @@ impl BackupProvider {
     fn find(&self, req: &TableRequest) -> Result<&BcTable, TableError> {
         let want = normalize_sql_name(&req.name);
         let mut hits: Vec<&BcTable> = self
-            .tables
+            .by_name
+            .get(&ci_key(&want))
+            .map_or(&[][..], Vec::as_slice)
             .iter()
+            .map(|&i| &self.tables[i])
             .filter(|t| eq_ci(&t.table_name, &want))
             .filter(|t| match &t.company {
                 Some(c) => req.per_company && eq_ci(c, &self.sql_company),

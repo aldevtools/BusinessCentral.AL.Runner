@@ -205,7 +205,7 @@ fn walk_tests(lowered: &Lowered, tests: &[usize], login_left_out: bool, evaluate
         seen_routines: HashSet::new(),
         queue: Vec::new(),
         login: login_left_out
-            || objects.iter().any(|o| {
+            || objects.heads().iter().any(|o| {
                 o.is_kind(al_ir::ObjKind::Codeunit)
                     && o.id == Some(al_sema::check::demand::LOGIN_MANAGEMENT)
                     && o.name.eq_ignore_ascii_case("LogInManagement")
@@ -225,7 +225,7 @@ fn walk_tests(lowered: &Lowered, tests: &[usize], login_left_out: bool, evaluate
     // BC's test runner runs these codeunits around every test method when they exist (runtime/runner_reset.rs).
     if !tests.is_empty() {
         for id in al_sema::check::demand::TEST_RUNNER_CODEUNITS {
-            let Some(o) = objects.iter().position(|o| {
+            let Some(o) = objects.heads().iter().position(|o| {
                 (o.is_kind(al_ir::ObjKind::Codeunit) || o.is_shell_of(al_ir::ObjKind::Codeunit)) && o.id == Some(id)
             }) else {
                 continue;
@@ -730,6 +730,7 @@ mod tests {
         let t: Vec<usize> = l
             .program
             .objects
+            .heads()
             .iter()
             .enumerate()
             .filter(|(_, o)| tests.contains(&o.name.as_str()))

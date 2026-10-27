@@ -142,6 +142,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 ### al-ir
 
 - `body.rs` (270): `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte string, and a body read from it is decoded on first read, with the link work kept for that moment (`BodyFixup`). Entry: `Body`, `Body::fix`, `BodyFixup`.
+- `head.rs` (110): `ObjectHead`, what a pass over all objects reads of an object (ADR-054 decision 2): kind, id, name, app, properties, the linked table, routine count and the event routines. Entry: `ObjectHead::of`.
 - `lib.rs` (1067): The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes. Entry: `Program` 8, `Object` 150, `Routine` 747, `Stmt` 937, `Expr` 844, `SrcPos` 85, `NO_POS` 79.
 
 - `sym.rs` (160): The symbolic form of an object (ADR-033): the keys (`ObjKey`, `LocalKey`, `RoutineKey`, `FieldKey`, `ControlKey`), the per-object tables of references (`Refs`) and `SymObject`. Entry: `ObjKey`, `Refs`, `SymObject`.

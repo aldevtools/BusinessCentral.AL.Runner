@@ -78,6 +78,7 @@ impl Session {
         self.engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.is_kind(al_ir::ObjKind::Table) && o.id == Some(id) && o.table.is_some())
     }

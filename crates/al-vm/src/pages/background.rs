@@ -100,6 +100,7 @@ impl Session {
         let Some(object) = engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.is_kind(al_ir::ObjKind::Codeunit) && o.id == Some(codeunit as u32))
         else {
@@ -107,6 +108,7 @@ impl Session {
             if engine
                 .program
                 .objects
+                .heads()
                 .iter()
                 .any(|o| o.is_shell_of(al_ir::ObjKind::Codeunit) && o.id == Some(codeunit as u32))
             {

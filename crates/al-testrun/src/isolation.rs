@@ -72,6 +72,7 @@ pub fn runner_isolation(lowered: &al_sema::lower::Lowered, runner: u32) -> Resul
     let Some(o) = lowered
         .program
         .objects
+        .heads()
         .iter()
         .find(|o| o.is_kind(al_ir::ObjKind::Codeunit) && o.id == Some(runner))
     else {

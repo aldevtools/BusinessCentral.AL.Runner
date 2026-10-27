@@ -548,7 +548,13 @@ codeunit 50131 "Other" { trigger OnRun() begin SerialNumber(); end; }
             }],
             &Default::default(),
         );
-        let oi = l.program.objects.iter().position(|o| o.name == "Build").unwrap();
+        let oi = l
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.name == "Build")
+            .unwrap();
         let ri = l.program.objects[oi]
             .routines
             .iter()

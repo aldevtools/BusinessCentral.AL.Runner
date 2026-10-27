@@ -719,7 +719,7 @@ fn on_run_target(lowered: &Lowered, app: Option<usize>) -> Option<usize> {
 
 /// Whether object `oi` is a test codeunit that `suite` runs under the selection `only`.
 fn is_selected_test(lowered: &Lowered, oi: usize, suite: &SuiteRun, only: &Option<Vec<(usize, u32)>>) -> bool {
-    let o = &lowered.program.objects[oi];
+    let o = &lowered.program.objects.heads()[oi];
     o.is_kind(al_ir::ObjKind::Codeunit)
         && !lowered.dependency[oi]
         && suite.app.is_none_or(|a| o.app as usize == a)

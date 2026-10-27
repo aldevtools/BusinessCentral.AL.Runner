@@ -215,7 +215,7 @@ impl Session {
         self.coverage.recorder.dirty = false;
         let engine = self.engine.clone();
         let program = &engine.program;
-        for (oi, o) in program.objects.iter().enumerate() {
+        for (oi, o) in program.objects.heads().iter().enumerate() {
             let (Some(id), al_ir::ObjKind::Table) = (o.id, if o.uncompiled { al_ir::ObjKind::Other } else { o.kind })
             else {
                 continue;
