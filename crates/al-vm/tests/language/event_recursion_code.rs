@@ -1,9 +1,5 @@
 //! Unbounded recursion through an event subscriber stops with the error code `RecursiveEventCall:StackOverflow` and a text
-//! that names the subscriber, the event and its publisher (al-runner issue 5944; pinned on corpus branch
-//! al-runtime-rs-staging-sh, codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137; assumption
-//! `recursive-event-call-code` until the corpus bump).
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+//! that names the subscriber, the event and its publisher (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137).
 
 const SRC: &str = "
 table 50711 Row { fields { field(1; Code; Code[20]) { } field(4; Qty; Integer) { } } keys { key(PK; Code) { } } }
@@ -37,12 +33,10 @@ fn recursion_through_a_subscriber_has_the_recursive_event_code() {
 }
 
 fn body() {
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "Code")),
         "RecursiveEventCall:StackOverflow"
     );
-    assert!(take_hits().contains(&Assumption::RecursiveEventCallCode));
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "Txt")),
         "Excessive recursion has been detected in event subscriber function OnAfterModifyRow for event OnAfterModifyEvent that is raised in Table 50711."

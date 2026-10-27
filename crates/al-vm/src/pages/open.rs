@@ -284,6 +284,7 @@ impl Session {
             s.placeholder_line = false;
             s.gone_blank_no_new_line = false;
             s.gone_blank_shows_line = false;
+            s.gone_view_list = false;
             s.parts = Vec::new();
             s.areas = self.application_areas.clone();
         }

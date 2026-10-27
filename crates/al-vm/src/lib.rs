@@ -615,6 +615,8 @@ pub struct Session {
     /// `faultsite.rs`: whether to record where errors and refusals leave from, and the last one.
     fault_trace: bool,
     fault_site: Vec<faultsite::FaultFrame>,
+    /// A refusal was raised where `fault_site` cannot name its statement (`Session::refusal_site`).
+    fault_site_lost: bool,
     /// `IsolatedStorage` by (scope, key): the value, whether it was stored encrypted, and whether it was stored from a
     /// SecretText (misc/lt-cu-odd-leads/CuTryTests.al:181-232: such a value cannot be read into a Text).
     pub(crate) isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
@@ -787,6 +789,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
+    /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
+    /// values did not change (`pages/parts.rs` `sync_parts_with`).
+    pub(crate) part_sync_keeps_same_link: bool,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
     /// The session's application areas as `ApplicationArea()` reads them: `#Basic,#Suite`, or the
@@ -965,6 +970,7 @@ impl Session {
             call_stack: Vec::new(),
             runner_frames: String::new(),
             fault_trace: false,
+            fault_site_lost: false,
             fault_site: Vec::new(),
             isolated_storage: Default::default(),
             isolated_committed: Default::default(),
@@ -1009,6 +1015,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
+            part_sync_keeps_same_link: false,
             dotnet: Default::default(),
             application_areas: String::new(),
             tx: TxState::fresh(),
@@ -1746,12 +1753,9 @@ impl Session {
         }
         if self.depth >= MAX_CALL_DEPTH {
             // With an event subscriber on the stack BC names event recursion: code `RecursiveEventCall:StackOverflow`, and a text that
-            // names the innermost subscriber, the event and its publisher. Pinned on corpus branch al-runtime-rs-staging-sh
-            // (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137, commit 67c7900c; al-runner issue 5944; assumption
-            // `recursive-event-call-code` until the corpus bump) for an integration event of a codeunit and OnAfterModifyEvent of a
-            // table; another event's text is not pinned.
+            // names the innermost subscriber, the event and its publisher (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:
+            // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecursiveEventCallCode);
                 let objects = &self.engine.program.objects;
                 let text = top.map(|(publisher, so, sr)| {
                     let p = &objects[publisher];
@@ -1774,7 +1778,7 @@ impl Session {
                     },
                     None => al_builtins::native::unpinned_text_error(
                         "RecursiveEventCall:StackOverflow",
-                        "recursive-event-call-code",
+                        "event-recursion-text-of-another-event",
                     ),
                 })));
             }
@@ -1801,6 +1805,7 @@ impl Session {
         if self.depth == 0 {
             if let Some(refusal) = al_builtins::stream::take_pending_observation() {
                 if !matches!(r, Err(Signal::Unsupported(_))) {
+                    self.fault_site_lost = true;
                     return Err(refusal);
                 }
             }
@@ -2049,7 +2054,10 @@ impl Session {
         if self.capture.is_some() {
             self.cap_leave_frame(&outcome);
         }
-        if self.fault_trace && matches!(outcome, Err(Signal::Error(_) | Signal::Unsupported(_))) {
+        // A refusal is noted with tracing off too: it ends the test, and `run.rs` reads where (al-runner issue 5961).
+        if matches!(outcome, Err(Signal::Unsupported(_)))
+            || self.fault_trace && matches!(outcome, Err(Signal::Error(_)))
+        {
             self.note_fault();
         }
         // An error that leaves the routine takes the routine's frame into its call stack.
@@ -2069,6 +2077,7 @@ impl Session {
         self.tx.commit_behavior = saved_commit_behavior;
         self.end_trap_scope(&frame, r.params, &r.by_var);
         if let Some(why) = self.end_unpinned_page_scope(&frame, r.params, &r.by_var) {
+            self.fault_site_lost = true;
             outcome = Err(Signal::Unsupported(why));
         }
         let ret = match outcome {

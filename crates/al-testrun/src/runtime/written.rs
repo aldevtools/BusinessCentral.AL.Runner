@@ -12,7 +12,7 @@
 use super::*;
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, ObjKind, Place, Stmt};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
 /// Session state that lasts from one test of a codeunit to the next, as bits of [`ReachFacts::state_reads`] and
@@ -304,6 +304,213 @@ pub(crate) fn unfinished_reach_facts(
     walk_reach(events, lowered, index, object, routine, true)
 }
 
+/// The index in the body of test routine `routine` of `object` of the statement that holds the statement position
+/// `pos` (a [`Stmt::Pos`] at the top level or inside a compound statement); `None` when no statement does.
+pub(crate) fn statement_at(lowered: &Lowered, object: usize, routine: usize, pos: u32) -> Option<usize> {
+    fn holds(body: &[Stmt], pos: u32) -> bool {
+        body.iter().any(|s| match s {
+            Stmt::Pos(p) => *p == pos,
+            Stmt::If(_, a, b) => holds(a, pos) || holds(b, pos),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => holds(b, pos),
+            Stmt::For { body, .. } | Stmt::Foreach { body, .. } => holds(body, pos),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => branches.iter().any(|(_, b)| holds(b, pos)) || holds(otherwise, pos),
+            _ => false,
+        })
+    }
+    let body = &lowered.program.objects[object].routines.get(routine)?.body;
+    body.iter().position(|s| holds(std::slice::from_ref(s), pos))
+}
+
+/// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
+/// (al-runner issue 5961): what it wrote while it ran (`written`: our run rolls those writes back, BC keeps them), and
+/// the static reach of what it did not run: the statements of its body from the one at index `from` (the statement it
+/// was refused in, which may have run in part) to the end, and its handler functions `handlers`. What it changed
+/// outside the database before the refusal (globals, single-instance codeunits, session state) is what BC's run
+/// changed too: the code before the refusal is the code BC ran. A test page it still holds closes when the test ends:
+/// a state whose end is not pinned refuses there (al-vm `end_unpinned_page_scope`, which `run.rs` sees), else the close
+/// changes nothing in our model, and the page's triggers and events are taken into the reach anyway.
+///
+/// `None` when the rest cannot be bounded this way and the whole routine counts ([`unfinished_reach_facts`]): the
+/// routine has a lowering refusal, or the rest uses a page, test page, report or xmlport variable for anything but
+/// reading a test page's filter (`TestPage.Filter.GetFilter`, which runs no code). What such a variable drives
+/// (`Lowered::calls_into`) is known only for the whole routine.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn remainder_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+    from: usize,
+    handlers: &[usize],
+    written: &BTreeSet<u32>,
+) -> Option<ReachFacts> {
+    let objs = &lowered.program.objects;
+    let obj = &objs[object];
+    let rt = obj.routines.get(routine)?;
+    if !lowered.unsupported[object][routine].is_empty() {
+        return None;
+    }
+    let rest = rt.body.get(from..)?;
+    // Per slot (global or not, index) the rest names: how often, and how often as the test page of a filter read.
+    let mut named: BTreeMap<(bool, usize), (usize, usize)> = BTreeMap::new();
+    fn root(p: &Place) -> Option<(bool, usize)> {
+        let mut p = p;
+        loop {
+            match p {
+                Place::Index(b, _) | Place::Field(b, _) => p = b,
+                Place::Local(i) => return Some((false, *i)),
+                Place::Global(i) => return Some((true, *i)),
+                Place::BaseGlobal(_) => return None,
+            }
+        }
+    }
+    fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+        for s in body {
+            match s {
+                Stmt::Assign(p, _) => note(p),
+                Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                    note(var);
+                    stmt_places(body, note);
+                }
+                Stmt::If(_, a, b) => {
+                    stmt_places(a, note);
+                    stmt_places(b, note);
+                }
+                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+                Stmt::Case {
+                    branches, otherwise, ..
+                } => {
+                    for (_, b) in branches {
+                        stmt_places(b, note);
+                    }
+                    stmt_places(otherwise, note);
+                }
+                _ => {}
+            }
+        }
+    }
+    fn note(named: &mut BTreeMap<(bool, usize), (usize, usize)>, p: &Place) {
+        if let Some(k) = root(p) {
+            named.entry(k).or_default().0 += 1;
+        }
+    }
+    fn refs(named: &mut BTreeMap<(bool, usize), (usize, usize)>, args: &[Arg]) {
+        for a in args {
+            if let Arg::Ref(p) = a {
+                note(named, p);
+            }
+        }
+    }
+    stmt_places(rest, &mut |p| note(&mut named, p));
+    let mut calls = Vec::new();
+    al_ir::types::for_each_expr_post(rest, &mut |e| match e {
+        Expr::Load(p) => note(&mut named, p),
+        Expr::Call {
+            object, routine, args, ..
+        } => {
+            calls.push((*object, *routine));
+            refs(&mut named, args);
+        }
+        Expr::InterfaceCall { targets, args, .. } => {
+            calls.extend(targets.iter().copied());
+            refs(&mut named, args);
+        }
+        Expr::DotNet { args, .. } => refs(&mut named, args),
+        Expr::Builtin { id, receiver, args, .. } => {
+            refs(&mut named, args);
+            if let Some(Arg::Ref(p)) = receiver.as_deref() {
+                note(&mut named, p);
+            }
+            // `TP.Filter.GetFilter(..)`: the use of `TP` under it, counted already, is a filter read.
+            if id.name().split('#').next() == Some("TestFilter.GetFilter") {
+                if let Some(Arg::Value(Expr::Builtin {
+                    id: filter,
+                    receiver: Some(page),
+                    ..
+                })) = receiver.as_deref()
+                {
+                    if let (true, Arg::Ref(p) | Arg::Value(Expr::Load(p))) = (
+                        filter.name().split('#').next() == Some("TestPage.Filter"),
+                        page.as_ref(),
+                    ) {
+                        if let Some(e) = root(p).and_then(|k| named.get_mut(&k)) {
+                            e.0 = e.0.saturating_sub(1);
+                            e.1 += 1;
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    });
+    let mut rec = Rec {
+        events,
+        lowered,
+        index,
+        out: ReachFacts::default(),
+        summary: Summary::default(),
+        unknown: false,
+    };
+    for (&(global, i), &(uses, _)) in &named {
+        let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
+        let slot = slot?;
+        let mut ty = &slot.ty;
+        while let RtType::Array(_, inner) = ty {
+            ty = inner;
+        }
+        match ty {
+            // Only filter reads: the page runs no code for them.
+            RtType::Page(_) | RtType::TestPage(_) if uses == 0 => {}
+            RtType::Page(_) | RtType::TestPage(_) => return None,
+            RtType::Codeunit(c) if objs[*c as usize].kind != ObjKind::Codeunit => return None,
+            _ => rec.slot(ty),
+        }
+    }
+    // A test page the test holds is closed at its end: the page's triggers and the subscribers of its events.
+    for s in rt.locals.iter().chain(&obj.globals) {
+        if let RtType::Page(p) | RtType::TestPage(p) = &s.ty {
+            rec.events(*p as usize);
+            let page = &objs[*p as usize];
+            let extensions = page
+                .id
+                .and_then(|id| index.extensions.get(&(ObjKind::Page, id)))
+                .cloned()
+                .unwrap_or_default();
+            for x in std::iter::once(*p as usize).chain(extensions) {
+                rec.push(
+                    objs[x]
+                        .routines
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, r)| r.is_trigger && r.name.to_ascii_lowercase().contains("close"))
+                        .map(|(r, _)| (x, r)),
+                );
+            }
+        }
+    }
+    rec.places(object, rest);
+    al_ir::types::for_each_expr_post(rest, &mut |e| rec.expr(object, routine, e));
+    rec.push(calls);
+    rec.push(handlers.iter().map(|&h| (object, h)));
+    let summary = rec.finish();
+    let mut walk = Walk::new(events, lowered, index);
+    walk.apply(&summary);
+    while let Some((o, r)) = walk.stack.pop() {
+        if walk.out.unknown.is_some() {
+            break;
+        }
+        if walk.first_visit(o, r) {
+            walk.routine(o, r);
+        }
+    }
+    walk.out.writes.extend(written.iter().copied());
+    walk.out.touched.extend(written.iter().copied());
+    Some(walk.out)
+}
+
 /// The facts of the routines `routines` themselves, without what they reach: for a set of routines that ran, which
 /// holds every routine the run called (`install::login_work_date`). What a routine's body names counts whether or not
 /// the run took that branch.
@@ -538,6 +745,11 @@ impl<'a> Walk<'a> {
                 &fresh
             }
         };
+        self.apply(s);
+    }
+
+    /// The facts and steps of a [`Summary`].
+    fn apply(&mut self, s: &Summary) {
         for &t in &s.touched {
             self.touch(t);
         }
@@ -617,7 +829,12 @@ impl Rec<'_> {
             unknown: false,
         };
         rec.routine(o, r);
-        let Rec { out, mut summary, .. } = rec;
+        rec.finish()
+    }
+
+    /// The [`Summary`] of what was recorded.
+    fn finish(self) -> Summary {
+        let Rec { out, mut summary, .. } = self;
         summary.touched = out.touched.into_iter().collect();
         summary.globals_read = out.globals_read.into_iter().collect();
         summary.globals_written = out.globals_written.into_iter().collect();
@@ -704,44 +921,51 @@ impl Rec<'_> {
             }
         }
         for s in rt.locals.iter().chain(&obj.globals) {
-            let mut ty = &s.ty;
-            while let RtType::Array(_, inner) = ty {
-                ty = inner;
-            }
-            match ty {
-                RtType::Record(t, _) => {
-                    self.out.touched.insert(*t);
-                    self.events(*t as usize);
-                }
-                // A page writes its source table; the table is the record of the page's `Rec` slot.
-                RtType::Page(p) | RtType::TestPage(p) => {
-                    let page = &objs[*p as usize];
-                    match page.rec_slot.map(|i| &page.globals[i].ty) {
-                        Some(RtType::Record(t, _)) => {
-                            self.out.touched.insert(*t);
-                            self.note_table_write(Some(*t));
-                            // The page client inserts, modifies, deletes and validates with the triggers.
-                            self.table_ops(*t as usize, ops::ALL);
-                        }
-                        _ => self.note_table_write(None),
-                    }
-                    self.events(*p as usize);
-                }
-                RtType::Query(q) => {
-                    self.run_object(*q as usize);
-                }
-                // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
-                // xmlport imports into its tables without a record operation in AL.
-                RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
-                RtType::DotNet(_) => self.out.state_writes |= state::OTHER,
-                _ => {}
-            }
+            self.slot(&s.ty);
         }
         self.places(o, &rt.body);
         al_ir::types::for_each_expr_post(&rt.body, &mut |e| self.expr(o, r, e));
         let mut calls = Vec::new();
         lowered.calls_into(o, r, &mut calls);
         self.push(calls);
+    }
+
+    /// What a variable of type `ty` reaches by being there: the events of its table, what a page client does to the
+    /// page's source table, the run of a query, an xmlport's import.
+    fn slot(&mut self, ty: &RtType) {
+        let objs = &self.lowered.program.objects;
+        let mut ty = ty;
+        while let RtType::Array(_, inner) = ty {
+            ty = inner;
+        }
+        match ty {
+            RtType::Record(t, _) => {
+                self.out.touched.insert(*t);
+                self.events(*t as usize);
+            }
+            // A page writes its source table; the table is the record of the page's `Rec` slot.
+            RtType::Page(p) | RtType::TestPage(p) => {
+                let page = &objs[*p as usize];
+                match page.rec_slot.map(|i| &page.globals[i].ty) {
+                    Some(RtType::Record(t, _)) => {
+                        self.out.touched.insert(*t);
+                        self.note_table_write(Some(*t));
+                        // The page client inserts, modifies, deletes and validates with the triggers.
+                        self.table_ops(*t as usize, ops::ALL);
+                    }
+                    _ => self.note_table_write(None),
+                }
+                self.events(*p as usize);
+            }
+            RtType::Query(q) => {
+                self.run_object(*q as usize);
+            }
+            // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
+            // xmlport imports into its tables without a record operation in AL.
+            RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
+            RtType::DotNet(_) => self.out.state_writes |= state::OTHER,
+            _ => {}
+        }
     }
 
     /// The global of a codeunit a place names, as (object, slot).

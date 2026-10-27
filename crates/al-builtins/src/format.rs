@@ -656,6 +656,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     // one is a fresh default one (types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned). al-runner
                     // issue 5956.
                     crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 0 => "[]".to_string(),
+                    // Standard format 9 of a JsonArray nobody touched raises (json/JsonWriteTo.al FormatOfEmptyJsonArrays
+                    // `untouched format 9`).
+                    crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 9 => {
+                        return Err(no_such_format(9, "JsonArray"));
+                    }
                     crate::value::LibraryValue::Empty if matches!(name.as_str(), "JsonValue" | "JsonToken") => {
                         "null".to_string()
                     }

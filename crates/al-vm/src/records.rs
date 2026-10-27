@@ -1321,9 +1321,9 @@ impl Session {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
             // One or two Commits after the buffer's own write, and the new transaction inserted another row of the table and did
-            // nothing else to the row or the table's locks: written. Pinned on corpus branch al-runtime-rs-staging-sh
-            // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:673-745, commit 67c7900c; al-runner issue 5954; assumption
-            // `stale-own-insert-two-commits-other-insert` until the corpus bump); an Insert into another table only is refused.
+            // nothing else to the row or the table's locks: written (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745,
+            // SH_OwnModify_*); an Insert into another table only is refused. Other writes of the table beside the Insert are not told
+            // apart (assumption `stale-own-insert-two-commits-other-insert`).
             Some(o)
                 if o.own_write
                     && (o.commits + 1 == self.commits || o.commits + 2 == self.commits)

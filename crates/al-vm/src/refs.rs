@@ -1321,11 +1321,10 @@ impl Session {
                     {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
-                    // A text that is no number into an Integer, BigInteger or Decimal field raises the Evaluate error from BC 28 and
-                    // `The type Nav<Type> is unknown.` before; the field keeps its value. Pinned on corpus branch
-                    // al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al:FieldRef_Value_TextIntoInteger_ErrorText,
-                    // FieldRef_Value_TextIntoNumberTypes, commit 67c7900c; al-runner issue 5942; assumption
-                    // `fieldref-text-into-integer-error` until the corpus bump): `abc` into each type, an empty text into an Integer.
+                    // A text that is no number into an Integer, BigInteger, Decimal or Boolean field raises the Evaluate error from BC 28 and
+                    // `The type Nav<Type> is unknown.` before; the field keeps its value (fieldref/TestFieldRefValue.al:202
+                    // FieldRef_Value_TextIntoInteger_ErrorText, :229 FieldRef_Value_TextIntoNumberTypes): `abc` into each type, an
+                    // empty text into an Integer.
                     if let Value::Text(s) | Value::Code(s) = v {
                         let s = s.as_str();
                         let letters = s.len() > 1 && s.bytes().all(|b| b.is_ascii_alphabetic());
@@ -1333,16 +1332,52 @@ impl Session {
                             RtType::Integer => ("Integer", "NavInteger", true),
                             RtType::BigInteger => ("BigInteger", "NavBigInteger", false),
                             RtType::Decimal => ("Decimal", "NavDecimal", false),
+                            // `abc` and `true` into a Boolean field (TestFieldRefValue.al:282
+                            // FieldRef_Value_TextIntoBooleanDateGuidOption).
+                            RtType::Boolean => ("Boolean", "NavBoolean", false),
+                            // `abc` into an Option field that has no such member (same test; the split by version is
+                            // record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175).
+                            RtType::Option(ref m) if !m.iter().any(|x| x.eq_ignore_ascii_case(s)) => {
+                                ("Option", "NavOption", false)
+                            }
                             _ => ("", "", false),
                         };
+                        // A text of letters into a Date field: the date format error with code Evaluate:Conversion from BC 28,
+                        // a conversion error before (TestFieldRefValue.al:282 FieldRef_Value_TextIntoBooleanDateGuidOption,
+                        // `Date Field := abc`); the field keeps its value.
+                        if letters && matches!(field.ty, RtType::Date) {
+                            let (message, code) = if self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28) {
+                                (
+                                    format!(
+                                        "The format of the Date '{s}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+                                    ),
+                                    "Evaluate:Conversion",
+                                )
+                            } else {
+                                (
+                                    "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavText to System.DateTime."
+                                        .to_string(),
+                                    "Conversion",
+                                )
+                            };
+                            return Err(al_builtins::native::Signal::Error(Box::new(
+                                al_builtins::native::AlError {
+                                    message,
+                                    code: code.into(),
+                                    ..Default::default()
+                                },
+                            )));
+                        }
                         if !ty.is_empty() && (letters || s.is_empty()) {
                             if s.is_empty() && !empty_pinned {
                                 return unsupported(format!("FieldRef.Value := '' on a {ty} field (not pinned)"));
                             }
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FieldRefTextIntoIntegerError,
-                            );
-                            let (message, code) = if self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28) {
+                            let gate = if ty == "Option" {
+                                al_version::Gate::OptionFieldRefSetEvaluateErrorFrom28
+                            } else {
+                                al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28
+                            };
+                            let (message, code) = if self.has(gate) {
                                 (
                                     format!("The value \"{s}\" can't be evaluated into type {ty}."),
                                     "Evaluate:Format",
