@@ -192,7 +192,7 @@ Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
 | 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET 8 runtime). `--allow-not-run` makes this 0. |
 
-Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the must-not-compile corpus pins, not all of them. Source the parser does not accept is not such an error: the tests that need the file are not run (exit 7), with the parse error as the reason. An impact run has its own codes; see
+Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the must-not-compile corpus pins, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
 [Impact analysis](impact.md).
 
 ## Environment variables

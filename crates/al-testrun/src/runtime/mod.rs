@@ -226,9 +226,9 @@ pub struct CorpusRuntime {
 
 /// An error in the code of an app under test: one the AL compiler gives (an `AL` code from `al_sema::alcodes` or the
 /// checker, pinned by the must-not-compile corpus), which stops it from compiling, or source our parser does not accept
-/// (`code` is empty). A parse error is not a compile error, as the parser can reject valid AL (al-runner issue 5576):
-/// the objects of the file refuse their routines instead (`al_sema::lower`). Dependency apps are not judged: the AL
-/// compiler has already vetted them.
+/// (`code` is empty). Both stop `al-runner test` (al-runner issue 5916): every file the parser rejects in the corpus
+/// is one alc rejects, and every other corpus file parses (al-syntax/tests/corpus_parse.rs). Dependency apps are not
+/// judged: the AL compiler has already vetted them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     /// The app, as the caller numbered the apps of the run.
