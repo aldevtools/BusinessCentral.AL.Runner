@@ -4,7 +4,7 @@
 
 use crate::error::{Error, Result};
 use crate::source::{BcSource, SourceTable};
-use crate::symbols::{AlField, AlTable, AlTableExtension, SymbolStore, eq_ci, normalize_sql_name};
+use crate::symbols::{AlField, AlTable, AlTableExtension, SymbolStore, ci_key, eq_ci, normalize_sql_name};
 use crate::types::{SysColumn, type_name};
 use crate::value::Value;
 use sha2::{Digest, Sha256};
@@ -520,12 +520,23 @@ fn position_ci(cols: &[SysColumn], name: &str) -> Option<usize> {
     cols.iter().position(|c| eq_ci(&c.name, name))
 }
 
+/// The columns with the first of each name kept (names compared as [`eq_ci`] does).
 fn distinct_by_name(cols: impl Iterator<Item = SysColumn>) -> Vec<SysColumn> {
     let mut out: Vec<SysColumn> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for c in cols {
-        if position_ci(&out, &c.name).is_none() {
+        if seen.insert(ci_key(&c.name)) {
             out.push(c);
         }
+    }
+    out
+}
+
+/// [`position_ci`] for many names over one list: each name's first position.
+fn positions_ci(cols: &[SysColumn]) -> HashMap<String, usize> {
+    let mut out = HashMap::with_capacity(cols.len());
+    for (i, c) in cols.iter().enumerate() {
+        out.entry(ci_key(&c.name)).or_insert(i);
     }
     out
 }
@@ -709,16 +720,20 @@ pub fn plan_read_table_in(
         }
     });
     let mut selected = Vec::new();
+    let base_pos = positions_ci(&base_wanted);
+    let comp_pos = comp_plan.as_ref().map(|c| positions_ci(&c.wanted));
     for s in &selected_av {
         let pool = if s.from_ext {
-            &comp_plan.as_ref().expect("ext column without companion").wanted
+            comp_pos.as_ref().expect("ext column without companion")
         } else {
-            &base_wanted
+            &base_pos
         };
         selected.push(Selected {
             name: s.col.name.clone(),
             from_ext: s.from_ext,
-            pos: position_ci(pool, &s.col.name).expect("selected column was added to the wanted set"),
+            pos: *pool
+                .get(&ci_key(&s.col.name))
+                .expect("selected column was added to the wanted set"),
             sha: sha_cols.contains(&s.col.name),
         });
     }
