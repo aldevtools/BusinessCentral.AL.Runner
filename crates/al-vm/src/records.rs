@@ -1295,6 +1295,28 @@ impl Session {
         match origin.filter(|o| o.version == mine) {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
+            // One or two Commits after the buffer's own write, and the new transaction inserted another row of the table and did
+            // nothing else to the row or the table's locks: written. Pinned on corpus branch al-runtime-rs-staging-sh
+            // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:673-745, commit 67c7900c; al-runner issue 5954; assumption
+            // `stale-own-insert-two-commits-other-insert` until the corpus bump); an Insert into another table only is refused.
+            Some(o)
+                if o.own_write
+                    && (o.commits + 1 == self.commits || o.commits + 2 == self.commits)
+                    && !touched
+                    && !self.tx.rolled_back
+                    && !self.tx.lock_tx
+                    && self.tx.lock_unpinned.is_none()
+                    && self
+                        .tx
+                        .tables_inserted
+                        .iter()
+                        .any(|(ob, c)| *ob == t.object && *c == company) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && o.commits + 1 == self.commits => {
                 if touched && !self.tx.rolled_back {
                     if o.read_in_write_tx {
@@ -1311,27 +1333,6 @@ impl Session {
                     ));
                 }
                 Ok(StaleVerdict::Refused)
-            }
-            // Two Commits after the buffer's own write, and the new transaction inserted another row of the table and did nothing
-            // else to the row or the table's locks: written (al-runner issue 5954, the reporter's real-BC repro; assumption
-            // `stale-own-insert-two-commits-other-insert`).
-            Some(o)
-                if o.own_write
-                    && o.commits + 2 == self.commits
-                    && !touched
-                    && !self.tx.rolled_back
-                    && !self.tx.lock_tx
-                    && self.tx.lock_unpinned.is_none()
-                    && self
-                        .tx
-                        .tables_inserted
-                        .iter()
-                        .any(|(ob, c)| *ob == t.object && *c == company) =>
-            {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
-                );
-                Ok(StaleVerdict::Written)
             }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
