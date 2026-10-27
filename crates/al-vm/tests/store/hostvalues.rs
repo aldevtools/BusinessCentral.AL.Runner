@@ -20,6 +20,7 @@ table 50900 "ALT T"
 table 50902 "ALT FF" { fields { field(1; K; Integer) { } field(2; Flt; Integer) { FieldClass = FlowFilter; } field(3; Txt; Text[10]) { } } keys { key(PK; K) { } } }
 table 50903 "ALT FF2" { fields { field(1; K; Integer) { } field(2; FltA; Integer) { FieldClass = FlowFilter; } field(3; Cnt; Integer) { FieldClass = FlowField; CalcFormula = count("ALT T"); } field(4; FltB; Integer) { FieldClass = FlowFilter; } field(5; Txt; Text[10]) { } } keys { key(PK; K) { } } }
 table 50904 "ALT Blb" { fields { field(1; K; Integer) { } field(2; Pic; Blob) { } } keys { key(PK; K) { } } }
+table 50905 "ALT Dt" { fields { field(1; K; Integer) { } field(2; At; DateTime) { } } keys { key(PK; K) { } } }
 table 50901 "ALT Temp" { TableType = Temporary; fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }
 "#;
 
@@ -106,6 +107,37 @@ fn sleep_moves_the_clock_by_the_time_waited() {
         text(
             "A: DateTime; B: DateTime;",
             "A := CurrentDateTime(); Sleep(200); B := CurrentDateTime(); exit(Format(B - A = 201));"
+        ),
+        "Yes"
+    );
+}
+
+#[test]
+fn the_clock_never_reads_earlier_than_the_last_stamp() {
+    // ADR-045 item 4 and its 2026-10-27 amendment: a stamp written between two reads of the clock lies between them. Stamps are strictly increasing
+    // (record/TestRecordSystemId.al:598, TestXRecStampFields.al:179), so many writes between two reads move the stamps past
+    // the clock; the clock then answers the last stamp. SystemCreatedAt is the current time
+    // (record/TestSystemFieldStampsContracts.al:67, within 5 seconds of a read before the insert).
+    assert_eq!(
+        text(
+            "R: Record \"ALT T\"; I: Integer; Last: DateTime;",
+            "for I := 1 to 50 do begin R.Init(); R.\"No.\" := I; R.Insert(); end; Last := R.SystemCreatedAt; \
+             exit(Format(CurrentDateTime() >= Last) + Format(CurrentDateTime() > Last));"
+        ),
+        "YesYes"
+    );
+}
+
+#[test]
+fn a_stamp_is_a_value_the_datetime_column_holds() {
+    // A DateTime field keeps 1/300 s (errors/lt-ms-refusals-130/P130DateFilters.al:162-183). Whether a record's buffer holds
+    // a stamp rounded is not pinned (sqltime.rs `store`), so a stamp is always a value the column holds as it is: copied into
+    // a DateTime field and read back, it is still equal.
+    assert_eq!(
+        text(
+            "R: Record \"ALT T\"; D: Record \"ALT Dt\"; I: Integer;",
+            "for I := 1 to 20 do begin R.Init(); R.\"No.\" := I; R.Insert(); D.K := I; D.At := R.SystemCreatedAt; D.Insert(); \
+             D.Get(I); if D.At <> R.SystemCreatedAt then exit('No ' + Format(I)); end; exit('Yes');"
         ),
         "Yes"
     );
