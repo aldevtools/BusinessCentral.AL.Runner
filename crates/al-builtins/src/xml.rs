@@ -1639,6 +1639,11 @@ fn check_fits(container: &Handle, node: &Handle, removed: &[Handle], at: Option<
         Ok(())
     } else {
         match (c_kind, n_kind) {
+            // An empty or blank text at document level is not pinned (.NET takes white space there): every pin below adds a
+            // non-blank text (xml/TestProbeXmlContracts.al:268, xml/XmlDocReadWrite.al:556, misc/lt-probes-needed-1/PnAXmlNodeAdds.al:38).
+            ("XmlDocument", "XmlText") if with(node, |d| matches!(d, XData::Text(t) if t.trim().is_empty())) => {
+                unsupported("an empty or blank text added to an XmlDocument (not pinned)")
+            }
             // xml/TestProbeXmlContracts.al:Add_NodeIntoWrongContainer_Error: a text or an attribute into a document.
             ("XmlDocument", "XmlText" | "XmlCData" | "XmlAttribute") => Err(nav_argument()),
             _ => unsupported(format!("adding {n_kind} to {c_kind} (error text not pinned yet)")),

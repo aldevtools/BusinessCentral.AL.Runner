@@ -52,12 +52,22 @@ impl Session {
         (self.now_millis().div_euclid(MS_PER_DAY) + unix_epoch_day()) as i32
     }
 
-    /// The instant for a system stamp: the clock, but always later than the previous stamp, so
+    /// The instant for a system stamp: the clock, but always later than the previous stamp and a value the column holds, so
     /// two writes in one millisecond still tell which came last (record/TestRecordSystemId.al:449,
     /// TestXRecStampFields.al:179 compare stamps with `<>` and `>`).
     pub(crate) fn stamp_millis(&mut self) -> i64 {
-        let at = self.now_millis().max(self.last_stamp + 1);
+        let now = self.now_millis();
+        let mut at = now.max(self.last_stamp + 1);
+        // A stamp is a value the SQL datetime column holds as it is (1/300 s, P130DateFilters.al:162-183): whether the
+        // buffer holds a stamp rounded is not pinned (sqltime.rs `store`), and with such a value the question does not arise.
+        while !crate::sqltime::holds_ms(at.rem_euclid(1000)) {
+            at += 1;
+        }
         self.last_stamp = at;
+        // Many writes between two reads move the stamps past the clock. A stamp lies between the reads around it
+        // (ADR-045 item 4) and SystemCreatedAt is the current time (record/TestSystemFieldStampsContracts.al:67), so the
+        // clock catches up with the stamp: the next read is not earlier than it.
+        self.waited_ms += at - now;
         at
     }
 
