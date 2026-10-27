@@ -291,3 +291,7 @@ the lazy/eager decode leg.
   from its facts (`lower/routine_lists.rs`); `ir::Objects` boxes its slots. Demo (`al-runner test app test`, warm,
   median of 5): compile 0.15 s to 0.12 s, instructions 3.84 G to 3.61 G; warm repro: compile 0.13 s to 0.10 s,
   2.46 G to 2.23 G.
+
+- 2026-10-27, step 4 (heads): a cached run moves the stored heads into its program instead of cloning them
+  (`DepSource::heads_owned`, `LayerSource::heads_owned`; an entry decodes them for the caller when nothing asked for
+  them yet). Demo: instructions 3.61 G to 3.52 G; warm repro 2.23 G to 2.13 G, compile 0.10 s to 0.09 s.
