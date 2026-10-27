@@ -196,7 +196,10 @@ impl std::fmt::Debug for Positions {
 
 impl Serialize for Positions {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.collect_seq(self.iter())
+        // Collected first: a serializer that writes the length first (postcard) needs it, and `iter` does not know it
+        // (a hole without a source is left out).
+        let all: Vec<&SrcPos> = self.iter().collect();
+        s.collect_seq(all)
     }
 }
 
