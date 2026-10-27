@@ -1,8 +1,9 @@
 //! A failure after a test that did not run to its end is not trusted only when that test could have changed what the
 //! failing test reads: a table, a global of the test codeunit or of a single-instance codeunit, session state such as
 //! `WorkDate` or a number sequence, or the `Random` sequence the failing test drew from. A test refused while it ran
-//! counts with its whole static reach (its partial run is a part of it); a reach that is not known may change
-//! anything. The triggers of the tables a test uses are part of its reach.
+//! counts with its whole static reach (its partial run is a part of it), unless a statement of its own body refused it:
+//! then with what it wrote before the refusal and the reach of the statements from that one on. A reach that is not
+//! known may change anything. The triggers of the tables a test uses are part of its reach.
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
@@ -398,5 +399,151 @@ fn a_flag_that_already_holds_the_only_value_any_test_sets_does_not_count() {
     assert!(
         matches!(&b, Outcome::NotRun(m) if m.contains("not trusted") && m.contains("IsInitialized")),
         "{b:?}"
+    );
+}
+
+// al-runner issue 5961: a test refused while it ran counts with what it wrote while it ran and the static reach of the
+// statements it did not reach, not with its whole static reach. Here every table write reaches a `Global Triggers`
+// subscriber whose reach is not known, as Office Host Provider's RunOnClient variable is in Microsoft's Base App.
+const REST_SRC: &str = r#"
+table 50450 "Rest Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50451 "Rest Other" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 50450 "Rest Row List"
+{
+    PageType = List;
+    SourceTable = "Rest Row";
+    layout { area(Content) { repeater(Rows) { field(Id; Rec.Id) { } } } }
+}
+
+codeunit 50452 "Rest Global Triggers"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure OnInsert(RecRef: RecordRef)
+    var
+        Id: Integer;
+    begin
+        if RecRef.Number = 0 then
+            Codeunit.Run(Id);
+    end;
+}
+
+codeunit 50450 "Rest Refused On Page"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_RefusedAtTheEndOnAnOwnPage()
+    var
+        Row: Record "Rest Row";
+        RowList: TestPage "Rest Row List";
+    begin
+        Row.SetRange(Id, 1, 2);
+        RowList.Trap();
+        Page.Run(Page::"Rest Row List", Row);
+        Sleep(StrLen(RowList.Filter.GetFilter(Id)) - 10);
+    end;
+    [Test]
+    procedure B_FailsReadingNothing()
+    begin
+        Error('boom');
+    end;
+}
+
+codeunit 50451 "Rest Writes After"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_RefusedBeforeAPageWrite()
+    var
+        RowList: TestPage "Rest Row List";
+    begin
+        RowList.OpenNew();
+        Sleep(-1);
+        RowList.Id.SetValue(5);
+        RowList.Close();
+    end;
+    [Test]
+    procedure B_FailsReadingNothing()
+    begin
+        Error('boom');
+    end;
+}
+
+codeunit 50453 "Rest Wrote Before"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_WritesThenIsRefused()
+    var
+        O: Record "Rest Other";
+    begin
+        O.Id := 1;
+        O.Insert();
+        Sleep(-1);
+    end;
+    [Test]
+    procedure B_ReadsRowFails()
+    var
+        R: Record "Rest Row";
+    begin
+        if R.IsEmpty() then Error('boom');
+    end;
+    [Test]
+    procedure C_ReadsWhatItWroteFails()
+    var
+        O: Record "Rest Other";
+    begin
+        if O.IsEmpty() then Error('boom');
+    end;
+}
+"#;
+
+fn run_rest() -> CorpusRuntime {
+    CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), REST_SRC.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+}
+
+#[test]
+fn a_test_refused_at_its_last_statement_counts_only_what_it_did_not_run() {
+    let rt = run_rest();
+    let a = outcome(&rt, 50450, "A_RefusedAtTheEndOnAnOwnPage");
+    assert!(matches!(&a, Outcome::NotRun(m) if m.contains("Sleep")), "{a:?}");
+    let b = outcome(&rt, 50450, "B_FailsReadingNothing");
+    assert!(failed(&b), "{b:?}");
+}
+
+#[test]
+fn a_page_write_after_the_refusal_still_counts_with_its_reach() {
+    let rt = run_rest();
+    let a = outcome(&rt, 50451, "A_RefusedBeforeAPageWrite");
+    assert!(matches!(&a, Outcome::NotRun(m) if m.contains("Sleep")), "{a:?}");
+    let b = outcome(&rt, 50451, "B_FailsReadingNothing");
+    assert!(
+        matches!(&b, Outcome::NotRun(m) if m.contains("not trusted") && m.contains("not known")),
+        "{b:?}"
+    );
+}
+
+#[test]
+fn what_a_refused_test_wrote_before_the_refusal_counts() {
+    let rt = run_rest();
+    let b = outcome(&rt, 50453, "B_ReadsRowFails");
+    assert!(failed(&b), "{b:?}");
+    let c = outcome(&rt, 50453, "C_ReadsWhatItWroteFails");
+    assert!(
+        matches!(&c, Outcome::NotRun(m) if m.contains("not trusted") && m.contains("Rest Other")),
+        "{c:?}"
     );
 }

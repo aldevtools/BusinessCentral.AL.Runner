@@ -615,6 +615,8 @@ pub struct Session {
     /// `faultsite.rs`: whether to record where errors and refusals leave from, and the last one.
     fault_trace: bool,
     fault_site: Vec<faultsite::FaultFrame>,
+    /// A refusal was raised where `fault_site` cannot name its statement (`Session::refusal_site`).
+    fault_site_lost: bool,
     /// `IsolatedStorage` by (scope, key): the value, whether it was stored encrypted, and whether it was stored from a
     /// SecretText (misc/lt-cu-odd-leads/CuTryTests.al:181-232: such a value cannot be read into a Text).
     pub(crate) isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
@@ -965,6 +967,7 @@ impl Session {
             call_stack: Vec::new(),
             runner_frames: String::new(),
             fault_trace: false,
+            fault_site_lost: false,
             fault_site: Vec::new(),
             isolated_storage: Default::default(),
             isolated_committed: Default::default(),
@@ -1801,6 +1804,7 @@ impl Session {
         if self.depth == 0 {
             if let Some(refusal) = al_builtins::stream::take_pending_observation() {
                 if !matches!(r, Err(Signal::Unsupported(_))) {
+                    self.fault_site_lost = true;
                     return Err(refusal);
                 }
             }
@@ -2049,7 +2053,10 @@ impl Session {
         if self.capture.is_some() {
             self.cap_leave_frame(&outcome);
         }
-        if self.fault_trace && matches!(outcome, Err(Signal::Error(_) | Signal::Unsupported(_))) {
+        // A refusal is noted with tracing off too: it ends the test, and `run.rs` reads where (al-runner issue 5961).
+        if matches!(outcome, Err(Signal::Unsupported(_)))
+            || self.fault_trace && matches!(outcome, Err(Signal::Error(_)))
+        {
             self.note_fault();
         }
         // An error that leaves the routine takes the routine's frame into its call stack.
@@ -2069,6 +2076,7 @@ impl Session {
         self.tx.commit_behavior = saved_commit_behavior;
         self.end_trap_scope(&frame, r.params, &r.by_var);
         if let Some(why) = self.end_unpinned_page_scope(&frame, r.params, &r.by_var) {
+            self.fault_site_lost = true;
             outcome = Err(Signal::Unsupported(why));
         }
         let ret = match outcome {
