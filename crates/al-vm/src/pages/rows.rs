@@ -680,18 +680,13 @@ impl Session {
             // OnAfterGetRecord; pages/lt-ai-list-order/AiListOrderTests.al:909 Paging_Open_Nav, 25 rows: the same end after
             // a full window; pages/lt-f3-pages/F3PartTests.al:23 FilterView_OneHost_OpenAndMoves, a part of 3 rows).
             let with_current = self.declares(st, "onaftergetcurrrecord");
-            let mut reread = with_current;
+            let reread = with_current;
             if !with_current && stepped_back {
-                if keys.len() < Self::WINDOW {
-                    return self.read_rows_before_the_first(st, keys);
-                }
-                // A full window and rows before its first one: not pinned. Base Application's "Base Calendar Entries
-                // Subform" (page 7604) keeps its position in a global that OnAfterGetRecord sets, and Microsoft's
-                // ERM Base Calendar BaseCalendarEntriesShowCorrespondingRecords (codeunit 134233) needs that position back
-                // on the first row once the page has opened: assumed to end as a list with OnAfterGetCurrRecord does
-                // (misc/lt-probes-needed-6/PnF06FindListMoves.al:FindList_Ascending_25Rows `R20;R1;N(-1);F(=);R1;C`).
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
-                reread = true;
+                // A full window and rows before its first one ends the same way, no OnFindRecord('=') and no read of the first
+                // row again (AiListOrderTests.al:1090 PageRun_RecordOnTenthOfForty_Nav, :1127 OpenOnRow_TenthOfForty_Pos:
+                // `...;R:R1029;R:R1010;N:-1=-1;R:R1009;...;R:R1001;N:-1=0`).
+                let full = keys.len() >= Self::WINDOW;
+                return self.read_rows_before_the_first(st, keys, full);
             }
             if reread && self.declares(st, "onfindrecord") {
                 self.nav_find(st, "=")?;
@@ -1069,20 +1064,36 @@ impl Session {
     /// OpenOnRow_SetPositionInOnOpenPage `...;R:R1006;N:1=0;R:R1004;N:-1=-1;R:R1003;N:-1=-1;R:R1002;N:-1=-1;R:R1001;N:-1=0`,
     /// `current` R1004, `first_log` empty). `forward` holds the rows read from the cursor on. Pinned for a page of its own with 6
     /// rows; a part, and more rows than a window in all, are refused.
+    ///
+    /// `full`: the first window was full. A page of its own steps back the same way over the rows above it (AiListOrderTests.al:
+    /// 1090 PageRun_RecordOnTenthOfForty_Nav, :1127 OpenOnRow_TenthOfForty_Pos: 20 rows from R1010, 9 rows above). Not pinned
+    /// (assumption list-open-full-window-rows-before): a part does the same (al-runner issue 5887, the reporter's real-BC repro:
+    /// a ListPart opened on day 10 of 40), and a step back that reaches a window of rows above stops there and asks no more, as
+    /// the step back of a descending find list does (PnF06FindListMoves.al RK_DescKind_FindNext_21Rows). The stop keeps the
+    /// baseline case handlers/TestPageActionRunObjectKindsPrecompiled_Tests.al:101 (page 159's period part, which ran under this
+    /// assumption before with another end).
     fn read_rows_before_the_first(
         &mut self,
         st: &St,
         forward: Vec<al_builtins::value::WindowRow>,
+        full: bool,
     ) -> Result<(), Signal> {
         if st.borrow().host.is_some() {
-            return unsupported(
-                "the open read of a part with OnFindRecord and OnNextRecord that has rows before the first one read (not pinned)",
-            );
+            if !full {
+                return unsupported(
+                    "the open read of a part with OnFindRecord and OnNextRecord that has rows before the first one read (not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
         }
         let rec = self.page_rec(st);
         let mut before = Vec::new();
         loop {
-            if before.len() + forward.len() >= Self::WINDOW {
+            if full && before.len() == Self::WINDOW {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
+                break;
+            }
+            if !full && before.len() + forward.len() >= Self::WINDOW {
                 return unsupported(
                     "the open read of a list that steps back over more rows than a window holds (not pinned)",
                 );
@@ -1104,7 +1115,9 @@ impl Session {
         rec.borrow_mut().fields = first.shown;
         self.set_xrec_fields(st, first.stored);
         before.extend(forward);
-        st.borrow_mut().window = before;
+        let mut s = st.borrow_mut();
+        s.window_held_above = full.then_some(before.len());
+        s.window = before;
         Ok(())
     }
 
@@ -1513,8 +1526,35 @@ impl Session {
             || st.borrow().stale
             || !st.borrow().window_from_start
             || st.borrow().window.is_empty()
-            || (st.borrow().window.len() > Self::WINDOW && !st.borrow().window_whole && !st.borrow().window_read_up)
         {
+            return Ok(None);
+        }
+        let held_above = {
+            let s = st.borrow();
+            s.window_held_above.is_some_and(|n| n == s.window.len())
+        };
+        if held_above {
+            // See `PageState::window_held_above`: Next inside the rows held reads nothing (AiListOrderTests.al:1090, :1127
+            // `next_log` empty), Previous too (not pinned: al-runner issue 5887 `previous=10:`, assumption
+            // list-open-full-window-rows-before); other moves are not pinned.
+            if how == PageMethod::Previous {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListOpenFullWindowRowsBefore);
+            }
+            let rec = self.page_rec(st);
+            let key = self.row_key(&rec)?;
+            let s = st.borrow();
+            let at = s.window.iter().position(|w| Self::same_key(&w.key, &key));
+            let inside = match (how, at) {
+                (PageMethod::Next, Some(at)) => at + 1 < s.window.len(),
+                (PageMethod::Previous, Some(at)) => at > 0,
+                _ => false,
+            };
+            if !inside {
+                return unsupported(format!(
+                    "{how}() on a list whose open read stepped back from a full first window over the rows above it (not pinned)"
+                ));
+            }
+        } else if st.borrow().window.len() > Self::WINDOW && !st.borrow().window_whole && !st.borrow().window_read_up {
             return Ok(None);
         }
         if st.borrow().window_read_up && find_page && st.borrow().host.is_none() {
@@ -2353,6 +2393,15 @@ impl Session {
             }
         }
         self.refuse_descending_filtered_find_move(st)?;
+        if st
+            .borrow()
+            .window_held_above
+            .is_some_and(|n| n == st.borrow().window.len())
+        {
+            return unsupported(
+                "GoToKey on a list whose open read stepped back from a full first window over the rows above it (not pinned)",
+            );
+        }
         if st.borrow().window_top_unread {
             return unsupported(
                 "GoToKey on a descending find list whose open read stopped a full window above its last row (not pinned)",

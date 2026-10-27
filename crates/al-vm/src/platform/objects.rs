@@ -150,7 +150,7 @@ const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 
 /// What the program says about each object, by name and by owner.
 pub(super) struct Catalog<'a> {
-    pub objects: &'a [Object],
+    pub objects: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
     /// The lookups by name and id, built on first use: a provider that reads only `objects` and `apps` (a Field row by
     /// its key) does not pay for them.
