@@ -1814,24 +1814,94 @@ fn code_that_does_not_compile_runs_no_test_and_exits_3() {
     assert!(text(&o).contains("src/Other.al(1,75): error AL0118"), "{}", text(&o));
     std::fs::remove_file(tests.join("src/Other.al")).unwrap();
 
-    // Source our parser does not accept is not a compile error: the parser can reject valid AL (al-runner issue 5576).
-    // A test that does not need the file runs; one that needs it is not run (exit 7), with the parse error as the reason.
+    // Source our parser does not accept stops the run too (al-runner issue 5916): every file the parser rejects in the
+    // corpus is one alc rejects (corpus/tests/must-not-compile), and every other corpus file parses
+    // (al-syntax/tests/corpus_parse.rs). alc's code for it is not known, so the line has our parser's message and no
+    // AL code. Before, only the tests that needed the file were not run and the others passed.
     write(
         &app,
         "src/Broken.al",
         "codeunit 50601 \"Broken\" {\n    procedure Ok(): Integer begin exit(1); end;\n    procedure Spin(: Integer\n    begin\n    end;\n}\n",
     );
-    let o = run(&["--test-exact", "Codeunit50650.Passes"]);
-    assert_eq!(code(&o), 0, "{}", text(&o));
-    assert!(text(&o).contains("src/Broken.al(3,20): "), "{}", text(&o));
+    let o = run(&[
+        "--test-exact",
+        "Codeunit50650.Passes",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o).contains("src/Broken.al(3,20): error: expected a name, found `:`"),
+        "{}",
+        text(&o)
+    );
+    assert!(text(&o).contains("Result: COMPILE ERRORS (exit 3)"), "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(doc["total"], 0);
+    assert!(
+        doc["compilationErrors"].to_string().contains("Broken.al(3,20)"),
+        "{doc}"
+    );
+    std::fs::remove_file(app.join("src/Broken.al")).unwrap();
+
+    // A syntax error in the selected test codeunit.
     write(
         &tests,
-        "src/NeedsBroken.al",
-        "codeunit 50652 \"Needs Broken\" { Subtype = Test; [Test] procedure UsesIt() var B: Codeunit \"Broken\"; begin if B.Ok() <> 1 then Error('bad'); end; }",
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\" { Subtype = Test; [Test] procedure Passes() begin Error('boom %1', 5; end; }",
     );
-    let o = run(&["--codeunit", "50652"]);
-    assert_eq!(code(&o), 7, "{}", text(&o));
-    assert!(text(&o).contains("the parser did not accept"), "{}", text(&o));
+    let o = run(&["--codeunit", "50650"]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(text(&o).contains("src/Tests.al(1,98): error: "), "{}", text(&o));
+}
+
+/// Issue 5917: a test that calls a procedure its codeunit does not declare is AL0132 (must-not-compile 1780): the run
+/// stops with exit 3 and the error at the member name, as alc gives it; before, that test was not run and the others passed.
+#[test]
+fn a_call_of_a_procedure_the_codeunit_lacks_exits_3() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005917", "Logic", &[]),
+    );
+    write(
+        &app,
+        "src/Logic.al",
+        "codeunit 50600 \"Probe Logic\"\n{\n    procedure Add(A: Integer; B: Integer): Integer\n    begin\n        exit(A + B);\n    end;\n}\n",
+    );
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        &app_json(
+            "11111111-0000-0000-0000-000000005918",
+            "Logic Tests",
+            &[("11111111-0000-0000-0000-000000005917", "Logic")],
+        ),
+    );
+    write(
+        &tests,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Passes()\n    var\n        Logic: Codeunit \"Probe Logic\";\n    begin\n        if Logic.NoSuch(1, 1) <> 2 then\n            Error('must be 2');\n    end;\n\n    [Test]\n    procedure Standalone()\n    begin\n    end;\n}\n",
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        tests.to_str().unwrap(),
+        "--no-download",
+        "--codeunit",
+        "50650",
+    ]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o).contains(
+            "src/Tests.al(10,18): error AL0132: 'Codeunit \"Probe Logic\"' does not contain a definition for 'NoSuch'"
+        ),
+        "{}",
+        text(&o)
+    );
 }
 
 /// Issue 5613: with `--output-json`, a selection that matches no test still writes the document (exit 6, no rows,

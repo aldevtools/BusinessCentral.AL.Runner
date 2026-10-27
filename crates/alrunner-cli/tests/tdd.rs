@@ -63,20 +63,30 @@ fn stubs(row: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Without `--tdd` a call of a procedure the codeunit does not declare is AL0132, as alc gives it (must-not-compile
+/// 1780, al-runner issue 5917): the run stops with exit 3 and no test runs. With `--tdd` the same calls are stubs
+/// and compile (`a_stubbed_test_runs_and_fails_red_with_the_stub_named`).
 #[test]
-fn without_tdd_a_call_of_a_missing_procedure_is_not_run_as_today() {
+fn without_tdd_a_call_of_a_missing_procedure_is_al0132_and_no_test_runs() {
     let (doc, o) = json_run(&fixture("procs"), &[]);
-    let r = row(&doc, "VariantSiblingFailsRed");
-    assert_eq!(r["status"], "error", "{r:#}");
-    assert_eq!(r["notRun"], true, "{r:#}");
-    assert!(r.get("stubbed").is_none(), "{r:#}");
-    assert!(r.get("generatedStubs").is_none(), "{r:#}");
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    let errors: Vec<&str> = doc["compilationErrors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{doc:#}"))
+        .iter()
+        .flat_map(|f| f["errors"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()))
+        .collect();
+    assert!(
+        errors.iter().any(|e| e.ends_with(
+            r#"ProcTests.Codeunit.al(14,35): error AL0132: 'Codeunit "Tdd Target"' does not contain a definition for 'DoubleIt'"#
+        )),
+        "{errors:#?}"
+    );
+    assert!(doc["tests"].as_array().is_none_or(|t| t.is_empty()), "{doc:#}");
     assert!(
         doc.get("stubbed").is_none() && doc.get("generatedStubs").is_none(),
         "{doc:#}"
     );
-    assert_eq!(row(&doc, "Healthy")["status"], "pass");
-    assert_eq!(code(&o), 7, "{}", text(&o));
 }
 
 #[test]
@@ -270,13 +280,11 @@ fn a_stub_that_runs_in_an_event_subscriber_flags_the_test_that_raised_the_event(
 fn a_stub_may_stand_for_a_procedure_of_another_app_but_the_app_under_test_keeps_its_errors() {
     let tests = fixture("deps/tests");
     let target = fixture("deps/under-test");
-    for (label, args) in [
-        (
-            "the target app as a dependency",
-            vec![tests.as_str(), "--dep", target.as_str()],
-        ),
-        ("both apps given", vec![target.as_str(), tests.as_str()]),
-    ] {
+    // The target app as a dependency: it is not judged, and its call of a missing procedure leaves the test that
+    // reaches it not run.
+    {
+        let label = "the target app as a dependency";
+        let args = [tests.as_str(), "--dep", target.as_str()];
         let mut extra = args[1..].to_vec();
         extra.push("--tdd");
         let (doc, o) = json_run(args[0], &extra);
@@ -309,6 +317,24 @@ fn a_stub_may_stand_for_a_procedure_of_another_app_but_the_app_under_test_keeps_
         let all = doc["generatedStubs"].as_array().unwrap();
         assert_eq!(all.len(), 3, "{label}: {all:?}");
     }
+    // Both apps given: the app under test is judged, and its own call of a missing procedure is AL0132 as without
+    // `--tdd` (al-runner issue 5917), so the run stops with exit 3. The calls of missing members in the test app are
+    // stub sites and give no error.
+    let (doc, o) = json_run(&target, &[tests.as_str(), "--tdd"]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    let errors: Vec<&str> = doc["compilationErrors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{doc:#}"))
+        .iter()
+        .flat_map(|f| f["errors"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()))
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert!(
+        errors[0].ends_with(
+            r#"under-test/Target.al(17,16): error AL0132: 'Codeunit "Tdd App Target"' does not contain a definition for 'NotYet'"#
+        ),
+        "{errors:#?}"
+    );
 }
 
 #[test]
