@@ -408,9 +408,11 @@ pub fn run_traced(
 /// wrote to it is refused, the shape those two tests read (install code may have written a row with other values). Other reads stay answered: refusing every read of those tables lost 116 BC 29
 /// baseline cases (reports and pages that read Company Information without asserting its values). General Ledger Setup holds
 /// one demo row there too (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow `count` 1, :815).
+/// G/L Entry holds demo entries there (session/lt-outside-workdate/RlWorkDateAtStart.al:48 `G/L entries exist` Yes, a company
+/// whose Company Information says Demo Company = Yes, :47); the runtime's has none.
 /// The platform table Media Resources holds 46 rows there (platform/lt-platform-tables/PtCloudTables.al:269
 /// QX_MediaResources_FreshTenantCodes); al-vm records.rs refuses every read of it, not only Count and IsEmpty.
-/// Object indexes of the dependency tables 50, 79, 98 and 2000000182.
+/// Object indexes of the dependency tables 17, 50, 79, 98 and 2000000182.
 pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
     let objs = &lowered.program.objects;
     (0..objs.len())
@@ -419,7 +421,8 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
                 && objs[oi].table.is_some()
                 && matches!(
                     (objs[oi].id, objs[oi].name.as_str()),
-                    (Some(50), "Accounting Period")
+                    (Some(17), "G/L Entry")
+                        | (Some(50), "Accounting Period")
                         | (Some(79), "Company Information")
                         | (Some(98), "General Ledger Setup")
                         | (Some(2_000_000_182), "Media Resources")

@@ -2428,7 +2428,8 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:
         // BC counts 1 Company Information row and 36 Accounting Period rows (session/lt-company-information/
-        // CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow, :89 QG_AccountingPeriod_CorpusRows); the runtime has
+        // CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow, :89 QG_AccountingPeriod_CorpusRows) and holds G/L entries
+        // (session/lt-outside-workdate/RlWorkDateAtStart.al:48 `G/L entries exist` Yes); the runtime has
         // only what install code wrote (ADR-047 rejected). A test that writes its own rows is answered. Media Resources holds
         // 46 rows there (platform/lt-platform-tables/PtCloudTables.al:269 QX_MediaResources_FreshTenantCodes, read with FindSet),
         // so every read of it is refused before the session wrote to it.
