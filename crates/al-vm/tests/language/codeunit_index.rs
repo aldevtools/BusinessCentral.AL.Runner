@@ -34,7 +34,7 @@ fn a_codeunit_is_found_by_id_as_the_first_object_in_program_order() {
     let n = objects.len();
     let engine = Engine::new(
         Program {
-            objects: objects.clone(),
+            objects: objects.clone().into(),
             ..Default::default()
         },
         vec![Vec::new(); n],
@@ -106,7 +106,7 @@ fn a_kept_engine_is_reset_to_what_a_new_engine_has() {
         }
     }
     let program = Program {
-        objects: vec![object(ObjKind::Codeunit, Some(50100), false)],
+        objects: vec![object(ObjKind::Codeunit, Some(50100), false)].into(),
         ..Program::default()
     };
     let fresh = Engine::new(program.clone(), Vec::new());

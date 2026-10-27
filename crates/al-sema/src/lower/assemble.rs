@@ -835,7 +835,7 @@ pub(crate) fn lower_core(
         Vec::new()
     };
     let mut program = ir::Program {
-        objects: Vec::new(),
+        objects: Default::default(),
         apps: ws
             .apps
             .iter()
