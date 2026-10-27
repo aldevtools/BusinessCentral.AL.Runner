@@ -844,6 +844,12 @@ impl CorpusRuntime {
             (Some(_), true, false) => Some("cache"),
             (Some(_), false, _) => Some("ran"),
         };
+        // The login code's runs over this baseline, read from its file, are replayed by its sessions; what they record
+        // goes back to the file after the tests (`install::login_work_date`, al-runner issue 5884).
+        let login_origin = baseline_run.as_ref().map(|b| {
+            crate::install::keep_login_records(b.baseline.origin(), &b.login);
+            (b.baseline.origin(), b.login.clone())
+        });
         // The engine the install code ran on (the tests may get another below).
         let install_read_resources =
             baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
@@ -1576,6 +1582,16 @@ impl CorpusRuntime {
             o.clear();
         }
         let tests_time = tests_started.elapsed();
+        if let (Some(key), Some(cc), Some((origin, read))) = (
+            baseline_key.as_ref(),
+            opts.compile_cache.as_ref(),
+            login_origin.as_ref(),
+        ) {
+            let now = crate::install::login_records(*origin);
+            if !now.is_empty() && now != *read {
+                crate::baseline_cache::keep_login(&cc.dir, key, &now);
+            }
+        }
         // Test codeunits of different runs may overlap in time: a run's time is what its codeunits took.
         let suite_times: Vec<(String, std::time::Duration)> = suites
             .iter()

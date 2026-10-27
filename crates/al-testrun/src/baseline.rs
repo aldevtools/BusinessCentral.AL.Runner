@@ -39,6 +39,24 @@ pub struct BaselineRun {
     pub restored: Vec<al_data::memory::RestoredChange>,
     /// With [`run_traced`]: what the install code raised and touched (`impact_trace::keys`).
     pub trace: Option<Vec<String>>,
+    /// The recorded runs of the login code over this baseline (`install::login_work_date`), kept in its file of the
+    /// compile cache so that a later run replays them instead of running the code again.
+    pub login: Vec<LoginRecord>,
+}
+
+/// One recorded run of the login code that sets WorkDate when a test session opens the company
+/// (`install::login_work_date`), over a baseline no table of which changed since: the state it was recorded in (the
+/// company and the WorkDate before it ran) and what it left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginRecord {
+    pub company: String,
+    pub work_date: i32,
+    /// The WorkDate the login code answered.
+    pub day: i32,
+    /// The globals of LogInManagement the run may have changed (global index), and their Date values after it.
+    pub globals: Vec<(usize, i32, bool)>,
+    /// The assumption marks the run made.
+    pub hits: u128,
 }
 
 impl BaselineRun {
@@ -394,6 +412,7 @@ pub fn run_traced(
         total: roots.len(),
         restored,
         trace,
+        login: Vec::new(),
     })
 }
 
