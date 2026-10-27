@@ -538,6 +538,9 @@ pub struct PageState {
     /// move reads next is not pinned (misc/lt-probes-needed-7/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
     pub action_landed_on_new_row: bool,
+    /// A refresh after a control's OnValidate changed a list's filters read more rows than a window holds: what the client holds
+    /// then is not pinned, a move is refused (assumption validate-filter-refresh-window, al-runner issue 5914).
+    pub validate_refresh_unheld: bool,
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
@@ -833,6 +836,7 @@ impl PageState {
             read_after_goto_prev: false,
             empty_list_row_behind: false,
             action_landed_on_new_row: false,
+            validate_refresh_unheld: false,
             static_lookup: false,
             triggers_run: 0,
             refresh_read_done: false,

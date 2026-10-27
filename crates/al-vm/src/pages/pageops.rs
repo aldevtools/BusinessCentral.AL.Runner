@@ -315,6 +315,24 @@ impl Session {
                 name.name()
             ));
         }
+        // See `PageState::validate_refresh_unheld`.
+        if method.recv() != PageRecv::Page
+            && std::mem::take(&mut st.borrow_mut().validate_refresh_unheld)
+            && matches!(
+                name,
+                PageMethod::First
+                    | PageMethod::Last
+                    | PageMethod::Next
+                    | PageMethod::Previous
+                    | PageMethod::GoToKey
+                    | PageMethod::GoToRecord
+            )
+        {
+            return unsupported(format!(
+                "TestPage.{}() after a refresh from a control's OnValidate read more rows than the client holds (not pinned)",
+                name.name()
+            ));
+        }
         // The page's own code (CurrPage in the action's trigger) is not a call of the test client: the mark stays as it is.
         let client = method.recv() != PageRecv::Page;
         let read_after_goto = client && std::mem::take(&mut st.borrow_mut().read_after_goto);
