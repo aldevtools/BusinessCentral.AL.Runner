@@ -229,8 +229,8 @@ the lazy/eager decode leg.
   objects they run. Tests: `al-vm` `lazy_objects` (items 3 and 5 on a small program). Heads are not yet stored in the
   cache entry (next step).
 
-- 2026-10-27, step 2 (heads, second part): the cache entry stores the head of every object (`DepSet::heads`, in the
-  index; `al_cache::FORMAT` 16), made by the cache and layer build from the objects as linked. `DepSource::head` reads
-  it. Tests: the `provided.rs` fixtures compare every stored head with the head of the object as the run linked it
+- 2026-10-27, step 2 (heads, second part): the cache entry stores the head of every object (`DepSet::heads`;
+  `al_cache::FORMAT` 16), made by the cache and layer build from the objects as linked. They sit after the blocks in
+  chunks of 256, each with a zstd content checksum, and are decoded on the first `DepSource::head`, not at open. Tests: the `provided.rs` fixtures compare every stored head with the head of the object as the run linked it
   (item 2), `al-cache` round-trips them (item 1); `AL_CHECK_HEADS=1` makes the same check on a real entry (0 differences
   on BC 27, 28 and 29 with their suites). Nothing reads the stored heads yet.
