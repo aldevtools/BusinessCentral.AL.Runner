@@ -787,6 +787,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
+    /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
+    /// values did not change (`pages/parts.rs` `sync_parts_with`).
+    pub(crate) part_sync_keeps_same_link: bool,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
     /// The session's application areas as `ApplicationArea()` reads them: `#Basic,#Suite`, or the
@@ -1009,6 +1012,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
+            part_sync_keeps_same_link: false,
             dotnet: Default::default(),
             application_areas: String::new(),
             tx: TxState::fresh(),

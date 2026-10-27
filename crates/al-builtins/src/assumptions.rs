@@ -766,6 +766,20 @@ registry! {
             since: "2026-10-27",
         },
     },
+    FindRecordPartHostMovedBack => {
+        id: "find-record-part-host-moved-back",
+        assumed: "A linked part that serves its rows from OnFindRecord or OnNextRecord reads its rows after its host moved back (First, Previous) as after a forward move: `Find('=><')`, OnAfterGetRecord, `Next(1)`, `Next(-1)`, and only when the link value changed. (A part that walks its table reads backwards after such a move: pages/lt-part-reads/PartReadsOpen.al:273.)",
+        tests: "No Microsoft test: al-runner issue 5959, the reporter's repro green on real BC (page 7351 Movement Worksheet with page 9126 Lot Numbers by Bin FactBox; 2 tests of a partner app).",
+        probe: "The FactBox of PartReadsOpen.al SH_FindRecordPart_ with a host Previous that keeps the link value, and a part with OnFindRecord only and with OnNextRecord only.",
+        awaiting: Awaiting {
+            issues: &[5959],
+            files: &[
+                "tests/al-language/pages/lt-part-reads/PartReadsOpen.al::SH_FindRecordPart_HostFirstAfterGoToKey",
+                "tests/al-language/pages/lt-part-reads/PartReadsOpen.al::SH_FindRecordPart_HostNextLastPrevious",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
