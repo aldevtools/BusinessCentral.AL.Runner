@@ -29,6 +29,7 @@ mod group_enabled_field;
 mod host_save_record_parts;
 mod list_caption_filter;
 
+mod empty_worksheet_filled_by_action;
 mod expr_refresh_points;
 mod gone_row_key_filter_relation;
 mod gone_only_row_view_list_tree;
