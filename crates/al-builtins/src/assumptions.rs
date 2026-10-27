@@ -739,6 +739,33 @@ registry! {
             since: "2026-10-27",
         },
     },
+    TreeWorksheetGoneOnlyRowBlankRec => {
+        id: "tree-worksheet-gone-only-row-blank-rec",
+        assumed: "A Worksheet without the new-row line whose repeater shows its rows as a tree (ShowAsTree, IndentationColumn), opened for edit, that lost its only row to an action stands on a blank Rec as the same Worksheet without the tree does: OnNewRecord and OnAfterGetCurrRecord once, at that action and at a later one, with or without CurrPage.Update (pinned without the tree: pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291, :352).",
+        tests: "No Microsoft test: al-runner issue 5953, the reporter's repro green on real BC (a check worksheet's finish action of a partner app that recalculates to no rows; 2 tests).",
+        probe: "The tree Worksheet of RmWorksheetGoneRow.al with an action that empties Rec and calls CurrPage.Update(false), and the same over a table that is not temporary.",
+        awaiting: Awaiting {
+            issues: &[5953],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate",
+                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_TreeWorksheetTemp_OpenEdit_EmptyRecTwice",
+            ],
+            since: "2026-10-27",
+        },
+    },
+    ReadOnlyViewListGoneOnlyRow => {
+        id: "read-only-view-list-gone-only-row",
+        assumed: "A List page with Editable = false, opened for view, without the new-row line, that lost its only row to an action raises no trigger after the action and shows no row, as a List with the line opened for view does (pages/W1Update.al:534). Pinned only with InsertAllowed, DeleteAllowed and ModifyAllowed false and an action that calls CurrPage.Update(false).",
+        tests: "No Microsoft test: al-runner issue 5953, the reporter's repro green on real BC (a \"Retry Now\" action on an error log list of a partner app; 7 tests).",
+        probe: "The List of RmWorksheetGoneRow.al SH_ListViewNotEditable_ without CurrPage.Update, with the Allowed properties left true, and with a second action.",
+        awaiting: Awaiting {
+            issues: &[5953],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

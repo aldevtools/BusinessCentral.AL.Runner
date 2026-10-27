@@ -2360,6 +2360,11 @@ impl Session {
         if !self.has_source(st) {
             return Ok(());
         }
+        if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
+            return unsupported(
+                "a second action on a List opened for view that lost its only row to an action (not pinned)",
+            );
+        }
         self.show_row_page_code_positioned(st)?;
         let again = {
             let s = st.borrow();
@@ -2433,6 +2438,7 @@ impl Session {
             if !new_line
                 && (st.borrow().mode != PageMode::View
                     || flag_denied(&self.engine(), st.borrow().object as usize, "InsertAllowed")?)
+                && !self.read_only_view_list_shows_nothing(st)
             {
                 return unsupported("a list without the new-row line that lost its only row to an action (not pinned)");
             }
@@ -2507,15 +2513,54 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
         let lookup_list = st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st);
-        if read_only || lookup_list || self.tree_indentation(st).is_some() {
+        if read_only || lookup_list {
             return Ok(false);
         }
         let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
+        // A Worksheet that shows its rows as a tree, opened for edit, stands on the blank Rec the same way, at the action and at a
+        // later one (al-runner issue 5953, the reporter's repro on real BC; registered assumption
+        // `tree-worksheet-gone-only-row-blank-rec`, awaiting RmWorksheetGoneRow.al SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
+        // `R:10000;N:0;C:0;`, _EmptyRecTwice `N:0;C:0;`). A tree list whose blank Rec would take a filter value is not pinned
+        // (`settle_on_blank_rec`).
+        if self.tree_indentation(st).is_some() {
+            let tree_pinned = worksheet && st.borrow().mode == PageMode::Edit;
+            if tree_pinned {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::TreeWorksheetGoneOnlyRowBlankRec,
+                );
+            }
+            return Ok(tree_pinned);
+        }
         Ok(match st.borrow().mode {
             PageMode::Edit => worksheet || self.is_list_page(st),
             PageMode::View => worksheet,
             _ => false,
         })
+    }
+
+    /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
+    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534) (al-runner issue 5953, the
+    /// reporter's repro on real BC; registered assumption `read-only-view-list-gone-only-row`, awaiting RmWorksheetGoneRow.al
+    /// SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown blank, First No). A List opened for view that is
+    /// editable, and a non-editable one opened for edit, are not pinned.
+    fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let read_only = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        let lookup = st.borrow().lookup_set && st.borrow().lookup;
+        let pinned = read_only
+            && !lookup
+            && st.borrow().mode == PageMode::View
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.tree_indentation(st).is_none();
+        if pinned {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
+            st.borrow_mut().gone_view_list = true;
+        }
+        pinned
     }
 
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
@@ -2533,6 +2578,11 @@ impl Session {
         let stamped = rec.borrow().fields.clone();
         rec.borrow_mut().fields = fresh.clone();
         if !Self::same_values(&stamped, &fresh) {
+            if self.tree_indentation(st).is_some() {
+                return unsupported(
+                    "a filtered tree list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
+                );
+            }
             let Some(related) = self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? else {
                 return unsupported(
                     "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
