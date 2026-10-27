@@ -124,6 +124,24 @@ fn outcomes_over(
     roots: al_sema::check::Roots,
     bc: &str,
 ) -> Vec<(String, Outcome)> {
+    let (engine, l) = engine_over(app_id, main, dep, roots, bc);
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(&engine, &l, oi)
+}
+
+/// The engine [`outcomes_over`] runs its tests on, with the compiled program.
+fn engine_over(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -165,13 +183,7 @@ fn outcomes_over(
         blocked,
         Some(al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap())),
     );
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == "T")
-        .expect("test codeunit T");
-    run_codeunit(&engine, &l, oi)
+    (engine, l)
 }
 
 fn not_run(o: &[(String, Outcome)], test: &str) -> String {
@@ -2371,4 +2383,57 @@ fn page_control_field_array_source_probe_passes() {
     for (n, _) in &o {
         passes(&o, n);
     }
+}
+
+/// A `Get` of a Field row builds the rows of that one key with the code of the full listing instead of listing every
+/// field of every table (the conference demo: one FieldCaption listed 44,400 rows). The answer must be the listing's for
+/// every key: normal, FlowField, FlowFilter, enum, relation and obsolete fields, a tableextension's fields, the
+/// platform tables (compiled and not), the rowversion and user-name system rows, and keys the listing lacks.
+#[test]
+fn field_get_by_key_matches_the_listing() {
+    let src = r#"enum 50010 "Kind" { value(0; A) { } value(1; B) { } }
+table 50001 "Other" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+table 50002 "Probe" { DataClassification = CustomerContent;
+  fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { Caption = 'The Name'; }
+    field(3; Total; Decimal) { FieldClass = FlowField; CalcFormula = count("Other"); }
+    field(4; DateFilter; Date) { FieldClass = FlowFilter; }
+    field(5; Kind; Enum "Kind") { } field(6; Rel; Code[20]) { TableRelation = "Other"; }
+    field(7; Old; Integer) { ObsoleteState = Pending; ObsoleteReason = 'old'; }
+    field(8; Gone; Integer) { ObsoleteState = Moved; ObsoleteReason = 'moved'; }
+    field(9; Opt; Option) { OptionMembers = X,Y,Z; } field(10; Bad; Code[20]) { TableRelation = if (Kind = const(A)) "Other"; } }
+  keys { key(PK; Id, Name) { Clustered = true; } } }
+tableextension 50003 "Probe Ext" extends "Probe" { fields { field(50000; Extra; Text[50]) { } modify(Rel) { TableRelation = "Other"; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Caption() var F: Record "Field"; begin F.Get(50002, 2); if F."Field Caption" <> 'The Name' then Error('c'); end; }"#;
+    let extra = [
+        (50002, 99),
+        (50002, 8),
+        (50002, 0),
+        (49999, 1),
+        (-1, 1),
+        (50002, 2_000_000_005),
+        (2_000_000_006, 1),
+    ];
+    for (roots, bc) in [
+        (al_sema::check::Roots::default(), "27.5.0.0"),
+        (al_sema::check::Roots::default(), "29.0.0.0"),
+        (
+            al_sema::check::Roots {
+                eager: true,
+                ..Default::default()
+            },
+            "27.5.0.0",
+        ),
+    ] {
+        let (engine, _) = engine_over("main", src, None, roots, bc);
+        let (checked, differences) = al_vm::field_get_by_key_differences(&engine, &extra).unwrap();
+        assert!(checked > 100, "{bc}: only {checked} keys");
+        assert!(
+            differences.is_empty(),
+            "{bc}: {} differences: {:#?}",
+            differences.len(),
+            &differences[..differences.len().min(5)]
+        );
+    }
+    passes(&outcomes(src), "Caption");
 }
