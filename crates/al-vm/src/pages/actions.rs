@@ -234,11 +234,17 @@ impl Session {
 
     /// After an OnDrillDown that turned MarkedOnly on for Rec and called `CurrPage.Update(false)`, a list with OnAfterGetRecord or
     /// OnAfterGetCurrRecord drops the rows it held, so its moves read the marked rows from the table, as a list without those
-    /// triggers does (al-runner issue 5844, the reporter's run on real BC; not pinned by the corpus yet).
+    /// triggers does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016). With CurrPage.Update(false) and the row
+    /// triggers, a page with a part in the content or FactBoxes area does the same (al-runner issue 5886, the reporter's run on
+    /// real BC; assumption drilldown-marked-only-with-part until writer SF's pins SF_WithPart_* and SF_WithFactBox_* land); the
+    /// other shapes of a page with parts stay as they were.
     fn drilldown_marked_only_refresh(&mut self, st: &St, method: PageMethod, marked_only_before: bool) {
-        let shape = {
+        let (shape, with_parts) = {
             let s = st.borrow();
-            method == PageMethod::DrillDown && s.open && s.host.is_none() && s.parts.is_empty() && !s.draft
+            (
+                method == PageMethod::DrillDown && s.open && s.host.is_none() && !s.draft,
+                !s.parts.is_empty(),
+            )
         };
         if !shape
             || marked_only_before
@@ -259,6 +265,9 @@ impl Session {
         // page without the row triggers only (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422
         // DrilldownWithoutUpdateListAndGoTo); with them the later TestPage calls are refused.
         if !st.borrow().refresh {
+            if with_parts {
+                return;
+            }
             if row_triggers {
                 st.borrow_mut().marked_only_unpinned = true;
             } else {
@@ -269,7 +278,10 @@ impl Session {
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return;
         }
-        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016).
+        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part, see above.
+        if with_parts {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedOnlyWithPart);
+        }
         let mut s = st.borrow_mut();
         s.window.clear();
         s.window_from_start = false;
