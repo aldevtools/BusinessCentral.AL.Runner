@@ -723,6 +723,22 @@ registry! {
             since: "2026-10-27",
         },
     },
+    StaleOwnInsertTwoCommitsOtherInsert => {
+        id: "stale-own-insert-two-commits-other-insert",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back; with no write of the table, or an Insert into another table only, BC refuses it. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus. Other writes of the table beside that Insert are not told apart.",
+        tests: "No Microsoft test: al-runner issue 5954, the reporter's repro green on real BC (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order; four tests of a partner app).",
+        probe: "Pinned by writer SH: record/lt-sb-stale-own-modify/SbStaleOwnModify.al SH_OwnModify_* (corpus PR 748). Still wanted: a Modify of another row instead of an Insert, three Commits.",
+        awaiting: Awaiting {
+            issues: &[5954],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_AnotherRowInsert",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_OneCommit_AnotherRowInsert",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_NothingAfter",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_OtherTableInsertAfter",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
