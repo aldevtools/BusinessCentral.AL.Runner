@@ -18,6 +18,11 @@ fn round_ms(ms: i64) -> i64 {
     whole * 1000 + (ticks * 20 + 3) / 6
 }
 
+/// Whether the column holds the millisecond part `ms` (0..1000) of a time as it is: 0, 3, 7, 10, 13, 17, ...
+pub(crate) fn holds_ms(ms: i64) -> bool {
+    round_ms(ms) == ms
+}
+
 /// A Time as the column holds it. A time that rounds to midnight reads 00:00:00 (errors/lt-ms-refusals-132/P132ReportTimeMs.al:190,
 /// :197, 23:59:59.999 shows 12:00:00 AM; :192, :199, 00:00:00.001 too).
 fn round_time(t: i64) -> i64 {
