@@ -78,7 +78,7 @@ every read, and by n milliseconds on `Sleep(n)`.
 
 ## Amendment: the clock catches up with the last system stamp (2026-10-27)
 
-### Decided without owner review (2026-10-27)
+### Status: Accepted (owner, 2026-10-27)
 
 1. **A stamp later than the clock moves the clock to the stamp.** Stamps are strictly increasing (item 4), so more writes than
    milliseconds between two reads put the stamps ahead of the clock: a partner app's test inserted a row and read
