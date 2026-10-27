@@ -29,6 +29,7 @@ mod host_save_record_parts;
 mod list_caption_filter;
 
 mod expr_refresh_points;
+mod find_record_part_host_back;
 mod no_source_card;
 mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;
