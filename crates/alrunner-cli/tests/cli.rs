@@ -1834,6 +1834,55 @@ fn code_that_does_not_compile_runs_no_test_and_exits_3() {
     assert!(text(&o).contains("the parser did not accept"), "{}", text(&o));
 }
 
+/// Issue 5917: a test that calls a procedure its codeunit does not declare is AL0132 (must-not-compile 1780): the run
+/// stops with exit 3 and the error at the member name, as alc gives it; before, that test was not run and the others passed.
+#[test]
+fn a_call_of_a_procedure_the_codeunit_lacks_exits_3() {
+    let d = tempfile::tempdir().unwrap();
+    let app = d.path().join("app");
+    write(
+        &app,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005917", "Logic", &[]),
+    );
+    write(
+        &app,
+        "src/Logic.al",
+        "codeunit 50600 \"Probe Logic\"\n{\n    procedure Add(A: Integer; B: Integer): Integer\n    begin\n        exit(A + B);\n    end;\n}\n",
+    );
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        &app_json(
+            "11111111-0000-0000-0000-000000005918",
+            "Logic Tests",
+            &[("11111111-0000-0000-0000-000000005917", "Logic")],
+        ),
+    );
+    write(
+        &tests,
+        "src/Tests.al",
+        "codeunit 50650 \"Probe Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Passes()\n    var\n        Logic: Codeunit \"Probe Logic\";\n    begin\n        if Logic.NoSuch(1, 1) <> 2 then\n            Error('must be 2');\n    end;\n\n    [Test]\n    procedure Standalone()\n    begin\n    end;\n}\n",
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        tests.to_str().unwrap(),
+        "--no-download",
+        "--codeunit",
+        "50650",
+    ]);
+    assert_eq!(code(&o), 3, "{}", text(&o));
+    assert!(
+        text(&o).contains(
+            "src/Tests.al(10,18): error AL0132: 'Codeunit \"Probe Logic\"' does not contain a definition for 'NoSuch'"
+        ),
+        "{}",
+        text(&o)
+    );
+}
+
 /// Issue 5613: with `--output-json`, a selection that matches no test still writes the document (exit 6, no rows,
 /// the reason in `warnings`), on stdout and to a file.
 #[test]
