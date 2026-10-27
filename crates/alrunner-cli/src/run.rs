@@ -1646,8 +1646,10 @@ fn test_inner(
 
     // An app under test that does not compile runs no test (al-runner issue 5602), as the AL compiler would not
     // publish it: the errors, exit 3, and `compilationErrors` in the JSON document. Source our parser does not accept
-    // is not such an error, as the parser can reject valid AL (al-runner issue 5576): it is said, and the tests that
-    // need the file are not run (orchestrator decision 2026-10-21).
+    // is such an error too (al-runner issue 5916): every file the parser rejects in the corpus is one alc rejects
+    // (corpus/tests/must-not-compile), and every other corpus file parses (al-syntax/tests/corpus_parse.rs). alc's
+    // code for it is not known, so its line has our parser's message and no AL code. A dependency app's file the
+    // parser rejects is not judged here (`compile_errors` leaves dependencies out): the tests that need it are not run.
     let cwd = std::env::current_dir().unwrap_or_default();
     let located = |e: &al_testrun::runtime::CompileError| {
         let file = inputs
@@ -1655,28 +1657,8 @@ fn test_inner(
             .map_or_else(|| e.file.clone(), |i| coverage::label(&i.path, &e.file, &cwd).relative);
         (file, output::compile_error_line(e))
     };
-    let parse_errors: Vec<(String, String)> = rt
-        .compile_errors()
-        .iter()
-        .filter(|e| e.code.is_empty())
-        .map(located)
-        .collect();
-    if !parse_errors.is_empty() {
-        eprintln!(
-            "parse: {} place(s) in the APPs our parser did not accept; the tests that need those files are not run",
-            parse_errors.len()
-        );
-        for (file, line) in parse_errors.iter().take(100) {
-            eprintln!("parse: {file}{line}");
-        }
-    }
-    if rt.compile_errors().iter().any(|e| !e.code.is_empty()) {
-        let errors: Vec<(String, String)> = rt
-            .compile_errors()
-            .iter()
-            .filter(|e| !e.code.is_empty())
-            .map(located)
-            .collect();
+    if !rt.compile_errors().is_empty() {
+        let errors: Vec<(String, String)> = rt.compile_errors().iter().map(located).collect();
         for (file, line) in errors.iter().take(100) {
             eprintln!("compile: {file}{line}");
         }
