@@ -10,6 +10,11 @@ impl Session {
     /// The pinned shape: a top-level Worksheet over a temporary source in its primary key without filters, with OnAfterGetRecord
     /// and OnAfterGetCurrRecord and without OnFindRecord or OnNextRecord, standing on a stored row.
     pub(super) fn temp_refill_shape(&mut self, st: &St) -> bool {
+        self.declares(st, "onaftergetcurrrecord") && self.temp_refill_shape_any_current(st)
+    }
+
+    /// `temp_refill_shape`, with or without OnAfterGetCurrRecord.
+    fn temp_refill_shape_any_current(&mut self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         if engine.object_facts[object].page_type != Some(al_ir::PageType::Worksheet)
@@ -20,7 +25,6 @@ impl Session {
             || st.borrow().cursor != Cursor::Row
             || st.borrow().draft
             || !self.declares(st, "onaftergetrecord")
-            || !self.declares(st, "onaftergetcurrrecord")
             || self.declares(st, "onfindrecord")
             || self.declares(st, "onnextrecord")
         {
@@ -149,6 +153,69 @@ impl Session {
         }
         self.read_refilled_row(st, &rec, &rows[0])?;
         self.read_refilled_rows(st, &rows, 0)
+    }
+
+    /// An action that refilled the rows of a temporary Worksheet with one row, a row the client held being gone, Rec left on that
+    /// row: after the read of the row the client stood on that comes before every action, the client reads the row three times
+    /// and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row (al-runner issue 5952,
+    /// the reporter's repro on real BC; registered assumption `temp-refill-to-one-row-by-action`, awaiting RmTempRefill.al
+    /// SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
+    /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). A refill with two rows or more is not handled here.
+    /// Returns whether it handled the action.
+    pub(super) fn reread_after_refill_to_one_row(&mut self, st: &St) -> Result<bool, Signal> {
+        if !self.temp_refill_shape_any_current(st) {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let rows = self.view_rows(&rec, 2)?;
+        let table = self.table(&rec)?;
+        let now = self.row_key(&rec)?;
+        let [row] = rows.as_slice() else { return Ok(false) };
+        if !Self::same_key(&table.primary_key(row), &now) || !self.held_row_gone(st)? {
+            return Ok(false);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TempRefillToOneRowByAction);
+        let with_current = self.declares(st, "onaftergetcurrrecord");
+        let before = self.xrec_before_move(st);
+        let mut held = self.read_refilled_row(st, &rec, row)?;
+        let reads = if with_current { 2 } else { 1 };
+        for _ in 0..reads {
+            held = self.read_refilled_row(st, &rec, row)?;
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.window = vec![held];
+            s.window_from_start = true;
+            s.window_eof = true;
+            s.window_whole = true;
+            s.view_read_to_end = false;
+            s.window_read_up = false;
+            s.window_top_unread = false;
+            s.opened_on_moved_rec = false;
+            s.settled_first_row = false;
+            s.refresh = false;
+            s.cursor = Cursor::Row;
+        }
+        if with_current {
+            self.current_record_trigger(st, before)?;
+        }
+        Ok(true)
+    }
+
+    /// Whether a row the client holds is no longer in the table.
+    fn held_row_gone(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let held: Vec<WindowRow> = st.borrow().window.clone();
+        for w in &held {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            probe.borrow_mut().filters.clear();
+            let mut pk = w.key.clone();
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Get, &probe, &mut pk)?, Value::Boolean(true)) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// The reads from row `at` of `rows` (the view from its start), then OnAfterGetCurrRecord on it; the client then holds the

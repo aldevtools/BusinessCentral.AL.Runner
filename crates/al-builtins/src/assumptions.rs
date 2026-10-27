@@ -641,6 +641,23 @@ registry! {
             since: "2026-10-27",
         },
     },
+    TempRefillToOneRowByAction => {
+        id: "temp-refill-to-one-row-by-action",
+        assumed: "An action on a top-level Worksheet over a temporary source (primary key, no filters, OnAfterGetRecord, no OnFindRecord or OnNextRecord) that refills Rec with one row, while a row the client held is gone, and leaves Rec on that row: after the read of the row the client stood on, the client reads the row three times and runs OnAfterGetCurrRecord, or reads it twice when the page has no OnAfterGetCurrRecord; it then lists only that row. (A refill with the same rows is pinned: pages/lt-outside-worksheet/RmTempRefill.al:323-:420.)",
+        tests: "No Microsoft test: al-runner issue 5952, the reporter's repro green on real BC (a tree Worksheet's finish action of a partner app that recalculates from 40 rows to 10).",
+        probe: "A temporary Worksheet with and without OnAfterGetCurrRecord, opened with 3 and 25 rows, an action that refills it with 1 and with 2 rows, standing on the first and on a later row: the action log and the rows a First/Next walk lists.",
+        awaiting: Awaiting {
+            issues: &[5952],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_3To1",
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_25To1",
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_25To1_FromRow23",
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_NoCurrRecord_3To1",
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_NoCurrRecord_25To1",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
