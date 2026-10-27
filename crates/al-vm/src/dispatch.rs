@@ -315,7 +315,16 @@ impl Session {
             }
             self.events.next_is_subscriber = true;
             let manual_inst = s.manual.then(|| inst.clone());
+            // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
+            // pinned shapes only (an event a codeunit publishes, a table's OnAfterModifyEvent).
+            let recursion_text = engine.program.objects.get(object).and_then(|p| match p.kind {
+                al_ir::ObjKind::Codeunit => Some((object, s.object, s.routine)),
+                al_ir::ObjKind::Table if event == "onaftermodifyevent" => Some((object, s.object, s.routine)),
+                _ => None,
+            });
+            self.events.subscriber_stack.push(recursion_text);
             let called = self.call(s.object, s.routine, inst, call_args);
+            self.events.subscriber_stack.pop();
             self.events.next_is_subscriber = false;
             if let Some(i) = manual_inst {
                 if !self.is_bound(&i) {

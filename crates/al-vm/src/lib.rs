@@ -1040,6 +1040,7 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
+                subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
                 publisher_var_lens: Vec::new(),
                 unpinned_event_depth: 0,
@@ -1742,6 +1743,39 @@ impl Session {
             ));
         }
         if self.depth >= MAX_CALL_DEPTH {
+            // With an event subscriber on the stack BC names event recursion: code `RecursiveEventCall:StackOverflow`, and a text that
+            // names the innermost subscriber, the event and its publisher. Pinned on corpus branch al-runtime-rs-staging-sh
+            // (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137, commit 67c7900c; al-runner issue 5944; assumption
+            // `recursive-event-call-code` until the corpus bump) for an integration event of a codeunit and OnAfterModifyEvent of a
+            // table; another event's text is not pinned.
+            if let Some(top) = self.events.subscriber_stack.last() {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecursiveEventCallCode);
+                let objects = &self.engine.program.objects;
+                let text = top.map(|(publisher, so, sr)| {
+                    let p = &objects[publisher];
+                    let (event, kind) = if p.kind == al_ir::ObjKind::Table {
+                        ("OnAfterModifyEvent", "Table")
+                    } else {
+                        ("None", "CodeUnit")
+                    };
+                    format!(
+                        "Excessive recursion has been detected in event subscriber function {} for event {event} that is raised in {kind} {}.",
+                        objects[so].routines[sr].name,
+                        p.id.unwrap_or(0)
+                    )
+                });
+                return Err(Signal::Error(Box::new(match text {
+                    Some(message) => al_builtins::native::AlError {
+                        message,
+                        code: "RecursiveEventCall:StackOverflow".into(),
+                        ..Default::default()
+                    },
+                    None => al_builtins::native::unpinned_text_error(
+                        "RecursiveEventCall:StackOverflow",
+                        "recursive-event-call-code",
+                    ),
+                })));
+            }
             return Err(Signal::Error(Box::new(al_builtins::native::AlError {
                 message: "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator.".into(),
                 code: "StackOverflow".into(),

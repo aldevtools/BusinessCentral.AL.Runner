@@ -39,6 +39,7 @@ mod evaluate_byte_char;
 mod evaluate_date_language;
 mod evaluate_duration;
 mod evaluate_option_rejects;
+mod event_recursion_code;
 mod event_var_nested;
 mod events;
 mod exec;
