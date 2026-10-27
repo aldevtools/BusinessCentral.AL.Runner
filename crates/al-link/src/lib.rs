@@ -622,16 +622,17 @@ pub fn link<'k>(
             Ok((object, positions, contribution))
         },
     );
-    base.objects.reserve(done.len());
+    let mut objects = Vec::with_capacity(done.len());
     base.positions.reserve(next as usize);
     let mut contributions = Vec::with_capacity(done.len());
     for d in done {
         let (object, mut positions, contribution) = d?;
         base.positions.append(&mut positions);
-        base.objects.push(object);
+        objects.push(object);
         contributions.push(contribution);
     }
-    merges.apply(&mut base.objects, &mut contributions)?;
+    merges.apply(&mut objects, &mut contributions)?;
+    base.objects = objects.into();
     if !subscribers.is_empty() {
         base.uncompiled_subscribers = subscribers;
     }
