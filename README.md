@@ -33,8 +33,18 @@ against real Business Central 27.5, 28.5 and 29.0 by the
 [AL language test corpus](https://github.com/aldevtools/BusinessCentral.AL.Language.Tests).
 See [How results are checked](docs/manual/how-it-works.md).
 
-**It is an alpha.** Many tests are still refused, and results may change between builds. Do not
-gate a pipeline on it yet.
+> [!WARNING]
+> **For testing only. Not for production use.**
+>
+> AL Runner is a developer tool. Use it to run your tests on your own machine while you write
+> code, and in your build pipelines for fast feedback. It is not Business Central and does not
+> replace it.
+>
+> - Do not use it to run AL code in production, or against production data.
+> - Do not rely on it alone to decide that an app is ready for production. Before you deploy to
+>   production, run your tests at least once in a way Microsoft supports, for example in a
+>   Business Central container on Windows (BcContainerHelper) or with AL-Go for GitHub.
+> - It is an alpha. Many tests are still refused, and results may change between builds.
 
 ## Install
 

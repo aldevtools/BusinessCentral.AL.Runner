@@ -7,6 +7,11 @@ AL Runner needs no Docker, no SQL Server and no license, so it runs on an ordina
 hosted runner. Version 3 is an alpha. Use `--allow-not-run` so refused tests do not
 fail the job, and drop it when you want every test to run.
 
+Use AL Runner in a pipeline for fast feedback, not as the only check before a
+release. Before you deploy to production, run your tests at least once in a way
+Microsoft supports, for example in a Business Central container on Windows
+(BcContainerHelper) or with AL-Go for GitHub.
+
 ## GitHub Actions
 
 A minimal job for a repository that holds `MyApp` and `MyApp.Test`:
