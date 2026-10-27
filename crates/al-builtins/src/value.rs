@@ -1049,6 +1049,9 @@ pub struct RowOrigin {
     pub version: i64,
     /// The session's commit count at that moment.
     pub commits: u64,
+    /// `own_write` holds because the buffer read, by Get or GetBySystemId, a version written in the transaction that was open
+    /// then, not because the variable wrote it (assumption stale-get-buffer-in-write-transaction, al-runner issue 5913).
+    pub read_in_write_tx: bool,
 }
 
 /// What an action's `RunPageLink` fills into Rec before OnOpenPage (field position, value) and the link's filters

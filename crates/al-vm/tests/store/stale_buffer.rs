@@ -493,3 +493,136 @@ fn a_stale_buffer_whose_version_came_from_its_own_write_follows_the_insert_rule(
         assert_eq!(run(p), "DB:RecordChanged|other|0", "{p}");
     }
 }
+
+// al-runner issue 5913 (reporter's real-BC repro, BC 29.0.54011.55407, 8/8 green; assumption stale-get-buffer-in-write-transaction
+// until writer SF's pin lands): a buffer that read the row by Get or GetBySystemId in the transaction that wrote that version,
+// before the Commit, follows the Insert-buffer rule like the buffer that wrote it.
+const GET_TX: &str = r#"
+table 50120 "Repro Stale Row"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Note; Text[30]) { } field(3; Qty; Integer) { } field(4; Stamp; Integer) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+codeunit 50121 T
+{
+    local procedure InsertRowInto(No: Code[20]; var Row: Record "Repro Stale Row")
+    begin
+        Row.Init(); Row."No." := No; Row.Note := 'start'; Row.Insert(true);
+    end;
+
+    local procedure InsertRow(No: Code[20])
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRowInto(No, Row);
+    end;
+
+    local procedure OtherWrite(No: Code[20]; NewNote: Text[30])
+    var Other: Record "Repro Stale Row";
+    begin
+        Other.Get(No); Other.Note := NewNote; Other.Modify(false);
+    end;
+
+    local procedure LockedGet(No: Code[20])
+    var Other: Record "Repro Stale Row";
+    begin
+        Other.LockTable(); Other.Get(No);
+    end;
+
+    local procedure WriteStale(var Row: Record "Repro Stale Row"): Text
+    var Stored: Record "Repro Stale Row";
+    begin
+        Row.Qty := 5; Row.Modify(false);
+        Stored.Get(Row."No.");
+        exit('ok|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    local procedure Refused(var Row: Record "Repro Stale Row"): Text
+    var Stored: Record "Repro Stale Row";
+    begin
+        Row.Qty := 5;
+        asserterror Row.Modify(false);
+        Stored.Get(Row."No.");
+        exit(GetLastErrorCode() + '|' + Stored.Note + '|' + Format(Stored.Qty));
+    end;
+
+    procedure GetOtherWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('G1'); Row.Get('G1'); OtherWrite('G1', 'other'); Commit(); OtherWrite('G1', 'later');
+        exit(WriteStale(Row));
+    end;
+
+    procedure OwnInsertModifyGetOtherWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRowInto('G2', Row); Row.Stamp := 1; Row.Modify(false); Row.Get('G2');
+        OtherWrite('G2', 'other'); Commit(); OtherWrite('G2', 'later');
+        exit(WriteStale(Row));
+    end;
+
+    procedure GetLockTableGet(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('G3'); Row.Get('G3'); OtherWrite('G3', 'other'); Commit(); LockedGet('G3');
+        exit(WriteStale(Row));
+    end;
+
+    procedure GetBySystemIdLockTableGet(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRowInto('G4', Row); Row.Stamp := 1; Row.Modify(false); Row.GetBySystemId(Row.SystemId);
+        OtherWrite('G4', 'other'); Commit(); LockedGet('G4');
+        exit(WriteStale(Row));
+    end;
+
+    procedure GetBySystemIdOtherWrite(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRowInto('G5', Row); Row.Stamp := 1; Row.Modify(false); Row.GetBySystemId(Row.SystemId);
+        OtherWrite('G5', 'other'); Commit(); OtherWrite('G5', 'later');
+        exit(WriteStale(Row));
+    end;
+
+    procedure GetNothingRefused(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('G7'); Row.Get('G7'); OtherWrite('G7', 'other'); Commit();
+        exit(Refused(Row));
+    end;
+
+    procedure GetAfterCommitRefused(): Text
+    var Row: Record "Repro Stale Row";
+    begin
+        InsertRow('G8'); Commit(); Row.Get('G8'); OtherWrite('G8', 'other'); Commit(); OtherWrite('G8', 'later');
+        exit(Refused(Row));
+    end;
+}
+"#;
+
+#[test]
+fn a_stale_buffer_read_by_get_in_the_writing_transaction_follows_the_insert_rule() {
+    use al_builtins::assumptions::{self, Assumption};
+    let run = |p: &str| {
+        assumptions::clear_hits();
+        let out = text(al_testkit::run_in(GET_TX, "T", p));
+        (out, assumptions::take_hits())
+    };
+    for p in [
+        "GetOtherWrite",
+        "OwnInsertModifyGetOtherWrite",
+        "GetLockTableGet",
+        "GetBySystemIdLockTableGet",
+        "GetBySystemIdOtherWrite",
+    ] {
+        let (out, hits) = run(p);
+        assert_eq!(out, "ok|start|5", "{p}");
+        assert!(
+            hits.contains(&Assumption::StaleGetBufferInWriteTransaction),
+            "{p}: {hits:?}"
+        );
+    }
+    // The controls: nothing between the Commit and the stale Modify, and a Get after the Insert's Commit (RU_Stale_GetBuffer_*).
+    for p in ["GetNothingRefused", "GetAfterCommitRefused"] {
+        assert_eq!(run(p).0, "DB:RecordChanged|other|0", "{p}");
+    }
+}

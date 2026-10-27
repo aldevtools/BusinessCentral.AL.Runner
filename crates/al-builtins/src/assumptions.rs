@@ -589,6 +589,23 @@ registry! {
             since: "2026-10-25",
         },
     },
+    StaleGetBufferInWriteTransaction => {
+        id: "stale-get-buffer-in-write-transaction",
+        assumed: "A buffer that read the row by Get or GetBySystemId in the transaction that wrote the version it read (an Insert or Modify of the row before that transaction's Commit), with no own write since, follows the Insert-buffer rule after the Commit (record/TestRecordStaleBufferWrite.al:395-690): its stale Modify is written once the new transaction wrote the row or read it by Get after a LockTable, and refused with nothing in between. A buffer read by Get after the Commit that followed the write stays refused (:604-660).",
+        tests: "No Microsoft test: al-runner issue 5913, the reporter's repro green 8/8 on real BC (two tests of a partner app); pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "Insert, then Get (and GetBySystemId) through another variable in the same transaction, another variable's Modify, Commit, then the new transaction writes the row, or LockTable and Get, or does nothing; then a Modify through the Get buffer: accepted or DB:RecordChanged, and the stored row.",
+        awaiting: Awaiting {
+            issues: &[5913],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_OtherWriteCommit_OtherChangedWrite",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_OwnModifyThenGet_OtherWriteCommit_OtherChangedWrite",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_OtherWriteCommit_LockTableGet",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_OwnModifyThenGetBySystemId_OtherWriteCommit_LockTableGet",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SF_GetInInsertTx_Delete_OtherWriteCommit_OtherChangedWrite",
+            ],
+            since: "2026-10-27",
+        },
+    },
     DrilldownMarkedOnlyWithPart => {
         id: "drilldown-marked-only-with-part",
         assumed: "After a field's OnDrillDown turned MarkedOnly on for Rec and called CurrPage.Update(false), a list with OnAfterGetRecord or OnAfterGetCurrRecord that has a part (in the content area or in the FactBoxes area) lists only the marked rows, as the same page without a part does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016).",
