@@ -198,6 +198,8 @@ pub struct Workspace {
     loaders: Vec<Option<std::sync::Arc<dyn SourceLoader>>>,
     /// Per file: the text a loader gave, kept so a file is read once.
     lazy_text: Vec<OnceLock<String>>,
+    /// See [`Workspace::loaded_files`].
+    loaded_files: usize,
 }
 
 impl Workspace {
@@ -254,7 +256,7 @@ impl Workspace {
         }
         let loaders: Vec<Option<std::sync::Arc<dyn SourceLoader>>> =
             lazy.iter().map(|l| l.as_ref().map(|l| l.loader.clone())).collect();
-        let mut indexes: Vec<Option<std::vec::IntoIter<FileIndex>>> =
+        let indexes: Vec<Option<std::vec::IntoIter<FileIndex>>> =
             lazy.into_iter().map(|l| l.map(|l| l.index.into_iter())).collect();
         let mut ws = Workspace {
             kinds,
@@ -266,7 +268,7 @@ impl Workspace {
             by_name: HashMap::default(),
             by_id: HashMap::default(),
             apps: Vec::new(),
-            symbols: symbols_of.clone(),
+            symbols: symbols_of,
             ext_target: Vec::new(),
             ext_of: HashMap::default(),
             subscribers_of: HashMap::default(),
@@ -279,8 +281,61 @@ impl Workspace {
             unreached: OnceLock::new(),
             loaders,
             lazy_text: Vec::new(),
+            loaded_files: 0,
         };
-        ws.visible = (0..apps.len()).map(|i| visible_from(&apps, i)).collect();
+        let all: Vec<&AppSource> = apps.iter().collect();
+        ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();
+        ws.ingest(apps, indexes);
+        ws
+    }
+
+    /// Adds `apps` (dependency apps, each with its preprocessor symbols in `app_symbols`, or `symbols` when that is
+    /// `None`) after the apps already loaded, as if [`load_apps_symbols`](Self::load_apps_symbols) had been given the
+    /// apps of this workspace followed by `apps` (ADR-022 amendment 2026-10-27, decision 2): objects, files and
+    /// `DotNet` aliases of the new apps come after those already there, the derived tables grow by the new objects
+    /// only, and what a compile set (`restrict_to`, `set_unreached`) is cleared. The files already loaded are not read
+    /// or scanned again; trees parsed before stay (a parse is a function of the text and the symbols).
+    ///
+    /// An error says the result would not equal a fresh load, and nothing has changed: an app already loaded would
+    /// see another set of apps (a dependency that only the new apps provide), or a loaded app is not a dependency.
+    pub fn append_apps(
+        &mut self,
+        apps: Vec<AppSource>,
+        symbols: &BTreeSet<String>,
+        app_symbols: &[Option<BTreeSet<String>>],
+    ) -> Result<(), String> {
+        if self.kinds.iter().any(|k| *k != AppKind::Dependency) {
+            return Err("only a workspace of dependency apps grows".into());
+        }
+        let all: Vec<&AppSource> = self.apps.iter().chain(apps.iter()).collect();
+        let visible: Vec<BTreeSet<usize>> = (0..all.len()).map(|i| visible_from(&all, i)).collect();
+        if visible[..self.apps.len()] != self.visible[..] {
+            return Err("an app already loaded would see the new apps".into());
+        }
+        self.visible = visible;
+        self.kinds.extend(std::iter::repeat_n(AppKind::Dependency, apps.len()));
+        self.symbols
+            .extend((0..apps.len()).map(|i| app_symbols.get(i).cloned().flatten().unwrap_or_else(|| symbols.clone())));
+        self.loaders.extend((0..apps.len()).map(|_| None));
+        self.compiled = OnceLock::new();
+        self.unreached = OnceLock::new();
+        self.ingest(apps, (0..self.kinds.len()).map(|_| None).collect());
+        Ok(())
+    }
+
+    /// How many files this workspace has read and scanned or parsed while loading and growing: each file once.
+    pub fn loaded_files(&self) -> usize {
+        self.loaded_files
+    }
+
+    /// Reads `apps`, which come after `self.apps` (their kinds, symbols, loaders and visibility are set), and
+    /// indexes their objects. `indexes` holds, per app of the whole workspace, the scan a lazy app comes with.
+    fn ingest(&mut self, apps: Vec<AppSource>, mut indexes: Vec<Option<std::vec::IntoIter<FileIndex>>>) {
+        let first_app = self.apps.len();
+        let first_object = self.objects.len();
+        let first_file = self.files.len();
+        let ws = self;
+        let symbols_of = &ws.symbols;
         // Parsing dominates loading and each file is independent, so it runs on
         // all cores. `collect` keeps the input order, so the sequential merge
         // below sees files, diagnostics and objects exactly as a serial load would.
@@ -289,6 +344,7 @@ impl Workspace {
             .iter()
             .enumerate()
             .flat_map(|(ai, app)| {
+                let ai = first_app + ai;
                 let lazy = ws.kinds[ai] == AppKind::Dependency;
                 app.files
                     .iter()
@@ -296,6 +352,7 @@ impl Workspace {
                     .map(move |(fi, (path, src))| (ai, fi, lazy, path.as_str(), src.as_str()))
             })
             .collect();
+        ws.loaded_files += inputs.len();
         // The files of a lazy app come with their scan.
         let given: Vec<Option<ParsedFile>> = inputs
             .iter()
@@ -393,17 +450,18 @@ impl Workspace {
                 });
             }
         }
-        ws.apps = apps;
-        ws.lazy_text = ws.files.iter().map(|_| OnceLock::new()).collect();
-        ws.usable_cache = (0..ws.objects.len()).map(|_| OnceLock::new()).collect();
-        ws.index_extensions_and_subscribers();
-        ws.resolve_references();
+        ws.apps.extend(apps);
+        ws.lazy_text
+            .extend((first_file..ws.files.len()).map(|_| OnceLock::new()));
+        ws.usable_cache
+            .extend((first_object..ws.objects.len()).map(|_| OnceLock::new()));
+        ws.index_extensions_and_subscribers(first_object);
+        ws.resolve_references(first_object);
         let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
         let key = |d: &Diagnostic| (positions.get(d.file.as_str()).copied().unwrap_or(usize::MAX), d.offset);
         let mut diagnostics = std::mem::take(&mut ws.diagnostics);
         diagnostics.sort_by_key(key);
         ws.diagnostics = diagnostics;
-        ws
     }
 
     /// The incremental compile's way in: replaces the text of file `fi` of a workspace app with `text` when
@@ -497,9 +555,11 @@ impl Workspace {
     }
 
     /// Extension targets and event subscribers, found from the object index alone.
-    fn index_extensions_and_subscribers(&mut self) {
-        self.ext_target = vec![None; self.objects.len()];
-        for i in 0..self.objects.len() {
+    /// For the objects from `first` on: the objects before it are indexed, and an object never sees one after it
+    /// (`append_apps` keeps the apps it could see unchanged).
+    fn index_extensions_and_subscribers(&mut self, first: usize) {
+        self.ext_target.resize(self.objects.len(), None);
+        for i in first..self.objects.len() {
             let o = &self.objects[i];
             if let (Some(kind), Some(parts)) = (o.kind.extended(), &o.extends) {
                 // Not `resolve_ref`: that would parse the target's file, and an index of
@@ -510,7 +570,7 @@ impl Workspace {
                 }
             }
         }
-        for i in 0..self.objects.len() {
+        for i in first..self.objects.len() {
             let o = &self.objects[i];
             if let (ObjKind::Interface, Some(parts)) = (o.kind, &o.extends) {
                 // Like the extension targets above: no parse of the base interface's file.
@@ -520,7 +580,7 @@ impl Workspace {
                 }
             }
         }
-        for (i, o) in self.objects.iter().enumerate() {
+        for (i, o) in self.objects.iter().enumerate().skip(first) {
             for (si, sub) in o.subscribers.iter().enumerate() {
                 let kind = ObjKind::from_keyword(&sub.publisher_kind);
                 let name = sub.publisher.join(".").to_lowercase();
@@ -1178,9 +1238,8 @@ impl Workspace {
     /// run on all cores. `collect` keeps the objects in index order and the diagnostics of one
     /// object in the order the serial loop produced them, so the list does not depend on the
     /// number of threads (the final sort by file and offset is stable).
-    fn resolve_references(&mut self) {
-        let per_object: Vec<Vec<Diagnostic>> = self
-            .objects
+    fn resolve_references(&mut self, first: usize) {
+        let per_object: Vec<Vec<Diagnostic>> = self.objects[first..]
             .par_iter()
             .map(|o| self.unresolved_references_of(o))
             .collect();
@@ -1406,7 +1465,7 @@ fn pick(c: Vec<usize>) -> Resolution {
 /// is an implicit dependency of every app (ADR-013 decision 4).
 pub const PLATFORM_APP_ID: &str = "8874ed3a-0643-4247-9ced-7a7002f7135d";
 
-fn visible_from(apps: &[AppSource], start: usize) -> BTreeSet<usize> {
+fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
     let mut seen = BTreeSet::new();
     let mut stack = vec![start];
     if let Some(sys) = apps.iter().position(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID)) {
@@ -2275,5 +2334,125 @@ mod tests {
         let ws = load(vec![app("a", &[], &[("x.al", "codeunit 1 A { 42 }")])]);
         assert_eq!(ws.diagnostics.len(), 1);
         assert_eq!(ws.diagnostics[0].code, "AR0000");
+    }
+
+    /// Everything a load builds, as text: the maps sorted, so two workspaces compare field by field.
+    fn fingerprint(ws: &Workspace) -> String {
+        fn sorted<K: std::fmt::Debug, V: std::fmt::Debug>(m: &HashMap<K, V>) -> Vec<String> {
+            let mut v: Vec<String> = m.iter().map(|(k, v)| format!("{k:?}={v:?}")).collect();
+            v.sort();
+            v
+        }
+        let files: Vec<String> = ws
+            .files
+            .iter()
+            .map(|f| {
+                format!(
+                    "{} {} {} {} {:?} {:?}",
+                    f.path, f.app, f.file_in_app, f.lazy, f.namespace, f.usings
+                )
+            })
+            .collect();
+        let dotnet: Vec<String> = ws
+            .dotnet
+            .iter()
+            .map(|d| format!("{} {} {:?}", d.app, d.file, d.decl))
+            .collect();
+        format!(
+            "{:?}\n{files:?}\n{dotnet:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{} {} {}",
+            ws.objects,
+            ws.diagnostics,
+            ws.kinds,
+            ws.visible,
+            ws.symbols,
+            ws.ext_target,
+            sorted(&ws.by_name),
+            sorted(&ws.by_id),
+            sorted(&ws.ext_of),
+            sorted(&ws.subscribers_of),
+            sorted(&ws.implementers_of),
+            (sorted(&ws.iface_base), sorted(&ws.iface_derived)),
+            ws.apps.len(),
+            ws.usable_cache.len(),
+            ws.lazy_text.len(),
+        )
+    }
+
+    /// ADR-022 amendment 2026-10-27, decision 2: a workspace grown by `append_apps` equals one loaded with all the apps.
+    #[test]
+    fn a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all() {
+        let base = app(
+            "base",
+            &[],
+            &[
+                ("t.al", "table 10 Cust { fields { field(1; No; Code[20]) { } } }"),
+                (
+                    "i.al",
+                    "interface IGreet { procedure Hello(): Text; } interface IMore extends IGreet { procedure More(); }",
+                ),
+                ("e.al", "enum 11 Kind { Extensible = true; value(0; None) { } }"),
+                (
+                    "c.al",
+                    "codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
+                ),
+            ],
+        );
+        let lib = app(
+            "lib",
+            &["base"],
+            &[(
+                "l.al",
+                "tableextension 20 LibCust extends Cust { fields { field(20; Note; Text[20]) { } } }
+                 codeunit 21 LibGreet implements IGreet { procedure Hello(): Text begin end; }
+                 codeunit 22 LibSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
+            )],
+        );
+        let top = app(
+            "top",
+            &["lib", "base"],
+            &[
+                (
+                    "t1.al",
+                    "tableextension 30 TopCust extends Cust { fields { field(30; Top; Text[20]) { } } }
+                     enumextension 31 TopKind extends Kind { value(1; Top) { } }
+                     interface ITop extends IMore { procedure Top(); }",
+                ),
+                (
+                    "t2.al",
+                    "codeunit 32 TopGreet implements IGreet { procedure Hello(): Text begin end; }
+                     codeunit 33 TopSub { [EventSubscriber(ObjectType::Codeunit, 12, 'OnThing', '', false, false)] local procedure S() begin end; }
+                     codeunit 34 Broken { procedure P() begin x := ; end; }",
+                ),
+            ],
+        );
+        let symbols = al_version::corpus_symbols(27);
+        let lib_symbols: BTreeSet<String> = ["LIBSYM".to_string()].into();
+        let all = vec![base.clone(), lib.clone(), top.clone()];
+        let app_symbols = vec![None, Some(lib_symbols.clone()), None];
+        let whole = Workspace::load_apps_symbols(all, vec![AppKind::Dependency; 3], &symbols, &app_symbols, Vec::new());
+        let mut grown = Workspace::load_apps_symbols(vec![base], vec![AppKind::Dependency], &symbols, &[], Vec::new());
+        // Something asked of the smaller workspace, as a layer build does, must not change the result.
+        for i in 0..grown.objects.len() {
+            grown.usable(i);
+        }
+        grown.restrict_to(vec![false; grown.objects.len()]);
+        grown.append_apps(vec![lib], &symbols, &[Some(lib_symbols)]).unwrap();
+        grown.append_apps(vec![top], &symbols, &[]).unwrap();
+        assert_eq!(grown.loaded_files(), whole.loaded_files());
+        assert_eq!(fingerprint(&grown), fingerprint(&whole));
+        assert!(grown.compiled.get().is_none());
+    }
+
+    /// An app already loaded that names a dependency only an appended app provides would see more after the append
+    /// than it did: the workspace refuses to grow then, and stays as it was.
+    #[test]
+    fn an_append_that_would_change_what_a_loaded_app_sees_is_refused() {
+        let symbols = al_version::corpus_symbols(27);
+        let early = app("early", &["late"], &[("a.al", "codeunit 1 A { }")]);
+        let mut ws = Workspace::load_apps_symbols(vec![early], vec![AppKind::Dependency], &symbols, &[], Vec::new());
+        let before = fingerprint(&ws);
+        let late = app("late", &[], &[("b.al", "codeunit 2 B { }")]);
+        assert!(ws.append_apps(vec![late], &symbols, &[]).is_err());
+        assert_eq!(fingerprint(&ws), before);
     }
 }

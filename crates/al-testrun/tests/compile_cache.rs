@@ -965,3 +965,133 @@ codeunit 60102 Tests
     assert!(second.iter().all(|o| o.contains("Pass")), "{second:?}");
     assert!(decoded <= 10, "decoded {decoded} of {objects} objects");
 }
+
+// ---- the missing layers of a run built in one load (ADR-022 amendment 2026-10-27) ------------
+
+/// A fourth layer above `impl`: it extends the table of the Microsoft layer once more, an enum of the library layer,
+/// and implements an interface of the Microsoft layer, so the layer below it is changed from two layers up.
+const TOP: &str = r#"
+tableextension 50500 TopCustExt extends Cust { fields { field(50500; TopNote; Text[20]) { } } trigger OnInsert() begin Rec.TopNote := Rec.LibNote; end; }
+enumextension 50501 TopKind extends LibKind { value(2; Top) { } }
+codeunit 50502 TopGreet implements IGreet { procedure Hello(): Text var I: Codeunit Impl; C: Record Cust; begin C.ImplNote := 'x'; exit(I.Both(C)); end; }
+"#;
+
+const LIB_ENUM: &str = "enum 50250 LibKind { Extensible = true; value(0; None) { } value(1; Lib) { } }";
+
+/// The dependency apps of a stack, in the dependency order the cache sees them, with their manifests.
+fn stack(names: &[&str]) -> (Vec<AppSource>, Vec<Manifest>) {
+    let man = |p: &str, v: &str| Manifest {
+        publisher: p.into(),
+        version: v.into(),
+        resources: vec![],
+        ..Default::default()
+    };
+    let one = |n: &str| -> (AppSource, Manifest) {
+        match n {
+            "base" => (app("base", &[], BASE), man("Microsoft", "27.5.0.0")),
+            "assert" => (named("assert", "Library Assert", &["base"], ASSERT_LIB), ms("27.5.0.0")),
+            "any" => (app("any", &["base"], ANY_LIB), man("Acme", "1.0.0.0")),
+            "shopify" => (app("shopify", &["base"], SHOPIFY), man("Acme", "3.0.0.0")),
+            "lib" => (
+                AppSource {
+                    files: vec![("lib.al".into(), LIB.into()), ("libkind.al".into(), LIB_ENUM.into())],
+                    ..app("lib", &["base"], "")
+                },
+                man("Acme", "2.0.0.0"),
+            ),
+            "impl" => (app("impl", &["lib", "base"], IMPL), man("Me", "1.0.0.0")),
+            "top" => (app("top", &["impl", "lib", "base"], TOP), man("Me", "1.0.0.0")),
+            _ => unreachable!(),
+        }
+    };
+    let (apps, mans): (Vec<AppSource>, Vec<Manifest>) = names.iter().map(|n| one(n)).unzip();
+    let refs: Vec<&AppSource> = apps.iter().collect();
+    let order = compile_cache::dependency_order(&refs, &mans);
+    (
+        order.iter().map(|&i| apps[i].clone()).collect(),
+        order.iter().map(|&i| mans[i].clone()).collect(),
+    )
+}
+
+/// Builds the layers of `names` that are missing in `dir` and gives the files of `dir` with their bytes.
+fn build_layers(
+    dir: &Path,
+    names: &[&str],
+    layer_by_layer: bool,
+) -> (Vec<(String, Vec<u8>)>, compile_cache::CacheReport) {
+    let (mut apps, mans) = stack(names);
+    let cc = cache(dir, false).unwrap();
+    let (_, report) =
+        compile_cache::open_or_build_mode(&cc, &mut apps, &mans, None, &[], &mut |_| {}, layer_by_layer).unwrap();
+    let bytes = files(dir)
+        .into_iter()
+        .map(|p| {
+            (
+                p.file_name().unwrap().to_string_lossy().into_owned(),
+                std::fs::read(&p).unwrap(),
+            )
+        })
+        .collect();
+    (bytes, report)
+}
+
+#[test]
+fn layers_built_in_one_load_are_byte_identical_to_layers_built_one_at_a_time() {
+    let stacks: [&[&str]; 3] = [
+        &["base", "lib", "impl", "top"],
+        &["base", "assert", "any", "shopify"],
+        &["top", "shopify", "impl", "base", "lib", "any"],
+    ];
+    for names in stacks {
+        let (one, a) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (in_one_load, report) = build_layers(one.path(), names, false);
+        let (one_at_a_time, _) = build_layers(a.path(), names, true);
+        assert!(report.layers.len() >= 3, "{names:?}: {} layers", report.layers.len());
+        assert!(report.layers.iter().all(|l| l.built));
+        assert_eq!(
+            in_one_load.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            one_at_a_time.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            "{names:?}"
+        );
+        for ((name, x), (_, y)) in in_one_load.iter().zip(&one_at_a_time) {
+            assert!(x == y, "{names:?}: {name} differs");
+        }
+    }
+}
+
+#[test]
+fn only_upper_layers_or_layers_with_a_gap_built_in_one_load_are_byte_identical_too() {
+    let names: &[&str] = &["base", "lib", "impl", "top", "any"];
+    let (full, report) = build_layers(tempfile::tempdir().unwrap().path(), names, true);
+    let layer_files: Vec<String> = report
+        .layers
+        .iter()
+        .map(|l| l.file.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(layer_files.len(), 5, "{layer_files:?}");
+    // Every layer above the first missing; layers 2 and 4 missing (a gap: 3 is there).
+    for missing in [vec![1, 2, 3, 4], vec![1, 3], vec![2, 4], vec![4]] {
+        let dir = tempfile::tempdir().unwrap();
+        for (n, b) in &full {
+            if !missing.iter().any(|&m| &layer_files[m] == n) {
+                std::fs::write(dir.path().join(n), b).unwrap();
+            }
+        }
+        let (got, report) = build_layers(dir.path(), names, false);
+        let built: Vec<usize> = (0..5).filter(|&i| report.layers[i].built).collect();
+        assert_eq!(built, missing);
+        assert_eq!(got, full, "missing {missing:?}");
+    }
+}
+
+#[test]
+fn the_apps_below_are_read_and_scanned_once_for_all_missing_layers() {
+    // One file per app except `lib` (two). Layers: Microsoft (base), lib, impl, top.
+    let names: &[&str] = &["base", "lib", "impl", "top"];
+    let (_, one_load) = build_layers(tempfile::tempdir().unwrap().path(), names, false);
+    // Every file of the apps up to the top layer, once.
+    assert_eq!(one_load.layer_files_loaded, 5);
+    // One layer at a time loads the apps below each layer again: 3 + 4 + 5.
+    let (_, by_layer) = build_layers(tempfile::tempdir().unwrap().path(), names, true);
+    assert_eq!(by_layer.layer_files_loaded, 12);
+}
