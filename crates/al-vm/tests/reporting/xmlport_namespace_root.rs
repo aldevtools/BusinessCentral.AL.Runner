@@ -81,3 +81,22 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
         Err(Signal::Unsupported(_))
     ));
 }
+
+/// UseDefaultNamespace = true without DefaultNamespace puts the port in BC's own default namespace
+/// (`urn:microsoft-dynamics-nav/xmlports/x<id>`, the export of xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290
+/// Item108_NamespaceRules). That port has a namespace, so the "root in a namespace is not found" pin of a port without one
+/// does not apply. Its import and export are not pinned: refused, both with and without the namespace on the root.
+#[test]
+fn use_default_namespace_without_default_namespace_is_refused() {
+    let p = "UseDefaultNamespace = true;";
+    for doc in [
+        "<Root xmlns=\"urn:microsoft-dynamics-nav/xmlports/x69942\"><R><Id>1</Id></R></Root>",
+        "<Root><R><Id>1</Id></R></Root>",
+    ] {
+        assert!(
+            matches!(run(&src(p, doc), "Import"), Err(Signal::Unsupported(_))),
+            "{doc}"
+        );
+    }
+    assert!(matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
+}
