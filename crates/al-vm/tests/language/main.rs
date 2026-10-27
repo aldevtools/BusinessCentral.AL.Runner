@@ -48,6 +48,7 @@ mod filtergroup_assign;
 mod for_date;
 mod format_auto_format_field;
 mod format_decimal_field_strings;
+mod format_empty_json_array;
 mod format_precision_standard;
 mod format_variant_number;
 mod guid_max_str_len;
