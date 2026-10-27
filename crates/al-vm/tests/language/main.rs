@@ -113,6 +113,7 @@ mod xml_attribute_collection_set;
 mod xml_doctype;
 mod xml_options_assign;
 mod xml_sibling_unparented;
+mod xml_text_into_document;
 mod xml_write_kinds;
 mod xml_xmlns_attribute;
 mod xml_xpath_axes;
