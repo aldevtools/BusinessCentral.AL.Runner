@@ -150,7 +150,7 @@ const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 
 /// What the program says about each object, by name and by owner.
 pub(super) struct Catalog<'a> {
-    pub objects: &'a [Object],
+    pub objects: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
     /// (base kind, lower-case name) to the ids of the objects of that name.
     names: HashMap<(al_ir::ObjKind, String), Vec<u32>>,

@@ -674,7 +674,7 @@ pub fn key_node(graph: &Graph, program: &Program, key: &str) -> Option<usize> {
 /// The object a variable of this type uses: a table, page, test page, enum, query, report or xmlport (report and
 /// xmlport variables are typed `RtType::Codeunit`). A codeunit variable runs nothing by itself: its procedures are
 /// calls (`Lowered::calls_of`) and `Codeunit.Run` on it is handled where it is written.
-fn slot_object(objs: &[al_ir::Object], ty: &RtType) -> Option<usize> {
+fn slot_object(objs: &al_ir::Objects, ty: &RtType) -> Option<usize> {
     let mut ty = ty;
     while let RtType::Array(_, inner) = ty {
         ty = inner;

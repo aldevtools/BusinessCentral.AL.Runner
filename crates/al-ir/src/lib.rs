@@ -7,17 +7,19 @@ use serde::{Deserialize, Serialize};
 
 mod body;
 mod facts;
+mod objects;
 mod objkind;
 pub mod sym;
 pub mod types;
 pub mod walk;
 pub use body::{Body, BodyFixup};
 pub use facts::{FieldClass, FieldFacts, ObjectFacts, PageType, TableType};
+pub use objects::{ObjectSource, Objects};
 pub use objkind::{ObjKind, UnknownKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Program {
-    pub objects: Vec<Object>,
+    pub objects: Objects,
     /// The apps the objects belong to, in the order the compiler was given them (`Object::app`
     /// indexes this). Publisher and version come from the runner, which reads the manifests.
     #[serde(default)]
@@ -1712,7 +1714,7 @@ mod tests {
                 element: String::new(),
                 subscriber: "codeunit \"S\"".into(),
             }],
-            objects: vec![Object {
+            objects: Objects::from(vec![Object {
                 kind: ObjKind::Codeunit,
                 uncompiled: false,
                 id: Some(50100),
@@ -1787,7 +1789,7 @@ mod tests {
                     ]
                     .into(),
                 }],
-            }],
+            }]),
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: Program = serde_json::from_str(&json).unwrap();

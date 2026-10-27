@@ -160,11 +160,13 @@ fn passes(tests: &str) {
 
 const HELPERS: &str = "procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// Microsoft's Tests-ERM "ERM Base Calendar" (codeunit 134233) BaseCalendarEntriesShowCorrespondingRecords
-// (ERMBaseCalendar.Codeunit.al:286-313): after the host card moves to its next row, the part refilled by the host's
-// OnAfterGetRecord shows the row for the same day as before, now with the new source.
+// The shape of Microsoft's Tests-ERM "ERM Base Calendar" (codeunit 134233) BaseCalendarEntriesShowCorrespondingRecords: a part
+// that keeps its position in a global its OnAfterGetRecord sets, refilled by the host's OnAfterGetRecord. Its open read from day 10
+// fills the first window and steps back over every row above it, so the position ends on day 1 (al-runner issue 5887, corpus
+// branch al-runtime-rs-staging-sf misc/lt-probes-needed-6/PnF06FindListMoves.al SF_DayHost_RunWithFilter_OpensPart; for a page of
+// its own pages/lt-ai-list-order/AiListOrderTests.al:1090). After the host moves, the refill opens on day 1, which shows no Descr.
 #[test]
-fn a_part_refilled_by_its_host_shows_the_row_of_the_same_day_after_the_host_moves() {
+fn a_part_refilled_by_its_host_opens_on_the_row_its_step_back_reached_after_the_host_moves() {
     passes(&format!(
         "{HELPERS}
         [Test]
@@ -174,7 +176,7 @@ fn a_part_refilled_by_its_host_shows_the_row_of_the_same_day_after_the_host_move
             C.OpenView();
             Check('A', C.Days.DescrCtl.Value());
             C.Next();
-            if C.Days.DescrCtl.Value() <> 'B' then
+            if C.Days.DescrCtl.Value() <> '' then
                 Error('after next: <%1> trace %2', C.Days.DescrCtl.Value(), Log.Trace());
             C.Close(); end;"
     ));
