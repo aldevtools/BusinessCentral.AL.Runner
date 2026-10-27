@@ -299,7 +299,9 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.subscriber_depth += 1;
             let called = self.call(s.object, s.routine, inst, call_args);
+            self.events.subscriber_depth -= 1;
             self.events.next_is_subscriber = false;
             self.events.next_aliases.clear();
             self.events.next_var_lens.clear();

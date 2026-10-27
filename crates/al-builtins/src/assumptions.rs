@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    RecursiveEventCallCode => {
+        id: "recursive-event-call-code",
+        assumed: "A call chain that reaches the call-depth ceiling while an event subscriber is on the stack raises the error code `RecursiveEventCall:StackOverflow`, at the same depth as plain recursion. Its text starts with `Excessive recursion has been detected in event subscriber function ` and the rest is not known, so GetLastErrorText of it is refused.",
+        tests: "No Microsoft test: al-runner issue 5944, the reporter's repro green on real BC (an OnAfterModifyEvent subscriber that calls Modify(true) on the record again).",
+        probe: "An unguarded Modify(true) in an OnAfterModifyEvent subscriber, and a publisher whose subscriber raises the event again: GetLastErrorCode, the whole GetLastErrorText and how many calls ran before the error.",
+        awaiting: Awaiting {
+            issues: &[5944],
+            files: &["tests/al-language/events/lt-sh-outside-events/ShRecursionCode.al"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
