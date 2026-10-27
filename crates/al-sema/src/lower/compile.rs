@@ -101,7 +101,6 @@ pub(crate) fn provided_blocks(
     ws: &Workspace,
     n_prov: usize,
     src: &dyn crate::provided::DepSource,
-    decode: bool,
 ) -> Result<Vec<Option<crate::provided::DepBlock>>, String> {
     use rayon::prelude::*;
     crate::provided::check_identity(ws, n_prov, src)?;
@@ -110,11 +109,7 @@ pub(crate) fn provided_blocks(
         .into_par_iter()
         .map(|oi| {
             if oi < n_prov && !relower[oi] {
-                if decode {
-                    src.block(oi).map(Some)
-                } else {
-                    Ok(Some(crate::provided::DepBlock::placeholder()))
-                }
+                Ok(Some(crate::provided::DepBlock::placeholder()))
             } else {
                 Ok(None)
             }
@@ -162,7 +157,7 @@ pub fn lower_layer_with(
         ));
     }
     // A layer's result holds only the objects lowered here, so the blocks below are not decoded.
-    let blocks = provided_blocks(&ws, n_prov, below, false)?;
+    let blocks = provided_blocks(&ws, n_prov, below)?;
     let provided = Provided { src: below, blocks };
     let members = crate::members::build(&ws);
     let mut roots = crate::check::Roots {
@@ -204,7 +199,7 @@ pub fn compile_apps_cached(
     symbols: &std::collections::BTreeSet<String>,
     target: Option<&al_version::Target>,
     roots: crate::check::Roots,
-    src: &dyn crate::provided::DepSource,
+    src: std::sync::Arc<dyn crate::provided::DepSource + Send>,
 ) -> Result<(Workspace, Lowered), Box<(Workspace, String)>> {
     let catalog = match target {
         Some(t) => al_builtins::catalog::Catalog::for_target(t),
@@ -218,17 +213,23 @@ pub fn compile_apps_cached(
 
 /// [`compile_apps_cached`] on a workspace that is loaded. An error gives the workspace back, so
 /// the caller can compile it without the cache.
+///
+/// The objects `src` supplies are not decoded here (ADR-054): the program holds them as slots that decode on first
+/// touch (`provided::CachedObjects`), with their heads from `src`, and their source positions as holes of the
+/// position table. `ALRUNNER_EAGER_DECODE=1` decodes them all before the program is returned (the other side of the
+/// lazy/eager differential).
 pub fn compile_loaded_cached(
     ws: Workspace,
     load: std::time::Duration,
     catalog: &al_builtins::catalog::Catalog,
     mut roots: crate::check::Roots,
-    src: &dyn crate::provided::DepSource,
+    src_shared: std::sync::Arc<dyn crate::provided::DepSource + Send>,
 ) -> Result<(Workspace, Lowered), Box<(Workspace, String)>> {
+    let src: &dyn crate::provided::DepSource = &*src_shared;
     let blocks_started = std::time::Instant::now();
     let prepared = (|| {
         let n_dep = crate::provided::dependency_prefix(&ws).ok_or("a dependency app follows a workspace app")?;
-        provided_blocks(&ws, n_dep, src, true)
+        provided_blocks(&ws, n_dep, src)
     })();
     let blocks = match prepared {
         Ok(b) => b,
@@ -248,6 +249,7 @@ pub fn compile_loaded_cached(
     let started = std::time::Instant::now();
     let mut lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), false)
         .expect("a cache that passed its checks lowers");
+    lazy_cached_objects(&mut lowered, &src_shared);
     lowered.timings = CompileTimings {
         load,
         members: members_time,
@@ -273,6 +275,40 @@ pub fn compile_loaded_cached(
         }
     }
     Ok((ws, lowered))
+}
+
+/// Puts the objects the cache supplies into `lowered`'s program as slots that decode on first touch (see
+/// [`compile_loaded_cached`]).
+fn lazy_cached_objects(lowered: &mut Lowered, src: &std::sync::Arc<dyn crate::provided::DepSource + Send>) {
+    let program = std::sync::Arc::get_mut(&mut lowered.program).expect("the program of a compile is not shared yet");
+    let provided = &lowered.provided;
+    let source = std::sync::Arc::new(crate::provided::CachedObjects::new(
+        src.clone(),
+        lowered.pos_ranges.iter().map(|r| r.0).collect(),
+    ));
+    let objects = std::mem::take(&mut program.objects);
+    let heads: std::sync::Arc<[ir::ObjectHead]> = objects
+        .iter()
+        .enumerate()
+        .map(|(oi, o)| {
+            if provided[oi] {
+                src.head(oi).clone()
+            } else {
+                ir::ObjectHead::of(o)
+            }
+        })
+        .collect();
+    let finished: Vec<Option<ir::Object>> = objects
+        .into_vec()
+        .into_iter()
+        .enumerate()
+        .map(|(oi, o)| (!provided[oi]).then_some(o))
+        .collect();
+    program.objects = ir::Objects::lazy_with_heads(finished, source.clone(), heads);
+    program.positions.set_source(source);
+    if std::env::var_os("ALRUNNER_EAGER_DECODE").is_some() {
+        program.objects.make_all();
+    }
 }
 
 pub(crate) fn compile_with(

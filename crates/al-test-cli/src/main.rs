@@ -744,6 +744,11 @@ fn run_version(
                 "compile cache: reading the blocks {:.2} s",
                 c.cache_blocks.as_secs_f64()
             );
+            let (n, took) = al_sema::provided::decoded_on_touch();
+            eprintln!(
+                "compile cache: {n} dependency objects decoded on first touch, {:.2} s",
+                took.as_secs_f64()
+            );
         }
         let slowest: Vec<String> = p
             .slowest

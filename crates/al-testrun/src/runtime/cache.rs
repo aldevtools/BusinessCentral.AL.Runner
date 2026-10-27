@@ -82,7 +82,6 @@ pub(crate) fn compile_with_cache(
     roots: al_sema::check::Roots,
 ) -> Result<CachedCompile, String> {
     use crate::compile_cache as cache;
-    use al_sema::provided::DepSource;
     let n_dep = kinds.iter().take_while(|k| **k == al_sema::AppKind::Dependency).count();
     let dep_symbols: Vec<Option<BTreeSet<String>>> = kinds
         .iter()
@@ -117,8 +116,8 @@ pub(crate) fn compile_with_cache(
         &mut |a| fill(a),
     )?;
     // `open_or_build_with` checked that the layers fit each other.
-    let stack = layers.stack().map_err(|why| format!("compile cache: {why}"))?;
-    report.objects = DepSource::len(&stack);
+    let stack = layers.shared_stack().map_err(|why| format!("compile cache: {why}"))?;
+    report.objects = stack.len();
     report.parse_problems = layers.parse_problems();
     let catalog = match target {
         Some(t) => al_builtins::catalog::Catalog::for_target(t),
@@ -145,7 +144,7 @@ pub(crate) fn compile_with_cache(
         al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new())
     };
     let load = started.elapsed();
-    match al_sema::lower::compile_loaded_cached(ws, load, &catalog, roots.clone(), &stack) {
+    match al_sema::lower::compile_loaded_cached(ws, load, &catalog, roots.clone(), stack) {
         Ok((ws, lowered)) => {
             report.relowered = (0..lowered.provided.len())
                 .filter(|&i| lowered.dependency[i] && !lowered.provided[i])

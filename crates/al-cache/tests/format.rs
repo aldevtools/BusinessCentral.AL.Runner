@@ -218,7 +218,7 @@ fn one_and_two_report_extensions_round_trip_in_object_id_order() {
     let ids: Vec<Option<u32>> = two
         .report_extensions
         .iter()
-        .map(|&i| set.blocks[i as usize].object.as_ref().and_then(|o| o.object.id))
+        .map(|&i| set.blocks[i as usize].object.as_ref().and_then(|o| o.id))
         .collect();
     assert_eq!(ids, vec![Some(50013), Some(50014)], "declared in the other order");
     let bytes = build(&set, &key());

@@ -104,7 +104,7 @@ fn go(p: &Probe, mode: Mode) -> Outcome {
             &Default::default(),
             None,
             Default::default(),
-            &set,
+            std::sync::Arc::new(set),
         ) else {
             panic!("the cache does not fit the apps it was built for");
         };

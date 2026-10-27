@@ -68,30 +68,41 @@ pub struct DepFacts {
     pub report_extensions: Vec<u32>,
     /// The layout of a query, which the lowering of code that uses its columns reads.
     pub query: Option<crate::queries::QueryLayout>,
+    /// How many source positions the object has (ADR-054): a run keeps their ids free and reads them with the block.
+    pub positions: u32,
+    /// Per routine: why it cannot run (empty: it can).
+    pub unsupported: Vec<Vec<String>>,
+    /// Per routine: the routines it calls directly, as (object, routine). What a variable of a
+    /// page, report or xmlport can drive is added when asked (`Lowered::calls_of`), from `drivers`.
+    pub calls: Vec<Vec<(u32, u32)>>,
+    /// Per routine: the types of the variables it sees that can drive other objects (a page, test page or codeunit
+    /// variable; `CurrPage` left out), its locals first, then the object's globals: what `Lowered::calls_of` reads, so
+    /// the object is not decoded to answer it.
+    pub drivers: Vec<Vec<al_builtins::value::RtType>>,
 }
 
 /// The lowered form of one dependency object.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepBlock {
-    /// The object in its symbolic form (ADR-033): its references are keys, so link places it in any program that
-    /// has the objects it names. `None` for a placeholder.
-    pub object: Option<ir::sym::SymObject>,
-    /// Per routine: why it cannot run (empty: it can).
-    pub unsupported: Vec<Vec<String>>,
-    /// Per routine: the routines it calls directly, as (object, routine). What a variable of a
-    /// page, report or xmlport can drive is added when asked (`Lowered::calls_of`).
-    pub calls: Vec<Vec<(u32, u32)>>,
+    /// The object as the build linked it (ADR-054, owner decision 2026-10-27): the extensions of the dependency set
+    /// merged in and every reference a program position, so a run that touches it only decodes it. Dependency objects
+    /// come first in the program, so their positions are the same in the build and in a run. `None` for a placeholder.
+    pub object: Option<ir::Object>,
+    /// The id of the object's first source position in the program of the build. A run whose ids for the object start
+    /// elsewhere moves them.
+    pub pos_start: u32,
+    /// The object's source positions, in id order.
+    pub positions: Vec<ir::SrcPos>,
 }
 
 impl DepBlock {
-    /// A block with nothing in it. A layer build marks the objects of the layers below as supplied
-    /// but never reads their lowered form (the lowering of other objects reads their facts), so it
-    /// does not decode their blocks.
+    /// A block with nothing in it. A run and a layer build never read the lowered form of a supplied object while they
+    /// compile (the lowering of other objects reads its facts), so they do not decode its block then.
     pub fn placeholder() -> DepBlock {
         DepBlock {
             object: None,
-            unsupported: Vec::new(),
-            calls: Vec::new(),
+            pos_start: 0,
+            positions: Vec::new(),
         }
     }
 }
@@ -182,6 +193,27 @@ pub trait LayerSource: Sync {
     fn parse_problems(&self) -> &[(String, String)];
 }
 
+impl<T: LayerSource + ?Sized> LayerSource for &T {
+    fn base_len(&self) -> usize {
+        (**self).base_len()
+    }
+    fn objects(&self) -> &[u32] {
+        (**self).objects()
+    }
+    fn facts_at(&self, slot: usize) -> &DepFacts {
+        (**self).facts_at(slot)
+    }
+    fn head_at(&self, slot: usize) -> &ir::ObjectHead {
+        (**self).head_at(slot)
+    }
+    fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
+        (**self).block_at(slot)
+    }
+    fn parse_problems(&self) -> &[(String, String)] {
+        (**self).parse_problems()
+    }
+}
+
 impl LayerSource for DepLayer {
     fn base_len(&self) -> usize {
         self.base_len
@@ -206,7 +238,7 @@ impl LayerSource for DepLayer {
 /// The layers, lowest first, as one [`DepSource`]: an object comes from the highest layer that
 /// holds it.
 pub struct Stack<'a> {
-    layers: Vec<&'a dyn LayerSource>,
+    layers: Vec<std::sync::Arc<dyn LayerSource + Send + 'a>>,
     /// Per object: (layer, slot) of the highest layer that holds it.
     at: Vec<(u32, u32)>,
     problems: Vec<(String, String)>,
@@ -215,6 +247,17 @@ pub struct Stack<'a> {
 impl<'a> Stack<'a> {
     /// An error says the layers do not fit each other (wrong order, a gap, an object out of range).
     pub fn new(layers: Vec<&'a dyn LayerSource>) -> Result<Stack<'a>, String> {
+        Stack::from_shared(
+            layers
+                .into_iter()
+                .map(|l| std::sync::Arc::new(l) as std::sync::Arc<dyn LayerSource + Send + 'a>)
+                .collect(),
+        )
+    }
+
+    /// [`Stack::new`] of layers it shares ownership of, so the stack can outlive the caller (a run that decodes the
+    /// objects on first touch keeps it, ADR-054).
+    pub fn from_shared(layers: Vec<std::sync::Arc<dyn LayerSource + Send + 'a>>) -> Result<Stack<'a>, String> {
         let mut at: Vec<(u32, u32)> = Vec::new();
         let mut problems = Vec::new();
         for (li, l) in layers.iter().enumerate() {
@@ -267,6 +310,81 @@ impl DepSource for Stack<'_> {
     }
     fn parse_problems(&self) -> &[(String, String)] {
         &self.problems
+    }
+}
+
+/// Makes the objects a compile cache supplies, the first time a run touches them (ADR-054): decodes the object's
+/// block, which holds the object as the build linked it, and moves its source position ids to where this run has
+/// them. Also gives the positions of such an object (`Program::positions`).
+pub struct CachedObjects {
+    src: std::sync::Arc<dyn DepSource + Send>,
+    /// Per object: the id of its first source position in this run's program.
+    starts: Vec<u32>,
+    positions: Vec<std::sync::OnceLock<Vec<ir::SrcPos>>>,
+}
+
+impl CachedObjects {
+    pub fn new(src: std::sync::Arc<dyn DepSource + Send>, starts: Vec<u32>) -> CachedObjects {
+        CachedObjects {
+            src,
+            positions: starts.iter().map(|_| std::sync::OnceLock::new()).collect(),
+            starts,
+        }
+    }
+
+    /// The block of `object`. The whole entry was checked when it was opened, so a block that does not read now is an
+    /// internal error of the test that touched it (ADR-054 owner decision 2).
+    fn read(&self, object: usize) -> DepBlock {
+        self.src
+            .block(object)
+            .unwrap_or_else(|e| panic!("compile cache: the block of object {object} is damaged: {e}"))
+    }
+}
+
+/// How many objects [`CachedObjects`] decoded in this process, and the time they took in total (`--timings`).
+static DECODED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static DECODE_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The objects a compile cache supplied that were decoded on first touch so far in this process, and the time it took.
+pub fn decoded_on_touch() -> (usize, std::time::Duration) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (
+        DECODED.load(Relaxed),
+        std::time::Duration::from_nanos(DECODE_NANOS.load(Relaxed)),
+    )
+}
+
+impl ir::ObjectSource for CachedObjects {
+    fn object(&self, i: usize) -> ir::Object {
+        use std::sync::atomic::Ordering::Relaxed;
+        let started = std::time::Instant::now();
+        let object = self.object_now(i);
+        DECODED.fetch_add(1, Relaxed);
+        DECODE_NANOS.fetch_add(started.elapsed().as_nanos() as u64, Relaxed);
+        object
+    }
+}
+
+impl CachedObjects {
+    fn object_now(&self, i: usize) -> ir::Object {
+        let block = self.read(i);
+        let mut object = block
+            .object
+            .unwrap_or_else(|| panic!("compile cache: object {i} has no stored object"));
+        let by = self.starts[i].wrapping_sub(block.pos_start);
+        if by != 0 {
+            for r in &mut object.routines {
+                r.shift_positions(by);
+            }
+        }
+        let _ = self.positions[i].set(block.positions);
+        object
+    }
+}
+
+impl ir::PositionSource for CachedObjects {
+    fn positions(&self, object: usize) -> &[ir::SrcPos] {
+        self.positions[object].get_or_init(|| self.read(object).positions)
     }
 }
 
@@ -485,9 +603,18 @@ codeunit 60004 WUse { procedure W() var R: Record T; begin R.WX := 1; R.DX := 2;
             ..Default::default()
         };
         let (_, eager) = compile_apps_with(apps.clone(), kinds.clone(), &symbols, None, roots.clone());
-        let (ws, cached) = compile_apps_cached(apps, kinds, &symbols, None, roots, &set)
+        let (ws, cached) = compile_apps_cached(apps, kinds, &symbols, None, roots, std::sync::Arc::new(set.clone()))
             .map_err(|e| e.1)
             .expect("the cache fits");
+        // ADR-054: nothing the cache supplies is decoded by the compile; the comparisons below decodes every object
+        // (test plan item 4: the objects as decoded equal the eager link, positions included).
+        let supplied = cached.provided.iter().filter(|&&p| p).count();
+        assert!(supplied > 0, "the cache supplies objects");
+        assert_eq!(
+            cached.program.objects.made(),
+            0,
+            "the compile decoded a supplied object"
+        );
         let n_dep = dependency_prefix(&ws).unwrap();
         let relowered = (0..n_dep).filter(|&i| !cached.provided[i]).count();
         assert_eq!(eager.program.objects.len(), cached.program.objects.len());
@@ -674,6 +801,7 @@ codeunit 60031 WBar implements IWork { procedure Bump(): Integer begin exit(3); 
                 let stack = Stack::new(refs).expect("the layers fit");
                 let layer =
                     crate::lower::lower_layer(all.clone(), below, &symbols, None, &stack).expect("a layer builds");
+                drop(stack);
                 overrides += layer.objects.iter().filter(|&&o| (o as usize) < layer.base_len).count();
                 built.push(layer);
             }
@@ -849,7 +977,12 @@ codeunit 61004 QUse { procedure W() var R: Record T; begin R.QX := 1; R.WX := 2;
             ..Default::default()
         };
         let (_, eager) = compile_apps_with(apps.clone(), kinds.clone(), &symbols, None, roots.clone());
-        let (_, cached) = compile_apps_cached(apps, kinds, &symbols, None, roots, &stack)
+        let shared = Stack::from_shared(vec![
+            std::sync::Arc::new(base.clone()) as std::sync::Arc<dyn LayerSource + Send>,
+            std::sync::Arc::new(layer.clone()),
+        ])
+        .unwrap();
+        let (_, cached) = compile_apps_cached(apps, kinds, &symbols, None, roots, std::sync::Arc::new(shared))
             .map_err(|e| e.1)
             .expect("the layers fit");
         assert!(*eager.program == *cached.program, "the programs differ");

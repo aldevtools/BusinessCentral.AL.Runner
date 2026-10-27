@@ -577,7 +577,11 @@ pub fn link<'k>(
     let mut pos_ranges = Vec::with_capacity(units.len());
     let mut next = 0u32;
     for u in &units {
-        let len = u.positions.len() as u32;
+        let len = if u.placeholder {
+            u.reserved_positions
+        } else {
+            u.positions.len() as u32
+        };
         pos_ranges.push((next, len));
         next += len;
     }
@@ -625,8 +629,12 @@ pub fn link<'k>(
     let mut objects = Vec::with_capacity(done.len());
     base.positions.reserve(next as usize);
     let mut contributions = Vec::with_capacity(done.len());
-    for d in done {
+    for (i, d) in done.into_iter().enumerate() {
         let (object, mut positions, contribution) = d?;
+        if positions.is_empty() {
+            // A placeholder's ids (ADR-054); nothing for an object without positions.
+            base.positions.push_hole(pos_ranges[i].1, i);
+        }
         base.positions.append(&mut positions);
         objects.push(object);
         contributions.push(contribution);
@@ -1107,7 +1115,8 @@ pub fn relink<'k>(
     for ((oi, s), res) in replace.into_iter().zip(resolved) {
         renewed[oi] = Some((s, res));
     }
-    let old_positions = std::mem::take(&mut program.positions);
+    // A lazy table (ADR-054) is read whole: the ranges move.
+    let old_positions: Vec<SrcPos> = std::mem::take(&mut program.positions).iter().copied().collect();
     let mut positions: Vec<SrcPos> = Vec::with_capacity(old_positions.len());
     for (oi, slot) in renewed.into_iter().enumerate() {
         let cursor = positions.len() as u32;
@@ -1159,7 +1168,7 @@ pub fn relink<'k>(
             }
         }
     }
-    program.positions = positions;
+    program.positions = positions.into();
     Ok(())
 }
 
@@ -1312,7 +1321,7 @@ pub fn first_difference(a: &Program, b: &Program) -> Option<String> {
         let at = a
             .positions
             .iter()
-            .zip(&b.positions)
+            .zip(b.positions.iter())
             .position(|(x, y)| x != y)
             .unwrap_or(a.positions.len().min(b.positions.len()));
         return Some(format!(

@@ -1856,6 +1856,11 @@ fn test_inner(
                 "compile cache: reading the blocks {}",
                 secs(p.compile_parts.cache_blocks)
             );
+            let (n, took) = al_sema::provided::decoded_on_touch();
+            eprintln!(
+                "compile cache: {n} dependency objects decoded on first touch, {}",
+                secs(took)
+            );
         }
         let slowest: Vec<String> = p
             .slowest

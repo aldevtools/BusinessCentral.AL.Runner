@@ -15,6 +15,25 @@ pub(crate) fn driven_edges<'a>(
     slots: impl Iterator<Item = &'a ir::Slot>,
     out: &mut Vec<(usize, usize)>,
 ) {
+    driven_edges_of_types(d, slots.filter(|s| s.name != "CurrPage").map(|s| &s.ty), out)
+}
+
+/// The types of the variables among `slots` that can drive other objects (what [`driven_edges`] reads), in order.
+pub(crate) fn driver_types<'a>(slots: impl Iterator<Item = &'a ir::Slot>) -> Vec<RtType> {
+    slots
+        // `CurrPage` is the page's handle on itself, not a variable that drives it.
+        .filter(|s| s.name != "CurrPage")
+        .filter(|s| matches!(s.ty, RtType::TestPage(_) | RtType::Page(_) | RtType::Codeunit(_)))
+        .map(|s| s.ty.clone())
+        .collect()
+}
+
+/// [`driven_edges`] of the variable types [`driver_types`] kept.
+pub(crate) fn driven_edges_of_types<'a>(
+    d: &DrivenCtx,
+    types: impl Iterator<Item = &'a RtType>,
+    out: &mut Vec<(usize, usize)>,
+) {
     let with_role = |q: usize, mask: u8, out: &mut Vec<(usize, usize)>| {
         out.extend(
             d.routine_roles[q]
@@ -39,17 +58,13 @@ pub(crate) fn driven_edges<'a>(
                 .map(|(ri, _)| (q, ri)),
         );
     };
-    for s in slots {
-        // `CurrPage` is the page's handle on itself, not a variable that drives it.
-        if s.name == "CurrPage" {
-            continue;
-        }
-        if let RtType::TestPage(p) | RtType::Page(p) = s.ty {
+    for ty in types {
+        if let RtType::TestPage(p) | RtType::Page(p) = *ty {
             let p = p as usize;
             // The demand-driven compile reaches the code of a `Page` variable's page when the
             // variable runs it (`Page.Run`), not when it is declared, so a dependency page
             // that a `Page` variable names adds no edge. A workspace page is always compiled.
-            if matches!(s.ty, RtType::Page(_)) && d.dependency[p] {
+            if matches!(ty, RtType::Page(_)) && d.dependency[p] {
                 continue;
             }
             // The page and, transitively, the pages it shows as parts.
@@ -86,7 +101,7 @@ pub(crate) fn driven_edges<'a>(
         }
         // An xmlport's triggers are run by Import and Export, and a report's by Run, which
         // the graph cannot see.
-        if let RtType::Codeunit(p) = s.ty {
+        if let RtType::Codeunit(p) = *ty {
             let p = p as usize;
             if d.runs_triggers[p] {
                 with_role(p, ROLE_TRIGGER | ROLE_SYNTHETIC, out);
@@ -878,6 +893,7 @@ pub(crate) fn lower_core(
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
         driven: None,
+        drivers: Vec::new(),
         exported: None,
         al_diagnostics: checked
             .diagnostics
@@ -963,12 +979,19 @@ pub(crate) fn lower_core(
     {
         for (oi, slot) in blocks.iter_mut().enumerate() {
             if let Some(b) = slot.take() {
+                // The object itself stays in its block until a run touches it (ADR-054): link sees a placeholder.
+                debug_assert!(b.object.is_none(), "a run does not decode a block to compile");
+                let facts = src.expect("blocks come with their source").facts(oi);
+                if out.drivers.is_empty() {
+                    out.drivers = vec![Vec::new(); n];
+                }
+                out.drivers[oi] = facts.drivers.clone();
                 pieces[oi] = Some(Piece {
                     object: ir::Object::default(),
-                    sym: b.object,
+                    sym: None,
                     positions: Vec::new(),
-                    unsupported: b.unsupported,
-                    calls: b
+                    unsupported: facts.unsupported.clone(),
+                    calls: facts
                         .calls
                         .iter()
                         .map(|r| r.iter().map(|&(o, r)| (o as usize, r as usize)).collect())
@@ -1075,22 +1098,12 @@ pub(crate) fn lower_core(
     };
     let mut exported = export.then(crate::provided::DepSet::default);
     let mut staged: Vec<Staged> = Vec::with_capacity(n);
-    let mut block_meta: Vec<BlockMeta> = Vec::new();
     let embeds_of_all: Vec<Vec<usize>> = pieces
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
         .collect();
     for (oi, piece) in pieces.into_iter().flatten().enumerate() {
         if let Some(set) = exported.as_mut() {
-            // The block itself is made from the symbolic object, after the objects are made symbolic.
-            block_meta.push((
-                piece.unsupported.clone(),
-                piece
-                    .direct
-                    .iter()
-                    .map(|r| r.iter().map(|&(o, r)| (o as u32, r as u32)).collect())
-                    .collect(),
-            ));
             let o = &ws.objects[oi];
             let recorded: std::collections::BTreeSet<usize> = embeds_of_all[oi].iter().copied().collect();
             set.facts.push(crate::provided::DepFacts {
@@ -1140,11 +1153,25 @@ pub(crate) fn lower_core(
                 report_reason: shared.report_reasons[oi].clone(),
                 report_extensions: shared.driven.report_extension[oi].iter().map(|&e| e as u32).collect(),
                 query: checked.queries[oi].clone(),
+                // Set from the linked object below.
+                positions: 0,
+                unsupported: piece.unsupported.clone(),
+                calls: piece
+                    .direct
+                    .iter()
+                    .map(|r| r.iter().map(|&(o, r)| (o as u32, r as u32)).collect())
+                    .collect(),
+                drivers: Vec::new(),
             });
         }
         out.unsupported.push(piece.unsupported);
         out.calls.push(piece.calls);
+        let reserved_positions = match src {
+            Some(s) if prov(oi) => s.facts(oi).positions,
+            _ => 0,
+        };
         staged.push(Staged {
+            reserved_positions,
             object: piece.object,
             positions: piece.positions,
             key: piece.key,
@@ -1231,7 +1258,6 @@ pub(crate) fn lower_core(
     let Linking {
         linked,
         expected,
-        syms,
         hashes,
     } = link_pieces(
         staged,
@@ -1246,15 +1272,6 @@ pub(crate) fn lower_core(
             hash: checked.object_hashes,
         },
     )?;
-    if let Some(set) = exported.as_mut() {
-        for ((unsupported, calls), object) in block_meta.into_iter().zip(syms) {
-            set.blocks.push(crate::provided::DepBlock {
-                object,
-                unsupported,
-                calls,
-            });
-        }
-    }
     out.object_hashes = hashes;
     out.pos_ranges = linked.pos_ranges;
     let mut program = linked.program;
@@ -1272,8 +1289,28 @@ pub(crate) fn lower_core(
         }
     }
     if let Some(set) = exported.as_mut() {
-        // Heads from the objects as linked, after the relations (ADR-054 decision 2).
+        // Heads and blocks from the objects as linked, after the relations (ADR-054 decision 2, owner decision
+        // 2026-10-27): a run decodes a block and has the object, with no link.
         set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
+        for (oi, o) in program.objects.iter().enumerate() {
+            let (start, len) = out.pos_ranges[oi];
+            let facts = &mut set.facts[oi];
+            facts.positions = len;
+            facts.drivers = o
+                .routines
+                .iter()
+                .map(|r| driver_types(r.locals.iter().chain(&o.globals)))
+                .collect();
+            set.blocks.push(if prov(oi) {
+                crate::provided::DepBlock::placeholder()
+            } else {
+                crate::provided::DepBlock {
+                    object: Some(o.clone()),
+                    pos_start: start,
+                    positions: (start..start + len).map(|id| program.positions[id as usize]).collect(),
+                }
+            });
+        }
     }
     out.exported = exported;
     if src.is_some() {
@@ -1828,15 +1865,11 @@ fn split_pages(staged: &mut [Staged], provided: &(dyn Fn(usize) -> bool + Sync),
     }
 }
 
-/// A cache block's refusals and direct calls, per routine.
-type BlockMeta = (Vec<Vec<String>>, Vec<Vec<(u32, u32)>>);
-
 /// What making the objects symbolic and linking them gave: the program, the program as lowering used to build it
 /// (the check), and the symbolic objects (for a cache).
 struct Linking {
     linked: al_link::Linked,
     expected: Option<Expected>,
-    syms: Vec<Option<al_ir::sym::SymObject>>,
     /// With `LinkOptions::hash`: `Lowered::object_hashes`.
     hashes: Vec<Option<super::ObjectHash>>,
 }
@@ -1876,6 +1909,8 @@ struct Staged {
     fields: Vec<u32>,
     /// For a provided page: its control names (`DepFacts::controls`).
     controls: Vec<String>,
+    /// For a provided object: how many source positions it has (`DepFacts::positions`).
+    reserved_positions: u32,
 }
 
 /// Turns the lowered objects, in program order, into the program (ADR-033): the objects that were
@@ -1907,7 +1942,13 @@ fn link_pieces(
         let mut ranges = Vec::new();
         for (oi, s) in staged.iter().enumerate() {
             let at = p.positions.len() as u32;
-            ranges.push((at, s.positions.len() as u32));
+            if provided(oi) {
+                // A supplied object keeps its position ids free, as link does (ADR-054).
+                ranges.push((at, s.reserved_positions));
+                p.positions.push_hole(s.reserved_positions, oi);
+            } else {
+                ranges.push((at, s.positions.len() as u32));
+            }
             let mut object = s.object.clone();
             if !provided(oi) {
                 let mut u = Unembed {
@@ -1923,7 +1964,7 @@ fn link_pieces(
                 for r in &mut object.routines {
                     r.shift_positions(at);
                 }
-                p.positions.extend(s.positions.iter().copied());
+                p.positions.extend_from_slice(&s.positions);
             }
             p.objects.push(object);
         }
@@ -1982,6 +2023,7 @@ fn link_pieces(
                 implements: s.implements,
                 field_numbers: s.fields,
                 control_names: s.controls,
+                reserved_positions: s.reserved_positions,
                 ..Default::default()
             })
         } else {
@@ -2032,11 +2074,6 @@ fn link_pieces(
             s.field_numbers = (lookups.field_numbers)(t);
         }
     }
-    let syms: Vec<Option<al_ir::sym::SymObject>> = if export {
-        units.iter().map(|u| (!u.placeholder).then(|| u.clone())).collect()
-    } else {
-        Vec::new()
-    };
     let hashes: Vec<Option<super::ObjectHash>> = if hash {
         al_link::par_map(units.iter().enumerate().collect(), workers, |oi, (_, u)| {
             (!u.placeholder && !provided(oi)).then(|| object_hash(u, &base.sources))
@@ -2050,7 +2087,6 @@ fn link_pieces(
     Ok(Linking {
         linked,
         expected,
-        syms,
         hashes,
     })
 }
