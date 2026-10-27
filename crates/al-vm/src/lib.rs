@@ -1890,6 +1890,8 @@ impl Session {
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), _) => a,
                 // An HttpContent passed by reference is the caller's own object; only a by-value one is a copy (see `ops::convert`).
                 (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpContent") => a,
+                // A BigText passed by reference too; a by-value one is a copy (`ops::convert`, al-runner issue 5940).
+                (a @ Value::Library(al_builtins::library_kind::LibraryKind::BigText, _), true) => a,
                 // A Variant holding an Integer handed to a `var` Text parameter is passed as it is: no conversion, the callee's
                 // assignment replaces it and the Variant then holds that text (types/lt-variant-to-text-fields/
                 // VariantNumberToVarParam.al:VarTextParam_VariantArgument, `integer ok = Yes`, `variant after = filled`). Another

@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    BigTextValueCopy => {
+        id: "bigtext-value-copy",
+        assumed: "A BigText is a value: `B := A` copies its text, a by-value parameter (of a procedure or an event) gets a copy the callee's AddText does not reach, and a returned BigText is a copy; a `var` parameter is the caller's own BigText. Nothing in the corpus tells a copy from a shared BigText yet.",
+        tests: "No Microsoft test: al-runner issue 5940, the reporter's repro green on real BC (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
+        probe: "`B := A` then A.AddText: B's length; a by-value parameter whose callee calls AddText: the caller's length; Clear of a copy: the original's length; a var parameter's AddText: the caller's length.",
+        awaiting: Awaiting {
+            issues: &[5940],
+            files: &["tests/al-language/text/lt-sh-outside-values/ShBigTextValueCopy.al"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
