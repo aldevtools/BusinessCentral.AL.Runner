@@ -46,6 +46,10 @@ fn blocks(e: &Entry) -> Vec<al_sema::provided::DepBlock> {
     (0..e.len()).map(|i| e.block(i).expect("block")).collect()
 }
 
+fn heads(e: &Entry) -> Vec<al_ir::ObjectHead> {
+    (0..e.len()).map(|i| e.head(i).clone()).collect()
+}
+
 #[test]
 fn a_set_survives_the_round_trip() {
     let set = set();
@@ -95,13 +99,13 @@ fn a_truncated_file_is_refused_whatever_its_length() {
 }
 
 /// Flip every byte of the file in turn. Either the damage is found (at open or when the blocks
-/// are read), or what is read is exactly what was written. It is never something else.
+/// and heads are read), or what is read is exactly what was written. It is never something else.
 #[test]
 fn a_damaged_file_is_refused_or_reads_the_same() {
     let good = build(&set(), &key());
     let want = {
         let e = Entry::open(good.clone(), &key()).unwrap();
-        blocks(&e)
+        (blocks(&e), heads(&e))
     };
     let (mut refused, mut same) = (0, 0);
     for at in 0..good.len() {
@@ -114,7 +118,7 @@ fn a_damaged_file_is_refused_or_reads_the_same() {
         match e.verify() {
             Err(_) => refused += 1,
             Ok(()) => {
-                let got = blocks(&e);
+                let got = (blocks(&e), heads(&e));
                 assert!(got == want, "a flipped byte at {at} changed what is read");
                 same += 1;
             }
