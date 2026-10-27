@@ -143,54 +143,108 @@ pub fn lower_layer_with(
     target: Option<&al_version::Target>,
     below: &dyn crate::provided::DepSource,
 ) -> Result<crate::provided::DepLayer, String> {
-    let catalog = match target {
-        Some(t) => al_builtins::catalog::Catalog::for_target(t),
-        None => al_builtins::catalog::Catalog::load(),
-    };
-    let kinds = vec![crate::workspace::AppKind::Dependency; apps.len()];
-    let ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
-    let n_prov = below.len();
-    if n_prov > ws.objects.len() {
-        return Err(format!(
-            "the layers below hold {n_prov} objects, the apps have {}",
-            ws.objects.len()
-        ));
+    let builder = LayerBuilder::new(apps, app_symbols, symbols, target);
+    builder.lower(n_below_apps, below)
+}
+
+/// The layers of one run built on one workspace (ADR-022 amendment 2026-10-27): the apps of the lowest layer to
+/// build and those below it are loaded once, the apps of each next layer are appended ([`Workspace::append_apps`]),
+/// and each layer is lowered on the workspace as it is then. A layer lowered here equals, byte for byte once encoded,
+/// the layer [`lower_layer_with`] makes of the same apps.
+pub struct LayerBuilder {
+    ws: Workspace,
+    catalog: al_builtins::catalog::Catalog,
+}
+
+impl LayerBuilder {
+    /// Loads `apps` (dependency apps in program order; app `i` with `app_symbols[i]` set is preprocessed with those
+    /// symbols, the others with `symbols`).
+    pub fn new(
+        apps: Vec<crate::workspace::AppSource>,
+        app_symbols: &[Option<std::collections::BTreeSet<String>>],
+        symbols: &std::collections::BTreeSet<String>,
+        target: Option<&al_version::Target>,
+    ) -> LayerBuilder {
+        let catalog = match target {
+            Some(t) => al_builtins::catalog::Catalog::for_target(t),
+            None => al_builtins::catalog::Catalog::load(),
+        };
+        let kinds = vec![crate::workspace::AppKind::Dependency; apps.len()];
+        let ws = Workspace::load_apps_symbols(apps, kinds, symbols, app_symbols, Vec::new());
+        LayerBuilder { ws, catalog }
     }
-    // A layer's result holds only the objects lowered here, so the blocks below are not decoded.
-    let blocks = provided_blocks(&ws, n_prov, below)?;
-    let provided = Provided {
-        src: below,
-        blocks,
-        shared: None,
-    };
-    let members = crate::members::build(&ws);
-    let mut roots = crate::check::Roots {
-        eager: true,
-        ..Default::default()
-    };
-    roots.provided = (0..ws.objects.len()).map(|oi| provided.has(oi)).collect();
-    roots.provided_queries = (0..ws.objects.len())
-        .map(|oi| provided.has(oi).then(|| below.facts(oi).query.clone()).flatten())
-        .collect();
-    let checked = crate::check::check_with(&ws, &members, &catalog, roots);
-    let lowered = lower_core(&ws, &members, &checked, true, lower_workers(), Some(provided), true)?;
-    let all = lowered.exported.expect("exported");
-    let mut layer = crate::provided::DepLayer {
-        base_len: n_prov,
-        ..Default::default()
-    };
-    // Facts and direct calls of an object taken from `below` are not complete in the export, and
-    // are not needed: only the objects lowered here are kept.
-    for (oi, ((facts, block), head)) in all.facts.into_iter().zip(all.blocks).zip(all.heads).enumerate() {
-        if !lowered.provided[oi] {
-            layer.objects.push(oi as u32);
-            layer.set.facts.push(facts);
-            layer.set.blocks.push(block);
-            layer.set.heads.push(head);
+
+    /// Appends `apps` after the apps loaded (see [`Workspace::append_apps`]). An error leaves the builder unchanged.
+    pub fn append(
+        &mut self,
+        apps: Vec<crate::workspace::AppSource>,
+        app_symbols: &[Option<std::collections::BTreeSet<String>>],
+        symbols: &std::collections::BTreeSet<String>,
+    ) -> Result<(), String> {
+        self.ws.append_apps(apps, symbols, app_symbols)
+    }
+
+    /// How many apps are loaded.
+    pub fn apps(&self) -> usize {
+        self.ws.apps.len()
+    }
+
+    /// How many files were read and scanned so far (each once).
+    pub fn loaded_files(&self) -> usize {
+        self.ws.loaded_files()
+    }
+
+    /// The layer of the apps from `n_below_apps` on, on top of `below` (the layers of the apps before it); see
+    /// [`lower_layer`].
+    pub fn lower(
+        &self,
+        n_below_apps: usize,
+        below: &dyn crate::provided::DepSource,
+    ) -> Result<crate::provided::DepLayer, String> {
+        let (ws, catalog) = (&self.ws, &self.catalog);
+        let n_prov = below.len();
+        if n_prov > ws.objects.len() {
+            return Err(format!(
+                "the layers below hold {n_prov} objects, the apps have {}",
+                ws.objects.len()
+            ));
         }
+        // A layer's result holds only the objects lowered here, so the blocks below are not decoded.
+        let blocks = provided_blocks(ws, n_prov, below)?;
+        let provided = Provided {
+            src: below,
+            blocks,
+            shared: None,
+        };
+        let members = crate::members::build(ws);
+        let mut roots = crate::check::Roots {
+            eager: true,
+            ..Default::default()
+        };
+        roots.provided = (0..ws.objects.len()).map(|oi| provided.has(oi)).collect();
+        roots.provided_queries = (0..ws.objects.len())
+            .map(|oi| provided.has(oi).then(|| below.facts(oi).query.clone()).flatten())
+            .collect();
+        let checked = crate::check::check_with(ws, &members, catalog, roots);
+        let lowered = lower_core(ws, &members, &checked, true, lower_workers(), Some(provided), true)?;
+        let all = lowered.exported.expect("exported");
+        let mut layer = crate::provided::DepLayer {
+            base_len: n_prov,
+            ..Default::default()
+        };
+        // Facts and direct calls of an object taken from `below` are not complete in the export, and
+        // are not needed: only the objects lowered here are kept.
+        for (oi, ((facts, block), head)) in all.facts.into_iter().zip(all.blocks).zip(all.heads).enumerate() {
+            if !lowered.provided[oi] {
+                layer.objects.push(oi as u32);
+                layer.set.facts.push(facts);
+                layer.set.blocks.push(block);
+                layer.set.heads.push(head);
+            }
+        }
+        layer.set.parse_problems = ws.lazy_parse_problems_from(n_below_apps);
+        Ok(layer)
     }
-    layer.set.parse_problems = ws.lazy_parse_problems_from(n_below_apps);
-    Ok(layer)
 }
 
 /// [`compile_apps_with`] for a run whose dependency apps (first in `apps`) are described by `src`:
