@@ -153,13 +153,8 @@ jobs:
           ./target/release/al-test-cli --all-versions --require-dotnet \
             --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml || status=1
           normal_end=$(date +%s)
-          # One line per BC version: pass, fail, not run, rate and total time. Areas, phases and
-          # suites are in pass-rate-<v>.json and in the log.
-          {
-            echo "## Corpus pass rate"
-            echo
-            cat pass-rate-*.md
-          } >> "$GITHUB_STEP_SUMMARY"
+          # The job summary is written by the step "Corpus job summary" below, from the files the
+          # runs write (pass-rate-<v>.md and .json, eager-summary.md).
 
           # --no-ratchet: the allow-listed differences fail the ratchet; compare_junit is the check.
           # --json keeps each eager run's phase times (every report has them).
@@ -195,16 +190,14 @@ jobs:
             echo "- The comparison of the two: $((step_end - eager_end)) s."
             echo "- The step in total: $((step_end - step_start)) s."
             echo
-            echo "The \"How long it took\" tables above are from the normal run, which had the runner to"
-            echo "itself. The runs that compile every dependency exist only to check that the normal run"
-            echo "skips nothing a test needs. They are not part of the runtime's time."
+            echo "The times without the compile cache are from the normal run, which had the runner to itself."
             if [ ${#eager_reports[@]} -gt 0 ]; then
               echo
-              echo "Runs that compile every dependency, for comparison (three at a time on 4 vCPUs):"
+              echo "The runs that compile every dependency (three at a time on 4 vCPUs):"
               echo
               ./target/release/al-test-cli "${eager_reports[@]}"
             fi
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          } | tee eager-summary.md
           exit $status
 
       # ADR-022. The measured run: every dependency app comes from the compile cache
@@ -218,20 +211,88 @@ jobs:
           ./target/release/al-test-cli --all-versions --require-dotnet --no-ratchet --require-compile-cache \
             --json cached-pass-rate.json --markdown cached-pass-rate.md --junit cached-junit.xml || status=1
           tools/cache_vs_uncached.sh compare . || status=1
+          exit $status
+
+      # The job summary, from the files the two steps above write. It runs even when one of them
+      # failed, so a regression still shows its numbers.
+      - name: Corpus job summary
+        if: always()
+        run: |
+          # The "How long it took" table of each report of one run; nothing when there is none.
+          timings() {
+            local args=() f
+            for f in "$1"-*.json; do
+              [ -f "$f" ] && args+=(--timings-table "$f")
+            done
+            if [ ${#args[@]} -gt 0 ]; then
+              ./target/release/al-test-cli "${args[@]}" || true
+            else
+              echo "No report."
+            fi
+          }
           {
+            echo "## Corpus pass rate and time"
+            echo
+            echo "Pass, fail and not run are from the normal run. The times are the total of each run."
+            echo
+            python3 - <<'PY'
+          import json, os
+          def load(p):
+              try:
+                  with open(p) as f:
+                      return json.load(f)
+              except (OSError, ValueError):
+                  return None
+          def secs(d):
+              t = (d or {}).get("timings") or {}
+              return t.get("total_s")
+          print("| Version | Passed | Failed | Not run | Without the compile cache | With the compile cache | Difference |")
+          print("|---|---:|---:|---:|---:|---:|---:|")
+          for v in ("27", "28", "29"):
+              n = load(f"pass-rate-{v}.json")
+              c = load(f"cached-pass-rate-{v}.json")
+              if n is None and c is None:
+                  continue
+              o = (n or c)["overall"]
+              a, b = secs(n), secs(c)
+              fa = f"{a:.1f} s" if a is not None else "-"
+              fb = f"{b:.1f} s" if b is not None else "-"
+              fd = f"{b - a:+.1f} s" if a is not None and b is not None else "-"
+              label = ((n or c).get("timings") or {}).get("bc_version") or v
+              print(f"| BC {label} | {o['pass']} | {o['fail']} | {o['not_run']} | {fa} | {fb} | {fd} |")
+          PY
+            echo
+            echo "## Without the compile cache (demand-driven compile)"
+            echo
+            cat pass-rate-*.md 2>/dev/null || echo "No report: the run did not finish."
+            echo
+            echo "How long it took:"
+            echo
+            timings pass-rate
             echo
             echo "## With the compile cache"
             echo
-            echo "One line per BC version, every dependency app taken from the cache (total time of the measured run):"
+            echo "Every dependency app taken from the cache."
             echo
-            cat cached-pass-rate-*.md
+            cat cached-pass-rate-*.md 2>/dev/null || echo "No report: the run did not finish."
+            echo
+            echo "How long it took:"
+            echo
+            timings cached-pass-rate
             echo
             echo "### Time to build the compile cache (not part of the times above)"
             echo
             grep "^compile cache build time" cache-build.txt | sed 's/^/- /' || true
             grep "^compile cache: BC" cache-build.txt | sed 's/^/- /' || true
+            echo
+            echo "<details><summary>Check run: every dependency compiled (a correctness check, not a speed measurement)</summary>"
+            echo
+            echo "These runs only prove that the demand-driven compile skips nothing a test needs."
+            echo
+            cat eager-summary.md 2>/dev/null || echo "No report: the check did not finish."
+            echo
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
       # ADR-013, "The baseline runs only when a selected test can observe it": the rule that skips the
       # install baseline must never change an outcome. This run starts every test codeunit the rule
       # calls free of the baseline on an empty store; no test may come out differently.
