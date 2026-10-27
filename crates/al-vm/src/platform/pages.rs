@@ -72,14 +72,14 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// Pinned shapes (misc/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId,
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
-/// integer range `a .. b`. Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
+/// integer range `a .. b`, and on a Date field `filter('')`, `filter(0D)`, `filter(<> '')` and `const(0D)`
+/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890). Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
 /// The second value is the assumption the text rests on, if any.
 fn view_text(
     o: &Object,
     table: Option<&al_ir::ObjectHead>,
     table_objects: &al_ir::Objects,
 ) -> Result<(String, Option<al_builtins::assumptions::Assumption>), String> {
-    let mut assumed = None;
     let Some(v) = prop(o, "SourceTableView") else {
         return Ok((String::new(), None));
     };
@@ -138,15 +138,22 @@ fn view_text(
                     f.id,
                     const_text(f, value.trim(), table_objects).ok_or_else(not_pinned)?
                 ));
-            } else if rest
+            } else if let Some(text) = rest
                 .strip_prefix_ci("filter(")
                 .and_then(|r| r.strip_suffix(')'))
-                .is_some_and(|v| matches!(f.ty, RtType::Date) && v.split_whitespace().collect::<String>() == "<>''")
+                .filter(|_| matches!(f.ty, RtType::Date))
+                .and_then(
+                    |v| match v.split_whitespace().collect::<String>().to_ascii_lowercase().as_str() {
+                        "<>''" => Some("<>''"),
+                        "''" | "0d" => Some("''"),
+                        _ => None,
+                    },
+                )
             {
-                // A Date field not blank: `Field2=FILTER(<>'')`. Only the `Field2=` part is known from real BC (al-runner
-                // issue 5957; assumption `page-metadata-view-not-blank-date`).
-                assumed = Some(al_builtins::assumptions::Assumption::PageMetadataViewNotBlankDate);
-                conds.push(format!("Field{}=FILTER(<>'')", f.id));
+                // A Date field blank or not blank: `filter('')` and `filter(0D)` read `Field7=FILTER('')`, `filter(<> '')` reads
+                // `Field7=FILTER(<>'')` (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890-905
+                // SH_SourceTableView_DateFilterBlank_PageMetadata).
+                conds.push(format!("Field{}=FILTER({text})", f.id));
             } else if let Some(value) = rest.strip_prefix_ci("filter(").and_then(|r| r.strip_suffix(')')) {
                 // An integer range, written `1 .. 5`, reads `1..5` (W2PageMetadata.al:395 E_filter_range).
                 let (a, b) = value.split_once("..").ok_or_else(not_pinned)?;
@@ -161,7 +168,7 @@ fn view_text(
         }
         out.push_str(&format!("WHERE({})", conds.join(",")));
     }
-    Ok((out, assumed))
+    Ok((out, None))
 }
 
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
@@ -180,6 +187,8 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
             .map(|p| p.to_string()),
         RtType::Enum(e) if plain(value) => objects_enum_ordinal(table_objects, *e, value).map(|p| p.to_string()),
         RtType::Integer | RtType::BigInteger if value.parse::<i64>().is_ok() => Some(value.to_string()),
+        // The blank date as a DateTime text (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890-905, `const 0D`).
+        RtType::Date if value.eq_ignore_ascii_case("0d") => Some("0001-01-01T00:00:00.0000000".into()),
         _ => None,
     }
 }

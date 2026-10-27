@@ -580,6 +580,9 @@ pub struct PageState {
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:452 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
+    /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
+    /// pinned and is refused (pages/lt-outside-worksheet/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
+    pub gone_view_list: bool,
     /// The part's link value failed its validation as the host opened: Last() answers No and reads nothing, a write raises
     /// TestRowNotFound (pages/lt-qj-part-propagation/QjPartPropagation.al:3766); anything else on the part is refused.
     pub link_validate_failed: bool,
@@ -850,6 +853,7 @@ impl PageState {
             blank_after_empty_last: false,
             gone_blank_no_new_line: false,
             gone_blank_shows_line: false,
+            gone_view_list: false,
             link_validate_failed: false,
             settled_first_row: false,
             caption_assigned_closed: false,

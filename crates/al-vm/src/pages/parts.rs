@@ -420,15 +420,22 @@ impl Session {
                         child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AtOpen);
                     }
                     if let Sync::Move { backward: true } = how {
-                        // The pinned parts walk the table; a part with its own OnFindRecord or OnNextRecord is not pinned.
-                        if self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord") {
-                            return unsupported(
-                                "a host moved back with a linked part that declares OnFindRecord or OnNextRecord (reads not pinned)",
-                            );
+                        // The pinned parts walk the table backwards. A part with its own OnFindRecord or OnNextRecord reads as after
+                        // a forward move, `Find(=><)`, OnAfterGetRecord, `Next(1)`, `Next(-1)` (pages/lt-part-reads/PartReadsOpen.al
+                        // SH_FindRecordPart_HostFirstAfterGoToKey `first part log`, SH_FindRecordPart_HostNextLastPrevious
+                        // `previous part log`).
+                        if !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
+                            child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
                         }
-                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
                     }
-                    self.sync_part(st, *i, child)?;
+                    // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
+                    // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
+                    // H1).
+                    self.part_sync_keeps_same_link = matches!(how, Sync::Move { .. })
+                        && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"));
+                    let r = self.sync_part(st, *i, child);
+                    self.part_sync_keeps_same_link = false;
+                    r?;
                     // A part that found no row to fill does not carry the order to a later fill.
                     child.borrow_mut().read_backwards = None;
                 }
@@ -1032,6 +1039,30 @@ impl Session {
                             group: LINK_GROUP,
                         });
                     }
+                }
+            }
+            if std::mem::take(&mut self.part_sync_keeps_same_link) && !child.borrow().dirty {
+                let same = {
+                    let r = rec.borrow();
+                    let old: Vec<&FieldFilter> = r
+                        .filters
+                        .iter()
+                        .filter(|f| f.group == LINK_GROUP && fields.contains(&f.field))
+                        .collect();
+                    old.len() == fresh.len()
+                        && old.iter().zip(&fresh).all(|(a, b)| {
+                            a.field == b.field
+                                && match (&a.expr, &b.expr) {
+                                    (FilterExpr::Range(Some(x1), Some(y1)), FilterExpr::Range(Some(x2), Some(y2))) => {
+                                        Self::same_values(std::slice::from_ref(x1), std::slice::from_ref(x2))
+                                            && Self::same_values(std::slice::from_ref(y1), std::slice::from_ref(y2))
+                                    }
+                                    _ => false,
+                                }
+                        })
+                };
+                if same && child.borrow().cursor == Cursor::Row {
+                    return Ok(());
                 }
             }
             let mut r = rec.borrow_mut();
