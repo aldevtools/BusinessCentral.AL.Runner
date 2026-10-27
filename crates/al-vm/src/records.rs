@@ -256,6 +256,18 @@ impl Session {
             .unwrap_or_else(|| t.name.clone())
     }
 
+    /// The related table's caption in the TableRelation error of a Validate: [`Self::caption`], except that a table one
+    /// tableextension gives a Caption over its own is named by the extension's caption (al-runner issue 5955, the reporter's
+    /// real-BC repro; assumption `relation-error-ext-caption`).
+    pub(crate) fn relation_error_caption(&self, t: &TableDef) -> String {
+        let o = &self.engine.program.objects[t.object as usize];
+        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RelationErrorExtCaption);
+            return v.trim().trim_matches('\'').to_string();
+        }
+        self.caption(t)
+    }
+
     /// The caption a read of it gives (TableCaption, RecordRef.Caption, Format of a RecordId): refused where a
     /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {

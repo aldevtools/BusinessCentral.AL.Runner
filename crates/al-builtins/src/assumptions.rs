@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    RelationErrorExtCaption => {
+        id: "relation-error-ext-caption",
+        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own. TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
+        tests: "No Microsoft test: al-runner issue 5955, the reporter's repro green on real BC (Validate of a field related to Work Center, extended with a Caption; two tests of a partner app).",
+        probe: "A table with a Caption and one tableextension with a Caption: the TableRelation error of a Validate, TableCaption, RecordRef.Caption, the error of a Get that finds nothing and of TestField.",
+        awaiting: Awaiting {
+            issues: &[5955],
+            files: &["tests/al-language/tableextension/lt-sh-outside-ext-caption/ShExtCaptionRelation.al"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

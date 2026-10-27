@@ -270,7 +270,7 @@ impl Session {
                 self.field_caption(t, pos),
                 self.caption(t),
                 self.message_value(&value)?,
-                self.caption(&related)
+                self.relation_error_caption(&related)
             ),
             // The related table "Field" (2000000041) answers DB:RecordNotFound (staging types/PZMisc.al:
             // Validate_TableRelation_MissingFieldNumber, BC 29.0); other tables DB:PrimRecordNotFound.
