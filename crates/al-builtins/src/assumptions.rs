@@ -739,6 +739,19 @@ registry! {
             since: "2026-10-27",
         },
     },
+    PageMetadataViewNotBlankDate => {
+        id: "page-metadata-view-not-blank-date",
+        assumed: "The SourceTableView column of Page Metadata shows a `where(<Date field> = filter(<> ''))` condition as `Field<n>=FILTER(<>'')`, in the form of the pinned integer range (misc/W2PageMetadata.al:395). Only the `Field<n>=` part is known from real BC.",
+        tests: "No Microsoft test: al-runner issue 5957, the reporter's repro green on real BC (Page Management reads the Page Metadata of a lookup page with this view; one test of a partner app).",
+        probe: "Page Metadata.SourceTableView of pages with where(D = filter(<> '')), where(D = filter('')) and where(C = filter(<> '')) on a Date and a Code field.",
+        awaiting: Awaiting {
+            issues: &[5957],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_PageMetadata",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
