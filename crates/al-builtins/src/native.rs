@@ -258,6 +258,11 @@ pub trait Ctx: FormatCtx {
     ) -> Option<Result<Option<crate::value::LibraryValue>, Signal>> {
         None
     }
+    /// `Evaluate` into a TableFilter: the type of the field `field` of the table named `table`, both names written exactly as
+    /// declared. `Some(None)` where no single table or field has that name, `None` where the context has no program.
+    fn table_filter_field(&mut self, _table: &str, _field: &str) -> Option<Option<crate::value::RtType>> {
+        None
+    }
     /// The field a `FieldRef` stands on, for `Evaluate` into it: its record buffer, position, declared type and whether the field
     /// declares an OptionCaption. `None` where the context has no program or `v` is no assigned `FieldRef`.
     fn evaluate_field_target(&mut self, _v: &Value) -> Option<Result<FieldTarget, Signal>> {
