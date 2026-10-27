@@ -75,3 +75,14 @@ every read, and by n milliseconds on `Sleep(n)`.
    `Reset State Before Test Run` (130301), which calls `LibraryRandom.SetSeed(1)`, before every test method. This runner
    does not do that yet (branch per-test-reset); until it does, the seed of one test reaches the later tests of its
    codeunit, but now in the same way in every run.
+
+## Amendment: the clock catches up with the last system stamp (2026-10-27)
+
+### Decided without owner review (2026-10-27)
+
+1. **A stamp later than the clock moves the clock to the stamp.** Stamps are strictly increasing (item 4), so more writes than
+   milliseconds between two reads put the stamps ahead of the clock: a partner app's test inserted a row and read
+   `CurrentDateTime() - SystemCreatedAt` as negative. Item 4 says a stamp written between two reads lies between them, and
+   `SystemCreatedAt` is the current time (record/TestSystemFieldStampsContracts.al:67). The clock now answers at least the last
+   stamp (`Session::stamp_millis`). A stamp still never steps the clock past itself, so a run with few writes is unchanged.
+2. **Repeatability is kept.** The clock depends on the number of reads, sleeps and writes, not on load.
