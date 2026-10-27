@@ -36,10 +36,13 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let mut out = Vec::new();
     // A reportextension's layouts are rows of the report it extends, owned by the extension's app
     // (record/TestEventSubscriptionColumnsReportLayoutListContracts.al:131-165).
+    // The layouts are in the objects themselves: only the reports and report extensions are made.
     for o in c
         .objects
         .iter()
-        .filter(|o| matches!(o.kind, al_ir::ObjKind::Report | al_ir::ObjKind::ReportExtension))
+        .enumerate()
+        .filter(|(_, o)| matches!(o.kind, al_ir::ObjKind::Report | al_ir::ObjKind::ReportExtension))
+        .map(|(i, _)| &c.full[i])
     {
         let id = if o.kind == al_ir::ObjKind::Report {
             o.id
@@ -209,7 +212,14 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for o in c.objects.iter().filter(|o| o.kind == al_ir::ObjKind::Report) {
+    // The data items are in the reports themselves: only the reports are made.
+    for o in c
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.kind == al_ir::ObjKind::Report)
+        .map(|(i, _)| &c.full[i])
+    {
         let Some(id) = o.id else { continue };
         let mut key = blank(t);
         key[pos(t, 1)] = Value::Integer(id as i32);
@@ -461,12 +471,14 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for (oi, o) in c
+    for (oi, _) in c
         .objects
         .iter()
         .enumerate()
         .filter(|(_, o)| o.kind == al_ir::ObjKind::Report)
     {
+        // The data items are in the report itself: only the reports are made.
+        let o = &c.full[oi];
         let Some(id) = o.id else { continue };
         let Some(rep) = &o.report else {
             let mut k = blank(t);
@@ -498,7 +510,9 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             let ext_fields: Vec<&String> = c
                 .objects
                 .iter()
-                .filter_map(|e| e.report_ext.as_ref().filter(|x| x.base == oi))
+                .enumerate()
+                .filter(|(_, e)| e.report_ext_base == Some(oi))
+                .filter_map(|(ei, _)| c.full[ei].report_ext.as_ref().filter(|x| x.base == oi))
                 .flat_map(|x| x.modifies.iter().filter(|m| m.item == n))
                 .filter_map(|m| m.request_filter_fields.as_ref())
                 .collect();
@@ -601,7 +615,7 @@ fn data_item_row(
             view.push("ORDER(1)".into());
         }
         if let Some(w) = where_text {
-            view.push(where_const(table, c.objects, &w).map_err(|e| format!("{}: where({w}): {e}", what()))?);
+            view.push(where_const(table, c.full, &w).map_err(|e| format!("{}: where({w}): {e}", what()))?);
         }
     }
     r[pos(t, 7)] = Value::Text(sorting.into());

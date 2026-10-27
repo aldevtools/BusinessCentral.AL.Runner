@@ -44,8 +44,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
-/// (subscriber codeunit id, lower-case function) to (object, routine).
-type EventIndex = HashMap<(u32, String), (usize, usize)>;
+/// (subscriber codeunit id, lower-case function) to (object, routine), filled per key as rows are read: the codeunits
+/// with the id are found from the heads, so only they are made (ADR-054). `None`: no routine of that name.
+type EventIndex = HashMap<(u32, String), Option<(usize, usize)>>;
 
 /// What the Event Subscription table reports about the running session: how many events each
 /// subscriber handled and how many instances of a manual subscriber are bound (record/
@@ -279,22 +280,27 @@ impl Providers {
         };
         let key = (*cu as u32, f.to_ascii_lowercase());
         let mut index = self.event_index.borrow_mut();
-        let index = index.get_or_insert_with(|| {
+        let index = index.get_or_insert_with(HashMap::new);
+        let found = *index.entry(key.clone()).or_insert_with(|| {
+            // The last routine of that name of the last compiled codeunit with the id that has one (what a map filled
+            // over all objects and routines in order holds).
             let engine = self.engine();
-            let mut m = HashMap::new();
-            for (oi, o) in engine.program.objects.iter().enumerate() {
-                let (Some(id), al_ir::ObjKind::Codeunit) =
-                    (o.id, if o.uncompiled { al_ir::ObjKind::Other } else { o.kind })
-                else {
-                    continue;
-                };
-                for (ri, r) in o.routines.iter().enumerate() {
-                    m.insert((id, r.name.to_ascii_lowercase()), (oi, ri));
-                }
-            }
-            m
+            let objects = &engine.program.objects;
+            objects
+                .heads()
+                .iter()
+                .enumerate()
+                .rev()
+                .filter(|(_, h)| h.id == Some(key.0) && h.is_kind(al_ir::ObjKind::Codeunit))
+                .find_map(|(oi, _)| {
+                    let ri = objects[oi]
+                        .routines
+                        .iter()
+                        .rposition(|r| r.name.to_ascii_lowercase() == key.1)?;
+                    Some((oi, ri))
+                })
         });
-        if let Some(&(oi, ri)) = index.get(&key) {
+        if let Some((oi, ri)) = found {
             row[pos(t, 8)] = Value::BigInteger(self.events.calls.borrow().get(&(oi, ri)).copied().unwrap_or(0));
             row[pos(t, 13)] = Value::Integer(self.events.active.borrow().get(&oi).copied().unwrap_or(0) as i32);
         }
