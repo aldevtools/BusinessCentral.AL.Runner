@@ -708,6 +708,20 @@ registry! {
             since: "2026-10-27",
         },
     },
+    BlankRecKeyFilterTableRelation => {
+        id: "blank-rec-key-filter-table-relation",
+        assumed: "A list without the new-row line that lost its only row to an action, filtered to one value of a primary-key field that has a TableRelation (and no OnValidate or validate subscriber), checks that relation for the value its blank Rec takes. When the related row exists, the blank Rec takes the value as without the relation (OnNewRecord and OnAfterGetCurrRecord once). When it does not, the error is swallowed, no trigger runs then or at a later action, and what Rec holds is not known (a read of it is refused). (The same shape without the relation is pinned: pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355.)",
+        tests: "No Microsoft test: al-runner issue 5951, the reporter's repro green on real BC (page 5510 Production Journal's Post action; 153 tests of a partner app).",
+        probe: "The Worksheet of RtFilteredGoneRow.al with a TableRelation on the filtered key field, with and without the related row: the action log, a second action, Close.",
+        awaiting: Awaiting {
+            issues: &[5951],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists",
+                "tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::SH_RelWs_KeyFieldWithTableRelationGroup2_BatchMissing",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
