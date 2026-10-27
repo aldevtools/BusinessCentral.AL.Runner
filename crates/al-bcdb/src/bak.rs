@@ -121,12 +121,16 @@ impl BakSource {
         } else {
             cat_bytes.and_then(|b| Catalog::from_index_bytes(&b))
         };
-        let (cat, fresh) = match restored {
+        let (mut cat, fresh) = match restored {
             Some(c) => (c, false),
             None => (Catalog::open(&pf)?, true),
         };
+        // The sequences are kept with the catalog: every session of a run with test data asks for them. An index saved
+        // before they were kept gains them, saved once more.
+        let had_sequences = cat.has_kept_sequences();
+        let gained_sequences = cat.keep_sequences(&pf) && !had_sequences;
         let this = Self::assemble(pf, cat)?;
-        if fresh {
+        if fresh || gained_sequences {
             // The map was rebuilt and sits in `saved`, or it was restored and is still in `load`.
             let map = match section.saved.into_inner().unwrap().or(section.load) {
                 Some(m) => m,
