@@ -744,6 +744,16 @@ impl CorpusRuntime {
             }
             engine
         };
+        // The tests' engine (with several test threads) shares what `make_engine` worked out from the program with the
+        // install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
+        let sibling_of = |engine: &Arc<Engine>| {
+            let mut sibling = engine.sibling();
+            if let Some(e) = Arc::get_mut(&mut sibling) {
+                e.test_data = opts.test_data.clone();
+                e.skipped_apps = opts.skipped_dependencies.clone();
+            }
+            sibling
+        };
         // A warm server's engines of the last request over this compile, set again for this one (al-runner issue 5856).
         let engine_key = keep.then(|| kept_engine_key(target, &dotnet, opts));
         let (reused_install, mut reused_tests) = match &engine_key {
@@ -815,7 +825,7 @@ impl CorpusRuntime {
                 .then(|| {
                     std::thread::Builder::new()
                         .stack_size(64 << 20)
-                        .spawn_scoped(scope, make_engine)
+                        .spawn_scoped(scope, || sibling_of(&engine))
                         .ok()
                 })
                 .flatten();
@@ -903,7 +913,7 @@ impl CorpusRuntime {
             }
             baseline_ids = crate::baseline::assumption_ids(&b.notes);
             if baseline_engine.is_some() {
-                engine = spare_engine.take().unwrap_or_else(make_engine);
+                engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine));
             }
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.unseeded = unseeded;

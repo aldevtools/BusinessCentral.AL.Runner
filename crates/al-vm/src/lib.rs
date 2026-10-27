@@ -88,7 +88,8 @@ pub struct Engine {
     /// Store schema per table object.
     pub tables: Arc<[Option<Arc<al_data::TableDef>>]>,
     /// Event publishers and their subscribers, resolved by name.
-    pub events: events::Registry,
+    /// Shared with the engine's siblings ([`Engine::sibling`]): it does not change once the engine is set up.
+    pub events: Arc<events::Registry>,
     /// The BC version this program runs as; `None` gets the newest behaviour (ADR-015 3.4).
     pub target: Option<al_version::Target>,
     /// The .NET host, the registry of runtime-provided classes and the policy (ADR-014).
@@ -119,16 +120,16 @@ pub struct Engine {
     pub test_data: Option<al_host::testdata::TestData>,
     /// (table object, field position) -> the error BC raises when it evaluates the field's
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
-    pub unevaluable_init: std::collections::HashMap<(u32, usize), String>,
+    pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
     /// What the VM asks of a table on every record operation, worked out once (ADR-035 decision 4).
-    pub(crate) table_facts: Vec<TableFacts>,
+    pub(crate) table_facts: Arc<[TableFacts]>,
     /// What the VM reads of each object's properties, worked out once (ADR-032 decision 5).
-    pub(crate) object_facts: Vec<ir::ObjectFacts>,
+    pub(crate) object_facts: Arc<[ir::ObjectFacts]>,
     /// The same for each field of each table object, by field position.
-    pub(crate) field_facts: Vec<Vec<ir::FieldFacts>>,
+    pub(crate) field_facts: Arc<[Vec<ir::FieldFacts>]>,
     /// Per table object, the positions of the fields `RecordRef.FieldCount` and `FieldIndex` enumerate, in their order
     /// (`refs.rs` `enumerable_fields`), worked out on first use: they depend on the program alone (al-runner issue 5911).
-    pub(crate) enumerable_fields: Vec<std::sync::OnceLock<Box<[usize]>>>,
+    pub(crate) enumerable_fields: Arc<[std::sync::OnceLock<Box<[usize]>>]>,
     /// Names this engine among all those the process built: state shared between sessions of one
     /// engine is keyed by it.
     pub uid: u64,
@@ -138,13 +139,13 @@ pub struct Engine {
     pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
-    facts: Vec<std::sync::OnceLock<Box<[RoutineFacts]>>>,
+    facts: Arc<[std::sync::OnceLock<Box<[RoutineFacts]>>]>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).
-    pub(crate) exec: exec::ExecProgram,
+    pub(crate) exec: Arc<exec::ExecProgram>,
     /// Per object, the ids of its source positions in ascending order, found when the Code Coverage table is first built.
     pub(crate) positions_by_object: std::sync::OnceLock<Vec<Vec<u32>>>,
     /// Codeunit objects by id (see [`Engine::compiled_codeunit`] and [`Engine::codeunit_object`]).
-    codeunits: std::collections::HashMap<Option<u32>, CodeunitsWithId>,
+    codeunits: Arc<std::collections::HashMap<Option<u32>, CodeunitsWithId>>,
     /// Per object, the provider of a virtual platform table, found when the first session is made (`platform/mod.rs`).
     pub(crate) served_tables: std::sync::OnceLock<Arc<[Option<al_builtins::platform::Virtual>]>>,
     /// What crates above the VM work out from this engine's program once, by type (see [`Engine::derived`]).
@@ -368,7 +369,7 @@ impl Engine {
             program,
             blocked,
             tables: tables.into(),
-            events,
+            events: Arc::new(events),
             target,
             dotnet,
             unseeded: Default::default(),
@@ -379,18 +380,57 @@ impl Engine {
             resource_overrides: Default::default(),
             resources_read: Default::default(),
             test_data: None,
-            unevaluable_init,
-            table_facts,
-            object_facts,
-            field_facts,
+            unevaluable_init: Arc::new(unevaluable_init),
+            table_facts: table_facts.into(),
+            object_facts: object_facts.into(),
+            field_facts: field_facts.into(),
             enumerable_fields,
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             delete_subscribed: Default::default(),
             profile_seeds: Default::default(),
             facts,
-            exec,
+            exec: Arc::new(exec),
             positions_by_object: Default::default(),
-            codeunits,
+            codeunits: Arc::new(codeunits),
+            served_tables: Default::default(),
+            derived: Default::default(),
+            install_facts: Default::default(),
+        })
+    }
+
+    /// A new engine over this one's program, refusals, target and .NET host that shares what [`Engine::with_config`]
+    /// works out from the program (table definitions, event registry, per-object and per-routine facts, bytecode), so
+    /// it is not worked out again: a run's install baseline and its tests each have an engine. Everything a run sets is
+    /// as `with_config` leaves it, and the engine has its own `uid`. The event registry is shared as it is, with what
+    /// the runner set in it (`unavailable_global`), which reads only the compile.
+    pub fn sibling(&self) -> Arc<Engine> {
+        Arc::new(Engine {
+            program: self.program.clone(),
+            blocked: self.blocked.clone(),
+            tables: self.tables.clone(),
+            events: self.events.clone(),
+            target: self.target.clone(),
+            dotnet: self.dotnet.clone(),
+            unseeded: Default::default(),
+            platform_unseeded: self.platform_unseeded.clone(),
+            demo_tables: Default::default(),
+            company_refusal: None,
+            skipped_apps: Vec::new(),
+            resource_overrides: Default::default(),
+            resources_read: Default::default(),
+            test_data: None,
+            unevaluable_init: self.unevaluable_init.clone(),
+            table_facts: self.table_facts.clone(),
+            object_facts: self.object_facts.clone(),
+            field_facts: self.field_facts.clone(),
+            enumerable_fields: self.enumerable_fields.clone(),
+            uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            delete_subscribed: Default::default(),
+            profile_seeds: Default::default(),
+            facts: self.facts.clone(),
+            exec: self.exec.clone(),
+            positions_by_object: Default::default(),
+            codeunits: self.codeunits.clone(),
             served_tables: Default::default(),
             derived: Default::default(),
             install_facts: Default::default(),
