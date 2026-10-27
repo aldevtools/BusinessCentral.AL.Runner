@@ -240,7 +240,22 @@ impl Session {
                 }
             }
         };
+        // Manual instances that unbound themselves while one of their own subscriber methods ran in this raise.
+        let mut self_unbound: Vec<Inst> = Vec::new();
         for (s, inst) in self.event_targets(object, event, element)? {
+            // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
+            // is not called again (al-runner issue 5941, the reporter's real-BC repro; assumption
+            // `self-unbind-skips-rest-of-raise`); one another subscriber unbound is not pinned.
+            if s.manual && !self.is_bound(&inst) {
+                if self_unbound.iter().any(|i| Rc::ptr_eq(i, &inst)) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SelfUnbindSkipsRestOfRaise);
+                    continue;
+                }
+                return unsupported(format!(
+                    "event {event}: a manual subscriber instance of {} was unbound by another subscriber during the raise (not pinned)",
+                    engine.program.objects[s.object].name
+                ));
+            }
             refresh(args);
             let r = &engine.program.objects[s.object].routines[s.routine];
             let mut map: Vec<Option<usize>> = Vec::with_capacity(r.params);
@@ -299,8 +314,14 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            let manual_inst = s.manual.then(|| inst.clone());
             let called = self.call(s.object, s.routine, inst, call_args);
             self.events.next_is_subscriber = false;
+            if let Some(i) = manual_inst {
+                if !self.is_bound(&i) {
+                    self_unbound.push(i);
+                }
+            }
             self.events.next_aliases.clear();
             self.events.next_var_lens.clear();
             let (_, finals) = match called {
@@ -575,6 +596,14 @@ impl Session {
             ..Default::default()
         }));
         Ok(self.shared_instance(fresh))
+    }
+
+    /// Whether `inst` is bound right now.
+    fn is_bound(&self, inst: &Inst) -> bool {
+        self.events
+            .bindings
+            .iter()
+            .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
     /// Live bound instances of codeunit `object`, oldest binding first.

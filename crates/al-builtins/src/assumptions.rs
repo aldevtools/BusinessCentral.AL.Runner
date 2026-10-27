@@ -656,6 +656,19 @@ registry! {
             since: "2026-10-27",
         },
     },
+    SelfUnbindSkipsRestOfRaise => {
+        id: "self-unbind-skips-rest-of-raise",
+        assumed: "A manual subscriber instance that unbinds itself (UnbindSubscription(this)) while one of its subscriber methods runs is not called again in that raise: its later subscriber methods for the same event are skipped. An instance another subscriber unbinds during the raise is refused (not pinned).",
+        tests: "No Microsoft test: al-runner issue 5941, the reporter's repro green on real BC (`A:stop;after-unbind`, method B not called).",
+        probe: "A manual codeunit with two subscribers to one event whose first calls UnbindSubscription(this): which methods run in that raise; and a second manual codeunit whose subscriber, running first, unbinds the first codeunit's instance.",
+        awaiting: Awaiting {
+            issues: &[5941],
+            files: &[
+                "tests/al-language/handlers/ProbeEventSubscriberOrder.al::ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

@@ -90,6 +90,7 @@ mod rec_field_by_var;
 mod record_bare_exit;
 mod relation_blank_member;
 mod round_date2dmy_errors;
+mod self_unbind;
 mod setter_call;
 mod sql_counter_sizes;
 mod sql_counters;
