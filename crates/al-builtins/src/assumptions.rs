@@ -648,7 +648,9 @@ registry! {
         probe: "A card and a list with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
         awaiting: Awaiting {
             issues: &[5945],
-            files: &["tests/al-language/pages/lt-sh-outside-pages/ShGroupEnabled.al"],
+            files: &[
+                "tests/al-language/pages/lt-ap-testpage-642/ApTestPageTests.al::Ap16_GroupEnabledFalse_FieldEnabledTrue",
+            ],
             since: "2026-10-27",
         },
     },
