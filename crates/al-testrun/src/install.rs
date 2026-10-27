@@ -645,6 +645,23 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         let called = session.call(object, routine, instance, Vec::new());
         return finish(session, called, why);
     };
+    // A run recorded over the same baseline by an earlier run of the program, kept in the baseline's file
+    // ([`keep_login_records`]): it is taken as if this engine had recorded it.
+    let found = found.or_else(|| {
+        let record = kept_login_record(&key)?;
+        let run = MemoRun {
+            key: key.clone(),
+            day: record.day,
+            globals: record.globals,
+            hits: record.hits,
+        };
+        let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.runs.len() == MEMO_RUNS {
+            state.runs.remove(0);
+        }
+        state.runs.push(run.clone());
+        Some(run)
+    });
     if let Some(run) = found {
         drop(recording);
         memo.replays.fetch_add(1, Ordering::Relaxed);
@@ -692,6 +709,7 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
         match recorded {
             Some(run) => {
+                note_login_record(&run);
                 if state.runs.len() == MEMO_RUNS {
                     state.runs.remove(0);
                 }
@@ -721,6 +739,79 @@ fn finish(
         Err(Signal::Error(e)) => Err(why(format!("failed (not pinned): {}", e.message))),
         Err(_) => Err(why("stopped (not pinned)".into())),
     }
+}
+
+/// The login code's recorded runs per baseline origin, for the process: those read from a kept baseline's file
+/// ([`keep_login_records`]) and those recorded in this process ([`login_records`] gives them to the file). The origin
+/// names what the baseline holds; the file's key names the program, the test data and the runtime build, so a record
+/// is taken only over the baseline it was recorded on. The newest origins are kept.
+static LOGIN_RECORDS: Mutex<Vec<(u64, Vec<crate::baseline::LoginRecord>)>> = Mutex::new(Vec::new());
+
+/// How many baseline origins [`LOGIN_RECORDS`] keeps.
+const KEPT_ORIGINS: usize = 8;
+
+fn with_origin<R>(origin: u64, f: impl FnOnce(&mut Vec<crate::baseline::LoginRecord>) -> R) -> R {
+    let mut all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    let at = match all.iter().position(|(o, _)| *o == origin) {
+        Some(at) => at,
+        None => {
+            if all.len() == KEPT_ORIGINS {
+                all.remove(0);
+            }
+            all.push((origin, Vec::new()));
+            all.len() - 1
+        }
+    };
+    f(&mut all[at].1)
+}
+
+/// Makes the login runs read from the file of a kept baseline (origin `origin`) available to its sessions.
+pub(crate) fn keep_login_records(origin: u64, records: &[crate::baseline::LoginRecord]) {
+    if records.is_empty() {
+        return;
+    }
+    with_origin(origin, |kept| {
+        for r in records {
+            if !kept.contains(r) {
+                kept.push(r.clone());
+            }
+        }
+    });
+}
+
+/// The login runs known for the baseline of origin `origin`: read from its file or recorded in this process.
+pub(crate) fn login_records(origin: u64) -> Vec<crate::baseline::LoginRecord> {
+    let all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    all.iter()
+        .find(|(o, _)| *o == origin)
+        .map(|(_, r)| r.clone())
+        .unwrap_or_default()
+}
+
+fn note_login_record(run: &MemoRun) {
+    let record = crate::baseline::LoginRecord {
+        company: run.key.company.clone(),
+        work_date: run.key.work_date,
+        day: run.day,
+        globals: run.globals.clone(),
+        hits: run.hits,
+    };
+    with_origin(run.key.baseline, |kept| {
+        kept.retain(|r| !(r.company == record.company && r.work_date == record.work_date));
+        kept.push(record);
+        if kept.len() > MEMO_RUNS {
+            kept.remove(0);
+        }
+    });
+}
+
+fn kept_login_record(key: &MemoKey) -> Option<crate::baseline::LoginRecord> {
+    let all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    let (_, records) = all.iter().find(|(o, _)| *o == key.baseline)?;
+    records
+        .iter()
+        .find(|r| r.company == key.company && r.work_date == key.work_date)
+        .cloned()
 }
 
 /// How many recorded runs of the login code an engine keeps (the oldest goes first): one per state of the database a

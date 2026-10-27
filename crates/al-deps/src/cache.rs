@@ -9,8 +9,9 @@
 //! ```
 //!
 //! A cached entry is trusted only when its sidecar exists and the file still has the recorded size
-//! and CRC-32. Writes go to a temporary name and are renamed, so two processes filling the same
-//! cache never see a half-written file.
+//! and CRC-32. The sidecar also keeps the file's size and modification time at its last check
+//! (`checked`); while both are unchanged the file is not read again. Writes go to a temporary name
+//! and are renamed, so two processes filling the same cache never see a half-written file.
 
 use crate::build::BuildId;
 use std::path::{Path, PathBuf};
@@ -280,6 +281,10 @@ impl BuildDir {
         });
         // The file first, then its sidecar: a crash in between leaves a file nobody trusts.
         write_atomic(&path, bytes)?;
+        let mut meta = meta;
+        if let Some(stamp) = stamp_of(&path) {
+            meta["checked"] = stamp;
+        }
         write_atomic(&sidecar(&path), meta.to_string().as_bytes())?;
         Ok(path)
     }
@@ -327,13 +332,26 @@ impl BuildDir {
         let meta: serde_json::Value = std::fs::read(sidecar(file))
             .map_err(|_| "no record of what was downloaded".to_string())
             .and_then(|b| serde_json::from_slice(&b).map_err(|e| format!("unreadable record: {e}")))?;
-        let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
         let size = meta["size"].as_u64().ok_or("record has no size")?;
         let crc = meta["crc"].as_u64().ok_or("record has no CRC-32")?;
-        if bytes.len() as u64 != size || crc32fast::hash(&bytes) as u64 != crc {
-            return Err(format!(
-                "it no longer matches its recorded size {size} and CRC-32 {crc:08x}"
-            ));
+        // The CRC-32 runs when the file is new to the record or its size or modification time changed since the
+        // last check (owner, 2026-10-27); an unchanged stamp is trusted without reading the file. The lazy package
+        // reader still checks the CRC of each zip entry it reads.
+        let stamp = stamp_of(file);
+        let unchanged = stamp.is_some() && meta.get("checked") == stamp.as_ref() && stamp_size(&meta) == Some(size);
+        if !unchanged {
+            let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
+            if bytes.len() as u64 != size || crc32fast::hash(&bytes) as u64 != crc {
+                return Err(format!(
+                    "it no longer matches its recorded size {size} and CRC-32 {crc:08x}"
+                ));
+            }
+            // Best effort: a record that cannot be written costs the next run one more CRC-32.
+            if let Some(stamp) = stamp {
+                let mut meta = meta.clone();
+                meta["checked"] = stamp;
+                let _ = write_atomic(&sidecar(file), meta.to_string().as_bytes());
+            }
         }
         Ok(Recorded {
             entry: meta["entry"].as_str().unwrap_or_default().to_string(),
@@ -341,6 +359,24 @@ impl BuildDir {
             crc: crc as u32,
         })
     }
+}
+
+/// The size and modification time of a file as a record keeps them (`{"len", "mtime_ns"}`); `None` when the file
+/// system does not give a modification time after 1970.
+fn stamp_of(file: &Path) -> Option<serde_json::Value> {
+    let md = std::fs::metadata(file).ok()?;
+    let ns = md
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some(serde_json::json!({ "len": md.len(), "mtime_ns": u64::try_from(ns).ok()? }))
+}
+
+/// The size in a record's stamp.
+fn stamp_size(meta: &serde_json::Value) -> Option<u64> {
+    meta["checked"]["len"].as_u64()
 }
 
 fn is_temp(p: &Path) -> bool {
@@ -460,6 +496,94 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("Bad.Source.zip") && n.contains("CRC-32"))
         );
+    }
+
+    /// Overwrites `path` with `bytes` and gives it back the modification time it had.
+    fn rewrite_keeping_mtime(path: &Path, bytes: &[u8]) {
+        let mtime = std::fs::metadata(path).unwrap().modified().unwrap();
+        std::fs::write(path, bytes).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_size_and_modification_time_is_trusted_without_reading_the_file() {
+        let root = tempfile::tempdir().unwrap();
+        let bd = Store::new(root.path()).build(&b("27.5.1.1"));
+        let p = bd.put_entry("A/Same.Source.zip", "u", b"original").unwrap();
+        // Same size, same modification time: the CRC-32 is not run, so the changed bytes are not seen.
+        rewrite_keeping_mtime(&p, b"tampered");
+        let (ok, notes) = bd.verify();
+        assert_eq!(ok.len(), 1, "{notes:?}");
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(bd.cached("A/Same.Source.zip").is_some());
+    }
+
+    #[test]
+    fn a_changed_modification_time_runs_the_crc_and_catches_a_damaged_file() {
+        let root = tempfile::tempdir().unwrap();
+        let bd = Store::new(root.path()).build(&b("27.5.1.1"));
+        let p = bd.put_entry("A/Late.Source.zip", "u", b"original").unwrap();
+        rewrite_keeping_mtime(&p, b"tampered");
+        let later = std::fs::metadata(&p).unwrap().modified().unwrap() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        let (ok, notes) = bd.verify();
+        assert!(ok.is_empty() && !p.exists(), "{notes:?}");
+        assert!(notes.iter().any(|n| n.contains("CRC-32")), "{notes:?}");
+    }
+
+    #[test]
+    fn a_changed_size_runs_the_crc_and_catches_a_damaged_file() {
+        let root = tempfile::tempdir().unwrap();
+        let bd = Store::new(root.path()).build(&b("27.5.1.1"));
+        let p = bd.put_entry("A/Long.Source.zip", "u", b"original").unwrap();
+        rewrite_keeping_mtime(&p, b"original plus more");
+        let (ok, notes) = bd.verify();
+        assert!(ok.is_empty() && !p.exists(), "{notes:?}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+    }
+
+    #[test]
+    fn a_changed_file_that_is_intact_is_checked_once_and_then_trusted() {
+        let root = tempfile::tempdir().unwrap();
+        let bd = Store::new(root.path()).build(&b("27.5.1.1"));
+        let p = bd.put_entry("A/Touched.Source.zip", "u", b"original").unwrap();
+        // Same bytes, new modification time (a copy, a backup restore): the CRC-32 runs and passes, and the new stamp
+        // is recorded, so a later same-size change with that stamp kept is trusted.
+        let later = std::fs::metadata(&p).unwrap().modified().unwrap() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert_eq!(bd.verify().0.len(), 1);
+        rewrite_keeping_mtime(&p, b"tampered");
+        assert_eq!(bd.verify().0.len(), 1);
+    }
+
+    #[test]
+    fn a_record_without_a_stamp_is_checked_by_crc_once() {
+        let root = tempfile::tempdir().unwrap();
+        let bd = Store::new(root.path()).build(&b("27.5.1.1"));
+        let p = bd.put_entry("A/Old.Source.zip", "u", b"original").unwrap();
+        // A record written before the stamp existed: its file is checked by CRC-32.
+        let side = sidecar(&p);
+        let mut meta: serde_json::Value = serde_json::from_slice(&std::fs::read(&side).unwrap()).unwrap();
+        meta.as_object_mut().unwrap().remove("checked");
+        std::fs::write(&side, meta.to_string()).unwrap();
+        rewrite_keeping_mtime(&p, b"tampered");
+        let (ok, notes) = bd.verify();
+        assert!(ok.is_empty() && !p.exists(), "{notes:?}");
     }
 
     #[test]

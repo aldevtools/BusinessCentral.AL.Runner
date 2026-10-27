@@ -418,3 +418,109 @@ codeunit 60103 ResourceTests
     );
     assert_eq!(files(dir.path()).len(), 2, "the resources are part of the key");
 }
+
+// The login code's WorkDate (al-testrun `install::login_work_date`) is looked up once per kept baseline: the first run
+// records it in the baseline's file, and a later run of the same program over the same baseline replays it without
+// running Base Application's `GetDefaultWorkDate` (al-runner issue 5884). Codeunit 40 stands in for Base Application's
+// LogInManagement; its `LogInWorkDate` global is read later by Base Application's LogInEnd, so the replay keeps it.
+const LOGIN_BASE: &str = r#"
+table 50110 Entry { fields { field(1; No; Integer) { } field(2; D; Date) { } } keys { key(PK; No) { } } }
+codeunit 50111 Installer
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var E: Record Entry; begin E.No := 1; E.D := 20240115D; E.Insert(); end;
+}
+codeunit 40 LogInManagement
+{
+    SingleInstance = true;
+    var LogInWorkDate: Date;
+    procedure GetDefaultWorkDate(): Date var E: Record Entry; begin
+        if E.FindLast() then begin LogInWorkDate := NormalDate(E.D); exit(NormalDate(E.D)); end;
+        exit(WorkDate()); end;
+    procedure LoginDate(): Date begin exit(LogInWorkDate); end;
+}
+"#;
+
+const LOGIN_TESTS: &str = r#"
+codeunit 60111 LoginTests
+{
+    Subtype = Test;
+    [Test] procedure SeesTheLoginDate() var L: Codeunit LogInManagement; begin
+        if WorkDate() <> 20240115D then Error('WorkDate %1', WorkDate());
+        if L.LoginDate() <> 20240115D then Error('LogInWorkDate %1', L.LoginDate()); end;
+}
+"#;
+
+fn login_run(cache: &Path) -> Outcome {
+    let manifest = |p: &str| Manifest {
+        publisher: p.into(),
+        version: "1.0.0.0".into(),
+        resources: vec![],
+        include_source: false,
+        target: String::new(),
+        layout_files: Vec::new(),
+        id_ranges: Vec::new(),
+        translations: false,
+        symbols: vec![],
+    };
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![
+            app("main", &["base"], LOGIN_TESTS.into()),
+            app("base", &[], LOGIN_BASE.into()),
+        ],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            compile_cache: Some(CompileCache {
+                dir: cache.to_path_buf(),
+                require: false,
+                rebuild: false,
+                country: String::new(),
+            }),
+            ..Default::default()
+        },
+    )
+    .expect("the run starts");
+    rt.results()
+        .iter()
+        .find(|r| r.test == "SeesTheLoginDate")
+        .map(|r| r.outcome.clone())
+        .expect("the test ran")
+}
+
+#[test]
+fn the_login_work_date_is_kept_with_the_baseline_and_replayed_by_the_next_run() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(login_run(dir.path()), Outcome::Pass);
+    let kept = files(dir.path());
+    assert_eq!(kept.len(), 1);
+    let first = std::fs::read(&kept[0]).unwrap();
+    let (run, at) = al_testrun::baseline_cache::decode(&first).unwrap();
+    assert_eq!(
+        run.login.len(),
+        1,
+        "the first run records the login code's answer in the file"
+    );
+    // The next run takes the date from the file: a record changed to another date shows in what the test sees, so the
+    // login code did not run.
+    let (mut changed, _) = al_testrun::baseline_cache::decode(&first).unwrap();
+    changed.login[0].day += 1;
+    for g in &mut changed.login[0].globals {
+        g.1 += 1;
+    }
+    std::fs::write(&kept[0], al_testrun::baseline_cache::encode(&changed, at).unwrap()).unwrap();
+    let second = login_run(dir.path());
+    assert!(
+        matches!(&second, Outcome::Fail(m) if m.contains("WorkDate")),
+        "the replayed date is the file's: {second:?}"
+    );
+    // Put back as the first run left it, the next run passes and reads the file without writing it.
+    std::fs::write(&kept[0], &first).unwrap();
+    let before = file_id(&kept[0]);
+    assert_eq!(login_run(dir.path()), Outcome::Pass);
+    assert_eq!(file_id(&kept[0]), before, "read, not written");
+}
