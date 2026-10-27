@@ -24,6 +24,7 @@ pub mod host;
 pub mod impact_static;
 pub mod impact_trace;
 pub mod install;
+mod install_reach;
 pub mod isolation;
 pub mod junit;
 pub mod observe;

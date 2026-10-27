@@ -1273,6 +1273,17 @@ fn no_pos() -> u32 {
 }
 
 impl Routine {
+    /// Every source position id of the routine, in a fixed order: its own (`pos`, `begin_pos`, `end_pos`, [`NO_POS`]
+    /// left out), then its `Stmt::Pos` markers in statement order. The ids [`Routine::shift_positions`] moves.
+    pub fn position_ids(&self) -> Vec<u32> {
+        let mut out: Vec<u32> = [self.pos, self.begin_pos, self.end_pos]
+            .into_iter()
+            .filter(|&p| p != NO_POS)
+            .collect();
+        collect_stmt_positions(&self.body, &mut out);
+        out
+    }
+
     /// Moves every source position id of the routine (its own and its `Stmt::Pos` markers) up by
     /// `by` (wrapping, so a `by` made from a negative distance moves them down): the object was lowered with positions numbered from 0 and now follows `by` positions
     /// of other objects in `Program::positions`. [`NO_POS`] stays.
@@ -1303,6 +1314,36 @@ impl BodyFixup for ShiftPositions {
     fn apply(&self, body: &mut Vec<Stmt>) -> Result<(), String> {
         shift_stmts(body, self.0);
         Ok(())
+    }
+}
+
+/// The `Stmt::Pos` markers of `stmts`, in statement order (the statements [`shift_stmts`] visits).
+fn collect_stmt_positions(stmts: &[Stmt], out: &mut Vec<u32>) {
+    for s in stmts {
+        match s {
+            Stmt::Pos(id) => out.push(*id),
+            Stmt::If(_, then, otherwise) => {
+                collect_stmt_positions(then, out);
+                collect_stmt_positions(otherwise, out);
+            }
+            Stmt::While(_, body) | Stmt::Repeat(body, _) | Stmt::AssertError(body) => collect_stmt_positions(body, out),
+            Stmt::For { body, .. } | Stmt::Foreach { body, .. } => collect_stmt_positions(body, out),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, body) in branches {
+                    collect_stmt_positions(body, out);
+                }
+                collect_stmt_positions(otherwise, out);
+            }
+            Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Exit(_)
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_) => {}
+        }
     }
 }
 

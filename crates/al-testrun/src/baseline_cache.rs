@@ -21,28 +21,48 @@ const MAGIC: &[u8; 8] = b"ALBRUN\0\x03";
 pub const EXTENSION: &str = "albr";
 
 /// What the key is made of, one part after the other; a part that is not given changes the key as well as one that
-/// differs.
-pub struct KeyBuilder(Sha256);
+/// differs. Beside the key it makes the *frame*: the same parts without the source of the workspace apps
+/// ([`KeyBuilder::source`]). A warm server keeps a baseline in memory across an edit of the workspace source that the
+/// install code cannot reach, as long as the frame stays the same ([`carry`]).
+pub struct KeyBuilder(Sha256, Sha256);
 
 impl KeyBuilder {
     pub fn new() -> KeyBuilder {
         let mut h = Sha256::new();
         h.update(MAGIC);
-        KeyBuilder(h)
+        KeyBuilder(h.clone(), h)
     }
     pub fn text(&mut self, name: &str, value: &str) -> &mut Self {
         self.bytes(name, value.as_bytes())
     }
     pub fn bytes(&mut self, name: &str, value: &[u8]) -> &mut Self {
-        self.0.update((name.len() as u64).to_le_bytes());
-        self.0.update(name.as_bytes());
-        self.0.update((value.len() as u64).to_le_bytes());
-        self.0.update(value);
+        part(&mut self.0, name, value);
+        part(&mut self.1, name, value);
+        self
+    }
+    /// A part of the key that the frame leaves out: the source of a workspace app.
+    pub fn source(&mut self, name: &str, value: &[u8]) -> &mut Self {
+        part(&mut self.0, name, value);
         self
     }
     pub fn finish(&self) -> String {
-        self.0.clone().finalize().iter().map(|b| format!("{b:02x}")).collect()
+        hex(&self.0)
     }
+    /// The frame: every part but the sources.
+    pub fn finish_frame(&self) -> String {
+        hex(&self.1)
+    }
+}
+
+fn part(h: &mut Sha256, name: &str, value: &[u8]) {
+    h.update((name.len() as u64).to_le_bytes());
+    h.update(name.as_bytes());
+    h.update((value.len() as u64).to_le_bytes());
+    h.update(value);
+}
+
+fn hex(h: &Sha256) -> String {
+    h.clone().finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 impl Default for KeyBuilder {
@@ -203,19 +223,44 @@ pub fn read(dir: &Path, key: &str) -> Option<(BaselineRun, i64)> {
     }
 }
 
+/// The last baseline [`read_kept`] gave on this thread.
+struct Kept {
+    /// Its file (the file may not exist: a carried baseline has none under its new key).
+    path: PathBuf,
+    /// What `prepare` was given.
+    prepared: String,
+    /// What came of it.
+    run: BaselineRun,
+    at: i64,
+    /// The frame of its key ([`KeyBuilder::finish_frame`]).
+    frame: String,
+    /// The run as the file holds it, before `prepare`: what an edit carries over ([`carry`]).
+    raw: BaselineRun,
+}
+
+/// A baseline kept across an incremental compile the install code cannot see (`Compiled::update_files`): it is the
+/// baseline of the new program too, for a run whose key has the same frame.
+pub struct Carried {
+    frame: String,
+    raw: BaselineRun,
+    at: i64,
+}
+
 thread_local! {
-    /// The last baseline [`read_kept`] read on this thread: its file, what `prepare` was given, and what came of it.
-    static KEPT: std::cell::RefCell<Option<(PathBuf, String, BaselineRun, i64)>> = const { std::cell::RefCell::new(None) };
+    static KEPT: std::cell::RefCell<Option<Kept>> = const { std::cell::RefCell::new(None) };
+    static CARRIED: std::cell::RefCell<Option<Carried>> = const { std::cell::RefCell::new(None) };
 }
 
 /// [`read`] for a warm server, whose requests run on one thread (al-runner issue 5856): the file of `key` is read and
 /// decoded once and given to `prepare` (which puts the test data under it), and a later read of the same file with the
 /// same `prepared` (what `prepare` depends on) answers what came of it, as a copy: the rows are persistent maps, so the
 /// copy shares them, and the rows read from the test data stay read. The file's content follows from its key, so it
-/// cannot differ from what was read. The flag says that the answer is the kept one.
+/// cannot differ from what was read. A baseline [`carry`] kept across an edit answers instead of the file when the key
+/// has its frame (`frame`). The flag says that the answer is the kept one.
 pub fn read_kept(
     dir: &Path,
     key: &str,
+    frame: &str,
     prepared: &str,
     prepare: impl FnOnce(BaselineRun) -> BaselineRun,
 ) -> Option<(BaselineRun, i64, bool)> {
@@ -223,24 +268,59 @@ pub fn read_kept(
     let hit = KEPT.with(|k| {
         k.borrow()
             .as_ref()
-            .filter(|(p, by, _, _)| *p == path && by == prepared)
-            .map(|(_, _, run, at)| (run.clone(), *at, true))
+            .filter(|k| k.path == path && k.prepared == prepared)
+            .map(|k| (k.run.clone(), k.at, true))
     });
     if hit.is_some() {
         return hit;
     }
+    let carried = CARRIED.with(|c| c.borrow_mut().take()).filter(|c| c.frame == frame);
     // What is kept goes first: two baselines are not kept together.
     forget_kept();
-    let (run, at) = read(dir, key)?;
-    let run = prepare(run);
-    KEPT.with(|k| *k.borrow_mut() = Some((path, prepared.to_string(), run.clone(), at)));
-    Some((run, at, false))
+    let kept = carried.is_some();
+    let (raw, at) = match carried {
+        Some(c) => (c.raw, c.at),
+        None => read(dir, key)?,
+    };
+    let run = prepare(raw.clone());
+    KEPT.with(|k| {
+        *k.borrow_mut() = Some(Kept {
+            path,
+            prepared: prepared.to_string(),
+            run: run.clone(),
+            at,
+            frame: frame.to_string(),
+            raw,
+        })
+    });
+    Some((run, at, kept))
 }
 
-/// Drops what [`read_kept`] keeps on this thread (the program it was prepared for is about to change).
+/// Drops what [`read_kept`] keeps on this thread and what [`carry`] carries (the program it was prepared for is about
+/// to change).
 pub fn forget_kept() {
     let old = KEPT.with(|k| k.borrow_mut().take());
-    drop(old);
+    let carried = CARRIED.with(|c| c.borrow_mut().take());
+    drop((old, carried));
+}
+
+/// Takes the baseline kept on this thread (or carried over an earlier edit) out, before an incremental compile
+/// changes the program. [`carry`] puts it back when the change cannot reach the install code.
+pub fn take_for_edit() -> Option<Carried> {
+    let kept = KEPT.with(|k| k.borrow_mut().take());
+    let carried = CARRIED.with(|c| c.borrow_mut().take());
+    kept.map(|k| Carried {
+        frame: k.frame,
+        raw: k.raw,
+        at: k.at,
+    })
+    .or(carried)
+}
+
+/// Keeps `c` for the next [`read_kept`] of a key with its frame: the edit the program just took in cannot change what
+/// the install code does (`install_reach`).
+pub fn carry(c: Carried) {
+    CARRIED.with(|k| *k.borrow_mut() = Some(c));
 }
 
 /// Keeps `run` under `key`, with the instant it began. Best effort: a folder that cannot be written costs the next
@@ -454,5 +534,25 @@ mod tests {
             })
         );
         assert_eq!(a.len(), 64);
+    }
+
+    #[test]
+    fn the_frame_leaves_out_the_sources_and_the_key_does_not() {
+        let k = |src: &[u8], day: &str| {
+            let mut b = KeyBuilder::new();
+            b.text("day", day).source("source", src);
+            (b.finish(), b.finish_frame())
+        };
+        let (key, frame) = k(b"one", "1");
+        let (key2, frame2) = k(b"two", "1");
+        assert_ne!(key, key2);
+        assert_eq!(frame, frame2);
+        assert_ne!(frame, k(b"one", "2").1);
+        // The key is the one a builder without a frame made: the files on disk keep their names.
+        let mut h = Sha256::new();
+        h.update(MAGIC);
+        part(&mut h, "day", b"1");
+        part(&mut h, "source", b"one");
+        assert_eq!(key, hex(&h));
     }
 }
