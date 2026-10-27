@@ -648,7 +648,9 @@ registry! {
         probe: "A manual codeunit with two subscribers to one event whose first calls UnbindSubscription(this): which methods run in that raise; and a second manual codeunit whose subscriber, running first, unbinds the first codeunit's instance.",
         awaiting: Awaiting {
             issues: &[5941],
-            files: &["tests/al-language/events/lt-sh-outside-events/ShSelfUnbind.al"],
+            files: &[
+                "tests/al-language/handlers/ProbeEventSubscriberOrder.al::ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise",
+            ],
             since: "2026-10-27",
         },
     },
