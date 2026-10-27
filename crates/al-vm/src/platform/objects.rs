@@ -152,6 +152,13 @@ const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 pub(super) struct Catalog<'a> {
     pub objects: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
+    /// The lookups by name and id, built on first use: a provider that reads only `objects` and `apps` (a Field row by
+    /// its key) does not pay for them.
+    maps: std::cell::OnceCell<Maps<'a>>,
+}
+
+#[derive(Default)]
+struct Maps<'a> {
     /// (base kind, lower-case name) to the ids of the objects of that name.
     names: HashMap<(al_ir::ObjKind, String), Vec<u32>>,
     /// Table id to the first table object of that id.
@@ -163,38 +170,40 @@ pub(super) struct Catalog<'a> {
 impl<'a> Catalog<'a> {
     pub(super) fn new(engine: &'a Engine) -> Catalog<'a> {
         let program = &engine.program;
-        let mut names: HashMap<(al_ir::ObjKind, String), Vec<u32>> = HashMap::new();
-        let mut tables: HashMap<u32, &Object> = HashMap::new();
-        let mut page_extensions: HashMap<u32, Vec<&Object>> = HashMap::new();
-        for o in &program.objects {
-            if let (al_ir::ObjKind::PageExtension, Some(base)) = (o.kind, o.extends_id) {
-                page_extensions.entry(base).or_default().push(o);
-            }
-            if let Some(id) = o.id {
-                names.entry((o.kind, o.name.to_lowercase())).or_default().push(id);
-                if o.kind == al_ir::ObjKind::Table {
-                    tables.entry(id).or_insert(o);
-                }
-            }
-        }
         Catalog {
             objects: &program.objects,
             apps: &program.apps,
-            names,
-            tables,
-            page_extensions,
+            maps: std::cell::OnceCell::new(),
         }
+    }
+
+    fn maps(&self) -> &Maps<'a> {
+        self.maps.get_or_init(|| {
+            let mut m = Maps::default();
+            for o in self.objects {
+                if let (al_ir::ObjKind::PageExtension, Some(base)) = (o.kind, o.extends_id) {
+                    m.page_extensions.entry(base).or_default().push(o);
+                }
+                if let Some(id) = o.id {
+                    m.names.entry((o.kind, o.name.to_lowercase())).or_default().push(id);
+                    if o.kind == al_ir::ObjKind::Table {
+                        m.tables.entry(id).or_insert(o);
+                    }
+                }
+            }
+            m
+        })
     }
 
     /// The page extensions of page `id`, in program order (none for `None`).
     pub(super) fn page_extensions_of(&self, id: Option<u32>) -> &[&'a Object] {
-        id.and_then(|id| self.page_extensions.get(&id))
+        id.and_then(|id| self.maps().page_extensions.get(&id))
             .map_or(&[], Vec::as_slice)
     }
 
     /// The first table object with this id.
     pub(super) fn table_by_id(&self, id: u32) -> Option<&'a Object> {
-        self.tables.get(&id).copied()
+        self.maps().tables.get(&id).copied()
     }
 
     /// The manifest id of the app that owns `o`; empty for the platform's own objects, which no
@@ -217,7 +226,7 @@ impl<'a> Catalog<'a> {
             return Ok(n);
         }
         let name = ident(v);
-        match self.names.get(&(kind, name.to_lowercase())).map(Vec::as_slice) {
+        match self.maps().names.get(&(kind, name.to_lowercase())).map(Vec::as_slice) {
             Some([id]) => Ok(*id),
             Some([]) | None => Err(format!("no {kind} named `{name}`")),
             Some(_) => Err(format!("more than one {kind} is named `{name}`")),
