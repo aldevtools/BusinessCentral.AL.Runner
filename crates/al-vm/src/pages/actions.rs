@@ -1023,6 +1023,9 @@ impl Session {
                     return Ok(Value::Null);
                 }
             }
+            if before.is_some() && self.reread_after_refill_to_one_row(st)? {
+                return Ok(Value::Null);
+            }
             // A temporary Worksheet whose action left Rec on another row (a refill: RmTempRefill.al:323-:420) is read again from the
             // row the client stood on and Rec's row (`reread_after_refill_by_action`), with or without CurrPage.Update.
             if let Some(before) = &before {
