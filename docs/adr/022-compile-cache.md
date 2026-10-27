@@ -982,6 +982,114 @@ no more: the decode moves from the start into the first call. The corpus run doe
 
 Not done: a zstd context per thread (about 1 % of the run, measured above); lazy objects.
 
+## Amendment (Accepted, owner 2026-10-27): build the missing layers of one run in one load (branch `adr-022-layers`)
+
+Status of this amendment: **Accepted** (owner, 2026-10-27). See "Owner decisions 2026-10-27" at its end.
+
+It changes how layers are built ("Owner decision 2026-10-15: layered entries", point 5). It does not change what a
+layer file holds, its key, or the format number.
+
+### Why: measured on main 2957fcd4f
+
+Microsoft's "Enforced Digital Vouchers Tests" (codeunit 139516), BC 29.0.54011.56262: 19 dependency apps in 16 layers,
+10 916 dependency objects. `al-runner test-microsoft --app "Enforced Digital Vouchers Tests" --codeunit 139516
+--bc-version 29 --timings`, release build, with timers added to `lower_layer_with` and `open_or_build_with` (not
+committed). Every layer of the run missed (a fresh build has a fresh executable hash). Three cold runs, 12 cores, load
+average 4 to 7:
+
+| | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Cache build, all 16 layers | 9.58 s | 9.59 s | 9.65 s |
+| Layer 1 (System, System Application, Business Foundation, Base Application) | 5.08 s | 5.09 s | 5.13 s |
+| Layers 2 to 16 | 4.50 s | 4.50 s | 4.52 s |
+| Whole run, wall / instructions | not measured | 11.1 s / 231 G | 11.1 s / 230 G |
+
+Where the 4.5 s of layers 2 to 16 go (sum over the 15 layers, run 1; runs 2 and 3 within 0.06 s per row):
+
+| Phase | Sum | Per layer | Depends on |
+|---|---:|---:|---|
+| Copy of the source text of all apps up to the layer (`apps[..range.end].to_vec()`) and other glue | 0.55 s | 0.03 to 0.05 s | the apps below |
+| `Workspace::load_apps_symbols`: read and scan of every file of every app up to the layer (9 968 to 11 048 files), no source index | 1.00 s | 0.063 to 0.071 s | the apps below |
+| `provided_blocks`, catalog | 0.12 s | 0.008 s | the apps below |
+| Check (`check_with`) | 0.97 s | 0.001 to 0.38 s | the layer's own objects |
+| `lower_core` | 1.17 s | 0.03 s for a 1-object layer, up to 0.26 s | both: about 0.03 s fixed |
+| Drop of the workspace, members and check | 0.34 s | 0.005 to 0.09 s | both |
+| Encode and write the file, open it again | 0.33 s | 0.002 to 0.09 s | the layer's own objects |
+
+A layer with one or two own objects (Library Assert, Library Variable Storage, Permissions Mock) takes 0.12 to 0.14 s.
+That is the fixed cost of a layer: about 0.13 s. Fifteen layers pay it fifteen times, about 1.9 to 2.0 s. The rest,
+about 2.5 s, is the check, lowering and encoding of the 1 077 objects the upper layers own. That work is needed in any
+design.
+
+The cause is confirmed: each layer loads and scans the apps of every layer below it again. It copies their text, builds
+a new workspace of about 10 000 objects, lowers over all of them, and drops it all. The blocks of the layers below are
+not decoded (placeholders since "Owner request 2026-10-15 (second)", point 5), so that is not part of the cost.
+
+The measurement of the same day ("Many dependencies", main 0b3cbc871) gave 6.2 s for the upper layers of an 11.2 s
+build, 0.2 to 0.9 s per layer. That run was on a busier machine. The split above says the fixed part is about 45 % of
+the upper layers, not all of it. **The expected saving is about 2 s, not 4 to 5 s.**
+
+### Decision
+
+1. **One workspace for all missing layers of a run.** `open_or_build_with` loads the apps of the lowest missing layer
+   and everything below it once. Then for each missing layer, lowest first, it appends that layer's apps to the same
+   workspace and builds the layer. The apps below are not copied, read or scanned again.
+2. **The workspace grows only by appending.** This is the same rule that keeps positions stable (layered entries,
+   point 3): objects, files and extension fields of a new app come after those already there. The derived tables
+   (names, ids, `ext_of`, `subscribers_of`, `implementers_of`, interface families, visibility) are updated for the new
+   app only. A new `Workspace::append_apps` does this. After each append the workspace equals, field by field, a
+   workspace loaded from scratch with the same apps (a test checks it).
+3. **The lower walk of a layer visits only what it lowers.** These are the layer's own objects and the lower objects
+   it changes (`relower_set`). The objects taken from below are not visited one by one. This removes the fixed 0.03 s
+   of `lower_core`.
+4. **What stays identical.** Each layer file has the same key, the same format number and the same bytes as a layer
+   built alone. Positions, blocks, facts, heads and parse problems are unchanged. The run that uses the layers does not
+   change. Zero outcome differences between cached and uncached runs, as before.
+5. **Memory.** One workspace is held across the layer builds instead of one per layer. The peak is the workspace of
+   the top layer plus one layer's check and lowering, the same as building the top layer alone today.
+
+### Alternatives
+
+- **Read the source index for the layers below, still one workspace per layer.** A small change, but it saves little.
+  Loading a workspace of about 10 000 objects from the index measured 0.04 to 0.13 s ("Measured 2026-10-21"), about
+  the same as the scan (0.067 s). The copy, the fixed lower walk and the drop stay. Expected saving under 0.5 s.
+- **Compile all missing upper layers in one pass, then split the result into layer files.** This saves the fixed cost
+  too. Small layers would also share the cores (most use few of the 12), about 0.5 to 1 s more. But an object of layer k
+  must hold what the compile of the apps up to k gives. Where a higher layer extends or implements what it embeds, the
+  one-pass result differs, and those objects must be lowered again per layer. That is harder to prove equal. It can
+  come after this decision, measured on its own.
+- **Build independent layers in parallel.** Not sound with this format ("Owner decision 2026-10-15 (third)", point 4):
+  a layer's positions depend on every layer below it.
+- **Fewer layers (merge Microsoft's test libraries into one layer).** Saves the fixed cost too. But a change in one of
+  them would rebuild the others, and layers would no longer be shared between projects with different test library
+  sets. That goes against the owner decisions of 2026-10-15.
+
+### Expected saving
+
+On "Enforced Digital Vouchers Tests", cold: about 1.9 to 2.0 s of the 4.5 s of upper layers (cache build 9.6 s to about
+7.6 s). This is about 0.13 s for every layer built after the first, so a run with fewer missing layers saves less. A
+warm run (all layers hit) does not change. Layer 1 (5.1 s) does not change; it is shared between projects on one build.
+
+### Test plan
+
+1. `al-sema`: `Workspace::append_apps` gives a workspace equal to `load_apps_symbols` of the same apps (objects, files,
+   every derived table), for an app that extends, implements and subscribes to what is below it.
+2. `al-testrun/tests/compile_cache.rs`: the files of all missing layers built in one load are byte-equal to the files
+   built one layer at a time (the current path, kept behind an environment variable while the new path is proven).
+   Cases: all layers missing, only upper layers missing, a gap (layer 3 missing, 4 present, 5 missing).
+3. The existing tests of "layered entries", point 7, stay green unchanged.
+4. `tools/cache_vs_uncached.sh run` and `tools/demand_vs_eager.sh run`: 0 differences on BC 27, 28 and 29.
+5. The measurement above repeated, before and after, with the same command. The result is recorded in this ADR.
+
+### Owner decisions 2026-10-27
+
+1. **Accepted as proposed.** All missing layers of a run are built in one append-only workspace. Each layer file stays
+   byte-identical to a layer built alone; the key and the format number do not change. The saving of about 2 s is
+   worth the change.
+2. **The one-pass compile of the upper layers is not part of this amendment.** It is not planned with it.
+3. **The old one-layer-at-a-time build stays behind an environment variable** as an off switch (orchestrator's call,
+   like `ALRUNNER_EAGER_DECODE`).
+
 ## Consequences
 
 - **IR serialization becomes a seam.** The format is versioned by an integer in the header and the key. Changing an
