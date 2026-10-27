@@ -7385,6 +7385,7 @@
 70188 CardOnRecAndPlain
 70188 CreateModeCombinations
 70188 CreateModeWithLinkAndView
+70188 LinkAndViewOnAList
 70189 HandedRecordWithAnotherKeyAndDirection
 70189 HandedRecordWithoutFilters
 70189 NoRecordHanded

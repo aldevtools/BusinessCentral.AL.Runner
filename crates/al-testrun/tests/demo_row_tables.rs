@@ -1,6 +1,7 @@
 //! Without test data the tests run against the corpus database's company, which holds demo rows of Accounting Period and
 //! Company Information, and its General Ledger Setup row, that the runtime does not have (session/lt-company-information/
 //! CompanyInformationValues.al:45, :89; record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow;
+//! G/L entries, session/lt-outside-workdate/RlWorkDateAtStart.al:48 `G/L entries exist` Yes;
 //! ADR-047 rejected). A Count or IsEmpty of one of those dependency tables before the test wrote to it is refused, also when
 //! install code wrote a row there; once the test wrote to it, it is answered, and other reads stay answered.
 
@@ -12,6 +13,7 @@ const BASE: &str = r#"
 table 50 "Accounting Period" { fields { field(1; "Starting Date"; Date) { } } keys { key(PK; "Starting Date") { } } }
 table 79 "Company Information" { fields { field(1; "Primary Key"; Code[10]) { } field(2; Name; Text[100]) { } } keys { key(PK; "Primary Key") { } } }
 table 98 "General Ledger Setup" { fields { field(1; "Primary Key"; Code[10]) { } } keys { key(PK; "Primary Key") { } } }
+table 17 "G/L Entry" { fields { field(1; "Entry No."; Integer) { } } keys { key(PK; "Entry No.") { } } }
 codeunit 51 "Base Install"
 {
     Subtype = Install;
@@ -31,6 +33,8 @@ codeunit 50301 DemoTests
     [Test] procedure CountsGeneralLedgerSetup() var G: Record "General Ledger Setup"; begin if G.Count() <> 1 then Error('count %1', G.Count()); end;
     [Test] procedure WritesGeneralLedgerSetup() var G: Record "General Ledger Setup"; begin G.Insert(); G.Delete(); end;
     [Test] procedure CountsGeneralLedgerSetupAfterAnEarlierTestWroteIt() var G: Record "General Ledger Setup"; begin if G.Count() <> 1 then Error('count %1', G.Count()); end;
+    [Test] procedure ScansGLEntries() var E: Record "G/L Entry"; begin if E.IsEmpty() then Error('empty'); end;
+    [Test] procedure CountsTheGLEntryItWrote() var E: Record "G/L Entry"; begin E."Entry No." := 1; E.Insert(); if E.Count() <> 1 then Error('count %1', E.Count()); end;
     [Test] procedure ScansAnOtherTable() var R: Record "Own Row"; begin if not R.IsEmpty() then Error('rows'); end;
 }
 "#;
@@ -83,6 +87,7 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         "ScansAccountingPeriods",
         "CountsGeneralLedgerSetup",
         "CountsGeneralLedgerSetupAfterAnEarlierTestWroteIt",
+        "ScansGLEntries",
     ] {
         let o = outcome(&rt, name);
         assert!(matches!(o, Outcome::NotRun(_)), "{name}: {o:?}");
@@ -92,6 +97,7 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         "GetsTheInstalledRow",
         "ScansAnOtherTable",
         "WritesGeneralLedgerSetup",
+        "CountsTheGLEntryItWrote",
     ] {
         let o = outcome(&rt, name);
         assert!(matches!(o, Outcome::Pass), "{name}: {o:?}");
