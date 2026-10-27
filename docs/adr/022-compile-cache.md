@@ -1090,6 +1090,24 @@ warm run (all layers hit) does not change. Layer 1 (5.1 s) does not change; it i
 3. **The old one-layer-at-a-time build stays behind an environment variable** as an off switch (orchestrator's call,
    like `ALRUNNER_EAGER_DECODE`).
 
+### Built (2026-10-27, branch `cold-layers`)
+
+- Decisions 1, 2, 4 and 5 are built: `Workspace::append_apps` and `lower::LayerBuilder`; `open_or_build_with` builds
+  every missing layer above the first on one `LayerBuilder`. A workspace that cannot grow to equal a fresh load (an app
+  already loaded would see the new apps) is loaded again from scratch for that layer. The off switch is
+  `ALRUNNER_LAYER_BY_LAYER=1`.
+- Decision 3 (a lower walk over the layer's own objects only) is not built. A small layer now takes about 0.04 s,
+  down from 0.13 s; the walk is most of what is left.
+- Tests: `al-sema` `a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all`; `compile_cache.rs`
+  `layers_built_in_one_load_are_byte_identical_to_layers_built_one_at_a_time` (three stacks, table extensions across
+  layers), `only_upper_layers_or_layers_with_a_gap_built_in_one_load_are_byte_identical_too`,
+  `the_apps_below_are_read_and_scanned_once_for_all_missing_layers`.
+- Measured with the same binary, the switch off and on, interleaved, 3 cold runs each (load average 6.5 to 9.9, so the
+  times are noisy; instructions are not). "Enforced Digital Vouchers Tests" 139516: layers 2 to 16 median 5.31 s to
+  3.10 s; cache build median 11.97 s to 8.77 s; whole run 230.2 G to 160.8 G instructions (median). "System
+  Application Test" 132685 (few dependencies): layers above the first 0.22 s to 0.16 s, 24.5 G to 22.6 G instructions.
+  The saving is larger than the 2 s expected: trees parsed for one layer are kept for the next.
+
 ## Consequences
 
 - **IR serialization becomes a seam.** The format is versioned by an integer in the header and the key. Changing an
