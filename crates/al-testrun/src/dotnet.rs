@@ -63,6 +63,8 @@ impl Default for SidecarConfig {
 struct Resolved {
     dotnet: PathBuf,
     sidecar: PathBuf,
+    /// The `Microsoft.NETCore.App` versions `dotnet` reported: the sidecar runs on the newest 8.x of them.
+    versions: Vec<String>,
 }
 
 /// What the sidecars of one host cost, so start-up is reported apart from the calls
@@ -373,6 +375,23 @@ impl DotNetHost for SidecarHost {
         }
     }
 
+    fn identity(&self) -> Option<String> {
+        let r = self.shared.resolve_waiting().as_ref().ok()?;
+        let cfg = &self.shared.cfg;
+        // The helper's file names its build (the cache folder is keyed by its source); its modification time covers a
+        // helper given with `--dotnet-sidecar`.
+        let modified = std::fs::metadata(&r.sidecar).and_then(|m| m.modified()).ok()?;
+        Some(format!(
+            "dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}",
+            r.dotnet.display(),
+            r.versions.join(","),
+            r.sidecar.display(),
+            modified,
+            cfg.allow_roll_forward,
+            cfg.assembly_dirs,
+        ))
+    }
+
     fn open_session(&self, _cfg: &DotNetSessionConfig) -> Box<dyn DotNetSession> {
         Box::new(SidecarSession::new(
             self.shared.clone(),
@@ -474,7 +493,11 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
         );
     }
     let sidecar = find_sidecar(cfg, &dotnet)?;
-    Ok(Resolved { dotnet, sidecar })
+    Ok(Resolved {
+        dotnet,
+        sidecar,
+        versions,
+    })
 }
 
 /// The sidecar's source files, built into this binary, so a copied or installed `al-runner` can

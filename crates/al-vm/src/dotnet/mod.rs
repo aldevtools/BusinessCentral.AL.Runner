@@ -8,6 +8,8 @@ mod generic_dictionary;
 mod gettype;
 mod last_error;
 pub mod policy;
+mod pure;
+use pure::CONSTRUCT;
 mod query_metadata;
 pub mod registry;
 pub mod server_classes;
@@ -364,7 +366,14 @@ impl Session {
                 by_ref: places[i].is_some(),
             });
         }
-        self.dotnet_ready(&clr_type)?;
+        self.dotnet_ready(
+            &clr_type,
+            if kind == MemberKind::Construct {
+                CONSTRUCT
+            } else {
+                &member
+            },
+        )?;
         let dn = &mut self.dotnet;
         let session = dn.session.as_mut().expect("opened by dotnet_ready");
         let reply = match (kind, &target) {
@@ -647,7 +656,7 @@ impl Session {
         clr_type: &str,
         f: &mut Frame,
     ) -> Result<Value, MoveNextFailure> {
-        self.dotnet_ready(clr_type).map_err(MoveNextFailure::Refused)?;
+        self.dotnet_ready(clr_type, member).map_err(MoveNextFailure::Refused)?;
         let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
         match session.invoke(target, member, Vec::new()) {
             Ok(r) => self
@@ -665,7 +674,7 @@ impl Session {
         clr_type: &str,
         f: &mut Frame,
     ) -> Result<Value, MoveNextFailure> {
-        self.dotnet_ready(clr_type).map_err(MoveNextFailure::Refused)?;
+        self.dotnet_ready(clr_type, member).map_err(MoveNextFailure::Refused)?;
         let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
         match session.get_property(DotNetTarget::Instance(handle), member) {
             Ok(r) => self
@@ -721,7 +730,7 @@ impl Session {
                     LibraryValue::InStream(st) => st.rest(),
                     other => return unsupported(format!("CopyStream from {} into a DotNet stream", other.describe())),
                 };
-                self.dotnet_ready(&clr_type)?;
+                self.dotnet_ready(&clr_type, "Write")?;
                 let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
                 stream_failure(&clr_type, session.stream_write(handle, &bytes))?;
                 if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
@@ -742,7 +751,7 @@ impl Session {
                         return unsupported(format!("CopyStream from a DotNet stream into {}", other.describe()));
                     }
                 };
-                self.dotnet_ready(&clr_type)?;
+                self.dotnet_ready(&clr_type, "Read")?;
                 let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
                 let max = count.map(|n| n as usize);
                 let bytes = stream_failure(&clr_type, session.stream_read(handle, max))?;
@@ -772,7 +781,7 @@ impl Session {
                 if let Err(why) = engine.dotnet.policy.check(None, clr_type, Access::Member("ToString")) {
                     return Some(unsupported(format!("DotNet {shown}: {why}")));
                 }
-                if let Err(e) = self.dotnet_ready(clr_type) {
+                if let Err(e) = self.dotnet_ready(clr_type, "ToString") {
                     return Some(Err(e));
                 }
                 let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
@@ -839,7 +848,7 @@ impl Session {
                         by_ref: false,
                     },
                 ];
-                if let Err(e) = self.dotnet_ready(&d.name) {
+                if let Err(e) = self.dotnet_ready(&d.name, CONSTRUCT) {
                     return Some(Err(e));
                 }
                 let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
@@ -866,7 +875,7 @@ impl Session {
                 "DotNet {shown}: a staged folder that is empty or holds a name with a line feed"
             ));
         }
-        self.dotnet_ready("System.Text.RegularExpressions.Regex")?;
+        self.dotnet_ready("System.Text.RegularExpressions.Regex", "Split")?;
         let decl = DotNetType {
             assembly: "System.Text.RegularExpressions".into(),
             version: None,
@@ -886,7 +895,7 @@ impl Session {
         self.type_reply(reply, shown)
     }
 
-    fn dotnet_ready(&mut self, clr_type: &str) -> Result<(), Signal> {
+    fn dotnet_ready(&mut self, clr_type: &str, member: &str) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let avail = self
             .dotnet
@@ -894,6 +903,9 @@ impl Session {
             .get_or_insert_with(|| engine.dotnet.host.availability().map_err(|e| e.0));
         if let Err(reason) = avail {
             return unsupported(format!("{UNAVAILABLE}: DotNet '{clr_type}' {reason}"));
+        }
+        if !pure::answers_from_arguments(clr_type, member) {
+            engine.dotnet_called.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if self.dotnet.session.is_none() {
             self.dotnet.session = Some(engine.dotnet.host.open_session(&DotNetSessionConfig::default()));

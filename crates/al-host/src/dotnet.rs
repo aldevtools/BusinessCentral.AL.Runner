@@ -195,6 +195,12 @@ pub trait DotNetHost: Send + Sync {
     fn availability(&self) -> Result<(), DotNetUnavailable>;
     /// One per VM session. Starts nothing until the first call.
     fn open_session(&self, cfg: &DotNetSessionConfig) -> Box<dyn DotNetSession>;
+    /// What runs the calls, as text: the .NET runtime, the helper and where it finds assemblies. Two hosts with the
+    /// same text answer a call that depends on its arguments alone the same (the key of the kept install baseline).
+    /// `None`: the host cannot say.
+    fn identity(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The default host: no .NET. Core tests and a WASM build use it.

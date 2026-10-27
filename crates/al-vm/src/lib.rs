@@ -115,6 +115,10 @@ pub struct Engine {
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
     /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
     pub resources_read: std::sync::atomic::AtomicBool,
+    /// A session made a `DotNet` call that may answer from more than its arguments (`dotnet::pure`): files,
+    /// environment variables, the machine's clock, the assemblies of `--dotnet-assembly-dir`. That is outside the
+    /// program, so an install baseline whose code made one is not kept on disk (al-testrun `baseline_cache`).
+    pub dotnet_called: std::sync::atomic::AtomicBool,
     /// Rows of a restored company, read when a session first touches a table (ADR-020). `None`: a
     /// run without test data.
     pub test_data: Option<al_host::testdata::TestData>,
@@ -379,6 +383,7 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
+            dotnet_called: Default::default(),
             test_data: None,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
@@ -418,6 +423,7 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
+            dotnet_called: Default::default(),
             test_data: None,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
@@ -472,6 +478,7 @@ impl Engine {
             skipped_apps,
             resource_overrides,
             resources_read,
+            dotnet_called,
             test_data,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
@@ -509,6 +516,7 @@ impl Engine {
             Err(e) => e.into_inner().clear(),
         }
         *resources_read.get_mut() = false;
+        *dotnet_called.get_mut() = false;
         *test_data = None;
     }
 

@@ -10,6 +10,16 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-testrun/src/dotnet.rs",
+        r#""dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
+        "the .NET host's identity in the key of the cached install state, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/runtime/corpus.rs",
+        r#"Some(c) => key.text("company_data", &format!("{c:?}")),"#,
+        "the company-data settings in the key of the cached install state, hashed, never shown",
+    ),
+    (
         "al-vm/src/records.rs",
         r#".map(|f| format!("{}={:?}", f.field, f.expr))"#,
         "the filter group 1 filters of a record, compared for equality with the session's, never shown",
