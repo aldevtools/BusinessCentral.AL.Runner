@@ -642,6 +642,10 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         }
                     },
                     crate::value::LibraryValue::Empty if name == "JsonObject" => "{}".to_string(),
+                    // A default JsonArray is `[]` (misc/lt-probes-needed-5/PnE09Platform.al:163,172 JsonValue_NeverTouched); a cleared
+                    // one is a fresh default one (types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned). al-runner
+                    // issue 5956.
+                    crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 0 => "[]".to_string(),
                     crate::value::LibraryValue::Empty if matches!(name.as_str(), "JsonValue" | "JsonToken") => {
                         "null".to_string()
                     }

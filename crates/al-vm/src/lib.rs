@@ -1040,6 +1040,7 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
+                subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
                 publisher_var_lens: Vec::new(),
                 unpinned_event_depth: 0,
@@ -1114,6 +1115,7 @@ impl Session {
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
         self.tx.rows_touched.clear();
+        self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.rolled_back = false;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
@@ -1205,6 +1207,7 @@ impl Session {
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
         self.tx.rows_touched.clear();
+        self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
@@ -1742,6 +1745,39 @@ impl Session {
             ));
         }
         if self.depth >= MAX_CALL_DEPTH {
+            // With an event subscriber on the stack BC names event recursion: code `RecursiveEventCall:StackOverflow`, and a text that
+            // names the innermost subscriber, the event and its publisher. Pinned on corpus branch al-runtime-rs-staging-sh
+            // (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137, commit 67c7900c; al-runner issue 5944; assumption
+            // `recursive-event-call-code` until the corpus bump) for an integration event of a codeunit and OnAfterModifyEvent of a
+            // table; another event's text is not pinned.
+            if let Some(top) = self.events.subscriber_stack.last() {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecursiveEventCallCode);
+                let objects = &self.engine.program.objects;
+                let text = top.map(|(publisher, so, sr)| {
+                    let p = &objects[publisher];
+                    let (event, kind) = if p.kind == al_ir::ObjKind::Table {
+                        ("OnAfterModifyEvent", "Table")
+                    } else {
+                        ("None", "CodeUnit")
+                    };
+                    format!(
+                        "Excessive recursion has been detected in event subscriber function {} for event {event} that is raised in {kind} {}.",
+                        objects[so].routines[sr].name,
+                        p.id.unwrap_or(0)
+                    )
+                });
+                return Err(Signal::Error(Box::new(match text {
+                    Some(message) => al_builtins::native::AlError {
+                        message,
+                        code: "RecursiveEventCall:StackOverflow".into(),
+                        ..Default::default()
+                    },
+                    None => al_builtins::native::unpinned_text_error(
+                        "RecursiveEventCall:StackOverflow",
+                        "recursive-event-call-code",
+                    ),
+                })));
+            }
             return Err(Signal::Error(Box::new(al_builtins::native::AlError {
                 message: "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator.".into(),
                 code: "StackOverflow".into(),
@@ -1890,6 +1926,8 @@ impl Session {
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), _) => a,
                 // An HttpContent passed by reference is the caller's own object; only a by-value one is a copy (see `ops::convert`).
                 (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpContent") => a,
+                // A BigText passed by reference too; a by-value one is a copy (`ops::convert`, al-runner issue 5940).
+                (a @ Value::Library(al_builtins::library_kind::LibraryKind::BigText, _), true) => a,
                 // A Variant holding an Integer handed to a `var` Text parameter is passed as it is: no conversion, the callee's
                 // assignment replaces it and the Variant then holds that text (types/lt-variant-to-text-fields/
                 // VariantNumberToVarParam.al:VarTextParam_VariantArgument, `integer ok = Yes`, `variant after = filled`). Another

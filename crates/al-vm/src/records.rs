@@ -256,6 +256,18 @@ impl Session {
             .unwrap_or_else(|| t.name.clone())
     }
 
+    /// The related table's caption in the TableRelation error of a Validate: [`Self::caption`], except that a table one
+    /// tableextension gives a Caption over its own is named by the extension's caption (al-runner issue 5955, the reporter's
+    /// real-BC repro; assumption `relation-error-ext-caption`).
+    pub(crate) fn relation_error_caption(&self, t: &TableDef) -> String {
+        let o = &self.engine.program.objects[t.object as usize];
+        if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RelationErrorExtCaption);
+            return v.trim().trim_matches('\'').to_string();
+        }
+        self.caption(t)
+    }
+
     /// The caption a read of it gives (TableCaption, RecordRef.Caption, Format of a RecordId): refused where a
     /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {
@@ -1295,6 +1307,28 @@ impl Session {
         match origin.filter(|o| o.version == mine) {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
+            // One or two Commits after the buffer's own write, and the new transaction inserted another row of the table and did
+            // nothing else to the row or the table's locks: written. Pinned on corpus branch al-runtime-rs-staging-sh
+            // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:673-745, commit 67c7900c; al-runner issue 5954; assumption
+            // `stale-own-insert-two-commits-other-insert` until the corpus bump); an Insert into another table only is refused.
+            Some(o)
+                if o.own_write
+                    && (o.commits + 1 == self.commits || o.commits + 2 == self.commits)
+                    && !touched
+                    && !self.tx.rolled_back
+                    && !self.tx.lock_tx
+                    && self.tx.lock_unpinned.is_none()
+                    && self
+                        .tx
+                        .tables_inserted
+                        .iter()
+                        .any(|(ob, c)| *ob == t.object && *c == company) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && o.commits + 1 == self.commits => {
                 if touched && !self.tx.rolled_back {
                     if o.read_in_write_tx {
@@ -2955,6 +2989,17 @@ impl Session {
                     InsertOutcome::Inserted => {
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
+                        if !rec.borrow().temporary {
+                            let company = rec.borrow().company.clone();
+                            if !self
+                                .tx
+                                .tables_inserted
+                                .iter()
+                                .any(|(o, c)| *o == t.object && *c == company)
+                            {
+                                self.tx.tables_inserted.push((t.object, company));
+                            }
+                        }
                         let version = t
                             .fields
                             .iter()

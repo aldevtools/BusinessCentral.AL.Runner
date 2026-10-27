@@ -116,6 +116,19 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
                 Rc::new(RefCell::new(copy)),
             )
         }
+        // A BigText is a value: assignment, a by-value parameter and a return value copy its text (al-runner issue 5940,
+        // the reporter's real-BC repro; registered assumption `bigtext-value-copy`). A `var` parameter keeps the caller's
+        // own BigText (`Session::call_inner`).
+        (Value::Library(crate::library_kind::LibraryKind::BigText, cell), T::Library(_)) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::BigTextValueCopy);
+            let copy = match &*cell.borrow() {
+                LibraryValue::Text(s) => LibraryValue::Text(s.clone()),
+                LibraryValue::TextCap(s, n) => LibraryValue::TextCap(s.clone(), *n),
+                LibraryValue::Empty => LibraryValue::Empty,
+                _ => return Err(Signal::Unsupported("a copy of a BigText that holds no text".into())),
+            };
+            Value::Library(crate::library_kind::LibraryKind::BigText, Rc::new(RefCell::new(copy)))
+        }
         // An HttpContent is a value: assignment and a by-value parameter copy its body and headers
         // (misc/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference).
         (Value::Library(n, cell), T::Library(_))
