@@ -337,6 +337,12 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .run_reasons
                 .push("xmlport property defaultnamespace with UseDefaultNamespace is not supported yet".into()),
         }
+    } else if use_default_namespace == Some(true) {
+        // Without DefaultNamespace the port uses BC's own namespace `urn:microsoft-dynamics-nav/xmlports/x<id>` (the export of
+        // xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290 Item108_NamespaceRules), so it is not a port without namespaces and
+        // the import pins of one do not apply. What its import and export do is not pinned.
+        out.run_reasons
+            .push("xmlport property usedefaultnamespace = true without DefaultNamespace is not supported yet".into());
     }
     if let Some(enc) = out.encoding.clone() {
         match enc.to_ascii_lowercase().as_str() {

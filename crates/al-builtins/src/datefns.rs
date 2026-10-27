@@ -445,6 +445,8 @@ enum Term {
     Edge { unit: Unit, end: bool },
     /// `WDn`: the next day (`-WDn`: the previous one) that is weekday `n`, Monday being 1.
     WeekDay { n: i32, forward: bool },
+    /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
+    DayLetterFirst { n: i32, forward: bool },
 }
 
 /// A formula as stored or typed, without the angle brackets: how `Format` prints it
@@ -593,8 +595,9 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             i += 3;
             continue;
         }
-        // A `D` before its number is a day step (`D1`, types/TestDateFormulaEvaluateLeftoversContracts.al:
-        // Evaluate_Accepted). The other letters before a number are not pinned.
+        // A `D` before its number is accepted (`D1`, types/TestDateFormulaEvaluateLeftoversContracts.al:
+        // Evaluate_Accepted); what CalcDate does with it is pinned for one date only (`apply`). The other letters before a
+        // number are not pinned.
         if b.get(i) == Some(&b'D') && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
             let start = i + 1;
             i = start;
@@ -604,7 +607,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
             let Ok(n) = body[start..i].parse::<i32>() else {
                 return refuse();
             };
-            terms.push(Term::Step(Unit::Day, if negative { -n } else { n }));
+            terms.push(Term::DayLetterFirst { n, forward: !negative });
             continue;
         }
         let start = i;
@@ -890,6 +893,16 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     day_from_civil(y, first, 1)
                 }
             }
+            // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45). That fits both "add n
+            // days" and "the next day n of a month"; nothing pins which one BC does, so any other number, sign or date is refused.
+            Term::DayLetterFirst { n, forward } => {
+                if !(n == 1 && forward && d == days_in_month(y, m)) {
+                    return unsupported(
+                        "date formula with the day letter before its number (`Dn`) other than `D1` on the last day of a month (not pinned)",
+                    );
+                }
+                day + 1
+            }
             Term::WeekDay { n, forward } => {
                 let wd = weekday(day);
                 // On the weekday itself the term moves a whole week (Dates_CalcDate_Formulas: `<WD1>` on a Monday).
@@ -984,6 +997,18 @@ mod tests {
     }
     fn calc(formula: &str, from: Value) -> Result<Value, Signal> {
         call("System.CalcDate#2", vec![t(formula), from])
+    }
+
+    // `Dn` before its number: the only pin is `D1` on 2024-01-31 giving 2024-02-01
+    // (types/TestDateFormulaEvaluateLeftoversContracts.al:45). Whether `Dn` adds n days or goes to the next day n of a
+    // month is not pinned anywhere else, so every other date and number is refused.
+    #[test]
+    fn a_day_letter_before_its_number_is_pinned_only_for_d1_at_the_end_of_a_month() {
+        is_date(calc("D1", date(2024, 1, 31)), 2024, 2, 1);
+        refused(calc("<D31>", date(2024, 1, 1)));
+        refused(calc("<D1>", date(2024, 1, 1)));
+        refused(calc("<D2>", date(2024, 1, 31)));
+        refused(calc("<-D1>", date(2024, 1, 31)));
     }
 
     // types/TestRoundDateTimeContracts.al:61-72: a precision of 700000 ms does not divide a day but a week.
