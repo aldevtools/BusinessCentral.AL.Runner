@@ -52,6 +52,9 @@ impl DotNetHost for InprocHost {
     fn availability(&self) -> Result<(), DotNetUnavailable> {
         self.inner.availability()
     }
+    fn identity(&self) -> Option<String> {
+        self.inner.identity().map(|i| format!("{i} in-process stand-ins"))
+    }
     fn open_session(&self, cfg: &DotNetSessionConfig) -> Box<dyn DotNetSession> {
         Box::new(InprocSession {
             inner: self.inner.open_session(cfg),

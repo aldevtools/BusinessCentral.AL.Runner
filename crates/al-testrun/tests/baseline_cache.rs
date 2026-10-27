@@ -524,3 +524,366 @@ fn the_login_work_date_is_kept_with_the_baseline_and_replayed_by_the_next_run() 
     assert_eq!(login_run(dir.path()), Outcome::Pass);
     assert_eq!(file_id(&kept[0]), before, "read, not written");
 }
+
+/// A run of the dependency `base` and a workspace app of `main_src`, with `opts` and the compile cache in `cache`.
+fn run_main(main_src: &str, cache: &Path, dotnet: al_vm::dotnet::DotNetConfig, opts: RunOptions) -> CorpusRuntime {
+    run_apps(
+        vec![
+            app("main", &["base"], main_src.to_string()),
+            app("base", &[], base("yes")),
+        ],
+        cache,
+        dotnet,
+        opts,
+    )
+}
+
+fn run_apps(
+    apps: Vec<AppSource>,
+    cache: &Path,
+    dotnet: al_vm::dotnet::DotNetConfig,
+    opts: RunOptions,
+) -> CorpusRuntime {
+    let manifest = |p: &str| Manifest {
+        publisher: p.into(),
+        version: "1.0.0.0".into(),
+        resources: vec![],
+        include_source: false,
+        target: String::new(),
+        layout_files: Vec::new(),
+        id_ranges: Vec::new(),
+        translations: false,
+        symbols: vec![],
+    };
+    CorpusRuntime::try_run_suites_with(
+        apps,
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        dotnet,
+        &[SuiteRun::everything()],
+        &RunOptions {
+            compile_cache: Some(CompileCache {
+                dir: cache.to_path_buf(),
+                require: false,
+                rebuild: false,
+                country: String::new(),
+            }),
+            ..opts
+        },
+    )
+    .expect("the run starts")
+}
+
+fn outcome_of(rt: &CorpusRuntime, test: &str) -> Outcome {
+    rt.results()
+        .iter()
+        .find(|r| r.test == test)
+        .map(|r| r.outcome.clone())
+        .unwrap_or_else(|| panic!("the test {test} ran"))
+}
+
+// Nothing a test writes reaches the file: not its rows, not its number sequences, and not what the login code would
+// record over the database the test changed. The second run starts from what the install code left, as the first did.
+const WRITES_BASE: &str = r#"
+table 50120 Setting { fields { field(1; Code; Code[20]) { } field(2; Value; Text[50]) { } } keys { key(PK; Code) { } } }
+table 50121 Entry { fields { field(1; No; Integer) { } field(2; D; Date) { } } keys { key(PK; No) { } } }
+codeunit 50122 Installer
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Setting; E: Record Entry; begin
+        S.Code := 'SEEDED'; S.Value := 'installed'; S.Insert();
+        E.No := 1; E.D := 20240115D; E.Insert(); end;
+}
+codeunit 40 LogInManagement
+{
+    SingleInstance = true;
+    procedure GetDefaultWorkDate(): Date var E: Record Entry; begin
+        if E.FindLast() then exit(NormalDate(E.D));
+        exit(WorkDate()); end;
+}
+"#;
+
+const WRITES_TESTS: &str = r#"
+codeunit 60120 WritingTests
+{
+    Subtype = Test;
+    [Test] procedure WritesEverything() var S: Record Setting; E: Record Entry; begin
+        if S.Get('TESTROW') then Error('a row a test of an earlier run wrote: %1', S.Value);
+        if not S.Get('SEEDED') then Error('the install row is missing');
+        if NumberSequence.Exists('TESTSEQUENCE') then Error('a number sequence of an earlier run');
+        if WorkDate() <> 20240115D then Error('WorkDate %1', WorkDate());
+        S.Code := 'TESTROW'; S.Value := 'TESTVALUE'; S.Insert();
+        S.Get('SEEDED'); S.Value := 'TESTCHANGED'; S.Modify();
+        NumberSequence.Insert('TESTSEQUENCE', 1000, 1);
+        if NumberSequence.Next('TESTSEQUENCE') <> 1000 then Error('the sequence');
+        E.No := 2; E.D := 20300101D; E.Insert(); end;
+}
+"#;
+
+#[test]
+fn nothing_a_test_writes_reaches_the_kept_baseline() {
+    let dir = tempfile::tempdir().unwrap();
+    let go = || {
+        run_apps(
+            vec![
+                app("main", &["base"], WRITES_TESTS.into()),
+                app("base", &[], WRITES_BASE.into()),
+            ],
+            dir.path(),
+            Default::default(),
+            Default::default(),
+        )
+    };
+    assert_eq!(outcome_of(&go(), "WritesEverything"), Outcome::Pass);
+    let kept = files(dir.path());
+    assert_eq!(kept.len(), 1, "the first run keeps its baseline");
+    let first = std::fs::read(&kept[0]).unwrap();
+    // The second run reads the file and its test sees none of what the first run's test wrote.
+    assert_eq!(outcome_of(&go(), "WritesEverything"), Outcome::Pass);
+    assert_eq!(files(dir.path()), kept);
+    let second = std::fs::read(&kept[0]).unwrap();
+    for (bytes, which) in [(&first, "first"), (&second, "second")] {
+        for text in ["TESTROW", "TESTVALUE", "TESTCHANGED", "TESTSEQUENCE"] {
+            assert!(
+                !bytes.windows(text.len()).any(|w| w == text.as_bytes()),
+                "{text} is in the file after the {which} run"
+            );
+        }
+    }
+    // The login code's record is the one over the install code's data (2024-01-15), not over the test's entry.
+    let (run, _) = al_testrun::baseline_cache::decode(&second).unwrap();
+    let (run1, _) = al_testrun::baseline_cache::decode(&first).unwrap();
+    assert_eq!(run.login, run1.login, "the login records did not change");
+    assert!(run.login.len() <= 1);
+}
+
+/// A .NET host whose answer to `Value()` is set by the test: what an assembly of `--dotnet-assembly-dir`, a file, an
+/// environment variable or the machine's clock would answer, none of which is in the key.
+#[derive(Clone)]
+struct Answering(Arc<std::sync::Mutex<String>>);
+
+struct AnsweringSession(Arc<std::sync::Mutex<String>>);
+
+impl al_host::dotnet::DotNetSession for AnsweringSession {
+    fn construct(
+        &mut self,
+        _: &al_host::dotnet::DotNetType,
+        _: Vec<al_host::dotnet::DotNetArg>,
+    ) -> Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure> {
+        Err(al_host::dotnet::DotNetFailure::Refused("not served".into()))
+    }
+    fn invoke(
+        &mut self,
+        _: al_host::dotnet::DotNetTarget,
+        member: &str,
+        _: Vec<al_host::dotnet::DotNetArg>,
+    ) -> Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure> {
+        match member {
+            "Value" => Ok(al_host::dotnet::DotNetReply::value(al_host::dotnet::DotNetValue::Str(
+                self.0.lock().unwrap().clone(),
+            ))),
+            _ => Err(al_host::dotnet::DotNetFailure::Refused("not served".into())),
+        }
+    }
+    fn get_property(
+        &mut self,
+        _: al_host::dotnet::DotNetTarget,
+        _: &str,
+    ) -> Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure> {
+        Err(al_host::dotnet::DotNetFailure::Refused("not served".into()))
+    }
+    fn set_property(
+        &mut self,
+        _: al_host::dotnet::DotNetTarget,
+        _: &str,
+        _: al_host::dotnet::DotNetValue,
+    ) -> Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure> {
+        Err(al_host::dotnet::DotNetFailure::Refused("not served".into()))
+    }
+    fn release(&mut self, _: &[al_host::dotnet::DotNetHandle]) {}
+    fn close(self: Box<Self>) {}
+}
+
+impl al_host::dotnet::DotNetHost for Answering {
+    fn availability(&self) -> Result<(), al_host::dotnet::DotNetUnavailable> {
+        Ok(())
+    }
+    fn open_session(&self, _: &al_host::dotnet::DotNetSessionConfig) -> Box<dyn al_host::dotnet::DotNetSession> {
+        Box::new(AnsweringSession(self.0.clone()))
+    }
+}
+
+const DOTNET_MAIN: &str = r#"
+dotnet { assembly("MyAssembly") { type("MyCompany.Settings"; "MySettings") { } } }
+codeunit 60130 DotNetInstaller
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Setting; M: DotNet MySettings; begin
+        S.Code := 'NET'; S.Value := M.Value(); S.Insert(); end;
+}
+codeunit 60131 DotNetTests
+{
+    Subtype = Test;
+    [Test] procedure ReadsTheInstallRow() var S: Record Setting; M: DotNet MySettings; begin
+        S.Get('NET'); if S.Value <> M.Value() then Error('got ' + S.Value); end;
+}
+"#;
+
+#[test]
+fn a_baseline_whose_install_code_asked_dotnet_is_not_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let answer = Arc::new(std::sync::Mutex::new("one".to_string()));
+    let go = || {
+        run_main(
+            DOTNET_MAIN,
+            dir.path(),
+            al_vm::dotnet::DotNetConfig {
+                host: Arc::new(Answering(answer.clone())),
+                ..Default::default()
+            },
+            Default::default(),
+        )
+    };
+    assert_eq!(outcome_of(&go(), "ReadsTheInstallRow"), Outcome::Pass);
+    // .NET answers something else now (another file, another assembly): the install code must ask it again.
+    *answer.lock().unwrap() = "two".to_string();
+    assert_eq!(
+        outcome_of(&go(), "ReadsTheInstallRow"),
+        Outcome::Pass,
+        "the row holds what .NET answers in this run"
+    );
+    assert!(files(dir.path()).is_empty(), "nothing kept: {:?}", files(dir.path()));
+}
+
+const TDD_MAIN: &str = r#"
+codeunit 60140 Helper { procedure There() begin end; }
+codeunit 60141 TddInstaller
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Setting; H: Codeunit Helper; begin
+        H.NotThere(); S.Code := 'TDD'; S.Value := 'stubbed'; S.Insert(); end;
+}
+codeunit 60142 TddTests
+{
+    Subtype = Test;
+    [Test] procedure SeesTheInstallRow() var S: Record Setting; begin if not S.Get('TDD') then Error('no row'); end;
+    [Test] procedure SeesNoInstallRow() var S: Record Setting; begin if S.Get('TDD') then Error('a row'); end;
+}
+"#;
+
+#[test]
+fn a_run_with_tdd_gets_a_baseline_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let go = |tdd: bool| {
+        run_main(
+            TDD_MAIN,
+            dir.path(),
+            Default::default(),
+            RunOptions {
+                tdd,
+                ..Default::default()
+            },
+        )
+    };
+    // With `--tdd` the missing procedure is a stub and the install code runs to its end; without, it does not run.
+    let with = go(true);
+    assert_eq!(outcome_of(&with, "SeesTheInstallRow"), Outcome::Pass);
+    // Without, the install routine does not compile, and a test of the table it writes is held back. A run that took
+    // the baseline of the run with `--tdd` would find the row.
+    let without = go(false);
+    let held = outcome_of(&without, "SeesNoInstallRow");
+    assert!(
+        matches!(&held, Outcome::NotRun(why) if why.contains("could not run")),
+        "the baseline of the run with --tdd is not taken: {held:?}"
+    );
+    assert_eq!(files(dir.path()).len(), 2, "--tdd is part of the key");
+}
+
+const ROW_TESTS: &str = r#"
+codeunit 60150 RowTests
+{
+    Subtype = Test;
+    [Test] procedure Row() var S: Record Setting; begin if not S.Get('ROW') then Error('no row'); Error('row: %1', S.Value); end;
+}
+"#;
+
+/// What the test `Row` says: `no row`, or the value of the row the baseline code wrote.
+fn row(rt: &CorpusRuntime) -> String {
+    match outcome_of(rt, "Row") {
+        Outcome::Fail(m) => m,
+        other => format!("{other:?}"),
+    }
+}
+
+#[test]
+fn other_skipped_dependency_apps_get_a_baseline_of_their_own() {
+    // A run of an object id no loaded app declares raises the missing-object error, unless a skipped app may declare it:
+    // then it is refused (`al_vm::Engine::skipped_apps`). What the install code leaves differs, so the key does.
+    let base = r#"
+table 50100 Setting { fields { field(1; Code; Code[20]) { } field(2; Value; Text[50]) { } } keys { key(PK; Code) { } } }
+codeunit 50151 Installer
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin Codeunit.Run(70000); end;
+}
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let go = |skipped: Vec<String>| {
+        run_apps(
+            vec![app("main", &["base"], ROW_TESTS.into()), app("base", &[], base.into())],
+            dir.path(),
+            Default::default(),
+            RunOptions {
+                skipped_dependencies: skipped,
+                ..Default::default()
+            },
+        )
+    };
+    go(Vec::new());
+    go(vec!["`Other` by Someone".into()]);
+    assert_eq!(files(dir.path()).len(), 2, "the skipped apps are part of the key");
+}
+
+#[test]
+fn another_setting_of_the_company_build_gets_a_baseline_of_its_own() {
+    let base = r#"
+table 50100 Setting { fields { field(1; Code; Code[20]) { } field(2; Value; Text[50]) { } } keys { key(PK; Code) { } } }
+codeunit 50152 "Build Company"
+{
+    trigger OnRun() var S: Record Setting; begin S.Code := 'ROW'; S.Value := 'gui ' + Format(GuiAllowed()); S.Insert(); end;
+}
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let go = |no_client: bool| {
+        run_apps(
+            vec![app("main", &["base"], ROW_TESTS.into()), app("base", &[], base.into())],
+            dir.path(),
+            Default::default(),
+            RunOptions {
+                company_data: Some(al_testrun::company_data::CompanyData {
+                    codeunit: 50152,
+                    name: "Build Company".into(),
+                    resources: None,
+                    // The same app and files: only how the company is built differs.
+                    identity: "the same".into(),
+                    environment: None,
+                    installed_first: None,
+                    method: None,
+                    more_steps: Vec::new(),
+                    no_client,
+                    evaluation_company: false,
+                }),
+                ..Default::default()
+            },
+        )
+    };
+    assert!(row(&go(false)).contains("row: gui"));
+    assert!(row(&go(true)).contains("row: gui"));
+    assert_eq!(
+        files(dir.path()).len(),
+        2,
+        "every setting of the company build is part of the key"
+    );
+}

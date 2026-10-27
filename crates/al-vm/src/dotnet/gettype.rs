@@ -122,7 +122,7 @@ impl Session {
 
     /// `System.Type.GetType(name)` for a type of mscorlib.
     fn type_named(&mut self, name: &str) -> Result<Value, Signal> {
-        self.dotnet_ready("System.Type")?;
+        self.dotnet_ready("System.Type", "GetType")?;
         let decl = DotNetType {
             assembly: "mscorlib".into(),
             version: None,
@@ -141,7 +141,7 @@ impl Session {
 
     /// `GetType()` on an object the host holds, or on an enum value it boxes.
     fn type_call(&mut self, target: DotNetTarget, clr_type: &str) -> Result<Value, Signal> {
-        self.dotnet_ready(clr_type)?;
+        self.dotnet_ready(clr_type, "GetType")?;
         let session = self.dotnet.session.as_mut().expect("opened by dotnet_ready");
         let reply = session.invoke(target, "GetType", Vec::new());
         self.type_reply(reply, &format!("{clr_type}.GetType"))

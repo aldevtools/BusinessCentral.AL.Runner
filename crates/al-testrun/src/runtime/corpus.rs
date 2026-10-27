@@ -863,8 +863,13 @@ impl CorpusRuntime {
         // The engine the install code ran on (the tests may get another below).
         let install_read_resources =
             baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
-        if let (false, Some(key), Some(cc), Some(run)) = (
+        // What .NET answers a call that may read more than its arguments (files, environment variables, the
+        // machine's clock, user assemblies) is not in the key: a baseline whose code made one is not kept, and the next
+        // run runs the install code again (`al_vm::dotnet::pure`).
+        let install_called_dotnet = engine.dotnet_called.load(std::sync::atomic::Ordering::Relaxed);
+        if let (false, false, Some(key), Some(cc), Some(run)) = (
             from_cache,
+            install_called_dotnet,
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
             baseline_run.as_ref(),
@@ -1868,9 +1873,12 @@ fn take_kept_engines(
 /// The second text is the frame of the key: all of it but the source of the apps (`KeyBuilder::finish_frame`), what a
 /// warm server's baseline carried over an edit must match (`baseline_cache::carry`).
 ///
-/// Not kept at all: a run that reads test data, runs .NET, lets `File` use a real directory, reads the real clock as
-/// it goes, records, compares two executable forms or has a test runner of its own: what such a run does is not in
-/// the key.
+/// Not kept at all: a run that lets `File` use a real directory (`--files-dir`), reads the real clock as it goes,
+/// records, compares two executable forms or has a test runner of its own, and a baseline whose install code made a
+/// `DotNet` call that may read more than its arguments (`Engine::dotnet_called`): what such a run reads is not in the key. Test data is in the key by what
+/// its provider says it is (`TableProvider::identity`). Nothing the tests write is kept: the file is written before
+/// the first test runs, and the login code's records added after the tests are taken only over the baseline as the
+/// file holds it (`install::login_work_date`).
 #[allow(clippy::too_many_arguments)]
 fn baseline_key(
     ws: &al_sema::Workspace,
@@ -1901,21 +1909,27 @@ fn baseline_key(
         None => key.text("test_data", ""),
     };
     // Whether `DotNet` calls of the install code could run. A baseline made without a usable .NET holds what the
-    // refused calls left out, and one made with it holds what they did.
-    key.text(
-        "dotnet",
-        if dotnet.host.availability().is_ok() {
-            "available"
-        } else {
-            "unavailable"
-        },
-    );
+    // refused calls left out, and one made with it holds what they did. With .NET, what runs the calls: a baseline is
+    // kept only when its calls answer from their arguments alone (`Engine::dotnet_called`), and those answers are
+    // the runtime's.
+    let dotnet_text = match dotnet.host.availability() {
+        Ok(()) => format!("available {}", dotnet.host.identity().unwrap_or_default()),
+        Err(_) => "unavailable".to_string(),
+    };
+    key.text("dotnet", &dotnet_text);
     key.bytes("runtime_build", &crate::compile_cache::runtime_build());
     // The codeunit that builds the company, and what its files and its app's source are.
+    // Every setting of how the company is built (steps, methods, environment, client, evaluation company), not only
+    // the codeunit and the identity of its app and files.
     match &opts.company_data {
-        Some(c) => key.text("company_data", &format!("{} {} {}", c.codeunit, c.name, c.identity)),
+        Some(c) => key.text("company_data", &format!("{c:?}")),
         None => key.text("company_data", ""),
     };
+    // `--tdd` lowers a call of a procedure that does not exist to a stub, in install code as in tests (ADR-051).
+    key.text("tdd", if opts.tdd { "yes" } else { "no" });
+    // A lookup by id of an object no loaded app declares is refused when a skipped app may declare it, and raises
+    // the missing-object error otherwise (`al_vm::Engine::skipped_apps`): install code that makes one depends on it.
+    key.text("skipped_dependencies", &opts.skipped_dependencies.join("\n"));
     key.text("dependencies", &report.file.file_name()?.to_string_lossy());
     for (i, app) in ws.apps.iter().enumerate() {
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {
