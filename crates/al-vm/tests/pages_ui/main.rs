@@ -24,6 +24,7 @@ mod gone_row;
 mod gone_row_key_filter;
 mod goto_next_call;
 mod gotokey_walk_parts;
+mod group_enabled_field;
 mod host_save_record_parts;
 mod list_caption_filter;
 
@@ -62,4 +63,5 @@ mod unpinned_testpage_paths;
 mod update_filter_away_row;
 mod update_new_line_filter;
 mod validate_filter_refresh;
+mod view_blank_date;
 mod view_boolean_filter_text;

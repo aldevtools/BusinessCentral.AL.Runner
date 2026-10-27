@@ -10845,6 +10845,7 @@
 72561 RecordRef_FilterGroup_ThroughGetTableAndSetTable
 72561 TestField_Blob
 72571 ClientType_Members
+72571 JsonValue_NeverTouched
 72571 RecordAndVariant_ParameterWrites
 72581 Foreach_ChangeTokenInBody
 72581 Foreach_EmptyAndBreak
@@ -14388,6 +14389,7 @@
 79650 Ap11_SaveRecordAndUpdateFalse
 79650 Ap12_PageVar_SetRecordTemp_KeyBefore
 79650 Ap15_SetSelectionFilter_IntoMarkedRecord
+79650 Ap16_GroupEnabledFalse_Card
 79650 Ap17_NotBlank_CardOnEmptyTable
 79650 Ap17_NotBlank_List
 79650 Ap17_NotBlank_PageWithoutSourceTable

@@ -474,6 +474,18 @@ impl Session {
                             // member with parentheses keeps its quotes (record/TestCalcFormulaQuotedFilterTests.Codeunit.al:60308).
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
                             .unwrap_or(value);
+                        // `filter('')` on a Date field reaches here as an empty value: it selects the blank date, as `filter(0D)`
+                        // (`''` here) does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:521-535 Item58_SourceTableView_Filter0D).
+                        // al-runner issue 5958, the reporter's real-BC repro; assumption `view-blank-date-filter`.
+                        let value = if kind == "FILTER"
+                            && matches!(ty, al_builtins::value::RtType::Date)
+                            && value.trim().is_empty()
+                        {
+                            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ViewBlankDateFilter);
+                            "''"
+                        } else {
+                            value
+                        };
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
                         // (events/lt-platform-triggers/PtObserve.al:Filter_View).
                         let date_ctx = al_builtins::filter::DateFilterContext {
