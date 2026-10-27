@@ -581,6 +581,22 @@ registry! {
             since: "2026-10-25",
         },
     },
+    DrilldownMarkedOnlyWithPart => {
+        id: "drilldown-marked-only-with-part",
+        assumed: "After a field's OnDrillDown turned MarkedOnly on for Rec and called CurrPage.Update(false), a list with OnAfterGetRecord or OnAfterGetCurrRecord that has a part (in the content area or in the FactBoxes area) lists only the marked rows, as the same page without a part does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016).",
+        tests: "No Microsoft test: al-runner issue 5886, the reporter's repro green 6/6 on real BC 29.0.54011.55407; pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "The drilldown of ScDrillDownMarkedOnly.al on a Worksheet with both row triggers and a ListPart with a SubPageLink, in the content area and in the FactBoxes area: First/Next and GoToRecord of the unmarked row.",
+        awaiting: Awaiting {
+            issues: &[5886],
+            files: &[
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_GoToRecordMissesTheUnmarkedRow",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_GoToRecordMissesTheUnmarkedRow",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
