@@ -287,17 +287,27 @@ fn lazy_cached_objects(lowered: &mut Lowered, src: &std::sync::Arc<dyn crate::pr
         lowered.pos_ranges.iter().map(|r| r.0).collect(),
     ));
     let objects = std::mem::take(&mut program.objects);
-    let heads: std::sync::Arc<[ir::ObjectHead]> = objects
-        .iter()
-        .enumerate()
-        .map(|(oi, o)| {
-            if provided[oi] {
-                src.head(oi).clone()
-            } else {
-                ir::ObjectHead::of(o)
-            }
-        })
-        .collect();
+    // The heads of each layer are decoded on its first ask, on several threads, inside a `OnceLock`. Asked first from
+    // the parallel loop below, a thread waiting in that decode could take another item of the loop and ask the same
+    // `OnceLock` again: a deadlock. So they are asked here, on one thread, first.
+    for oi in (0..objects.len()).filter(|&oi| provided[oi]) {
+        src.head(oi);
+    }
+    // On several threads: the heads of about ten thousand objects in a run on Base Application.
+    let heads: Vec<ir::ObjectHead> = {
+        use rayon::prelude::*;
+        (0..objects.len())
+            .into_par_iter()
+            .map(|oi| {
+                if provided[oi] {
+                    src.head(oi).clone()
+                } else {
+                    ir::ObjectHead::of(&objects[oi])
+                }
+            })
+            .collect()
+    };
+    let heads: std::sync::Arc<[ir::ObjectHead]> = heads.into();
     let finished: Vec<Option<ir::Object>> = objects
         .into_vec()
         .into_iter()

@@ -976,42 +976,53 @@ pub(crate) fn lower_core(
     for (oi, piece) in done.into_iter().flatten() {
         pieces[oi] = Some(piece);
     }
-    // Objects the cache supplies.
+    // Objects the cache supplies, made on several threads (about ten thousand in a run on Base Application).
     {
-        for (oi, slot) in blocks.iter_mut().enumerate() {
-            if let Some(b) = slot.take() {
+        use rayon::prelude::*;
+        let made: Vec<Option<(Vec<Vec<al_builtins::value::RtType>>, Piece)>> = blocks
+            .par_iter_mut()
+            .enumerate()
+            .map(|(oi, slot)| {
+                let b = slot.take()?;
                 // The object itself stays in its block until a run touches it (ADR-054): link sees a placeholder.
                 debug_assert!(b.object.is_none(), "a run does not decode a block to compile");
                 let facts = src.expect("blocks come with their source").facts(oi);
-                if out.drivers.is_empty() {
-                    out.drivers = vec![Vec::new(); n];
-                }
-                out.drivers[oi] = facts.drivers.clone();
-                pieces[oi] = Some(Piece {
-                    object: ir::Object::default(),
-                    sym: None,
-                    positions: Vec::new(),
-                    unsupported: facts.unsupported.clone(),
-                    calls: facts
-                        .calls
-                        .iter()
-                        .map(|r| r.iter().map(|&(o, r)| (o as usize, r as usize)).collect())
-                        .collect(),
-                    direct: Vec::new(),
-                    embeds: Vec::new(),
-                    field_refs: Vec::new(),
-                    control_refs: Vec::new(),
-                    expansions: Vec::new(),
-                    page_mods: Default::default(),
-                    key_owners: Vec::new(),
-                    implements: src.map_or_else(Vec::new, |s| s.facts(oi).implements.clone()),
-                    enum_impls: src.map_or_else(Vec::new, |s| s.facts(oi).enum_impls.clone()),
-                    enum_ordinals: src.map_or_else(Vec::new, |s| s.facts(oi).enum_ordinals.clone()),
-                    fields: src.map_or_else(Vec::new, |s| s.facts(oi).fields.clone()),
-                    controls: src.map_or_else(Vec::new, |s| s.facts(oi).controls.clone()),
-                    key: src.map(|s| s.facts(oi).key.clone()),
-                });
+                Some((
+                    facts.drivers.clone(),
+                    Piece {
+                        object: ir::Object::default(),
+                        sym: None,
+                        positions: Vec::new(),
+                        unsupported: facts.unsupported.clone(),
+                        calls: facts
+                            .calls
+                            .iter()
+                            .map(|r| r.iter().map(|&(o, r)| (o as usize, r as usize)).collect())
+                            .collect(),
+                        direct: Vec::new(),
+                        embeds: Vec::new(),
+                        field_refs: Vec::new(),
+                        control_refs: Vec::new(),
+                        expansions: Vec::new(),
+                        page_mods: Default::default(),
+                        key_owners: Vec::new(),
+                        implements: src.map_or_else(Vec::new, |s| s.facts(oi).implements.clone()),
+                        enum_impls: src.map_or_else(Vec::new, |s| s.facts(oi).enum_impls.clone()),
+                        enum_ordinals: src.map_or_else(Vec::new, |s| s.facts(oi).enum_ordinals.clone()),
+                        fields: src.map_or_else(Vec::new, |s| s.facts(oi).fields.clone()),
+                        controls: src.map_or_else(Vec::new, |s| s.facts(oi).controls.clone()),
+                        key: src.map(|s| s.facts(oi).key.clone()),
+                    },
+                ))
+            })
+            .collect();
+        for (oi, m) in made.into_iter().enumerate() {
+            let Some((drivers, piece)) = m else { continue };
+            if out.drivers.is_empty() {
+                out.drivers = vec![Vec::new(); n];
             }
+            out.drivers[oi] = drivers;
+            pieces[oi] = Some(piece);
         }
     }
     // Objects nothing compiled are shells.
