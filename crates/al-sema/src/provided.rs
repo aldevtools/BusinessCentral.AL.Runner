@@ -118,6 +118,11 @@ pub trait DepSource: Sync {
     fn head(&self, object: usize) -> &ir::ObjectHead;
     /// The block of `object`, read and checked now. An error means the source is damaged.
     fn block(&self, object: usize) -> Result<DepBlock, String>;
+    /// The heads of all objects, as values of their own: what a run's program keeps (ADR-054). A source that decodes
+    /// its heads may decode them for this call instead of keeping them, so they are not decoded and then copied.
+    fn heads_owned(&self) -> Vec<ir::ObjectHead> {
+        (0..self.len()).map(|o| self.head(o).clone()).collect()
+    }
     /// Dependency files that did not parse when the set was built, as (path, why). A run that
     /// uses the set parses none of them, so it has to be told.
     fn parse_problems(&self) -> &[(String, String)] {
@@ -188,6 +193,10 @@ pub trait LayerSource: Sync {
     fn objects(&self) -> &[u32];
     fn facts_at(&self, slot: usize) -> &DepFacts;
     fn head_at(&self, slot: usize) -> &ir::ObjectHead;
+    /// The heads of all slots as values of their own (see [`DepSource::heads_owned`]).
+    fn heads_owned(&self) -> Vec<ir::ObjectHead> {
+        (0..self.objects().len()).map(|s| self.head_at(s).clone()).collect()
+    }
     /// The block of `slot`, read and checked now.
     fn block_at(&self, slot: usize) -> Result<DepBlock, String>;
     fn parse_problems(&self) -> &[(String, String)];
@@ -205,6 +214,9 @@ impl<T: LayerSource + ?Sized> LayerSource for &T {
     }
     fn head_at(&self, slot: usize) -> &ir::ObjectHead {
         (**self).head_at(slot)
+    }
+    fn heads_owned(&self) -> Vec<ir::ObjectHead> {
+        (**self).heads_owned()
     }
     fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
         (**self).block_at(slot)
@@ -303,6 +315,19 @@ impl DepSource for Stack<'_> {
     fn head(&self, object: usize) -> &ir::ObjectHead {
         let (l, s) = self.at[object];
         self.layers[l as usize].head_at(s as usize)
+    }
+    fn heads_owned(&self) -> Vec<ir::ObjectHead> {
+        // Each layer's heads, moved to the objects the layer supplies (a lower layer's slot that a higher one
+        // replaces is dropped).
+        let mut layers: Vec<Vec<Option<ir::ObjectHead>>> = self
+            .layers
+            .iter()
+            .map(|l| l.heads_owned().into_iter().map(Some).collect())
+            .collect();
+        self.at
+            .iter()
+            .map(|&(l, s)| layers[l as usize][s as usize].take().expect("one object per slot"))
+            .collect()
     }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
         let (l, s) = self.at[object];
@@ -837,6 +862,8 @@ codeunit 60031 WBar implements IWork { procedure Bump(): Integer begin exit(3); 
             );
         }
         assert_eq!(stack.parse_problems(), &complete.parse_problems[..]);
+        // The heads a run moves into its program are the same, in object order.
+        assert!(stack.heads_owned() == complete.heads, "the owned heads differ");
         overrides
     }
 

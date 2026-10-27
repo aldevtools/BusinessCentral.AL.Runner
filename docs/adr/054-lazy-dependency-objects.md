@@ -290,3 +290,14 @@ the lazy/eager decode leg.
   and the page and report tables make only their pages and reports. `ObjectHead::rec_table` added (`al_cache::FORMAT`
   19). Test: `reading_the_object_lists_decodes_only_a_few_objects` (red: 416 of 416 decoded). Enforced Digital
   Vouchers Tests (19 dependencies, 10 916 objects): 10 916 to 180 objects decoded, run 0.26 s to 0.02 s.
+
+- 2026-10-27, step 4 (link of the cached objects): a cached object gets no piece, staged object, placeholder unit or
+  default object any more. `al_link::link_items` takes `Item::Placeholder` (the facts other objects ask of it, read in
+  place from the cache) and returns no object for it; `Lowered::unsupported` and `calls` read a cached object's lists
+  from its facts (`lower/routine_lists.rs`); `ir::Objects` boxes its slots. Demo (`al-runner test app test`, warm,
+  median of 5): compile 0.15 s to 0.12 s, instructions 3.84 G to 3.61 G; warm repro: compile 0.13 s to 0.10 s,
+  2.46 G to 2.23 G.
+
+- 2026-10-27, step 4 (heads): a cached run moves the stored heads into its program instead of cloning them
+  (`DepSource::heads_owned`, `LayerSource::heads_owned`; an entry decodes them for the caller when nothing asked for
+  them yet). Demo: instructions 3.61 G to 3.52 G; warm repro 2.23 G to 2.13 G, compile 0.10 s to 0.09 s.

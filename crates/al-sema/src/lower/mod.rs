@@ -30,9 +30,9 @@ pub struct Lowered {
     /// lowering the workspace's own code.
     pub program: std::sync::Arc<ir::Program>,
     /// Per object, per routine: why it cannot run (empty = it can).
-    pub unsupported: Vec<Vec<Vec<String>>>,
+    pub unsupported: Refusals,
     /// Per object, per routine: the routines it calls directly, as (object, routine).
-    pub calls: Vec<Vec<Vec<(usize, usize)>>>,
+    pub calls: Calls,
     /// Per object: it belongs to a dependency app, so no test or install code of it runs (ADR-013).
     pub dependency: Vec<bool>,
     /// Per object: its lowered form came from a compile cache (`provided.rs`). `calls` holds only
@@ -40,7 +40,8 @@ pub struct Lowered {
     pub provided: Vec<bool>,
     /// What a variable of a page, report or xmlport can drive (see `Driven`); set with `provided`.
     driven: Option<DrivenCtx>,
-    /// Per object a compile cache supplied, per routine: `DepFacts::drivers`. Empty for the others.
+    /// Per object a compile cache supplied, per routine: `DepFacts::drivers`, when the compile did not keep the cache's
+    /// facts (`Calls::drivers` answers otherwise). Empty for the others.
     pub(crate) drivers: Vec<Vec<Vec<al_builtins::value::RtType>>>,
     /// With `lower_for_cache`: the lowered dependency objects and what the lowering of others
     /// reads about them, ready to be stored.
@@ -158,12 +159,16 @@ impl Lowered {
 
     /// [`calls_of`](Self::calls_of), appended to `out`.
     pub fn calls_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
-        out.extend(self.calls[o][r].iter().copied());
+        self.calls.extend_into(o, r, out);
         if !self.provided.get(o).copied().unwrap_or(false) {
             return;
         }
         // From the facts the cache stored, so the object is not decoded to answer (ADR-054).
-        if let (Some(d), Some(types)) = (&self.driven, self.drivers.get(o).and_then(|t| t.get(r))) {
+        let types = self
+            .calls
+            .drivers(o, r)
+            .or_else(|| self.drivers.get(o).and_then(|t| t.get(r)).map(Vec::as_slice));
+        if let (Some(d), Some(types)) = (&self.driven, types) {
             driven_edges_of_types(d, types.iter(), out);
         }
     }
@@ -490,6 +495,7 @@ mod localize;
 #[cfg(test)]
 mod object_hash_tests;
 mod pages;
+mod routine_lists;
 mod shared;
 mod stmt;
 mod tables;
@@ -510,5 +516,6 @@ pub(crate) enum StreamScope {
 
 pub use self::assemble::*;
 pub use self::compile::*;
+pub use self::routine_lists::{Calls, Refusals};
 pub use self::shared::dependency_positions;
 pub(crate) use self::shared::*;

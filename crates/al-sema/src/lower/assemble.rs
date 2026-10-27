@@ -152,6 +152,9 @@ pub(crate) struct Provided<'a> {
     pub src: &'a dyn crate::provided::DepSource,
     /// The blocks of the objects that are supplied, read and checked.
     pub blocks: Vec<Option<crate::provided::DepBlock>>,
+    /// `src` shared, when the compile may keep it: the refusals and calls of the supplied objects are then read from its
+    /// facts instead of copied (`routine_lists.rs`).
+    pub shared: Option<std::sync::Arc<dyn crate::provided::DepSource + Send>>,
 }
 
 impl Provided<'_> {
@@ -827,16 +830,20 @@ pub(crate) fn lower_core(
     export: bool,
 ) -> Result<Lowered, String> {
     let catalog = al_builtins::catalog::Catalog::load();
-    let (src, mut blocks): (
-        Option<&dyn crate::provided::DepSource>,
-        Vec<Option<crate::provided::DepBlock>>,
-    ) = match provided {
-        Some(p) => (Some(p.src), p.blocks),
-        None => (None, Vec::new()),
+    let (src, mut blocks, kept) = match provided {
+        Some(p) => (Some(p.src), p.blocks, p.shared),
+        None => (None, Vec::new(), None),
     };
     let flags: Vec<bool> = (0..ws.objects.len())
         .map(|oi| blocks.get(oi).is_some_and(Option::is_some))
         .collect();
+    let cached_facts = kept.map(|src| super::routine_lists::CachedFacts {
+        src,
+        provided: flags.clone().into(),
+    });
+    let keep_facts = cached_facts.is_some();
+    // A run keeps the cache: the objects it supplies are made on first touch (`compile::lazy_cached_objects`).
+    let lazy_src = cached_facts.as_ref().map(|c| c.src.clone());
     let prov = |oi: usize| flags[oi];
     let Prologue {
         mut shared,
@@ -888,8 +895,8 @@ pub(crate) fn lower_core(
     let mut out = Lowered {
         timings: CompileTimings::default(),
         program: Default::default(),
-        unsupported: Vec::new(),
-        calls: Vec::new(),
+        unsupported: Default::default(),
+        calls: Default::default(),
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
         driven: None,
@@ -949,7 +956,8 @@ pub(crate) fn lower_core(
             }
         }
     };
-    let mut pieces: Vec<Option<Piece>> = (0..n).map(|_| None).collect();
+    // Boxed: a piece is a few KB, and an object the cache supplies has none.
+    let mut pieces: Vec<Option<Box<Piece>>> = (0..n).map(|_| None).collect();
     let local = Local::new(Nodes::new(ws, shared.active.clone()));
     let seq = Seq::new(&shared);
     let done: Vec<Vec<(usize, Piece)>> = std::thread::scope(|scope| {
@@ -974,63 +982,26 @@ pub(crate) fn lower_core(
         done
     });
     for (oi, piece) in done.into_iter().flatten() {
-        pieces[oi] = Some(piece);
+        pieces[oi] = Some(Box::new(piece));
     }
-    // Objects the cache supplies, made on several threads (about ten thousand in a run on Base Application).
-    {
-        use rayon::prelude::*;
-        let made: Vec<Option<(Vec<Vec<al_builtins::value::RtType>>, Piece)>> = blocks
-            .par_iter_mut()
-            .enumerate()
-            .map(|(oi, slot)| {
-                let b = slot.take()?;
-                // The object itself stays in its block until a run touches it (ADR-054): link sees a placeholder.
-                debug_assert!(b.object.is_none(), "a run does not decode a block to compile");
-                let facts = src.expect("blocks come with their source").facts(oi);
-                Some((
-                    facts.drivers.clone(),
-                    Piece {
-                        object: ir::Object::default(),
-                        sym: None,
-                        positions: Vec::new(),
-                        unsupported: facts.unsupported.clone(),
-                        calls: facts
-                            .calls
-                            .iter()
-                            .map(|r| r.iter().map(|&(o, r)| (o as usize, r as usize)).collect())
-                            .collect(),
-                        direct: Vec::new(),
-                        embeds: Vec::new(),
-                        field_refs: Vec::new(),
-                        control_refs: Vec::new(),
-                        expansions: Vec::new(),
-                        page_mods: Default::default(),
-                        key_owners: Vec::new(),
-                        implements: src.map_or_else(Vec::new, |s| s.facts(oi).implements.clone()),
-                        enum_impls: src.map_or_else(Vec::new, |s| s.facts(oi).enum_impls.clone()),
-                        enum_ordinals: src.map_or_else(Vec::new, |s| s.facts(oi).enum_ordinals.clone()),
-                        fields: src.map_or_else(Vec::new, |s| s.facts(oi).fields.clone()),
-                        controls: src.map_or_else(Vec::new, |s| s.facts(oi).controls.clone()),
-                        key: src.map(|s| s.facts(oi).key.clone()),
-                    },
-                ))
-            })
-            .collect();
-        for (oi, m) in made.into_iter().enumerate() {
-            let Some((drivers, piece)) = m else { continue };
+    // Objects the cache supplies have no piece: link reads what other objects ask of them from the cache's facts, and
+    // the run makes the object on first touch (ADR-054). Without the facts kept (a layer build), the drivers are copied.
+    for (oi, slot) in blocks.iter_mut().enumerate() {
+        let Some(b) = slot.take() else { continue };
+        debug_assert!(b.object.is_none(), "a run does not decode a block to compile");
+        if !keep_facts {
             if out.drivers.is_empty() {
                 out.drivers = vec![Vec::new(); n];
             }
-            out.drivers[oi] = drivers;
-            pieces[oi] = Some(piece);
+            out.drivers[oi] = src.expect("blocks come with their source").facts(oi).drivers.clone();
         }
     }
     // Objects nothing compiled are shells.
     let mut line_cache: HashMap<usize, std::rc::Rc<FileLines>> = HashMap::default();
     #[allow(clippy::needless_range_loop)] // `oi` is the object, not just a slot of `pieces`
     for oi in 0..n {
-        if pieces[oi].is_none() {
-            pieces[oi] = Some(lower_object(&shared, &local, &seq, oi, &mut line_cache));
+        if pieces[oi].is_none() && !prov(oi) {
+            pieces[oi] = Some(Box::new(lower_object(&shared, &local, &seq, oi, &mut line_cache)));
         }
     }
     // Two objects of one type with one id in one app (AL0264, `alcodes::duplicate_ids`; al-runner issue 5854) would
@@ -1060,11 +1031,13 @@ pub(crate) fn lower_core(
     let enum_info = |i: usize| enum_info_of(ws, members, i);
     let piece_keys: Vec<al_ir::sym::ObjKey> = pieces
         .iter()
-        .map(|p| {
-            let p = p.as_ref().expect("every object is lowered");
-            p.key
+        .enumerate()
+        .map(|(oi, p)| match p {
+            Some(p) => p
+                .key
                 .clone()
-                .unwrap_or_else(|| al_ir::sym::ObjKey::of(&p.object, &program.apps))
+                .unwrap_or_else(|| al_ir::sym::ObjKey::of(&p.object, &program.apps)),
+            None => src.expect("a supplied object has a source").facts(oi).key.clone(),
         })
         .collect();
     // The subscribers of objects nothing compiled, per subscribing object (ADR-033).
@@ -1109,12 +1082,48 @@ pub(crate) fn lower_core(
         )
     };
     let mut exported = export.then(crate::provided::DepSet::default);
-    let mut staged: Vec<Staged> = Vec::with_capacity(n);
+    let mut staged = StagedList {
+        slots: Vec::with_capacity(n),
+    };
+    let mut unsupported: Vec<Vec<Vec<String>>> = Vec::with_capacity(n);
+    let mut calls: Vec<Vec<Vec<(usize, usize)>>> = Vec::with_capacity(n);
     let embeds_of_all: Vec<Vec<usize>> = pieces
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
         .collect();
-    for (oi, piece) in pieces.into_iter().flatten().enumerate() {
+    for (oi, piece) in pieces.into_iter().enumerate() {
+        let Some(piece) = piece else {
+            // Supplied by the cache: its refusals and calls are read from the facts, or copied without them kept.
+            let facts = src.expect("a supplied object has a source").facts(oi);
+            if keep_facts {
+                unsupported.push(Vec::new());
+                calls.push(Vec::new());
+            } else {
+                unsupported.push(facts.unsupported.clone());
+                calls.push(
+                    facts
+                        .calls
+                        .iter()
+                        .map(|r| r.iter().map(|&(o, r)| (o as usize, r as usize)).collect())
+                        .collect(),
+                );
+            }
+            if let Some(set) = exported.as_mut() {
+                // Facts of an object taken from below are not kept by a layer build (`compile.rs`); the key and kind
+                // are what the export of a placeholder piece held.
+                set.facts.push(crate::provided::DepFacts {
+                    key: facts.key.clone(),
+                    kind: Some(ws.objects[oi].kind),
+                    id: ws.objects[oi].id,
+                    name: ws.objects[oi].name.clone(),
+                    app: ws.objects[oi].app as u32,
+                    ..Default::default()
+                });
+            }
+            staged.slots.push(None);
+            continue;
+        };
+        let piece = *piece;
         if let Some(set) = exported.as_mut() {
             let o = &ws.objects[oi];
             let recorded: std::collections::BTreeSet<usize> = embeds_of_all[oi].iter().copied().collect();
@@ -1176,14 +1185,9 @@ pub(crate) fn lower_core(
                 drivers: Vec::new(),
             });
         }
-        out.unsupported.push(piece.unsupported);
-        out.calls.push(piece.calls);
-        let reserved_positions = match src {
-            Some(s) if prov(oi) => s.facts(oi).positions,
-            _ => 0,
-        };
-        staged.push(Staged {
-            reserved_positions,
+        unsupported.push(piece.unsupported);
+        calls.push(piece.calls);
+        staged.slots.push(Some(Box::new(Staged {
             object: piece.object,
             positions: piece.positions,
             key: piece.key,
@@ -1193,15 +1197,12 @@ pub(crate) fn lower_core(
             page_mods: piece.page_mods,
             sym: piece.sym,
             page_contribution: None,
-            implements: piece.implements,
-            enum_impls: piece.enum_impls,
-            enum_ordinals: piece.enum_ordinals,
             key_owners: piece.key_owners,
             table_contribution: None,
-            fields: piece.fields,
-            controls: piece.controls,
-        });
+        })));
     }
+    out.unsupported = super::Refusals::new(unsupported, cached_facts.clone());
+    out.calls = super::Calls::new(calls, cached_facts);
     let field_pos = |t: usize, id: u32| members.get(t).fields.iter().position(|f| f.id == id);
     let field_no = |t: usize, pos: usize| members.get(t).fields.get(pos).map(|f| f.id);
     let field_numbers = |t: usize| members.get(t).fields.iter().map(|f| f.id).collect::<Vec<u32>>();
@@ -1275,6 +1276,7 @@ pub(crate) fn lower_core(
         staged,
         program,
         &prov,
+        src,
         &routine_keys,
         &lookups,
         subscriber_decls,
@@ -1285,13 +1287,23 @@ pub(crate) fn lower_core(
         },
     )?;
     out.object_hashes = hashes;
-    out.pos_ranges = linked.pos_ranges;
-    let mut program = linked.program;
+    let (mut program, mut objects, pos_ranges) = linked;
+    out.pos_ranges = pos_ranges;
     if !shared.early_relations || check {
-        derive_relations(&mut program, &shared, &prov, lower_workers());
+        derive_relations(&mut objects, &shared, &prov, lower_workers());
     }
+    // Without the cache kept, a supplied object is the default object its placeholder always was.
+    let defaults = |objects: Vec<Option<ir::Object>>| -> ir::Objects {
+        objects
+            .into_iter()
+            .map(Option::unwrap_or_default)
+            .collect::<Vec<_>>()
+            .into()
+    };
     if let Some((p, ranges)) = expected {
-        if let Some(d) = al_link::first_difference(&p, &program) {
+        let mut whole = program.clone();
+        whole.objects = defaults(objects.clone());
+        if let Some(d) = al_link::first_difference(&p, &whole) {
             return Err(format!(
                 "AL_CHECK_LINK: the linked program differs from the lowered one: {d}"
             ));
@@ -1299,6 +1311,9 @@ pub(crate) fn lower_core(
         if ranges != out.pos_ranges {
             return Err("AL_CHECK_LINK: the source position ranges differ".into());
         }
+    }
+    if lazy_src.is_none() {
+        program.objects = defaults(std::mem::take(&mut objects));
     }
     if let Some(set) = exported.as_mut() {
         // Heads and blocks from the objects as linked, after the relations (ADR-054 decision 2, owner decision
@@ -1328,6 +1343,9 @@ pub(crate) fn lower_core(
     if src.is_some() {
         out.driven = Some(shared.driven.clone());
     }
+    if let Some(src) = lazy_src {
+        super::compile::lazy_cached_objects(&mut program, &mut out, objects, &src);
+    }
     out.program = std::sync::Arc::new(program);
     Ok(out)
 }
@@ -1336,7 +1354,7 @@ pub(crate) fn lower_core(
 /// extensions leave (a `modify` block can change `TableRelation`): the arms, the arms of a relation with filter
 /// conditions, and the metadata of a relation the runtime does not understand.
 fn derive_relations(
-    program: &mut ir::Program,
+    objects: &mut [Option<ir::Object>],
     shared: &Shared<'_>,
     provided: &(dyn Fn(usize) -> bool + Sync),
     workers: usize,
@@ -1348,8 +1366,8 @@ fn derive_relations(
         Vec<String>,
     )>;
     let ws = shared.ws;
-    let tables: Vec<usize> = (0..program.objects.len())
-        .filter(|&oi| !provided(oi) && !program.objects[oi].uncompiled && program.objects[oi].table.is_some())
+    let tables: Vec<usize> = (0..objects.len())
+        .filter(|&oi| !provided(oi) && objects[oi].as_ref().is_some_and(|o| !o.uncompiled && o.table.is_some()))
         .collect();
     // The syntax cells of a worker are made once for a run of tables, not for each table.
     let runs: Vec<Vec<usize>> = tables.chunks(16).map(<[usize]>::to_vec).collect();
@@ -1381,7 +1399,7 @@ fn derive_relations(
     .flatten()
     .collect();
     for (oi, relations) in done {
-        let Some(table) = program.objects[oi].table.as_mut() else {
+        let Some(table) = objects[oi].as_mut().and_then(|o| o.table.as_mut()) else {
             continue;
         };
         for (f, (arms, runtime, meta, texts)) in table.fields.iter_mut().zip(relations) {
@@ -1465,7 +1483,7 @@ use al_ir::sym::UNSUPPORTED_TABLE_PROPERTY;
 /// Takes what the table extensions declare out of the tables that hold it: their fields, their keys
 /// and their changes to other fields (`modify`). The table keeps its own; link merges the rest again.
 fn split_tables(
-    staged: &mut [Staged],
+    staged: &mut StagedList,
     provided: &(dyn Fn(usize) -> bool + Sync),
     lookups: &Lookups<'_>,
     keep_relations: bool,
@@ -1714,7 +1732,7 @@ impl al_ir::walk::RefVisitor for FillSets<'_> {
 /// Takes what the page extensions add out of the pages that hold it: their controls, with where each goes, their
 /// `modify` blocks and their page triggers. The page keeps its own controls. A page whose own controls refer to a
 /// control of an extension is left as it is.
-fn split_pages(staged: &mut [Staged], provided: &(dyn Fn(usize) -> bool + Sync), keys: &[al_ir::sym::ObjKey]) {
+fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync), keys: &[al_ir::sym::ObjKey]) {
     use al_ir::sym::{ControlId, ControlMod, ExtControl, PageContribution};
     let n = staged.len();
     let mut contributions: Vec<Option<PageContribution>> = vec![None; n];
@@ -1880,7 +1898,8 @@ fn split_pages(staged: &mut [Staged], provided: &(dyn Fn(usize) -> bool + Sync),
 /// What making the objects symbolic and linking them gave: the program, the program as lowering used to build it
 /// (the check), and the symbolic objects (for a cache).
 struct Linking {
-    linked: al_link::Linked,
+    /// The program without its objects, the objects (`None`: supplied by the cache) and `Linked::pos_ranges`.
+    linked: al_link::LinkedItems,
     expected: Option<Expected>,
     /// With `LinkOptions::hash`: `Lowered::object_hashes`.
     hashes: Vec<Option<super::ObjectHash>>,
@@ -1897,7 +1916,35 @@ struct LinkOptions {
 /// The program built the way lowering used to build it, and where each object's source positions are (the check).
 type Expected = (ir::Program, Vec<(u32, u32)>);
 
+/// The objects waiting to be linked, by object: `None` for an object a compile cache supplies, which reads as an empty
+/// `Staged` (what its placeholder piece held) and becomes one if something writes to it.
+struct StagedList {
+    slots: Vec<Option<Box<Staged>>>,
+}
+
+static NO_STAGED: std::sync::LazyLock<Staged> = std::sync::LazyLock::new(Staged::default);
+
+impl StagedList {
+    fn len(&self) -> usize {
+        self.slots.len()
+    }
+}
+
+impl std::ops::Index<usize> for StagedList {
+    type Output = Staged;
+    fn index(&self, i: usize) -> &Staged {
+        self.slots[i].as_deref().unwrap_or(&NO_STAGED)
+    }
+}
+
+impl std::ops::IndexMut<usize> for StagedList {
+    fn index_mut(&mut self, i: usize) -> &mut Staged {
+        self.slots[i].get_or_insert_with(Box::default)
+    }
+}
+
 /// A lowered object waiting to be linked.
+#[derive(Default)]
 struct Staged {
     object: ir::Object,
     positions: Vec<ir::SrcPos>,
@@ -1910,19 +1957,9 @@ struct Staged {
     sym: Option<al_ir::sym::SymObject>,
     /// What a page extension adds to its page, taken out of the page before the objects are made symbolic.
     page_contribution: Option<al_ir::sym::PageContribution>,
-    /// A provided codeunit: the interfaces it implements, from the cache's facts.
-    implements: Vec<al_ir::sym::ObjKey>,
-    enum_impls: Vec<al_ir::sym::EnumImplDecl>,
-    enum_ordinals: Vec<u32>,
     key_owners: Vec<usize>,
     /// What a table extension adds to its table, taken out of the table before the objects are made symbolic.
     table_contribution: Option<al_ir::sym::TableContribution>,
-    /// For a provided table: its field numbers (`DepFacts::fields`).
-    fields: Vec<u32>,
-    /// For a provided page: its control names (`DepFacts::controls`).
-    controls: Vec<String>,
-    /// For a provided object: how many source positions it has (`DepFacts::positions`).
-    reserved_positions: u32,
 }
 
 /// Turns the lowered objects, in program order, into the program (ADR-033): the objects that were
@@ -1930,10 +1967,12 @@ struct Staged {
 /// are, and link gives every object its position. `base` holds everything that is not an object.
 /// With `check`, the program is also built the way lowering used to build it, and a difference
 /// is an error (`AL_CHECK_LINK=1`).
+#[allow(clippy::too_many_arguments)] // the pieces, the program and what the lowering knew about them
 fn link_pieces(
-    mut staged: Vec<Staged>,
+    mut staged: StagedList,
     base: ir::Program,
     provided: &(dyn Fn(usize) -> bool + Sync),
+    src: Option<&dyn crate::provided::DepSource>,
     routine_keys: &super::localize::RoutineKeys<'_>,
     lookups: &Lookups<'_>,
     subscribers: Vec<Vec<al_ir::sym::SubscriberDecl>>,
@@ -1941,23 +1980,31 @@ fn link_pieces(
 ) -> Result<Linking, String> {
     let LinkOptions { check, export, hash } = options;
     use al_ir::sym::ObjKey;
+    let facts = |oi: usize| src.expect("a supplied object has a source").facts(oi);
     let keys: Vec<ObjKey> = staged
+        .slots
         .iter()
-        .map(|s| s.key.clone().unwrap_or_else(|| ObjKey::of(&s.object, &base.apps)))
+        .enumerate()
+        .map(|(oi, s)| match s {
+            Some(s) => s.key.clone().unwrap_or_else(|| ObjKey::of(&s.object, &base.apps)),
+            None => facts(oi).key.clone(),
+        })
         .collect();
     // The check builds the program the way lowering used to: every reference a position.
     // (Objects a cache supplies are symbolic already: the cached and the complete compile are compared
     // as programs by the tests of `provided.rs` instead.)
-    let any_sym = staged.iter().any(|s| s.sym.is_some());
+    let any_sym = staged.slots.iter().flatten().any(|s| s.sym.is_some());
     let expected = (check && !any_sym).then(|| {
         let mut p = base.clone();
         let mut ranges = Vec::new();
-        for (oi, s) in staged.iter().enumerate() {
+        for oi in 0..staged.len() {
+            let s = &staged[oi];
             let at = p.positions.len() as u32;
             if provided(oi) {
                 // A supplied object keeps its position ids free, as link does (ADR-054).
-                ranges.push((at, s.reserved_positions));
-                p.positions.push_hole(s.reserved_positions, oi);
+                let reserved = facts(oi).positions;
+                ranges.push((at, reserved));
+                p.positions.push_hole(reserved, oi);
             } else {
                 ranges.push((at, s.positions.len() as u32));
             }
@@ -1998,7 +2045,8 @@ fn link_pieces(
     let workers = lower_workers();
     // The lists of extensions the objects hold, as the lists the extension objects are in.
     let mut joins: Vec<Vec<(al_ir::sym::ListKind, usize)>> = vec![Vec::new(); staged.len()];
-    for (b, s) in staged.iter().enumerate().filter(|(b, _)| !provided(*b)) {
+    for (b, s) in staged.slots.iter().enumerate().filter(|(b, _)| !provided(*b)) {
+        let Some(s) = s else { continue };
         let lists = [
             (
                 al_ir::sym::ListKind::TableExtensions,
@@ -2022,23 +2070,26 @@ fn link_pieces(
     split_tables(&mut staged, provided, lookups, export);
     split_pages(&mut staged, provided, &keys);
     let joins = &joins;
-    let mut units: Vec<al_ir::sym::SymObject> = al_link::par_map(staged, workers, |oi, s| {
-        if let Some(sym) = s.sym {
-            Ok(sym)
-        } else if provided(oi) {
-            // Only the facts the other objects ask of it.
-            Ok(al_ir::sym::SymObject {
-                key: keys[oi].clone(),
-                placeholder: true,
-                enum_impls: s.enum_impls,
-                enum_ordinals: s.enum_ordinals,
-                implements: s.implements,
-                field_numbers: s.fields,
-                control_names: s.controls,
-                reserved_positions: s.reserved_positions,
-                ..Default::default()
-            })
-        } else {
+    // Only the facts the other objects ask of a supplied object, read in place. (Its slot holds no piece; one a split
+    // wrote to holds nothing the placeholder carried either.)
+    let placeholder = |oi: usize| -> al_link::Item<'_> {
+        let f = facts(oi);
+        al_link::Item::Placeholder(al_link::Placeholder {
+            key: &f.key,
+            field_numbers: &f.fields,
+            control_names: &f.controls,
+            implements: &f.implements,
+            enum_impls: &f.enum_impls,
+            enum_ordinals: &f.enum_ordinals,
+            reserved_positions: f.positions,
+        })
+    };
+    let mut units: Vec<al_link::Item<'_>> = al_link::par_map(staged.slots, workers, |oi, s| match s {
+        Some(s) if s.sym.is_some() => Ok(al_link::Item::Unit(Box::new(s.sym.expect("checked")))),
+        _ if provided(oi) => Ok(placeholder(oi)),
+        None => unreachable!("only a supplied object has no piece"),
+        Some(s) => {
+            let s = *s;
             super::localize::localize(
                 &tables,
                 oi,
@@ -2054,6 +2105,7 @@ fn link_pieces(
                     subscribers: subscribers[oi].clone(),
                 },
             )
+            .map(|u| al_link::Item::Unit(Box::new(u)))
         }
     })
     .into_iter()
@@ -2062,14 +2114,20 @@ fn link_pieces(
     // counted from its members, for the tables that are named.
     // Only such a table can take the numbers. A cached run has none (every dependency table comes
     // compiled), so the walk over every reference of every object is skipped then.
+    fn symbolic<'a>(u: &'a al_link::Item<'_>) -> Option<&'a al_ir::sym::SymObject> {
+        match u {
+            al_link::Item::Unit(u) if !u.placeholder => Some(u),
+            _ => None,
+        }
+    }
     let unlisted = units
         .iter()
         .zip(&keys)
-        .any(|(s, k)| k.kind == ObjKind::Table && s.object.table.is_none() && !s.placeholder);
+        .any(|(u, k)| k.kind == ObjKind::Table && symbolic(u).is_some_and(|s| s.object.table.is_none()));
     let mut numbered = std::collections::HashSet::new();
     if unlisted {
         let at: HashMap<&ObjKey, usize> = keys.iter().enumerate().map(|(i, k)| (k, i)).collect();
-        for s in &units {
+        for s in units.iter().filter_map(symbolic) {
             for f in &s.refs.fields {
                 let table = &s.refs.objects[f.table as usize];
                 if table.kind == ObjKind::Table {
@@ -2081,21 +2139,24 @@ fn link_pieces(
         }
     }
     for t in numbered {
-        let s = &mut units[t];
-        if s.object.table.is_none() && !s.placeholder {
-            s.field_numbers = (lookups.field_numbers)(t);
+        if let al_link::Item::Unit(s) = &mut units[t] {
+            if s.object.table.is_none() && !s.placeholder {
+                s.field_numbers = (lookups.field_numbers)(t);
+            }
         }
     }
     let hashes: Vec<Option<super::ObjectHash>> = if hash {
         al_link::par_map(units.iter().enumerate().collect(), workers, |oi, (_, u)| {
-            (!u.placeholder && !provided(oi)).then(|| object_hash(u, &base.sources))
+            symbolic(u)
+                .filter(|_| !provided(oi))
+                .map(|u| object_hash(u, &base.sources))
         })
     } else {
         Vec::new()
     };
     let mut base = base;
     base.uncompiled_subscribers.clear();
-    let linked = al_link::link(units, base, workers, &routines_of).map_err(|e| format!("link: {e}"))?;
+    let linked = al_link::link_items(units, base, workers, &routines_of).map_err(|e| format!("link: {e}"))?;
     Ok(Linking {
         linked,
         expected,
@@ -2335,14 +2396,6 @@ pub(crate) struct Piece {
     pub(crate) sym: Option<al_ir::sym::SymObject>,
     /// The object that declares each key of a table (the table or one of its extensions).
     pub(crate) key_owners: Vec<usize>,
-    /// A provided codeunit: the interfaces it implements, from the cache's facts.
-    pub(crate) implements: Vec<al_ir::sym::ObjKey>,
-    pub(crate) enum_impls: Vec<al_ir::sym::EnumImplDecl>,
-    pub(crate) enum_ordinals: Vec<u32>,
-    /// A provided table: its field numbers, from the cache's facts.
-    pub(crate) fields: Vec<u32>,
-    /// A provided page: its control names, from the cache's facts.
-    pub(crate) controls: Vec<String>,
 }
 
 /// How many threads lower dependency objects. `AL_LOWER_THREADS` sets it; the default is the

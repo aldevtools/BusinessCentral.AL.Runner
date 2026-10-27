@@ -25,7 +25,8 @@ pub trait ObjectSource: Send + Sync {
 /// The objects of a program, in program order.
 #[derive(Default)]
 pub struct Objects {
-    slots: Vec<OnceLock<Object>>,
+    /// Boxed: an object is about 1.5 KB, and a list over a compile cache has about ten thousand slots, most never made.
+    slots: Vec<OnceLock<Box<Object>>>,
     /// Makes the objects of the empty slots.
     source: Option<Arc<dyn ObjectSource>>,
     /// How many objects the source made.
@@ -47,7 +48,7 @@ impl Objects {
             .map(|o| {
                 let slot = OnceLock::new();
                 if let Some(o) = o {
-                    let _ = slot.set(o);
+                    let _ = slot.set(Box::new(o));
                 }
                 slot
             })
@@ -100,7 +101,7 @@ impl Objects {
         Some(slot.get_or_init(|| {
             let source = self.source.as_ref().expect("an empty slot has a source");
             self.made.fetch_add(1, Ordering::Relaxed);
-            source.object(i)
+            Box::new(source.object(i))
         }))
     }
 
@@ -108,7 +109,7 @@ impl Objects {
     pub fn get_mut(&mut self, i: usize) -> Option<&mut Object> {
         self.get(i)?;
         self.heads = OnceLock::new();
-        self.slots[i].get_mut()
+        self.slots[i].get_mut().map(|o| &mut **o)
     }
 
     /// Whether slot `i` holds its object (finished from the start, or made by an earlier read).
@@ -134,7 +135,7 @@ impl Objects {
     pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Object> + ExactSizeIterator {
         self.make_all();
         self.heads = OnceLock::new();
-        self.slots.iter_mut().map(|s| s.get_mut().expect("made above"))
+        self.slots.iter_mut().map(|s| &mut **s.get_mut().expect("made above"))
     }
 
     /// Makes every object not yet made.
@@ -147,7 +148,7 @@ impl Objects {
     pub fn push(&mut self, object: Object) {
         self.heads = OnceLock::new();
         let slot = OnceLock::new();
-        let _ = slot.set(object);
+        let _ = slot.set(Box::new(object));
         self.slots.push(slot);
     }
 
@@ -165,7 +166,7 @@ impl Objects {
         self.make_all();
         self.slots
             .into_iter()
-            .map(|s| s.into_inner().expect("made above"))
+            .map(|s| *s.into_inner().expect("made above"))
             .collect()
     }
 }
