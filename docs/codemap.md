@@ -449,8 +449,11 @@ functions or methods; the file is in the module list above.
    holds its own apps and the digest of the key below: executable hash, target, symbols, manifest and source hash) ->
    `read_entry` per layer (`al_cache::Entry::open` checks header, index, dictionary; a refused file is removed and
    reported). Each missing layer is built, lowest first: layer 1 = `lower::lower_for_cache` (the complete compile of the
-   Microsoft apps), a higher layer = `lower::lower_layer` (compiles the layer's apps with the layers below taken from a
-   `provided::Stack`, keeps its own objects and the lower objects it changes) -> `al_cache::build_layer` -> `write_entry`.
+   Microsoft apps), a higher layer = `lower::LayerBuilder::lower` (compiles the layer's apps with the layers below taken
+   from a `provided::Stack`, keeps its own objects and the lower objects it changes) -> `al_cache::build_layer` ->
+   `write_entry`. All missing layers above the first share one `LayerBuilder` workspace: it loads the apps up to the
+   lowest of them once and grows by `Workspace::append_apps` for each next one (ADR-022 amendment 2026-10-27);
+   `ALRUNNER_LAYER_BY_LAYER=1` loads the apps below again per layer (`lower::lower_layer`, the same bytes).
 3. `lower::compile_loaded_cached` on the `Stack` of all layers (an object comes from the highest layer that holds it):
    `Workspace::load_apps` for all apps; `provided::check_identity`; `relower_set` (the
    dependency objects whose `DepFacts::embeds` the workspace extends or implements, with the objects that extend each

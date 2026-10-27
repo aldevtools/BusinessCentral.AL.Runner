@@ -59,6 +59,9 @@ pub struct CacheReport {
     /// With lazily read dependency apps: where the scan of their sources came from, `read` (the index
     /// in the cache folder) or `built` (scanned now, index saved).
     pub source_index: Option<&'static str>,
+    /// Source files read and scanned to build the layers above the first: each file once when they are built in
+    /// one load, the files of every layer below again per layer with `ALRUNNER_LAYER_BY_LAYER=1`.
+    pub layer_files_loaded: usize,
 }
 
 /// What the cache did for one layer.
@@ -573,6 +576,34 @@ pub fn open_or_build_with(
     identities: &[Option<[u8; 32]>],
     prepare: &mut dyn FnMut(&mut [AppSource]),
 ) -> Result<(Layers, CacheReport), String> {
+    open_or_build_mode(
+        cc,
+        apps,
+        manifests,
+        target,
+        identities,
+        prepare,
+        std::env::var_os(LAYER_BY_LAYER).is_some_and(|v| v == "1"),
+    )
+}
+
+/// The off switch of the one-load build (ADR-022 amendment 2026-10-27, owner decision 3): `=1` builds each missing
+/// layer above the first on a workspace of its own, loading the apps of the layers below again.
+pub const LAYER_BY_LAYER: &str = "ALRUNNER_LAYER_BY_LAYER";
+
+/// [`open_or_build_with`] with the way the layers above the first are built given: `layer_by_layer` loads the apps
+/// below each layer again (the build before the amendment of 2026-10-27), otherwise all missing layers of the run
+/// are built on one workspace that grows by each layer's apps. Both give the same files, byte for byte.
+#[allow(clippy::too_many_arguments)]
+pub fn open_or_build_mode(
+    cc: &CompileCache,
+    apps: &mut [AppSource],
+    manifests: &[crate::runtime::Manifest],
+    target: Option<&al_version::Target>,
+    identities: &[Option<[u8; 32]>],
+    prepare: &mut dyn FnMut(&mut [AppSource]),
+    layer_by_layer: bool,
+) -> Result<(Layers, CacheReport), String> {
     let opened = std::time::Instant::now();
     let planned = {
         let dep_refs: Vec<&AppSource> = apps.iter().collect();
@@ -631,6 +662,8 @@ pub fn open_or_build_with(
                 .join("; ")
         );
         prepare(apps);
+        // The workspace the layers above the first are built on, once one is (ADR-022 amendment 2026-10-27).
+        let mut builder: Option<al_sema::lower::LayerBuilder> = None;
         for (li, (range, key)) in planned.iter().enumerate() {
             if entries[li].is_some() {
                 continue;
@@ -642,7 +675,35 @@ pub fn open_or_build_with(
                     .map(|e| e.as_ref().expect("the layers below are built") as &dyn LayerSource)
                     .collect();
                 let stack = Stack::new(below).map_err(|e| format!("the layers below do not fit: {e}"))?;
-                lower_one_layer(apps, manifests, range, target, &stack)?
+                if range.start == 0 || layer_by_layer {
+                    if range.start > 0 {
+                        report.layer_files_loaded += apps[..range.end].iter().map(|a| a.files.len()).sum::<usize>();
+                    }
+                    lower_one_layer(apps, manifests, range, target, &stack)?
+                } else {
+                    let grown = builder.as_mut().is_some_and(|b| {
+                        let from = b.apps();
+                        b.append(
+                            apps[from..range.end].to_vec(),
+                            &app_symbols(&manifests[from..range.end]),
+                            &Default::default(),
+                        )
+                        .is_ok()
+                    });
+                    if !grown {
+                        // No workspace yet, or one that cannot grow to equal a fresh load: load the apps up to this
+                        // layer.
+                        report.layer_files_loaded += builder.as_ref().map_or(0, |b| b.loaded_files());
+                        builder = Some(al_sema::lower::LayerBuilder::new(
+                            apps[..range.end].to_vec(),
+                            &app_symbols(&manifests[..range.end]),
+                            &Default::default(),
+                            target,
+                        ));
+                    }
+                    let b = builder.as_ref().expect("a workspace was loaded");
+                    b.lower(range.start, &stack)?
+                }
             };
             // The layers above the first compress with its dictionary: training one takes most of
             // the time of a small layer, and the blocks are the same kind of data.
@@ -662,6 +723,7 @@ pub fn open_or_build_with(
                 Some(Entry::open(bytes, key).map_err(|e| format!("a fresh compile cache entry does not open: {e}"))?);
             report.layers[li].build = started.elapsed();
         }
+        report.layer_files_loaded += builder.as_ref().map_or(0, |b| b.loaded_files());
         report.built = true;
         report.build = report.layers.iter().map(|l| l.build).sum();
     }
