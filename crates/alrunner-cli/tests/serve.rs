@@ -925,6 +925,28 @@ fn line_of<'a>(lines: &'a [Value], test: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no line for {test}: {lines:?}"))
 }
 
+/// The answer to a `runTests` of [`tdd_app`] without `tdd`: the call of `DoubleIt` is AL0132 (al-runner issue 5917), the
+/// run stops with exit 3, no test line, and no stubs.
+fn assert_no_tdd_al0132(lines: &[Value]) {
+    assert!(lines.iter().all(|l| l["type"] != "test"), "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["exitCode"], 3, "{summary}");
+    let errors = summary["compilationErrors"][0]["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{summary}"));
+    assert_eq!(errors.len(), 1, "{summary}");
+    assert!(
+        errors[0].as_str().unwrap().ends_with(
+            r#"Tests.al(12,26): error AL0132: 'Codeunit "Serve Target"' does not contain a definition for 'DoubleIt'"#
+        ),
+        "{summary}"
+    );
+    assert!(
+        summary.get("stubbed").is_none() && summary.get("generatedStubs").is_none(),
+        "{summary}"
+    );
+}
+
 const DOUBLE_IT: &str = r#"Serve Target: procedure "DoubleIt"(Arg1: Integer): Integer"#;
 
 #[test]
@@ -950,18 +972,13 @@ fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary()
     );
     assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
     assert_eq!(summary["exitCode"], 1, "{summary}");
-    // Without `tdd` the same sources do not compile as before: `tdd` is part of the kept compile's key.
+    // Without `tdd` the same sources do not compile: `tdd` is part of the kept compile's key, and the call of the
+    // missing procedure is AL0132 as alc gives it (al-runner issue 5917), so no test runs (exit 3).
     s.send(json!({"command": "runTests", "sourcePaths": [a]}));
     let lines = s.until_summary();
     let summary = lines.last().unwrap();
     assert_eq!(summary["cached"], false, "{summary}");
-    let t = line_of(&lines, "CallsMissing");
-    assert_eq!(t["notRun"], true, "{t}");
-    assert!(t.get("stubbed").is_none(), "{t}");
-    assert!(
-        summary.get("stubbed").is_none() && summary.get("generatedStubs").is_none(),
-        "{summary}"
-    );
+    assert_no_tdd_al0132(&lines);
     s.send(json!({"command": "shutdown"}));
     s.line();
 }
@@ -976,9 +993,7 @@ fn a_server_started_with_tdd_stubs_by_default_and_tdd_false_turns_it_off_for_one
     let lines = s.until_summary();
     assert_eq!(line_of(&lines, "CallsMissing")["stubbed"], true, "{lines:?}");
     s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": false}));
-    let lines = s.until_summary();
-    assert_eq!(line_of(&lines, "CallsMissing")["notRun"], true, "{lines:?}");
-    assert!(lines.last().unwrap().get("generatedStubs").is_none(), "{lines:?}");
+    assert_no_tdd_al0132(&s.until_summary());
     s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": "yes"}));
     assert!(s.line()["error"].as_str().unwrap().contains("`tdd`"));
     s.send(json!({"command": "shutdown"}));

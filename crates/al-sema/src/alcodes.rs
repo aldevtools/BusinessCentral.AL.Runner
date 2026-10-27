@@ -57,7 +57,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0132",
-        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a value an enum of the workspace lacks; a page field Rec.X the source table lacks",
+        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks; a page field Rec.X the source table lacks",
     ),
     (
         "AL0161",
@@ -2736,6 +2736,31 @@ mod tests {
             let cu = format!("codeunit 50001 C {{ procedure Run1() var {var}; begin {stmt}; end; }}");
             assert!(codes(&[&cu]).is_empty(), "{stmt}: {:?}", messages(&cu));
         }
+    }
+
+    // must-not-compile 1780: a method the codeunit of a Codeunit variable does not declare (al-runner issue 5917). A
+    // procedure of it (also a local one, which is AL0161), and the built-in Run, are no AL0132.
+    #[test]
+    fn al0132_method_the_codeunit_does_not_have() {
+        let logic =
+            "codeunit 50600 \"Probe Logic\" { procedure Add(A: Integer; B: Integer): Integer begin exit(A + B); end;
+            local procedure Hidden() begin end; }";
+        let call = |stmt: &str| {
+            format!(
+                "codeunit 50650 \"Probe Tests\" {{ procedure T() var Logic: Codeunit \"Probe Logic\"; begin {stmt}; end; }}"
+            )
+        };
+        assert_eq!(
+            messages(&format!(
+                "{logic} {}",
+                call("if Logic.NoSuch(1, 1) <> 2 then Error('x')")
+            )),
+            vec!["AL0132 'Codeunit \"Probe Logic\"' does not contain a definition for 'NoSuch'"]
+        );
+        for ok in ["Logic.Add(1, 1)", "Logic.Run()"] {
+            assert!(codes(&[logic, &call(ok)]).is_empty(), "{ok}");
+        }
+        assert_eq!(codes(&[logic, &call("Logic.Hidden()")]), vec!["AL0161"]);
     }
 
     // must-not-compile 0204: an enum value the enum does not have. A value an enum extension adds is one.
