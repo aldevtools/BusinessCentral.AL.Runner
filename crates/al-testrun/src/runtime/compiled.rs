@@ -336,6 +336,9 @@ impl Compiled {
     /// state and the caller compiles again.
     pub fn update_files(&mut self, changes: &[FileChange]) -> Result<(), String> {
         let started = std::time::Instant::now();
+        // The install baseline a request kept, taken out before the program changes: it stays only when the edit
+        // cannot change what the install code does (`install_reach`).
+        let kept_baseline = crate::baseline_cache::take_for_edit();
         self.forget_engines();
         let Compiled {
             ws,
@@ -389,6 +392,9 @@ impl Compiled {
             return Err("the tests look free of data: a complete compile weighs the baseline first".into());
         }
         let src = incr.layers.stack().map_err(|why| format!("compile cache: {why}"))?;
+        let reach_before = kept_baseline
+            .is_some()
+            .then(|| crate::install_reach::before(ws, lowered, &dirty));
         al_sema::lower::relower_objects(ws, &incr.catalog, incr.roots.clone(), &src, lowered, &dirty)?;
         // `--tdd` (ADR-051 decision 10): stub declarations are made by a complete compile, and one that has them makes
         // them again from the new texts (a declaration the code no longer needs goes).
@@ -426,6 +432,16 @@ impl Compiled {
         }
         // The compile errors are the caller's to print (`CorpusRuntime::compile_errors`): only `al-runner serve` renews a
         // compile.
+        if let (Some(kept), Some(before)) = (kept_baseline, reach_before) {
+            match before.and_then(|b| crate::install_reach::after(ws, lowered, b)) {
+                Ok(()) => crate::baseline_cache::carry(kept),
+                Err(why) => {
+                    if std::env::var_os("ALRUNNER_INCR_TIMINGS").is_some() {
+                        eprintln!("incremental: the install baseline runs again: {why}");
+                    }
+                }
+            }
+        }
         *compile_time = started.elapsed();
         if std::env::var_os("ALRUNNER_INCR_TIMINGS").is_some() {
             eprintln!(
