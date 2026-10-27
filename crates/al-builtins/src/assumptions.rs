@@ -589,6 +589,22 @@ registry! {
             since: "2026-10-25",
         },
     },
+    DrilldownMarkedOnlyWithPart => {
+        id: "drilldown-marked-only-with-part",
+        assumed: "After a field's OnDrillDown turned MarkedOnly on for Rec and called CurrPage.Update(false), a list with OnAfterGetRecord or OnAfterGetCurrRecord that has a part (in the content area or in the FactBoxes area) lists only the marked rows, as the same page without a part does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016).",
+        tests: "No Microsoft test: al-runner issue 5886, the reporter's repro green 6/6 on real BC; pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "The drilldown of ScDrillDownMarkedOnly.al on a Worksheet with both row triggers and a ListPart with a SubPageLink, in the content area and in the FactBoxes area: First/Next and GoToRecord of the unmarked row.",
+        awaiting: Awaiting {
+            issues: &[5886],
+            files: &[
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_GoToRecordMissesTheUnmarkedRow",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_GoToRecordMissesTheUnmarkedRow",
+            ],
+            since: "2026-10-27",
+        },
+    },
     ValidateFilterRefreshWindow => {
         id: "validate-filter-refresh-window",
         assumed: "After CurrPage.Update in a control's OnValidate that changed the filters of a Worksheet or List (both row triggers, rows from the table), the client holds the rows the refresh read from the row it settled on: the next move reads as on a page without a refresh (the row twice in the primary key, three times in another key), and a GoToRecord steps from the first row of the view when the refresh found rows before the current one. In a key other than the primary key the refresh first reads the row it starts from once more, the row the page stood on even when the new filter excludes it. The refresh's own reads in the primary key and the row it settles on are pinned (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al); the moves after it and the reads in another key are the reporters' real-BC runs.",

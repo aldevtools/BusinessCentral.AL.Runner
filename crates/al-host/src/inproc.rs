@@ -541,8 +541,15 @@ impl InprocSession {
                     }
                     _ => return None,
                 },
-                Local::Zone { base, .. } => match (member, vals) {
+                Local::Zone { id, base } => match (member, vals) {
                     ("BaseUtcOffset", []) => Act::Reply(DotNetValue::TimeSpan(*base)),
+                    // ADR-038 amendment 2026-10-27: the UTC zone has no offset at any instant, whatever the kind of
+                    // the DateTime (the session's local zone is UTC too, ADR-014 section 9). Every other zone goes to
+                    // the sidecar, which has the host's own rules. Pinned by the differential test against the
+                    // sidecar (`al-test-cli/tests/dotnet_diff.rs`, "GetUtcOffset(DateTime)").
+                    ("GetUtcOffset", [DotNetValue::DateTime(_)]) if id.eq_ignore_ascii_case("UTC") => {
+                        Act::Reply(DotNetValue::TimeSpan(0))
+                    }
                     _ => return None,
                 },
                 Local::Offset { clock, offset } => match (member, vals) {
@@ -885,6 +892,45 @@ mod tests {
             DotNetValue::DateTime(864_000_000_000)
         );
         assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+    }
+
+    #[test]
+    fn utc_offset_of_the_utc_zone_is_answered_without_the_sidecar() {
+        let (mut s, seen) = session();
+        for id in ["UTC", "utc"] {
+            let tz = handle_of(s.invoke(
+                DotNetTarget::Static(net_type("System.TimeZoneInfo")),
+                "FindSystemTimeZoneById",
+                vec![arg(DotNetValue::Str(id.into()))],
+            ));
+            for t in [0, 638_000_000_000_000_000, MAX_TICKS] {
+                let r = s.invoke(
+                    DotNetTarget::Instance(tz),
+                    "GetUtcOffset",
+                    vec![arg(DotNetValue::DateTime(t))],
+                );
+                assert_eq!(r.unwrap().value, DotNetValue::TimeSpan(0));
+            }
+        }
+        assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+    }
+
+    #[test]
+    fn utc_offset_of_another_zone_goes_to_the_sidecar() {
+        let (mut s, seen) = session();
+        let tz = handle_of(s.invoke(
+            DotNetTarget::Static(net_type("System.TimeZoneInfo")),
+            "FindSystemTimeZoneById",
+            vec![arg(DotNetValue::Str("Greenwich Standard Time".into()))],
+        ));
+        let _ = s.invoke(
+            DotNetTarget::Instance(tz),
+            "GetUtcOffset",
+            vec![arg(DotNetValue::DateTime(0))],
+        );
+        // The zone moves to the sidecar first (rebuilt there by its id); the stub refuses that, so the call stops there.
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen, ["FindSystemTimeZoneById"], "{seen:?}");
     }
 
     #[test]
