@@ -648,7 +648,11 @@ registry! {
         probe: "`B := A` then A.AddText: B's length; a by-value parameter whose callee calls AddText: the caller's length; Clear of a copy: the original's length; a var parameter's AddText: the caller's length.",
         awaiting: Awaiting {
             issues: &[5940],
-            files: &["tests/al-language/text/lt-sh-outside-values/ShBigTextValueCopy.al"],
+            files: &[
+                "tests/al-language/text/TestBigText.al::BigText_Assign_CopiesTheValue",
+                "tests/al-language/text/TestBigText.al::BigText_Parameters_ByValueCopies_VarShares",
+                "tests/al-language/text/TestBigText.al::BigText_ClearOfACopy_KeepsTheOriginal",
+            ],
             since: "2026-10-27",
         },
     },
