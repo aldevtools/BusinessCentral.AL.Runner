@@ -1,6 +1,6 @@
 # ADR-054: Dependency objects decoded and linked the first time a run touches them
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-27)
 - Date: 2026-10-27
 - Amends: ADR-022 (decision 3 "lazy decode" and its "Not done" notes: this ADR says how), ADR-033 (the link step for
   objects a compile cache supplies), ADR-011 (how the engine reaches `Program::objects`)
@@ -203,12 +203,14 @@ Each step keeps the zero-difference runs at 0.
 - Time moves from start to first touch, so `--timings` reports decode time per run (sum over touches) next to the
   start-up phases.
 
-## Open questions for the owner
+## Owner decisions (2026-10-27)
 
-1. May a cached run start with only the heads, and decode an object the first time it is touched?
-2. A damaged block found after the start check passed would be an internal error of that test. Is that acceptable
-   when the start check covers every byte with a fast checksum?
-3. Should the prefetch by static reach (decision 5) be built after the first build, or left out?
+1. Accepted: a cached run starts with only the heads and decodes an object the first time it is touched.
+2. Accepted: a damaged block found after the start check passed is an internal error of that test.
+3. Prefetch by static reach (decision 5) is left out of the first build. It is built later only if a measurement shows
+   that first-touch decode costs more than it saves.
+4. Related, outside this ADR: the in-process .NET stand-ins may answer `TimeZoneInfo.GetUtcOffset` (ADR-038 member
+   list), and the artifact cache may trust file size and modification time and run the CRC only when either changed.
 
 ## Conformance
 
