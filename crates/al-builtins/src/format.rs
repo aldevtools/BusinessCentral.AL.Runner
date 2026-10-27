@@ -583,6 +583,16 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         {
             String::new()
         }
+        // A TableFilter Evaluate set formats as the text it was given
+        // (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:131,158; evaluate.rs into_table_filter).
+        Value::Library(name, l)
+            if name == "TableFilter" && matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
+        {
+            match &*l.borrow() {
+                crate::value::LibraryValue::Text(s) => s.clone(),
+                _ => unreachable!(),
+            }
+        }
         // A document type or an XML declaration formats as its markup (xml/lt-xml-doctype-declaration/DocTypeErrors.al:
         // FormatOfUninitialisedAndInitialised); an unassigned one raises.
         Value::Library(name, l) if matches!(name.as_str(), "XmlDocumentType" | "XmlDeclaration") => {

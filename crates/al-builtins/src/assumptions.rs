@@ -612,6 +612,20 @@ registry! {
             since: "2026-10-27",
         },
     },
+    TableFilterEvaluateOptionMember => {
+        id: "table-filter-evaluate-option-member",
+        assumed: "Evaluate of `<table name>: <field>=<member>` into a TableFilter field, where the field is an Option field and the value is one of its member names written as declared, answers true and stores the text as written (Format gives it back). Pinned is the same form with a Code field (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158); writer SI probes the Option form on corpus branch al-runtime-rs-staging-si.",
+        tests: "No Microsoft test: al-runner issue 5998, a user's install code that evaluates `Repro Certificate: Report Type=LGDIAM` into a TableFilter field (not run on real BC by the reporter).",
+        probe: "Evaluate into a TableFilter field of `<table>: <option field>=<member>`, by name, caption, number and other casing: the answer and Format of the field after it.",
+        awaiting: Awaiting {
+            issues: &[5998],
+            files: &[
+                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_AcceptedForms",
+                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_StoredValue",
+            ],
+            since: "2026-10-27",
+        },
+    },
     FieldRefTextIntoIntegerError => {
         id: "fieldref-text-into-integer-error",
         assumed: "Assigning a text of two letters or more to FieldRef.Value of an Integer, BigInteger or Decimal field, or an empty text to an Integer field, raises `The value \"<text>\" can't be evaluated into type <Type>.` (Evaluate:Format) from the gate FieldRefTextNumberEvaluateErrorFrom28 on and `The type Nav<Type> is unknown.` (NotSupportedType) before it, and leaves the field as it was. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
