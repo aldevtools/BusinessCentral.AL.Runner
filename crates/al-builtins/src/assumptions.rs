@@ -794,6 +794,19 @@ registry! {
             since: "2026-10-27",
         },
     },
+    TestFilterEnumRangeOrdinals => {
+        id: "test-filter-enum-range-ordinals",
+        assumed: "TestFilter.GetFilter of an Enum field filtered to a range of two values (SetRange on the record handed to the page, or a SetFilter text range) reads as the two ordinals, `0..1`, as a single value reads as its ordinal (pages/lt-cd-testpage-leads/CdTestPageLeads.al:626); `<>%1` with a typed value reads `<>1`; a `%1|%2` list keeps the names.",
+        tests: "No Microsoft test: al-runner issue 5961, the reporter's repro green on real BC (a test of a partner app on its own list page).",
+        probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Second), SetRange(Second, Third) and SetFilter('First..Second') on the record handed to Page.Run, and after a SourceTableView range.",
+        awaiting: Awaiting {
+            issues: &[5961],
+            files: &[
+                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_TestPageFilter_GetFilter_EnumRangeAndList",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
