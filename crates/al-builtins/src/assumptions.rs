@@ -643,12 +643,15 @@ registry! {
     },
     FieldRefTextIntoIntegerError => {
         id: "fieldref-text-into-integer-error",
-        assumed: "Assigning a text of two letters or more (no digits) to FieldRef.Value of an Integer field raises `The value \"<text>\" can't be evaluated into type Integer.` (the text Evaluate and SetFilter give, record/lt-record-read/RcAFilters.al:SetFilter_Integer_Invalid), not the Variant conversion error an Integer variable gets. Its error code is not pinned (GetLastErrorCode refuses); an empty text and other forms keep being refused.",
+        assumed: "Assigning a text of two letters or more to FieldRef.Value of an Integer, BigInteger or Decimal field, or an empty text to an Integer field, raises `The value \"<text>\" can't be evaluated into type <Type>.` (Evaluate:Format) from the gate FieldRefTextNumberEvaluateErrorFrom28 on and `The type Nav<Type> is unknown.` (NotSupportedType) before it, and leaves the field as it was. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
         tests: "No Microsoft test: al-runner issue 5942, the reporter's repro green on real BC (also reached through Data Type Management.SetFieldValue).",
-        probe: "FieldRef.Value := 'abc', := '' and := '12' on an Integer, a Decimal and a BigInteger field: GetLastErrorText, GetLastErrorCode and the stored value.",
+        probe: "Pinned by writer SH: fieldref/TestFieldRefValue.al FieldRef_Value_TextIntoInteger_ErrorText and FieldRef_Value_TextIntoNumberTypes (corpus PR 748).",
         awaiting: Awaiting {
             issues: &[5942],
-            files: &["tests/al-language/fieldref/lt-sh-outside-fieldref/ShFieldRefTextToInt.al"],
+            files: &[
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoInteger_ErrorText",
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoNumberTypes",
+            ],
             since: "2026-10-27",
         },
     },
