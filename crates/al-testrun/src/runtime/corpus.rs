@@ -1664,6 +1664,7 @@ impl CorpusRuntime {
                 baseline_source,
                 passes: pass_times,
                 engine_kept,
+                decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
             },
             details,
             results: list,

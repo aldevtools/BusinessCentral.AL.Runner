@@ -343,6 +343,8 @@ pub struct Phases {
     pub compile_parts: al_sema::lower::CompileTimings,
     /// What the compile cache did, when the run used it.
     pub cache: Option<crate::compile_cache::CacheReport>,
+    /// With a compile cache whose objects are decoded on first touch (ADR-054): how many the run decoded.
+    pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
     pub engine: std::time::Duration,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).

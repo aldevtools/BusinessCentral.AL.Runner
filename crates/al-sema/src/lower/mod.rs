@@ -68,6 +68,9 @@ pub struct Lowered {
     /// on the place of the object in the program) and the objects that form refers to. `None` for an object a compile
     /// cache supplied or nothing lowered. Empty when off.
     pub object_hashes: Vec<Option<ObjectHash>>,
+    /// In a run whose dependency objects come from a compile cache: the source that decodes them on first touch
+    /// (ADR-054), which counts what it decoded. `None` otherwise.
+    pub cached_objects: Option<std::sync::Arc<crate::provided::CachedObjects>>,
 }
 
 /// See [`Lowered::object_hashes`].

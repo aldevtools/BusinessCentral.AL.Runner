@@ -859,3 +859,78 @@ fn a_country_other_than_w1_has_layers_of_its_own() {
     // And w1 still has its own.
     assert!(report(&run(BASE, country("")).unwrap()).hit);
 }
+
+/// ADR-054 test plan item 5: a run on a cache hit decodes only the dependency objects it touches. Start-up (engine,
+/// install baseline, test discovery) and a single `Field.Get` on a dependency table decode a few objects, not all of
+/// the System app's and the dependency's.
+#[test]
+fn start_up_and_one_field_get_decode_only_a_few_objects() {
+    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
+    let bytes = std::fs::read(packages.join("System.app"))
+        .expect("corpus submodule not checked out: run `git submodule update --init`");
+    let system = al_deps::package::read_package(&bytes).expect("System.app reads").1;
+    let mut base = String::from(BASE);
+    base.push_str(
+        "table 50103 Probe { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { Caption = 'The Name'; } } \
+         keys { key(PK; Id) { } } }\n",
+    );
+    for i in 0..100 {
+        base.push_str(&format!(
+            "codeunit {} Filler{i} {{ procedure Run(): Integer var C: Record Cust; begin exit(C.Count() + {i}); end; }}\n",
+            51000 + i
+        ));
+    }
+    let main = r#"
+codeunit 60102 Tests
+{
+    Subtype = Test;
+    [Test] procedure OneFieldGet() var F: Record "Field"; begin F.Get(50103, 2); if F."Field Caption" <> 'The Name' then Error('caption'); end;
+}
+"#;
+    let run = |cc: Option<CompileCache>| {
+        let (_, _, mut manifests) = apps(BASE);
+        manifests.push(manifests[1].clone());
+        let apps = vec![
+            app("main", &["base", al_sema::workspace::PLATFORM_APP_ID], main),
+            app("base", &[al_sema::workspace::PLATFORM_APP_ID], &base),
+            AppSource {
+                id: al_sema::workspace::PLATFORM_APP_ID.into(),
+                name: "System".into(),
+                dependencies: Vec::new(),
+                files: system.clone(),
+            },
+        ];
+        let kinds = vec![
+            al_sema::AppKind::Workspace,
+            al_sema::AppKind::Dependency,
+            al_sema::AppKind::Dependency,
+        ];
+        CorpusRuntime::try_run_suites_with(
+            apps,
+            kinds,
+            &manifests,
+            &["BC27PLUS".to_string()].into(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                compile_cache: cc,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let first = run(cache(dir.path(), false));
+    let second = run(cache(dir.path(), true));
+    let report = second.phases.cache.as_ref().unwrap();
+    assert!(report.hit, "{report:?}");
+    assert_eq!(outcomes(&second), outcomes(&first));
+    assert!(outcomes(&second)[0].contains("Pass"), "{:?}", outcomes(&second));
+    let decoded = second
+        .phases
+        .decoded_on_touch
+        .expect("the objects are decoded on touch");
+    assert!(report.objects > 300, "{} objects", report.objects);
+    assert!(decoded <= 10, "decoded {decoded} of {} objects", report.objects);
+}

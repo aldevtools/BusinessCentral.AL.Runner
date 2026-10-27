@@ -321,6 +321,8 @@ pub struct CachedObjects {
     /// Per object: the id of its first source position in this run's program.
     starts: Vec<u32>,
     positions: Vec<std::sync::OnceLock<Vec<ir::SrcPos>>>,
+    /// How many objects this source decoded.
+    decoded: std::sync::atomic::AtomicUsize,
 }
 
 impl CachedObjects {
@@ -329,7 +331,13 @@ impl CachedObjects {
             src,
             positions: starts.iter().map(|_| std::sync::OnceLock::new()).collect(),
             starts,
+            decoded: Default::default(),
         }
+    }
+
+    /// How many objects this source decoded so far (every copy of the program shares the source).
+    pub fn decoded(&self) -> usize {
+        self.decoded.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The block of `object`. The whole entry was checked when it was opened, so a block that does not read now is an
@@ -360,6 +368,7 @@ impl ir::ObjectSource for CachedObjects {
         let started = std::time::Instant::now();
         let object = self.object_now(i);
         DECODED.fetch_add(1, Relaxed);
+        self.decoded.fetch_add(1, Relaxed);
         DECODE_NANOS.fetch_add(started.elapsed().as_nanos() as u64, Relaxed);
         object
     }

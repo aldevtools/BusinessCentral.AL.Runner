@@ -912,6 +912,7 @@ pub(crate) fn lower_core(
             Vec::new()
         },
         object_hashes: Vec::new(),
+        cached_objects: None,
     };
     if positions {
         program.sources = ws

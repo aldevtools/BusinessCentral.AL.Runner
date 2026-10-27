@@ -305,7 +305,8 @@ fn lazy_cached_objects(lowered: &mut Lowered, src: &std::sync::Arc<dyn crate::pr
         .map(|(oi, o)| (!provided[oi]).then_some(o))
         .collect();
     program.objects = ir::Objects::lazy_with_heads(finished, source.clone(), heads);
-    program.positions.set_source(source);
+    program.positions.set_source(source.clone());
+    lowered.cached_objects = Some(source);
     if std::env::var_os("ALRUNNER_EAGER_DECODE").is_some() {
         program.objects.make_all();
     }

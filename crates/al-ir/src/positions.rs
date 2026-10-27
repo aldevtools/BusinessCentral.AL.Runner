@@ -123,6 +123,32 @@ impl Positions {
         (0..self.len()).filter_map(|id| self.get(id))
     }
 
+    /// The ids of every object's positions, by object index (`objects` long), without reading a hole: a hole holds the
+    /// positions of the one object it names (al-link sets `object` of each position to the index of its object).
+    pub fn ids_by_object(&self, objects: usize) -> Vec<Vec<u32>> {
+        let mut v = vec![Vec::new(); objects];
+        let mut dense = self.dense.iter();
+        let mut id = 0u32;
+        let mut take_dense = |v: &mut Vec<Vec<u32>>, until: u32, id: &mut u32| {
+            while *id < until {
+                let Some(p) = dense.next() else { break };
+                if let Some(list) = v.get_mut(p.object as usize) {
+                    list.push(*id);
+                }
+                *id += 1;
+            }
+        };
+        for h in &self.holes {
+            take_dense(&mut v, h.start, &mut id);
+            if let Some(list) = v.get_mut(h.object as usize) {
+                list.extend(h.start..h.start + h.len);
+            }
+            id = h.start + h.len;
+        }
+        take_dense(&mut v, u32::MAX, &mut id);
+        v
+    }
+
     /// Reads every hole into the table, so it has none.
     pub fn fill_holes(&mut self) {
         if self.holes.is_empty() {
@@ -227,5 +253,35 @@ mod tests {
             postcard::to_allocvec(&t).unwrap(),
             postcard::to_allocvec(&plain).unwrap()
         );
+    }
+
+    struct NoRead;
+    impl PositionSource for NoRead {
+        fn positions(&self, _: usize) -> &[SrcPos] {
+            panic!("a hole was read")
+        }
+    }
+
+    #[test]
+    fn ids_by_object_read_no_hole() {
+        let plain = Positions::from(vec![
+            pos(1, 0),
+            pos(2, 1),
+            pos(3, 1),
+            pos(4, 2),
+            pos(5, 3),
+            pos(6, 3),
+            pos(7, 0),
+        ]);
+        let mut t = Positions::new();
+        t.push(pos(1, 0));
+        t.push_hole(2, 1);
+        t.push(pos(4, 2));
+        t.push_hole(2, 3);
+        t.push(pos(7, 0));
+        t.set_source(Arc::new(NoRead));
+        let want = vec![vec![0, 6], vec![1, 2], vec![3], vec![4, 5]];
+        assert_eq!(plain.ids_by_object(4), want);
+        assert_eq!(t.ids_by_object(4), want);
     }
 }

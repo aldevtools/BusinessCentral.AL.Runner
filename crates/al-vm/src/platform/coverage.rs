@@ -286,16 +286,12 @@ impl Session {
             out.push(r);
         };
         // The positions of each object, found once per engine: a scan of all positions per entered object, on every read
-        // of the Code Coverage table, was positions x objects.
-        let by_object = self.engine.positions_by_object.get_or_init(|| {
-            let mut v = vec![Vec::new(); program.objects.len()];
-            for (id, p) in program.positions.iter().enumerate() {
-                if let Some(list) = v.get_mut(p.object as usize) {
-                    list.push(id as u32);
-                }
-            }
-            v
-        });
+        // of the Code Coverage table, was positions x objects. The positions a cache supplies are not read for it
+        // (ADR-054): only those of the entered objects are, below.
+        let by_object = self
+            .engine
+            .positions_by_object
+            .get_or_init(|| program.positions.ids_by_object(program.objects.len()));
         for &oi in &rec.entered {
             let o = &program.objects[oi];
             if o.id.is_none() {
