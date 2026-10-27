@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    ViewBlankDateFilter => {
+        id: "view-blank-date-filter",
+        assumed: "A view condition `filter('')` on a Date field (a page's SourceTableView or SetView) selects the blank date, as `filter(0D)` does in a SourceTableView (pages/lt-cd-testpage-leads/CdTestPageLeads.al:521 Item58_SourceTableView_Filter0D) and `filter('')` of a TableRelation or CalcFormula selects the blank value (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al).",
+        tests: "No Microsoft test: al-runner issue 5958, the reporter's repro green on real BC (a list page with where(Date = filter('')) opens on the blank-date row and Next() is false; two tests of a partner app).",
+        probe: "A list page with SourceTableView = where(D = filter('')) over rows with a blank and a set date: the rows it lists, and GetFilter(D) of its Rec; the same through SetView.",
+        awaiting: Awaiting {
+            issues: &[5958],
+            files: &["tests/al-language/pages/lt-sh-outside-pages/ShBlankDateView.al"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
