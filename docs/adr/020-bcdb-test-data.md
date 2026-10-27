@@ -238,6 +238,9 @@ is 30 to 60 ms. Each table read also parsed and sorted the names of all 4,100 ta
   index, a cold open is 8 to 30 ms. `--no-compile-cache` also turns the index off. This is a second persistent
   cache (the brief allows only the compile cache); the owner asked for it by name in the task, the work it avoids
   is a verification pass over the whole file, and the data itself (the rows) is not cached. Say no to remove it.
+  The catalog part also keeps the backup's SQL sequences (2026-10-27, run-speed task of the owner): every session
+  of a run with test data asks for them, and walking two system tables for them cost about 30 M instructions per run.
+  An index saved without them gains them on its next open and is saved once more.
 - `--timings` prints one `test data:` line: open time, whether the kept index was used, number of table reads,
   rows and time.
 
