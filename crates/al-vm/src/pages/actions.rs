@@ -1367,13 +1367,17 @@ impl Session {
             }
             // A Worksheet with the new-row line opened for edit on an empty view, left on that line by an action that inserted
             // rows through another record variable: the next action first reads the line, OnAfterGetRecord on the blank Rec
-            // (al-runner issue 5960, the reporter's repro on real BC; registered assumption `empty-worksheet-filled-by-action`,
-            // awaiting RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `create log = R:0;N:0;C:0;N:0;C:0;`).
+            // (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
+            // Another number of rows is the registered assumption `empty-worksheet-filled-by-action`.
             (EmptyShape::EditList, _)
                 if self.engine.object_facts[st.borrow().object as usize].page_type
                     == Some(al_ir::PageType::Worksheet) =>
             {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+                if n != 2 {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction,
+                    );
+                }
                 self.calc_row_flowfields(st)?;
                 self.populate_expressions(st)?;
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
@@ -1413,10 +1417,10 @@ impl Session {
         if n > 1 {
             // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
             // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
-            // it with a blank xRec and goes back to its new-row line (al-runner issue 5960, the reporter's repro on real BC;
-            // registered assumption `empty-worksheet-filled-by-action`, awaiting RmWorksheetGoneRow.al
-            // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate and _FillThenWalk `calculate log =
-            // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; a view longer than a window is refused.
+            // it with a blank xRec and goes back to its new-row line (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573
+            // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, :601 _FillThenWalk `calculate log =
+            // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; more rows up to a window are the
+            // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
             let worksheet =
                 self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
             if shape != EmptyShape::EditList || !worksheet || self.stored_row(&rec)?.is_some() {
@@ -1427,7 +1431,9 @@ impl Session {
                     "an action that stored more rows than a window into an empty Worksheet standing on its new-row line (not pinned)",
                 );
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+            if n != 2 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+            }
             st.borrow_mut().refresh = false;
             st.borrow_mut().save_record_called = false;
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -2613,13 +2619,15 @@ impl Session {
         }
         let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
         // A Worksheet that shows its rows as a tree, opened for edit, stands on the blank Rec the same way, at the action and at a
-        // later one (al-runner issue 5953, the reporter's repro on real BC; registered assumption
-        // `tree-worksheet-gone-only-row-blank-rec`, awaiting RmWorksheetGoneRow.al SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
-        // `R:10000;N:0;C:0;`, _EmptyRecTwice `N:0;C:0;`). A tree list whose blank Rec would take a filter value is not pinned
-        // (`settle_on_blank_rec`).
+        // later one (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:509 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
+        // `R:10000;N:0;C:0;`, :535 _EmptyRecTwice `N:0;C:0;`, a page with InsertAllowed, DeleteAllowed and ModifyAllowed false).
+        // Another combination is the registered assumption `tree-worksheet-gone-only-row-blank-rec`. A tree list whose blank Rec
+        // would take a filter value is not pinned (`settle_on_blank_rec`).
         if self.tree_indentation(st).is_some() {
             let tree_pinned = worksheet && st.borrow().mode == PageMode::Edit;
-            if tree_pinned {
+            if tree_pinned
+                && !(flag_denied(&engine, object, "DeleteAllowed")? && flag_denied(&engine, object, "ModifyAllowed")?)
+            {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::TreeWorksheetGoneOnlyRowBlankRec,
                 );
@@ -2634,10 +2642,9 @@ impl Session {
     }
 
     /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
-    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534) (al-runner issue 5953, the
-    /// reporter's repro on real BC; registered assumption `read-only-view-list-gone-only-row`, awaiting RmWorksheetGoneRow.al
-    /// SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown blank, First No). A List opened for view that is
-    /// editable, and a non-editable one opened for edit, are not pinned.
+    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
+    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
+    /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
     fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -2652,7 +2659,17 @@ impl Session {
             && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
             && self.tree_indentation(st).is_none();
         if pinned {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
+            // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another
+            // combination is the registered assumption `read-only-view-list-gone-only-row`.
+            let all_denied = ["DeleteAllowed", "ModifyAllowed"].iter().all(|p| {
+                engine.program.objects[object]
+                    .properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
+            });
+            if !all_denied {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
+            }
             st.borrow_mut().gone_view_list = true;
         }
         pinned
@@ -2685,11 +2702,9 @@ impl Session {
             };
             rec.borrow_mut().fields = stamped.clone();
             // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
-            // there the blank Rec takes it as without the relation; without it nothing runs (al-runner issue 5951, the reporter's
-            // repro on real BC; awaiting RtFilteredGoneRow.al SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, _BatchMissing).
-            if !related.is_empty() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlankRecKeyFilterTableRelation);
-            }
+            // there the blank Rec takes it as without the relation; without it nothing runs
+            // (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
+            // _BatchMissing).
             for pos in related {
                 self.ret_used = false;
                 match self.record_op(
@@ -2732,8 +2747,7 @@ impl Session {
         Ok(())
     }
 
-    /// The relation check of a value the blank Rec takes failed (registered assumption `blank-rec-key-filter-table-relation`):
-    /// the error is swallowed, no trigger runs, then or at a later action, and the list shows no row. What Rec and xRec hold
+    /// The relation check of a value the blank Rec takes failed (RtFilteredGoneRow.al:550 _BatchMissing): the error is swallowed, no trigger runs, then or at a later action, and the list shows no row. What Rec and xRec hold
     /// and what GetLastErrorText reads are not known: a read of them is refused.
     fn blank_rec_relation_failed(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
         let unknown: Vec<Value> = rec

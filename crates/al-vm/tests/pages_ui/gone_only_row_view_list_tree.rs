@@ -1,7 +1,7 @@
 //! An action deletes the only row of a List with Editable = false opened for view, or empties a temporary Worksheet that shows
-//! its rows as a tree (al-runner issue 5953, the reporter's repro green on real BC; registered assumptions
-//! `read-only-view-list-gone-only-row` and `tree-worksheet-gone-only-row-blank-rec`, awaiting writer SH's
-//! RmWorksheetGoneRow.al SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate and SH_TreeWorksheetTemp_*).
+//! its rows as a tree (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate,
+//! :509 and :535 SH_TreeWorksheetTemp_*, pages with InsertAllowed, DeleteAllowed and ModifyAllowed false). With DeleteAllowed
+//! left out they are the registered assumptions `read-only-view-list-gone-only-row` and `tree-worksheet-gone-only-row-blank-rec`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
@@ -72,6 +72,14 @@ fn a_read_only_list_opened_for_view_raises_nothing_and_shows_no_row() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "ViewList")),
         "R:10000;|||0|No||X;"
     );
+    assert!(!take_hits().contains(&Assumption::ReadOnlyViewListGoneOnlyRow));
+    let src = SRC.replacen(
+        "Editable = false; InsertAllowed = false; DeleteAllowed = false;",
+        "Editable = false; InsertAllowed = false;",
+        1,
+    );
+    clear_hits();
+    al_testkit::run_in(&src, "C", "ViewList").ok();
     assert!(take_hits().contains(&Assumption::ReadOnlyViewListGoneOnlyRow));
 }
 
@@ -82,5 +90,13 @@ fn a_tree_worksheet_stands_on_a_blank_rec() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "Tree")),
         "R:10000;N:0;C:0;|||No||N:0;C:0;|No|X;"
     );
+    assert!(!take_hits().contains(&Assumption::TreeWorksheetGoneOnlyRowBlankRec));
+    let src = SRC.replacen(
+        "SourceTableTemporary = true; InsertAllowed = false; DeleteAllowed = false;",
+        "SourceTableTemporary = true; InsertAllowed = false;",
+        1,
+    );
+    clear_hits();
+    al_testkit::run_in(&src, "C", "Tree").ok();
     assert!(take_hits().contains(&Assumption::TreeWorksheetGoneOnlyRowBlankRec));
 }

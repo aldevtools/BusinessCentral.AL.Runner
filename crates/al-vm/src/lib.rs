@@ -1750,12 +1750,9 @@ impl Session {
         }
         if self.depth >= MAX_CALL_DEPTH {
             // With an event subscriber on the stack BC names event recursion: code `RecursiveEventCall:StackOverflow`, and a text that
-            // names the innermost subscriber, the event and its publisher. Pinned on corpus branch al-runtime-rs-staging-sh
-            // (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137, commit 67c7900c; al-runner issue 5944; assumption
-            // `recursive-event-call-code` until the corpus bump) for an integration event of a codeunit and OnAfterModifyEvent of a
-            // table; another event's text is not pinned.
+            // names the innermost subscriber, the event and its publisher (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:
+            // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecursiveEventCallCode);
                 let objects = &self.engine.program.objects;
                 let text = top.map(|(publisher, so, sr)| {
                     let p = &objects[publisher];
@@ -1778,7 +1775,7 @@ impl Session {
                     },
                     None => al_builtins::native::unpinned_text_error(
                         "RecursiveEventCall:StackOverflow",
-                        "recursive-event-call-code",
+                        "event-recursion-text-of-another-event",
                     ),
                 })));
             }

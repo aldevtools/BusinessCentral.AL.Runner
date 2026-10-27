@@ -421,21 +421,16 @@ impl Session {
                     }
                     if let Sync::Move { backward: true } = how {
                         // The pinned parts walk the table backwards. A part with its own OnFindRecord or OnNextRecord reads as after
-                        // a forward move, `Find(=><)`, OnAfterGetRecord, `Next(1)`, `Next(-1)` (al-runner issue 5959, the reporter's
-                        // repro on real BC; registered assumption `find-record-part-host-moved-back`, awaiting PartReadsOpen.al
+                        // a forward move, `Find(=><)`, OnAfterGetRecord, `Next(1)`, `Next(-1)` (pages/lt-part-reads/PartReadsOpen.al
                         // SH_FindRecordPart_HostFirstAfterGoToKey `first part log`, SH_FindRecordPart_HostNextLastPrevious
                         // `previous part log`).
-                        if self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord") {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FindRecordPartHostMovedBack,
-                            );
-                        } else {
+                        if !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
                             child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
                         }
                     }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
                     // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
-                    // H1; same assumption).
+                    // H1).
                     self.part_sync_keeps_same_link = matches!(how, Sync::Move { .. })
                         && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"));
                     let r = self.sync_part(st, *i, child);
@@ -1067,7 +1062,6 @@ impl Session {
                         })
                 };
                 if same && child.borrow().cursor == Cursor::Row {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FindRecordPartHostMovedBack);
                     return Ok(());
                 }
             }

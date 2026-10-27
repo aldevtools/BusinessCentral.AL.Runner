@@ -1,8 +1,8 @@
 //! A Worksheet with the new-row line (AutoSplitKey, DelayedInsert) opened on an empty table: an action inserts two lines through
 //! another record variable without CurrPage.Update, then a second action deletes all lines and calls CurrPage.Update(false)
-//! (al-runner issue 5960, the reporter's repro green on real BC, the flow of page 7372 "Bin Creation Worksheet"; registered
-//! assumption `empty-worksheet-filled-by-action`, awaiting writer SH's RmWorksheetGoneRow.al
-//! SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate), or the test walks the rows (SH_WsWithNew_EmptyOpen_FillThenWalk).
+//! (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate), or the test walks the
+//! rows (:601 SH_WsWithNew_EmptyOpen_FillThenWalk). Pinned with two rows; three rows are the registered assumption
+//! `empty-worksheet-filled-by-action`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
@@ -78,8 +78,19 @@ const OPEN: &str = "0||N:0;C:0;N:0;C:0;|R:10000;R:20000;R:10000;R:10000;C:10000;
 fn run(routine: &str) -> String {
     clear_hits();
     let s = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    assert!(take_hits().contains(&Assumption::EmptyWorksheetFilledByAction));
+    assert!(!take_hits().contains(&Assumption::EmptyWorksheetFilledByAction));
     s
+}
+
+#[test]
+fn three_lines_are_the_assumption() {
+    let src = SRC.replace(
+        "Line.Description := 'Second'; Line.Insert();",
+        "Line.Description := 'Second'; Line.Insert(); Line.\"Line No.\" := 30000; Line.Insert();",
+    );
+    clear_hits();
+    al_testkit::text(al_testkit::run_in(&src, "C", "Walk"));
+    assert!(take_hits().contains(&Assumption::EmptyWorksheetFilledByAction));
 }
 
 #[test]

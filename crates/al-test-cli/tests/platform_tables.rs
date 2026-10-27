@@ -2446,7 +2446,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata".SourceTableView of a page whose view is `where(<Date field> = filter(<> ''))` is returned and names the
-/// field (al-runner issue 5957, the reporter's repro on real BC; assumption `page-metadata-view-not-blank-date`).
+/// field (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
 #[test]
 fn a_not_blank_date_view_is_in_page_metadata() {
     let o = outcomes(
@@ -2458,4 +2458,26 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(50002); if M.SourceTableView <> 'WHERE(Field2=FILTER(<>''''))' then Error('view %1', M.SourceTableView); end; }"#,
     );
     passes(&o, "NotBlank");
+}
+
+/// "Page Metadata".SourceTableView of a Date field filtered blank, `filter('')` or `filter(0D)`, reads `FILTER('')`, and
+/// `const(0D)` reads the blank date as `CONST(0001-01-01T00:00:00.0000000)`
+/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
+#[test]
+fn a_blank_date_view_is_in_page_metadata() {
+    let o = outcomes(
+        r#"table 50001 "Entry" { fields { field(1; "No."; Integer) { } field(2; "Starting Date"; Date) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "Blank" { PageType = List; SourceTable = Entry; SourceTableView = where("Starting Date" = filter(''));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+page 50003 "Zero" { PageType = List; SourceTable = Entry; SourceTableView = where("Starting Date" = filter(0D));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+page 50004 "Const" { PageType = List; SourceTable = Entry; SourceTableView = where("Starting Date" = const(0D));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Blank() var M: Record "Page Metadata"; begin
+    M.Get(50002); if M.SourceTableView <> 'WHERE(Field2=FILTER(''''))' then Error('view %1', M.SourceTableView);
+    M.Get(50003); if M.SourceTableView <> 'WHERE(Field2=FILTER(''''))' then Error('view %1', M.SourceTableView);
+    M.Get(50004); if M.SourceTableView <> 'WHERE(Field2=CONST(0001-01-01T00:00:00.0000000))' then Error('view %1', M.SourceTableView); end; }"#,
+    );
+    passes(&o, "Blank");
 }

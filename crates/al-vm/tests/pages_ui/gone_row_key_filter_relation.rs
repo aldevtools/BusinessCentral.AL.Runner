@@ -1,10 +1,8 @@
 //! A Worksheet without the new-row line, filtered in filter group 2 on a key field with a TableRelation, loses its only row to
-//! an action (al-runner issue 5951, the reporter's repro green on real BC; registered assumption
-//! `blank-rec-key-filter-table-relation`, awaiting writer SH's RtFilteredGoneRow.al SH_RelWs_KeyFieldWithTableRelationGroup2_*).
+//! an action (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists,
+//! :550 _BatchMissing).
 //! With the related row present the blank Rec takes the filter value as without the relation (`N:B1;C:0:B1;`). Without it
 //! the relation check fails, the error is swallowed and no trigger runs, then or at a later action.
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
 const SRC: &str = r#"
 table 51480 "RR Batch" { fields { field(1; Name; Code[10]) { } } keys { key(PK; Name) { } } }
@@ -64,20 +62,16 @@ codeunit 51484 C
 
 #[test]
 fn with_the_related_row_the_blank_rec_takes_the_filter_value() {
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "WithBatch")),
         "N:B1;C:0:B1;||No||N:B1;C:0:B1;|0"
     );
-    assert!(take_hits().contains(&Assumption::BlankRecKeyFilterTableRelation));
 }
 
 #[test]
 fn without_the_related_row_no_trigger_runs() {
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "WithoutBatch")),
         "||No|||0"
     );
-    assert!(take_hits().contains(&Assumption::BlankRecKeyFilterTableRelation));
 }

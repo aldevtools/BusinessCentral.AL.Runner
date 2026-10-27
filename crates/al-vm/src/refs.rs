@@ -1322,10 +1322,9 @@ impl Session {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
                     // A text that is no number into an Integer, BigInteger or Decimal field raises the Evaluate error from BC 28 and
-                    // `The type Nav<Type> is unknown.` before; the field keeps its value. Pinned on corpus branch
-                    // al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al:FieldRef_Value_TextIntoInteger_ErrorText,
-                    // FieldRef_Value_TextIntoNumberTypes, commit 67c7900c; al-runner issue 5942; assumption
-                    // `fieldref-text-into-integer-error` until the corpus bump): `abc` into each type, an empty text into an Integer.
+                    // `The type Nav<Type> is unknown.` before; the field keeps its value (fieldref/TestFieldRefValue.al:202
+                    // FieldRef_Value_TextIntoInteger_ErrorText, :229 FieldRef_Value_TextIntoNumberTypes): `abc` into each type, an
+                    // empty text into an Integer.
                     if let Value::Text(s) | Value::Code(s) = v {
                         let s = s.as_str();
                         let letters = s.len() > 1 && s.bytes().all(|b| b.is_ascii_alphabetic());
@@ -1339,9 +1338,6 @@ impl Session {
                             if s.is_empty() && !empty_pinned {
                                 return unsupported(format!("FieldRef.Value := '' on a {ty} field (not pinned)"));
                             }
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FieldRefTextIntoIntegerError,
-                            );
                             let (message, code) = if self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28) {
                                 (
                                     format!("The value \"{s}\" can't be evaluated into type {ty}."),

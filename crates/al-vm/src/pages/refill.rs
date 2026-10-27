@@ -157,9 +157,8 @@ impl Session {
 
     /// An action that refilled the rows of a temporary Worksheet with one row, a row the client held being gone, Rec left on that
     /// row: after the read of the row the client stood on that comes before every action, the client reads the row three times
-    /// and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row (al-runner issue 5952,
-    /// the reporter's repro on real BC; registered assumption `temp-refill-to-one-row-by-action`, awaiting RmTempRefill.al
-    /// SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
+    /// and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
+    /// (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
     /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). A refill with two rows or more is not handled here.
     /// Returns whether it handled the action.
     pub(super) fn reread_after_refill_to_one_row(&mut self, st: &St) -> Result<bool, Signal> {
@@ -174,7 +173,6 @@ impl Session {
         if !Self::same_key(&table.primary_key(row), &now) || !self.held_row_gone(st)? {
             return Ok(false);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TempRefillToOneRowByAction);
         let with_current = self.declares(st, "onaftergetcurrrecord");
         let before = self.xrec_before_move(st);
         let mut held = self.read_refilled_row(st, &rec, row)?;

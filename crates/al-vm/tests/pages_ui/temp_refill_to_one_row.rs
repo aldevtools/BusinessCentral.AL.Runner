@@ -1,9 +1,7 @@
-//! An action refills a temporary Worksheet of 3 or 25 rows with one row (al-runner issue 5952, the reporter's repro green on real
-//! BC; registered assumption `temp-refill-to-one-row-by-action`, awaiting writer SH's RmTempRefill.al SH_RefillFewer_*): the
+//! An action refills a temporary Worksheet of 3 or 25 rows with one row (pages/lt-outside-worksheet/RmTempRefill.al
+//! SH_RefillFewer_*): the
 //! client reads that row three times and runs OnAfterGetCurrRecord (twice and nothing more without that trigger), then lists
 //! only that row.
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
 const PAGE: &str = r#"
 page 51491 "TR Ws"
@@ -65,10 +63,7 @@ fn src(current: bool) -> String {
 }
 
 fn run(current: bool, routine: &str) -> String {
-    clear_hits();
-    let s = al_testkit::text(al_testkit::run_in(&src(current), "C", routine));
-    assert!(take_hits().contains(&Assumption::TempRefillToOneRowByAction));
-    s
+    al_testkit::text(al_testkit::run_in(&src(current), "C", routine))
 }
 
 #[test]

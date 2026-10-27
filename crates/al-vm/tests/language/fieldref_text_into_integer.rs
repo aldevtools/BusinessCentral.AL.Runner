@@ -1,8 +1,5 @@
 //! `FieldRef.Value := 'abc'` on an Integer field raises `The value "abc" can't be evaluated into type Integer.`
-//! (al-runner issue 5942, the reporter's repro on real BC; registered assumption `fieldref-text-into-integer-error`).
-//! Its code is Evaluate:Format (corpus branch al-runtime-rs-staging-sh, fieldref/TestFieldRefValue.al).
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+//! Its code is Evaluate:Format (fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText).
 
 const TABLE: &str =
     "table 50711 Row { fields { field(1; Code; Code[20]) { } field(4; Qty; Integer) { } } keys { key(PK; Code) { } } }";
@@ -17,12 +14,10 @@ fn letters_into_an_integer_fieldref_raise_the_evaluate_text() {
             RecRef.Open(Database::Row); FldRef := RecRef.Field(4); asserterror FldRef.Value := 'abc';
             exit(GetLastErrorCode()); end; }}"
     );
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(&src, "C", "F")),
         "The value \"abc\" can't be evaluated into type Integer."
     );
-    assert!(take_hits().contains(&Assumption::FieldRefTextIntoIntegerError));
     assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "G")), "Evaluate:Format");
 }
 

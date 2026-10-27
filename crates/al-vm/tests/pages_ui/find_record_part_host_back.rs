@@ -1,9 +1,7 @@
 //! A linked FactBox that serves its rows from OnFindRecord is read again when its host moves back with First() after GoToKey
-//! (al-runner issue 5959, the reporter's repro green on real BC; registered assumption `find-record-part-host-moved-back`,
-//! awaiting writer SH's PartReadsOpen.al SH_FindRecordPart_*): it reads as after a forward move, and
+//! (pages/lt-part-reads/PartReadsOpen.al SH_FindRecordPart_HostFirstAfterGoToKey, SH_FindRecordPart_HostNextLastPrevious): it
+//! reads as after a forward move, and
 //! reads nothing on a move that keeps its link value.
-
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
 const SRC: &str = r#"
 table 51510 "FB Line" { fields { field(1; "Line No."; Integer) { } field(2; "Group Code"; Code[10]) { } } keys { key(PK; "Line No.") { } } }
@@ -64,10 +62,8 @@ codeunit 51515 C
 
 #[test]
 fn the_part_reads_as_after_a_forward_move() {
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "F")),
         "Filled for G2|Filled for G1|Find(=><);AGR(G1);Next(1);Next(-1);|Find(=><);AGR(G2);Next(1);Next(-1);|Filled for G2|"
     );
-    assert!(take_hits().contains(&Assumption::FindRecordPartHostMovedBack));
 }

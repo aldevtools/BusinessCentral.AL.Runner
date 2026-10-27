@@ -74,7 +74,7 @@ pub enum Gate {
     /// `FieldRef.Value` set from a text that is no number on an Integer, BigInteger or Decimal field: the Evaluate error
     /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
     /// error for an Option field is pinned (record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175); for numbers it is
-    /// pinned on corpus branch al-runtime-rs-staging-sh (fieldref/TestFieldRefValue.al, commit 67c7900c, al-runner issue 5942).
+    /// pinned by fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText and :229 FieldRef_Value_TextIntoNumberTypes.
     FieldRefTextNumberEvaluateErrorFrom28,
     /// `AL:MetadataNotFound` for an unknown report id names the calling test codeunit from BC 28, and `Test Runner - Mgt.` before (report/lt-t-validate-layout/TValidateLayout.al, corpus bump 26; the layout members and DefaultLayout in report/lt-report-requestpage-query-members/P105LytInitSM.al). Not consumed yet.
     MetadataNotFoundNamesTheCallerFrom28,
@@ -561,10 +561,17 @@ impl Gate {
                 file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
                 lines: "170,175",
             }],
-            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[Evidence {
-                file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
-                lines: "170,175",
-            }],
+            Gate::FieldRefTextNumberEvaluateErrorFrom28 => &[
+                Evidence {
+                    file: "record/lt-u-table-field-props/UTableCdsOrdinals.al",
+                    lines: "170,175",
+                },
+                // The number types (and Boolean, Date, Guid and Option at :294) set from a text through FieldRef.Value.
+                Evidence {
+                    file: "fieldref/TestFieldRefValue.al",
+                    lines: "215,242,294",
+                },
+            ],
             Gate::MetadataNotFoundNamesTheCallerFrom28 => &[
                 Evidence {
                     file: "report/lt-t-validate-layout/TValidateLayout.al",

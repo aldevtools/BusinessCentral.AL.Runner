@@ -586,226 +586,57 @@ registry! {
 
     BigTextValueCopy => {
         id: "bigtext-value-copy",
-        assumed: "A BigText is a value: `B := A` copies its text, a by-value parameter (of a procedure or an event) gets a copy the callee's AddText does not reach, and a returned BigText is a copy; a `var` parameter is the caller's own BigText. Nothing in the corpus tells a copy from a shared BigText yet.",
-        tests: "No Microsoft test: al-runner issue 5940, the reporter's repro green on real BC (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
-        probe: "`B := A` then A.AddText: B's length; a by-value parameter whose callee calls AddText: the caller's length; Clear of a copy: the original's length; a var parameter's AddText: the caller's length.",
-        awaiting: Awaiting {
-            issues: &[5940],
-            files: &[
-                "tests/al-language/text/TestBigText.al::BigText_Assign_CopiesTheValue",
-                "tests/al-language/text/TestBigText.al::BigText_Parameters_ByValueCopies_VarShares",
-                "tests/al-language/text/TestBigText.al::BigText_ClearOfACopy_KeepsTheOriginal",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    SelfUnbindSkipsRestOfRaise => {
-        id: "self-unbind-skips-rest-of-raise",
-        assumed: "A manual subscriber instance that unbinds itself (UnbindSubscription(this)) while one of its subscriber methods runs is not called again in that raise: its later subscriber methods for the same event are skipped. An instance another subscriber unbinds during the raise is refused (not pinned).",
-        tests: "No Microsoft test: al-runner issue 5941, the reporter's repro green on real BC (`A:stop;after-unbind`, method B not called).",
-        probe: "A manual codeunit with two subscribers to one event whose first calls UnbindSubscription(this): which methods run in that raise; and a second manual codeunit whose subscriber, running first, unbinds the first codeunit's instance.",
-        awaiting: Awaiting {
-            issues: &[5941],
-            files: &[
-                "tests/al-language/handlers/ProbeEventSubscriberOrder.al::ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    FieldRefTextIntoIntegerError => {
-        id: "fieldref-text-into-integer-error",
-        assumed: "Assigning a text of two letters or more to FieldRef.Value of an Integer, BigInteger or Decimal field, or an empty text to an Integer field, raises `The value \"<text>\" can't be evaluated into type <Type>.` (Evaluate:Format) from the gate FieldRefTextNumberEvaluateErrorFrom28 on and `The type Nav<Type> is unknown.` (NotSupportedType) before it, and leaves the field as it was. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
-        tests: "No Microsoft test: al-runner issue 5942, the reporter's repro green on real BC (also reached through Data Type Management.SetFieldValue).",
-        probe: "Pinned by writer SH: fieldref/TestFieldRefValue.al FieldRef_Value_TextIntoInteger_ErrorText and FieldRef_Value_TextIntoNumberTypes (corpus PR 748).",
-        awaiting: Awaiting {
-            issues: &[5942],
-            files: &[
-                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoInteger_ErrorText",
-                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoNumberTypes",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    RecursiveEventCallCode => {
-        id: "recursive-event-call-code",
-        assumed: "A call chain that reaches the call-depth ceiling while an event subscriber is on the stack raises the code `RecursiveEventCall:StackOverflow` and `Excessive recursion has been detected in event subscriber function <subscriber> for event <event> that is raised in <CodeUnit|Table> <id>.`, at the same depth as plain recursion: `None` for an event a codeunit publishes, `OnAfterModifyEvent` for that table event; the text of another event is not pinned (reads of it refuse). Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
-        tests: "No Microsoft test: al-runner issue 5944, the reporter's repro green on real BC (an OnAfterModifyEvent subscriber that calls Modify(true) on the record again).",
-        probe: "Pinned by writer SH: codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al (corpus PR 748). Still wanted: the text for a business event and other table events.",
-        awaiting: Awaiting {
-            issues: &[5944],
-            files: &[
-                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ThroughAnIntegrationEvent_ErrorCodeAndText",
-                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ModifyInOnAfterModifyEvent_ErrorCodeAndText",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A BigText given as an event parameter by value gets a copy the subscriber's AddText does not reach, and a returned BigText is a copy. Assignment, a by-value and a var procedure parameter and Clear of a copy are pinned (text/TestBigText.al:108-160); the marker cannot tell those from the unpinned uses and fires on every copy.",
+        tests: "No Microsoft test: a partner app's tests (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
+        probe: "A BigText passed by value to an event subscriber that calls AddText: the publisher's length; a procedure that returns a BigText the caller then grows: the callee's copy.",
     },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
-        assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says, on every page type and for a group Enabled bound to an expression. Pinned are a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card field without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card); a field with `Enabled = true` there, another page type or an expression is a flagged pass.",
-        tests: "No Microsoft test: al-runner issue 5945, the reporter's repro green on real BC (a card's field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
-        probe: "A card and a list with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
-        awaiting: Awaiting {
-            issues: &[5945],
-            files: &[
-                "tests/al-language/pages/lt-ap-testpage-642/ApTestPageTests.al::Ap16_GroupEnabledFalse_FieldEnabledTrue",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
+        tests: "No Microsoft test: a partner app's card test (a field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
+        probe: "A list and a document page with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with the group's Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
     },
     RelationErrorExtCaption => {
         id: "relation-error-ext-caption",
-        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own. TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
-        tests: "No Microsoft test: al-runner issue 5955, the reporter's repro green on real BC (Validate of a field related to Work Center, extended with a Caption; two tests of a partner app).",
-        probe: "A table with a Caption and one tableextension with a Caption: the TableRelation error of a Validate, TableCaption, RecordRef.Caption, the error of a Get that finds nothing and of TestField.",
-        awaiting: Awaiting {
-            issues: &[5955],
-            files: &[
-                "tests/al-language/tableextension/TestTableExtFieldTableRelation.al::TableExt_CaptionOfRelatedTable_InValidateErrorText",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own Caption. A table without a Caption of its own is pinned (tableextension/TestTableExtFieldTableRelation.al TableExt_CaptionOfRelatedTable_InValidateErrorText); the corpus could not pin a Caption over the table's own (AL0839 in one app). TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
+        tests: "No Microsoft test: a partner app's tests (Validate of a field related to Work Center, extended with a Caption).",
+        probe: "A table with a Caption in one app and a tableextension with a Caption in another app: the TableRelation error of a Validate, TableCaption, RecordRef.Caption.",
     },
     StaleOwnInsertTwoCommitsOtherInsert => {
         id: "stale-own-insert-two-commits-other-insert",
-        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back; with no write of the table, or an Insert into another table only, BC refuses it. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus. Other writes of the table beside that Insert are not told apart.",
-        tests: "No Microsoft test: al-runner issue 5954, the reporter's repro green on real BC (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order; four tests of a partner app).",
-        probe: "Pinned by writer SH: record/lt-sb-stale-own-modify/SbStaleOwnModify.al SH_OwnModify_* (corpus PR 748). Still wanted: a Modify of another row instead of an Insert, three Commits.",
-        awaiting: Awaiting {
-            issues: &[5954],
-            files: &[
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_AnotherRowInsert",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_OneCommit_AnotherRowInsert",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_NothingAfter",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_OwnModify_TwoCommitsOtherTableBetween_OtherTableInsertAfter",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    PageMetadataViewNotBlankDate => {
-        id: "page-metadata-view-not-blank-date",
-        assumed: "The SourceTableView column of Page Metadata shows a `where(<Date field> = filter(<> ''))` condition as `Field<n>=FILTER(<>'')`, in the form of the pinned integer range (misc/W2PageMetadata.al:395). Only the `Field<n>=` part is known from real BC.",
-        tests: "No Microsoft test: al-runner issue 5957, the reporter's repro green on real BC (Page Management reads the Page Metadata of a lookup page with this view; one test of a partner app).",
-        probe: "Page Metadata.SourceTableView of pages with where(D = filter(<> '')), where(D = filter('')) and where(C = filter(<> '')) on a Date and a Code field.",
-        awaiting: Awaiting {
-            issues: &[5957],
-            files: &[
-                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_PageMetadata",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back. Pinned for an own Insert and Modify, one or two Commits, and an Insert of another row as the only write of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745); an own Insert without the Modify, and other writes of the table beside the Insert, are not told apart and stay assumed. The marker fires on the pinned shape too.",
+        tests: "No Microsoft test: a partner app's tests (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order).",
+        probe: "The SH_OwnModify_ tests of SbStaleOwnModify.al with an own Insert only, with a Modify of another row beside the Insert, and with three Commits.",
     },
     ViewBlankDateFilter => {
         id: "view-blank-date-filter",
-        assumed: "A view condition `filter('')` on a Date field (a page's SourceTableView or SetView) selects the blank date, as `filter(0D)` does in a SourceTableView (pages/lt-cd-testpage-leads/CdTestPageLeads.al:521 Item58_SourceTableView_Filter0D) and `filter('')` of a TableRelation or CalcFormula selects the blank value (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al).",
-        tests: "No Microsoft test: al-runner issue 5958, the reporter's repro green on real BC (a list page with where(Date = filter('')) opens on the blank-date row and Next() is false; two tests of a partner app).",
-        probe: "A list page with SourceTableView = where(D = filter('')) over rows with a blank and a set date: the rows it lists, and GetFilter(D) of its Rec; the same through SetView.",
-        awaiting: Awaiting {
-            issues: &[5958],
-            files: &[
-                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_SourceTableView_DateFilterBlank_Rows",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    BlankRecKeyFilterTableRelation => {
-        id: "blank-rec-key-filter-table-relation",
-        assumed: "A list without the new-row line that lost its only row to an action, filtered to one value of a primary-key field that has a TableRelation (and no OnValidate or validate subscriber), checks that relation for the value its blank Rec takes. When the related row exists, the blank Rec takes the value as without the relation (OnNewRecord and OnAfterGetCurrRecord once). When it does not, the error is swallowed, no trigger runs then or at a later action, and what Rec holds is not known (a read of it is refused). (The same shape without the relation is pinned: pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355.)",
-        tests: "No Microsoft test: al-runner issue 5951, the reporter's repro green on real BC (page 5510 Production Journal's Post action; 153 tests of a partner app).",
-        probe: "The Worksheet of RtFilteredGoneRow.al with a TableRelation on the filtered key field, with and without the related row: the action log, a second action, Close.",
-        awaiting: Awaiting {
-            issues: &[5951],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists",
-                "tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::SH_RelWs_KeyFieldWithTableRelationGroup2_BatchMissing",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    TempRefillToOneRowByAction => {
-        id: "temp-refill-to-one-row-by-action",
-        assumed: "An action on a top-level Worksheet over a temporary source (primary key, no filters, OnAfterGetRecord, no OnFindRecord or OnNextRecord) that refills Rec with one row, while a row the client held is gone, and leaves Rec on that row: after the read of the row the client stood on, the client reads the row three times and runs OnAfterGetCurrRecord, or reads it twice when the page has no OnAfterGetCurrRecord; it then lists only that row. (A refill with the same rows is pinned: pages/lt-outside-worksheet/RmTempRefill.al:323-:420.)",
-        tests: "No Microsoft test: al-runner issue 5952, the reporter's repro green on real BC (a tree Worksheet's finish action of a partner app that recalculates from 40 rows to 10).",
-        probe: "A temporary Worksheet with and without OnAfterGetCurrRecord, opened with 3 and 25 rows, an action that refills it with 1 and with 2 rows, standing on the first and on a later row: the action log and the rows a First/Next walk lists.",
-        awaiting: Awaiting {
-            issues: &[5952],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_3To1",
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_25To1",
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_WithCurrRecord_25To1_FromRow23",
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_NoCurrRecord_3To1",
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::SH_RefillFewer_NoCurrRecord_25To1",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A view property's condition `filter('')` on a Date field (an action's RunPageView, a part's SourceTableView or SubPageView, a report's or XMLport's view) selects the blank date, as a top-level page's SourceTableView does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842 SH_SourceTableView_DateFilterBlank_Rows) and `filter('')` of a TableRelation or CalcFormula selects the blank value (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al).",
+        tests: "No Microsoft test: a partner app's tests (a list page with where(Date = filter('')) opens on the blank-date row and Next() is false).",
+        probe: "An action with RunPageView = where(D = filter('')) over rows with a blank and a set date: the rows the opened list shows; the same view on a ListPart.",
     },
     TreeWorksheetGoneOnlyRowBlankRec => {
         id: "tree-worksheet-gone-only-row-blank-rec",
-        assumed: "A Worksheet without the new-row line whose repeater shows its rows as a tree (ShowAsTree, IndentationColumn), opened for edit, that lost its only row to an action stands on a blank Rec as the same Worksheet without the tree does: OnNewRecord and OnAfterGetCurrRecord once, at that action and at a later one, with or without CurrPage.Update (pinned without the tree: pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291, :352).",
-        tests: "No Microsoft test: al-runner issue 5953, the reporter's repro green on real BC (a check worksheet's finish action of a partner app that recalculates to no rows; 2 tests).",
-        probe: "The tree Worksheet of RmWorksheetGoneRow.al with an action that empties Rec and calls CurrPage.Update(false), and the same over a table that is not temporary.",
-        awaiting: Awaiting {
-            issues: &[5953],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate",
-                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_TreeWorksheetTemp_OpenEdit_EmptyRecTwice",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A Worksheet without the new-row line whose repeater shows its rows as a tree (ShowAsTree, IndentationColumn), opened for edit, that lost its only row to an action stands on a blank Rec as the same Worksheet without the tree does: OnNewRecord and OnAfterGetCurrRecord once, at that action and at a later one. Pinned for a page with InsertAllowed, DeleteAllowed and ModifyAllowed false (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:509, :535); with DeleteAllowed or ModifyAllowed left true it is assumed.",
+        tests: "No Microsoft test: a partner app's tests (a check worksheet's finish action that recalculates to no rows).",
+        probe: "The tree Worksheet of RmWorksheetGoneRow.al with DeleteAllowed and ModifyAllowed left true, with an action that calls CurrPage.Update(false), and over a table that is not temporary.",
     },
     ReadOnlyViewListGoneOnlyRow => {
         id: "read-only-view-list-gone-only-row",
-        assumed: "A List page with Editable = false, opened for view, without the new-row line, that lost its only row to an action raises no trigger after the action and shows no row, as a List with the line opened for view does (pages/W1Update.al:534). Pinned only with InsertAllowed, DeleteAllowed and ModifyAllowed false and an action that calls CurrPage.Update(false).",
-        tests: "No Microsoft test: al-runner issue 5953, the reporter's repro green on real BC (a \"Retry Now\" action on an error log list of a partner app; 7 tests).",
-        probe: "The List of RmWorksheetGoneRow.al SH_ListViewNotEditable_ without CurrPage.Update, with the Allowed properties left true, and with a second action.",
-        awaiting: Awaiting {
-            issues: &[5953],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    FindRecordPartHostMovedBack => {
-        id: "find-record-part-host-moved-back",
-        assumed: "A linked part that serves its rows from OnFindRecord or OnNextRecord reads its rows after its host moved back (First, Previous) as after a forward move: `Find('=><')`, OnAfterGetRecord, `Next(1)`, `Next(-1)`, and only when the link value changed. (A part that walks its table reads backwards after such a move: pages/lt-part-reads/PartReadsOpen.al:273.)",
-        tests: "No Microsoft test: al-runner issue 5959, the reporter's repro green on real BC (page 7351 Movement Worksheet with page 9126 Lot Numbers by Bin FactBox; 2 tests of a partner app).",
-        probe: "The FactBox of PartReadsOpen.al SH_FindRecordPart_ with a host Previous that keeps the link value, and a part with OnFindRecord only and with OnNextRecord only.",
-        awaiting: Awaiting {
-            issues: &[5959],
-            files: &[
-                "tests/al-language/pages/lt-part-reads/PartReadsOpen.al::SH_FindRecordPart_HostFirstAfterGoToKey",
-                "tests/al-language/pages/lt-part-reads/PartReadsOpen.al::SH_FindRecordPart_HostNextLastPrevious",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A List page with Editable = false, opened for view, without the new-row line, that lost its only row to an action raises no trigger after the action and shows no row, as a List with the line opened for view does (pages/W1Update.al:534). Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false and an action that calls CurrPage.Update(false) (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481); with DeleteAllowed or ModifyAllowed left true it is assumed.",
+        tests: "No Microsoft test: a partner app's tests (a \"Retry Now\" action on an error log list).",
+        probe: "The List of RmWorksheetGoneRow.al SH_ListViewNotEditable_ with the Allowed properties left true, without CurrPage.Update, and with a second action.",
     },
     EmptyWorksheetFilledByAction => {
         id: "empty-worksheet-filled-by-action",
-        assumed: "A Worksheet with the new-row line (AutoSplitKey, DelayedInsert) opened for edit on an empty view, after an action that stored two rows or more (up to a window) through another record variable without CurrPage.Update: the client reads each row of the view once, the first row twice more, runs OnAfterGetCurrRecord on it with a blank xRec and goes back to its new-row line; First then reads the first row twice. A later action first reads the new line (OnAfterGetRecord on the blank Rec), whatever number of rows the view holds. Pinned with two rows.",
-        tests: "No Microsoft test: al-runner issue 5960, the reporter's repro green on real BC (page 7372 Bin Creation Worksheet: Calculate Bins, then Create Bins; 2 tests of a partner app).",
-        probe: "The Worksheet of RmWorksheetGoneRow.al SH_WsWithNew_ with a second action that keeps the rows, with CurrPage.Update in the first action, and with Next or Last instead of First.",
-        awaiting: Awaiting {
-            issues: &[5960],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate",
-                "tests/al-language/pages/lt-outside-worksheet/RmWorksheetGoneRow.al::SH_WsWithNew_EmptyOpen_FillThenWalk",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "A Worksheet with the new-row line (AutoSplitKey, DelayedInsert) opened for edit on an empty view, after an action that stored three rows or more (up to a window) through another record variable without CurrPage.Update: the client reads each row of the view once, the first row twice more, runs OnAfterGetCurrRecord on it with a blank xRec and goes back to its new-row line; a later action first reads the new line. Pinned with two rows (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573, :601).",
+        tests: "No Microsoft test: a partner app's tests (page 7372 Bin Creation Worksheet: Calculate Bins, then Create Bins).",
+        probe: "The Worksheet of RmWorksheetGoneRow.al SH_WsWithNew_ with three and with 30 rows stored by the first action.",
     },
     TestFilterEnumRangeOrdinals => {
         id: "test-filter-enum-range-ordinals",
-        assumed: "TestFilter.GetFilter of an Enum field filtered to a range of two values (SetRange on the record handed to the page, or a SetFilter text range) reads as the two ordinals, `0..1`, as a single value reads as its ordinal (pages/lt-cd-testpage-leads/CdTestPageLeads.al:626); `<>%1` with a typed value reads `<>1`; a `%1|%2` list keeps the names.",
-        tests: "No Microsoft test: al-runner issue 5961, the reporter's repro green on real BC (a test of a partner app on its own list page).",
-        probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Second), SetRange(Second, Third) and SetFilter('First..Second') on the record handed to Page.Run, and after a SourceTableView range.",
-        awaiting: Awaiting {
-            issues: &[5961],
-            files: &[
-                "tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::SH_TestPageFilter_GetFilter_EnumRangeAndList",
-            ],
-            since: "2026-10-27",
-        },
+        assumed: "TestFilter.GetFilter of an Enum field filtered to a range over more than two values (SetRange on the record handed to the page, or a SetFilter text range) reads as the two ordinals, `0..2`, as a range of two values does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList `0..1`, `1..2`).",
+        tests: "No Microsoft test: a partner app's test on its own list page.",
+        probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
 }
 
