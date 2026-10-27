@@ -928,6 +928,43 @@ fn time_zone_checks(pair: &mut Pair) -> BTreeSet<String> {
         }));
     }
 
+    // GetUtcOffset(DateTime): served in process for the UTC zone only; every other zone moves to the sidecar on its first
+    // call. Every id of the list on a spread of ticks, so a zone the stand-in took by mistake shows here.
+    for id in &ids {
+        covered.extend(both(pair, &|r| {
+            r.seen.push(format!("zone id {id:?}"));
+            let Some(z) = r.invoke(
+                "System.TimeZoneInfo.FindSystemTimeZoneById",
+                st("System.TimeZoneInfo"),
+                "FindSystemTimeZoneById",
+                vec![s(id)],
+            ) else {
+                return;
+            };
+            for &t in ticks.iter().step_by(7) {
+                r.inst("System.TimeZoneInfo.GetUtcOffset", &z, "GetUtcOffset", vec![dt(t)]);
+            }
+        }));
+    }
+    for id in ["UTC", "utc"] {
+        covered.extend(both(pair, &|r| {
+            let Some(z) = r.invoke(
+                "System.TimeZoneInfo.FindSystemTimeZoneById",
+                st("System.TimeZoneInfo"),
+                "FindSystemTimeZoneById",
+                vec![s(id)],
+            ) else {
+                return;
+            };
+            for &t in &ticks {
+                r.inst("System.TimeZoneInfo.GetUtcOffset", &z, "GetUtcOffset", vec![dt(t)]);
+            }
+            // An argument that is not a DateTime goes to the sidecar and answers or fails the same way.
+            r.inst("System.TimeZoneInfo.GetUtcOffset", &z, "GetUtcOffset", vec![i(5)]);
+            r.inst("System.TimeZoneInfo.GetUtcOffset", &z, "GetUtcOffset", vec![]);
+        }));
+    }
+
     // Mixing: objects made in process move to the sidecar when a member outside the set is called.
     for id in [
         "UTC",
@@ -962,7 +999,7 @@ fn time_zone_checks(pair: &mut Pair) -> BTreeSet<String> {
                 let zt = DotNetTarget::Instance(z.0);
                 // Members outside the set, on a moved object.
                 r.invoke(
-                    "(sidecar) TimeZoneInfo.GetUtcOffset",
+                    "System.TimeZoneInfo.GetUtcOffset",
                     zt.clone(),
                     "GetUtcOffset",
                     vec![dt(t)],

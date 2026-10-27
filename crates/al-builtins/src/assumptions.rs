@@ -283,9 +283,17 @@ registry! {
     },
     ListOpenFullWindowRowsBefore => {
         id: "list-open-full-window-rows-before",
-        assumed: "The open read of a list or part with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full and whose OnNextRecord(-1) from the first row answers a step, ends as a list with OnAfterGetCurrRecord does: OnFindRecord('=') and the first row read again (`R20;R1;N(-1);F(=);R1`). Pinned only with OnAfterGetCurrRecord (PnF06FindListMoves.al FindList_Ascending_25Rows) and, without it, for an OnNextRecord(-1) that answers 0.",
-        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets.",
-        probe: "A temporary ListPart whose OnFindRecord and OnNextRecord walk a position global (rows on every day, inserted on demand) and whose OnAfterGetRecord sets that global from Rec, logging each call; the host card refills it from its OnAfterGetRecord (DeleteAll, CurrPage.Update). Log the reads at open and after the host moves with Next, and read a part field before and after. The same list as a page of its own, opened on day 10 of 40.",
+        assumed: "The open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord but no OnAfterGetCurrRecord, whose first window of 20 rows is full and whose OnNextRecord(-1) from the first row answers a step, reads each row it steps back to and asks OnNextRecord(-1) again until it answers 0, with no OnFindRecord('=') and no read of the first row again; pinned for a page of its own with 9 rows above (pages/lt-ai-list-order/AiListOrderTests.al:1090 PageRun_RecordOnTenthOfForty_Nav, :1127 OpenOnRow_TenthOfForty_Pos, where Next reads nothing). Assumed: a ListPart does the same; Previous inside the rows held reads nothing; a step back that reaches 20 rows above stops there and asks no more (as the descending find list's step back does, PnF06FindListMoves.al RK_DescKind_FindNext_21Rows). Other moves after such an open are refused.",
+        tests: "ERM Base Calendar (BaseCalendarEntriesShowCorrespondingRecords): Base Calendar Entries Subform keeps its position on the Date table in a global that OnAfterGetRecord sets. al-runner issue 5887: the reporter's repro green 2/2 on real BC (a list of its own and a ListPart, opened on day 10 of 40); the pin is on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "A temporary ListPart whose OnFindRecord and OnNextRecord walk a position global (rows on every day, inserted on demand) and whose OnAfterGetRecord sets that global from Rec, logging each call; the host card refills it from its OnAfterGetRecord (DeleteAll, CurrPage.Update). Log the reads at open and after the host moves with Next, and read a part field before and after. The same list as a page of its own, opened on day 10 of 40, and on day 30 (more than a window above), then First, Last and GoToKey.",
+        awaiting: Awaiting {
+            issues: &[5887],
+            files: &[
+                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayList_OpensOnDayTen_Next_Previous",
+                "tests/al-language/misc/lt-probes-needed-6/PnF06FindListMoves.al::SF_DayHost_RunWithFilter_OpensPart",
+            ],
+            since: "2026-10-27",
+        },
     },
     SetValueWholeNumberIntoTextControl => {
         id: "setvalue-whole-number-into-text-control",
@@ -579,6 +587,22 @@ registry! {
             issues: &[5748],
             files: &["tests/al-language/codeunit/lt-outside-onrun-error/RlOnRunError.al"],
             since: "2026-10-25",
+        },
+    },
+    DrilldownMarkedOnlyWithPart => {
+        id: "drilldown-marked-only-with-part",
+        assumed: "After a field's OnDrillDown turned MarkedOnly on for Rec and called CurrPage.Update(false), a list with OnAfterGetRecord or OnAfterGetCurrRecord that has a part (in the content area or in the FactBoxes area) lists only the marked rows, as the same page without a part does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016).",
+        tests: "No Microsoft test: al-runner issue 5886, the reporter's repro green 6/6 on real BC; pinned on corpus branch al-runtime-rs-staging-sf (f95fa31d, corpus bump PR 747).",
+        probe: "The drilldown of ScDrillDownMarkedOnly.al on a Worksheet with both row triggers and a ListPart with a SubPageLink, in the content area and in the FactBoxes area: First/Next and GoToRecord of the unmarked row.",
+        awaiting: Awaiting {
+            issues: &[5886],
+            files: &[
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithPart_GoToRecordMissesTheUnmarkedRow",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_ListAndGoTo",
+                "tests/al-language/pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al::SF_WithFactBox_GoToRecordMissesTheUnmarkedRow",
+            ],
+            since: "2026-10-27",
         },
     },
     ValidateFilterRefreshWindow => {

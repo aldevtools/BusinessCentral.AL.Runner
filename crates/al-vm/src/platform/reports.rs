@@ -613,7 +613,7 @@ fn data_item_row(
 /// table writes the filter type number (0 for a const) in front of the value, unlike a page's source table view
 /// (report/lt-y-report-props/YReportExt.al:231, misc/lt-probes-needed-3/PnC21Metadata.al:206, :218). Other field
 /// types are not pinned for this table (an option member's ordinal or name, an enum, text).
-fn where_const(table: &Table, _objects: &[Object], inner: &str) -> Result<String, String> {
+fn where_const(table: &Table, _objects: &al_ir::Objects, inner: &str) -> Result<String, String> {
     let (field, rest) = inner.split_once('=').ok_or("not a field = const(value)")?;
     let rest = rest.trim();
     let lower = rest.to_ascii_lowercase();

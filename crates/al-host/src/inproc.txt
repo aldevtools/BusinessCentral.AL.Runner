@@ -24,6 +24,7 @@ System.Convert.ToBase64String
 System.Convert.FromBase64String
 System.TimeZoneInfo.FindSystemTimeZoneById
 System.TimeZoneInfo.BaseUtcOffset
+System.TimeZoneInfo.GetUtcOffset
 System.DateTimeOffset..ctor
 System.DateTimeOffset.Offset
 System.DateTimeOffset.LocalDateTime

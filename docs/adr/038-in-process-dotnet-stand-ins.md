@@ -154,8 +154,9 @@ add up to the 210,751) and the AL that makes them (`TypeHelper.GetUserTimezoneOf
 | `System.DateTimeOffset` | `ToLocalTime()` | 5 | yes |
 | `System.DateTimeOffset` | `Parse(String, IFormatProvider, DateTimeStyles)` | 4 | no: culture dependent, goes to the sidecar |
 | `System.DateTimeOffset` | `ToString(String)` | 1 | no: format dependent, goes to the sidecar |
+| `System.TimeZoneInfo` | `GetUtcOffset(DateTime)` | (added 2026-10-27) | yes, on the UTC zone only (amendment 2026-10-27) |
 
-Everything else on both types (`GetUtcOffset`, `ConvertTime`, `IsDaylightSavingTime`, `SupportsDaylightSavingTime`,
+Everything else on both types (`GetUtcOffset` except on the UTC zone, see the amendment of 2026-10-27, `ConvertTime`, `IsDaylightSavingTime`, `SupportsDaylightSavingTime`,
 `DisplayName`, `StandardName`, `GetAdjustmentRules`, `FromUnixTimeSeconds`, `ToUnixTimeSeconds`, `UtcDateTime`, arithmetic,
 `TimeZoneInfo.Local`, ...) goes to the sidecar. They are not in the traces; `TimeZoneImpl` calls some of them, and they run
 once per call of that codeunit, not in the hot loop. A later amendment can add one when a measurement asks for it.
@@ -194,3 +195,25 @@ stays a handle and every call on it goes to the sidecar.
 The differential test (`crates/al-test-cli/tests/dotnet_diff.rs`) covers every served member on every Windows id of the
 table, on UTC, and on edge ticks (year 1, year 9999, leap days, DST switch instants of several zones); `inproc.txt`
 lists the members as before.
+
+## Amendment 2026-10-27: TimeZoneInfo.GetUtcOffset for the UTC zone
+
+- Status: Accepted (owner, 2026-10-27: add `GetUtcOffset` to the in-process member list).
+- Reason: a warm `al-runner test` of a small app on Base Application (profile of 2026-10-27) made only two kinds of .NET
+  calls: `FindSystemTimeZoneById("UTC")` once per session (already served here) and `GetUtcOffset(DateTime)` on that
+  zone. The second one moved the zone to a sidecar, so the run started a sidecar process and waited about 0.05 s for it.
+
+### Member added
+
+| Type | Member | Served in process |
+|---|---|---|
+| `System.TimeZoneInfo` | `GetUtcOffset(DateTime)` | yes, only on a zone found by the id `UTC` (any case): the answer is a zero `TimeSpan` for every `DateTime` |
+
+Every other zone, and every other overload (`GetUtcOffset(DateTimeOffset)`), goes to the sidecar: the zone moves there on
+its first call, as in section 2. The offset of a zone with daylight saving time or a changed history depends on the tz data
+of the host, which the sidecar has and the stand-in does not claim to match.
+
+### Conformance
+
+`crates/al-test-cli/tests/dotnet_diff.rs` calls `GetUtcOffset` on every id of the zone list (the stand-in must forward all
+but `UTC`) and on `UTC` and `utc` for every tick of the edge list, and compares each answer with the sidecar's.

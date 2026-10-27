@@ -27,7 +27,7 @@
 //! pure reach never reads what the baseline holds.
 
 use al_builtins::value::RtType;
-use al_ir::{Arg, Const, DotNetOp, Expr, Object, Place, Routine, SetElem, Stmt};
+use al_ir::{Arg, Const, DotNetOp, Expr, Place, Routine, SetElem, Stmt};
 use al_sema::lower::Lowered;
 use std::collections::HashSet;
 
@@ -374,7 +374,7 @@ struct Walk<'a> {
     /// permissions mock with no set assigned, which touches no data (corpus permissions/
     /// TestPermissionsMockEnforcement.al:74-97; al-vm dotnet/server_classes.rs).
     mock: HashSet<usize>,
-    objects: &'a [Object],
+    objects: &'a al_ir::Objects,
     seen_objects: HashSet<usize>,
     seen_routines: HashSet<(usize, usize)>,
     queue: Vec<(usize, usize)>,
