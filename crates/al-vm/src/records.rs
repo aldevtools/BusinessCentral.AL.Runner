@@ -1297,6 +1297,11 @@ impl Session {
             // same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:132-448, al-runner issue 5823).
             Some(o) if o.own_write && o.commits + 1 == self.commits => {
                 if touched && !self.tx.rolled_back {
+                    if o.read_in_write_tx {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::StaleGetBufferInWriteTransaction,
+                        );
+                    }
                     return Ok(StaleVerdict::Written);
                 }
                 if contact {
@@ -1699,6 +1704,7 @@ impl Session {
         // A full load (the default) needs no bookkeeping beyond the flag; a partial one is worked
         // out in partial.rs.
         let via_get = std::mem::take(&mut self.get_load);
+        let via_sysid = std::mem::take(&mut self.sysid_load);
         // A temporary record loads every field whatever SetLoadFields asked for (record/lt-are-fields-loaded-unfetched/
         // AreFieldsLoadedUnfetched.al:174-221, partial_name and partial_qty after FindFirst and Get).
         if rec.borrow().load.request.is_some() && !rec.borrow().temporary {
@@ -1723,10 +1729,23 @@ impl Session {
         // PnC02Filters.al:FindEqual_OutsideFilter and record/lt-record-read/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
         let origin = match t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]) {
+            // A version written in the open transaction (above the last Commit's) read by Get or GetBySystemId follows the rule of
+            // the buffer that wrote it: not pinned, the reporter's real-BC repro of al-runner issue 5913 (assumption
+            // stale-get-buffer-in-write-transaction, marked in `stale_verdict` when it decides). A Get after the Commit that
+            // followed the write keeps a Get origin (record/TestRecordStaleBufferWrite.al:604-660).
+            Some(Value::BigInteger(v)) if (via_get || via_sysid) && *v > self.tx.committed_row_version => {
+                Some(al_builtins::value::RowOrigin {
+                    own_write: true,
+                    version: *v,
+                    commits: self.commits,
+                    read_in_write_tx: true,
+                })
+            }
             Some(Value::BigInteger(v)) if via_get => Some(al_builtins::value::RowOrigin {
                 own_write: false,
                 version: *v,
                 commits: self.commits,
+                read_in_write_tx: false,
             }),
             _ => None,
         };
@@ -2947,6 +2966,7 @@ impl Session {
                                 own_write: true,
                                 version: v,
                                 commits,
+                                read_in_write_tx: false,
                             });
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
@@ -3234,6 +3254,7 @@ impl Session {
                                     rec.borrow_mut().row_origin = keep.then_some(al_builtins::value::RowOrigin {
                                         own_write: true,
                                         version: now,
+                                        read_in_write_tx: false,
                                         ..o
                                     });
                                 }
@@ -4424,7 +4445,7 @@ impl Session {
                                 && o.version == was
                                 && now != was
                             {
-                                let keep = o.own_write && o.commits == self.commits;
+                                let keep = o.own_write && !o.read_in_write_tx && o.commits == self.commits;
                                 r.row_origin = keep.then_some(al_builtins::value::RowOrigin { version: now, ..o });
                             }
                         }

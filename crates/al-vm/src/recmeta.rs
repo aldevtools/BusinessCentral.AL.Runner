@@ -1607,7 +1607,10 @@ impl Session {
         match found {
             Some(row) => {
                 // Through `load`: SetAutoCalcFields fields are calculated when a row is read.
-                self.load(rec, row)?;
+                self.sysid_load = true;
+                let loaded = self.load(rec, row);
+                self.sysid_load = false;
+                loaded?;
                 Ok(Value::Boolean(true))
             }
             // As for Get (records.rs `fail`): a miss on a table whose seeded rows could not be
