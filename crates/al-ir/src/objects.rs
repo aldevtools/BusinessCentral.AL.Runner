@@ -10,7 +10,7 @@
 //! use it on a lazy list: [`Objects::made`] counts the objects a source made, so a test can fail when a start-up pass
 //! makes every object.
 
-use crate::Object;
+use crate::{Object, ObjectHead};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -30,6 +30,9 @@ pub struct Objects {
     source: Option<Arc<dyn ObjectSource>>,
     /// How many objects the source made.
     made: Arc<AtomicUsize>,
+    /// The heads of the objects, given with a lazy list or computed from the objects on first read. Every change of
+    /// the list through `&mut self` drops them, so they never describe objects that changed.
+    heads: OnceLock<Arc<[ObjectHead]>>,
 }
 
 impl Objects {
@@ -53,7 +56,34 @@ impl Objects {
             slots,
             source: Some(source),
             made: Default::default(),
+            heads: OnceLock::new(),
         }
+    }
+
+    /// [`Objects::lazy`] with the heads of the objects given, so that reading them makes no object. `heads[i]` must be
+    /// the head of the object slot `i` holds or makes.
+    pub fn lazy_with_heads(
+        finished: Vec<Option<Object>>,
+        source: Arc<dyn ObjectSource>,
+        heads: Arc<[ObjectHead]>,
+    ) -> Objects {
+        let list = Objects::lazy(finished, source);
+        assert_eq!(heads.len(), list.len(), "one head per object");
+        let _ = list.heads.set(heads);
+        list
+    }
+
+    /// The head of every object (ADR-054 decision 2), in order. A pass over all objects that reads only what a head
+    /// holds reads these: on a list given its heads it makes no object; otherwise the heads are computed from the
+    /// objects once, and kept until the list changes.
+    pub fn heads(&self) -> &[ObjectHead] {
+        self.heads.get_or_init(|| self.iter().map(ObjectHead::of).collect())
+    }
+
+    /// The heads of the list, shared.
+    pub fn heads_shared(&self) -> Arc<[ObjectHead]> {
+        self.heads();
+        self.heads.get().expect("computed above").clone()
     }
 
     pub fn len(&self) -> usize {
@@ -77,6 +107,7 @@ impl Objects {
     /// The object of slot `i` for change, made now if it is not yet.
     pub fn get_mut(&mut self, i: usize) -> Option<&mut Object> {
         self.get(i)?;
+        self.heads = OnceLock::new();
         self.slots[i].get_mut()
     }
 
@@ -102,6 +133,7 @@ impl Objects {
     /// Every object for change; makes the objects not yet made.
     pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Object> + ExactSizeIterator {
         self.make_all();
+        self.heads = OnceLock::new();
         self.slots.iter_mut().map(|s| s.get_mut().expect("made above"))
     }
 
@@ -113,6 +145,7 @@ impl Objects {
     }
 
     pub fn push(&mut self, object: Object) {
+        self.heads = OnceLock::new();
         let slot = OnceLock::new();
         let _ = slot.set(object);
         self.slots.push(slot);
@@ -123,6 +156,7 @@ impl Objects {
     }
 
     pub fn clear(&mut self) {
+        self.heads = OnceLock::new();
         self.slots.clear();
     }
 
@@ -251,6 +285,7 @@ impl Clone for Objects {
             slots: self.slots.clone(),
             source: self.source.clone(),
             made: Arc::new(AtomicUsize::new(self.made())),
+            heads: self.heads.clone(),
         }
     }
 }
@@ -300,6 +335,28 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
             object(i)
         }
+    }
+
+    #[test]
+    fn heads_given_with_a_lazy_list_make_no_object() {
+        let heads: Arc<[ObjectHead]> = (0..3).map(|i| ObjectHead::of(&object(i))).collect();
+        let list = Objects::lazy_with_heads(vec![None, None, None], Arc::new(Counting(AtomicUsize::new(0))), heads);
+        assert_eq!(list.heads()[2].name, "C2");
+        assert_eq!(list.made(), 0);
+    }
+
+    #[test]
+    fn heads_follow_a_change_of_the_list() {
+        let mut list = Objects::from(vec![object(0), object(1)]);
+        assert_eq!(list.heads()[1].name, "C1");
+        list[1].name = "Changed".into();
+        assert_eq!(list.heads()[1].name, "Changed");
+        list.push(object(2));
+        assert_eq!(list.heads().len(), 3);
+        for o in &mut list {
+            o.id = None;
+        }
+        assert!(list.heads().iter().all(|h| h.id.is_none()));
     }
 
     #[test]

@@ -71,6 +71,7 @@ mod lane_settled_31_32;
 mod lane_text_compare;
 mod lane_values_builtins;
 mod last_error_origin;
+mod lazy_objects;
 mod list_read_in_foreach;
 mod max_str_len_var_hops;
 mod moved_fields;

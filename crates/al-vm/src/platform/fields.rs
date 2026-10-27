@@ -127,64 +127,132 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let blank = Blank::new(t);
-    let mut out = Vec::new();
     // Four more system fields per table from the gate on (see [`USER_NAME_SYSTEM_FIELDS`]).
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
-    for (i, o) in c.objects.iter().enumerate() {
-        let (Some(tid), al_ir::ObjKind::Table) = (o.id, o.kind) else {
+    let mut out = Vec::new();
+    for o in c.objects {
+        table_entries(&c, o, t, &blank, user_name_fields, None, &mut out);
+    }
+    out
+}
+
+/// The Field rows a `Get` of key `pk` (TableNo, No.) can find, built with the code of the full listing ([`field_rows`]),
+/// so that the listing of every field of every table (tens of thousands of rows) is not needed for one row: the entries
+/// of the listing whose key is `pk`, in the listing's order, with the unpinned columns marked as there. `None` when the
+/// key is not two integers: the caller reads the listing.
+pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Option<Vec<Entry>> {
+    let [Value::Integer(tid), Value::Integer(no)] = pk else {
+        return None;
+    };
+    let engine = p.engine();
+    let c = Catalog::new(&engine);
+    let blank = Blank::new(t);
+    let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
+    let mut out = Vec::new();
+    // Every row of a table holds the table's id as TableNo (`table_entries`), so only the tables of that id can hold it.
+    for o in c.objects.iter().filter(|o| o.id.is_some_and(|id| id as i32 == *tid)) {
+        table_entries(&c, o, t, &blank, user_name_fields, Some(*no), &mut out);
+    }
+    out.retain(|e| {
+        let key = t.primary_key(&e.row);
+        al_builtins::filter::key_cmp(&key, pk) == std::cmp::Ordering::Equal
+    });
+    super::mark_unpinned(t, &mut out);
+    Some(out)
+}
+
+/// The Field rows of table object `o` (none for another kind of object). With `only`, the rows of the declared fields
+/// whose No. is not `only` are left out (the rowversion and user-name rows are always made; they are cheap).
+fn table_entries(
+    c: &Catalog,
+    o: &Object,
+    t: &TableDef,
+    blank: &Blank,
+    user_name_fields: bool,
+    only: Option<i32>,
+    out: &mut Vec<Entry>,
+) {
+    let (Some(tid), al_ir::ObjKind::Table) = (o.id, o.kind) else {
+        return;
+    };
+    let Some(schema) = o.table.as_ref() else {
+        out.push(shell_entries(o, t, &|id| {
+            vec![(1, Value::Integer(id as i32)), (2, Value::Integer(1))]
+        }));
+        return;
+    };
+    // The package columns are the table's: worked out once per table, not per field.
+    let packages = package_columns(c, o, t);
+    for f in &schema.fields {
+        if only.is_some_and(|n| n != f.id as i32) {
             continue;
-        };
-        let Some((_, schema)) = table_of(&c, i) else {
-            out.push(shell_entries(o, t, &|id| {
-                vec![(1, Value::Integer(id as i32)), (2, Value::Integer(1))]
-            }));
+        }
+        // The rowversion is not a row of the Field table (record/TestFieldLenAndFeatureKeyContracts.al:107-112).
+        if f.id == 2_000_000_005 {
             continue;
-        };
-        for f in &schema.fields {
-            // The rowversion is not a row of the Field table (record/TestFieldLenAndFeatureKeyContracts.al:107-112).
-            if f.id == 2_000_000_005 {
-                continue;
-            }
-            // A field with ObsoleteState = Moved has no row (Pending and Removed have one): the lookup finds nothing
-            // (types/PWMisc.al:FieldTable_MovedAndPendingField, BC 27.5 and 29.0).
-            if f.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && ident(v.trim()).eq_ignore_ascii_case("Moved"))
+        }
+        // A field with ObsoleteState = Moved has no row (Pending and Removed have one): the lookup finds nothing
+        // (types/PWMisc.al:FieldTable_MovedAndPendingField, BC 27.5 and 29.0).
+        if f.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && ident(v.trim()).eq_ignore_ascii_case("Moved"))
+        {
+            continue;
+        }
+        let mut r = blank.row();
+        r[pos(t, 1)] = Value::Integer(tid as i32);
+        r[pos(t, 2)] = Value::Integer(f.id as i32);
+        // IsPartOfPrimaryKey: the field is in the primary key (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:
+        // FieldTable_IsPartOfPrimaryKey_OwnTable and _BaseApp).
+        if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
+            let idx = schema.fields.iter().position(|x| x.id == f.id);
+            let in_key = idx.is_some_and(|i| schema.keys.first().is_some_and(|k| k.contains(&i)));
+            r[col] = Value::Boolean(in_key);
+        }
+        match field_row(c, o, f, t, blank, &packages, &mut r) {
+            Ok(())
+                if f.properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && is_pending_move(v)) =>
             {
-                continue;
+                out.push(Entry::ok(r).assuming(al_builtins::assumptions::Assumption::FieldObsoleteStatePendingMove))
             }
-            let mut r = blank.row();
-            r[pos(t, 1)] = Value::Integer(tid as i32);
-            r[pos(t, 2)] = Value::Integer(f.id as i32);
-            // IsPartOfPrimaryKey: the field is in the primary key (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:
-            // FieldTable_IsPartOfPrimaryKey_OwnTable and _BaseApp).
-            if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
-                let idx = schema.fields.iter().position(|x| x.id == f.id);
-                let in_key = idx.is_some_and(|i| schema.keys.first().is_some_and(|k| k.contains(&i)));
-                r[col] = Value::Boolean(in_key);
-            }
-            match field_row(&c, o, schema, f, t, &blank, &mut r) {
-                Ok(())
-                    if f.properties
-                        .iter()
-                        .any(|(k, v)| k.eq_ignore_ascii_case("ObsoleteState") && is_pending_move(v)) =>
-                {
-                    out.push(Entry::ok(r).assuming(al_builtins::assumptions::Assumption::FieldObsoleteStatePendingMove))
-                }
-                Ok(()) => out.push(Entry::ok(r)),
-                Err(why) => {
-                    let mut k = blank.row();
-                    k[pos(t, 1)] = Value::Integer(tid as i32);
-                    k[pos(t, 2)] = Value::Integer(f.id as i32);
-                    out.push(Entry::poisoned(k, why));
-                }
+            Ok(()) => out.push(Entry::ok(r)),
+            Err(why) => {
+                let mut k = blank.row();
+                k[pos(t, 1)] = Value::Integer(tid as i32);
+                k[pos(t, 2)] = Value::Integer(f.id as i32);
+                out.push(Entry::poisoned(k, why));
             }
         }
-        if let Some(e) = rowversion_row(o, schema, t, &blank, tid) {
-            out.push(e);
-        }
-        if user_name_fields {
-            out.extend(user_name_system_field_rows(t, &blank, tid));
+    }
+    if let Some(e) = rowversion_row(o, schema, t, blank, tid) {
+        out.push(e);
+    }
+    if user_name_fields {
+        out.extend(user_name_system_field_rows(t, blank, tid));
+    }
+}
+
+/// App Package ID and App Runtime Package ID of the Field rows of `table`: the table's AllObj ones
+/// (PlatformMetadataColumnValues.al:283-311, after FindFirst and Next; `Get` of a table of the app under test leaves them
+/// null, see `field_get`). For a platform table they are not pinned. Each with its column, when the table has it.
+fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Value)> {
+    let mut out = Vec::new();
+    let mut ids = None;
+    for (name, which) in [("App Package ID", 0), ("App Runtime Package ID", 1)] {
+        if let Some(col) = t.fields.iter().position(|x| x.name == name) {
+            let v = if super::objects::platform_object(table) {
+                super::unknown(
+                    t,
+                    t.fields[col].id,
+                    &format!("table '{}', a platform table", table.name),
+                )
+            } else {
+                let ids = *ids.get_or_insert_with(|| super::objects::package_ids(c, table));
+                Value::Guid(if which == 0 { ids.0 } else { ids.1 })
+            };
+            out.push((col, v));
         }
     }
     out
@@ -285,10 +353,10 @@ fn user_name_system_field_rows(t: &TableDef, blank: &Blank, tid: u32) -> Vec<Ent
 fn field_row(
     c: &Catalog,
     table: &Object,
-    schema: &al_ir::Table,
     f: &Field,
     t: &TableDef,
     blank: &Blank,
+    packages: &[(usize, Value)],
     r: &mut al_data::Row,
 ) -> Result<(), String> {
     let what = || format!("field '{}' of table '{}'", f.name, table.name);
@@ -306,22 +374,9 @@ fn field_row(
     } else {
         f.name.chars().take(30).collect::<String>().into()
     });
-    // App Package ID and App Runtime Package ID: the table's AllObj ones (PlatformMetadataColumnValues.al:283-311, after
-    // FindFirst and Next; `Get` of a table of the app under test leaves them null, see `field_get`). For a platform table they
-    // are not pinned.
-    for (name, which) in [("App Package ID", 0), ("App Runtime Package ID", 1)] {
-        if let Some(col) = t.fields.iter().position(|x| x.name == name) {
-            r[col] = if super::objects::platform_object(table) {
-                super::unknown(
-                    t,
-                    t.fields[col].id,
-                    &format!("table '{}', a platform table", table.name),
-                )
-            } else {
-                let ids = super::objects::package_ids(c, table);
-                Value::Guid(if which == 0 { ids.0 } else { ids.1 })
-            };
-        }
+    // App Package ID and App Runtime Package ID: the table's ([`package_columns`]).
+    for (col, v) in packages {
+        r[*col] = v.clone();
     }
     r[pos(t, 5)] = blank.option(
         t,
@@ -497,7 +552,6 @@ fn field_row(
         r[pos(t, 21)] = Value::Integer(related.id.unwrap_or(0) as i32);
         r[pos(t, 22)] = Value::Integer(related_schema.fields.get(field_pos).map_or(0, |x| x.id) as i32);
     }
-    let _ = schema;
     Ok(())
 }
 

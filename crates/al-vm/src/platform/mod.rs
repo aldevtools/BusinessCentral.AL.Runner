@@ -214,6 +214,7 @@ fn served_tables(engine: &Engine) -> Arc<[Option<Virtual>]> {
     engine
         .program
         .objects
+        .heads()
         .iter()
         .map(|o| {
             if !o.is_kind(al_ir::ObjKind::Table) {
@@ -495,6 +496,20 @@ impl Providers {
         Ok(m)
     }
 
+    /// A `Get` of a Field row: from the listing when this session has it, else from the rows of that one key, built by the
+    /// listing's code ([`fields::field_key_rows`]), so that one lookup (a FieldCaption) does not list every field of every
+    /// table. The answer is the listing's (`field_get_by_key_matches_the_listing` in al-test-cli tests/platform_tables.rs).
+    fn field_get_by_key(&self, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        let listed = self.listed.borrow().get(&Virtual::Field).cloned();
+        if let Some(m) = listed {
+            return m.get(t, pk);
+        }
+        match fields::field_key_rows(self, t, pk) {
+            Some(rows) => mat::Mat::new(t, rows).get(t, pk),
+            None => self.listed(t, Virtual::Field)?.get(t, pk),
+        }
+    }
+
     /// The rows of the table of `kind`, worked out from the program and the host, with the
     /// columns nothing pins left unknown ([`mark_unpinned`]).
     fn list_rows(&self, t: &TableDef, kind: Virtual) -> Vec<mat::Entry> {
@@ -720,10 +735,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
-            Virtual::Field => Ok(self
-                .listed(t, Virtual::Field)?
-                .get(t, pk)?
-                .map(|r| fields::field_get(t, r))),
+            Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
             k => self.listed(t, k)?.get(t, pk),
         }
     }
@@ -826,6 +838,44 @@ impl VirtualTables for Providers {
             k => self.listed(t, k)?.count(t, filters),
         }
     }
+}
+
+/// A key of the Field table with what a `Get` of it answers from the full listing and from the rows of that key alone.
+pub type FieldGetByKey = (
+    Vec<Value>,
+    Result<Option<Row>, StoreError>,
+    Result<Option<Row>, StoreError>,
+);
+
+/// For a test (al-test-cli tests/platform_tables.rs): for every key of the Field listing, then for `extra` (keys the
+/// listing may lack), what a `Get` answers from the listing and from the rows of that key alone ([`FieldGetByKey`]).
+/// `None` when the program has no Field table or the listing is refused.
+#[doc(hidden)]
+pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Option<Vec<FieldGetByKey>> {
+    let p = Providers::new(
+        engine,
+        Ident::of(&al_host::Host::default()),
+        Rc::default(),
+        al_builtins::media::MediaStore::default(),
+    );
+    let oi = p.served.iter().position(|k| *k == Some(Virtual::Field))?;
+    let t = engine.tables[oi].clone()?;
+    let listing = p.listed(&t, Virtual::Field).ok()?;
+    let mut keys: Vec<Vec<Value>> = Vec::new();
+    let mut i = 0;
+    while let Some(row) = listing.row_at(i) {
+        keys.push(t.primary_key(row));
+        i += 1;
+    }
+    keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
+    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&t, r)));
+    keys.into_iter()
+        .map(|pk| {
+            let by_listing = field_get(listing.get(&t, &pk));
+            let by_key = field_get(mat::Mat::new(&t, fields::field_key_rows(&p, &t, &pk)?).get(&t, &pk));
+            Some((pk, by_listing, by_key))
+        })
+        .collect()
 }
 
 #[cfg(test)]

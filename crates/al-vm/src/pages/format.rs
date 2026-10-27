@@ -585,6 +585,7 @@ impl Session {
         let Some(oi) = engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.id == Some(4) && o.table.is_some())
         else {
@@ -612,6 +613,7 @@ impl Session {
         let Some(oi) = engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.id == Some(4) && o.table.is_some())
         else {
@@ -668,6 +670,7 @@ impl Session {
         let Some(oi) = engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.id == Some(98) && o.table.is_some())
         else {

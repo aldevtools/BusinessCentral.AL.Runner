@@ -327,6 +327,7 @@ impl al_builtins::native::Ctx for Session {
         self.engine
             .program
             .objects
+            .heads()
             .iter()
             .any(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
     }

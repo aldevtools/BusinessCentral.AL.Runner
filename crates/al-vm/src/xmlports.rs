@@ -304,6 +304,7 @@ impl Session {
                     .engine
                     .program
                     .objects
+                    .heads()
                     .iter()
                     .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
                 else {
@@ -343,6 +344,7 @@ impl Session {
                     .engine
                     .program
                     .objects
+                    .heads()
                     .iter()
                     .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
                 else {
@@ -350,6 +352,7 @@ impl Session {
                         .engine
                         .program
                         .objects
+                        .heads()
                         .iter()
                         .any(|o| o.is_shell_of(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
                     {
