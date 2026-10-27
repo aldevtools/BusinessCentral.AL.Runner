@@ -669,6 +669,20 @@ registry! {
             since: "2026-10-27",
         },
     },
+    FieldRefTextIntoIntegerError => {
+        id: "fieldref-text-into-integer-error",
+        assumed: "Assigning a text of two letters or more to FieldRef.Value of an Integer, BigInteger or Decimal field, or an empty text to an Integer field, raises `The value \"<text>\" can't be evaluated into type <Type>.` (Evaluate:Format) from the gate FieldRefTextNumberEvaluateErrorFrom28 on and `The type Nav<Type> is unknown.` (NotSupportedType) before it, and leaves the field as it was. Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
+        tests: "No Microsoft test: al-runner issue 5942, the reporter's repro green on real BC (also reached through Data Type Management.SetFieldValue).",
+        probe: "Pinned by writer SH: fieldref/TestFieldRefValue.al FieldRef_Value_TextIntoInteger_ErrorText and FieldRef_Value_TextIntoNumberTypes (corpus PR 748).",
+        awaiting: Awaiting {
+            issues: &[5942],
+            files: &[
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoInteger_ErrorText",
+                "tests/al-language/fieldref/TestFieldRefValue.al::FieldRef_Value_TextIntoNumberTypes",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

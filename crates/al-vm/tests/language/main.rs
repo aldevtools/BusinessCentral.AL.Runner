@@ -42,6 +42,7 @@ mod evaluate_option_rejects;
 mod event_var_nested;
 mod events;
 mod exec;
+mod fieldref_text_into_integer;
 mod filtergroup_assign;
 mod for_date;
 mod format_auto_format_field;
