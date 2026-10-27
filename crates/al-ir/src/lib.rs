@@ -231,6 +231,10 @@ impl Object {
 /// another): its value is the reason a read of the table's caption is refused.
 pub const CAPTION_REFUSED: &str = "$CaptionRefused";
 
+/// The name of an object property the lowering adds beside [`CAPTION_REFUSED`] when one tableextension sets a `Caption` over
+/// the table's own: its value is that extension's caption (the TableRelation error names the table by it, al-runner issue 5955).
+pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Object {
     pub kind: ObjKind,
