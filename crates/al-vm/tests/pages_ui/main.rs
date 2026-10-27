@@ -58,4 +58,5 @@ mod unopened_page_var;
 mod unpinned_testpage_paths;
 mod update_filter_away_row;
 mod update_new_line_filter;
+mod validate_filter_refresh;
 mod view_boolean_filter_text;
