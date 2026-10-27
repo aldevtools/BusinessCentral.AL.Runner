@@ -1312,6 +1312,27 @@ impl Session {
                 }
                 Ok(StaleVerdict::Refused)
             }
+            // Two Commits after the buffer's own write, and the new transaction inserted another row of the table and did nothing
+            // else to the row or the table's locks: written (al-runner issue 5954, the reporter's real-BC repro; assumption
+            // `stale-own-insert-two-commits-other-insert`).
+            Some(o)
+                if o.own_write
+                    && o.commits + 2 == self.commits
+                    && !touched
+                    && !self.tx.rolled_back
+                    && !self.tx.lock_tx
+                    && self.tx.lock_unpinned.is_none()
+                    && self
+                        .tx
+                        .tables_inserted
+                        .iter()
+                        .any(|(ob, c)| *ob == t.object && *c == company) =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertTwoCommitsOtherInsert,
+                );
+                Ok(StaleVerdict::Written)
+            }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name
@@ -2955,6 +2976,17 @@ impl Session {
                     InsertOutcome::Inserted => {
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
+                        if !rec.borrow().temporary {
+                            let company = rec.borrow().company.clone();
+                            if !self
+                                .tx
+                                .tables_inserted
+                                .iter()
+                                .any(|(o, c)| *o == t.object && *c == company)
+                            {
+                                self.tx.tables_inserted.push((t.object, company));
+                            }
+                        }
                         let version = t
                             .fields
                             .iter()

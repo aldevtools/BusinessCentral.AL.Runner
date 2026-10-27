@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    StaleOwnInsertTwoCommitsOtherInsert => {
+        id: "stale-own-insert-two-commits-other-insert",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit but one, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back. Other writes of the table beside that Insert are not told apart; with no write of the table BC refuses it as before.",
+        tests: "No Microsoft test: al-runner issue 5954, the reporter's repro green on real BC (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order; four tests of a partner app).",
+        probe: "Insert and Modify through Row, Modify through another variable, Commit, a write to another table, Commit, then: an Insert of another row of the table / a Modify of another row / nothing; then Row.Modify: accepted or DB:RecordChanged, and the stored row. The same with three Commits.",
+        awaiting: Awaiting {
+            issues: &[5954],
+            files: &["tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::SH_TwoCommits_OtherRowInserted_Written"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

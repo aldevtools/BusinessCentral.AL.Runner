@@ -26,6 +26,8 @@ pub(crate) struct TxState {
     /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
     /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
     pub(crate) rows_touched: Vec<(u32, Option<String>, Vec<Value>)>,
+    /// The tables (table object, company) a Record Insert wrote a row of since the last Commit or rollback (`Session::stale_verdict`).
+    pub(crate) tables_inserted: Vec<(u32, Option<String>)>,
     /// The tables a `Record.LockTable` locked since the last Commit or rollback.
     pub(crate) locked_tables: Vec<u32>,
     /// A rollback ran since the last Commit.
@@ -77,6 +79,7 @@ impl TxState {
             lock_timeout_duration: 10,
             committed_row_version: 0,
             rows_touched: Vec::new(),
+            tables_inserted: Vec::new(),
             locked_tables: Vec::new(),
             rolled_back: false,
             last_commit_wrote: false,

@@ -1114,6 +1114,7 @@ impl Session {
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
         self.tx.rows_touched.clear();
+        self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.rolled_back = false;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
@@ -1205,6 +1206,7 @@ impl Session {
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
         self.tx.rows_touched.clear();
+        self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
