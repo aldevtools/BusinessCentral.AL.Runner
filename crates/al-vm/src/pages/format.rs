@@ -1496,14 +1496,13 @@ impl Session {
         // A field in a group with `Enabled = false` reads No on a request page (misc/lt-object-properties-runtime-effect/
         // ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled, `disabled_enabled = No`), and so does a card's field
         // without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895-927
-        // Ap16_GroupEnabledFalse_Card, ApObjects.al:384-388). A field with `Enabled = true` there, another page type or a group whose
-        // Enabled is an expression: the same (al-runner issue 5945, the reporter's real-BC repro of a card; assumption
-        // `group-enabled-disables-field`).
+        // Ap16_GroupEnabledFalse_Card, ApObjects.al:384-388), and a card's field with `Enabled = true` or an expression of its own,
+        // also inside an inner group with `Enabled = true` (ApTestPageTests.al:1082 Ap16_GroupEnabledFalse_FieldEnabledTrue). Another
+        // page type or a group whose Enabled is an expression: the same (assumption `group-enabled-disables-field`).
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let pinned_shape = self.is_request_page(st)
-            || (engine.object_facts[object].page_type == Some(al_ir::PageType::Card)
-                && page_of(&engine, st).controls[idx].prop("enabled").is_none());
+        let pinned_shape =
+            self.is_request_page(st) || engine.object_facts[object].page_type == Some(al_ir::PageType::Card);
         let mut at = page_of(&engine, st).controls[idx].parent;
         while let Some(p) = at {
             if page_of(&engine, st).controls[p].kind == ir::ControlKind::Group

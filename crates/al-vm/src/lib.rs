@@ -789,6 +789,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
+    /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
+    /// values did not change (`pages/parts.rs` `sync_parts_with`).
+    pub(crate) part_sync_keeps_same_link: bool,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
     /// The session's application areas as `ApplicationArea()` reads them: `#Basic,#Suite`, or the
@@ -1012,6 +1015,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
+            part_sync_keeps_same_link: false,
             dotnet: Default::default(),
             application_areas: String::new(),
             tx: TxState::fresh(),
@@ -1749,12 +1753,9 @@ impl Session {
         }
         if self.depth >= MAX_CALL_DEPTH {
             // With an event subscriber on the stack BC names event recursion: code `RecursiveEventCall:StackOverflow`, and a text that
-            // names the innermost subscriber, the event and its publisher. Pinned on corpus branch al-runtime-rs-staging-sh
-            // (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137, commit 67c7900c; al-runner issue 5944; assumption
-            // `recursive-event-call-code` until the corpus bump) for an integration event of a codeunit and OnAfterModifyEvent of a
-            // table; another event's text is not pinned.
+            // names the innermost subscriber, the event and its publisher (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:
+            // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecursiveEventCallCode);
                 let objects = &self.engine.program.objects;
                 let text = top.map(|(publisher, so, sr)| {
                     let p = &objects[publisher];
@@ -1777,7 +1778,7 @@ impl Session {
                     },
                     None => al_builtins::native::unpinned_text_error(
                         "RecursiveEventCall:StackOverflow",
-                        "recursive-event-call-code",
+                        "event-recursion-text-of-another-event",
                     ),
                 })));
             }

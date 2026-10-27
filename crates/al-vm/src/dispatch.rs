@@ -244,11 +244,10 @@ impl Session {
         let mut self_unbound: Vec<Inst> = Vec::new();
         for (s, inst) in self.event_targets(object, event, element)? {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
-            // is not called again (al-runner issue 5941, the reporter's real-BC repro; assumption
-            // `self-unbind-skips-rest-of-raise`); one another subscriber unbound is not pinned.
+            // is not called again (handlers/ProbeEventSubscriberOrder.al:253
+            // ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise); one another subscriber unbound is not pinned.
             if s.manual && !self.is_bound(&inst) {
                 if self_unbound.iter().any(|i| Rc::ptr_eq(i, &inst)) {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SelfUnbindSkipsRestOfRaise);
                     continue;
                 }
                 return unsupported(format!(

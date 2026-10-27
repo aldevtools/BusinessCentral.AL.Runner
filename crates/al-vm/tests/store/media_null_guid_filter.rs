@@ -29,5 +29,8 @@ fn an_empty_media_field_equals_the_null_guid() {
 
 #[test]
 fn another_guid_text_stays_refused() {
-    assert!(matches!(al_testkit::run_in(SRC, "C", "OtherGuid"), Err(Signal::Unsupported(_))));
+    assert!(matches!(
+        al_testkit::run_in(SRC, "C", "OtherGuid"),
+        Err(Signal::Unsupported(_))
+    ));
 }

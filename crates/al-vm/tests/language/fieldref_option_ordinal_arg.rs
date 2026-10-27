@@ -28,5 +28,8 @@ fn an_option_value_is_taken_as_its_ordinal() {
 
 #[test]
 fn an_enum_value_stays_refused() {
-    assert!(matches!(al_testkit::run_in(SRC, "C", "EnumArg"), Err(Signal::Unsupported(_))));
+    assert!(matches!(
+        al_testkit::run_in(SRC, "C", "EnumArg"),
+        Err(Signal::Unsupported(_))
+    ));
 }

@@ -50,10 +50,24 @@ impl Session {
                         let (Value::Enum(_, x), Value::Enum(_, y)) = (a, b) else {
                             return unsupported("TestFilter.GetFilter of an Enum range that holds no Enum value");
                         };
+                        // A range of two values reads as the two ordinals, from SetRange and from a SetFilter text range alike
+                        // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList
+                        // `SetRange First..Second = 0..1`, `Second..Third = 1..2`, `SetFilter text First..Second = 0..1`). A range
+                        // over more than two ordinals is the registered assumption `test-filter-enum-range-ordinals`.
                         if x != y {
-                            return unsupported("TestFilter.GetFilter of an Enum range of two values (not pinned)");
+                            if *y != *x + 1 {
+                                al_builtins::assumptions::assume(
+                                    al_builtins::assumptions::Assumption::TestFilterEnumRangeOrdinals,
+                                );
+                            }
+                            return Ok(Value::Text(format!("{x}..{y}").into()));
                         }
                         return Ok(Value::Text(x.to_string().into()));
+                    }
+                    // `<>` with a typed Enum value reads as the ordinal too (CdTestPageLeads.al:923, `SetFilter <>%1 Second = <>1`); a
+                    // `%1|%2` list keeps the names (`First|Third`, the default text below).
+                    (RtType::Enum(_), Some(FilterExpr::Ne(Value::Enum(_, x)))) => {
+                        return Ok(Value::Text(format!("<>{x}").into()));
                     }
                     // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
                     // reads `1` (pages/lt-rz-outside-page-moves/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112

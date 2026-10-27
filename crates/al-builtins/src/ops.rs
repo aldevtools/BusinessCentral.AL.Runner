@@ -116,9 +116,9 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
                 Rc::new(RefCell::new(copy)),
             )
         }
-        // A BigText is a value: assignment, a by-value parameter and a return value copy its text (al-runner issue 5940,
-        // the reporter's real-BC repro; registered assumption `bigtext-value-copy`). A `var` parameter keeps the caller's
-        // own BigText (`Session::call_inner`).
+        // A BigText is a value: assignment and a by-value parameter copy its text, Clear of a copy keeps the original
+        // (text/TestBigText.al:108-160). An event parameter and a return value are copied the same way (registered assumption
+        // `bigtext-value-copy`). A `var` parameter keeps the caller's own BigText (`Session::call_inner`).
         (Value::Library(crate::library_kind::LibraryKind::BigText, cell), T::Library(_)) => {
             crate::assumptions::assume(crate::assumptions::Assumption::BigTextValueCopy);
             let copy = match &*cell.borrow() {

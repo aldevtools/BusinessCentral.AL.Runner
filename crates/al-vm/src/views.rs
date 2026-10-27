@@ -408,6 +408,7 @@ impl Session {
         let mut order_dirs: Option<Vec<bool>> = None;
         let mut sorting_len = 0usize;
         let mut filters: Vec<FieldFilter> = Vec::new();
+        let group_arg = group;
         let group = group.unwrap_or(rec.borrow().filter_group);
         let mut rest = view.trim();
         while !rest.is_empty() {
@@ -475,13 +476,19 @@ impl Session {
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
                             .unwrap_or(value);
                         // `filter('')` on a Date field reaches here as an empty value: it selects the blank date, as `filter(0D)`
-                        // (`''` here) does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:521-535 Item58_SourceTableView_Filter0D).
-                        // al-runner issue 5958, the reporter's real-BC repro; assumption `view-blank-date-filter`.
+                        // (`''` here) does. Pinned for a top-level page's SourceTableView (filter group 2, no SubPageView), by
+                        // OpenView and by Page.Run on a record (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842-870
+                        // SH_SourceTableView_DateFilterBlank_Rows; Item58_SourceTableView_Filter0D at :521 for filter(0D)). An
+                        // action's RunPageView, a part's view or another object's view is the assumption `view-blank-date-filter`.
                         let value = if kind == "FILTER"
                             && matches!(ty, al_builtins::value::RtType::Date)
                             && value.trim().is_empty()
                         {
-                            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ViewBlankDateFilter);
+                            if !(group_arg == Some(2) && !keep_unnamed) {
+                                al_builtins::assumptions::assume(
+                                    al_builtins::assumptions::Assumption::ViewBlankDateFilter,
+                                );
+                            }
                             "''"
                         } else {
                             value

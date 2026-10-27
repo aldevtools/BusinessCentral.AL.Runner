@@ -216,7 +216,8 @@ fn what_the_corpus_does_not_pin_is_refused() {
     );
     // What ExportStream of an empty field answers is not pinned.
     refused(
-        "Rec.Code := 'R4'; Rec.Insert(); Rec2.Src.CreateOutStream(outs); exit(Format(Rec.Picture.ExportStream(outs)));".into(),
+        "Rec.Code := 'R4'; Rec.Insert(); Rec2.Src.CreateOutStream(outs); exit(Format(Rec.Picture.ExportStream(outs)));"
+            .into(),
         "what it answers",
     );
 }
