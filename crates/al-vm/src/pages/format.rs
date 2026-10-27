@@ -1494,18 +1494,31 @@ impl Session {
 
     pub(super) fn control_enabled(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
         // A field in a group with `Enabled = false` reads No on a request page (misc/lt-object-properties-runtime-effect/
-        // ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled, `disabled_enabled = No`); on another page it is not pinned.
-        if self.is_request_page(st) {
-            let engine = self.engine();
-            let mut at = page_of(&engine, st).controls[idx].parent;
-            while let Some(p) = at {
-                if page_of(&engine, st).controls[p].kind == ir::ControlKind::Group
-                    && !self.prop_bool_now(st, p, "enabled", true)?
-                {
-                    return Ok(false);
+        // ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled, `disabled_enabled = No`), and so does a card's field
+        // without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895-927
+        // Ap16_GroupEnabledFalse_Card, ApObjects.al:384-388). A field with `Enabled = true` there, another page type or a group whose
+        // Enabled is an expression: the same (al-runner issue 5945, the reporter's real-BC repro of a card; assumption
+        // `group-enabled-disables-field`).
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let pinned_shape = self.is_request_page(st)
+            || (engine.object_facts[object].page_type == Some(al_ir::PageType::Card)
+                && page_of(&engine, st).controls[idx].prop("enabled").is_none());
+        let mut at = page_of(&engine, st).controls[idx].parent;
+        while let Some(p) = at {
+            if page_of(&engine, st).controls[p].kind == ir::ControlKind::Group
+                && !self.prop_bool_now(st, p, "enabled", true)?
+            {
+                let literal = matches!(
+                    page_of(&engine, st).controls[p].prop("enabled"),
+                    Some(ir::PropVal::Lit(_))
+                );
+                if !(pinned_shape && (literal || self.is_request_page(st))) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GroupEnabledDisablesField);
                 }
-                at = page_of(&engine, st).controls[p].parent;
+                return Ok(false);
             }
+            at = page_of(&engine, st).controls[p].parent;
         }
         self.row_prop_bool(st, idx, "enabled", true)
     }
