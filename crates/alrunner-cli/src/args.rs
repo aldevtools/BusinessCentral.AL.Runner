@@ -582,8 +582,8 @@ EXIT CODES
     3  the APPs do not compile: an error the AL compiler gives (its code, such as AL0118);
        no test ran. The errors are on stderr and in `compilationErrors` of --output-json.
        The check covers the AL compiler's errors that the must-not-compile corpus pins,
-       not all of them. Source our parser does not accept is not such an error: the
-       tests that need the file are not run (exit 7), with the parse error as the reason
+       not all of them. Source of an app under test that our parser does not accept is
+       one too: its line has the parser's message and no AL code
     6  the selection matched no test
     7  some tests were not run (a refusal); --allow-not-run makes this 0
     8  some tests were not run because the .NET helper could not be used (not found, no .NET 8
