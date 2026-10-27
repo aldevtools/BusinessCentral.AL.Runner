@@ -159,6 +159,7 @@ impl Session {
                     .engine
                     .program
                     .objects
+                    .heads()
                     .iter()
                     .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
                 _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
@@ -496,6 +497,7 @@ impl Session {
         let Some(object) = engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(id).ok())
         else {

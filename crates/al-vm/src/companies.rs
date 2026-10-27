@@ -27,6 +27,7 @@ impl Session {
             .engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.id == Some(COMPANY_TABLE) && o.table.is_some())?;
         self.engine.tables[oi].clone()

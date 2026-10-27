@@ -219,7 +219,7 @@ impl Session {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported(format!("Report.{kind}Layout with an id that is not an integer"));
                 };
-                let found = self.engine.program.objects.iter().position(|o| {
+                let found = self.engine.program.objects.heads().iter().position(|o| {
                     (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
                         && o.id == u32::try_from(*n).ok()
                 });
@@ -969,7 +969,7 @@ impl Session {
         let static_form = id == ids::REPORT_WORDXMLPART_2;
         let (flag_at, schema) = if static_form {
             let known = match args.first() {
-                Some(Value::Integer(n)) => self.engine.program.objects.iter().any(|o| {
+                Some(Value::Integer(n)) => self.engine.program.objects.heads().iter().any(|o| {
                     (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
                         && o.id == u32::try_from(*n).ok()
                 }),
@@ -1057,6 +1057,7 @@ impl Session {
             .engine
             .program
             .objects
+            .heads()
             .iter()
             .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
         else {
@@ -1065,6 +1066,7 @@ impl Session {
                 .engine
                 .program
                 .objects
+                .heads()
                 .iter()
                 .any(|o| o.is_shell_of(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
             {

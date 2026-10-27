@@ -135,24 +135,29 @@ fn error(message: String) -> Signal {
 /// the row would be wrong.
 pub(crate) fn profile_seeds(program: &al_ir::Program) -> Vec<(usize, i32)> {
     let mut pages: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
-    for p in &program.objects {
+    for p in program.objects.heads() {
         if let (true, Some(id)) = (p.kind == al_ir::ObjKind::Page, p.id) {
             pages.entry(p.name.to_ascii_lowercase()).or_default().push(id);
         }
     }
     let mut out = Vec::new();
-    for (oi, o) in program.objects.iter().enumerate() {
+    for (oi, o) in program.objects.heads().iter().enumerate() {
         if o.kind != al_ir::ObjKind::Profile {
             continue;
         }
         // `RoleCenter = 9006;` names the page by id (Base Application's profiles do), `RoleCenter = Name;` by name.
-        let role_center = super::objects::prop(o, "RoleCenter").map(|v| match v.trim().parse::<u32>() {
-            Ok(id) => vec![id],
-            Err(_) => {
-                let want = super::objects::ident(v).to_ascii_lowercase();
-                pages.get(&want).cloned().unwrap_or_default()
-            }
-        });
+        let role_center = o
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("RoleCenter"))
+            .map(|(_, v)| v.trim())
+            .map(|v| match v.trim().parse::<u32>() {
+                Ok(id) => vec![id],
+                Err(_) => {
+                    let want = super::objects::ident(v).to_ascii_lowercase();
+                    pages.get(&want).cloned().unwrap_or_default()
+                }
+            });
         match role_center.as_deref() {
             None => out.push((oi, 0)),
             Some([id]) => out.push((oi, *id as i32)),

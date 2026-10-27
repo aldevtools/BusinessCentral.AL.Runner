@@ -64,21 +64,21 @@ impl AppInstall {
     }
 }
 
-fn is_install(o: &al_ir::Object) -> bool {
+fn is_install(o: &al_ir::ObjectHead) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Install"))
 }
 
-fn is_single_instance(o: &al_ir::Object) -> bool {
+fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
 }
 
-fn per_company(o: &al_ir::Object) -> bool {
+fn per_company(o: &al_ir::ObjectHead) -> bool {
     !o.properties
         .iter()
         .any(|(k, v)| k.eq_ignore_ascii_case("DataPerCompany") && v.trim().eq_ignore_ascii_case("false"))
@@ -95,12 +95,12 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
         lowered.dependency[oi] == dependency && (dependency || !lowered.left_out.get(oi).copied().unwrap_or(false))
     };
     let mut routines: Vec<(usize, usize, Part)> = Vec::new();
-    for (oi, o) in objs.iter().enumerate() {
+    for (oi, o) in objs.heads().iter().enumerate() {
         if !usable(oi) || !is_install(o) {
             continue;
         }
         for part in [Part::Company, Part::Database] {
-            if let Some(ri) = o
+            if let Some(ri) = objs[oi]
                 .routines
                 .iter()
                 .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case(part.event()))
@@ -160,7 +160,7 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
             continue;
         }
         let obj = &objs[o];
-        if is_single_instance(obj) {
+        if is_single_instance(&objs.heads()[o]) {
             singles.insert(o);
         }
         for s in obj.routines[r].locals.iter().chain(&obj.globals) {
@@ -168,7 +168,7 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
                 read.insert(*t);
             }
             if let al_builtins::value::RtType::Codeunit(c) = &s.ty {
-                if objs.get(*c as usize).is_some_and(is_single_instance) {
+                if objs.heads().get(*c as usize).is_some_and(is_single_instance) {
                     singles.insert(*c as usize);
                 }
             }
@@ -211,7 +211,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 if !dependency && part == Part::Company {
                     for c in &closures {
                         for &t in &c.written {
-                            if objs.get(t as usize).is_some_and(|o| !per_company(o)) {
+                            if objs.heads().get(t as usize).is_some_and(|o| !per_company(o)) {
                                 add(
                                     &mut out.unknown,
                                     t,
@@ -339,7 +339,7 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
     for app in plan(lowered, events, true) {
         for &(o, r) in &app.company {
             for t in crate::baseline::tables_written(lowered, o, r) {
-                if objs.get(t as usize).is_some_and(|x| !per_company(x)) {
+                if objs.heads().get(t as usize).is_some_and(|x| !per_company(x)) {
                     shared.insert(name(t as usize));
                 }
             }
@@ -597,7 +597,7 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
         return Ok(());
     }
     let objs = &lowered.program.objects;
-    let Some(object) = objs.iter().position(|o| {
+    let Some(object) = objs.heads().iter().position(|o| {
         o.is_kind(al_ir::ObjKind::Codeunit)
             && o.id == Some(al_sema::check::demand::LOGIN_MANAGEMENT)
             && o.name.eq_ignore_ascii_case("LogInManagement")
@@ -845,8 +845,7 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
     if let Some(reason) = crate::runtime::blocked_reason(lowered, oi, ri) {
         return Some(reason);
     }
-    let o = &lowered.program.objects[oi];
-    let called = if is_install(o) {
+    let called = if is_install(&lowered.program.objects.heads()[oi]) {
         let inst = session.instance(oi);
         session.call(oi, ri, inst, Vec::new()).map(|_| ())
     } else {

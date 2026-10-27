@@ -1112,7 +1112,7 @@ impl CorpusRuntime {
                     None => Ok(TestIsolation::default()),
                     Some(r) => runner_isolation(lowered, r),
                 };
-                for (oi, o) in lowered.program.objects.iter().enumerate() {
+                for (oi, o) in lowered.program.objects.heads().iter().enumerate() {
                     let is_test = is_selected_test(lowered, oi, suite, opts_only);
                     let Some(id) = o.id.filter(|_| is_test) else { continue };
                     let isolation = match (&isolation, &refused) {
@@ -1152,10 +1152,13 @@ impl CorpusRuntime {
                             on_run_rows: opts.on_run_rows,
                         }),
                         Err(why) => {
-                            if suite.runner.is_none() && opts.required_isolation && requires_disabled(o) {
+                            if suite.runner.is_none()
+                                && opts.required_isolation
+                                && requires_disabled(&lowered.program.objects[oi])
+                            {
                                 refused_disabled.push((si, id, oi, why.clone()));
                             }
-                            for r in test_routines(o) {
+                            for r in test_routines(&lowered.program.objects[oi]) {
                                 if refused.is_some() {
                                     if let Some(f) = &pass.hooks.on_test {
                                         f(crate::events::TestEvent {

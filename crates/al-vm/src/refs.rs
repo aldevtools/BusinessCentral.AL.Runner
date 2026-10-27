@@ -246,6 +246,7 @@ impl Session {
             .engine
             .program
             .objects
+            .heads()
             .iter()
             .enumerate()
             .filter(|(_, o)| {
@@ -390,6 +391,7 @@ impl Session {
         self.engine
             .program
             .objects
+            .heads()
             .iter()
             .enumerate()
             .position(|(i, o)| o.table.is_some() && o.id == Some(no) && !self.engine.object_facts[i].moved)
@@ -408,6 +410,7 @@ impl Session {
             self.engine
                 .program
                 .objects
+                .heads()
                 .iter()
                 .enumerate()
                 .any(|(i, o)| o.table.is_some() && o.id == Some(no) && self.engine.object_facts[i].moved)
@@ -500,6 +503,7 @@ impl Session {
                     .engine
                     .program
                     .objects
+                    .heads()
                     .iter()
                     .any(|o| o.is_shell_of(al_ir::ObjKind::Table) && i64::from(o.id.unwrap_or(0)) == n) =>
                 {

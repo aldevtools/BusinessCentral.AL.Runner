@@ -447,6 +447,7 @@ impl Graph {
             };
             let node = g.unnamed_node(u);
             edges[node] = objs
+                .heads()
                 .iter()
                 .enumerate()
                 .filter(|(_, o)| o.kind == kind)

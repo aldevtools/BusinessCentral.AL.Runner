@@ -104,7 +104,9 @@ pub(crate) fn step_routine(
 ) -> Result<(usize, usize), String> {
     let objs = &lowered.program.objects;
     let Some(oi) = (0..objs.len()).find(|&oi| {
-        lowered.dependency[oi] && objs[oi].is_kind(al_ir::ObjKind::Codeunit) && objs[oi].id == Some(step.codeunit)
+        lowered.dependency[oi]
+            && objs.heads()[oi].is_kind(al_ir::ObjKind::Codeunit)
+            && objs.heads()[oi].id == Some(step.codeunit)
     }) else {
         return Err(format!(
             "no dependency app has codeunit {} \"{}\"",
@@ -187,9 +189,9 @@ pub fn run_traced(
     }
     let company_initialize = (0..objs.len()).find(|&oi| {
         lowered.dependency[oi]
-            && objs[oi].is_kind(al_ir::ObjKind::Codeunit)
-            && objs[oi].id == Some(2)
-            && objs[oi].name.eq_ignore_ascii_case("Company-Initialize")
+            && objs.heads()[oi].is_kind(al_ir::ObjKind::Codeunit)
+            && objs.heads()[oi].id == Some(2)
+            && objs.heads()[oi].name.eq_ignore_ascii_case("Company-Initialize")
     });
     let mut company_initialize_root: Option<usize> = None;
     if let Some(oi) = company_initialize {
@@ -418,9 +420,9 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
     (0..objs.len())
         .filter(|&oi| {
             lowered.dependency[oi]
-                && objs[oi].table.is_some()
+                && objs.heads()[oi].table.is_some()
                 && matches!(
-                    (objs[oi].id, objs[oi].name.as_str()),
+                    (objs.heads()[oi].id, objs.heads()[oi].name.as_str()),
                     (Some(17), "G/L Entry")
                         | (Some(50), "Accounting Period")
                         | (Some(79), "Company Information")

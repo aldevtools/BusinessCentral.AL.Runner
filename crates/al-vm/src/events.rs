@@ -110,8 +110,8 @@ impl Default for Registry {
     }
 }
 
-fn is_manual(o: &ir::Object) -> bool {
-    ir::ObjectFacts::of(o).manual_subscriber
+fn is_manual(o: &ir::ObjectHead) -> bool {
+    ir::ObjectFacts::of_properties(&o.properties).manual_subscriber
 }
 
 /// A subscriber of `Global Triggers` in a dependency app that cannot run.
@@ -186,29 +186,29 @@ fn is_global_triggers(target: &str) -> bool {
 impl Registry {
     pub fn build(program: &ir::Program) -> Registry {
         let mut reg = Registry::default();
+        // Heads only: building the registry makes no object of a program whose objects are made on first read (ADR-054).
+        let heads = program.objects.heads();
         // Events declared in a table or page extension are subscribed to on the base object
         // (corpus extensionevents/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
         let mut base_of: HashMap<usize, usize> = HashMap::new();
-        for (oi, o) in program.objects.iter().enumerate() {
-            if let Some(x) = &o.report_ext {
-                base_of.insert(oi, x.base);
+        for (oi, o) in heads.iter().enumerate() {
+            if let Some(base) = o.report_ext_base {
+                base_of.insert(oi, base);
             }
             if let Some(t) = &o.table {
                 for &e in &t.extensions {
                     base_of.insert(e, oi);
                 }
             }
-            if let Some(p) = &o.page {
-                for &e in &p.extensions {
-                    base_of.insert(e, oi);
-                }
+            for &e in &o.page_extensions {
+                base_of.insert(e, oi);
             }
         }
         let mut by_name: HashMap<(ObjKind, String), usize> = HashMap::new();
         // Objects that share a kind and a name (they sit in different namespaces).
         let mut same_name: HashMap<(ObjKind, String), Vec<usize>> = HashMap::new();
         let mut by_id: HashMap<(ObjKind, u32), usize> = HashMap::new();
-        for (oi, o) in program.objects.iter().enumerate() {
+        for (oi, o) in heads.iter().enumerate() {
             // A shell (an uncompiled object) is never found by kind and name.
             if o.uncompiled {
                 continue;
@@ -225,8 +225,9 @@ impl Registry {
         {
             reg.global_key = gt;
         }
-        for (oi, o) in program.objects.iter().enumerate() {
-            for (ri, r) in o.routines.iter().enumerate() {
+        for (oi, o) in heads.iter().enumerate() {
+            for r in &o.events {
+                let ri = r.routine as usize;
                 for a in &r.attributes {
                     let name = a.name.to_ascii_lowercase();
                     let args = split_args(&a.text);
@@ -325,10 +326,10 @@ impl Registry {
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
                                 let mut witnesses = vec![oi];
-                                for slot in o.globals.iter().chain(&r.locals) {
-                                    if let al_builtins::value::RtType::Codeunit(c) = slot.ty {
+                                for &c in &r.codeunit_slots {
+                                    {
                                         let c = c as usize;
-                                        if program.objects.get(c).is_some_and(|x| {
+                                        if heads.get(c).is_some_and(|x| {
                                             x.properties.iter().any(|(k, v)| {
                                                 k.eq_ignore_ascii_case("SingleInstance")
                                                     && v.trim().eq_ignore_ascii_case("true")
@@ -421,7 +422,11 @@ impl Registry {
                 (
                     s.manual,
                     s.object,
-                    program.objects[s.object].routines[s.routine].name.to_lowercase(),
+                    heads[s.object]
+                        .events
+                        .iter()
+                        .find(|e| e.routine as usize == s.routine)
+                        .map_or_else(String::new, |e| e.name.to_lowercase()),
                 )
             });
         }
@@ -808,7 +813,7 @@ mod tests {
             &Default::default(),
         );
         let reg = Registry::build(&l.program);
-        let index = |name: &str| l.program.objects.iter().position(|o| o.name == name).unwrap();
+        let index = |name: &str| l.program.objects.heads().iter().position(|o| o.name == name).unwrap();
         let scanned = |publisher: usize| {
             let mut all: Vec<(usize, usize)> = (reg.subscribers.iter())
                 .filter(|((p, _), _)| *p == publisher)

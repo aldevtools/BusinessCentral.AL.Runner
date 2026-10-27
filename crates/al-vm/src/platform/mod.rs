@@ -214,6 +214,7 @@ fn served_tables(engine: &Engine) -> Arc<[Option<Virtual>]> {
     engine
         .program
         .objects
+        .heads()
         .iter()
         .map(|o| {
             if !o.is_kind(al_ir::ObjKind::Table) {
