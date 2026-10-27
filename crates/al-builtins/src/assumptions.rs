@@ -641,6 +641,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    FieldRefTextIntoIntegerError => {
+        id: "fieldref-text-into-integer-error",
+        assumed: "Assigning a text of two letters or more (no digits) to FieldRef.Value of an Integer field raises `The value \"<text>\" can't be evaluated into type Integer.` (the text Evaluate and SetFilter give, record/lt-record-read/RcAFilters.al:SetFilter_Integer_Invalid), not the Variant conversion error an Integer variable gets. Its error code is not pinned (GetLastErrorCode refuses); an empty text and other forms keep being refused.",
+        tests: "No Microsoft test: al-runner issue 5942, the reporter's repro green on real BC (also reached through Data Type Management.SetFieldValue).",
+        probe: "FieldRef.Value := 'abc', := '' and := '12' on an Integer, a Decimal and a BigInteger field: GetLastErrorText, GetLastErrorCode and the stored value.",
+        awaiting: Awaiting {
+            issues: &[5942],
+            files: &["tests/al-language/fieldref/lt-sh-outside-fieldref/ShFieldRefTextToInt.al"],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {

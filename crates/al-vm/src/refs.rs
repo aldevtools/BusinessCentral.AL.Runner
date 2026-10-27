@@ -1321,6 +1321,26 @@ impl Session {
                     {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
+                    // A text of two letters or more into an Integer field raises the text Evaluate gives (al-runner issue 5942, the
+                    // reporter's real-BC repro; assumption `fieldref-text-into-integer-error`), with a code nothing pins. An empty
+                    // text is not pinned for a FieldRef.
+                    if let (Value::Text(s) | Value::Code(s), RtType::Integer) = (v, &field.ty) {
+                        let s = s.as_str();
+                        if s.is_empty() {
+                            return unsupported("FieldRef.Value := '' on an Integer field (not pinned)");
+                        }
+                        if s.len() > 1 && s.bytes().all(|b| b.is_ascii_alphabetic()) {
+                            al_builtins::assumptions::assume(
+                                al_builtins::assumptions::Assumption::FieldRefTextIntoIntegerError,
+                            );
+                            return Err(al_builtins::native::Signal::Error(Box::new(
+                                al_builtins::native::AlError {
+                                    message: format!("The value \"{s}\" can't be evaluated into type Integer."),
+                                    ..al_builtins::native::unpinned_error()
+                                },
+                            )));
+                        }
+                    }
                     let converted = ops::number_into_text_field(v, &field.ty, &*self);
                     let v = match converted {
                         Some(r) => r?,
