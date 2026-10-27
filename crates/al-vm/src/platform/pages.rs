@@ -73,9 +73,15 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`. Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
-fn view_text(o: &Object, table: Option<&al_ir::ObjectHead>, table_objects: &al_ir::Objects) -> Result<String, String> {
+/// The second value is the assumption the text rests on, if any.
+fn view_text(
+    o: &Object,
+    table: Option<&al_ir::ObjectHead>,
+    table_objects: &al_ir::Objects,
+) -> Result<(String, Option<al_builtins::assumptions::Assumption>), String> {
+    let mut assumed = None;
     let Some(v) = prop(o, "SourceTableView") else {
-        return Ok(String::new());
+        return Ok((String::new(), None));
     };
     let not_pinned = || {
         format!(
@@ -132,6 +138,15 @@ fn view_text(o: &Object, table: Option<&al_ir::ObjectHead>, table_objects: &al_i
                     f.id,
                     const_text(f, value.trim(), table_objects).ok_or_else(not_pinned)?
                 ));
+            } else if rest
+                .strip_prefix_ci("filter(")
+                .and_then(|r| r.strip_suffix(')'))
+                .is_some_and(|v| matches!(f.ty, RtType::Date) && v.split_whitespace().collect::<String>() == "<>''")
+            {
+                // A Date field not blank: `Field2=FILTER(<>'')`. Only the `Field2=` part is known from real BC (al-runner
+                // issue 5957; assumption `page-metadata-view-not-blank-date`).
+                assumed = Some(al_builtins::assumptions::Assumption::PageMetadataViewNotBlankDate);
+                conds.push(format!("Field{}=FILTER(<>'')", f.id));
             } else if let Some(value) = rest.strip_prefix_ci("filter(").and_then(|r| r.strip_suffix(')')) {
                 // An integer range, written `1 .. 5`, reads `1..5` (W2PageMetadata.al:395 E_filter_range).
                 let (a, b) = value.split_once("..").ok_or_else(not_pinned)?;
@@ -146,7 +161,7 @@ fn view_text(o: &Object, table: Option<&al_ir::ObjectHead>, table_objects: &al_i
         }
         out.push_str(&format!("WHERE({})", conds.join(",")));
     }
-    Ok(out)
+    Ok((out, assumed))
 }
 
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
@@ -288,7 +303,8 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         let mut key = blank.row();
         key[pos(t, 1)] = Value::Integer(id as i32);
         match page_metadata_row(&c, o, t, key.clone()) {
-            Ok(r) => out.push(Entry::ok(r)),
+            Ok((r, None)) => out.push(Entry::ok(r)),
+            Ok((r, Some(a))) => out.push(Entry::ok(r).assuming(a)),
             Err(why) => out.push(Entry::poisoned(key, why)),
         }
     }
@@ -328,7 +344,12 @@ fn allowed(c: &Catalog, o: &Object, name: &str) -> Result<bool, String> {
     }
 }
 
-fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Result<Row, String> {
+fn page_metadata_row(
+    c: &Catalog,
+    o: &Object,
+    t: &TableDef,
+    mut r: Row,
+) -> Result<(Row, Option<al_builtins::assumptions::Assumption>), String> {
     let page_type = match prop(o, "PageType") {
         None => 0,
         Some(v) => {
@@ -388,7 +409,8 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
     r[pos(t, 12)] = Value::Text(text_prop(o, "EntitySetName", 250).into());
     r[pos(t, 13)] = Value::Text(text_prop(o, "EntityName", 250).into());
     r[pos(t, 14)] = Value::Integer(src_id as i32);
-    r[pos(t, 15)] = Value::Text(view_text(o, src, c.full)?.into());
+    let (view, view_assumed) = view_text(o, src, c.full)?;
+    r[pos(t, 15)] = Value::Text(view.into());
     for (id, name) in [(16, "InsertAllowed"), (17, "ModifyAllowed"), (18, "DeleteAllowed")] {
         r[pos(t, id)] = Value::Boolean(allowed(c, o, name)?);
     }
@@ -418,7 +440,7 @@ fn page_metadata_row(c: &Catalog, o: &Object, t: &TableDef, mut r: Row) -> Resul
             .collect(),
     );
     r[pos(t, 32)] = Value::Text(o.namespace.clone().unwrap_or_default().into());
-    Ok(r)
+    Ok((r, view_assumed))
 }
 
 // ---- Page Control Field -----------------------------------------------------------------------------
