@@ -10,20 +10,20 @@ use super::objects::{Catalog, caption, entries, ident, member, prop, string_lit,
 use super::{Providers, blank, option, pos};
 use al_builtins::value::Value;
 use al_data::TableDef;
-use al_ir::Object;
+use al_ir::{Object, ObjectHead, ObjectInfo};
 
 /// An option property as its ordinal: undeclared reads `default`, an unknown member is refused.
-fn ordinal(o: &Object, name: &str, members: &[&str], default: i32) -> Result<i32, String> {
+fn ordinal<O: ObjectInfo + ?Sized>(o: &O, name: &str, members: &[&str], default: i32) -> Result<i32, String> {
     match prop(o, name) {
         None => Ok(default),
         Some(v) => member(members, v)
             .and_then(|m| members.iter().position(|x| x == &m))
             .map(|i| i as i32)
-            .ok_or_else(|| format!("{} '{}': {name} `{v}` is not understood", o.kind, o.name)),
+            .ok_or_else(|| format!("{} '{}': {name} `{v}` is not understood", o.kind(), o.name())),
     }
 }
 
-fn text(o: &Object, name: &str, max: usize) -> String {
+fn text<O: ObjectInfo + ?Sized>(o: &O, name: &str, max: usize) -> String {
     prop(o, name)
         .and_then(string_lit)
         .map(|s| truncate(&s, max))
@@ -163,7 +163,8 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
         if !o.is_kind(al_ir::ObjKind::Codeunit) {
             continue;
         }
-        for r in &o.routines {
+        // The head lists every routine with an event attribute, `EventSubscriber` among them, in routine order.
+        for r in &o.events {
             let Some(a) = r
                 .attributes
                 .iter()
@@ -190,14 +191,14 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
 
 fn subscription_row(
     c: &Catalog,
-    o: &Object,
+    o: &ObjectHead,
     routine: &str,
     a: &al_ir::Attribute,
     t: &TableDef,
     r: &mut al_data::Row,
 ) -> Result<(), (String, Vec<u32>)> {
     let what = || format!("subscriber '{}' of codeunit '{}'", routine, o.name);
-    let manual = al_ir::ObjectFacts::of(o).manual_subscriber;
+    let manual = al_ir::ObjectFacts::of_properties(&o.properties).manual_subscriber;
     // "Subscriber Instance" reads Static-Automatic or Manual, "Error Information" is blank (record/
     // TestEventSubscriptionColumnsReportLayoutListContracts.al:98-107). "Number of Calls" and
     // "Active Manual Instances" are the session's, added when a row is read.
@@ -236,8 +237,9 @@ fn subscription_row(
     // The publisher's own routine says which kind of event it is; a table's database triggers are
     // the platform's (event names `On{Before,After}{Insert,Modify,Delete,Rename,Validate}Event`).
     let publisher = c.objects.iter().find(|x| x.id == Some(publisher_id) && x.kind == kind);
+    // (Only a routine with an event attribute can answer, and the head lists all of them.)
     let declared = publisher.and_then(|p| {
-        p.routines.iter().find_map(|pr| {
+        p.events.iter().find_map(|pr| {
             if !pr.name.eq_ignore_ascii_case(&event) {
                 return None;
             }
@@ -310,10 +312,12 @@ pub(super) fn page_action_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for o in c.objects {
-        let (Some(id), al_ir::ObjKind::Page) = (o.id, o.kind) else {
+    for (i, h) in c.objects.iter().enumerate() {
+        let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };
+        // The actions are in the page itself: only the pages are made.
+        let o = &c.full[i];
         let mut key = blank(t);
         key[pos(t, 1)] = Value::Integer(id as i32);
         let Some(page) = &o.page else {
@@ -485,7 +489,7 @@ struct Arm {
 }
 
 /// The first primary key field of a compiled table.
-fn first_key_field(related: &Object, what: &str) -> Result<u32, String> {
+fn first_key_field(related: &ObjectHead, what: &str) -> Result<u32, String> {
     let rt = related
         .table
         .as_ref()
@@ -587,7 +591,7 @@ fn arms_of(c: &Catalog, table: &al_ir::Table, f: &al_ir::Field, what: &str) -> R
 
 fn field_relations(
     c: &Catalog,
-    o: &Object,
+    o: &ObjectHead,
     table: &al_ir::Table,
     f: &al_ir::Field,
     t: &TableDef,

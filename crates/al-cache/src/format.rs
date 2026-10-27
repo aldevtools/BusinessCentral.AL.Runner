@@ -408,13 +408,25 @@ impl Entry {
     /// The heads of all slots. A chunk that fails its check after the open passed is an internal error (ADR-054 owner
     /// decision 2), as a damaged block is for the object that reads it.
     fn heads(&self) -> &[ObjectHead] {
-        self.heads.get_or_init(|| {
-            let chunks: Vec<Vec<ObjectHead>> = (0..self.index.head_chunks.len())
-                .into_par_iter()
-                .map(|i| self.read_head_chunk(i).unwrap_or_else(|e| panic!("compile cache: {e}")))
-                .collect();
-            chunks.into_iter().flatten().collect()
-        })
+        self.heads.get_or_init(|| self.decode_heads())
+    }
+
+    /// The heads of all slots, decoded now on several threads (see [`Entry::heads`]).
+    fn decode_heads(&self) -> Vec<ObjectHead> {
+        let chunks: Vec<Vec<ObjectHead>> = (0..self.index.head_chunks.len())
+            .into_par_iter()
+            .map(|i| self.read_head_chunk(i).unwrap_or_else(|e| panic!("compile cache: {e}")))
+            .collect();
+        chunks.into_iter().flatten().collect()
+    }
+
+    /// The heads as values of their own: the kept ones copied, or decoded for the caller alone when nothing asked for
+    /// them yet (a run asks once, at start, and keeps them in its program).
+    fn heads_owned(&self) -> Vec<ObjectHead> {
+        match self.heads.get() {
+            Some(h) => h.clone(),
+            None => self.decode_heads(),
+        }
     }
 
     /// The size of the file.
@@ -485,6 +497,9 @@ impl LayerSource for Entry {
     }
     fn head_at(&self, slot: usize) -> &ObjectHead {
         &self.heads()[slot]
+    }
+    fn heads_owned(&self) -> Vec<ObjectHead> {
+        Entry::heads_owned(self)
     }
     fn block_at(&self, slot: usize) -> Result<DepBlock, String> {
         self.read_block(slot).map_err(|e| e.to_string())

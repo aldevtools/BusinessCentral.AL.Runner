@@ -23,6 +23,81 @@ use std::sync::OnceLock;
 /// is a [`SymObject`] with `placeholder` set and the facts the other objects ask of it.)
 pub type Unit = SymObject;
 
+/// One object to link for [`link_items`]: a symbolic unit, or the facts of an object a compile cache supplies (ADR-054),
+/// read in place. A placeholder is linked as a [`Unit`] with `placeholder` set and these facts would be, without the
+/// unit: a run on Base Application has about ten thousand of them, and each unit is a few KB.
+pub enum Item<'p> {
+    Unit(Box<Unit>),
+    Placeholder(Placeholder<'p>),
+}
+
+/// What the other objects ask of an object a compile cache supplies (the fields of a placeholder [`Unit`]).
+#[derive(Clone, Copy)]
+pub struct Placeholder<'p> {
+    pub key: &'p ObjKey,
+    pub field_numbers: &'p [u32],
+    pub control_names: &'p [String],
+    pub implements: &'p [ObjKey],
+    pub enum_impls: &'p [EnumImplDecl],
+    pub enum_ordinals: &'p [u32],
+    pub reserved_positions: u32,
+}
+
+/// The object of a placeholder: the default object, as a placeholder [`Unit`] holds.
+static NO_OBJECT: std::sync::LazyLock<Object> = std::sync::LazyLock::new(Object::default);
+
+impl Item<'_> {
+    pub fn key(&self) -> &ObjKey {
+        match self {
+            Item::Unit(u) => &u.key,
+            Item::Placeholder(p) => p.key,
+        }
+    }
+    /// The symbolic unit, `None` for a placeholder item.
+    fn unit(&self) -> Option<&Unit> {
+        match self {
+            Item::Unit(u) => Some(u),
+            Item::Placeholder(_) => None,
+        }
+    }
+    fn placeholder(&self) -> bool {
+        self.unit().is_none_or(|u| u.placeholder)
+    }
+    fn object(&self) -> &Object {
+        self.unit().map_or(&NO_OBJECT, |u| &u.object)
+    }
+    fn field_numbers(&self) -> &[u32] {
+        match self {
+            Item::Unit(u) => &u.field_numbers,
+            Item::Placeholder(p) => p.field_numbers,
+        }
+    }
+    fn control_names(&self) -> &[String] {
+        match self {
+            Item::Unit(u) => &u.control_names,
+            Item::Placeholder(p) => p.control_names,
+        }
+    }
+    fn implements(&self) -> &[ObjKey] {
+        match self {
+            Item::Unit(u) => &u.implements,
+            Item::Placeholder(p) => p.implements,
+        }
+    }
+    fn enum_impls(&self) -> &[EnumImplDecl] {
+        match self {
+            Item::Unit(u) => &u.enum_impls,
+            Item::Placeholder(p) => p.enum_impls,
+        }
+    }
+    fn enum_ordinals(&self) -> &[u32] {
+        match self {
+            Item::Unit(u) => &u.enum_ordinals,
+            Item::Placeholder(p) => p.enum_ordinals,
+        }
+    }
+}
+
 /// Why a set of objects cannot be linked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkError {
@@ -135,7 +210,7 @@ trait Space {
 
 /// The units to link, with the keys of their routines.
 struct UnitSpace<'u, 'k> {
-    units: &'u [Unit],
+    units: &'u [Item<'u>],
     /// Per table: the numbers of the fields its extensions add.
     extras: FxMap<usize, Vec<u32>>,
     /// Per enum: its extensions, in program order.
@@ -150,31 +225,31 @@ impl Space for UnitSpace<'_, '_> {
         self.units.len()
     }
     fn key(&self, i: usize) -> &ObjKey {
-        &self.units[i].key
+        self.units[i].key()
     }
     fn routines(&self, i: usize) -> &[LocalKey] {
         (self.routines)(i)
     }
     fn object(&self, i: usize) -> &Object {
-        &self.units[i].object
+        self.units[i].object()
     }
     fn field_numbers(&self, i: usize) -> Option<&[u32]> {
-        Some(self.units[i].field_numbers.as_slice()).filter(|f| !f.is_empty())
+        Some(self.units[i].field_numbers()).filter(|f| !f.is_empty())
     }
     fn control_names(&self, i: usize) -> Option<&[String]> {
-        Some(self.units[i].control_names.as_slice()).filter(|c| !c.is_empty())
+        Some(self.units[i].control_names()).filter(|c| !c.is_empty())
     }
     fn extra_field_numbers(&self, i: usize) -> &[u32] {
         self.extras.get(&i).map_or(&[], |v| v.as_slice())
     }
     fn implemented(&self, i: usize) -> &[ObjKey] {
-        &self.units[i].implements
+        self.units[i].implements()
     }
     fn enum_impls(&self, i: usize) -> &[EnumImplDecl] {
-        &self.units[i].enum_impls
+        self.units[i].enum_impls()
     }
     fn enum_ordinals(&self, i: usize) -> &[u32] {
-        &self.units[i].enum_ordinals
+        self.units[i].enum_ordinals()
     }
     fn enum_extensions(&self, i: usize) -> &[usize] {
         self.enum_exts.get(&i).map_or(&[], |v| v.as_slice())
@@ -184,17 +259,17 @@ impl Space for UnitSpace<'_, '_> {
             .get(&i)
             .into_iter()
             .flatten()
-            .filter_map(|&e| self.units[e].contribution.page.as_ref().map(|p| (e, p)))
+            .filter_map(|&e| self.units[e].unit()?.contribution.page.as_ref().map(|p| (e, p)))
             .collect()
     }
 }
 
 /// The page extensions of each page (and report with a request page), in the order they apply.
-fn page_extensions(units: &[Unit]) -> FxMap<usize, Vec<usize>> {
-    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (&u.key, i)).collect();
+fn page_extensions(units: &[Item<'_>]) -> FxMap<usize, Vec<usize>> {
+    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (u.key(), i)).collect();
     let mut found: Vec<(usize, (u32, u32, u32), usize)> = Vec::new();
     for (i, u) in units.iter().enumerate() {
-        let s = u;
+        let Some(s) = u.unit() else { continue };
         let Some(base) = s.extends.as_ref().and_then(|k| at.get(k)).copied() else {
             continue;
         };
@@ -211,12 +286,11 @@ fn page_extensions(units: &[Unit]) -> FxMap<usize, Vec<usize>> {
 }
 
 /// The enum extensions of each enum, in program order.
-fn enum_extensions(units: &[Unit]) -> FxMap<usize, Vec<usize>> {
-    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (&u.key, i)).collect();
+fn enum_extensions(units: &[Item<'_>]) -> FxMap<usize, Vec<usize>> {
+    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (u.key(), i)).collect();
     let mut out: FxMap<usize, Vec<usize>> = FxMap::default();
     for (i, u) in units.iter().enumerate() {
-        {
-            let s = u;
+        if let Some(s) = u.unit() {
             if s.object.kind == al_ir::ObjKind::EnumExtension {
                 if let Some(base) = s.extends.as_ref().and_then(|k| at.get(k)).copied() {
                     out.entry(base).or_default().push(i);
@@ -228,11 +302,10 @@ fn enum_extensions(units: &[Unit]) -> FxMap<usize, Vec<usize>> {
 }
 
 /// The numbers of the fields the table extensions of each table add, in program order.
-fn extra_fields(units: &[Unit]) -> FxMap<usize, Vec<u32>> {
-    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (&u.key, i)).collect();
+fn extra_fields(units: &[Item<'_>]) -> FxMap<usize, Vec<u32>> {
+    let at: FxMap<&ObjKey, usize> = units.iter().enumerate().map(|(i, u)| (u.key(), i)).collect();
     let mut out: FxMap<usize, Vec<u32>> = FxMap::default();
-    for u in units {
-        let s = u;
+    for s in units.iter().filter_map(Item::unit) {
         let (Some(base), Some(t)) = (
             s.extends.as_ref().and_then(|k| at.get(k)).copied(),
             s.contribution.table.as_ref(),
@@ -547,10 +620,32 @@ fn rewrite(object: &mut Object, res: &Arc<Resolved>, key: &ObjKey) -> Result<(),
 /// call.
 pub fn link<'k>(
     units: Vec<Unit>,
-    mut base: Program,
+    base: Program,
     workers: usize,
     routines: &'k (dyn Fn(usize) -> &'k [LocalKey] + Sync),
 ) -> Result<Linked, Box<LinkError>> {
+    let items = units.into_iter().map(|u| Item::Unit(Box::new(u))).collect();
+    let (mut program, objects, pos_ranges) = link_items(items, base, workers, routines)?;
+    program.objects = objects
+        .into_iter()
+        .map(|o| o.expect("every unit is linked"))
+        .collect::<Vec<_>>()
+        .into();
+    Ok(Linked { program, pos_ranges })
+}
+
+/// What [`link_items`] gives: the program without its objects, the objects (`None` for a placeholder item) and
+/// [`Linked::pos_ranges`].
+pub type LinkedItems = (Program, Vec<Option<Object>>, Vec<(u32, u32)>);
+
+/// [`link`] of [`Item`]s. The program comes back without its objects: they are the list beside it, `None` for a
+/// [`Item::Placeholder`] (no object is made for it). The third value is [`Linked::pos_ranges`].
+pub fn link_items<'k>(
+    units: Vec<Item<'_>>,
+    mut base: Program,
+    workers: usize,
+    routines: &'k (dyn Fn(usize) -> &'k [LocalKey] + Sync),
+) -> Result<LinkedItems, Box<LinkError>> {
     debug_assert!(base.objects.is_empty() && base.positions.is_empty());
     // What each symbolic object's tables mean in the program: the position of every key.
     let merges;
@@ -566,9 +661,9 @@ pub fn link<'k>(
         let tables = Tables::new(&space)?;
         merges = Merges::collect(&units, &tables);
         subscribers = uncompiled_subscribers(&units, &tables)?;
-        par_map(units.iter().collect(), workers, |_, u| match u {
-            s if s.placeholder => Ok(None),
-            s => tables.resolve(s).map(|r| Some(Arc::new(r))),
+        par_map(units.iter().collect(), workers, |_, u| match u.unit() {
+            Some(s) if !s.placeholder => tables.resolve(s).map(|r| Some(Arc::new(r))),
+            _ => Ok(None),
         })
         .into_iter()
         .collect::<Result<_, _>>()?
@@ -577,26 +672,27 @@ pub fn link<'k>(
     let mut pos_ranges = Vec::with_capacity(units.len());
     let mut next = 0u32;
     for u in &units {
-        let len = if u.placeholder {
-            u.reserved_positions
-        } else {
-            u.positions.len() as u32
+        let len = match u {
+            Item::Unit(u) if !u.placeholder => u.positions.len() as u32,
+            Item::Unit(u) => u.reserved_positions,
+            Item::Placeholder(p) => p.reserved_positions,
         };
         pos_ranges.push((next, len));
         next += len;
     }
-    let mut units = units;
-    let contributions: Vec<Contribution> = units.iter_mut().map(|u| std::mem::take(&mut u.contribution)).collect();
-    let work: Vec<(Unit, Option<Arc<Resolved>>, Contribution)> = units
-        .into_iter()
-        .zip(resolved)
-        .zip(contributions)
-        .map(|((u, r), c)| (u, r, c))
-        .collect();
+    // The units, apart: a placeholder item has nothing to rewrite.
+    let n = units.len();
+    let mut work: Vec<(usize, Unit, Option<Arc<Resolved>>)> = Vec::new();
+    for (i, (u, r)) in units.into_iter().zip(resolved).enumerate() {
+        if let Item::Unit(u) = u {
+            work.push((i, *u, r));
+        }
+    }
     let done = par_map(
         work,
         workers,
-        |i, (u, res, mut contribution)| -> Result<Done, Box<LinkError>> {
+        |_, (i, u, res)| -> Result<(usize, Done), Box<LinkError>> {
+            let mut contribution = u.contribution;
             let (mut object, mut positions, key) = (u.object, u.positions, u.key);
             if let Some(res) = res {
                 rewrite(&mut object, &res, &key)?;
@@ -623,31 +719,31 @@ pub fn link<'k>(
                     p.object = i as u32;
                 }
             }
-            Ok((object, positions, contribution))
+            Ok((i, (object, positions, contribution)))
         },
     );
-    let mut objects = Vec::with_capacity(done.len());
+    let mut objects: Vec<Option<Object>> = (0..n).map(|_| None).collect();
+    let mut contributions: Vec<Contribution> = (0..n).map(|_| Contribution::default()).collect();
+    let mut positions_of: Vec<Vec<SrcPos>> = (0..n).map(|_| Vec::new()).collect();
+    for d in done {
+        let (i, (object, positions, contribution)) = d?;
+        objects[i] = Some(object);
+        contributions[i] = contribution;
+        positions_of[i] = positions;
+    }
     base.positions.reserve(next as usize);
-    let mut contributions = Vec::with_capacity(done.len());
-    for (i, d) in done.into_iter().enumerate() {
-        let (object, mut positions, contribution) = d?;
+    for (i, mut positions) in positions_of.into_iter().enumerate() {
         if positions.is_empty() {
             // A placeholder's ids (ADR-054); nothing for an object without positions.
             base.positions.push_hole(pos_ranges[i].1, i);
         }
         base.positions.append(&mut positions);
-        objects.push(object);
-        contributions.push(contribution);
     }
     merges.apply(&mut objects, &mut contributions)?;
-    base.objects = objects.into();
     if !subscribers.is_empty() {
         base.uncompiled_subscribers = subscribers;
     }
-    Ok(Linked {
-        program: base,
-        pos_ranges,
-    })
+    Ok((base, objects, pos_ranges))
 }
 
 /// An object linked, the source positions it holds, and what it adds to its base.
@@ -704,13 +800,13 @@ pub fn par_map<T: Send, R: Send>(items: Vec<T>, workers: usize, f: impl Fn(usize
 /// events in the order of the objects, then those of the platform's codeunits; each group in the order of the
 /// subscribing objects.
 fn uncompiled_subscribers<S: Space + ?Sized>(
-    units: &[Unit],
+    units: &[Item<'_>],
     tables: &Tables<'_, S>,
 ) -> Result<Vec<al_ir::UncompiledSubscriber>, Box<LinkError>> {
     use al_ir::PlatformPublisher as P;
     let mut found: Vec<(u8, usize, usize, u32, al_ir::UncompiledSubscriber)> = Vec::new();
     for (i, u) in units.iter().enumerate() {
-        let s = u;
+        let Some(s) = u.unit() else { continue };
         for d in &s.subscribers {
             let (group, publisher, platform) = match &d.target {
                 SubscriberTarget::Object(k) => {
@@ -739,6 +835,11 @@ fn uncompiled_subscribers<S: Space + ?Sized>(
     }
     found.sort_by_key(|f| (f.0, f.1, f.2, f.3));
     Ok(found.into_iter().map(|f| f.4).collect())
+}
+
+/// The object `i` of a list being linked, which holds it: a symbolic object (`Merges::symbolic`).
+fn obj_at(objects: &mut [Option<Object>], i: usize) -> &mut Object {
+    objects[i].as_mut().expect("a symbolic object is linked")
 }
 
 /// (extension or `PAGE_BASE`, place in its list): the identity of a control while a page is put together.
@@ -816,14 +917,14 @@ struct Merges {
 }
 
 impl Merges {
-    fn collect<S: Space + ?Sized>(units: &[Unit], tables: &Tables<'_, S>) -> Merges {
+    fn collect<S: Space + ?Sized>(units: &[Item<'_>], tables: &Tables<'_, S>) -> Merges {
         let mut m = Merges {
-            symbolic: units.iter().map(|u| !u.placeholder).collect(),
+            symbolic: units.iter().map(|u| !u.placeholder()).collect(),
             at: tables.at.iter().map(|(k, &i)| ((*k).clone(), i)).collect(),
             ..Default::default()
         };
         for (i, u) in units.iter().enumerate() {
-            let s = u;
+            let Some(s) = u.unit() else { continue };
             let Some(base) = s.extends.as_ref().and_then(|k| tables.at.get(k)).copied() else {
                 continue;
             };
@@ -841,12 +942,12 @@ impl Merges {
         m
     }
 
-    fn apply(&self, objects: &mut [Object], contributions: &mut [Contribution]) -> Result<(), Box<LinkError>> {
+    fn apply(&self, objects: &mut [Option<Object>], contributions: &mut [Contribution]) -> Result<(), Box<LinkError>> {
         for &(base, list, _, ext) in &self.lists {
-            if !self.symbolic[base] || objects[base].uncompiled {
+            if !self.symbolic[base] || obj_at(objects, base).uncompiled {
                 continue;
             }
-            let o = &mut objects[base];
+            let o = obj_at(objects, base);
             match list {
                 ListKind::TableExtensions => {
                     if let Some(t) = o.table.as_mut() {
@@ -868,10 +969,12 @@ impl Merges {
         self.apply_tables(objects, contributions);
         self.apply_pages(objects, contributions)?;
         for &(base, ext) in &self.enums {
-            if self.symbolic[base] && !objects[base].uncompiled {
+            if self.symbolic[base] && !obj_at(objects, base).uncompiled {
                 let c = &contributions[ext];
-                objects[base].enum_values.extend(c.enum_values.iter().cloned());
-                objects[base].enum_captions.extend(c.enum_captions.iter().cloned());
+                obj_at(objects, base).enum_values.extend(c.enum_values.iter().cloned());
+                obj_at(objects, base)
+                    .enum_captions
+                    .extend(c.enum_captions.iter().cloned());
             }
         }
         Ok(())
@@ -882,20 +985,30 @@ impl Merges {
     /// Puts the controls the page extensions add into their pages, applies their `modify` blocks and adds their
     /// page triggers. An added control goes after the control `pred` names in the list of all controls (the
     /// controls of the page keep their places), and every index inside the page is made again.
-    fn apply_pages(&self, objects: &mut [Object], contributions: &mut [Contribution]) -> Result<(), Box<LinkError>> {
+    fn apply_pages(
+        &self,
+        objects: &mut [Option<Object>],
+        contributions: &mut [Contribution],
+    ) -> Result<(), Box<LinkError>> {
         use al_ir::sym::ControlId;
         type Id = PageId;
         const BASE: usize = PAGE_BASE;
         #[allow(clippy::needless_range_loop)] // `b` is the object, which `symbolic` and the contributions index too
         for b in 0..objects.len() {
-            if !self.symbolic[b] || objects[b].uncompiled || objects[b].page.is_none() {
+            if !self.symbolic[b] || obj_at(objects, b).uncompiled || obj_at(objects, b).page.is_none() {
                 continue;
             }
-            let exts: Vec<usize> = objects[b].page.as_ref().expect("checked").extensions.clone();
+            let exts: Vec<usize> = obj_at(objects, b).page.as_ref().expect("checked").extensions.clone();
             if exts.iter().all(|&e| contributions[e].page.is_none()) {
                 continue;
             }
-            let whose = ObjKey::new("", objects[b].kind, objects[b].id, None, &objects[b].name);
+            let whose = ObjKey::new(
+                "",
+                obj_at(objects, b).kind,
+                obj_at(objects, b).id,
+                None,
+                &obj_at(objects, b).name,
+            );
             let bad = |class: &'static str| {
                 Box::new(LinkError::BadReference {
                     object: whose.clone(),
@@ -917,7 +1030,7 @@ impl Merges {
                 .iter()
                 .filter_map(|&e| contributions[e].page.take().map(|p| (e, p)))
                 .collect();
-            let page = objects[b].page.as_mut().expect("checked");
+            let page = obj_at(objects, b).page.as_mut().expect("checked");
             let base_controls = std::mem::take(&mut page.controls);
             let base_n = base_controls.len();
             // The order of all controls.
@@ -1000,7 +1113,7 @@ impl Merges {
     /// Merges what table extensions add into their tables the way the members of a table are merged:
     /// the fields of each extension, then its `modify` blocks (the first field of the name takes the
     /// properties), then the triggers every field of the name takes, and the keys.
-    fn apply_tables(&self, objects: &mut [Object], contributions: &mut [Contribution]) {
+    fn apply_tables(&self, objects: &mut [Option<Object>], contributions: &mut [Contribution]) {
         let mut at = 0;
         while at < self.tables.len() {
             let base = self.tables[at].0;
@@ -1010,10 +1123,10 @@ impl Merges {
             }
             let exts: Vec<usize> = self.tables[at..end].iter().map(|&(_, e)| e).collect();
             at = end;
-            if !self.symbolic[base] || objects[base].uncompiled {
+            if !self.symbolic[base] || obj_at(objects, base).uncompiled {
                 continue;
             }
-            let obj = &mut objects[base];
+            let obj = obj_at(objects, base);
             let Some(table) = obj.table.as_mut() else {
                 continue;
             };

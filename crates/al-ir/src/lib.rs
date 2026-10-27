@@ -16,7 +16,7 @@ pub mod types;
 pub mod walk;
 pub use body::{Body, BodyFixup};
 pub use facts::{FieldClass, FieldFacts, ObjectFacts, PageType, TableType};
-pub use head::{EventRoutine, ObjectHead, is_event_attribute};
+pub use head::{EventRoutine, ObjectHead, ObjectInfo, is_event_attribute};
 pub use objects::{ObjectSource, Objects};
 pub use objkind::{ObjKind, UnknownKind};
 pub use positions::{PositionSource, Positions};

@@ -223,6 +223,9 @@ pub fn global_triggers_find_unavailable(engine: &mut Arc<Engine>, lowered: &Lowe
         );
     }
     if let Some(e) = Arc::get_mut(engine) {
-        e.events.unavailable_global = unavailable;
+        // Set up before the engine has siblings (`Engine::sibling`), which then share it.
+        Arc::get_mut(&mut e.events)
+            .expect("a new engine's event registry is its own")
+            .unavailable_global = unavailable;
     }
 }

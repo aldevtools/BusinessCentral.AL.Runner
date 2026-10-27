@@ -56,6 +56,8 @@ fn a_set_survives_the_round_trip() {
     assert!(set.facts.len() >= 5);
     let bytes = build(&set, &key());
     let e = Entry::open(bytes, &key()).expect("opens");
+    // The heads decoded for a run's program, before anything asked for one, and after.
+    assert!(LayerSource::heads_owned(&e) == set.heads, "owned heads differ");
     e.verify().expect("verifies");
     assert_eq!(e.len(), set.facts.len());
     for i in 0..e.len() {
@@ -326,6 +328,17 @@ fn layer_files_stacked_equal_the_complete_compile() {
         assert_eq!(stack.head(i), &complete.heads[i], "head of object {i}");
         assert!(stack.block(i).unwrap() == complete.blocks[i], "block {i}");
     }
+    assert!(stack.heads_owned() == complete.heads, "owned heads differ");
+    assert!(
+        LayerSource::heads_owned(&eb) == eb_heads(&eb),
+        "owned heads after the heads were read"
+    );
+}
+
+fn eb_heads(e: &Entry) -> Vec<al_ir::ObjectHead> {
+    (0..LayerSource::objects(e).len())
+        .map(|s| LayerSource::head_at(e, s).clone())
+        .collect()
 }
 
 /// The layer's file is for the layer below it as it was built: another key below, another file.

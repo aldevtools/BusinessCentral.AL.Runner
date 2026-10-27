@@ -863,8 +863,9 @@ fn a_country_other_than_w1_has_layers_of_its_own() {
 /// ADR-054 test plan item 5: a run on a cache hit decodes only the dependency objects it touches. Start-up (engine,
 /// install baseline, test discovery) and a single `Field.Get` on a dependency table decode a few objects, not all of
 /// the System app's and the dependency's.
-#[test]
-fn start_up_and_one_field_get_decode_only_a_few_objects() {
+/// A run of the test codeunit `main` over the fixture of item 5, uncached and then on a cache hit: the outcomes of both,
+/// how many dependency objects the cached run decoded on first touch, and how many the cache holds.
+fn decoded_by(main: &str) -> (Vec<String>, Vec<String>, usize, usize) {
     let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
     let bytes = std::fs::read(packages.join("System.app"))
         .expect("corpus submodule not checked out: run `git submodule update --init`");
@@ -880,13 +881,6 @@ fn start_up_and_one_field_get_decode_only_a_few_objects() {
             51000 + i
         ));
     }
-    let main = r#"
-codeunit 60102 Tests
-{
-    Subtype = Test;
-    [Test] procedure OneFieldGet() var F: Record "Field"; begin F.Get(50103, 2); if F."Field Caption" <> 'The Name' then Error('caption'); end;
-}
-"#;
     let run = |cc: Option<CompileCache>| {
         let (_, _, mut manifests) = apps(BASE);
         manifests.push(manifests[1].clone());
@@ -925,12 +919,49 @@ codeunit 60102 Tests
     let second = run(cache(dir.path(), true));
     let report = second.phases.cache.as_ref().unwrap();
     assert!(report.hit, "{report:?}");
-    assert_eq!(outcomes(&second), outcomes(&first));
-    assert!(outcomes(&second)[0].contains("Pass"), "{:?}", outcomes(&second));
     let decoded = second
         .phases
         .decoded_on_touch
         .expect("the objects are decoded on touch");
-    assert!(report.objects > 300, "{} objects", report.objects);
-    assert!(decoded <= 10, "decoded {decoded} of {} objects", report.objects);
+    (outcomes(&first), outcomes(&second), decoded, report.objects)
+}
+
+#[test]
+fn start_up_and_one_field_get_decode_only_a_few_objects() {
+    let main = r#"
+codeunit 60102 Tests
+{
+    Subtype = Test;
+    [Test] procedure OneFieldGet() var F: Record "Field"; begin F.Get(50103, 2); if F."Field Caption" <> 'The Name' then Error('caption'); end;
+}
+"#;
+    let (first, second, decoded, objects) = decoded_by(main);
+    assert_eq!(second, first);
+    assert!(second[0].contains("Pass"), "{second:?}");
+    assert!(objects > 300, "{objects} objects");
+    assert!(decoded <= 10, "decoded {decoded} of {objects} objects");
+}
+
+/// The object-list tables read the heads of the objects, so one read of each decodes no more objects than start-up does
+/// (al-vm `platform/objects.rs`, `metadata.rs`, `fields.rs`, `reports.rs`, the Event Subscription counts). The page
+/// tables are not here: a page row reads the page's controls and actions, which only the page itself holds.
+#[test]
+fn reading_the_object_lists_decodes_only_a_few_objects() {
+    let main = r#"
+codeunit 60102 Tests
+{
+    Subtype = Test;
+    [Test] procedure AllObjRow() var A: Record AllObj; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50103); if not A.FindFirst() then Error('allobj'); if A."Object Name" <> 'Probe' then Error('allobj name'); end;
+    [Test] procedure AllObjWithCaptionRow() var A: Record AllObjWithCaption; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50103); if not A.FindFirst() then Error('caption row'); if A."Object Name" <> 'Probe' then Error('caption name'); end;
+    [Test] procedure CodeunitMetadataRow() var C: Record "CodeUnit Metadata"; begin if not C.Get(60102) then Error('codeunit'); if C.Name <> 'Tests' then Error('codeunit name'); end;
+    [Test] procedure TableMetadataRow() var T: Record "Table Metadata"; begin if not T.Get(50103) then Error('table'); if T.Name <> 'Probe' then Error('table name'); end;
+    [Test] procedure KeyRows() var K: Record "Key"; begin K.SetRange(TableNo, 50103); if K.IsEmpty() then Error('keys'); end;
+    [Test] procedure ReportMetadataRows() var R: Record "Report Metadata"; begin R.SetRange(ID, 1); if not R.IsEmpty() then Error('report'); end;
+    [Test] procedure EventSubscriptionRows() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 60102); if not E.IsEmpty() then Error('subscription'); end;
+}
+"#;
+    let (first, second, decoded, objects) = decoded_by(main);
+    assert_eq!(second, first);
+    assert!(second.iter().all(|o| o.contains("Pass")), "{second:?}");
+    assert!(decoded <= 10, "decoded {decoded} of {objects} objects");
 }

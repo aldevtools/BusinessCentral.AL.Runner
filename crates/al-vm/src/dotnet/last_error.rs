@@ -206,10 +206,13 @@ fn plain_procedure(session: &Session, id: u32, name: &str) -> bool {
     if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return false;
     }
-    session.engine.program.objects.iter().any(|o| {
-        o.kind == al_ir::ObjKind::Codeunit
-            && o.id == Some(id)
-            && o.routines
+    // The codeunits with the id are found from the heads, so only they are made (ADR-054).
+    let objects = &session.engine.program.objects;
+    objects.heads().iter().enumerate().any(|(oi, h)| {
+        h.kind == al_ir::ObjKind::Codeunit
+            && h.id == Some(id)
+            && objects[oi]
+                .routines
                 .iter()
                 .any(|r| r.name == name && !r.is_trigger && r.params == 0 && r.ret.is_none())
     })

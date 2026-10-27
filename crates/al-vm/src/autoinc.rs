@@ -266,12 +266,13 @@ impl Session {
 /// OnAfterDelete event of. Reads every routine's attributes, so it is asked once per engine.
 pub(crate) fn tables_with_delete_subscribers(program: &al_ir::Program) -> std::collections::HashSet<String> {
     let mut tables = std::collections::HashSet::new();
-    for o in &program.objects {
-        let manual = al_ir::ObjectFacts::of(o).manual_subscriber;
+    // The heads: every routine with an `EventSubscriber` attribute is among their event routines (ADR-054).
+    for o in program.objects.heads() {
+        let manual = al_ir::ObjectFacts::of_properties(&o.properties).manual_subscriber;
         if manual {
             continue;
         }
-        for a in o.routines.iter().flat_map(|r| &r.attributes) {
+        for a in o.events.iter().flat_map(|r| &r.attributes) {
             if !a.name.eq_ignore_ascii_case("EventSubscriber") {
                 continue;
             }
