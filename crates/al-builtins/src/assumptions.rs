@@ -697,6 +697,19 @@ registry! {
             since: "2026-10-27",
         },
     },
+    GroupEnabledDisablesField => {
+        id: "group-enabled-disables-field",
+        assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says, on every page type and for a group Enabled bound to an expression. Pinned are a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card field without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card); a field with `Enabled = true` there, another page type or an expression is a flagged pass.",
+        tests: "No Microsoft test: al-runner issue 5945, the reporter's repro green on real BC (a card's field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
+        probe: "A card and a list with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
+        awaiting: Awaiting {
+            issues: &[5945],
+            files: &[
+                "tests/al-language/pages/lt-ap-testpage-642/ApTestPageTests.al::Ap16_GroupEnabledFalse_FieldEnabledTrue",
+            ],
+            since: "2026-10-27",
+        },
+    },
 }
 
 thread_local! {
