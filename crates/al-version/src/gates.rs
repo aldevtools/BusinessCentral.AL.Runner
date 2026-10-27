@@ -69,7 +69,7 @@ pub enum Gate {
     ReportPartNamePropertiesFrom29,
     /// A request page extension also runs `OnAfterGetCurrRecord` when a report request page opens, from BC 28 (pages/lt-ab-tests/ABTests.al, corpus bump 26). Not consumed yet.
     RequestPageExtensionRecordTriggerOrderFrom28,
-    /// `FieldRef.Value` set from an Option text that is not a value: the Evaluate error from BC 28, `The type NavOption is unknown.` before (record/lt-u-table-field-props/UTableCdsOrdinals.al, corpus bump 26). Not consumed yet.
+    /// `FieldRef.Value` set from an Option text that is not a value: the Evaluate error from BC 28, `The type NavOption is unknown.` before (record/lt-u-table-field-props/UTableCdsOrdinals.al, corpus bump 26; fieldref/TestFieldRefValue.al:294).
     OptionFieldRefSetEvaluateErrorFrom28,
     /// `FieldRef.Value` set from a text that is no number on an Integer, BigInteger or Decimal field: the Evaluate error
     /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
