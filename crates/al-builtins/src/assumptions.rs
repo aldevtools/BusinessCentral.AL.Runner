@@ -643,12 +643,15 @@ registry! {
     },
     RecursiveEventCallCode => {
         id: "recursive-event-call-code",
-        assumed: "A call chain that reaches the call-depth ceiling while an event subscriber is on the stack raises the error code `RecursiveEventCall:StackOverflow`, at the same depth as plain recursion. Its text starts with `Excessive recursion has been detected in event subscriber function ` and the rest is not known, so GetLastErrorText of it is refused.",
+        assumed: "A call chain that reaches the call-depth ceiling while an event subscriber is on the stack raises the code `RecursiveEventCall:StackOverflow` and `Excessive recursion has been detected in event subscriber function <subscriber> for event <event> that is raised in <CodeUnit|Table> <id>.`, at the same depth as plain recursion: `None` for an event a codeunit publishes, `OnAfterModifyEvent` for that table event; the text of another event is not pinned (reads of it refuse). Pinned on corpus branch al-runtime-rs-staging-sh (commit 67c7900c), not yet in the pinned corpus.",
         tests: "No Microsoft test: al-runner issue 5944, the reporter's repro green on real BC (an OnAfterModifyEvent subscriber that calls Modify(true) on the record again).",
-        probe: "An unguarded Modify(true) in an OnAfterModifyEvent subscriber, and a publisher whose subscriber raises the event again: GetLastErrorCode, the whole GetLastErrorText and how many calls ran before the error.",
+        probe: "Pinned by writer SH: codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al (corpus PR 748). Still wanted: the text for a business event and other table events.",
         awaiting: Awaiting {
             issues: &[5944],
-            files: &["tests/al-language/events/lt-sh-outside-events/ShRecursionCode.al"],
+            files: &[
+                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ThroughAnIntegrationEvent_ErrorCodeAndText",
+                "tests/al-language/codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al::Recursion_ModifyInOnAfterModifyEvent_ErrorCodeAndText",
+            ],
             since: "2026-10-27",
         },
     },

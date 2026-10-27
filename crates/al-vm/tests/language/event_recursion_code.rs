@@ -1,9 +1,9 @@
-//! Unbounded recursion through an event subscriber stops with the error code `RecursiveEventCall:StackOverflow`
-//! (al-runner issue 5944, the reporter's repro on real BC; registered assumption `recursive-event-call-code`). Only the
-//! start of the text is known, so reading the text is refused.
+//! Unbounded recursion through an event subscriber stops with the error code `RecursiveEventCall:StackOverflow` and a text
+//! that names the subscriber, the event and its publisher (al-runner issue 5944; pinned on corpus branch
+//! al-runtime-rs-staging-sh, codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137; assumption
+//! `recursive-event-call-code` until the corpus bump).
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
-use al_builtins::native::Signal;
 
 const SRC: &str = "
 table 50711 Row { fields { field(1; Code; Code[20]) { } field(4; Qty; Integer) { } } keys { key(PK; Code) { } } }
@@ -17,7 +17,13 @@ codeunit 50767 C {
     procedure Code(): Text begin Go(); exit(GetLastErrorCode()); end;
     procedure Txt(): Text begin Go(); exit(GetLastErrorText()); end;
     procedure Plain(N: Integer): Integer begin exit(Plain(N + 1)); end;
-    procedure PlainCode(): Text begin asserterror Plain(0); exit(GetLastErrorCode()); end; }";
+    procedure PlainCode(): Text begin asserterror Plain(0); exit(GetLastErrorCode()); end;
+    procedure ViaEvent(): Text var W: Codeunit Worker; begin asserterror W.Go(); exit(GetLastErrorText()); end; }
+codeunit 72884 Worker {
+    procedure Go() begin OnDeeper(); end;
+    [IntegrationEvent(false, false)] local procedure OnDeeper() begin end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Worker, 'OnDeeper', '', false, false)]
+    local procedure HandleDeeper() begin Go(); end; }";
 
 #[test]
 fn recursion_through_a_subscriber_has_the_recursive_event_code() {
@@ -37,10 +43,14 @@ fn body() {
         "RecursiveEventCall:StackOverflow"
     );
     assert!(take_hits().contains(&Assumption::RecursiveEventCallCode));
-    assert!(matches!(
-        al_testkit::run_in(SRC, "C", "Txt"),
-        Err(Signal::Unsupported(_))
-    ));
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "Txt")),
+        "Excessive recursion has been detected in event subscriber function OnAfterModifyRow for event OnAfterModifyEvent that is raised in Table 50711."
+    );
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "ViaEvent")),
+        "Excessive recursion has been detected in event subscriber function HandleDeeper for event None that is raised in CodeUnit 72884."
+    );
     // Plain recursion keeps its code.
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "PlainCode")),

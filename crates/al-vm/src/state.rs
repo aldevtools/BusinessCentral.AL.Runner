@@ -165,8 +165,10 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
-    /// How many event subscriber calls are on the stack (the call-depth error names event recursion when any is).
-    pub(crate) subscriber_depth: u32,
+    /// The event subscriber calls on the stack, innermost last: (publisher object, subscriber object, subscriber routine) for
+    /// the shapes whose event recursion error text is pinned, `None` for another (the call-depth error names event
+    /// recursion when any is on the stack).
+    pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
