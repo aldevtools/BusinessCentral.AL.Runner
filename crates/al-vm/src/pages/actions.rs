@@ -1065,7 +1065,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
             }
-            if before.is_some() && self.reread_after_refill_to_one_row(st)? {
+            if before.is_some() && self.reread_after_refill_to_fewer_rows(st)? {
                 return Ok(Value::Null);
             }
             // A temporary Worksheet whose action left Rec on another row (a refill: RmTempRefill.al:323-:420) is read again from the
@@ -1132,6 +1132,13 @@ impl Session {
             if moved_pinned {
                 st.borrow_mut().rec_moved_other = true;
             }
+            // Rec left by CurrPage.Update(false) on a primary key no row has (page 5510 "Production Journal" Post): see the
+            // refusal of `rec_moved_other` below.
+            let moved_to_unstored_by_update_false =
+                moved_pinned && st.borrow().refresh && st.borrow().refresh_update_false && {
+                    let rec = self.page_rec(st);
+                    self.stored_row(&rec)?.is_none()
+                };
             // What the action left in Rec is saved when the client leaves the row (corpus
             // record/PWTableGlobals.al:408-431, PageModify_AfterActionChangedRec_NoValidation).
             if let Some(before) =
@@ -1244,9 +1251,20 @@ impl Session {
                 );
             }
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
-                return unsupported(
-                    "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
-                );
+                // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
+                // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
+                // (`settle_on_blank_rec`; al-runner issue 6027, the reporter's repro on real BC `N:B1;C:0:B1;`; registered
+                // assumption `gone-row-rec-on-unheld-key`). Rows left in the view, or no CurrPage.Update(false), are not pinned.
+                let on_blank = {
+                    let s = st.borrow();
+                    s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
+                };
+                if !(on_blank && moved_to_unstored_by_update_false) {
+                    return unsupported(
+                        "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneRowRecOnUnheldKey);
             }
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
             // CurrPage.Update(false) (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:351

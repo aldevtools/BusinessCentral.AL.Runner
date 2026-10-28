@@ -2037,7 +2037,8 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// "Page Metadata".SourceTableView for a view with sorting, order and several conditions, as BC formats it (corpus
 /// misc/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId; al-runner issue
-/// 5758). `order(ascending)` and a const on a Code field are not pinned and stay refused.
+/// 5758). `order(ascending)` adds nothing (platform/lt-aw-fresh-tenant/AwTests.al:116); a const of a lower-case Code value is
+/// not pinned and stays refused.
 #[test]
 fn a_source_table_view_with_sorting_order_and_conditions_reads_as_bc_formats_it() {
     let list = |id: u32, view: &str| {
@@ -2068,15 +2069,14 @@ fn a_source_table_view_with_sorting_order_and_conditions_reads_as_bc_formats_it(
     S := V(50011) + '|' + V(50012) + '|' + V(50013) + '|' + V(50014) + '|' + V(50015) + '|' + V(50016) + '|' + V(50017);
     if S <> 'SORTING(Field1) ORDER(1) WHERE(Field2=CONST(1))|WHERE(Field2=CONST(1),Field3=CONST(x))|SORTING(Field3) |ORDER(1) |WHERE(Field2=FILTER(1..5))|SORTING(Field3) WHERE(Field3=CONST(a b))|SORTING(Field2,Field1) ORDER(1) ' then
       Error('%1', S); end;
-  [Test] procedure Ascending() begin V(50018); end;
+  [Test] procedure Ascending() begin if V(50018) <> '' then Error('%1', V(50018)); end;
   [Test] procedure CodeConst() begin V(50019); end; }"#,
     );
     let o = outcomes(&src);
     passes(&o, "Pinned");
-    for test in ["Ascending", "CodeConst"] {
-        let got = o.iter().find(|(n, _)| n == test).map(|(_, o)| o);
-        assert!(matches!(got, Some(Outcome::NotRun(_))), "{test}: {got:?}");
-    }
+    passes(&o, "Ascending");
+    let got = o.iter().find(|(n, _)| n == "CodeConst").map(|(_, o)| o);
+    assert!(matches!(got, Some(Outcome::NotRun(_))), "CodeConst: {got:?}");
 }
 
 /// "Page Metadata".Editable is the page's declared Editable, Yes when it declares none (misc/W2PageMetadata.al:461
@@ -2480,4 +2480,43 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(50004); if M.SourceTableView <> 'WHERE(Field2=CONST(0001-01-01T00:00:00.0000000))' then Error('view %1', M.SourceTableView); end; }"#,
     );
     passes(&o, "Blank");
+}
+
+/// "Page Metadata".SourceTableView of a page whose view is `where(<Decimal field> = const(0))` is returned and names the field
+/// (al-runner issue 6030, the reporter's repro on real BC; assumption `page-metadata-view-decimal-const`). A fractional value
+/// is not measured and refused.
+#[test]
+fn a_decimal_const_view_is_in_page_metadata() {
+    let o = outcomes(
+        r#"table 50001 "Entry" { fields { field(1; "No."; Integer) { } field(5; "Output Qty"; Decimal) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "Zero" { PageType = List; SourceTable = Entry; SourceTableView = where("Output Qty" = const(0));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+page 50003 "Half" { PageType = List; SourceTable = Entry; SourceTableView = where("Output Qty" = const(1.5));
+    layout { area(Content) { repeater(R) { field(No; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Zero() var M: Record "Page Metadata"; begin
+    M.Get(50002); if M.SourceTableView <> 'WHERE(Field5=CONST(0))' then Error('view %1', M.SourceTableView); end;
+  [Test] procedure Half() var M: Record "Page Metadata"; begin
+    M.Get(50003); if M.SourceTableView = '' then Error('empty'); end; }"#,
+    );
+    passes(&o, "Zero");
+    assert!(not_run(&o, "Half").contains("SourceTableView"), "{o:?}");
+}
+
+/// order(ascending) adds nothing, a Code const reads without its quotes and a Decimal `filter(> 0)` reads `FILTER(>0)`
+/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117 PageMetadata_SourceTableView_SortingOrderTwoConditions).
+#[test]
+fn ascending_code_const_and_decimal_greater_filter_are_in_page_metadata() {
+    let o = outcomes(
+        r#"table 50001 "Src" { fields { field(1; Id; Integer) { } field(2; Code; Code[20]) { } field(3; Amount; Decimal) { } field(4; Status; Option) { OptionMembers = Open,Released,Closed; } } keys { key(PK; Id) { } key(K2; Code, Amount) { } key(K3; Amount) { } } }
+page 50002 "Asc" { PageType = List; SourceTable = Src; SourceTableView = sorting(Code, Amount) order(ascending) where(Id = filter(1 .. 10), Code = const('A'));
+    layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } } } } }
+page 50003 "Desc" { PageType = List; SourceTable = Src; SourceTableView = sorting(Amount) order(descending) where(Status = const(Released), Amount = filter(> 0));
+    layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Views() var M: Record "Page Metadata"; begin
+    M.Get(50002); if M.SourceTableView <> 'SORTING(Field2,Field3) WHERE(Field1=FILTER(1..10),Field2=CONST(A))' then Error('asc %1', M.SourceTableView);
+    M.Get(50003); if M.SourceTableView <> 'SORTING(Field3) ORDER(1) WHERE(Field4=CONST(1),Field3=FILTER(>0))' then Error('desc %1', M.SourceTableView); end; }"#,
+    );
+    passes(&o, "Views");
 }
