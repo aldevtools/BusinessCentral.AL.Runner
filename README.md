@@ -1,7 +1,6 @@
 # BusinessCentral.AL.Runner
 
-Run Business Central AL tests without a BC service tier, without Docker, without SQL Server
-and without a BC license.
+Run Business Central AL tests without a BC service tier, Docker or SQL Server.
 
 **The manual is at <https://aldev.tools/al-runner/>.** Its source is in [`docs/manual/`](docs/manual/).
 
@@ -102,6 +101,10 @@ Documents for contributors:
 - `oracle/`: the real-BC results the pass rate is measured against.
 - `metrics/<major>/passing.txt`: the cases that must keep passing, per BC major.
 - `docs/history/`: the original spike brief and report, and retired research notes.
+
+## Trademarks
+
+AL Runner is an independent project. It is not affiliated with, endorsed by or sponsored by Microsoft. Microsoft, Dynamics 365 and Business Central are trademarks of Microsoft Corporation.
 
 ## License
 

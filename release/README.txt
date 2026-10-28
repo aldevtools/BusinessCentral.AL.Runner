@@ -32,4 +32,8 @@ this off.
 Report problems, especially wrong results:
 https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/new?template=alpha-feedback.md
 
+AL Runner is an independent project. It is not affiliated with, endorsed
+by or sponsored by Microsoft. Microsoft, Dynamics 365 and Business Central
+are trademarks of Microsoft Corporation.
+
 License: MIT (see LICENSE).
