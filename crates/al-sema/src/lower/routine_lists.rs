@@ -101,12 +101,54 @@ impl serde::Serialize for Refusals {
 #[derive(Clone, Default)]
 pub struct Calls {
     own: Vec<Vec<Vec<(usize, usize)>>>,
+    /// Per object lowered here, per routine: how many of its calls come first and are calls its code makes; the rest is
+    /// what a variable of a page, report or xmlport type drives. Missing: all are taken as calls.
+    ndirect: Vec<Vec<u32>>,
     cached: Option<CachedFacts>,
 }
 
 impl Calls {
-    pub(crate) fn new(own: Vec<Vec<Vec<(usize, usize)>>>, cached: Option<CachedFacts>) -> Calls {
-        Calls { own, cached }
+    pub(crate) fn new(
+        own: Vec<Vec<Vec<(usize, usize)>>>,
+        ndirect: Vec<Vec<u32>>,
+        cached: Option<CachedFacts>,
+    ) -> Calls {
+        Calls { own, ndirect, cached }
+    }
+
+    /// Replaces the calls of object `o`, lowered again here.
+    pub(crate) fn replace(&mut self, o: usize, calls: Vec<Vec<(usize, usize)>>, ndirect: Vec<u32>) {
+        self.own[o] = calls;
+        if let Some(n) = self.ndirect.get_mut(o) {
+            *n = ndirect;
+        }
+    }
+
+    /// Where the driven routines start among the calls of routine `r` of object `o` lowered here.
+    fn split(&self, o: usize, r: usize) -> usize {
+        let all = self.own[o][r].len();
+        self.ndirect
+            .get(o)
+            .and_then(|n| n.get(r))
+            .map_or(all, |&n| (n as usize).min(all))
+    }
+
+    /// The calls the code of routine `r` of object `o` makes, appended to `out`: [`extend_into`](Self::extend_into)
+    /// without what a variable of a page, report or xmlport type drives.
+    pub fn extend_direct_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
+        match self.cached(o) {
+            Some(_) => self.extend_into(o, r, out),
+            None => out.extend(self.own[o][r][..self.split(o, r)].iter().copied()),
+        }
+    }
+
+    /// What a variable of a page, report or xmlport type in routine `r` of object `o` lowered here drives, appended to
+    /// `out` (the rest of [`extend_into`](Self::extend_into)). Nothing for an object the cache supplies, whose drivers
+    /// are kept apart (`Lowered::calls_into`).
+    pub fn extend_driven_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
+        if self.cached(o).is_none() {
+            out.extend(self.own[o][r][self.split(o, r)..].iter().copied());
+        }
     }
 
     pub fn len(&self) -> usize {
