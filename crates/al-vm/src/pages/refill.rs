@@ -142,6 +142,17 @@ impl Session {
                 "an action on a temporary Worksheet that left Rec on a row other than the first of its view (not pinned)",
             );
         }
+        // A view longer than a window refilled while the client stood on its first row: the reads of a later walk differ from
+        // the ones built (RmTempRefill.al:798 TD_RefillMany_WithCurrRecord_3To25 `walk log length` 444, :812 _25To22 372);
+        // from another row they match (:826 _30To21_FromRow25).
+        if rows.len() > Self::WINDOW
+            && self.declares(st, "onaftergetcurrrecord")
+            && Self::same_key(&table.primary_key(&rows[0]), held)
+        {
+            return unsupported(
+                "an action on a temporary Worksheet that refilled it with more rows than a window while the client stood on its first row (the reads of later moves are not built)",
+            );
+        }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         probe.borrow_mut().filters.clear();
         let mut pk = held.to_vec();
@@ -160,9 +171,8 @@ impl Session {
     /// row three times and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
     /// (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
     /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). With two rows up to a window it holds only those rows
-    /// (al-runner issue 6029, the reporter's repro on real BC lists `R1 R2` after 3 and 25 rows); the reads, each row once, then
-    /// the first row twice and OnAfterGetCurrRecord, or once without that trigger, are the registered assumption
-    /// `temp-refill-to-fewer-rows-by-action`. Rec on another row of the view, and more rows than a window, are refused.
+    /// (al-runner issue 6029; RmTempRefill.al TD_RefillFewer_WithCurrRecord_*, the reads below). Without OnAfterGetCurrRecord,
+    /// Rec on another row of the view, and more rows than a window, are refused.
     /// Returns whether it handled the action.
     pub(super) fn reread_after_refill_to_fewer_rows(&mut self, st: &St) -> Result<bool, Signal> {
         if !self.temp_refill_shape_any_current(st) || !self.held_row_gone(st)? {
@@ -185,13 +195,24 @@ impl Session {
                 "an action on a temporary Worksheet that refilled it with more rows than the client reads at once, a row the client held being gone (not pinned)",
             );
         }
-        if rows.len() > 1 {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TempRefillToFewerRowsByAction);
-        }
         if self.declares(st, "onaftergetcurrrecord") {
-            // Each row once, the first twice more, then OnAfterGetCurrRecord (with one row: `R:R1;R:R1;R:R1;C:R1;`).
+            // With two rows or more the client first reads Rec's row (the first), then each row once, the first twice more, then
+            // OnAfterGetCurrRecord (RmTempRefill.al:616 TD_RefillFewer_WithCurrRecord_3To2 `R:R1;R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;`,
+            // :629 _25To2, :642 _25To3, :681 _25To2_FromRow23 `R:R23;R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;`, :694 _3To2_FromRow3).
+            // With one row: each row once, the first twice more (`R:R1;R:R1;R:R1;C:R1;`).
+            if rows.len() > 1 {
+                self.read_refilled_row(st, &rec, &rows[0])?;
+            }
             self.read_refilled_rows(st, &rows, 0)?;
             return Ok(true);
+        }
+        // Without OnAfterGetCurrRecord and with two rows or more, the row the client stood on is read once more when it is not
+        // the first row (RmTempRefill.al:707 TD_RefillFewer_NoCurrRecord_3To2 `R:R1;R:R1;R:R1;R:R2;R:R1;`, :772 _25To2_FromRow23
+        // `R:R23;R:R23;R:R1;R:R1;R:R2;R:R1;`): the rule behind it is not built.
+        if rows.len() > 1 {
+            return unsupported(
+                "an action on a temporary Worksheet without OnAfterGetCurrRecord that refilled it to two rows or more, a row the client held being gone (its reads are not built)",
+            );
         }
         // Without OnAfterGetCurrRecord: each row once, the first once more (with one row: `R:R1;R:R1;`).
         let mut held = Vec::new();

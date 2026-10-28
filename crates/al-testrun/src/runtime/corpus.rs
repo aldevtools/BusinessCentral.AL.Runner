@@ -1356,9 +1356,7 @@ impl CorpusRuntime {
                                     call_stack: e.call_stack.clone(),
                                 }),
                             );
-                            d.refused_in = seen
-                                .refused_in
-                                .map(|(o, r)| explain::describe(&lowered.program, o, r, al_ir::NO_POS));
+                            d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
                             details.insert((u.si, u.id, name.to_lowercase()), d);
                         };
                         let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);

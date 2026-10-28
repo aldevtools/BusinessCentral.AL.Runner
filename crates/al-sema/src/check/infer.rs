@@ -362,6 +362,10 @@ impl<'a> Checker<'a> {
             if ti == sc.oi || ti == sc.self_obj || self.ws.is_dependency(ti) {
                 return;
             }
+            // A built-in Record method of the name is the call there (al-runner issue 6057, see `member`).
+            if !self.catalog.overloads("Record", name).is_empty() {
+                return;
+            }
             let ast = self.ws.object_ast(ti);
             let mut named = ast
                 .routines()
@@ -391,7 +395,8 @@ impl<'a> Checker<'a> {
         }
         let procs = self.members[ci].procedures_named(name);
         let shown = if !procs.is_empty() {
-            if !procs.iter().all(|p| p.local) {
+            // A built-in Codeunit method of the name is the call there (al-runner issue 6057, see `member`).
+            if !procs.iter().all(|p| p.local) || !self.catalog.overloads("Codeunit", name).is_empty() {
                 return;
             }
             format!("{name}()")

@@ -525,6 +525,11 @@ pub struct PageState {
     /// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
+    /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
+    pub marked_only_by_action: bool,
+    /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
+    /// before the next move is refused (the page still shows the old row there; not built).
+    pub marked_only_read_unbuilt: bool,
     /// An OnDrillDown turned MarkedOnly on and called `CurrPage.Update(false)` on a list in a key other than the primary key: the
     /// client still shows the row it stood on and refills its rows at the next GoToRecord (al-runner issue 6008). Holds the
     /// fields of Rec as the trigger left it; Rec shows the client's row until then.
@@ -851,6 +856,8 @@ impl PageState {
             view_left: false,
             marked_only_unshown: false,
             marked_only_unpinned: false,
+            marked_only_by_action: false,
+            marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,
             read_after_goto_doubt: false,
