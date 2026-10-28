@@ -2,6 +2,7 @@
 //! provider, then refusal. Marshalling between AL values and the host's wire values lives here
 //! too.
 
+mod blob_stream;
 pub mod compression;
 mod drawing;
 mod generic_dictionary;
