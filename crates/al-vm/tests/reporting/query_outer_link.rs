@@ -288,3 +288,29 @@ fn a_link_naming_the_parent_and_the_grandparent_reads_each() {
         "[1,11,101] [1,12,102] [2,21,103]"
     );
 }
+
+/// `DataItemTableFilter = "Code" = filter('')` selects the rows whose Code is blank, as `const('')` does
+/// (corpus query/TestQueryDataItemTableFilter.al:374 Sq_EmptyFilterTerm_Rows, query 89590).
+#[test]
+fn a_table_filter_of_an_empty_term_selects_blank_rows() {
+    let src = r#"
+table 69970 "QE Row" { fields { field(1; Id; Integer) { } field(2; "Code"; Code[10]) { } } keys { key(PK; Id) { } } }
+query 69971 "QE Q"
+{
+    QueryType = Normal; OrderBy = ascending(RowId);
+    elements { dataitem(Row; "QE Row") { DataItemTableFilter = "Code" = filter(''); column(RowId; Id) { } } }
+}
+codeunit 69972 C
+{
+    procedure Go(): Text
+    var R: Record "QE Row"; Q: Query "QE Q"; T: Text;
+    begin
+        R.Id := 1; R.Insert(); R.Id := 2; R."Code" := 'A'; R.Insert(); R.Id := 3; R."Code" := ''; R.Insert();
+        Q.Open();
+        while Q.Read() do T += Format(Q.RowId) + ',';
+        exit(T);
+    end;
+}
+"#;
+    assert_eq!(al_testkit::text(al_testkit::run(src, "Go")), "1,3,");
+}

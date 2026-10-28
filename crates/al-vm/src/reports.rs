@@ -254,21 +254,25 @@ impl Session {
             }
             // Without a subscriber to SubstituteReport the id itself, also for 0 and an id no report has, with no error
             // (report/lt-report-members-testrequestpage/P91Unsure.al:80 GetSubstituteReportId_Values `own` Yes, `zero` 0,
-            // `unknown` 71999). With a subscriber whether the event is raised and how is not pinned.
+            // `unknown` 71999). With one, SubstituteReport is raised with RunMode Normal, RequestPageXml '', an unopened RecordRef
+            // and NewReportId -1, and a NewReportId a subscriber set is the answer, -1 left as it was the id itself
+            // (P91Unsure.al:112-170 Sq_GetSubstituteReportId_LoggingSubscriber, _PlatformSubscriberChanges, _Unbound).
             ids::REPORT_GETSUBSTITUTEREPORTID_1 => {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported("Report.GetSubstituteReportId with an id that is not an integer");
                 };
-                if self
+                let n = *n;
+                if !self
                     .engine
                     .events
                     .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
                 {
-                    return unsupported(
-                        "Report.GetSubstituteReportId with a subscriber to SubstituteReport (only without one is it pinned)",
-                    );
+                    return Ok(Value::Integer(n));
                 }
-                Ok(Value::Integer(*n))
+                match self.raise_substitute(n, 0, Value::Text(String::new().into()))? {
+                    -1 => Ok(Value::Integer(n)),
+                    new => Ok(Value::Integer(new)),
+                }
             }
             ids::REPORT_DEFAULTLAYOUT_2 => {
                 let Some(Value::Integer(n)) = args.first() else {
@@ -3068,6 +3072,15 @@ impl Session {
     /// likely does (docs/probes-needed.md): RequestPageXml empty and RecordRef unopened.
     fn raise_substitute_report(&mut self, schema: &Schema, request_page_xml: Value) -> Result<Option<i32>, Signal> {
         let report_id = self.object_id_of(schema.object as u32) as i32;
+        match self.raise_substitute(report_id, 4, request_page_xml)? {
+            n if n == -1 || n == report_id => Ok(None),
+            n => Ok(Some(n)),
+        }
+    }
+
+    /// Raises `SubstituteReport(ReportId, RunMode, RequestPageXml, RecordRef, var NewReportId)` with an unopened RecordRef and
+    /// NewReportId -1 on entry, and answers NewReportId as the subscribers left it.
+    fn raise_substitute(&mut self, report_id: i32, run_mode: i32, request_page_xml: Value) -> Result<i32, Signal> {
         let members: std::sync::Arc<[String]> = ["Normal", "ParametersOnly", "Execute", "Print", "SaveAs", "RunModal"]
             .iter()
             .map(|m| m.to_string())
@@ -3078,7 +3091,7 @@ impl Session {
             .collect();
         let mut args = vec![
             Value::Integer(report_id),
-            Value::Option(4, members),
+            Value::Option(run_mode, members),
             request_page_xml,
             Value::Library(
                 "RecordRef".into(),
@@ -3096,8 +3109,7 @@ impl Session {
         };
         self.raise(&call, &mut args)?;
         match args[4] {
-            Value::Integer(n) if n == -1 || n == report_id => Ok(None),
-            Value::Integer(n) => Ok(Some(n)),
+            Value::Integer(n) => Ok(n),
             ref other => unsupported(format!("SubstituteReport set NewReportId to {}", other.describe())),
         }
     }
