@@ -241,9 +241,18 @@ fn convert(cell: &Cell, kind: &Kind, default: &Value) -> Result<Value, String> {
                 magnitude,
                 scale,
             } => {
-                let m = i128::try_from(*magnitude).map_err(|_| format!("the decimal {} is too large", cell))?;
+                // BC stores a Decimal field as decimal(38,20): 999000000000 is 999000000000.00000000000000000000, more
+                // digits than a Decimal holds. The trailing zeros of the scale do not change the value, and without
+                // them it fits (al-runner issue 6058: the reporter's run on real BC reads such a value). Digits that
+                // still do not fit are refused below, never rounded.
+                let (mut magnitude, mut scale) = (*magnitude, *scale);
+                while scale > 0 && magnitude % 10 == 0 {
+                    magnitude /= 10;
+                    scale -= 1;
+                }
+                let m = i128::try_from(magnitude).map_err(|_| format!("the decimal {} is too large", cell))?;
                 let m = if *negative { -m } else { m };
-                match Decimal::try_from_i128_with_scale(m, u32::from(*scale)) {
+                match Decimal::try_from_i128_with_scale(m, u32::from(scale)) {
                     Ok(d) => Value::Decimal(d.normalize()),
                     Err(_) => return Err(format!("the decimal {} does not fit a Decimal", cell)),
                 }
@@ -756,6 +765,30 @@ mod tests {
         )
         .unwrap();
         assert_value!(d, Value::Decimal(Decimal::new(-125, 1)));
+    }
+
+    /// al-runner issue 6058: a decimal(38,20) column holds 999000000000 as 999000000000.00000000000000000000, 32 digits
+    /// with the scale, more than a Decimal holds. Without the trailing zeros of the scale it fits, and that is the
+    /// value. A value whose significant digits do not fit stays refused.
+    #[test]
+    fn a_decimal_with_more_digits_than_a_decimal_holds_fits_without_the_trailing_zeros_of_its_scale() {
+        let cell = |negative: bool, magnitude: u128| Cell::Decimal {
+            negative,
+            magnitude,
+            scale: 20,
+        };
+        let big = 999_000_000_000u128 * 10u128.pow(20);
+        assert_value!(
+            conv(cell(false, big), &RtType::Decimal).unwrap(),
+            Value::Decimal(Decimal::new(999_000_000_000, 0))
+        );
+        assert_value!(
+            conv(cell(true, big + 5 * 10u128.pow(18)), &RtType::Decimal).unwrap(),
+            Value::Decimal(Decimal::new(-99_900_000_000_005, 2))
+        );
+        // 12 integer digits and 20 significant decimals: 32 significant digits.
+        let err = conv(cell(false, big + 1), &RtType::Decimal).unwrap_err();
+        assert!(err.contains("does not fit a Decimal"), "{err}");
     }
 
     #[test]

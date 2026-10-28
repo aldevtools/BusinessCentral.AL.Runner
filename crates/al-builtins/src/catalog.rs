@@ -279,6 +279,44 @@ impl Catalog {
         })
     }
 
+    /// Whether alc sees the same overloads of the method of `id` for a call with `argc` arguments at `at` as at
+    /// `floor`: every measured overload of that method with that many arguments compiles at both runtimes or at
+    /// neither, and at least one is measured. The lines no probe expresses (an `Any` parameter) are the catalog's
+    /// own catch-alls, not overloads of alc's, and are left out. With the same overloads alc binds a call as it
+    /// does at `floor` (al-runner issue 6061).
+    pub fn alc_same_overloads(&self, id: &str, argc: usize, at: Runtime, floor: Runtime) -> bool {
+        let Some((qual, _)) = id.rsplit_once('#') else {
+            return false;
+        };
+        let Some((recv, name)) = qual.rsplit_once('.') else {
+            return false;
+        };
+        let Some(lines) = self.by_method.get(&(recv.to_lowercase(), name.to_lowercase())) else {
+            return false;
+        };
+        let mut measured = 0;
+        for &i in lines {
+            match self.alc[i].get(&argc) {
+                Some(a @ AlcRuntime::Measured { .. }) => {
+                    if a.compiles_at(at) != a.compiles_at(floor) {
+                        return false;
+                    }
+                    measured += 1;
+                }
+                Some(AlcRuntime::NotExpressible(_)) => {}
+                // A line that takes this many arguments but has no row: not known.
+                None => {
+                    let s = &self.signatures[i];
+                    let req = s.params.iter().filter(|p| !p.optional).count();
+                    if req <= argc && (argc <= s.params.len() || s.params.last().is_some_and(|p| p.variadic)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        measured > 0
+    }
+
     /// Every catalog line with the argument counts it accepts, for the coverage test of `catalog/alc-runtimes.txt`:
     /// (line, argument count, whether the table has a row).
     pub fn alc_coverage(&self) -> Vec<(String, usize, bool)> {
