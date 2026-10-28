@@ -593,7 +593,7 @@ xmlport 60045 "ALT Text In Table XmlPort"
             {
                 XmlName = 'Universal';
                 fieldelement(EntryNo; Universal."Entry No.") { }
-                textelement(Group) { textelement(Inner) { } }
+                textelement(Group) { textelement(Inner) { textelement(Deep) { } } }
             }
         }
     }
@@ -1455,7 +1455,8 @@ fn a_nested_text_group_exports_and_imports_its_variables() {
     assert_eq!(out, "World");
 }
 
-// A text element with content inside a table element is refused in both directions.
+// A text element with content inside a table element is refused in both directions when a container is below it (only
+// attributes and leaf elements below it are pinned: xmlport_text_in_table.rs).
 #[test]
 fn a_text_group_inside_a_table_element_is_refused() {
     let r = refusal(
@@ -1466,7 +1467,7 @@ fn a_text_group_inside_a_table_element_is_refused() {
     assert!(r.contains("text element with content inside a table element"), "{r}");
     let r = refusal(
         IMPORT_VARS,
-        "H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><Group><Inner>x</Inner></Group></Universal></Universals>');
+        "H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><Group><Inner><Deep>x</Deep></Inner></Group></Universal></Universals>');
          XmlPort.Import(60045, InStr); exit('');",
     );
     assert!(r.contains("text element with content inside a table element"), "{r}");
