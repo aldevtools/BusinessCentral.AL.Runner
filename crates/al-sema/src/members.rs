@@ -35,6 +35,27 @@ pub struct FieldInfo {
     pub on_lookup: Option<usize>,
     /// Every property of the field as written (`Caption`, `OptionCaption`, ...).
     pub properties: Vec<(String, String)>,
+    /// Per `TableRelation` entry of `properties`, in order: the table extension whose `modify` block set it, whose
+    /// scope names its tables (al-runner issue 6059: a base field related to a table of the extension's own app).
+    /// `None`, or no entry: the field's own declaration (`declared_in`).
+    pub relation_scopes: Vec<Option<usize>>,
+}
+
+impl FieldInfo {
+    /// Each `TableRelation` text of the field with the object whose scope resolves its names: the extension that set
+    /// it by `modify`, else the declaring table or extension.
+    pub fn relation_texts(&self) -> impl Iterator<Item = (&str, Option<usize>)> {
+        self.properties
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("TableRelation"))
+            .enumerate()
+            .map(|(i, (_, v))| {
+                (
+                    v.as_str(),
+                    self.relation_scopes.get(i).copied().flatten().or(self.declared_in),
+                )
+            })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,12 +223,21 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
                                 .any(|(pk, _)| pk.eq_ignore_ascii_case("TableRelation"))
                         {
                             field.relation_tables.extend(relation_targets(&v));
+                            let before = field
+                                .properties
+                                .iter()
+                                .filter(|(pk, _)| pk.eq_ignore_ascii_case("TableRelation"))
+                                .count();
+                            field.relation_scopes.resize(before, None);
+                            field.relation_scopes.push(Some(e));
                             field.properties.push((k, v));
                             continue;
                         }
                         field.table_relation = true;
                         field.relation_table = Some(relation_target(&v));
                         field.relation_tables = relation_targets(&v);
+                        // The extension's own scope names the related table (al-runner issue 6059).
+                        field.relation_scopes = vec![Some(e)];
                     }
                     match field.properties.iter_mut().find(|(pk, _)| pk.eq_ignore_ascii_case(&k)) {
                         Some(slot) => slot.1 = v,
@@ -370,6 +400,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     on_validate,
                     on_lookup,
                     properties: f.properties().map(|p| (p.name(), p.value_text())).collect(),
+                    relation_scopes: Vec::new(),
                 });
             }
         } else if name == "value" {
@@ -430,6 +461,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     2000000004 => vec![("Caption".into(), "'Modified By'".into())],
                     _ => Vec::new(),
                 },
+                relation_scopes: Vec::new(),
             });
         }
     }
