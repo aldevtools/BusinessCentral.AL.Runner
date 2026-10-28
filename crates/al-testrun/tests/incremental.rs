@@ -513,3 +513,34 @@ fn with_tdd_the_stubs_follow_the_objects_compiled_again_and_the_real_procedure_e
         "the real Thrice returns 6: {got:?}"
     );
 }
+
+/// A change that makes a selected test call a procedure of a test codeunit the selection leaves out compiles that
+/// codeunit with it: the outcome is the one of a complete compile, which compiles a left-out test codeunit that kept
+/// code names (`check::named_by_kept`).
+#[test]
+fn a_change_that_names_a_left_out_test_codeunit_gives_the_outcome_of_a_complete_compile() {
+    SELECTION.with(|s| *s.borrow_mut() = Some(vec![(0, 60101)]));
+    let dir = tempfile::tempdir().unwrap();
+    let mut warm = Warm::new();
+    let other = OTHER.replace(
+        "    [Test]\n    procedure Fails()",
+        "    procedure Seven(): Integer\n    begin\n        exit(7);\n    end;\n\n    [Test]\n    procedure Fails()",
+    );
+    assert_ne!(other, OTHER);
+    warm_run(&mut warm, &[LIB, TESTS, other.as_str(), TABLES], dir.path());
+    let tests = TESTS.replace(
+        "        if L.Label() <> 'lib' then",
+        "        if Codeunit_Other.Seven() <> 7 then\n            Error('seven');\n        if L.Label() <> 'lib' then",
+    );
+    let tests = tests.replace(
+        "    procedure Greets()\n    var\n",
+        "    procedure Greets()\n    var\n        Codeunit_Other: Codeunit Other;\n",
+    );
+    assert!(tests.contains("Codeunit_Other: Codeunit Other;"));
+    let texts = [LIB, tests.as_str(), other.as_str(), TABLES];
+    let (_, got) = warm_run(&mut warm, &texts, dir.path());
+    assert_same(&warm, &texts, dir.path(), "a test that names a left-out test codeunit");
+    let (_, want) = complete(&texts, dir.path());
+    assert_eq!(got, want);
+    assert!(got.iter().any(|l| l.contains("60101 Greets Pass")), "{got:?}");
+}

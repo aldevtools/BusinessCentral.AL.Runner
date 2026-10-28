@@ -2222,6 +2222,14 @@ pub fn relower_objects(
     roots.provided_queries = (0..n)
         .map(|oi| old.provided[oi].then(|| src.facts(oi).query.clone()).flatten())
         .collect();
+    // A changed object that now names a test codeunit the selection left out needs that codeunit compiled
+    // (`check::named_by_kept`): the complete compile does that.
+    if roots.only_tests.is_some()
+        && old.skipped.len() == n
+        && !crate::check::named_by_kept(ws, &old.skipped, Some(dirty)).is_empty()
+    {
+        return Err("a changed object names a test codeunit the selection left out".into());
+    }
     roots.only_objects = Some(dirty.to_vec());
     roots.skipped_before = Some(old.skipped.clone());
     let checked = crate::check::check_with(ws, &members, catalog, roots);
