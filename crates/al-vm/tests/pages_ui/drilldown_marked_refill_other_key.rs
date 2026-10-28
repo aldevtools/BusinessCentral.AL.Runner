@@ -1,8 +1,9 @@
 //! A Worksheet in a key other than the primary key (OnOpenPage calls SetCurrentKey) whose field's OnDrillDown marks rows,
 //! turns MarkedOnly on and calls `CurrPage.Update(false)`: the drilldown reads nothing and the page keeps showing the row it
-//! stood on; the next GoToRecord first refills the rows around the row Rec was left on, then walks the marked rows (al-runner
-//! issue 6008, the reporter's run on real BC 29.0.54011.55407; assumption drilldown-marked-refill-in-its-key until corpus
-//! writer SU's pin lands). The fixture is the reporter's repro without Library Assert.
+//! stood on; a GoToRecord of the row Rec was left on first refills the rows around it and answers true on it (corpus
+//! pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, three marked rows; al-runner issue 6008).
+//! The fixture is the reporter's repro without Library Assert; its GoToRecord of another marked row is not pinned (the
+//! reporter's Windows run and a SaaS sandbox disagree) and is refused.
 
 const SRC: &str = r##"table 50100 "Refill Probe Row"
 {
@@ -137,6 +138,26 @@ codeunit 50120 T
         exit(Observed);
     end;
 
+    procedure ThreeMarkedRowsGoToRecsRow(): Text
+    var
+        Row: Record "Refill Probe Row";
+        P: TestPage "Refill Probe Name List";
+        Observed: Text;
+    begin
+        SeedRows();
+        Row.Get(2);
+        Row.Flag := true;
+        Row.Modify();
+        P.OpenView();
+        Log.Take();
+        P.FlaggedTile.Drilldown();
+        Observed := 'drilldown=' + P.Id.Value() + ':' + Log.Take();
+        Row.Get(1);
+        Observed += ' goto1=' + Format(P.GoToRecord(Row)) + '/' + P.Id.Value() + ':' + Log.Take();
+        P.Close();
+        exit(Observed);
+    end;
+
     procedure GoToRecordOfRecsRowFirst()
     var
         Row: Record "Refill Probe Row";
@@ -209,7 +230,7 @@ codeunit 50120 T
 }
 "##;
 
-use al_builtins::assumptions::{Assumption, hit};
+
 use al_builtins::native::Signal;
 
 fn refusal(r: Result<al_builtins::value::Value, Signal>) -> String {
@@ -219,25 +240,25 @@ fn refusal(r: Result<al_builtins::value::Value, Signal>) -> String {
     }
 }
 
-/// BC's log, verbatim from the reporter's run on real BC (al-runner issue 6008).
+/// The corpus pin's shape on the reporter's page: three marked rows in the Name key (rows 3, 2, 1), Rec left on the last
+/// (row 1); the refill reads row 1 twice, the rows above it from the nearest up, row 1 three times and OnAfterGetCurrRecord
+/// (SuRefillKey.al:269 `goto 3` `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`).
 #[test]
-fn goto_record_after_a_marked_drilldown_in_another_key_refills_as_bc_does() {
+fn goto_record_of_recs_row_after_a_marked_drilldown_refills_as_the_corpus_pins() {
     let mut b = al_testkit::Built::from_source(SRC);
     al_builtins::assumptions::clear_hits();
-    let got = al_testkit::text(b.run_in("T", "Reported"));
-    assert_eq!(
-        got,
-        "open=4:R4;R3;R2;R1;R4;R4;R4;C4; drilldown=4: gotorecord3=No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1; \
-         gotorecord1=Yes/1:R3;R3;R3;C3;R1;R1;R1;C1;"
-    );
-    assert!(hit(Assumption::DrilldownMarkedRefillInItsKey));
+    let got = al_testkit::text(b.run_in("T", "ThreeMarkedRowsGoToRecsRow"));
+    assert_eq!(got, "drilldown=4: goto1=Yes/1:R1;R1;R2;R3;R1;R1;R1;C1;");
+    assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
-/// The shapes the reporter did not measure stay refused.
+/// The shapes the corpus does not pin stay refused: the reporter's GoToRecord of the first of two marked rows, two marked
+/// rows, another row than Rec's, and moves other than GoToRecord.
 #[test]
 fn unmeasured_moves_after_a_marked_drilldown_in_another_key_are_refused() {
     let mut b = al_testkit::Built::from_source(SRC);
     for p in [
+        "Reported",
         "GoToRecordOfRecsRowFirst",
         "NextAfterTheDrilldown",
         "GoToKeyAfterTheDrilldown",

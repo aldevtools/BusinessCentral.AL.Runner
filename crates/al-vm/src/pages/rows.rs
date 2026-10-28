@@ -2784,19 +2784,19 @@ impl Session {
         Ok(Value::Boolean(found))
     }
 
-    /// GoToRecord after an OnDrillDown marked two rows, turned MarkedOnly on, left Rec on the second and called
+    /// GoToRecord after an OnDrillDown marked rows, turned MarkedOnly on, left Rec on the last of them and called
     /// `CurrPage.Update(false)` on a list in a key other than the primary key (`drilldown_marked_only_refresh`). The client first
-    /// refills its rows around the row Rec was left on: that row twice, the row above it, that row three times and
-    /// OnAfterGetCurrRecord; then it walks the rows from the first, each a move (three reads and OnAfterGetCurrRecord), and
-    /// answers false on Rec's row. Measured by the reporter of al-runner issue 6008 on real BC for GoToRecord of the first row
-    /// (`gotorecord3=No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1;`); assumption drilldown-marked-refill-in-its-key until
-    /// the corpus pins it. Another number of marked rows, Rec on another row and another target are refused.
+    /// refills its rows around the row Rec was left on: that row twice, the rows above it from the nearest up, that row three
+    /// times and OnAfterGetCurrRecord; GoToRecord of that row then answers true on it. Pinned with three marked rows and Rec on
+    /// the last (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, `goto 3`
+    /// `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`; al-runner issue 6008). Another number of marked rows, Rec on another row and a
+    /// GoToRecord of another row are refused: the reporter's GoToRecord of the first of two marked rows gave `No/1` on its
+    /// Windows run and `Yes/3` on a SaaS sandbox, and no corpus test pins it.
     fn go_to_record_after_marked_refill(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
         let Some(left) = st.borrow_mut().marked_refill_in_key.take() else {
             return unsupported("GoToRecord after a marking OnDrillDown without the rows it left (not pinned)");
         };
         self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, st));
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillInItsKey);
         let refuse = |what: &str| -> Result<Value, Signal> {
             unsupported(format!(
                 "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list in a key other \
@@ -2806,32 +2806,45 @@ impl Session {
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
         rec.borrow_mut().fields = left;
+        let left_key = self.row_key(&rec)?;
+        if !Self::same_key(want, &left_key) {
+            return refuse("of a row other than the row Rec was left on");
+        }
         if !self.nav_find(st, "=")? {
             return refuse("with Rec left outside the marked rows");
         }
         let key = self.row_key(&rec)?;
         let stored = rec.borrow().fields.clone();
-        self.populate_current(st)?;
         if self.nav_next(st, 1)? {
             return refuse("with marked rows after the row Rec was left on");
         }
         rec.borrow_mut().fields = stored.clone();
-        self.populate_current(st)?;
+        let mut above = Vec::new();
+        while self.nav_next(st, -1)? {
+            above.push((self.row_key(&rec)?, rec.borrow().fields.clone()));
+            if above.len() > 2 {
+                break;
+            }
+        }
+        if above.len() != 2 {
+            return refuse("with a number of marked rows other than three");
+        }
         rec.borrow_mut().fields = stored.clone();
-        if !self.nav_next(st, -1)? {
-            return refuse("with Rec left on the first marked row");
+        for _ in 0..2 {
+            rec.borrow_mut().fields = stored.clone();
+            self.populate_current(st)?;
         }
-        let above_key = self.row_key(&rec)?;
-        let above_stored = rec.borrow().fields.clone();
-        self.populate_current(st)?;
-        let above_shown = rec.borrow().fields.clone();
-        rec.borrow_mut().fields = above_stored.clone();
-        if self.nav_next(st, -1)? {
-            return refuse("with more than two marked rows");
+        let mut held = Vec::new();
+        for (k, f) in &above {
+            rec.borrow_mut().fields = f.clone();
+            self.populate_current(st)?;
+            held.push(al_builtins::value::WindowRow {
+                key: k.clone(),
+                stored: f.clone(),
+                shown: rec.borrow().fields.clone(),
+            });
         }
-        if !Self::same_key(want, &above_key) {
-            return refuse("of a row other than the first of the two marked rows");
-        }
+        held.reverse();
         self.ret_used = true;
         if !matches!(
             self.record_op(RecordOp::Get, &rec, &mut key.clone())?,
@@ -2845,20 +2858,14 @@ impl Session {
             self.populate_current(st)?;
         }
         let shown = rec.borrow().fields.clone();
+        held.push(al_builtins::value::WindowRow {
+            key,
+            stored: stored.clone(),
+            shown,
+        });
         {
             let mut s = st.borrow_mut();
-            s.window = vec![
-                al_builtins::value::WindowRow {
-                    key: above_key,
-                    stored: above_stored,
-                    shown: above_shown,
-                },
-                al_builtins::value::WindowRow {
-                    key,
-                    stored: stored.clone(),
-                    shown,
-                },
-            ];
+            s.window = held;
             s.window_from_start = true;
             s.window_whole = true;
             s.window_eof = true;
@@ -2870,11 +2877,7 @@ impl Session {
         self.set_xrec_fields(st, stored);
         let r = self.current_record_trigger(st, before);
         self.torn_down_on_error(st, r)?;
-        for idx in 0..2 {
-            let r = self.arrive_held(st, idx);
-            self.torn_down_on_error(st, r)?;
-        }
-        Ok(Value::Boolean(false))
+        Ok(Value::Boolean(true))
     }
 
     /// `FindFirstField` / `FindNextField` / `FindPreviousField`: walks the rows of the view from the

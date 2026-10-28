@@ -299,14 +299,14 @@ impl Session {
         }
         // In a key other than the primary key, on a page without parts standing on a stored row: the drilldown reads nothing
         // and the page keeps showing the row it stood on; the next GoToRecord refills the rows around the row Rec was left on
-        // (`go_to_record_after_marked_refill`; al-runner issue 6008, the reporter's run on real BC: `drilldown=4:` with an
-        // empty log while Rec was left on row 1). Every other call until then is refused (`marked_only_unshown_call`).
+        // (`go_to_record_after_marked_refill`; corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269
+        // Name_DrillDown_GoToRecord `drilldown` `4:` with an empty log while Rec was left on row 3). Every other call until then
+        // is refused (`marked_only_unshown_call`).
         let in_its_key = !with_parts
             && self.still_reads_once_more(st)
             && st.borrow().cursor == Cursor::Row
             && shown_before.is_some();
         if in_its_key && let Some(shown) = shown_before {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillInItsKey);
             let rec = self.page_rec(st);
             let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
             let mut s = st.borrow_mut();
