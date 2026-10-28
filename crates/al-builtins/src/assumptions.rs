@@ -227,6 +227,17 @@ registry! {
         tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
         probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
     },
+    PageLookupRefreshWithUnlinkedListPart => {
+        id: "page-lookup-refresh-with-unlinked-list-part",
+        assumed: "TestField.Lookup through a control's own OnLookup on a page whose only parts are ListParts without a SubPageLink, SubPageView or provider, whose code calls `CurrPage.Update(false)` of that page and no other CurrPage method, refreshes that page as it does on a page without parts (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al): a read of a control of the page that computes an expression the page does not keep gives its value now. The parts' own reads after it stay refused.",
+        tests: "No Microsoft test: al-runner issue 6009, the reporter's run on a real BC container (a List with a header field bound to a global record's field and an unlinked ListPart: the field shows the picked value after the Lookup, 2/2 tests).",
+        probe: "The page of ScLookupGlobalRecordField.al with an unlinked ListPart: the field's value after the Lookup with CurrPage.Update(false), with CurrPage.Update(true), with no Update, with a part that has a SubPageLink, and the part's rows after it. Corpus writer ST (branch al-runtime-rs-staging-st).",
+        awaiting: Awaiting {
+            issues: &[6009],
+            files: &["tests/al-language/pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al::LookupUpdateFalseOnPart"],
+            since: "2026-10-28",
+        },
+    },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",
