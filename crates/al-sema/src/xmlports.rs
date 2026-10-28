@@ -538,8 +538,14 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // On a field attribute it is pinned for one of a table element, on import (platform/lt-ag-contoso/
                 // AgXmlPortImport.al:27-53, :248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
                 let value = p.value_text().trim().to_ascii_lowercase();
+                // A field attribute of a text element directly below a table element: xmlport/lt-sg-xmlport-occurs/
+                // SgXmlPortOccurs.al:78-175 SG_AttrBelowText_* (xmlport 89361), export and import.
                 let parent_ok = parent.is_some_and(|i| match kind {
-                    K::FieldAttr => out.nodes[i].kind == K::Table,
+                    K::FieldAttr => {
+                        out.nodes[i].kind == K::Table
+                            || (out.nodes[i].kind == K::Text
+                                && out.nodes[i].parent.is_some_and(|g| out.nodes[g].kind == K::Table))
+                    }
                     _ => matches!(out.nodes[i].kind, K::Text | K::Table),
                 });
                 if !parent_ok || !matches!(value.as_str(), "required" | "optional") {
@@ -677,7 +683,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (&[], &[])
             }
         }
-        K::Table => (&["zero"], &["unbounded"]),
+        // MaxOccurs = Once on a table element that is not below another one: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:229-445
+        // (SG_OnceTemp_*: below the root and below a container text element, temporary, MinOccurs = Zero; SG_OnceReal_*: a real
+        // table with the default MinOccurs), export and import.
+        K::Table => (&["zero"], &["unbounded", "once"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
         _ => return None,

@@ -1934,6 +1934,11 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // A text element holding only attributes, of the row's fields or its own (xmlport/lt-sg-xmlport-occurs/
+                // SgXmlPortOccurs.al:114-175 SG_AttrBelowText_Import*): its attributes are read into the row as the row's own.
+                ir::XmlNodeKind::Text if attr_container(schema, child) => {
+                    self.xp_import_attrs(inst, schema, child, ce, Some(&mut assigned))?;
+                }
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
@@ -2729,8 +2734,12 @@ impl Session {
                     e.children.push(Node::Text(v));
                     out.children.push(Node::Elem(e));
                 }
+                // A text element holding only attributes below a table element is written as any container (xmlport/
+                // lt-sg-xmlport-occurs/SgXmlPortOccurs.al:78-110 SG_AttrBelowText_Export_*).
                 ir::XmlNodeKind::Text
-                    if schema.node(node).kind == ir::XmlNodeKind::Table && !linked_container(schema, child, node) =>
+                    if schema.node(node).kind == ir::XmlNodeKind::Table
+                        && !linked_container(schema, child, node)
+                        && !attr_container(schema, child) =>
                 {
                     return unsupported("XmlPort export of a text element with content inside a table element");
                 }
@@ -2912,6 +2921,16 @@ impl Session {
             }
         }
         self.xp_rows(inst, schema, node, &mut rows)?;
+        // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
+        // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
+        if n.max_unbounded == Some(false) && rows.len() > 1 {
+            if export_triggers_below(schema, node) {
+                return unsupported(
+                    "XmlPort export of a table element with MaxOccurs = Once, several rows and export triggers (not pinned)",
+                );
+            }
+            rows.truncate(1);
+        }
         let rec = self.xp_record(inst, n)?;
         // A table element without rows still passes its fields once, without a row: OnBeforePassField runs and no
         // OnAfterGetRecord (P94XpPathFlow.al:Export_PathsNoRows). Unless it is optional, the element is written once with the
@@ -3322,6 +3341,29 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
+
+/// Whether node `node` or a node below it has a trigger an export runs.
+fn export_triggers_below(schema: &Schema, node: usize) -> bool {
+    let n = schema.node(node);
+    ["onaftergetrecord", "onbeforepassfield", "onbeforepassvariable"]
+        .iter()
+        .any(|t| n.trigger(t).is_some())
+        || schema.children(node).into_iter().any(|c| export_triggers_below(schema, c))
+}
+
+/// A text element without triggers whose nodes are all attributes (at least one).
+fn attr_container(schema: &Schema, c: usize) -> bool {
+    let kids = schema.children(c);
+    schema.node(c).kind == ir::XmlNodeKind::Text
+        && schema.node(c).triggers.is_empty()
+        && !kids.is_empty()
+        && kids.iter().all(|&k| {
+            matches!(
+                schema.node(k).kind,
+                ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr
+            )
+        })
+}
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
     let kids = schema.children(c);
