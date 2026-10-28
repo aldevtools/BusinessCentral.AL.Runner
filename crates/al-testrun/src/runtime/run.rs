@@ -155,109 +155,8 @@ pub fn run_codeunit_full(
 
 /// [`run_codeunit_full`], or with `execute` the `OnRun` trigger of the codeunit run as its one test, with the text of
 /// the `Message` calls it made kept in `messages` (a scratch run).
-///
-/// A page open runs the CaptionClass expressions of its source table with an empty record a number of times BC does not
-/// give stably (al-runner issue 5870: 8 per open on one BC 29 container; the corpus saw 240, 480 and 492 calls for one
-/// Card open, record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:657, and asserts only that such runs happen, :543
-/// `id0>0=Yes`). When a test of the codeunit went through such an open (assumption page-open-caption-class-empty-record-count),
-/// the codeunit runs a second time with another number, and every test whose outcome differs observes the number: it is
-/// refused. The events of the tests are kept until that is known.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_codeunit_core(
-    engine: &Arc<Engine>,
-    lowered: &Lowered,
-    object: usize,
-    baseline: Option<&al_vm::Baseline>,
-    isolation: TestIsolation,
-    observe: Option<&mut Observer>,
-    stacks: &mut Vec<(String, String)>,
-    times: &mut Vec<(String, std::time::Duration)>,
-    hits: &mut Vec<(String, Vec<Assumption>)>,
-    scratch: &mut Scratch,
-    limit: Option<std::time::Duration>,
-    execute: bool,
-) -> Vec<(String, Outcome)> {
-    if execute {
-        return run_codeunit_once(
-            engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
-        );
-    }
-    crate::events::hold();
-    let mut out = run_codeunit_once(
-        engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, false,
-    );
-    let counted = hits
-        .iter()
-        .any(|(_, h)| h.contains(&Assumption::PageOpenCaptionClassEmptyRecordCount));
-    let mut refused: BTreeSet<String> = BTreeSet::new();
-    let mut patched: Vec<(String, Outcome)> = Vec::new();
-    if counted && !crate::events::cancelled() {
-        // The second run leaves nothing behind: no events, coverage, debugger, or what a Disabled codeunit carries over.
-        let carried = CARRIED.with(|c| c.borrow_mut().take());
-        let covered = crate::coverage::suspend();
-        crate::events::mute(true);
-        let mut other = Scratch {
-            order: scratch.order.clone(),
-            clock_start: scratch.clock_start,
-            run_only: scratch.run_only.clone(),
-            hub: scratch.hub,
-            leak: scratch.leak.clone(),
-            onrun_carry: scratch.onrun_carry,
-            on_run_rows: scratch.on_run_rows,
-            caption_empty_runs: Some(al_vm::CAPTION_EMPTY_RECORD_RUNS_OTHER),
-            ..Default::default()
-        };
-        let again = run_codeunit_once(
-            engine,
-            lowered,
-            object,
-            baseline,
-            isolation,
-            None,
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &mut other,
-            limit,
-            false,
-        );
-        crate::events::mute(false);
-        crate::coverage::resume(covered);
-        CARRIED.with(|c| *c.borrow_mut() = carried);
-        let went_through = |name: &str| {
-            hits.iter()
-                .any(|(n, h)| n == name && h.contains(&Assumption::PageOpenCaptionClassEmptyRecordCount))
-        };
-        for (name, outcome) in out.iter_mut() {
-            let why = match &*outcome {
-                Outcome::NotRun(_) => continue,
-                o if again.iter().find(|(n, _)| n == name).is_none_or(|(_, a)| a != o) => {
-                    format!("{EMPTY_RECORD_COUNT_REASON} (the outcome changed when they ran once instead of 20 times)")
-                }
-                // The same failure with both numbers can still come from the number (an assertion of BC's count fails
-                // with 20 and with 1): a test that went through such an open is not trusted to fail.
-                Outcome::Fail(e) if went_through(name) => {
-                    format!("{EMPTY_RECORD_COUNT_REASON} (the test failed after such an open, with: {e})")
-                }
-                _ => continue,
-            };
-            *outcome = Outcome::NotRun(why);
-            refused.insert(name.clone());
-        }
-        stacks.retain(|(n, _)| !refused.contains(n));
-        patched = out.iter().filter(|(n, _)| refused.contains(n)).cloned().collect();
-    }
-    crate::events::release(|test| patched.iter().find(|(n, _)| n == test).map(|(_, o)| o.clone()));
-    out
-}
-
-/// Why a test whose outcome depends on the number of empty-record CaptionClass runs of a page open is not run.
-pub(crate) const EMPTY_RECORD_COUNT_REASON: &str = "the outcome may depend on how many times a page open runs the \
-     CaptionClass expressions of its source table with an empty record, and BC gives no stable number (al-runner issue 5870)";
-
-/// One run of [`run_codeunit_core`].
-#[allow(clippy::too_many_arguments)]
-fn run_codeunit_once(
     engine: &Arc<Engine>,
     lowered: &Lowered,
     object: usize,
@@ -273,9 +172,6 @@ fn run_codeunit_once(
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
     let mut session = Session::with_host(engine.clone(), crate::host::host_at(scratch.clock_start));
-    if let Some(n) = scratch.caption_empty_runs {
-        session.set_caption_empty_record_runs(n);
-    }
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }

@@ -51,17 +51,6 @@ pub(crate) fn push(name: &str, hits: Hits) {
     });
 }
 
-/// Stops collecting for a while (a second run of a codeunit that only checks its outcomes): what was collected, for
-/// [`resume`].
-pub(crate) fn suspend() -> Option<Vec<(String, Hits)>> {
-    SINK.with(|s| s.borrow_mut().take())
-}
-
-/// Collects again what [`suspend`] stopped.
-pub(crate) fn resume(kept: Option<Vec<(String, Hits)>>) {
-    SINK.with(|s| *s.borrow_mut() = kept);
-}
-
 /// Stops collecting and returns what was collected.
 pub(crate) fn finish() -> Vec<(String, Hits)> {
     SINK.with(|s| s.borrow_mut().take()).unwrap_or_default()

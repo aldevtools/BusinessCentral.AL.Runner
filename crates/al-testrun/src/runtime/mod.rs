@@ -523,9 +523,6 @@ pub(crate) struct Scratch {
     onrun_carry: bool,
     /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
     on_run_rows: OnRunRows,
-    /// How many times a page open runs the CaptionClass expressions with an empty record (`run.rs`
-    /// `run_codeunit_core`); `None`: the session's default.
-    caption_empty_runs: Option<usize>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -628,9 +625,6 @@ fn run_unit(
         (done, stacks, times, hits, crate::coverage::finish(), scratch)
     }))
     .map_err(|p| {
-        // A panic leaves the events of a held codeunit untold: they are told now, before the ones the loop never reported.
-        crate::events::mute(false);
-        crate::events::release(|_| None);
         p.downcast_ref::<String>()
             .cloned()
             .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))

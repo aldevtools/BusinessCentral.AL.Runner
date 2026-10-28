@@ -134,42 +134,6 @@ impl std::fmt::Debug for Hooks {
 
 thread_local! {
     static CURRENT: RefCell<(Hooks, Vec<String>)> = RefCell::new((Hooks::default(), Vec::new()));
-    /// [`hold`]: the events of the codeunit that runs, kept until [`release`].
-    static HELD: RefCell<Option<Vec<TestEvent>>> = const { RefCell::new(None) };
-    /// [`mute`]: a second run of a codeunit that only checks its outcomes tells nothing and attaches no debugger.
-    static MUTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Keeps the events of the tests that finish from now on until [`release`] (a codeunit that may run a second time,
-/// `run.rs` `run_codeunit_core`). Without a hook to tell there is nothing to keep.
-pub(crate) fn hold() {
-    if wants_events() {
-        HELD.with(|h| *h.borrow_mut() = Some(Vec::new()));
-    }
-}
-
-/// Tells the events kept since [`hold`], each with the outcome `patch` gives for its test, if any.
-pub(crate) fn release(patch: impl Fn(&str) -> Option<Outcome>) {
-    let held = HELD.with(|h| h.borrow_mut().take()).unwrap_or_default();
-    let hook = CURRENT.with(|c| c.borrow().0.on_test.clone());
-    for mut e in held {
-        if let Some(o) = patch(&e.test) {
-            e.outcome = o;
-            e.call_stack.clear();
-        }
-        if let Some(h) = &hook {
-            h(e);
-        }
-    }
-}
-
-/// Turns the events, the start hook and the debugger off (`true`) or on again.
-pub(crate) fn mute(on: bool) {
-    MUTED.with(|m| m.set(on));
-}
-
-fn muted() -> bool {
-    MUTED.with(|m| m.get())
 }
 
 pub(crate) fn install(h: Hooks) {
@@ -203,15 +167,12 @@ pub(crate) fn debugger() -> Option<SessionDebugger> {
         let c = c.borrow();
         (c.0.debugger.clone(), c.0.paused.clone())
     });
-    make.filter(|_| !muted()).map(|f| (f(), paused))
+    make.map(|f| (f(), paused))
 }
 
 /// Tells the run's hook that a test is about to run.
 pub(crate) fn starting(codeunit: u32, test: &str) {
     crate::crash::running(codeunit, test);
-    if muted() {
-        return;
-    }
     let hook = CURRENT.with(|c| c.borrow().0.on_start.clone());
     if let Some(h) = hook {
         h(codeunit, test);
@@ -223,77 +184,12 @@ pub(crate) fn wants_events() -> bool {
 }
 
 pub(crate) fn report(e: TestEvent) {
-    if muted() {
-        return;
-    }
     let hook = CURRENT.with(|c| {
         let mut c = c.borrow_mut();
         c.1.push(e.test.clone());
         c.0.on_test.clone()
     });
-    let Some(e) = HELD.with(|h| match h.borrow_mut().as_mut() {
-        Some(kept) => {
-            kept.push(e);
-            None
-        }
-        None => Some(e),
-    }) else {
-        return;
-    };
     if let Some(h) = hook {
         h(e);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    fn event(test: &str) -> TestEvent {
-        TestEvent {
-            codeunit: 1,
-            codeunit_name: "C".into(),
-            test: test.into(),
-            outcome: Outcome::Fail("x".into()),
-            call_stack: "stack".into(),
-            time: std::time::Duration::ZERO,
-            slept_ms: 0,
-            coverage: Vec::new(),
-            captured: None,
-            stubs: Vec::new(),
-            entry: None,
-        }
-    }
-
-    #[test]
-    fn held_events_are_told_on_release_with_their_patched_outcome_and_a_muted_run_tells_nothing() {
-        let told: Arc<Mutex<Vec<(String, Outcome)>>> = Arc::default();
-        let sink = told.clone();
-        install(Hooks {
-            on_test: Some(Arc::new(move |e: TestEvent| {
-                sink.lock().unwrap().push((e.test, e.outcome))
-            })),
-            ..Default::default()
-        });
-        hold();
-        report(event("A"));
-        report(event("B"));
-        assert!(told.lock().unwrap().is_empty(), "held until release");
-        assert_eq!(reported(), vec!["A".to_string(), "B".to_string()]);
-        mute(true);
-        report(event("A"));
-        mute(false);
-        release(|t| (t == "B").then(|| Outcome::NotRun("why".into())));
-        assert_eq!(
-            *told.lock().unwrap(),
-            vec![
-                ("A".to_string(), Outcome::Fail("x".into())),
-                ("B".to_string(), Outcome::NotRun("why".into()))
-            ]
-        );
-        report(event("C"));
-        assert_eq!(told.lock().unwrap().len(), 3, "told at once after the release");
-        uninstall();
     }
 }
