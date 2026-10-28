@@ -527,6 +527,11 @@ pub struct PageState {
     pub marked_only_unpinned: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
+    /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
+    /// read (`marked_rows_held`).
+    pub marking_action: bool,
+    /// The refresh after such an action took the marked rows it read as the rows the client holds.
+    pub marked_rows_held: bool,
     /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
     /// before the next move is refused (the page still shows the old row there; not built).
     pub marked_only_read_unbuilt: bool,
@@ -857,6 +862,8 @@ impl PageState {
             marked_only_unshown: false,
             marked_only_unpinned: false,
             marked_only_by_action: false,
+            marking_action: false,
+            marked_rows_held: false,
             marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,
