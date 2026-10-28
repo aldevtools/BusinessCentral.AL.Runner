@@ -69,6 +69,7 @@
 61484 Rethrow_AfterEvaluateWithoutReturnValue
 61484 Rethrow_AfterFailingTestField
 61484 Rethrow_AfterModifyOfMissingRow
+99000 Codeunit_AzureADGraphUser_Delegated
 99002 Attributes_MissingName
 99002 Attributes_NoAttributes
 99050 AF_MailAddress_Invalid_Empty
@@ -77,6 +78,7 @@
 99050 AF_MailAddress_TwoArguments
 99050 AF_MailAddress_Valid
 99050 AF_MailAddress_WithDisplayName
+99101 ALUserAccountHelper_Delegated
 99131 ALClient_NoHandler
 99220 GetDotNetType_AlEnum
 99220 GetDotNetType_DateFormula
@@ -111,6 +113,7 @@
 99420 SG_OutStreamToStream_DisposeThenALWrite
 99420 SG_OutStreamToStream_MixedWithALWrites
 99420 SG_OutStreamToStream_WriteByteAndWrite
+99421 SG_DotNetEnum_IntoInteger
 99445 RA_DotNetEncodingCodeunit_StreamRoundTrip
 99445 RA_GetEncoding_DosCodePages850And437
 99445 RA_GetEncoding_Latin1_28591
