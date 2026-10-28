@@ -27,6 +27,7 @@ impl Lowerer<'_> {
         self.local_textconsts.clear();
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
+        self.local_maxlength_labels.clear();
         self.local_var_attrs.clear();
         self.tys.clear();
         self.tys_on = true;
@@ -130,6 +131,9 @@ impl Lowerer<'_> {
                 }
                 if v.type_ref().as_ref().is_some_and(label_locked) {
                     self.local_locked_labels.insert(n.to_lowercase());
+                }
+                if v.type_ref().as_ref().is_some_and(label_maxlength) {
+                    self.local_maxlength_labels.insert(n.to_lowercase());
                 }
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
