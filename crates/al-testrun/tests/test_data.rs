@@ -451,13 +451,13 @@ fn an_auto_increment_field_the_backup_holds_keeps_its_values() {
 
 #[test]
 fn a_table_the_backup_holds_rows_for_is_seeded_even_when_the_root_that_writes_it_fails() {
-    // Company-Initialize stops before it writes Setup (SerialNumber is not implemented).
+    // Company-Initialize stops before it writes Setup (Debugger.Deactivate is not implemented).
     // Without test data Setup is "unseeded" and a Get that finds nothing in dependency code is
     // refused; with the backup's rows it is an ordinary missing row.
     let dep = format!(
         r#"{DEP}
 codeunit 2 "Company-Initialize" {{ trigger OnRun() var S: Record "Setup"; begin
-  SerialNumber(); S."Primary Key" := ''; S.Insert(); end; }}
+  Debugger.Deactivate(); S."Primary Key" := ''; S.Insert(); end; }}
 codeunit 50120 "Lib" {{ procedure Missing() var S: Record "Setup"; begin S.Get('NOPE'); end; }}
 "#
     );
@@ -489,7 +489,7 @@ fn a_company_independent_table_the_backup_holds_rows_for_is_seeded_too() {
     let dep = format!(
         r#"{DEP}
 codeunit 2 "Company-Initialize" {{ trigger OnRun() var S: Record "Shared"; begin
-  SerialNumber(); S.K := 'A'; S.Insert(); end; }}
+  Debugger.Deactivate(); S.K := 'A'; S.Insert(); end; }}
 codeunit 50120 "Lib" {{ procedure Missing() var S: Record "Shared"; begin S.Get('NOPE'); end; }}
 "#
     );
@@ -541,7 +541,7 @@ fn a_get_in_the_tests_own_code_on_a_table_the_baseline_could_not_seed_is_refused
     let dep = format!(
         r#"{DEP}
 codeunit 2 "Company-Initialize" {{ trigger OnRun() var S: Record "Setup"; begin
-  SerialNumber(); S."Primary Key" := ''; S.Insert(); end; }}
+  Debugger.Deactivate(); S."Primary Key" := ''; S.Insert(); end; }}
 "#
     );
     let main = r#"codeunit 50001 "T" { Subtype = Test;
