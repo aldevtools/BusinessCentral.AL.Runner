@@ -1529,6 +1529,10 @@ impl Session {
         // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
         // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
         if !st.borrow().run_page_link_open_moved {
+            // Without OnAfterGetCurrRecord nothing tells the two apart: the usual First() runs.
+            if !self.declares(st, "onaftergetcurrrecord") {
+                return Ok(false);
+            }
             return unsupported(
                 "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
             );
