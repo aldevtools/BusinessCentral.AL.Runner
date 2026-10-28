@@ -1508,6 +1508,9 @@ pub struct HttpClientState {
     pub base_address: String,
     pub timeout_ms: i64,
     pub default_headers: HttpHeaderList,
+    /// `UseServerCertificateValidation` was called on this client (also before a `Clear`): a request of it that no handler
+    /// answers is refused, since what the setting does to such a request is not pinned.
+    pub cert_validation_set: bool,
 }
 
 impl Default for HttpClientState {
@@ -1516,6 +1519,7 @@ impl Default for HttpClientState {
             base_address: String::new(),
             timeout_ms: 100_000,
             default_headers: new_header_list(HeaderKind::Default),
+            cert_validation_set: false,
         }
     }
 }

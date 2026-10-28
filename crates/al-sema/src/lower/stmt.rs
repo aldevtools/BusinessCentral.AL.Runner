@@ -1004,7 +1004,27 @@ impl Lowerer<'_> {
                         then_s.extend(lowered);
                     }
                 }
-                cond.map(|c| ir::Stmt::If(c, then_s, else_s))
+                cond.map(|c| match c {
+                    // `if Client.UseServerCertificateValidation(false) then;`: no branch reads the result, so the call is a
+                    // statement. The call never fails where it is implemented, so the result's use changes nothing else.
+                    ir::Expr::Builtin {
+                        id,
+                        receiver,
+                        args,
+                        ret_used: true,
+                    } if then_s.is_empty()
+                        && else_s.is_empty()
+                        && id.name() == "HttpClient.UseServerCertificateValidation#1" =>
+                    {
+                        ir::Stmt::Expr(ir::Expr::Builtin {
+                            id,
+                            receiver,
+                            args,
+                            ret_used: false,
+                        })
+                    }
+                    c => ir::Stmt::If(c, then_s, else_s),
+                })
             }
             WhileStmt => {
                 let cond = self.condition(&kids[0]);

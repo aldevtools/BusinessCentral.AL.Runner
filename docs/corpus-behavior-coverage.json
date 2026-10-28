@@ -15955,7 +15955,7 @@
         "code": "InvalidValue",
         "file": "crates/al-builtins/src/http.rs",
         "generic": false,
-        "line": 2221,
+        "line": 2276,
         "pinned": false,
         "site": null,
         "template": "The value '%' is not a valid HTTP status code."
@@ -15964,7 +15964,7 @@
         "code": "AL:Cookie",
         "file": "crates/al-builtins/src/http.rs",
         "generic": false,
-        "line": 2447,
+        "line": 2502,
         "pinned": true,
         "site": "network/lt-ay-http/AyCookieSetterExpression.al:57",
         "template": "The 'Name'='' part of the cookie is invalid."
@@ -16045,7 +16045,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 862,
+        "line": 865,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16351,7 +16351,7 @@
         "code": "AL:UriFormat",
         "file": "crates/al-vm/src/http.rs",
         "generic": false,
-        "line": 96,
+        "line": 103,
         "pinned": false,
         "site": null,
         "template": "Invalid URI: The URI is empty."

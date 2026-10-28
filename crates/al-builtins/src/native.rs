@@ -136,6 +136,9 @@ pub struct HttpOutgoing {
     /// The uri came from joining a path to the client's base address in a form the corpus does not pin (registry entry
     /// http-relative-request-path).
     pub unpinned_join: bool,
+    /// The client had `UseServerCertificateValidation` called on it: what the setting does to a request no
+    /// `[HttpClientHandler]` answers is not pinned.
+    pub cert_validation_set: bool,
 }
 
 /// The field an `Evaluate` into a `FieldRef` writes (see [`Ctx::evaluate_field_target`]).
