@@ -2,8 +2,8 @@
 //! turns MarkedOnly on and calls `CurrPage.Update(false)`: the drilldown reads nothing and the page keeps showing the row it
 //! stood on; a GoToRecord of the row Rec was left on first refills the rows around it and answers true on it (corpus
 //! pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, three marked rows; al-runner issue 6008).
-//! The fixture is the reporter's repro without Library Assert; its GoToRecord of another marked row is not pinned (the
-//! reporter's Windows run and a SaaS sandbox disagree) and is refused.
+//! The fixture is the reporter's repro without Library Assert; its GoToRecord of another marked row in this key is not pinned
+//! and is refused.
 
 const SRC: &str = r##"table 50100 "Refill Probe Row"
 {
@@ -158,7 +158,7 @@ codeunit 50120 T
         exit(Observed);
     end;
 
-    procedure GoToRecordOfRecsRowFirst()
+    procedure GoToRecordOfRecsRowFirst(): Text
     var
         Row: Record "Refill Probe Row";
         P: TestPage "Refill Probe Name List";
@@ -166,8 +166,9 @@ codeunit 50120 T
         SeedRows();
         P.OpenView();
         P.FlaggedTile.Drilldown();
+        Log.Take();
         Row.Get(1);
-        P.GoToRecord(Row);
+        exit(Format(P.GoToRecord(Row)) + '/' + P.Id.Value() + ':' + Log.Take());
     end;
 
     procedure NextAfterTheDrilldown()
@@ -251,14 +252,22 @@ fn goto_record_of_recs_row_after_a_marked_drilldown_refills_as_the_corpus_pins()
     assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
-/// The shapes the corpus does not pin stay refused: the reporter's GoToRecord of the first of two marked rows, two marked
-/// rows, another row than Rec's, and moves other than GoToRecord.
+/// Two marked rows read as three do: Rec's row twice, the row above it, Rec's row three times (the rows above Rec's row are read
+/// from the nearest up as the refresh after an action reads them, SuRefillKey.al:326 Name_Action_Update `update`).
+#[test]
+fn goto_record_of_recs_row_with_two_marked_rows() {
+    let mut b = al_testkit::Built::from_source(SRC);
+    let got = al_testkit::text(b.run_in("T", "GoToRecordOfRecsRowFirst"));
+    assert_eq!(got, "Yes/1:R1;R1;R3;R1;R1;R1;C1;");
+}
+
+/// The shapes the corpus does not pin stay refused: the reporter's GoToRecord of the first of two marked rows (another row
+/// than Rec's, in this key), and moves other than GoToRecord.
 #[test]
 fn unmeasured_moves_after_a_marked_drilldown_in_another_key_are_refused() {
     let mut b = al_testkit::Built::from_source(SRC);
     for p in [
         "Reported",
-        "GoToRecordOfRecsRowFirst",
         "NextAfterTheDrilldown",
         "GoToKeyAfterTheDrilldown",
         "ThreeMarkedRows",
