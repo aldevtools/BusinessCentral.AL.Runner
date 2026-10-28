@@ -815,6 +815,45 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportNestedTextInTable => {
+        id: "xmlport-nested-text-in-table",
+        assumed: "A text element right below a table element whose nodes are field and text attributes and one text element of only text attributes: export runs the outer element's OnBeforePassVariable, writes its attributes, then the inner element as `<admission option_value=\"1\">A1</admission>` (its OnBeforePassVariable before its attribute's, an empty text gives `<admission option_value=\"2\" />`, an empty Required attribute `option_value=\"\"`); import reads the outer attributes (a text attribute without Occurrence is required), then the inner attributes and text with its OnAfterAssignVariable, then the outer element's own text; a missing inner element or Required attribute fails the schema check. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a schedule entry element with an option_value element inside it, below a table element).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Nested_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Import_Shapes",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportUnlinkedTempInText => {
+        id: "xmlport-unlinked-temp-in-text",
+        assumed: "A text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable (MinOccurs = Zero, only field attributes): export writes all the inner records under every outer row, `<attributes />` when there are none; import stores each inner row (its OnBeforeInsertRecord sees the outer row's attributes) before the outer row's OnBeforeInsertRecord, and the inner rows stay across outer rows; a second container or one after a later element fails the schema check. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (an `attributes` element of attribute rows inside a request row).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Unlinked_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Import_Shapes",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlNodeListClear => {
+        id: "xml-node-list-clear",
+        assumed: "Clear of an XmlNodeList leaves it empty (Count 0, Get false, foreach runs no time), a copy taken before keeps its nodes, and SelectNodes fills it again. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's tests (a report that clears a node list it reuses).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): xml/XmlNodes.al TP_NodeList_Clear; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xml/XmlNodes.al::TP_NodeList_Clear"],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
