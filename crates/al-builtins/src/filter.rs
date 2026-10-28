@@ -645,6 +645,17 @@ impl Parser<'_> {
                 crate::assumptions::assume(crate::assumptions::Assumption::FilterEmptyTextDateFormula);
                 Value::DateFormula(String::new())
             }
+            // The null Guid on a Media field compares with the field's media id: an empty field equals it (al-runner issue 5991, the
+            // reporter's repro on real BC; registered assumption). Another text stays refused below.
+            T::Library(crate::library_kind::LibraryKind::Media)
+                if matches!(
+                    crate::evaluate::read_text(&T::Guid, text.trim()),
+                    Some(Value::Guid(g)) if g == [0; 16]
+                ) && !text.trim().starts_with('(') =>
+            {
+                crate::assumptions::assume(crate::assumptions::Assumption::MediaFilterNullGuid);
+                Value::Guid([0; 16])
+            }
             other => {
                 return Err(format!(
                     "text filter value `{text}` for {other}: how BC reads the text (an empty `''`, a formula such as `1M`, a region's date format) is not pinned (docs/probes-needed.md)",
