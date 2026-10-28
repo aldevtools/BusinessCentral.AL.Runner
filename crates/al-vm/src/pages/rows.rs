@@ -282,11 +282,12 @@ impl Session {
                 return unsupported("an empty record of the page's source table");
             };
             // How many times is no oracle (it differs between BC runs): every open that runs them is a flagged pass at best
-            // (owner decision 2026-10-21).
+            // (owner decision 2026-10-21), and the test runner refuses a test whose outcome depends on the number (al-runner
+            // issue 5870, `Session::set_caption_empty_record_runs`).
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
             );
-            for _ in 0..20 {
+            for _ in 0..self.caption_empty_record_runs {
                 for (pos, expr) in &exprs {
                     self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
                 }

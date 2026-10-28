@@ -596,6 +596,13 @@ pub struct StorageCheckpoint {
     sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
 }
 
+/// How many times a page open runs the CaptionClass expressions with an empty record (see
+/// [`Session::set_caption_empty_record_runs`]): the count the corpus card saw per field in its first runs
+/// (QdCaptionClassAreas.al:18-19).
+pub const CAPTION_EMPTY_RECORD_RUNS: usize = 20;
+/// The other count the test runner tries: a test whose outcome changes with it observes the number.
+pub const CAPTION_EMPTY_RECORD_RUNS_OTHER: usize = 1;
+
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
@@ -789,6 +796,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
+    /// How many times a page open runs the CaptionClass expressions of its source table with an empty record
+    /// ([`Session::set_caption_empty_record_runs`]).
+    pub(crate) caption_empty_record_runs: usize,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     pub(crate) part_sync_keeps_same_link: bool,
@@ -1015,6 +1025,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
+            caption_empty_record_runs: CAPTION_EMPTY_RECORD_RUNS,
             part_sync_keeps_same_link: false,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -1380,6 +1391,14 @@ impl Session {
     pub(crate) fn new_temp_id(&mut self) -> al_builtins::value::TempId {
         self.next_temp += 1;
         al_builtins::value::TempId::new(self.next_temp, self.temp_release.clone())
+    }
+
+    /// How many times a page open runs the CaptionClass expressions of its source table with an empty record. BC gives no
+    /// stable number (al-runner issue 5870; QdCaptionClassAreas.al:657 saw 240 and 492 calls for one open): the session runs
+    /// [`CAPTION_EMPTY_RECORD_RUNS`], and the test runner runs a codeunit whose tests went through such an open a second time
+    /// with [`CAPTION_EMPTY_RECORD_RUNS_OTHER`] to find the tests whose outcome depends on the number.
+    pub fn set_caption_empty_record_runs(&mut self, runs: usize) {
+        self.caption_empty_record_runs = runs;
     }
 
     /// The runner marks the time install codeunits run: `DataTransfer` is usable in it. Changes

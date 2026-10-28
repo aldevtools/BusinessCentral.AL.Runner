@@ -469,9 +469,14 @@ registry! {
     },
     PageOpenCaptionClassEmptyRecordCount => {
         id: "page-open-caption-class-empty-record-count",
-        assumed: "A page open that runs the CaptionClass expressions of its source table's fields with an empty record runs each one 20 times. The corpus pins only that such runs happen: their number differs between BC runs (240, 480 and 492 calls on the newest major for the same open, record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422 Page_ControlCaptions `open_calls`), so it is no oracle. Every open that runs them marks this assumption (owner decision 2026-10-21: refusing them costs 11 baseline cases of the newest major and 5 QF cases).",
-        tests: "The corpus cases of QdCaptionClassAreas.al that open a page whose source table has CaptionClass expressions, and Microsoft tests that open sales and purchase documents and their subforms (Sales Line and Purchase Line fields with CaptionClass = GetCaptionClass(..)) in Tests-ERM; they pass in Microsoft's CI.",
-        probe: "A stable count, if BC has one: the same open repeated on a fresh service tier and after a warm-up, on every major, to tell whether the number depends on caching in the tier.",
+        assumed: "A page open that runs the CaptionClass expressions of its source table's fields with an empty record runs each one 20 times. BC gives no stable number: the corpus saw 240, 480 and 492 calls on the newest major for the same open (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:657) and asserts only that such runs happen (:543 `id0>0=Yes`); al-runner issue 5870 saw 8 per Card OpenEdit on one BC 29 container. Narrowed (issue 5870): the test runner runs every codeunit whose tests went through such an open a second time with 1 run, and refuses each test whose outcome changes, and each test that failed after such an open (an assertion of BC's count fails with both numbers). What stays assumed: a test that passes with 20 and with 1 passes with BC's number too.",
+        tests: "The corpus cases of QdCaptionClassAreas.al that open a page whose source table has CaptionClass expressions (they assert only that empty-record runs happen, the same number per field and per open), and Microsoft tests that open sales and purchase documents and their subforms (Sales Line and Purchase Line fields with CaptionClass = GetCaptionClass(..)) in Tests-ERM; they pass in Microsoft's CI.",
+        probe: "A stable count, if BC has one: the same open repeated on a fresh service tier and after a warm-up, on every major, to tell whether the number depends on caching in the tier (writer SX, corpus branch al-runtime-rs-staging-sx).",
+        awaiting: Awaiting {
+            issues: &[5870],
+            files: &["tests/al-language/record/lt-sx-captionclass-count/SxCaptionClassCount.al"],
+            since: "2026-10-28",
+        },
     },
     WorksheetTempSourceOpenRow => {
         id: "worksheet-temp-source-open-row",
