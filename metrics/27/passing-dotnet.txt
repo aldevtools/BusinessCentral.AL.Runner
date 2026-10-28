@@ -111,6 +111,7 @@
 99420 SG_OutStreamToStream_DisposeThenALWrite
 99420 SG_OutStreamToStream_MixedWithALWrites
 99420 SG_OutStreamToStream_WriteByteAndWrite
+99421 SG_DotNetEnum_IntoInteger
 99445 RA_DotNetEncodingCodeunit_StreamRoundTrip
 99445 RA_GetEncoding_DosCodePages850And437
 99445 RA_GetEncoding_Latin1_28591
