@@ -687,6 +687,10 @@ pub struct XmlPort {
     /// `Namespaces`: (prefix, uri) pairs.
     #[serde(default)]
     pub namespaces: Vec<(String, String)>,
+    /// `UseDefaultNamespace = true` without `DefaultNamespace`: every element is in BC's own namespace
+    /// `urn:microsoft-dynamics-nav/xmlports/x<id>` (corpus xmlport/lt-bd-xmlport/BdXmlPort.al:499).
+    #[serde(default)]
+    pub default_ns: Option<String>,
     /// A `TextEncoding` property other than UTF8 was declared (its value is not kept).
     #[serde(default)]
     pub text_encoding_declared: bool,

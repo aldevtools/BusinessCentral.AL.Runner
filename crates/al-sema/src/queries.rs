@@ -354,7 +354,10 @@ impl Builder<'_> {
                 },
                 // `filter('>=2')`: a filter written as one AL string is that filter's text
                 // (query/TestQueryCrossJoinContracts.al:187-198 filters Id >= 2 and Qty > 5 this way).
+                // `filter('')` selects the blank value, as `const('')` (query/TestQueryDataItemTableFilter.al:374
+                // Sq_EmptyFilterTerm_Rows, Code and Text fields): its filter text is the quoted empty literal.
                 CondValue::Filter(raw) => ir::CalcValue::Filter(match whole_literal(raw) {
+                    Some(inner) if inner.is_empty() => "''".to_string(),
                     Some(inner) => inner,
                     None => rewrite_quotes(raw),
                 }),
