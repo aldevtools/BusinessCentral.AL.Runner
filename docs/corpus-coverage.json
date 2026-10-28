@@ -11816,7 +11816,7 @@
           29
         ],
         "id": "Page.Caption#1",
-        "ms_uses": 214,
+        "ms_uses": 215,
         "name": "Caption",
         "pinned": true,
         "scope": "",
@@ -11912,7 +11912,7 @@
           29
         ],
         "id": "Page.LookupMode#1",
-        "ms_uses": 374,
+        "ms_uses": 375,
         "name": "LookupMode",
         "pinned": true,
         "scope": "",

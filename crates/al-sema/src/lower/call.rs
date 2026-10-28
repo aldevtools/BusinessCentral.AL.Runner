@@ -534,6 +534,16 @@ impl Lowerer<'_> {
                     {
                         Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
                     }
+                    // A bare page method in a page or page extension (`Update()`, `Close()`) runs on `CurrPage`, as the
+                    // `CurrPage.` form does (al-runner issue 6021; the checker resolves it in `check/calls.rs`).
+                    None if sig.instance
+                        && sig.receiver == "Page"
+                        && callee.kind() == SyntaxKind::NameRef
+                        && matches!(self.ws.objects[self.oi].kind, ObjKind::Page | ObjKind::PageExtension) =>
+                    {
+                        let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
+                        Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
+                    }
                     // An unqualified record method in table code runs on the implicit Rec.
                     None if sig.instance && matches!(sig.receiver.as_str(), "Record" | "Query") => {
                         Some(Box::new(ir::Arg::Ref(self.implicit_rec(node)?)))

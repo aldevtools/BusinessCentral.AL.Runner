@@ -2054,3 +2054,44 @@ fn duplicate_ids_exit_values_and_missing_arguments_are_compile_errors() {
         assert_eq!(got, vec!["AL0135", "AL0139", "AL0264", "AL0264"], "{only_tests:?}");
     }
 }
+
+/// al-runner issue 6021: inside a page or a page extension, a bare call of one of the page's own methods (`Update()`,
+/// `Close()`, `SaveRecord()`, `Activate()`, `SetSelectionFilter(Rec)`) is `CurrPage.<method>`, as alc compiles it. It
+/// lowers to the same IR as the `CurrPage.` form. A procedure of the page with the same name still wins.
+#[test]
+fn a_bare_page_method_in_a_page_lowers_as_the_currpage_form() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50100 P {
+    SourceTable = T;
+    trigger OnAfterGetRecord() begin Update(); end;
+    procedure Bare() var R: Record T; begin Update(); Update(false); Close(); SaveRecord(); Activate(); Activate(true); SetSelectionFilter(R); end;
+    procedure Qual() var R: Record T; begin CurrPage.Update(); CurrPage.Update(false); CurrPage.Close(); CurrPage.SaveRecord(); CurrPage.Activate(); CurrPage.Activate(true); CurrPage.SetSelectionFilter(R); end;
+}
+page 50101 Q {
+    SourceTable = T;
+    procedure Bare() begin Close(); end;
+    procedure Close() begin end;
+}
+pageextension 50102 X extends P {
+    procedure XBare() var R: Record T; begin Update(false); Close(); SetSelectionFilter(R); end;
+    procedure XQual() var R: Record T; begin CurrPage.Update(false); CurrPage.Close(); CurrPage.SetSelectionFilter(R); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let obj = |name: &str| {
+        let i = ws.objects.iter().position(|o| o.name.as_str() == name).unwrap();
+        &l.program.objects[i]
+    };
+    let body = |o: &ir::Object, r: &str| format!("{:?}", o.routines.iter().find(|x| x.name == r).unwrap().body);
+    let p = obj("P");
+    assert_eq!(body(p, "Bare"), body(p, "Qual"));
+    let trig = body(p, "OnAfterGetRecord");
+    assert!(trig.contains("Page.Update"), "{trig}");
+    let x = obj("X");
+    assert_eq!(body(x, "XBare"), body(x, "XQual"));
+    // The page's own Close procedure wins over the built-in.
+    let q = obj("Q");
+    assert!(!body(q, "Bare").contains("Page.Close"), "{}", body(q, "Bare"));
+}
