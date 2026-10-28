@@ -230,10 +230,11 @@ pub enum Gate {
     /// A list action that deletes three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`). BC 28
-    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Not consumed yet: the case is refused on every major.
+    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
+    /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
     /// The end of [`Gate::ThreeLineLeavesKeyOnceFrom28`]: from BC 29 the triggers run twice again, as on BC 27
-    /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Not consumed yet.
+    /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Consumed with it.
     ThreeLineLeavesKeyTwiceAgainFrom29,
 }
 

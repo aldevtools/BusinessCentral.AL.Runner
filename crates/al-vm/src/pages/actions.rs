@@ -1302,11 +1302,12 @@ impl Session {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
                 // (`settle_on_blank_rec`; pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). Rows left in the view, more than one
-                // row shown before the action (three deleted lines, :656, run the triggers once on one major and twice on the
-                // others; two are not pinned) or no CurrPage.Update(false) are not built.
-                let one_row_before = held_before.as_ref().is_some_and(|held| held.len() == 1);
-                let on_blank = one_row_before && {
+                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). With three rows shown before the
+                // action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
+                // TD_LeavesKey_Line1WithUpdate_ThreeLines, `#if BC28PLUS and not BC29PLUS`). Rows left in the view, another count
+                // of rows shown before (two, four and more are not pinned) or no CurrPage.Update(false) are not built.
+                let rows_before = held_before.as_ref().map_or(0, Vec::len);
+                let on_blank = (rows_before == 1 || rows_before == 3) && {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
                 };
@@ -1314,6 +1315,14 @@ impl Session {
                     return unsupported(
                         "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
                     );
+                }
+                let once = self.has(al_version::Gate::ThreeLineLeavesKeyOnceFrom28)
+                    && !self.has(al_version::Gate::ThreeLineLeavesKeyTwiceAgainFrom29);
+                if rows_before == 3 && !once {
+                    self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
+                    self.page_event(st, "onnewrecordevent", None, Some(true))?;
+                    self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                    self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 }
             }
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
