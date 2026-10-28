@@ -267,12 +267,35 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
     // A test codeunit the selection leaves out is not a root; nothing else in the workspace is.
     let skipped: Vec<bool> = match &roots.only_tests {
         None => Vec::new(),
-        Some(keep) => (0..ws.objects.len())
-            .map(|oi| match (&roots.only_objects, &roots.skipped_before) {
-                (Some(only), Some(before)) if before.len() == ws.objects.len() && !only.contains(&oi) => before[oi],
-                _ => unselected_test(ws, oi, keep),
-            })
-            .collect(),
+        Some(keep) => match (&roots.only_objects, &roots.skipped_before) {
+            // The incremental compile: an object that did not change keeps its decision; one that changed is decided by
+            // its own text and, when that newly leaves it out, by what names it. `relower_objects` compiles everything
+            // again when a changed object names a test codeunit that was left out.
+            (Some(only), Some(before)) if before.len() == ws.objects.len() => {
+                let mut skipped: Vec<bool> = (0..ws.objects.len())
+                    .map(|oi| {
+                        if only.contains(&oi) {
+                            unselected_test(ws, oi, keep)
+                        } else {
+                            before[oi]
+                        }
+                    })
+                    .collect();
+                if only.iter().any(|&oi| skipped[oi] && !before[oi]) {
+                    for oi in named_by_kept(ws, &skipped, None) {
+                        skipped[oi] = false;
+                    }
+                }
+                skipped
+            }
+            _ => {
+                let mut skipped: Vec<bool> = (0..ws.objects.len()).map(|oi| unselected_test(ws, oi, keep)).collect();
+                for oi in named_by_kept(ws, &skipped, None) {
+                    skipped[oi] = false;
+                }
+                skipped
+            }
+        },
     };
     // A lean compile also leaves out the workspace objects no selected test names (`Roots::lean`); a test codeunit
     // the selection left out keeps its own reason.
@@ -626,6 +649,74 @@ fn unreached_routines(ws: &Workspace, skip: &dyn Fn(usize) -> bool) -> HashSet<(
         .map(|(oi, offset, _)| (oi, offset))
         .filter(|k| !reached.contains(k))
         .collect()
+}
+
+/// The test codeunits a selection would leave out (`skipped`) that the code it keeps names, directly or through the test
+/// codeunits so named: a selected test that calls a procedure of another test codeunit (a test library that is a test
+/// codeunit) runs it as it does when both are selected. A test's outcome must not depend on which other test codeunits
+/// are selected (ADR-013, demand-driven compile; found on NP Retail, where a test of one codeunit calls a procedure of
+/// another). A name is an identifier or quoted identifier that is the codeunit's name anywhere in a kept object's text, or
+/// its id where an integer names a codeunit (`names_codeunit_by_id`). A codeunit run by an id the code computes is not
+/// found. With `among`,
+/// only those objects' texts are searched, kept or not (the changed objects of an incremental compile), an object's own
+/// name does not count, and the codeunits found are not searched in turn.
+pub(crate) fn named_by_kept(ws: &Workspace, skipped: &[bool], among: Option<&[usize]>) -> Vec<usize> {
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::default();
+    let mut by_id: HashMap<u32, Vec<usize>> = HashMap::default();
+    for (oi, o) in ws.objects.iter().enumerate() {
+        if skipped.get(oi).copied().unwrap_or(false) {
+            by_name.entry(o.name.to_lowercase()).or_default().push(oi);
+            if let Some(id) = o.id {
+                by_id.entry(id).or_default().push(oi);
+            }
+        }
+    }
+    if by_name.is_empty() {
+        return Vec::new();
+    }
+    let mut queue: Vec<usize> = match among {
+        Some(objects) => objects.to_vec(),
+        None => (0..ws.objects.len()).collect(),
+    };
+    queue.retain(|&oi| !ws.is_dependency(oi) && (among.is_some() || !skipped.get(oi).copied().unwrap_or(false)));
+    let mut found: Vec<usize> = Vec::new();
+    let mut seen: HashSet<usize> = HashSet::default();
+    while let Some(oi) = queue.pop() {
+        // The last three tokens before this one that are not trivia, the latest first.
+        let mut before: [String; 3] = Default::default();
+        for e in ws.object_ast(oi).syntax().descendants_with_tokens() {
+            let Some(t) = e.into_token() else { continue };
+            if t.kind().is_trivia() {
+                continue;
+            }
+            let hits = match t.kind() {
+                SyntaxKind::Ident | SyntaxKind::QuotedIdent => by_name.get(&ast::ident_text(&t).to_lowercase()),
+                SyntaxKind::Integer if names_codeunit_by_id(&before) => {
+                    t.text().parse::<u32>().ok().and_then(|id| by_id.get(&id))
+                }
+                _ => None,
+            };
+            before.rotate_right(1);
+            before[0] = t.text().to_ascii_lowercase();
+            for &h in hits.into_iter().flatten() {
+                if (among.is_none() || h != oi) && seen.insert(h) {
+                    found.push(h);
+                    if among.is_none() {
+                        queue.push(h);
+                    }
+                }
+            }
+        }
+    }
+    found.sort_unstable();
+    found
+}
+
+/// Whether an integer literal after `before` (the tokens before it, the latest first, in lower case) names a codeunit by
+/// its id: `Codeunit 50100` (a variable's type, a property such as `RunObject`) or `Codeunit.Run(50100`. Other integers
+/// are not taken for ids: field numbers and constants would keep about a tenth of the corpus's test codeunits.
+fn names_codeunit_by_id(before: &[String; 3]) -> bool {
+    before[0] == "codeunit" || (before[0] == "(" && before[1] == "run" && before[2] == ".")
 }
 
 /// Whether object `oi` is a test codeunit of a workspace app that `keep` (app index, id) leaves out.
