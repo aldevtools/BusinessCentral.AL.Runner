@@ -815,6 +815,20 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportNestedTextInTable => {
+        id: "xmlport-nested-text-in-table",
+        assumed: "A text element right below a table element whose nodes are field and text attributes and one text element of only text attributes: export runs the outer element's OnBeforePassVariable, writes its attributes, then the inner element as `<admission option_value=\"1\">A1</admission>` (its OnBeforePassVariable before its attribute's, an empty text gives `<admission option_value=\"2\" />`, an empty Required attribute `option_value=\"\"`); import reads the outer attributes (a text attribute without Occurrence is required), then the inner attributes and text with its OnAfterAssignVariable, then the outer element's own text; a missing inner element or Required attribute fails the schema check. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a schedule entry element with an option_value element inside it, below a table element).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Nested_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Import_Shapes",
+            ],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",

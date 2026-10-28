@@ -728,6 +728,40 @@ fn text_in_table_shape(layout: &Layout, i: usize) -> bool {
         })
 }
 
+/// A text element right below a table element whose nodes are field and text attributes and exactly one text element whose
+/// nodes are only text attributes (at least one): `<entry no="R1" status="open"><admission option_value="1">A1</admission></entry>`
+/// (QrXpContainerOccurs.al TP_Nested_* on the corpus branch al-runtime-rs-staging-pub-tp, xmlport 90022 in TpXpNestedObjects.al;
+/// the same test as al-vm xmlports.rs `text_in_table` `Nested`). Returns the inner element.
+fn nested_text_shape(layout: &Layout, i: usize) -> Option<usize> {
+    use ir::XmlNodeKind as K;
+    let kids_of = |n: usize| -> Vec<usize> {
+        (0..layout.nodes.len())
+            .filter(|&k| layout.nodes[k].parent == Some(n))
+            .collect()
+    };
+    if layout.nodes[i].kind != K::Text || !layout.nodes[i].parent.is_some_and(|p| layout.nodes[p].kind == K::Table) {
+        return None;
+    }
+    let mut inner = Vec::new();
+    for k in kids_of(i) {
+        match layout.nodes[k].kind {
+            K::FieldAttr | K::TextAttr => {}
+            K::Text => {
+                let g = kids_of(k);
+                if g.is_empty() || !g.iter().all(|&a| layout.nodes[a].kind == K::TextAttr) {
+                    return None;
+                }
+                inner.push(k);
+            }
+            _ => return None,
+        }
+    }
+    match inner[..] {
+        [one] => Some(one),
+        _ => None,
+    }
+}
+
 pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     let layout = cx.layout;
     let mut run_reasons = layout.run_reasons.clone();
@@ -808,11 +842,15 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // Pinned (assumption xmlport-text-in-table, corpus branch al-runtime-rs-staging-pub-to,
                 // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
-                // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers.
+                // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
+                // with field and text attributes and one text element of only text attributes below it, and for that inner
+                // element (assumption xmlport-nested-text-in-table, branch al-runtime-rs-staging-pub-tp, TP_Nested_*).
                 if kind == ir::XmlNodeKind::Text
                     && layout.has_children(i)
                     && !node.triggers.is_empty()
                     && !text_in_table_shape(layout, i)
+                    && nested_text_shape(layout, i).is_none()
+                    && !raw.parent.is_some_and(|p| nested_text_shape(layout, p) == Some(i))
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",
