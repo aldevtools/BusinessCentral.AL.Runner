@@ -75,6 +75,17 @@ impl<'a> Checker<'a> {
                 }
                 None => format!("is not measured at runtime {at} by AL compiler {alc}"),
             },
+            // The catalog's `Any` catch-all (TestField(Field, Value: Any) for an Option value): no probe expresses it, but
+            // when alc has the same overloads of the method at `at` as at the floor, it binds the call as it does at the
+            // floor, where the corpus covers it (al-runner issue 6061: the reporter's alc compiles
+            // `TestField(OptionField, Rec.OptionField::Released)` at runtime 15.0).
+            Some(AlcRuntime::NotExpressible(_))
+                if self
+                    .catalog
+                    .alc_same_overloads(id, argc, at, al_version::Runtime::floor()) =>
+            {
+                return false;
+            }
             Some(AlcRuntime::NotExpressible(e)) => format!("has no probe that compiles with AL compiler {alc} ({e})"),
             None => format!("with {argc} arguments has no row in the table of AL compiler {alc}"),
         };

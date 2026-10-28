@@ -31,6 +31,9 @@ pub struct Lowered {
     pub program: std::sync::Arc<ir::Program>,
     /// Per object, per routine: why it cannot run (empty = it can).
     pub unsupported: Refusals,
+    /// Per object, per routine: where the statement is that gave the routine's first reason in `unsupported`, when a
+    /// statement gave it (`--explain` points at it; al-runner issue 6061). Empty for an object a compile cache supplied.
+    pub refusal_at: Vec<Vec<Option<ir::SrcPos>>>,
     /// Per object, per routine: the routines it calls directly, as (object, routine).
     pub calls: Calls,
     /// Per object: it belongs to a dependency app, so no test or install code of it runs (ADR-013).
@@ -241,6 +244,8 @@ pub(crate) struct Lowerer<'a> {
     /// The record of each `with` statement being lowered, by the start offset of the statement.
     with_places: HashMap<usize, ir::Place>,
     reasons: Vec<String>,
+    /// Where the statement is that gave the routine's first reason, when one did (`--explain`, al-runner issue 6061).
+    refusal_at: Option<ir::SrcPos>,
     calls: Vec<(usize, usize)>,
     /// Per object: why the test client cannot drive it yet (pages).
     page_reasons: &'a [Vec<String>],

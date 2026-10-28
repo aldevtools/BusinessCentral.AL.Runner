@@ -207,6 +207,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         run_failures: Default::default(),
         with_places: HashMap::default(),
         reasons: Vec::new(),
+        refusal_at: None,
         calls: Vec::new(),
         page_reasons: &sh.page_reasons,
         layouts: seq,
@@ -310,6 +311,7 @@ pub(crate) fn lower_object<'a>(
             },
             positions: Vec::new(),
             unsupported: Vec::new(),
+            refusal_at: Vec::new(),
             calls: Vec::new(),
             direct: Vec::new(),
             ndirect: Vec::new(),
@@ -584,6 +586,7 @@ pub(crate) fn lower_object<'a>(
     }
     let mut routines = Vec::new();
     let mut unsupported = Vec::new();
+    let mut refusal_at = Vec::new();
     let mut calls = Vec::new();
     let mut direct = Vec::new();
     let mut ndirect = Vec::new();
@@ -601,6 +604,7 @@ pub(crate) fn lower_object<'a>(
             && r.syntax().ancestors().filter_map(ast::Section::cast).next().is_none())
         .then(|| o.id.map(i64::from).unwrap_or_default());
         lw.reasons = global_reasons.clone();
+        lw.refusal_at = None;
         lw.calls.clear();
         // A trigger of a data item runs with the item's record as its `Rec`.
         if matches!(o.kind, ObjKind::Report | ObjKind::ReportExtension) {
@@ -681,6 +685,7 @@ pub(crate) fn lower_object<'a>(
         ndirect.push(lw.calls.len() as u32);
         driven_edges(&sh.driven, routine.locals.iter().chain(&globals), &mut lw.calls);
         unsupported.push(std::mem::take(&mut lw.reasons));
+        refusal_at.push(lw.refusal_at.take());
         calls.push(std::mem::take(&mut lw.calls));
         routines.push(routine);
     }
@@ -799,6 +804,7 @@ pub(crate) fn lower_object<'a>(
         object,
         positions,
         unsupported,
+        refusal_at,
         calls,
         direct,
         ndirect,
