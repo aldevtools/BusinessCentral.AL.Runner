@@ -9,6 +9,7 @@ pub mod incremental;
 pub mod lower;
 pub mod members;
 pub mod pages;
+pub mod property_values;
 pub mod provided;
 pub mod queries;
 pub mod relation;
