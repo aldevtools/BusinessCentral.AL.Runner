@@ -166,7 +166,7 @@ pub fn blocked_site(lowered: &Lowered, object: usize, routine: usize) -> Option<
             });
         }
         let before = stack.len();
-        lowered.calls_into(o, r, &mut stack);
+        calls_before_run(lowered, o, r, &mut stack);
         if trace {
             for &next in &stack[before..] {
                 parent.entry(next).or_insert((o, r));
@@ -184,4 +184,30 @@ pub fn is_action_trigger(lowered: &Lowered, o: usize, r: usize) -> bool {
         && rt.is_trigger
         && rt.name.eq_ignore_ascii_case("onaction")
         && rt.container.as_ref().is_some_and(|(k, _)| k == "action")
+}
+
+/// What routine `r` of object `o` can set running, as the refusal before the run follows it (`blocked_site`, the reach
+/// report), appended to `out`: the routines its code calls, and what a page, report or xmlport variable it holds drives,
+/// except the procedures of a driven page. Opening a page runs its triggers, not its procedures: a procedure runs only
+/// when a trigger or other code calls it, and that call is an edge of its own (al-runner issue 6031). So a procedure that
+/// only an action's OnAction calls is refused when the action runs (`Session::call` checks `Engine::blocked`), like the
+/// OnAction itself, and one that a trigger running with the page or the test's own code calls is still found that way.
+pub fn calls_before_run(lowered: &Lowered, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
+    lowered.direct_calls_into(o, r, out);
+    let start = out.len();
+    lowered.driven_into(o, r, out);
+    let driven = out.split_off(start);
+    out.extend(driven.into_iter().filter(|&(q, ri)| !is_page_procedure(lowered, q, ri)));
+}
+
+/// Whether routine `r` of object `o` is a procedure of a page or page extension: not a trigger, and not a routine made for
+/// a control property (`pages::expand`, its name starts `__`), which the page runs itself.
+fn is_page_procedure(lowered: &Lowered, o: usize, r: usize) -> bool {
+    let obj = &lowered.program.objects[o];
+    let Some(rt) = obj.routines.get(r) else {
+        return false;
+    };
+    (obj.is_kind(al_ir::ObjKind::Page) || obj.is_kind(al_ir::ObjKind::PageExtension))
+        && !rt.is_trigger
+        && !rt.name.starts_with("__")
 }

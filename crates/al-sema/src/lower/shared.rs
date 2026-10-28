@@ -312,6 +312,7 @@ pub(crate) fn lower_object<'a>(
             unsupported: Vec::new(),
             calls: Vec::new(),
             direct: Vec::new(),
+            ndirect: Vec::new(),
             embeds: Vec::new(),
             key: None,
             field_refs: Vec::new(),
@@ -585,6 +586,7 @@ pub(crate) fn lower_object<'a>(
     let mut unsupported = Vec::new();
     let mut calls = Vec::new();
     let mut direct = Vec::new();
+    let mut ndirect = Vec::new();
     for (ri, r) in tl.nodes.get(oi).iter().enumerate() {
         lw.routine_idx = ri;
         lw.in_request_page = matches!(o.kind, ObjKind::Report | ObjKind::ReportExtension)
@@ -676,6 +678,7 @@ pub(crate) fn lower_object<'a>(
         // A TestPage drives page routines the call graph cannot see (ADR-012). An xmlport's
         // triggers are run by Import and Export, and a report's by Run, which the graph cannot
         // see either.
+        ndirect.push(lw.calls.len() as u32);
         driven_edges(&sh.driven, routine.locals.iter().chain(&globals), &mut lw.calls);
         unsupported.push(std::mem::take(&mut lw.reasons));
         calls.push(std::mem::take(&mut lw.calls));
@@ -798,6 +801,7 @@ pub(crate) fn lower_object<'a>(
         unsupported,
         calls,
         direct,
+        ndirect,
         embeds,
         key: None,
         field_refs: lw.field_refs.take().list,

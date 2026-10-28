@@ -196,3 +196,229 @@ fn a_refusal_called_from_an_action_is_raised_only_when_the_action_runs() {
         "{outcomes:?}"
     );
 }
+
+// al-runner issue 6031: the action's OnAction calls a procedure of the page (directly or through another one), and that
+// procedure reaches the refused routine. Opening the page runs no action, so the procedure is refused when the action runs,
+// as the action trigger itself is (issue 6014). A procedure reachable another way (a trigger that runs on open, a field
+// trigger, the test's own code) is still refused before the run. The issue's two shapes side by side: the part whose action
+// calls the codeunit (`LZP Part Direct`) and the part whose action calls a local procedure (`LZP Part Local`).
+const LOCAL: &str = r#"
+table 50450 "LZP Item" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[100]) { } }
+    keys { key(PK; "No.") { Clustered = true; } } }
+codeunit 50450 "LZP Mgt"
+{
+    procedure Shrink()
+    begin
+        CodeCoverageLoad();
+    end;
+}
+page 50451 "LZP Part Direct" { PageType = CardPart; SourceTable = "LZP Item";
+    layout { area(Content) { field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() var M: Codeunit "LZP Mgt"; begin M.Shrink(); end; } } } }
+page 50452 "LZP Card Direct" { PageType = Card; SourceTable = "LZP Item";
+    layout {
+        area(Content) { field("No."; Rec."No.") { } field(Description; Rec.Description) { } }
+        area(FactBoxes) { part(PicturePart; "LZP Part Direct") { SubPageLink = "No." = field("No."); } } } }
+page 50453 "LZP Part Local" { PageType = CardPart; SourceTable = "LZP Item";
+    layout { area(Content) { field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() begin ShrinkCurrent(); end; } } }
+    local procedure ShrinkCurrent()
+    var M: Codeunit "LZP Mgt";
+    begin
+        M.Shrink();
+    end; }
+page 50454 "LZP Card Local" { PageType = Card; SourceTable = "LZP Item";
+    layout {
+        area(Content) { field("No."; Rec."No.") { } field(Description; Rec.Description) { } }
+        area(FactBoxes) { part(PicturePart; "LZP Part Local") { SubPageLink = "No." = field("No."); } } } }
+page 50455 "LZP Card Own Local" { PageType = Card; SourceTable = "LZP Item";
+    layout { area(Content) { field("No."; Rec."No.") { } field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() begin Outer(); end; } } }
+    local procedure Outer()
+    begin
+        Inner();
+    end;
+    local procedure Inner()
+    var M: Codeunit "LZP Mgt";
+    begin
+        M.Shrink();
+    end; }
+page 50456 "LZP On Open" { PageType = Card; SourceTable = "LZP Item";
+    layout { area(Content) { field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() begin ShrinkCurrent(); end; } } }
+    trigger OnOpenPage()
+    begin
+        if false then
+            ShrinkCurrent();
+    end;
+    local procedure ShrinkCurrent()
+    var M: Codeunit "LZP Mgt";
+    begin
+        M.Shrink();
+    end; }
+page 50457 "LZP Field Trigger" { PageType = Card; SourceTable = "LZP Item";
+    layout { area(Content) { field(Description; Rec.Description) {
+        trigger OnValidate() begin if false then ShrinkCurrent(); end; } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() begin ShrinkCurrent(); end; } } }
+    local procedure ShrinkCurrent()
+    var M: Codeunit "LZP Mgt";
+    begin
+        M.Shrink();
+    end; }
+page 50458 "LZP Global" { PageType = Card; SourceTable = "LZP Item";
+    layout { area(Content) { field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(Shrink) { trigger OnAction() begin ShrinkCurrent(); end; } } }
+    procedure ShrinkCurrent()
+    var M: Codeunit "LZP Mgt";
+    begin
+        M.Shrink();
+    end; }
+codeunit 50459 "LZP Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure OpenCardWhosePartActionCallsCodeunit()
+    var R: Record "LZP Item"; P: TestPage "LZP Card Direct";
+    begin
+        R.DeleteAll();
+        R."No." := 'A1';
+        R.Insert();
+        P.OpenEdit();
+        P.GoToRecord(R);
+        P.Description.SetValue('Edited');
+        if P.Description.Value() <> 'Edited' then
+            Error('shown %1', P.Description.Value());
+        P.Close();
+        R.Get('A1');
+        if R.Description <> 'Edited' then
+            Error('stored %1', R.Description);
+    end;
+    [Test]
+    procedure OpenCardWhosePartActionCallsLocalProcedure()
+    var R: Record "LZP Item"; P: TestPage "LZP Card Local";
+    begin
+        R.DeleteAll();
+        R."No." := 'A1';
+        R.Insert();
+        P.OpenEdit();
+        P.GoToRecord(R);
+        P.Description.SetValue('Edited');
+        if P.Description.Value() <> 'Edited' then
+            Error('shown %1', P.Description.Value());
+        P.Close();
+        R.Get('A1');
+        if R.Description <> 'Edited' then
+            Error('stored %1', R.Description);
+    end;
+    [Test]
+    procedure OpenCardWhoseOwnActionCallsLocalProcedures()
+    var P: TestPage "LZP Card Own Local";
+    begin
+        P.OpenView();
+        P.Close();
+    end;
+    [Test]
+    procedure OpenPageWithGlobalProcedure()
+    var P: TestPage "LZP Global";
+    begin
+        P.OpenView();
+        P.Close();
+    end;
+    [Test]
+    procedure InvokePartActionCallingLocalProcedure()
+    var P: TestPage "LZP Card Local";
+    begin
+        P.OpenView();
+        P.PicturePart.Shrink.Invoke();
+    end;
+    [Test]
+    procedure InvokeOwnActionCallingLocalProcedures()
+    var P: TestPage "LZP Card Own Local";
+    begin
+        P.OpenView();
+        P.Shrink.Invoke();
+    end;
+    [Test]
+    procedure OpenPageWhoseOnOpenCallsTheProcedure()
+    var P: TestPage "LZP On Open";
+    begin
+        P.OpenView();
+        P.Close();
+    end;
+    [Test]
+    procedure OpenPageWhoseFieldTriggerCallsTheProcedure()
+    var P: TestPage "LZP Field Trigger";
+    begin
+        P.OpenView();
+        P.Close();
+    end;
+    [Test]
+    procedure OwnCodeCallsTheGlobalProcedure()
+    var Pg: Page "LZP Global";
+    begin
+        if false then
+            Pg.ShrinkCurrent();
+    end;
+}
+"#;
+
+#[test]
+fn a_page_procedure_called_only_from_an_action_is_refused_only_when_the_action_runs() {
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), LOCAL.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    let get = |name: &str| {
+        rt.first_outcome(&CaseId {
+            codeunit: 50459,
+            name: name.into(),
+        })
+    };
+    // Opening a page runs none of its actions, so nothing only an action calls is refused before the run.
+    for n in [
+        "OpenCardWhosePartActionCallsCodeunit",
+        "OpenCardWhosePartActionCallsLocalProcedure",
+        "OpenCardWhoseOwnActionCallsLocalProcedures",
+        "OpenPageWithGlobalProcedure",
+    ] {
+        assert_eq!(get(n), Outcome::Pass, "{n}");
+    }
+    // Invoking the action reaches the refused builtin: not run, with its reason.
+    for n in [
+        "InvokePartActionCallingLocalProcedure",
+        "InvokeOwnActionCallingLocalProcedures",
+    ] {
+        match get(n) {
+            Outcome::NotRun(why) => assert!(why.contains("CodeCoverageLoad"), "{n}: {why}"),
+            o => panic!("{n}: {o:?}"),
+        }
+    }
+    // The procedure is reachable another way: a trigger that runs with the page, or the test's own code.
+    for n in [
+        "OpenPageWhoseOnOpenCallsTheProcedure",
+        "OpenPageWhoseFieldTriggerCallsTheProcedure",
+        "OwnCodeCallsTheGlobalProcedure",
+    ] {
+        match get(n) {
+            Outcome::NotRun(why) => assert!(why.contains("CodeCoverageLoad"), "{n}: {why}"),
+            o => panic!("{n}: {o:?}"),
+        }
+    }
+}

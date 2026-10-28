@@ -64,8 +64,10 @@ fn build(lowered: &Lowered) -> Graph {
         g.reached[i] = !stub;
         g.refused[i] = !stub && !reasons.is_empty();
         g.dep[i] = lowered.dependency[o];
-        g.edges[i] = lowered
-            .calls_of(o, r)
+        // The edges the refusal before the run follows (`blocked_site`): a driven page's procedures only through a call.
+        let mut calls = Vec::new();
+        crate::runtime::calls_before_run(lowered, o, r, &mut calls);
+        g.edges[i] = calls
             .iter()
             .filter(|&&(co, cr)| co < objects.len() && cr < objects[co].routines.len())
             .map(|&(co, cr)| g.base[co] + cr)
