@@ -202,7 +202,7 @@ impl Session {
             st.borrow_mut().refresh = false;
         }
         let v = result?;
-        self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
+        let pk_shown = self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
         // The client refreshes the page after an AssistEdit trigger: OnAfterGetRecord runs again
         // (pages/lt-page-runtime/P82Lookups.al:AssistEdit_Trigger, `OnAssistEdit;OnAfterGetRecord(L1)`). A DrillDown and a Lookup are not pinned to.
         // The row is not read again: a field the trigger set on the record stays (pages/lt-page-editability-width-lookups/
@@ -242,6 +242,13 @@ impl Session {
             self.sync_parts(st)?;
         }
         self.run_refresh(st)?;
+        // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
+        // next call (`drilldown_marked_only_refresh`).
+        if let Some(shown) = pk_shown {
+            let rec = self.page_rec(st);
+            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+            st.borrow_mut().marked_refill_in_key = Some(left);
+        }
         Ok(v)
     }
 
@@ -257,7 +264,7 @@ impl Session {
         method: PageMethod,
         marked_only_before: bool,
         shown_before: Option<Vec<Value>>,
-    ) {
+    ) -> Option<Vec<Value>> {
         let (shape, with_parts) = {
             let s = st.borrow();
             (
@@ -273,7 +280,7 @@ impl Session {
             || self.declares(st, "onfindrecord")
             || self.declares(st, "onnextrecord")
         {
-            return;
+            return None;
         }
         let row_triggers = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
         let update_false = {
@@ -285,17 +292,17 @@ impl Session {
         // DrilldownWithoutUpdateListAndGoTo); with them the later TestPage calls are refused.
         if !st.borrow().refresh {
             if with_parts {
-                return;
+                return None;
             }
             if row_triggers {
                 st.borrow_mut().marked_only_unpinned = true;
             } else {
                 st.borrow_mut().marked_only_unshown = true;
             }
-            return;
+            return None;
         }
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
-            return;
+            return None;
         }
         // In a key other than the primary key, on a page without parts standing on a stored row: the drilldown reads nothing
         // and the page keeps showing the row it stood on; the next GoToRecord refills the rows around the row Rec was left on
@@ -310,13 +317,22 @@ impl Session {
             self.table(&rec)
                 .is_ok_and(|t| !Self::same_key(&t.primary_key(shown), &t.primary_key(&rec.borrow().fields)))
         });
-        if !with_parts && rec_moved && !self.still_reads_once_more(st) {
-            st.borrow_mut().marked_only_read_unbuilt = true;
-        }
         let in_its_key = !with_parts
             && self.still_reads_once_more(st)
             && st.borrow().cursor == Cursor::Row
             && shown_before.is_some();
+        // In the primary key, when the drilldown left Rec on another row, the page still shows its row there too (SuRefillKey.al:379
+        // Id_DrillDown_GoToRecord `drilldown` `1:`, Rec left on row 5) and a GoToRecord refills around Rec's row first
+        // (`go_to_record_after_marked_refill`); any other call puts Rec back where the drilldown left it and moves as below.
+        let in_pk = !with_parts && rec_moved && !in_its_key && st.borrow().cursor == Cursor::Row;
+        if !with_parts && rec_moved && !in_its_key && !in_pk {
+            st.borrow_mut().marked_only_read_unbuilt = true;
+        }
+        // The drilldown reads nothing there either (`drilldown` `1:`).
+        let pk_shown = if in_pk { shown_before.clone() } else { None };
+        if pk_shown.is_some() {
+            st.borrow_mut().refresh = false;
+        }
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);
             let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
@@ -330,7 +346,7 @@ impl Session {
             if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
                 self.pages.scope_unpinned.push(st.clone());
             }
-            return;
+            return None;
         }
         // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part in the content area or in the
         // FactBoxes area by :460 SF_WithPart_ListAndGoTo, :480 SF_WithPart_GoToRecordMissesTheUnmarkedRow, :494
@@ -339,6 +355,7 @@ impl Session {
         s.window.clear();
         s.window_from_start = false;
         s.window_top_unread = false;
+        pk_shown
     }
 
     /// After an OnDrillDown that turned MarkedOnly on for Rec without `CurrPage.Update`, on a list without OnFindRecord,
@@ -355,6 +372,17 @@ impl Session {
         use al_builtins::page_op::PageOp;
         // After the marking drilldown on a list in another key (`drilldown_marked_only_refresh`): reading what a field shows and
         // GoToRecord are measured (al-runner issue 6008); nothing else is.
+        if st.borrow().marked_refill_in_key.is_some()
+            && !matches!(method, PageOp::TestFieldValue | PageOp::TestPageGoToRecord)
+            && !self.still_reads_once_more(st)
+        {
+            // In the primary key the other moves read the marked rows from the table, from Rec where the drilldown left it
+            // (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:344 BothTriggersListAndGoTo).
+            let left = st.borrow_mut().marked_refill_in_key.take();
+            if let Some(left) = left {
+                self.page_rec(st).borrow_mut().fields = left;
+            }
+        }
         if st.borrow().marked_refill_in_key.is_some()
             && !matches!(method, PageOp::TestFieldValue | PageOp::TestPageGoToRecord)
         {
@@ -827,11 +855,23 @@ impl Session {
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
+        {
+            let mut s = st.borrow_mut();
+            s.marking_action = !marked_only_before;
+            s.marked_rows_held = false;
+        }
         let r = self.action_invoke_body(st, idx);
+        let held = {
+            let mut s = st.borrow_mut();
+            s.marking_action = false;
+            std::mem::take(&mut s.marked_rows_held)
+        };
         // An action that turned MarkedOnly on for a list with row triggers: the moves after it walk only the marked rows
-        // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`); the client
-        // rows kept here still hold every row, so every call but Close after it is refused until that is built.
+        // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`). With
+        // CurrPage.Update(false) the refresh holds the marked rows it read (`read_list_again_from_row_as`); in any other shape the
+        // client rows kept here still hold every row, so every call but Close after it is refused.
         if r.is_ok()
+            && !held
             && !marked_only_before
             && st.borrow().open
             && self.page_rec(st).borrow().marked_only
@@ -1994,6 +2034,10 @@ impl Session {
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
         let once_more = self.still_reads_once_more(st);
+        let marked_by_action = {
+            let s = st.borrow();
+            s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
+        } && rec.borrow().marked_only;
         if once_more && !read_first {
             // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
             // (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
@@ -2148,6 +2192,23 @@ impl Session {
             s.window = rows;
             s.window_from_start = true;
             s.settled_first_row = true;
+        } else if read_first && marked_by_action {
+            // An action marked rows, turned MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows this
+            // refresh read, from the first of them, and a GoToRecord steps from the first (pages/lt-qr-onopenpage-moves-rec/
+            // SuRefillKey.al:353 Name_Action_Mark `goto 3` `Yes/3:R2;R2;R2;C2;R5;R5;R5;C5;R3;R3;R3;C3;`, :463 Id_Action_Mark
+            // `goto 3` `Yes/3:R2;R2;C2;R3;R3;C3;`). Pinned for marked rows that fit a window.
+            if back.len() + rows.len() > Self::WINDOW || view_left {
+                return unsupported(
+                    "an action turned MarkedOnly on for a list with more marked rows than a window holds (the rows the client holds are not pinned)",
+                );
+            }
+            back.reverse();
+            back.extend(rows);
+            let mut s = st.borrow_mut();
+            s.window = back;
+            s.window_from_start = true;
+            s.window_whole = true;
+            s.marked_rows_held = true;
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
             // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
