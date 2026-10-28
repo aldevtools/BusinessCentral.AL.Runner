@@ -73,7 +73,9 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// TestPageMetadataSourceObject.al:61-80): `sorting` over one or more fields and `order(descending)`, each followed by a
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`, and on a Date field `filter('')`, `filter(0D)`, `filter(<> '')` and `const(0D)`
-/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890). Anything else (`order(ascending)`, a const on another type, another filter) is not pinned.
+/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
+/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), and a Decimal const of a whole number (assumed). Anything else (a const on
+/// another type, another filter) is not pinned.
 /// The second value is the assumption the text rests on, if any.
 fn view_text(
     o: &Object,
@@ -121,18 +123,36 @@ fn view_text(
         out.push_str(&format!("SORTING({}) ", ids.join(",")));
     }
     if let Some(body) = order {
-        if !body.trim().eq_ignore_ascii_case("descending") {
+        // `order(ascending)` adds nothing (platform/lt-aw-fresh-tenant/AwTests.al:116 `SORTING(Field2,Field3) WHERE(...)`).
+        if body.trim().eq_ignore_ascii_case("descending") {
+            out.push_str("ORDER(1) ");
+        } else if !body.trim().eq_ignore_ascii_case("ascending") {
             return Err(not_pinned());
         }
-        out.push_str("ORDER(1) ");
     }
+    let mut assumed = None;
     if let Some(body) = filters {
         let mut conds = Vec::new();
         for cond in split_top(body).ok_or_else(not_pinned)? {
             let (name, rest) = cond.split_once('=').ok_or_else(not_pinned)?;
             let f = field(name)?;
             let rest = rest.trim();
-            if let Some(value) = rest.strip_prefix_ci("const(").and_then(|r| r.strip_suffix(')')) {
+            if let Some(value) = rest
+                .strip_prefix_ci("const(")
+                .and_then(|r| r.strip_suffix(')'))
+                .filter(|_| matches!(f.ty, RtType::Decimal))
+            {
+                // A Decimal const: only the `Field5=` part is known from real BC (al-runner issue 6030, the reporter's repro,
+                // `const(0)`); a whole number reads as written, as an Integer const does (assumption
+                // `page-metadata-view-decimal-const`). Another value is not measured.
+                let value = value.trim();
+                let digits = value.strip_prefix('-').unwrap_or(value);
+                if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+                    return Err(not_pinned());
+                }
+                assumed = Some(al_builtins::assumptions::Assumption::PageMetadataViewDecimalConst);
+                conds.push(format!("Field{}=CONST({value})", f.id));
+            } else if let Some(value) = rest.strip_prefix_ci("const(").and_then(|r| r.strip_suffix(')')) {
                 conds.push(format!(
                     "Field{}=CONST({})",
                     f.id,
@@ -154,6 +174,17 @@ fn view_text(
                 // `Field7=FILTER(<>'')` (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890-905
                 // SH_SourceTableView_DateFilterBlank_PageMetadata).
                 conds.push(format!("Field{}=FILTER({text})", f.id));
+            } else if let Some(n) = rest
+                .strip_prefix_ci("filter(")
+                .and_then(|r| r.strip_suffix(')'))
+                .filter(|_| matches!(f.ty, RtType::Decimal))
+                .and_then(|v| v.trim().strip_prefix('>'))
+                .map(str::trim)
+                .filter(|n| n.parse::<u32>().is_ok())
+            {
+                // A Decimal `filter(> 0)` reads `FILTER(>0)` (platform/lt-aw-fresh-tenant/AwTests.al:117). Another operator
+                // or a fraction is not pinned.
+                conds.push(format!("Field{}=FILTER(>{n})", f.id));
             } else if let Some(value) = rest.strip_prefix_ci("filter(").and_then(|r| r.strip_suffix(')')) {
                 // An integer range, written `1 .. 5`, reads `1..5` (W2PageMetadata.al:395 E_filter_range).
                 let (a, b) = value.split_once("..").ok_or_else(not_pinned)?;
@@ -168,7 +199,7 @@ fn view_text(
         }
         out.push_str(&format!("WHERE({})", conds.join(",")));
     }
-    Ok((out, None))
+    Ok((out, assumed))
 }
 
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
@@ -180,6 +211,12 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
         RtType::Text(_) => {
             let text = string_lit(value)?;
             (!text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')).then_some(text)
+        }
+        // A Code value without its quotes (platform/lt-aw-fresh-tenant/AwTests.al:116 `const('A')` reads `CONST(A)`). Pinned
+        // for upper-case letters and digits; a lower-case letter (whether BC raises it) or another character is not.
+        RtType::Code(_) => {
+            let text = string_lit(value)?;
+            (!text.is_empty() && text.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())).then_some(text)
         }
         RtType::Option(m) if plain(value) => m
             .iter()
