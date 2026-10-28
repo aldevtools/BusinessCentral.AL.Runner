@@ -2272,6 +2272,7 @@ impl Session {
     fn record_op_counted(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let entry = self.sql.enter(self.calls_made);
         let rows_before = self.sql_sized_rows(rec);
+        let copy = self.sql_copy_shape(rec);
         let r = self.record_op_tracked(method, rec, args);
         let (temp, table) = {
             let s = rec.borrow();
@@ -2286,8 +2287,59 @@ impl Session {
         };
         let calls = self.calls_made;
         self.sql
-            .leave(entry, calls, method, temp, table, args, key, rows_before, &r);
+            .leave(entry, calls, method, temp, table, args, key, rows_before, copy, &r);
         r
+    }
+
+    /// Whether `rec` is of the shape whose copy sizes the corpus measured (session/lt-bl-sql-counters/SkSqlBudget.al:14-29,
+    /// `sqlcount::CopyShape`): a database table of the fields Code[20], Integer, Text[50], Integer, keyed on the first two,
+    /// and a record with no state set but at most one filter, on the first field.
+    fn sql_copy_shape(&mut self, rec: &Rec) -> crate::sqlcount::CopyShape {
+        use crate::sqlcount::CopyShape;
+        let filtered = {
+            let s = rec.borrow();
+            let plain = !s.temporary
+                && !s.crm
+                && s.company.is_none()
+                && !s.marked_only
+                && s.read_isolation == 0
+                && s.security_filtering == 0
+                && s.key == 0
+                && s.adhoc.is_none()
+                && s.ascending
+                && s.field_descending == 0
+                && s.load.request.is_none()
+                && s.auto_calc.is_empty()
+                && s.run_page_link.is_none()
+                && s.unpinned_buffer.is_none();
+            match &s.filters[..] {
+                _ if !plain => return CopyShape::No,
+                [] => false,
+                [f] if f.field == 0 && f.group == 0 => true,
+                _ => return CopyShape::No,
+            }
+        };
+        let Ok(t) = self.table(rec) else {
+            return CopyShape::No;
+        };
+        let user: Vec<&al_data::FieldDef> = t.fields.iter().filter(|f| f.id < 2_000_000_000).collect();
+        let shape = matches!(
+            &user[..],
+            [a, b, c, d] if [a, b, c, d].iter().all(|f| f.stored)
+                && a.ty == RtType::Code(Some(20))
+                && b.ty == RtType::Integer
+                && c.ty == RtType::Text(Some(50))
+                && d.ty == RtType::Integer
+        ) && t.keys.first().is_some_and(|k| k[..] == [0, 1])
+            && t.keys
+                .iter()
+                .skip(1)
+                .all(|k| k.iter().all(|&i| t.fields[i].id >= 2_000_000_000));
+        match (shape, filtered) {
+            (false, _) => CopyShape::No,
+            (true, false) => CopyShape::Plain,
+            (true, true) => CopyShape::Grouped,
+        }
     }
 
     /// The rows of `rec`'s table, when the record and the table are of the shape whose SQL counter sizes the corpus measured
