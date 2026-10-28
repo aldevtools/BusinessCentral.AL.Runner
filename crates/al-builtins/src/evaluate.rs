@@ -1456,17 +1456,18 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         parts.pop();
     }
     let mut conditions: Vec<(u32, String)> = Vec::new();
-    for part in parts {
+    for (i, part) in parts.into_iter().enumerate() {
         let part = part.trim();
         if part.is_empty() {
             return refuse("an empty condition");
         }
         let Some((field, value)) = part.split_once('=') else {
-            // No '=': false and no error (`missing_equals_second`); as a statement the error is not pinned.
-            if ret_used {
+            // A second condition without '=': false and no error (`missing_equals_second`). The first condition without '=',
+            // and the error as a statement, are not pinned.
+            if ret_used && i > 0 {
                 return Ok(Value::Boolean(false));
             }
-            return refuse("a condition without '=' as a statement");
+            return refuse("a condition without '=' that is not a second condition of a used result");
         };
         let field = field.trim();
         let field = field

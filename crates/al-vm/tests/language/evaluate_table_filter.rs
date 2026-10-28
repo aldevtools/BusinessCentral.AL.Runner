@@ -229,6 +229,9 @@ fn forms_no_test_pins_are_refused() {
         "SI TF Target:",
         "SR TF Pair: Code=A,,Qty=1",
         "SR TF Pair: Location Code=abcdefghijkl",
+        // a first condition without '=': only a second one is pinned (`missing_equals_second`)
+        "SR TF Pair: Qty",
+        "SR TF Pair: Qty,Code=BIN01",
     ] {
         match function_form(text) {
             Err(Signal::Unsupported(why)) => assert!(why.contains("TableFilter"), "{text}: {why}"),
