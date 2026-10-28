@@ -703,6 +703,11 @@ fn precision_standard(
     if (5..=8).contains(&std) {
         return format_value(v, 0, std, ctx).map_err(fail);
     }
+    // `<Precision,2:26>` (more than 18 decimals) is pinned only by TP_Format_PrecisionStrings on corpus branch
+    // al-runtime-rs-staging-pub-tp, with standard formats 2 and 4 (`1234.50 `, `-1234.567`).
+    if max > 18 {
+        crate::assumptions::assume(crate::assumptions::Assumption::FormatPrecisionFirstCode);
+    }
     let rounded = n
         .value
         .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
