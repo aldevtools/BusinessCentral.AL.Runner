@@ -3348,7 +3348,10 @@ fn export_triggers_below(schema: &Schema, node: usize) -> bool {
     ["onaftergetrecord", "onbeforepassfield", "onbeforepassvariable"]
         .iter()
         .any(|t| n.trigger(t).is_some())
-        || schema.children(node).into_iter().any(|c| export_triggers_below(schema, c))
+        || schema
+            .children(node)
+            .into_iter()
+            .any(|c| export_triggers_below(schema, c))
 }
 
 /// A text element without triggers whose nodes are all attributes (at least one).

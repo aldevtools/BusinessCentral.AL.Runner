@@ -397,11 +397,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             Some("XmlVersionNo = V11")
         } else if out.preserve_whitespace {
             Some("PreserveWhiteSpace")
-        } else if out
-            .nodes
-            .iter()
-            .any(|n| n.kind == ir::XmlNodeKind::TextAttr)
-        {
+        } else if out.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::TextAttr) {
             Some("a text attribute")
         } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
             Some("a NamespacePrefix")
