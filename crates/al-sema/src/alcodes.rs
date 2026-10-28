@@ -1901,6 +1901,36 @@ mod tests {
         assert!(codes(&[BASE, &ext("procedure Secret(): Integer begin exit(2); end;")]).is_empty());
     }
 
+    /// al-runner issue 6012: a page and its extension each get a generated `__visible_N` routine for a `Visible = Flag;`
+    /// property, named from the property's offset in its own object. When both offsets are equal the names are equal, but
+    /// the routines are not AL methods: alc compiles the app, so neither AL0440 nor any other AL code is reported. The
+    /// offsets must not depend on the line endings either (the reporter's file failed with CRLF and compiled with LF).
+    #[test]
+    fn al0440_not_reported_for_generated_control_routines_of_a_page_and_its_extension() {
+        let table = "table 50000 T { fields { field(1; Id; Integer) { } } }";
+        let page = |nl: &str, pad: usize| {
+            format!(
+                "page 50001 BP{nl}{{{nl}PageType = Card; SourceTable = T;{nl}layout {{ area(Content) {{{nl}{}field(Id; Rec.Id) {{ Visible = Flag; }}{nl}}} }}{nl}var Flag: Boolean;{nl}}}",
+                " ".repeat(pad)
+            )
+        };
+        let ext = |nl: &str, pad: usize| {
+            format!(
+                "pageextension 50002 BPE extends BP{nl}{{{nl}layout {{ addlast(Content) {{{nl}{}field(Id2; Rec.Id) {{ Visible = Flag2; }}{nl}}} }}{nl}var Flag2: Boolean;{nl}}}",
+                " ".repeat(pad)
+            )
+        };
+        let at = |s: &str| s.find("Visible").unwrap();
+        for (page_nl, ext_nl) in [("\n", "\n"), ("\r\n", "\r\n"), ("\r\n", "\n"), ("\n", "\r\n")] {
+            // Pad the earlier of the two so the Visible properties sit at the same offset of their objects.
+            let (p0, e0) = (at(&page(page_nl, 0)), at(&ext(ext_nl, 0)));
+            let (p, e) = (page(page_nl, e0.saturating_sub(p0)), ext(ext_nl, p0.saturating_sub(e0)));
+            assert_eq!(at(&p), at(&e));
+            let got = codes(&[table, &p, &e]);
+            assert!(got.is_empty(), "{got:?} {:?}", (page_nl, ext_nl));
+        }
+    }
+
     #[test]
     fn al0440_second_procedure_with_the_signature_of_an_earlier_one_in_a_codeunit() {
         let dup = "codeunit 50000 C { local procedure Foo(A: Integer) begin end; local procedure foo(B: Integer) begin end; }";
