@@ -138,6 +138,12 @@ pub fn blocked_site(lowered: &Lowered, object: usize, routine: usize) -> Option<
         if lowered.program.objects[o].routines[r].name.starts_with("__sourceset_") {
             continue;
         }
+        // A page action's OnAction runs only when the action is invoked (al-runner issue 6014): what it reaches, on the page
+        // or on a part, is refused when it runs (`Session::call` checks `Engine::blocked` on every call), not before. A
+        // routine the root reaches another way is still found on that way. The root itself is checked.
+        if (o, r) != (object, routine) && is_action_trigger(lowered, o, r) {
+            continue;
+        }
         if let Some(reason) = lowered.unsupported[o][r].first() {
             let name = &lowered.program.objects[o].routines[r].name;
             let obj = &lowered.program.objects[o].name;
@@ -168,4 +174,14 @@ pub fn blocked_site(lowered: &Lowered, object: usize, routine: usize) -> Option<
         }
     }
     None
+}
+
+/// Whether routine `r` of object `o` is the OnAction trigger of an action of a page or page extension.
+pub fn is_action_trigger(lowered: &Lowered, o: usize, r: usize) -> bool {
+    let obj = &lowered.program.objects[o];
+    let rt = &obj.routines[r];
+    (obj.is_kind(al_ir::ObjKind::Page) || obj.is_kind(al_ir::ObjKind::PageExtension))
+        && rt.is_trigger
+        && rt.name.eq_ignore_ascii_case("onaction")
+        && rt.container.as_ref().is_some_and(|(k, _)| k == "action")
 }

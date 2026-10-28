@@ -179,11 +179,12 @@ pub fn report(ws: &Workspace, lowered: &Lowered) -> String {
             }
         }
     }
-    let blocked = |root: usize| -> bool {
-        closure(&g, &[root], &vec![false; n], true)
-            .iter()
-            .any(|&i| g.refused[i])
-    };
+    // A page action's OnAction is refused when the action runs, not before (`blocked_site`, al-runner issue 6014).
+    let actions: Vec<bool> =
+        g.at.iter()
+            .map(|&(o, r)| crate::runtime::is_action_trigger(lowered, o, r))
+            .collect();
+    let blocked = |root: usize| -> bool { closure(&g, &[root], &actions, true).iter().any(|&i| g.refused[i]) };
     let (mut runnable, mut stopped) = (Vec::new(), 0usize);
     for &t in &tests {
         if blocked(t) {

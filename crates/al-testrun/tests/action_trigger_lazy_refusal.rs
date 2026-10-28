@@ -59,3 +59,140 @@ fn an_unlowerable_action_trigger_is_refused_only_when_invoked() {
     });
     assert!(matches!(o, Outcome::NotRun(_)), "{o:?}");
 }
+
+// al-runner issue 6014: a refusal in a routine an action's OnAction calls (directly or further down, on the page or on a
+// FactBox part) is raised when the action runs too. A test that reaches the routine through its own code is still refused
+// before the run.
+const REACH: &str = r#"
+table 50440 "LAZ Item" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[100]) { } }
+    keys { key(PK; "No.") { Clustered = true; } } }
+codeunit 50441 "LAZ Mgt"
+{
+    procedure Shrink()
+    begin
+        Inner();
+    end;
+    procedure Inner()
+    begin
+        CodeCoverageLoad();
+    end;
+}
+page 50442 "LAZ Part" { PageType = CardPart; SourceTable = "LAZ Item";
+    layout { area(Content) { field(Description; Rec.Description) { } } }
+    actions { area(Processing) {
+        action(PartShrink) { trigger OnAction() var M: Codeunit "LAZ Mgt"; begin M.Shrink(); end; }
+        action(PartDirect) { trigger OnAction() var M: Codeunit "LAZ Mgt"; begin M.Inner(); end; } } } }
+page 50443 "LAZ Card" { PageType = Card; SourceTable = "LAZ Item";
+    layout {
+        area(Content) { field("No."; Rec."No.") { } field(Description; Rec.Description) { } }
+        area(FactBoxes) { part(PicturePart; "LAZ Part") { SubPageLink = "No." = field("No."); } } }
+    actions { area(Processing) {
+        action(CardShrink) { trigger OnAction() var M: Codeunit "LAZ Mgt"; begin M.Shrink(); end; } } } }
+codeunit 50444 "LAZ Reach Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure OpenCardWithRefusedActions()
+    var R: Record "LAZ Item"; P: TestPage "LAZ Card";
+    begin
+        R.DeleteAll();
+        R."No." := 'A1';
+        R.Insert();
+        P.OpenEdit();
+        P.GoToRecord(R);
+        P.Description.SetValue('Edited');
+        if P.Description.Value() <> 'Edited' then
+            Error('shown %1', P.Description.Value());
+        P.Close();
+        R.Get('A1');
+        if R.Description <> 'Edited' then
+            Error('stored %1', R.Description);
+    end;
+    [Test]
+    procedure InvokeCardAction()
+    var P: TestPage "LAZ Card";
+    begin
+        P.OpenView();
+        P.CardShrink.Invoke();
+    end;
+    [Test]
+    procedure InvokePartAction()
+    var P: TestPage "LAZ Card";
+    begin
+        P.OpenView();
+        P.PicturePart.PartShrink.Invoke();
+    end;
+    [Test]
+    procedure InvokePartDirectAction()
+    var P: TestPage "LAZ Card";
+    begin
+        P.OpenView();
+        P.PicturePart.PartDirect.Invoke();
+    end;
+    [Test]
+    procedure OwnCodeReachesTheRoutine()
+    var M: Codeunit "LAZ Mgt"; P: TestPage "LAZ Card";
+    begin
+        P.OpenView();
+        P.Close();
+        if false then
+            M.Shrink();
+    end;
+}
+"#;
+
+fn reach_outcomes() -> Vec<(&'static str, Outcome)> {
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), REACH.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    [
+        "OpenCardWithRefusedActions",
+        "InvokeCardAction",
+        "InvokePartAction",
+        "InvokePartDirectAction",
+        "OwnCodeReachesTheRoutine",
+    ]
+    .into_iter()
+    .map(|name| {
+        (
+            name,
+            rt.first_outcome(&CaseId {
+                codeunit: 50444,
+                name: name.into(),
+            }),
+        )
+    })
+    .collect()
+}
+
+#[test]
+fn a_refusal_called_from_an_action_is_raised_only_when_the_action_runs() {
+    let outcomes = reach_outcomes();
+    let get = |n: &str| outcomes.iter().find(|(k, _)| *k == n).map(|(_, o)| o.clone()).unwrap();
+    // Opening the card never runs an action of the card or of its FactBox part.
+    assert_eq!(get("OpenCardWithRefusedActions"), Outcome::Pass, "{outcomes:?}");
+    // Each invoked action reaches the refused builtin: not run, with the reason of the routine that holds it.
+    for n in ["InvokeCardAction", "InvokePartAction", "InvokePartDirectAction"] {
+        match get(n) {
+            Outcome::NotRun(why) => assert!(why.contains("CodeCoverageLoad"), "{n}: {why}"),
+            o => panic!("{n}: {o:?}"),
+        }
+    }
+    // The test's own code names the routine: refused before the run, even on a path that never runs it.
+    assert!(
+        matches!(get("OwnCodeReachesTheRoutine"), Outcome::NotRun(_)),
+        "{outcomes:?}"
+    );
+}
