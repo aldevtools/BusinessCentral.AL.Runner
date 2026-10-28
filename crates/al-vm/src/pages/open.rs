@@ -217,6 +217,8 @@ impl Session {
     ) -> Result<Option<Handler>, Signal> {
         let test_open = std::mem::take(&mut self.pages.test_open);
         let rec_unpinned = st.borrow_mut().open_rec_unpinned.take();
+        st.borrow_mut().run_page_link_opened = rec_unpinned.is_some();
+        st.borrow_mut().run_page_link_open_moved = false;
         let rec_fill = st.borrow_mut().open_rec_fill.take();
         let mut handler = None;
         let engine = self.engine();
@@ -244,6 +246,9 @@ impl Session {
             s.field_captions = Vec::new();
             s.field_captions_opened = false;
             s.field_captions_settled = false;
+            s.field_captions_row = None;
+            s.field_captions_quiet = false;
+            s.field_captions_pinned_move = false;
             s.moving_next = false;
             s.window = Vec::new();
             s.window_from_start = false;
@@ -515,8 +520,10 @@ impl Session {
                     r.run_page_link = Some(link.clone());
                 }
             }
+            self.pages.run_page_link_open_moved = false;
             let opened = self.page_trigger(st, "onopenpage", vec![]);
             st.borrow_mut().opening = false;
+            st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
             if rec_unpinned.is_some() && has_source {
                 self.page_rec(st).borrow_mut().unpinned_buffer = None;
             }

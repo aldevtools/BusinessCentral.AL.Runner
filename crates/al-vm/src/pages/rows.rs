@@ -303,8 +303,13 @@ impl Session {
                 let s = st.borrow();
                 s.field_captions_link_refill && (s.cursor != Cursor::Row || s.draft)
             };
-            let quiet = empty_refill || (!first && (!st.borrow().field_captions_settled || st.borrow().moving_next));
-            if !staged && (!pinned || !(quiet || first)) {
+            let quiet = empty_refill
+                || (!first
+                    && (!st.borrow().field_captions_settled
+                        || st.borrow().moving_next
+                        || st.borrow().field_captions_quiet));
+            let pinned_move = st.borrow().field_captions_pinned_move;
+            if !staged && (!pinned || !(quiet || first || pinned_move)) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
             }
             if quiet {
@@ -348,7 +353,87 @@ impl Session {
                 s.field_captions.push((idx, caption));
             }
         }
+        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
         Ok(())
+    }
+
+    /// The page shapes whose CaptionClass expression runs on GoToKey, GoToRecord, First, Last and Previous are pinned
+    /// (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1463-1895, the SI_ tests): a Card and a Document page, not a part,
+    /// opened with OpenView or OpenEdit, after their open ran the expressions. `card_only`: First, Last and Previous (pinned on a
+    /// Card only).
+    fn caption_moves_pinned(&self, st: &St, card_only: bool) -> bool {
+        use al_ir::PageType;
+        let s = st.borrow();
+        let page_type = self.engine.object_facts[s.object as usize].page_type.as_ref();
+        s.field_captions_opened
+            && s.field_captions_settled
+            && s.host.is_none()
+            && !s.modal
+            && matches!(s.mode, PageMode::View | PageMode::Edit)
+            && match page_type {
+                Some(PageType::Card) => true,
+                Some(PageType::Document) => !card_only,
+                _ => false,
+            }
+    }
+
+    /// Runs the CaptionClass expression of each control over such a field once with the row `fields`; `keep`: `Caption()` keeps
+    /// what it read before.
+    fn run_caption_expressions_with(&mut self, st: &St, fields: Vec<Value>, keep: bool) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let t = self.table(&rec)?;
+        let exprs: Vec<(usize, String)> = (0..t.fields.len())
+            .filter_map(|pos| {
+                let raw = self.field_property(&t, pos, "CaptionClass")?;
+                crate::recmeta::string_literal(&raw)
+                    .is_none()
+                    .then(|| (pos, raw.trim().to_string()))
+            })
+            .collect();
+        let saved_captions = st.borrow().field_captions.clone();
+        let saved_row = st.borrow().field_captions_row.clone();
+        let own = std::mem::replace(&mut rec.borrow_mut().fields, fields);
+        let r = self.fill_field_captions_with_row(st, &t, &exprs, 1);
+        rec.borrow_mut().fields = own;
+        if keep {
+            let mut s = st.borrow_mut();
+            s.field_captions = saved_captions;
+            s.field_captions_row = saved_row;
+        }
+        r
+    }
+
+    /// GoToKey and GoToRecord (TestPage): [`Session::page_go_to_key`], with the CaptionClass expression runs of a Card or a
+    /// Document page (QdCaptionClassAreas.al:1463-1895): the rows the search passes and lands on run none; it runs each
+    /// expression control once more with the row the captions came from (the open's row, also after an earlier GoToRecord:
+    /// `SI_Card_GoToRecord_Twice` `goto2_calls = rest=20@1;...`), and `Caption()` keeps its value (`goto_exprId = Id 1`). A
+    /// changed row saved by the move runs them once with the saved row first (`SI_Card_SetValueThenGoToRecord` `goto_calls`
+    /// twice `@1`). A key no row has is not pinned.
+    pub(super) fn page_go_to_key_captions(&mut self, st: &St, key: &mut [Value]) -> Result<Value, Signal> {
+        if !self.caption_moves_pinned(st, false) || st.borrow().field_captions_row.is_none() {
+            return self.page_go_to_key(st, key);
+        }
+        let saves = {
+            let s = st.borrow();
+            s.cursor == Cursor::Row && s.dirty && !s.draft
+        } && !Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st));
+        let saved_row = self.page_rec(st).borrow().fields.clone();
+        st.borrow_mut().field_captions_quiet = true;
+        let r = self.page_go_to_key(st, key);
+        st.borrow_mut().field_captions_quiet = false;
+        let r = r?;
+        if !matches!(r, Value::Boolean(true)) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
+            return Ok(r);
+        }
+        if saves {
+            self.run_caption_expressions_with(st, saved_row, false)?;
+        }
+        let Some(row) = st.borrow().field_captions_row.clone() else {
+            return Ok(r);
+        };
+        self.run_caption_expressions_with(st, row, true)?;
+        Ok(r)
     }
 
     /// A move that saved the changed row runs the CaptionClass expressions once for each control with the saved row, before it
@@ -393,7 +478,8 @@ impl Session {
             // A Card opened with OpenEdit too (QdCaptionClassAreas.al:1110-1137 QO_Card_OpenEdit, corpus bump 45).
             (Some(PageType::Card), None) => matches!(mode, PageMode::View | PageMode::Edit),
             // A Document page and its ListPart opened with OpenEdit or OpenNew (QdCaptionClassAreas.al:958-1110, corpus bump 45).
-            (Some(PageType::Document), None) => matches!(mode, PageMode::Edit | PageMode::New),
+            // OpenView too (QdCaptionClassAreas.al:1866-1894 SI_Doc_OpenView_GoToKey `open`).
+            (Some(PageType::Document), None) => matches!(mode, PageMode::View | PageMode::Edit | PageMode::New),
             (Some(PageType::List), None) => matches!(mode, PageMode::View | PageMode::Edit) && !st.borrow().modal,
             (Some(PageType::Other(t)), Some(h)) if t == "listpart" => {
                 h.borrow().host.is_none()
@@ -1294,6 +1380,9 @@ impl Session {
         if empty_view_list && how == PageMethod::First {
             return Ok(Value::Boolean(false));
         }
+        if how == PageMethod::First && self.first_on_first_row_of_a_linked_list(st)? {
+            return Ok(Value::Boolean(true));
+        }
         let answer_used = self.ret_used;
         // A list row whose OnValidate refused an entry: Next() raises nothing, runs no OnModify and stores nothing of the row
         // (pages/lt-ah-pages/PwCloseRevalidate.al:270 PW_List_RefusedOnValidate_ThenNext_ThenClose). Where the cursor lands
@@ -1379,7 +1468,20 @@ impl Session {
         }
         let before = self.page_rec(st).borrow().fields.clone();
         st.borrow_mut().moving_next = how == PageMethod::Next;
+        // On a Card, Previous runs no CaptionClass expression and First and Last run them once with the new row, which Caption()
+        // then reads (QdCaptionClassAreas.al:1684-1731 SI_Card_Last_Previous_First `last_calls = rest=20@3;...`,
+        // `previous_calls` empty, `first_calls = rest=20@1;...`).
+        if self.caption_moves_pinned(st, true) {
+            let mut s = st.borrow_mut();
+            s.field_captions_quiet = how == PageMethod::Previous;
+            s.field_captions_pinned_move = matches!(how, PageMethod::First | PageMethod::Last);
+        }
         let (r, origin) = self.traced(st, |s| s.page_move_inner(st, how));
+        {
+            let mut s = st.borrow_mut();
+            s.field_captions_quiet = false;
+            s.field_captions_pinned_move = false;
+        }
         st.borrow_mut().moving_next = false;
         if let (Err(Signal::Error(e)), Some(trigger @ ("onnextrecord" | "onfindrecord"))) = (&r, origin.as_deref()) {
             let raised = self.move_trigger_error(st, how, trigger, e, before);
@@ -1387,6 +1489,55 @@ impl Session {
             return Err(raised?);
         }
         self.torn_down_on_error(st, r).map(Value::Boolean)
+    }
+
+    /// Whether `First()` on a list an action opened through `RunPageLink` stands on the first row of its view already: it then
+    /// answers Yes and runs no OnAfterGetCurrRecord (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:337-350, :368-410
+    /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
+    /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
+    /// moved Rec with FindFirst or FindLast; refused when OnOpenPage did not move Rec.
+    fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open
+                && s.run_page_link_opened
+                && s.host.is_none()
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && !s.dirty
+                && !s.new_line
+                && s.after_new.is_none()
+        } && self.is_list(st)
+            && !["onaftergetrecord", "onfindrecord", "onnextrecord"]
+                .iter()
+                .any(|t| self.declares(st, t));
+        if !shape {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(false);
+        }
+        if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
+            return Ok(false);
+        }
+        // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
+        // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
+        if !st.borrow().run_page_link_open_moved {
+            // Without OnAfterGetCurrRecord nothing tells the two apart: the usual First() runs.
+            if !self.declares(st, "onaftergetcurrrecord") {
+                return Ok(false);
+            }
+            return unsupported(
+                "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
+            );
+        }
+        Ok(true)
     }
 
     /// An AL error of OnNextRecord on `Next()` of a card opened for editing: "Page <caption> has to close.", the caption with

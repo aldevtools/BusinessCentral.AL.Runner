@@ -381,6 +381,12 @@ pub struct PageState {
     pub field_captions_opened: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
+    /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
+    pub field_captions_row: Option<Vec<Value>>,
+    /// A move whose row fills run no CaptionClass expression (GoToKey, GoToRecord and Previous on a Card or Document page).
+    pub field_captions_quiet: bool,
+    /// A move whose CaptionClass expression run with the new row is pinned (First and Last on a Card).
+    pub field_captions_pinned_move: bool,
     /// A `Next()` of the page is filling its row.
     pub moving_next: bool,
     /// A fill after the open (a part refilled after its host moved) runs the CaptionClass expressions with its first row
@@ -429,6 +435,10 @@ pub struct PageState {
     /// Set by the opener for the page's next open: while OnOpenPage runs, Rec's buffer is not pinned and a use that reads it
     /// refuses with this reason (`RecordState::unpinned_buffer`; a page an action opens through `RunPageLink`).
     pub open_rec_unpinned: Option<&'static str>,
+    /// The page was opened by an action through `RunPageLink` (set as it opens, from `open_rec_unpinned`).
+    pub run_page_link_opened: bool,
+    /// Its OnOpenPage moved Rec to a linked row with a FindFirst or FindLast that found one.
+    pub run_page_link_open_moved: bool,
     /// The record the page opens on came from an action's RunObject (RunPageOnRec, RunPageLink or RunPageView), not from
     /// Page.Run: the open reads it once.
     pub run_object_record: bool,
@@ -779,6 +789,9 @@ impl PageState {
             field_captions: Vec::new(),
             field_captions_opened: false,
             field_captions_settled: false,
+            field_captions_row: None,
+            field_captions_quiet: false,
+            field_captions_pinned_move: false,
             moving_next: false,
             field_captions_fill_first: false,
             field_captions_link_refill: false,
@@ -796,6 +809,8 @@ impl PageState {
             opened_on_moved_rec: false,
             onopenpage_kept_rec: false,
             open_rec_unpinned: None,
+            run_page_link_opened: false,
+            run_page_link_open_moved: false,
             run_object_record: false,
             open_rec_fill: None,
             temp_reads_once_more: false,

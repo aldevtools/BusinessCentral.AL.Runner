@@ -560,7 +560,7 @@ impl Session {
             }
             PageMethod::GoToKey => {
                 self.require_open(st)?;
-                self.page_go_to_key(st, args)
+                self.page_go_to_key_captions(st, args)
             }
             m @ (PageMethod::FindFirstField | PageMethod::FindNextField | PageMethod::FindPreviousField) => {
                 self.require_open(st)?;
@@ -1310,7 +1310,7 @@ impl Session {
                 };
                 let table = self.table(r)?;
                 let mut key: Vec<Value> = table.primary_key(&r.borrow().fields);
-                self.page_go_to_key(st, &mut key)
+                self.page_go_to_key_captions(st, &mut key)
             }
             other => unsupported(format!("TestPage.{other}")),
         }
