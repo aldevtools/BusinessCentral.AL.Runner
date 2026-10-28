@@ -6899,6 +6899,15 @@
         },
         {
           "corpus_uses": 1,
+          "group": "report",
+          "ms_uses": 1,
+          "name": "ShowPrintStatus",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-report-page-properties/03-report-showprint.al:9"
+        },
+        {
+          "corpus_uses": 1,
           "group": "report/field",
           "ms_uses": 1,
           "name": "AutoFormatExpression",
@@ -7238,15 +7247,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-report-page-properties/03-report-maxdoccount.al:9"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "report",
-          "ms_uses": 1,
-          "name": "ShowPrintStatus",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-report-page-properties/03-report-showprint.al:9"
         },
         {
           "corpus_uses": 0,
@@ -16279,7 +16279,7 @@
         "code": "ALSystemString",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 575,
+        "line": 543,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Text.al:113",
         "template": "Incorrect use of the where parameter."
@@ -16288,7 +16288,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 618,
+        "line": 586,
         "pinned": true,
         "site": "text/TestProbeTextDateFormatContracts.al:1093",
         "template": "The result of incrementing cannot be negative."
@@ -16297,7 +16297,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 933,
+        "line": 901,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16306,7 +16306,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 1066,
+        "line": 1034,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16477,7 +16477,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1801,
+        "line": 1806,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16495,7 +16495,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open.rs",
         "generic": false,
-        "line": 1581,
+        "line": 1547,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16531,7 +16531,7 @@
         "code": "QueryNoDataSet",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 792,
+        "line": 780,
         "pinned": true,
         "site": "xmlport/lt-xmlport-query-datatransfer/XpTQueryBasic.al:84",
         "template": "You have not yet retrieved a dataset for this query. The READ function can only be called after the dataset is retrieved with a call to the OPEN function."
@@ -16540,7 +16540,7 @@
         "code": "Query",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 800,
+        "line": 788,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131QuerySetRangeAfterRead.al:111",
         "template": "The READ function is called on a query after query metadata has been changed by one of the following: SETFILTER, SETRANGE, SECURITYFILTERING, or TOPNUMBEROFROWS. After metadata changes, you must reopen the query by calling the OPEN function before calling the READ function."
@@ -16567,7 +16567,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 4706,
+        "line": 4646,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16657,7 +16657,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1796,
+        "line": 1806,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16666,7 +16666,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2653,
+        "line": 2663,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -26924,7 +26924,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-report-page-properties/03-report-showprint.al:9",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",

@@ -685,8 +685,9 @@ This replaces item 1 of "Decided without owner review (2026-10-20)".
   (registry ids use hyphens; the owner decision named it `install_company_triggers_all_apps`). A test that touches a table
   the other apps' subscribers write, or a table a per-company routine writes that reads such a table or shares a
   SingleInstance codeunit with them, is a flagged pass (`InstallFacts::assumed`, marked at the record operation).
-- Decided without owner review (2026-10-28): when a subscriber of another app cannot run in this runtime (on the corpus,
-  System Application's "System Initialization" reaches `NavUserAccountHelper.IsUserDelegatedHelpdesk`, which is refused),
-  what the subscribers did is rolled back and only the app's own subscribers run, as before; reads of the tables that
-  could see the difference are refused as before (`InstallFacts::unopened`). Raising the events without this fallback
-  stopped every per-company install routine of the corpus app: 1026 BC 29 baseline cases stopped passing.
+- A subscriber of any installed app that cannot run in this runtime stops the per-company install routines of the app,
+  as one of the app's own subscribers does: what the subscribers did is rolled back, and a test that touches a table one
+  of the routines or one of the subscribers can write is not run. System Application's "System Initialization" runs here
+  since `NavUserAccountHelper.IsDelegatedUser`, `IsUserDelegatedAdmin` and `IsUserDelegatedHelpdesk` answer false
+  (`al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61-63`); a first build kept a fallback to the app's own
+  subscribers while it could not, and that fallback is gone (al-runner issue 6046).

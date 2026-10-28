@@ -1221,8 +1221,8 @@ fn the_session_user_is_not_a_delegated_admin() {
 }
 
 /// System Application `Azure AD Graph User Impl.IsUserDelegated` calls `NavUserAccountHelper.IsDelegatedUser()`; 165 Microsoft
-/// tests (for example Suggest Price Lines UT T202) need it. The session user is not delegated (assumption
-/// nav-user-account-helper-is-delegated-user).
+/// tests (for example Suggest Price Lines UT T202) need it. False in a test session (corpus
+/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61`).
 #[test]
 fn the_session_user_is_not_a_delegated_user() {
     assert_eq!(
@@ -1234,6 +1234,25 @@ fn the_session_user_is_not_a_delegated_user() {
         )),
         "No"
     );
+}
+
+/// System Application `Azure AD User Mgmt. Impl.` (run by System Initialization on company open) calls
+/// `NavUserAccountHelper.IsUserDelegatedHelpdesk()`: false in a test session on every supported major (corpus
+/// `al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63`).
+#[test]
+fn the_session_user_is_not_a_delegated_helpdesk() {
+    for bc in [Some("27.5"), Some("28.5"), Some("29.0")] {
+        assert_eq!(
+            text(run_as(
+                bc,
+                "U: DotNet NavUserAccountHelper;",
+                "exit(Format(U.IsUserDelegatedHelpdesk()));",
+                ": Text"
+            )),
+            "No",
+            "{bc:?}"
+        );
+    }
 }
 
 /// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: true on the

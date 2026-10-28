@@ -174,18 +174,11 @@ pub struct InstallFacts {
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
     pub row_order: std::collections::HashMap<usize, String>,
-    /// ADR-046 amendment 1, A4 item 4 (owner decision 2026-10-19): the install session of an app under test raises Company
-    /// Triggers OnCompanyOpen(Completed) to the subscribers of every installed app, an assumption until probe Q3. Per app
-    /// under test with per-company install routines: whether the subscribers of the other installed apps ran there
-    /// (`true`), or one of them could not run in this runtime and none of them did (`false`, the install went on with the
-    /// app's own subscribers). Set by the runner when the app installs; the same for every session of the engine.
-    pub others_opened: std::collections::HashMap<usize, std::sync::OnceLock<bool>>,
-    /// Table object -> (app under test, the assumption its install rows rely on) when the other apps' subscribers ran for
-    /// that app: a test that touches the table outside install code is a flagged pass.
+    /// Table object -> (app under test, the assumption its install rows rely on): the install session of an app under test
+    /// raises Company Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4
+    /// item 4, owner decision 2026-10-19), an assumption until probe Q3. A test that touches the table outside install code
+    /// is a flagged pass.
     pub assumed: std::collections::HashMap<usize, (usize, al_builtins::assumptions::Assumption)>,
-    /// Table object -> (app under test, why its rows are not known) when the other apps' subscribers did not run for that
-    /// app: a per-company routine that reads what they write, or shares a SingleInstance codeunit with them, wrote it.
-    pub unopened: std::collections::HashMap<usize, (usize, String)>,
 }
 
 /// The codeunit objects with one id, first in program order.
