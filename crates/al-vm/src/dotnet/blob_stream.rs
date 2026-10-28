@@ -186,7 +186,7 @@ impl Session {
                 Some(bytes) => Ok(bytes),
                 None => unsupported("the bytes of a .NET byte array came back as text that is not Base64"),
             },
-            Ok(other) => unsupported(format!("the bytes of a .NET byte array came back as {:?}", other.value)),
+            Ok(_) => unsupported("the bytes of a .NET byte array came back as a value that is not text"),
             Err(DotNetFailure::Refused(why)) => unsupported(format!("DotNet {CONVERT}.{MEMBER}: {why}")),
             Err(DotNetFailure::Exception(e)) => unsupported(format!(
                 "DotNet {CONVERT}.{MEMBER} of a byte array raised {}: {}",
