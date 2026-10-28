@@ -85,6 +85,9 @@ pub enum InNamespace {
     RootElsewhere(String),
     /// The root is in the namespace and its first child element is in no namespace: the local names of both.
     FirstChildInNone { root: String, child: String },
+    /// The root is in the namespace and carries an attribute prefixed into that namespace: the attribute's local name (the
+    /// first such attribute).
+    RootAttributeInNamespace(String),
 }
 
 /// Reads the root element of `text` for a port whose elements are all in namespace `ns`.
@@ -332,6 +335,11 @@ mod tests {
                 root: "a".into(),
                 child: "b".into()
             })
+        );
+        // A root attribute prefixed into the namespace (writer TF's branch, SgXmlPortOccurs.al TF_NsAttr_Import_Qualified).
+        assert_eq!(
+            parse_in_namespace("<p:a xmlns:p=\"urn:n\" p:V=\"1\"><p:b p:W=\"2\"/></p:a>", ns),
+            Ok(InNamespace::RootAttributeInNamespace("V".into()))
         );
         // Not pinned: a later child elsewhere, an element in a third namespace, another namespace declared.
         for doc in [

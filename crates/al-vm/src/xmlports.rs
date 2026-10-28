@@ -504,6 +504,9 @@ impl Session {
         if let (Dir::Export, Some(why)) = (dir, schema.xp().export_unsupported.first()) {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
+        for a in &schema.xp().assumes {
+            al_builtins::assumptions::assume(*a);
+        }
         // OnPreXmlPort runs when the port starts, in both directions
         // (handlers/TestPageActionRunObjectKinds_Tests.al:ProbeControlEachTargetRecordsItsOwnExecution pins
         // it for an export); the other object triggers are not pinned and refused.
@@ -883,6 +886,23 @@ impl Session {
                 Err(schema_error(format!(
                     "The element '{root}' in namespace '{ns}' has invalid child element '{child}'. List of possible elements expected: '{child}' in namespace '{ns}'."
                 )))
+            }
+            // An attribute of the root prefixed into the port's namespace is not the port's attribute, which is in no namespace:
+            // the schema check fails before anything is imported (writer TF's branch al-runtime-rs-staging-pub-tf,
+            // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Import_Qualified `prefixed attributes`, a declared
+            // text attribute of the root). Pinned for a port without DefaultNamespace (BC's own namespace), the case
+            // `xmlport-udn-text-attribute` registers.
+            Ok(InNamespace::RootAttributeInNamespace(attr))
+                if xp
+                    .default_ns
+                    .as_deref()
+                    .is_some_and(|d| d.starts_with("urn:microsoft-dynamics-nav/xmlports/x"))
+                    && schema
+                        .children(top)
+                        .iter()
+                        .any(|&c| xp.nodes[c].kind == ir::XmlNodeKind::TextAttr && xp.nodes[c].xml_name == attr) =>
+            {
+                Err(schema_error(format!("The '{ns}:{attr}' attribute is not declared.")))
             }
             Ok(_) => {
                 unsupported("XmlPort import with UseDefaultNamespace of a document of a shape the corpus does not pin")
@@ -2484,8 +2504,10 @@ impl Session {
                 }
                 // UseDefaultNamespace = true without DefaultNamespace: the root declares BC's namespace of the port as the default
                 // and the elements below inherit it (xmlport/lt-bd-xmlport/BdXmlPort.al:511, DgXmlPortLeads.al:290).
+                // It follows the root's own attributes (writer TF's branch al-runtime-rs-staging-pub-tf,
+                // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_NsAttr_Export: `<Root Ver="v1" xmlns="...">`).
                 if let Some(ns) = &xp.default_ns {
-                    root.attrs.insert(0, ("xmlns".into(), ns.clone()));
+                    root.attrs.push(("xmlns".into(), ns.clone()));
                 }
                 root
             }) {
