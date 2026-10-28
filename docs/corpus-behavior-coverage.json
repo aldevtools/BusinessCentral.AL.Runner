@@ -1782,7 +1782,7 @@
           "ms_uses": 2790,
           "name": "Importance",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pages/lt-page-presentation-properties/P119PageExt.al:26"
         },
         {
@@ -2169,7 +2169,7 @@
           "ms_uses": 799,
           "name": "Style",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pages/lt-page-presentation-properties/P119PageFields.al:79"
         },
         {
@@ -2655,7 +2655,7 @@
           "ms_uses": 239,
           "name": "ShowAs",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pages/lt-page-controls-aa/AaControls.al:245"
         },
         {
@@ -3348,7 +3348,7 @@
           "ms_uses": 86,
           "name": "AllowInCustomizations",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pageext/lt-page-ext-properties/AllowInCustomizations.al:14"
         },
         {
@@ -3411,7 +3411,7 @@
           "ms_uses": 77,
           "name": "Importance",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pages/lt-page-presentation-properties/P119ReportFields.al:27"
         },
         {
@@ -3987,7 +3987,7 @@
           "ms_uses": 31,
           "name": "Gesture",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "pages/lt-page-controls-aa/AaControls.al:170"
         },
         {
@@ -4046,6 +4046,15 @@
         },
         {
           "corpus_uses": 2,
+          "group": "entitlement",
+          "ms_uses": 28,
+          "name": "RoleType",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "misc/lt-u-entitlements/UEntitlements.al:26"
+        },
+        {
+          "corpus_uses": 2,
           "group": "page",
           "ms_uses": 28,
           "name": "QueryCategory",
@@ -4061,15 +4070,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pageext/lt-u-page-props/UPageObjects.al:399"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "entitlement",
-          "ms_uses": 28,
-          "name": "RoleType",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "misc/lt-u-entitlements/UEntitlements.al:26"
         },
         {
           "corpus_uses": 1,
@@ -4243,6 +4243,15 @@
           "site": null
         },
         {
+          "corpus_uses": 2,
+          "group": "page/field",
+          "ms_uses": 20,
+          "name": "MaskType",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pageext/lt-page-ext-properties/PageMaskType.al:20"
+        },
+        {
           "corpus_uses": 1,
           "group": "report/field",
           "ms_uses": 20,
@@ -4250,15 +4259,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pages/lt-page-presentation-properties/P119ReportFields.al:42"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "page/field",
-          "ms_uses": 20,
-          "name": "MaskType",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pageext/lt-page-ext-properties/PageMaskType.al:20"
         },
         {
           "corpus_uses": 0,
@@ -4320,7 +4320,7 @@
           "ms_uses": 19,
           "name": "GridLayout",
           "pinned": true,
-          "runtime_reads": false,
+          "runtime_reads": true,
           "site": "handlers/TestPageCueGroupFixedGridContracts.al:109"
         },
         {
@@ -4468,6 +4468,15 @@
           "site": "misc/lt-object-properties-runtime-effect/AccessInternal.al:9"
         },
         {
+          "corpus_uses": 5,
+          "group": "page/customaction",
+          "ms_uses": 15,
+          "name": "CustomActionType",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pageext/lt-u-page-props/UPageObjects.al:264"
+        },
+        {
           "corpus_uses": 1,
           "group": "page/customaction",
           "ms_uses": 15,
@@ -4502,15 +4511,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "misc/lt-probes-needed-3/PnC19XmlPort.al:163"
-        },
-        {
-          "corpus_uses": 5,
-          "group": "page/customaction",
-          "ms_uses": 15,
-          "name": "CustomActionType",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pageext/lt-u-page-props/UPageObjects.al:264"
         },
         {
           "corpus_uses": 1,
@@ -4576,6 +4576,15 @@
           "site": "errors/lt-ms-refusals-134/P134MinMaxDecimals.al:85"
         },
         {
+          "corpus_uses": 1,
+          "group": "page/label",
+          "ms_uses": 13,
+          "name": "Style",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119Labels.al:32"
+        },
+        {
           "corpus_uses": 3,
           "group": "page/label",
           "ms_uses": 13,
@@ -4637,15 +4646,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-presentation-properties/P119Labels.al:25"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "page/label",
-          "ms_uses": 13,
-          "name": "Style",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119Labels.al:32"
         },
         {
           "corpus_uses": 1,
@@ -4774,6 +4774,15 @@
           "site": "pageext/lt-page-ext-properties/PageExtRunPage.al:94"
         },
         {
+          "corpus_uses": 0,
+          "group": "pageextension/field",
+          "ms_uses": 10,
+          "name": "Importance",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
           "corpus_uses": 6,
           "group": "pageextension/part",
           "ms_uses": 10,
@@ -4808,15 +4817,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-presentation-properties/P119Promoted.al:13"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "pageextension/field",
-          "ms_uses": 10,
-          "name": "Importance",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 1,
@@ -5351,6 +5351,24 @@
         },
         {
           "corpus_uses": 1,
+          "group": "page/label",
+          "ms_uses": 5,
+          "name": "Importance",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119Labels.al:26"
+        },
+        {
+          "corpus_uses": 2,
+          "group": "page/repeater",
+          "ms_uses": 5,
+          "name": "TreeInitialState",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pageext/lt-page-ext-properties/PageTree.al:38"
+        },
+        {
+          "corpus_uses": 1,
           "group": "pageextension/group",
           "ms_uses": 5,
           "name": "Visible",
@@ -5393,24 +5411,6 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pages/lt-pages-xmlport-upload-members/P112XpCsv.al:73"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "page/label",
-          "ms_uses": 5,
-          "name": "Importance",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119Labels.al:26"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "page/repeater",
-          "ms_uses": 5,
-          "name": "TreeInitialState",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pageext/lt-page-ext-properties/PageTree.al:38"
         },
         {
           "corpus_uses": 0,
@@ -6403,10 +6403,28 @@
           "site": "report/lt-bj-request-drilldown/BjRequestDrillDown.al:126"
         },
         {
+          "corpus_uses": 1,
+          "group": "report/field",
+          "ms_uses": 2,
+          "name": "Style",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119ReportCaption.al:33"
+        },
+        {
           "corpus_uses": 0,
           "group": "report/labels",
           "ms_uses": 2,
           "name": "Page",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "report/labels",
+          "ms_uses": 2,
+          "name": "PageLabel",
           "pinned": false,
           "runtime_reads": true,
           "site": null
@@ -6455,15 +6473,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-report-page-properties/03-report-props.al:12"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "report/field",
-          "ms_uses": 2,
-          "name": "Style",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119ReportCaption.al:33"
         },
         {
           "corpus_uses": 0,
@@ -6596,15 +6605,6 @@
           "group": "report/labels",
           "ms_uses": 2,
           "name": "OfCaption",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
-        },
-        {
-          "corpus_uses": 0,
-          "group": "report/labels",
-          "ms_uses": 2,
-          "name": "PageLabel",
           "pinned": false,
           "runtime_reads": false,
           "site": null
@@ -6800,6 +6800,24 @@
         },
         {
           "corpus_uses": 1,
+          "group": "pageextension/field",
+          "ms_uses": 1,
+          "name": "Style",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119PageExt.al:91"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "pageextension/grid",
+          "ms_uses": 1,
+          "name": "GridLayout",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119GridExt.al:16"
+        },
+        {
+          "corpus_uses": 1,
           "group": "pageextension/group",
           "ms_uses": 1,
           "name": "Editable",
@@ -6833,6 +6851,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "misc/lt-u-obsolete-pending/UObsoleteObjects.al:163"
+        },
+        {
+          "corpus_uses": 0,
+          "group": "pageextension/group",
+          "ms_uses": 1,
+          "name": "ShowAs",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
         },
         {
           "corpus_uses": 1,
@@ -7162,15 +7189,6 @@
           "corpus_uses": 1,
           "group": "pageextension/field",
           "ms_uses": 1,
-          "name": "Style",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119PageExt.al:91"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "pageextension/field",
-          "ms_uses": 1,
           "name": "StyleExpr",
           "pinned": true,
           "runtime_reads": false,
@@ -7180,28 +7198,10 @@
           "corpus_uses": 1,
           "group": "pageextension/grid",
           "ms_uses": 1,
-          "name": "GridLayout",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119GridExt.al:16"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "pageextension/grid",
-          "ms_uses": 1,
           "name": "ShowCaption",
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-presentation-properties/P119GridExt.al:17"
-        },
-        {
-          "corpus_uses": 0,
-          "group": "pageextension/group",
-          "ms_uses": 1,
-          "name": "ShowAs",
-          "pinned": false,
-          "runtime_reads": false,
-          "site": null
         },
         {
           "corpus_uses": 2,
@@ -11545,6 +11545,15 @@
           "corpus_uses": 1,
           "group": "page/fileuploadaction",
           "ms_uses": 0,
+          "name": "Gesture",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-controls-aa/AaControls.al:303"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "page/fileuploadaction",
+          "ms_uses": 0,
           "name": "ObsoleteReason",
           "pinned": true,
           "runtime_reads": true,
@@ -11738,6 +11747,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pages/lt-page-controls-aa/AaControls.al:134"
+        },
+        {
+          "corpus_uses": 2,
+          "group": "page/part",
+          "ms_uses": 0,
+          "name": "Multiplicity",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-controls-aa/AaControls.al:57"
         },
         {
           "corpus_uses": 1,
@@ -11992,6 +12010,24 @@
           "site": "pages/lt-z-page-customization/ZPageCustomization.al:153"
         },
         {
+          "corpus_uses": 4,
+          "group": "pagecustomization/modify",
+          "ms_uses": 0,
+          "name": "Importance",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-z-page-customization/ZPageCustomization.al:154"
+        },
+        {
+          "corpus_uses": 2,
+          "group": "pagecustomization/modify",
+          "ms_uses": 0,
+          "name": "MaskType",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-z-page-customization/ZPageCustomization.al:155"
+        },
+        {
           "corpus_uses": 2,
           "group": "pagecustomization/modify",
           "ms_uses": 0,
@@ -12130,6 +12166,15 @@
           "corpus_uses": 1,
           "group": "pageextension/modify",
           "ms_uses": 0,
+          "name": "Importance",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-page-presentation-properties/P119PageExt.al:69"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "pageextension/modify",
+          "ms_uses": 0,
           "name": "LookupPageId",
           "pinned": true,
           "runtime_reads": true,
@@ -12161,6 +12206,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "pageext/lt-z-modify-controls/ZModifyControls.al:92"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "pageextension/modify",
+          "ms_uses": 0,
+          "name": "Style",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pageext/lt-z-modify-controls/ZModifyControls.al:93"
         },
         {
           "corpus_uses": 1,
@@ -12422,6 +12476,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "report/lt-y-report-props/YReports.al:470"
+        },
+        {
+          "corpus_uses": 4,
+          "group": "report",
+          "ms_uses": 0,
+          "name": "PdfFontEmbedding",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "report/lt-y-report-props/YReports.al:477"
         },
         {
           "corpus_uses": 2,
@@ -12751,6 +12814,15 @@
           "corpus_uses": 1,
           "group": "table",
           "ms_uses": 0,
+          "name": "AllowInCustomizations",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "record/lt-x-table-props/XTableObjects.al:12"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "table",
+          "ms_uses": 0,
           "name": "LinkedObject",
           "pinned": true,
           "runtime_reads": true,
@@ -12782,6 +12854,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "record/TestPlatformMetadataDeclarationContracts.al:83"
+        },
+        {
+          "corpus_uses": 4,
+          "group": "table/field",
+          "ms_uses": 0,
+          "name": "MaskType",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "misc/lt-dh-obsolete-props/DhOtherProps.al:21"
         },
         {
           "corpus_uses": 2,
@@ -12872,6 +12953,15 @@
           "pinned": true,
           "runtime_reads": true,
           "site": "record/TestPlatformMetadataDeclarationContracts.al:102"
+        },
+        {
+          "corpus_uses": 1,
+          "group": "tableextension",
+          "ms_uses": 0,
+          "name": "AllowInCustomizations",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "record/lt-x-table-props/XTableObjects.al:64"
         },
         {
           "corpus_uses": 1,
@@ -13390,15 +13480,6 @@
           "corpus_uses": 1,
           "group": "page/fileuploadaction",
           "ms_uses": 0,
-          "name": "Gesture",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-controls-aa/AaControls.al:303"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "page/fileuploadaction",
-          "ms_uses": 0,
           "name": "InFooterBar",
           "pinned": true,
           "runtime_reads": false,
@@ -13421,15 +13502,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-page-controls-aa/AaControls.al:96"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "page/part",
-          "ms_uses": 0,
-          "name": "Multiplicity",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-controls-aa/AaControls.al:57"
         },
         {
           "corpus_uses": 1,
@@ -13486,24 +13558,6 @@
           "site": "pages/lt-z-page-customization/ZPageCustomization.al:130"
         },
         {
-          "corpus_uses": 4,
-          "group": "pagecustomization/modify",
-          "ms_uses": 0,
-          "name": "Importance",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-z-page-customization/ZPageCustomization.al:154"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "pagecustomization/modify",
-          "ms_uses": 0,
-          "name": "MaskType",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-z-page-customization/ZPageCustomization.al:155"
-        },
-        {
           "corpus_uses": 2,
           "group": "pagecustomization/modify",
           "ms_uses": 0,
@@ -13529,15 +13583,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pageext/lt-z-page-ext-props/ZPageExtProps.al:93"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "pageextension/modify",
-          "ms_uses": 0,
-          "name": "Importance",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-page-presentation-properties/P119PageExt.al:69"
         },
         {
           "corpus_uses": 1,
@@ -13577,15 +13622,6 @@
         },
         {
           "corpus_uses": 1,
-          "group": "pageextension/modify",
-          "ms_uses": 0,
-          "name": "Style",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pageext/lt-z-modify-controls/ZModifyControls.al:93"
-        },
-        {
-          "corpus_uses": 1,
           "group": "profile",
           "ms_uses": 0,
           "name": "ProfileDescriptionML",
@@ -13610,15 +13646,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "codeunit/lt-x-object-props/XObjectProps.al:214"
-        },
-        {
-          "corpus_uses": 4,
-          "group": "report",
-          "ms_uses": 0,
-          "name": "PdfFontEmbedding",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "report/lt-y-report-props/YReports.al:477"
         },
         {
           "corpus_uses": 2,
@@ -13786,15 +13813,6 @@
           "corpus_uses": 1,
           "group": "table",
           "ms_uses": 0,
-          "name": "AllowInCustomizations",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "record/lt-x-table-props/XTableObjects.al:12"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "table",
-          "ms_uses": 0,
           "name": "ColumnStoreIndex",
           "pinned": true,
           "runtime_reads": false,
@@ -13808,15 +13826,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "record/lt-x-table-props/XTableObjects.al:106"
-        },
-        {
-          "corpus_uses": 4,
-          "group": "table/field",
-          "ms_uses": 0,
-          "name": "MaskType",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "misc/lt-dh-obsolete-props/DhOtherProps.al:21"
         },
         {
           "corpus_uses": 1,
@@ -13844,15 +13853,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "handlers/ProbeObjectMetadataTables.al:162"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "tableextension",
-          "ms_uses": 0,
-          "name": "AllowInCustomizations",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "record/lt-x-table-props/XTableObjects.al:64"
         }
       ],
       "pinned": 805
@@ -16243,7 +16243,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1357,
+        "line": 1366,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16252,7 +16252,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1389,
+        "line": 1398,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16261,7 +16261,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1631,
+        "line": 1640,
         "pinned": true,
         "site": "streams/lt-stream-length/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16270,7 +16270,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1767,
+        "line": 1776,
         "pinned": true,
         "site": "misc/lt-probes-needed-1/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."
@@ -16720,7 +16720,7 @@
         "code": "",
         "file": "crates/al-vm/src/xmlports.rs",
         "generic": false,
-        "line": 1429,
+        "line": 1450,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -18680,7 +18680,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-z-page-customization/ZPageCustomization.al:154",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -18695,7 +18695,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-z-page-customization/ZPageCustomization.al:155",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -19338,7 +19338,7 @@
         "pinned": true,
         "scope": "",
         "site": "misc/lt-u-entitlements/UEntitlements.al:26",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -19578,7 +19578,7 @@
         "pinned": true,
         "scope": "",
         "site": "pageext/lt-page-ext-properties/AllowInCustomizations.al:14",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -19893,7 +19893,7 @@
         "pinned": true,
         "scope": "",
         "site": "misc/lt-dh-obsolete-props/DhOtherProps.al:21",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -20343,7 +20343,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -21378,7 +21378,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-controls-aa/AaControls.al:170",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -21663,7 +21663,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-controls-aa/AaControls.al:245",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22023,7 +22023,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-presentation-properties/P119PageExt.al:69",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22053,7 +22053,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22158,7 +22158,7 @@
         "pinned": true,
         "scope": "",
         "site": "pageext/lt-z-modify-controls/ZModifyControls.al:93",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22308,7 +22308,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22428,7 +22428,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -22458,7 +22458,7 @@
         "pinned": true,
         "scope": "",
         "site": "pageext/lt-u-page-props/UPageObjects.al:264",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -23283,7 +23283,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-presentation-properties/P119PageExt.al:26",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -23328,7 +23328,7 @@
         "pinned": true,
         "scope": "",
         "site": "pageext/lt-page-ext-properties/PageMaskType.al:20",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -23598,7 +23598,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-presentation-properties/P119PageExt.al:91",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -23748,7 +23748,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-controls-aa/AaControls.al:303",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -23943,7 +23943,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24063,7 +24063,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24183,7 +24183,7 @@
         "pinned": true,
         "scope": "",
         "site": "handlers/TestPageCueGroupFixedGridContracts.al:109",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24303,7 +24303,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24423,7 +24423,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24543,7 +24543,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24648,7 +24648,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-presentation-properties/P119Labels.al:26",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24753,7 +24753,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-presentation-properties/P119Labels.al:32",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -24888,7 +24888,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-page-controls-aa/AaControls.al:57",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -25128,7 +25128,7 @@
         "pinned": false,
         "scope": "",
         "site": null,
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -25248,7 +25248,7 @@
         "pinned": true,
         "scope": "",
         "site": "pageext/lt-page-ext-properties/PageTree.al:38",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -26849,7 +26849,7 @@
         "pinned": true,
         "scope": "",
         "site": "report/lt-y-report-props/YReports.al:477",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -27968,7 +27968,7 @@
         "pinned": true,
         "scope": "",
         "site": "record/lt-x-table-props/XTableObjects.al:12",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",
@@ -28313,7 +28313,7 @@
         "pinned": true,
         "scope": "",
         "site": "record/lt-x-table-props/XTableObjects.al:64",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "properties",

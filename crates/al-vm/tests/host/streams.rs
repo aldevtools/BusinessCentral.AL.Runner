@@ -594,3 +594,24 @@ fn read_into_a_text_reads_back_what_write_of_a_text_wrote() {
         "abcYes"
     );
 }
+
+// misc/lt-probes-needed-5/PnE04Streams.al:118 ReadText_Utf8_NonAscii (`7|wörld` with a zero byte after it) and, on corpus branch
+// al-runtime-rs-staging-pub-to, TO_ReadText_NonAscii_NoTerminator (`7|wörld` without one, assumption
+// utf-eight-read-non-ascii-unterminated). A UTF-16 stream with non-ASCII characters stays refused.
+#[test]
+fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
+    let vars = base!("N: Integer;");
+    assert_eq!(
+        text(
+            vars,
+            "B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText('w\u{f6}rld'); B.Data.CreateInStream(I, TextEncoding::UTF8);
+             N := I.Read(T); exit(Format(N) + '|' + T);"
+        ),
+        "7|w\u{f6}rld"
+    );
+    assert!(refused(
+        vars,
+        "B.Data.CreateOutStream(O, TextEncoding::UTF16); O.WriteText('w\u{f6}r'); B.Data.CreateInStream(I, TextEncoding::UTF16);
+         N := I.Read(T); exit('');"
+    ));
+}
