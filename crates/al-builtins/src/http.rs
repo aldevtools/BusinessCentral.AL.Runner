@@ -2061,7 +2061,55 @@ fn client_default_headers(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value
 /// `Clear` brings the client back to a fresh one: timeout, base address and default headers
 /// (network/lt-http/HttpClient.al:ClientClear).
 fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    with_client(r, |s| *s = HttpClientState::default()).map(|()| Value::Null)
+    with_client(r, |s| {
+        // Whether Clear also resets the certificate setting is not pinned: the mark stays, so a request no handler answers
+        // stays refused.
+        let cert_validation_set = s.cert_validation_set;
+        *s = HttpClientState {
+            cert_validation_set,
+            ..HttpClientState::default()
+        };
+    })
+    .map(|()| Value::Null)
+}
+
+/// `UseServerCertificateValidation(false)` gives the client new default request headers: an HttpHeaders taken earlier from
+/// `DefaultRequestHeaders` no longer reaches the client, one taken after the call does; `true` keeps the link
+/// (network/lt-cz-http-leads/CzHttpNoNetwork.al:98-121 DefaultRequestHeaders_ReferenceLost_AfterValidationOff and :123-143,
+/// BC 27, 28, 29). Pinned only on a client with empty default headers, no base address and the default timeout: whether the
+/// new client keeps them is not, so that detach is refused. The result is not pinned either: a used result is refused
+/// (lowering drops the result of `if ... then;` with no branches). A request of the client that no handler answers is
+/// refused (`cert_validation_set`); with a handler it is answered as before
+/// (al-language-onprem/network/HttpClientAuthConfig.al:117-126 `after_certificate_validation_off`).
+fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if c.ret_used() {
+        return unsupported("the result of HttpClient.UseServerCertificateValidation (not pinned)");
+    }
+    let off = match a.first() {
+        Some(Value::Boolean(b)) => !*b,
+        other => {
+            return unsupported(format!(
+                "HttpClient.UseServerCertificateValidation of {}",
+                other.map_or("nothing".into(), |v| v.describe())
+            ));
+        }
+    };
+    with_client(r, |s| {
+        if off {
+            let filled = {
+                let b = s.default_headers.borrow();
+                !b.items.is_empty() || !b.secret.is_empty()
+            };
+            if filled || !s.base_address.is_empty() || s.timeout_ms != HttpClientState::default().timeout_ms {
+                return unsupported(
+                    "HttpClient.UseServerCertificateValidation(false) on a client with default request headers, a base address or a timeout: whether the client keeps them is not pinned",
+                );
+            }
+            s.default_headers = crate::value::new_header_list(crate::value::HeaderKind::Default);
+        }
+        s.cert_validation_set = true;
+        Ok(Value::Null)
+    })?
 }
 
 /// `UseResponseCookies` takes a Boolean and changes nothing a test can see (network/lt-http/HttpClient.al:BooleanSettings).
@@ -2070,12 +2118,19 @@ fn client_use_cookies(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -
 }
 
 /// Hands `(method, url)` to the session and writes the response it returns into the `var Response` argument.
-fn send(c: &mut dyn Ctx, method: &str, url: (String, bool), response: Option<&Value>) -> Out {
+fn send(
+    c: &mut dyn Ctx,
+    method: &str,
+    url: (String, bool),
+    cert_validation_set: bool,
+    response: Option<&Value>,
+) -> Out {
     let state = c.http_send(HttpOutgoing {
         method: method.to_ascii_uppercase(),
         url: url.0,
         has_secret_uri: false,
         unpinned_join: url.1,
+        cert_validation_set,
     })?;
     let Some(Value::Library(_, cell)) = response else {
         return unsupported("HttpClient call without a response variable");
@@ -2120,11 +2175,11 @@ fn send(c: &mut dyn Ctx, method: &str, url: (String, bool), response: Option<&Va
 macro_rules! verb {
     ($name:ident, $method:expr, $with_content:expr) => {
         fn $name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-            let base = with_client(r, |s| s.base_address.clone())?;
+            let (base, cert) = with_client(r, |s| (s.base_address.clone(), s.cert_validation_set))?;
             let path = text(a, 0)?;
             let url = resolve_request_path(&base, &path)?;
             let response = if $with_content { a.get(2) } else { a.get(1) };
-            send(c, $method, url, response)
+            send(c, $method, url, cert, response)
         }
     };
 }
@@ -2135,7 +2190,7 @@ verb!(client_put, "PUT", true);
 verb!(client_patch, "PATCH", true);
 
 fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let base = with_client(r, |s| s.base_address.clone())?;
+    let (base, cert) = with_client(r, |s| (s.base_address.clone(), s.cert_validation_set))?;
     let Some(Value::Library(_, req)) = a.first() else {
         return unsupported("HttpClient.Send without a request");
     };
@@ -2150,7 +2205,7 @@ fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         Some(uri) => resolve_request_path(&base, &uri)?,
         None => (String::new(), false),
     };
-    send(c, &method, url, a.get(1))
+    send(c, &method, url, cert, a.get(1))
 }
 
 // ------------------------------------------------------------------------------------------------ response
@@ -2523,6 +2578,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("HttpClient", "DefaultRequestHeaders") => Some(client_default_headers),
         ("HttpClient", "Clear") => Some(client_clear),
         ("HttpClient", "UseResponseCookies") => Some(client_use_cookies),
+        ("HttpClient", "UseServerCertificateValidation") => Some(client_use_cert_validation),
         ("HttpResponseMessage", "HttpStatusCode") => Some(response_status),
         ("HttpResponseMessage", "ReasonPhrase") => Some(response_reason),
         ("HttpResponseMessage", "IsBlockedByEnvironment") => Some(response_blocked),
