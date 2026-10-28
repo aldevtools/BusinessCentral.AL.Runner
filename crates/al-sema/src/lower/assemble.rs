@@ -1097,6 +1097,9 @@ pub(crate) fn lower_core(
         let Some(piece) = piece else {
             // Supplied by the cache: its refusals and calls are read from the facts, or copied without them kept.
             let facts = src.expect("a supplied object has a source").facts(oi);
+            // `ndirect` stays aligned with `calls` by object (al-runner issue 6031). The facts hold only the calls the code
+            // makes (what a variable drives is in `DepFacts::drivers`): empty means every call is one.
+            ndirect.push(Vec::new());
             if keep_facts {
                 unsupported.push(Vec::new());
                 calls.push(Vec::new());
@@ -2222,6 +2225,14 @@ pub fn relower_objects(
     roots.provided_queries = (0..n)
         .map(|oi| old.provided[oi].then(|| src.facts(oi).query.clone()).flatten())
         .collect();
+    // A changed object that now names a test codeunit the selection left out needs that codeunit compiled
+    // (`check::named_by_kept`): the complete compile does that.
+    if roots.only_tests.is_some()
+        && old.skipped.len() == n
+        && !crate::check::named_by_kept(ws, &old.skipped, Some(dirty)).is_empty()
+    {
+        return Err("a changed object names a test codeunit the selection left out".into());
+    }
     roots.only_objects = Some(dirty.to_vec());
     roots.skipped_before = Some(old.skipped.clone());
     let checked = crate::check::check_with(ws, &members, catalog, roots);

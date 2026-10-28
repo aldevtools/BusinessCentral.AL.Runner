@@ -187,3 +187,45 @@ codeunit 69531 T { Subtype = Test;
   end; }";
     all_pass(run_with_deps(&[], main));
 }
+
+/// Issue 6043: a page extension of another app declares a `local procedure` with the name and parameter types of a
+/// `protected procedure` of its base page (Customer Card's ActivateFields). alc compiles it: only an extension procedure
+/// that code outside the extension can reach clashes (AL0440, must-not-compile 0003 and 0042, public against
+/// protected). The reporter's repro: the extension compiles and its test runs.
+#[test]
+fn issue_6043_extension_local_procedure_named_like_a_protected_base_procedure_compiles() {
+    let base = "table 50200 \"Repro Rec\" { fields { field(1; \"No.\"; Code[10]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+page 50201 \"Repro Card\" { PageType = Card; SourceTable = \"Repro Rec\";
+    layout { area(Content) { field(\"No.\"; Rec.\"No.\") { } } }
+    protected procedure ActivateFields() begin end; }";
+    let ext =
+        "pageextension 50300 \"Repro Card Ext\" extends \"Repro Card\" { local procedure ActivateFields() begin end; }
+codeunit 50301 T { Subtype = Test; [Test] procedure Compiles() begin end; }";
+    all_pass(run_with_deps(&[base], ext));
+}
+
+/// Issue 6043: which body runs. In the extension's code a bare call runs the extension's own local procedure, in the
+/// base page's code the base page's protected one; a call from outside on a page variable runs the base page's public
+/// procedure, as the extension's local one is not visible there. alc binds the calls that way (a probe with alc: the extension's
+/// local `F(): Text` next to the base's protected `F(): Integer` makes `I := F()` in the extension a Text-to-Integer
+/// error); the corpus pin is awaited (assumption ExtLocalProcNamedLikeBase).
+#[test]
+fn issue_6043_a_bare_call_runs_the_procedure_of_the_calling_object() {
+    let base = "table 50200 \"Repro Rec\" { fields { field(1; \"No.\"; Code[10]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+codeunit 50202 \"Repro Log\" { SingleInstance = true; var L: Text;
+    procedure Add(T: Text) begin L += T + ';'; end; procedure Take(): Text begin exit(L); end; }
+page 50201 \"Repro Card\" { PageType = Card; SourceTable = \"Repro Rec\";
+    protected procedure ActivateFields() var Log: Codeunit \"Repro Log\"; begin Log.Add('base'); end;
+    procedure FromBase() begin ActivateFields(); end;
+    procedure Shared() var Log: Codeunit \"Repro Log\"; begin Log.Add('base-shared'); end; }";
+    let ext = "pageextension 50300 \"Repro Card Ext\" extends \"Repro Card\" {
+    local procedure ActivateFields() var Log: Codeunit \"Repro Log\"; begin Log.Add('ext'); end;
+    local procedure Shared() var Log: Codeunit \"Repro Log\"; begin Log.Add('ext-shared'); end;
+    procedure FromExt() begin ActivateFields(); Shared(); end; }
+codeunit 50301 T { Subtype = Test;
+    [Test] procedure Calls() var P: Page \"Repro Card\"; Log: Codeunit \"Repro Log\"; begin
+        P.FromBase(); P.FromExt(); P.Shared();
+        if Log.Take() <> 'base;ext;ext-shared;base-shared;' then Error('got %1', Log.Take());
+    end; }";
+    all_pass(run_with_deps(&[base], ext));
+}

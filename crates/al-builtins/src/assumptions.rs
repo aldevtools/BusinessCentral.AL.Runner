@@ -227,6 +227,17 @@ registry! {
         tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
         probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
     },
+    ExtLocalProcNamedLikeBase => {
+        id: "ext-local-proc-named-like-base",
+        assumed: "A page or report extension of another app's object may declare a local procedure with the name and parameter types of a public or protected procedure of its base. A bare call in the extension's code runs the extension's local procedure; the base's own calls and calls on a variable of the object from outside run the base's procedure. alc compiles it and binds the calls this way (probed with alc: a local F(): Text next to a protected F(): Integer makes `I := F()` in the extension a Text-to-Integer error).",
+        tests: "No Microsoft test: al-runner issue 6043, the reporter's run on real BC (Continia's extension of Customer Card declares local ActivateFields next to the page's protected one).",
+        probe: "Two apps: a page with protected ActivateFields() and public Shared() that log, and a page extension of another app with local ActivateFields() and local Shared() that log; a call of each from the base, from the extension, and P.Shared() from a test codeunit. Corpus writer: not yet assigned.",
+        awaiting: Awaiting {
+            issues: &[6043],
+            files: &["tests/al-language/pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al"],
+            since: "2026-10-28",
+        },
+    },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",

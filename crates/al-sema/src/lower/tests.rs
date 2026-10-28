@@ -318,6 +318,44 @@ fn a_selection_compiles_only_the_selected_test_codeunits() {
     );
 }
 
+/// A test codeunit the selection leaves out stays compiled when kept code names it (al-runtime-rs: a test's outcome must
+/// not depend on which other test codeunits are selected): by name, by id after `Codeunit` or in `Codeunit.Run(`, and
+/// through a test codeunit so kept. An integer elsewhere (a field number) does not keep one.
+#[test]
+fn a_selection_keeps_the_test_codeunits_kept_code_names() {
+    const SRC: &str = "table 50190 \"Row\" { fields { field(50114; \"No.\"; Integer) { } } }
+        codeunit 50110 \"T\" { Subtype = Test; var B: Codeunit \"By Name\"; C: Codeunit 50112;
+            [Test] procedure P() begin B.X(); C.X(); Codeunit.Run(50113); end; }
+        codeunit 50111 \"By Name\" { Subtype = Test; var D: Codeunit \"Through\"; procedure X() begin D.X(); end; }
+        codeunit 50112 \"By Id\" { Subtype = Test; procedure X() begin end; }
+        codeunit 50113 \"By Run\" { Subtype = Test; trigger OnRun() begin end; }
+        codeunit 50114 \"Field Number\" { Subtype = Test; procedure X() begin end; }
+        codeunit 50115 \"Through\" { Subtype = Test; procedure X() begin end; }
+        codeunit 50116 \"Unnamed\" { Subtype = Test; procedure X() begin end; }";
+    let (ws, l) = compile_apps_with(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".to_string(), SRC.to_string())],
+        }],
+        vec![crate::workspace::AppKind::Workspace],
+        &Default::default(),
+        None,
+        crate::check::Roots {
+            baseline: false,
+            only_tests: Some(vec![(0, 50110)]),
+            ..Default::default()
+        },
+    );
+    let mut left_out: Vec<u32> = (0..ws.objects.len())
+        .filter(|&oi| l.unsupported[oi].iter().flatten().count() > 0)
+        .filter_map(|oi| ws.objects[oi].id)
+        .collect();
+    left_out.sort_unstable();
+    assert_eq!(left_out, vec![50114, 50116]);
+}
+
 /// With `Roots::reach_only` a normal codeunit's procedure that no selected test (and no root that
 /// runs by itself: a trigger, a subscriber, a codeunit with a Subtype) names is a stub that
 /// refuses, so a pure test is not compiled together with the data-touching code beside it.
