@@ -811,6 +811,9 @@ pub struct Query {
     pub order_by: Vec<(usize, bool)>,
     /// The `TopNumberOfRows` property; 0 = all rows.
     pub top: i32,
+    /// The unprobed assumptions the query's properties rest on; the VM marks them when a method of the query runs.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

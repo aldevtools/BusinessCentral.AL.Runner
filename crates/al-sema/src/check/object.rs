@@ -718,6 +718,7 @@ impl<'a> Checker<'a> {
                     self.al_enum_assignment(sc, rhs, target, source);
                     self.al_integer_text_assignment(sc, rhs, target, source);
                     self.al_scalar_assignment(sc, rhs, target, source);
+                    self.al_enum_decimal_assignment(sc, rhs, target, source);
                     self.al_no_result_assignment(sc, rhs, target, source);
                     self.al_interface_assignment(sc, rhs, target, source);
                 }

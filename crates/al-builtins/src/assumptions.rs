@@ -681,6 +681,42 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
+    XmlReadFromStreamOptions => {
+        id: "xml-readfrom-stream-options",
+        assumed: "XmlDocument.ReadFrom(InStream, XmlReadOptions, var XmlDocument) reads as the stream form without options does when PreserveWhitespace is false (whitespace-only text nodes are kept), and a document that does not parse answers false with the error text of the stream form in GetLastErrorText. PreserveWhitespace true is pinned (xml/XmlDocReadWrite.al:290-307); the statement form of a document that does not parse stays refused.",
+        tests: "No Microsoft test: al-runner issue 6049, the reporter's run on real BC (a shared XML helper reads every document through this overload; 1,299 tests of a partner suite). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:331-389.",
+        probe: "Writer TJ's ReadFrom_InStream_Options_WhitespaceNodes and ReadFrom_InStream_Options_Invalid (corpus PR 774).",
+        awaiting: Awaiting {
+            issues: &[6049],
+            files: &[
+                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_WhitespaceNodes",
+                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_Invalid"
+            ],
+            since: "2026-10-28",
+        },
+    },
+    QueryReadStateSharedCommitted => {
+        id: "query-read-state-shared-committed",
+        assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
+        tests: "No Microsoft test: al-runner issue 6050, the reporter's run on real BC (47 tests of a partner suite reach a query with ReadState = ReadShared). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, query/TestQueryReadStateContracts.al:135-163.",
+        probe: "Writer TJ's ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne (corpus PR 774).",
+        awaiting: Awaiting {
+            issues: &[6050],
+            files: &["tests/al-language/query/TestQueryReadStateContracts.al::ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne"],
+            since: "2026-10-28",
+        },
+    },
+    OptionDecimalConversion => {
+        id: "option-decimal-conversion",
+        assumed: "An Option (field, variable or member) converts to a Decimal as its ordinal: assignment, a Decimal parameter, Validate of a Decimal field, and arithmetic with a Decimal or Integer. A Decimal converts to an Option when it is a whole number within Integer (an ordinal the Option lacks is kept, Format shows the number); a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value <d> to System.Int32.`. A Decimal beyond Integer is refused.",
+        tests: "No Microsoft test: al-runner issue 6060, the reporter's run on real BC (a payroll suite assigns an Option field to a Decimal field). Writer TL's run on real BC: branch al-runtime-rs-staging-pub-tl, types/lt-implicit-conversions/P79OptionDecimal.al.",
+        probe: "Writer TL's P79OptionDecimal.al (corpus PR 778); a Decimal beyond Integer into an Option is still open.",
+        awaiting: Awaiting {
+            issues: &[6060],
+            files: &["tests/al-language/types/lt-implicit-conversions/P79OptionDecimal.al"],
+            since: "2026-10-28",
+        },
+    },
     InstallCompanyTriggersAllApps => {
         id: "install-company-triggers-all-apps",
         assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",

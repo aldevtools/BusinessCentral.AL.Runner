@@ -183,6 +183,9 @@ impl Session {
         let engine = self.engine.clone();
         let object = qs.borrow().object as usize;
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
+        for a in &def.assumes {
+            al_builtins::assumptions::assume(*a);
+        }
         if qs.borrow().in_before_open {
             match method {
                 // CurrQuery.Open and CurrQuery.Close inside OnBeforeOpen raise; the trigger does not run again
@@ -504,6 +507,9 @@ impl Session {
             return Ok(Value::Boolean(false));
         };
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
+        for a in &def.assumes {
+            al_builtins::assumptions::assume(*a);
+        }
         self.query_save_csv(def, &[], def.top, &args[1..])
     }
 
