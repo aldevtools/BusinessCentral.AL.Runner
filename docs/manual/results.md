@@ -26,6 +26,12 @@ There are three kinds:
    numbers. The reason says "this failure is not trusted" and keeps the original
    error. A test stopped by the time limit counts as such an earlier test.
 
+**A test codeunit's `OnRun` trigger** has no row of its own. AL Runner reports it
+as Microsoft's Test Runner app does (runner codeunit 130450, used by
+BcContainerHelper and AL-Go), on every BC version. When `OnRun` raises an error,
+the codeunit is skipped: none of its tests has a row, and the run does not fail
+because of it.
+
 ## All outcome labels
 
 | Label | Meaning | Counts for the exit code as |
