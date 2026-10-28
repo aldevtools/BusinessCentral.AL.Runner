@@ -1115,6 +1115,7 @@ impl Session {
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
         self.tx.lock_tx = false;
+        self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
         self.tx.read_uncommitted_read = false;
     }
@@ -1131,6 +1132,9 @@ impl Session {
         self.tx.rows_touched.clear();
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
+        self.tx.writes.clear();
+        self.tx.find_set_tables.clear();
+        self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = false;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
@@ -1193,6 +1197,7 @@ impl Session {
     fn end_write_phase(&mut self) {
         self.tx.inconsistent.clear();
         self.tx.lock_tx = false;
+        self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
         self.tx.read_uncommitted_read = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
@@ -1223,6 +1228,9 @@ impl Session {
         self.tx.rows_touched.clear();
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
+        self.tx.writes.clear();
+        self.tx.find_set_tables.clear();
+        self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         self.tasks.rollback();
