@@ -643,3 +643,38 @@ fn a_readuncommitted_read_opens_no_write_transaction() {
         "No"
     );
 }
+
+// [CommitBehavior] on an event declaration governs the Commit of its subscribers (misc/lt-cu-odd-leads/CuCommitTests.al
+// SP_CommitBehaviorIgnore_OnIntegrationEvent_SubscriberCommitIgnored, SP_CommitBehaviorError_OnIntegrationEvent_SubscriberCommitFails).
+const EVENT_CB: &str = r#"
+codeunit 50150 Pub {
+    procedure Raise(Error: Boolean) begin if Error then OnError('E') else OnIgnore('I'); end;
+    [IntegrationEvent(false, false)] [CommitBehavior(CommitBehavior::Ignore)] local procedure OnIgnore(K: Code[10]) begin end;
+    [IntegrationEvent(false, false)] [CommitBehavior(CommitBehavior::Error)] local procedure OnError(K: Code[10]) begin end;
+}
+codeunit 50151 Sub {
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnIgnore', '', false, false)]
+    local procedure Ign(K: Code[10]) var R: Record "TX T"; begin R.K := K; R.Insert(); Commit(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnError', '', false, false)]
+    local procedure Err(K: Code[10]) var R: Record "TX T"; begin R.K := K; R.Insert(); Commit(); end;
+}
+"#;
+
+#[test]
+fn commit_behavior_on_an_event_governs_its_subscribers() {
+    let ignore = run_in(
+        EVENT_CB,
+        "procedure F(): Text var P: Codeunit Pub; R: Record \"TX T\"; begin asserterror begin P.Raise(false); Error('unrelated'); end; exit(Format(R.Get('I'))); end;",
+        |_| {},
+    );
+    assert_eq!(text(ignore), "No");
+    let error = run_in(
+        EVENT_CB,
+        "procedure F(): Text var P: Codeunit Pub; R: Record \"TX T\"; begin asserterror P.Raise(true); exit(Format(R.Get('E')) + GetLastErrorText()); end;",
+        |_| {},
+    );
+    assert_eq!(
+        text(error),
+        "NoCommit is prohibited in the current scope. The operation cannot continue. Contact your system administrator."
+    );
+}

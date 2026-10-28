@@ -645,16 +645,18 @@ impl Parser<'_> {
                 crate::assumptions::assume(crate::assumptions::Assumption::FilterEmptyTextDateFormula);
                 Value::DateFormula(String::new())
             }
-            // The null Guid on a Media field compares with the field's media id: an empty field equals it (al-runner issue 5991, the
-            // reporter's repro on real BC; registered assumption). Another text stays refused below.
-            T::Library(crate::library_kind::LibraryKind::Media)
-                if matches!(
-                    crate::evaluate::read_text(&T::Guid, text.trim()),
-                    Some(Value::Guid(g)) if g == [0; 16]
-                ) && !text.trim().starts_with('(') =>
-            {
-                crate::assumptions::assume(crate::assumptions::Assumption::MediaFilterNullGuid);
-                Value::Guid([0; 16])
+            // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
+            // field equals the null Guid (al-runner issue 5991: media/lt-so-media-filter/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
+            // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
+            // error, as on a Guid field (SO_MediaFilter_InvalidText `abc`, `star`, `0`). The empty text stays refused below.
+            T::Library(crate::library_kind::LibraryKind::Media) if !text.trim().is_empty() => {
+                match crate::evaluate::read_text(&T::Guid, text.trim()) {
+                    Some(v @ Value::Guid(_)) if !text.trim().starts_with('(') => v,
+                    _ if text.trim() == "*" || text.trim().chars().all(|ch| ch.is_ascii_alphanumeric()) => {
+                        return Err(format!("{INVALID_GUID}{text}"));
+                    }
+                    _ => return Err(format!("text filter value `{text}` for Media: not pinned")),
+                }
             }
             other => {
                 return Err(format!(

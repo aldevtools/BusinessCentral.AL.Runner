@@ -1314,6 +1314,22 @@ impl Session {
                             );
                         }
                     }
+                    // A text into a TableFilter field raises, whatever the text, and the field keeps its value: from BC 28 the Evaluate
+                    // error with code Evaluate:Argument, before `The supplied value is not valid.` with code Argument
+                    // (records/W4PlatformAndMeta.al TableFilterField_SetFromText: a WHERE text, `Id: 1` and the empty text;
+                    // TableFilterEvaluate_StoredValue `roundtrip_fieldref`: the text Format gives back).
+                    if let (Value::Text(s) | Value::Code(s), RtType::Library(k)) = (v, &field.ty) {
+                        if k.as_str() == "TableFilter" {
+                            return if self.has(al_version::Gate::TableFilterEvaluateError) {
+                                al_builtins::native::raise(
+                                    format!("The value \"{}\" can't be evaluated into type TableFilter.", s.as_str()),
+                                    "Evaluate:Argument",
+                                )
+                            } else {
+                                al_builtins::native::raise("The supplied value is not valid.", "Argument")
+                            };
+                        }
+                    }
                     if let Some(f) = self.engine.program.objects[t.object as usize]
                         .table
                         .as_ref()
@@ -1731,22 +1747,22 @@ impl Session {
             let i = int_arg(args, 0)?;
             Ok(usize::try_from(i - 1).ok().and_then(|i| members.get(i)))
         };
-        let by_ordinal = |args: &[Value]| -> Result<&(i32, String, String), Signal> {
-            // An Option value (FieldRef.Value of an Option field) is its ordinal: al-runner issue 5987, the reporter's repro on
-            // real BC (registered assumption). An Enum value stays refused by `int_arg`.
+        // GetEnumValue{Caption,Name}FromOrdinalValue of an Option field: an Option value (FieldRef.Value of the field) is the ordinal
+        // it holds, and an ordinal the field has no member for answers the number as its caption and an empty name (al-runner issue
+        // 5987: fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape,
+        // SO_OptionField_IntegerOrdinalArguments `-1`, `2`, `5`, SO_OptionField_IntegerAssigned `fieldref value 5 caption`).
+        // An Enum value, and an ordinal an Enum field lacks, stay refused.
+        type Member = (i32, String, String);
+        let by_ordinal = |args: &[Value]| -> Result<(i64, Option<&Member>), Signal> {
             let o = match args.first() {
-                Some(Value::Option(o, _)) => {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::FieldRefOrdinalFromOptionValue,
-                    );
-                    i64::from(*o)
-                }
+                Some(Value::Option(o, _)) if !is_enum => i64::from(*o),
                 _ => int_arg(args, 0)?,
             };
-            members.iter().find(|m| i64::from(m.0) == o).map_or_else(
-                || unsupported(format!("{method}({o}) for an ordinal the field does not have")),
-                Ok,
-            )
+            match members.iter().find(|m| i64::from(m.0) == o) {
+                Some(m) => Ok((o, Some(m))),
+                None if !is_enum => Ok((o, None)),
+                None => unsupported(format!("{method}({o}) for an ordinal the field does not have")),
+            }
         };
         match method {
             "IsEnum" => Ok(Value::Boolean(is_enum)),
@@ -1754,8 +1770,13 @@ impl Session {
             "GetEnumValueOrdinal" => Ok(Value::Integer(at(args)?.map_or(-1, |m| m.0))),
             "GetEnumValueName" => Ok(Value::Text(at(args)?.map(|m| m.1.clone()).unwrap_or_default().into())),
             "GetEnumValueCaption" => Ok(Value::Text(at(args)?.map(|m| m.2.clone()).unwrap_or_default().into())),
-            "GetEnumValueNameFromOrdinalValue" => Ok(Value::Text(by_ordinal(args)?.1.clone().into())),
-            "GetEnumValueCaptionFromOrdinalValue" => Ok(Value::Text(by_ordinal(args)?.2.clone().into())),
+            "GetEnumValueNameFromOrdinalValue" => Ok(Value::Text(
+                by_ordinal(args)?.1.map(|m| m.1.clone()).unwrap_or_default().into(),
+            )),
+            "GetEnumValueCaptionFromOrdinalValue" => {
+                let (o, m) = by_ordinal(args)?;
+                Ok(Value::Text(m.map_or_else(|| o.to_string(), |m| m.2.clone()).into()))
+            }
             // An Enum field answers the names and the captions of its members like an Option (record/
             // TestProbeRecordRefContracts.al:FieldRef_EnumAndOptionInfo).
             "OptionMembers" | "OptionString" => Ok(Value::Text(

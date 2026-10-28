@@ -365,53 +365,65 @@ impl al_builtins::native::Ctx for Session {
     ) -> Option<Result<Option<al_builtins::value::LibraryValue>, Signal>> {
         Some(self.evaluate_record_id_text(text, number))
     }
-    fn table_filter_field(&mut self, table: &str, field: &str) -> Option<Option<al_builtins::value::RtType>> {
-        let objects: Vec<usize> = self
-            .engine
-            .program
-            .objects
-            .heads()
+    fn table_filter_table(
+        &mut self,
+        table: &str,
+    ) -> Option<Result<Option<al_builtins::native::TableFilterTable>, Signal>> {
+        use al_builtins::native::{TableFilterField, TableFilterTable};
+        let number = table.parse::<u32>().ok();
+        let heads = self.engine.program.objects.heads();
+        let objects: Vec<usize> = heads
             .iter()
             .enumerate()
-            .filter(|(_, o)| o.table.is_some() && o.name == table)
+            .filter(|(_, o)| {
+                o.is_kind(al_ir::ObjKind::Table)
+                    && match number {
+                        Some(n) => o.id == Some(n),
+                        None => o.name.eq_ignore_ascii_case(table),
+                    }
+            })
             .map(|(i, _)| i)
             .collect();
         let [object] = objects.as_slice() else {
-            return Some(None);
+            return Some(Ok(None));
         };
         let Some(def) = self.engine.tables.get(*object).cloned().flatten() else {
-            return Some(None);
+            return Some(Err(Signal::Unsupported(format!(
+                "Evaluate into TableFilter of a table that was not compiled ({table})"
+            ))));
         };
-        let mut fields = def.fields.iter().filter(|f| f.name == field);
-        match (fields.next(), fields.next()) {
-            (Some(f), None) => Some(Some(f.ty.clone())),
-            _ => Some(None),
-        }
-    }
-    fn table_filter_field_meta(&mut self, table: &str, field: &str) -> Option<(u32, bool)> {
-        let objects: Vec<usize> = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .enumerate()
-            .filter(|(_, o)| o.table.is_some() && o.name == table)
-            .map(|(i, _)| i)
+        let fields = (0..def.fields.len())
+            .map(|pos| {
+                let f = &def.fields[pos];
+                let caption = match self.field_caption_written(&def, pos) {
+                    Ok(crate::recmeta::WrittenCaption::Text(c)) => Ok(c),
+                    Ok(_) => Err(format!("the caption of field {} is a CaptionClass", f.name)),
+                    Err(Signal::Unsupported(why)) => Err(why),
+                    Err(_) => Err(format!("the caption of field {}", f.name)),
+                };
+                let options = match &f.ty {
+                    al_builtins::value::RtType::Option(_) => match self.members_of_field(&def, pos) {
+                        Ok(Some((false, members))) => Ok(Some(members.into_iter().map(|m| (m.1, m.2)).collect())),
+                        Ok(_) => Err(format!("the members of Option field {}", f.name)),
+                        Err(Signal::Unsupported(why)) => Err(why),
+                        Err(_) => Err(format!("the members of Option field {}", f.name)),
+                    },
+                    _ => Ok(None),
+                };
+                TableFilterField {
+                    number: f.id,
+                    name: f.name.clone(),
+                    caption,
+                    ty: f.ty.clone(),
+                    options,
+                }
+            })
             .collect();
-        let [object] = objects.as_slice() else {
-            return None;
-        };
-        let def = self.engine.tables.get(*object).cloned().flatten()?;
-        let mut fields = def.fields.iter().enumerate().filter(|(_, f)| f.name == field);
-        let ((pos, f), None) = (fields.next()?, fields.next()) else {
-            return None;
-        };
-        let caption_is_name = matches!(
-            self.field_caption_written(&def, pos),
-            Ok(crate::recmeta::WrittenCaption::Text(c)) if c == f.name
-        );
-        Some((f.id, caption_is_name))
+        Some(Ok(Some(TableFilterTable {
+            name: def.name.clone(),
+            caption: self.caption(&def),
+            fields,
+        })))
     }
     fn evaluate_field_target(&mut self, v: &Value) -> Option<Result<al_builtins::native::FieldTarget, Signal>> {
         let Value::Library(_, l) = v else { return None };

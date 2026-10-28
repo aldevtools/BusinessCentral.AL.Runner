@@ -590,31 +590,6 @@ registry! {
         tests: "No Microsoft test: a partner app's tests (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
         probe: "A BigText passed by value to an event subscriber that calls AddText: the publisher's length; a procedure that returns a BigText the caller then grows: the callee's copy.",
     },
-    TableFilterEvaluateOptionMember => {
-        id: "table-filter-evaluate-option-member",
-        assumed: "Evaluate of `<table name>: <field>=<member>` into a TableFilter field, where the field is an Option field and the value is one of its member names written as declared, answers true and stores the text as written (Format gives it back). Pinned is the same form with a Code field (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158); writer SI probes the Option form on corpus branch al-runtime-rs-staging-si.",
-        tests: "No Microsoft test: al-runner issue 5998, a user's install code that evaluates `Repro Certificate: Report Type=LGDIAM` into a TableFilter field (not run on real BC by the reporter).",
-        probe: "Evaluate into a TableFilter field of `<table>: <option field>=<member>`, by name, caption, number and other casing: the answer and Format of the field after it.",
-        awaiting: Awaiting {
-            issues: &[5998],
-            files: &[
-                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_AcceptedForms",
-                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_StoredValue",
-            ],
-            since: "2026-10-27",
-        },
-    },
-    TableFilterEvaluateSeveralCodeFields => {
-        id: "table-filter-evaluate-several-code-fields",
-        assumed: "Evaluate of `<table name>: <field>=<value>,<field>=<value>` (two Code fields in the order of their field numbers, no space after the comma) or of a Code value with single inner spaces into a TableFilter field answers true, sets no error and stores the text as written, which Format and Format(..., 0, 9) give back. Only Code fields whose caption is their name and upper-case values of letters, digits and single spaces that fit the field are taken; every other form is refused. The single plain Code condition is pinned (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158); writer SR probes these forms on corpus branch al-runtime-rs-staging-sr.",
-        tests: "No Microsoft test: al-runner issue 6006, the reporter measured on real BC with Base Application's Bin table: `Bin: Location Code=MAIN,Code=BIN01`, `Bin: Code=BIN WITH SPACE` and `Bin: Location Code=MAIN,Code=BIN WITH SPACE` (true, Format and Format(..., 0, 9) give the text back, no last error).",
-        probe: "Evaluate into a TableFilter field of two and three Code conditions, in and out of field-number order, with a space after the comma, a field given twice, a non-Code second field, a field whose caption differs from its name, and Code values with spaces, lower case and filter operators: the answer, Format, Format(..., 0, 9) and the last error.",
-        awaiting: Awaiting {
-            issues: &[6006],
-            files: &["tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_SeveralCodeFields"],
-            since: "2026-10-28",
-        },
-    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
@@ -662,33 +637,6 @@ registry! {
         assumed: "TestFilter.GetFilter of an Enum field filtered to a range over more than two values (SetRange on the record handed to the page, or a SetFilter text range) reads as the two ordinals, `0..2`, as a range of two values does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList `0..1`, `1..2`).",
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
-    },
-    FieldRefOrdinalFromOptionValue => {
-        id: "fieldref-ordinal-from-option-value",
-        assumed: "FieldRef.GetEnumValueCaptionFromOrdinalValue and GetEnumValueNameFromOrdinalValue take an Option value (FieldRef.Value of an Option field) as the ordinal it holds. An Enum value and other types stay refused.",
-        tests: "No Microsoft test: al-runner issue 5987, the reporter's repro green on real BC (the caption of the first member of an Option field, read by GetEnumValueCaptionFromOrdinalValue(FieldRef.Value())).",
-        probe: "An Option field and an Enum field read through a FieldRef: GetEnumValueCaptionFromOrdinalValue and GetEnumValueNameFromOrdinalValue of FieldRef.Value(), for the first and a later member. Corpus writer SO (branch al-runtime-rs-staging-so).",
-        awaiting: Awaiting {
-            issues: &[5987],
-            files: &[
-                "tests/al-language/fieldref/TestFieldRefEnumOrdinalByIndex.al::SO_OptionField_ValueAsOrdinalArgument_ReproShape",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    MediaFilterNullGuid => {
-        id: "media-filter-null-guid",
-        assumed: "SetFilter on a Media field with the null Guid as text (`00000000-0000-0000-0000-000000000000`, braced or not, in a filter such as `<>...`) compares the field's media id with the null Guid: an empty Media field equals it. Another Guid text and any other text stay refused.",
-        tests: "No Microsoft test: al-runner issue 5991, the reporter's repro green on real BC (FieldRef.SetFilter('<>00000000-0000-0000-0000-000000000000') on a Media field finds no row whose field is empty).",
-        probe: "SetFilter on a Media field with `<>` and `=` the null Guid, braced and plain, an empty text and the media id of a filled field, then FindSet, IsEmpty, Count and GetFilter. Corpus writer SO (branch al-runtime-rs-staging-so).",
-        awaiting: Awaiting {
-            issues: &[5991],
-            files: &[
-                "tests/al-language/media/lt-so-media-filter/SoMediaFilter.al::SO_MediaFilter_FieldRefReproShape",
-                "tests/al-language/media/lt-so-media-filter/SoMediaFilter.al::SO_MediaFilter_NullGuidForms",
-            ],
-            since: "2026-10-28",
-        },
     },
 }
 

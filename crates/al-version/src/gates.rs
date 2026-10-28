@@ -124,8 +124,10 @@ pub enum Gate {
     /// (al-vm refs.rs) and by the four user-name system fields of the Field table at 2000000005-8 (al-vm platform/fields.rs,
     /// system-fields/W6SystemFieldStamps.al:239-246); a record does not hold them, so RecordRef.Field on one is refused.
     PlatformMetadataColumnsFrom29,
-    /// `SetView` and `SetFilter` of text that is no table filter raise the Evaluate error `The value "..." can't be
-    /// evaluated into type TableFilter.` from BC 28 (records/W4PlatformAndMeta.al, corpus bump 9). Not consumed yet.
+    /// A text assigned to a TableFilter field through `FieldRef.Value` raises the Evaluate error `The value "..." can't be
+    /// evaluated into type TableFilter.` (code Evaluate:Argument) from BC 28, `The supplied value is not valid.` (code Argument)
+    /// before (records/W4PlatformAndMeta.al TableFilterField_SetFromText, TableFilterEvaluate_StoredValue). Consumed by
+    /// `FieldRef.Value` (al-vm refs.rs).
     TableFilterEvaluateError,
     /// The conversion and argument error texts of BC 27.5 and later (`The value "x" can't be evaluated into type Integer.`)
     /// differ from those of BC 27.0 and 27.3 (`The type NavInteger is unknown.`, `Invalid Conversion. Source: NavChar, ...`).
@@ -698,7 +700,7 @@ impl Gate {
             ],
             Gate::TableFilterEvaluateError => &[Evidence {
                 file: "records/W4PlatformAndMeta.al",
-                lines: "256",
+                lines: "288,298,304,761",
             }],
             Gate::ConversionErrorTextsFrom28 => &[
                 Evidence {

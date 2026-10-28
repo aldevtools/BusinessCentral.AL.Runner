@@ -141,6 +141,25 @@ pub struct HttpOutgoing {
     pub cert_validation_set: bool,
 }
 
+/// A table as `Evaluate` into a TableFilter reads it (see [`Ctx::table_filter_table`]).
+pub struct TableFilterTable {
+    pub name: String,
+    /// The caption the FieldNotFound error names the table by.
+    pub caption: String,
+    pub fields: Vec<TableFilterField>,
+}
+
+/// A field of a [`TableFilterTable`].
+pub struct TableFilterField {
+    pub number: u32,
+    pub name: String,
+    /// Its caption, or why reading it is refused.
+    pub caption: Result<String, String>,
+    pub ty: crate::value::RtType,
+    /// An Option field's members as (name, caption), or why reading them is refused; `Ok(None)` for other fields.
+    pub options: Result<Option<Vec<(String, String)>>, String>,
+}
+
 /// The field an `Evaluate` into a `FieldRef` writes (see [`Ctx::evaluate_field_target`]).
 pub struct FieldTarget {
     pub rec: std::rc::Rc<std::cell::RefCell<crate::value::RecordState>>,
@@ -261,15 +280,9 @@ pub trait Ctx: FormatCtx {
     ) -> Option<Result<Option<crate::value::LibraryValue>, Signal>> {
         None
     }
-    /// `Evaluate` into a TableFilter: the type of the field `field` of the table named `table`, both names written exactly as
-    /// declared. `Some(None)` where no single table or field has that name, `None` where the context has no program.
-    fn table_filter_field(&mut self, _table: &str, _field: &str) -> Option<Option<crate::value::RtType>> {
-        None
-    }
-    /// `Evaluate` into a TableFilter of several conditions (al-runner issue 6006): the field number of the field `field` of the
-    /// table named `table` (names as in [`Self::table_filter_field`]) and whether its caption is its name, as a literal Caption,
-    /// CaptionML or no caption at all gives it. `None` where no single table or field has that name or the context has no program.
-    fn table_filter_field_meta(&mut self, _table: &str, _field: &str) -> Option<(u32, bool)> {
+    /// `Evaluate` into a TableFilter: the table `table` names (its name in any casing, or its number), with its fields.
+    /// `Some(Ok(None))` where no single table has that name, `None` where the context has no program.
+    fn table_filter_table(&mut self, _table: &str) -> Option<Result<Option<TableFilterTable>, Signal>> {
         None
     }
     /// The field a `FieldRef` stands on, for `Evaluate` into it: its record buffer, position, declared type and whether the field
