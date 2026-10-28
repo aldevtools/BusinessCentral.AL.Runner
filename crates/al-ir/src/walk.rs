@@ -940,6 +940,7 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
         columns,
         order_by: _,
         top: _,
+        assumes: _,
     } = q;
     // The table of each item, before the walk renumbers it.
     let tables: Vec<Option<usize>> = items.iter().map(|i| Some(i.table)).collect();

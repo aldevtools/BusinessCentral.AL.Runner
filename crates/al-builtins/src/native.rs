@@ -2241,7 +2241,20 @@ fn strchecksum(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Re
 
 fn copystr(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let whole = text_arg(args, 0)?;
-    copystr_of(&whole, int_arg(args, 1).unwrap_or(1), int_arg(args, 2))
+    // A Decimal position or length: `textfns::decimal_as_int`, the position first (CopyStr.Codeunit.al CopyStrDecimalPosLen1
+    // `c2_2.5_3.4` names 2.5, on writer TG's branch).
+    let num = |i: usize| -> Result<Option<i64>, Signal> {
+        match args.get(i) {
+            None => Ok(None),
+            Some(Value::Decimal(d)) => crate::textfns::decimal_as_int(d).map(Some),
+            Some(v) => match int_arg(args, i) {
+                Some(n) => Ok(Some(n)),
+                None => unsupported(&format!("CopyStr with an argument {i} of type {}", v.describe())),
+            },
+        }
+    };
+    let pos = num(1)?.unwrap_or(1);
+    copystr_of(&whole, pos, num(2)?)
 }
 
 /// `CopyStr` of a text the caller holds by reference (the VM's fast path reads a variable without copying it).

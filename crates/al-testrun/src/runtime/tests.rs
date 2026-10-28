@@ -677,12 +677,12 @@ fn company_triggers_of_other_installed_apps_run_in_the_install_session_as_an_ass
     assert_eq!(of("TouchesNoneOfIt"), None, "{hits:?}");
 }
 
-// ADR-046 amendment 1, A4 item 4: when a Company Triggers subscriber of another installed app cannot run in this runtime (as
-// System Application's System Initialization cannot), none of the other apps' subscribers run: what they did is rolled back,
-// the app's own subscribers and install routines run, and a test that reads what a routine that could see the difference
-// wrote is not run.
+// ADR-046 amendment 1, A4 item 4: when a Company Triggers subscriber of any installed app cannot run in this runtime, the
+// install session stops there as for the app's own subscribers: what the subscribers did is rolled back, the app's
+// per-company install routines do not run, and a test that touches what they or the subscribers write is not run. The
+// per-database part, which raises no Company Triggers, still runs.
 #[test]
-fn when_another_apps_company_triggers_subscriber_cannot_run_none_of_them_run() {
+fn when_another_apps_company_triggers_subscriber_cannot_run_the_per_company_install_stops() {
     let dep = "table 60900 Feature { fields { field(1; K; Code[10]) { } } }
         codeunit 60901 DepOpen {
             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
@@ -693,18 +693,23 @@ fn when_another_apps_company_triggers_subscriber_cannot_run_none_of_them_run() {
     let main = "table 60910 Log { fields { field(1; K; Code[10]) { } field(2; Seen; Boolean) { } } }
         table 60913 Other { DataPerCompany = false; fields { field(1; K; Code[10]) { } } }
         codeunit 60911 Inst { Subtype = Install;
-            trigger OnInstallAppPerCompany() var F: Record Feature; L: Record Log; begin L.K := 'L'; L.Seen := F.Get('F'); L.Insert(); end; }
+            trigger OnInstallAppPerCompany() var L: Record Log; begin L.K := 'L'; L.Insert(); end; }
         codeunit 60914 InstOther { Subtype = Install;
             trigger OnInstallAppPerDatabase() var O: Record Other; begin O.K := 'O'; O.Insert(); end; }
         codeunit 60912 T { Subtype = Test;
-            [Test] procedure ReadsWhatTheInstallSaw() var L: Record Log; begin L.FindFirst(); end;
+            [Test] procedure ReadsWhatTheInstallWrote() var L: Record Log; begin L.FindFirst(); end;
+            [Test] procedure ReadsWhatTheSubscriberWrote() var F: Record Feature; begin F.FindFirst(); end;
             [Test] procedure ReadsTheOtherRow() var O: Record Other; begin O.Get('O'); end; }";
     let (o, hits) = outcomes_and_hits_of_apps(&[("dep", &[], dep), ("main", &["dep"], main)], "T");
     assert!(
-        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("one of those cannot run in this runtime")),
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("Company Triggers before it")),
         "{o:?}"
     );
-    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    assert!(
+        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers")),
+        "{o:?}"
+    );
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
     assert!(hits.is_empty(), "{hits:?}");
 }
 

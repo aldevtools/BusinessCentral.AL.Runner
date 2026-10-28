@@ -13,3 +13,4 @@ mod platform_members;
 mod streams;
 mod task_scheduler;
 mod xml_read_bom;
+mod xml_read_stream_options;

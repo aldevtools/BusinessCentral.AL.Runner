@@ -155,12 +155,6 @@ registry! {
         tests: "Import / Export Workflow (\"Workflow Step Argument\".\"Response Option Group\", a Lookup FlowField); 76 Tests-Workflow tests.",
         probe: "An export-only XmlPort with a fieldelement over a Sum FlowField and over a Lookup FlowField of a row with children: the exported text with and without a CalcFields on the row before; an import of the same element. Asked in corpus #650.",
     },
-    NavUserAccountHelperIsDelegatedUser => {
-        id: "nav-user-account-helper-is-delegated-user",
-        assumed: "DotNet NavUserAccountHelper.IsDelegatedUser() answers false for the test session user (the member is in no corpus test; the plan-based Azure AD User Management.IsUserDelegated is false in session/TestEnvironmentUserTenantContracts.al:245).",
-        tests: "Azure AD Graph User Impl.IsUserDelegated, reached by 165 Microsoft tests (for example Suggest Price Lines UT T202_NotificationActionFixOpensJobQueueEntryCard).",
-        probe: "A DotNet NavUserAccountHelper variable in a test session: IsDelegatedUser(), IsUserDelegatedAdmin(); and Codeunit \"Azure AD Graph User\".IsUserDelegated().",
-    },
     EvaluateRecordIdCompositeKey => {
         id: "evaluate-recordid-composite-key",
         assumed: "Evaluate into a RecordId reads a Code key value that has blanks around it as the trimmed value (the length check counts the trimmed text).",
@@ -381,6 +375,17 @@ registry! {
         assumed: "A data item the caller gave a view (SetTableView, or the record of Report.Run or RunModal) keeps that view when the report has SaveValues and an earlier run stored other filters for the data item. (That an OK stores the view's filters is pinned by report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored.)",
         tests: "Tests-ERM tests that run `Suggest Fin. Charge Memo Lines` for a second memo in one codeunit (IssueFinanceChargeMemoWith* and others).",
         probe: "A report with SaveValues: run it once with the filter A* stored by OK, then with SetTableView(C*) and see the data item's filter on the request page and in the run; the same with the record of Report.RunModal. Asked in corpus #646.",
+    },
+    RequestPageCancelKeepsSavedFilters => {
+        id: "request-page-cancel-keeps-saved-filters",
+        assumed: "A SaveValues request page closed by Cancel keeps the data item filters an earlier OK stored: a filter the handler changed before the Cancel is not stored, as a changed variable is not (pinned for variables by handlers/TestReportRequestPageSaveValues.al and misc/lt-probes-needed-6/PnF02SaveValuesExt.al; that an OK stores a data item filter is pinned by report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored).",
+        tests: "No Microsoft test: al-runner issue 6065, the reporter's run on real BC (a data item filter confirmed by OK, changed and cancelled on the next request page, read on the third).",
+        probe: "A report with SaveValues and RequestFilterFields: OK with a filter A* set by the handler; next run SetFilter B* and Cancel; third run read the filter on the request page and in OnPreReport. Also with a filter cleared before the Cancel, and for a variable control next to it. Corpus writer: not yet assigned.",
+        awaiting: Awaiting {
+            issues: &[6065],
+            files: &["tests/al-language/report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilterCancel.al"],
+            since: "2026-10-28",
+        },
     },
     HttpRelativeRequestPath => {
         id: "http-relative-request-path",
@@ -638,7 +643,7 @@ registry! {
     },
     StaleOwnInsertLockOtherOrOtherRowWrite => {
         id: "stale-own-insert-lock-other-or-other-row-write",
-        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC; every other count of Commits, write mix or lock is refused.",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC; the other counts and forms writers TE and TH measured follow stale-own-write-neighbour-any-commits.",
         tests: "No Microsoft test: al-runner issue 6028, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
         probe: "The TE_ tests of SbStaleOwnModify.al: 1, 2 and 3 Commits, crossed with LockTable on another table with an Insert and a read, LockTable only, LockTable on the same table, Modify, Delete, Insert or Rename of another row, for a stale Modify and a stale Delete. Corpus writer TE (branch al-runtime-rs-staging-te).",
         awaiting: Awaiting {
@@ -648,6 +653,48 @@ registry! {
                 "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_ModifyOtherRow_StaleModify",
                 "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_DeleteOtherRow_StaleDelete",
             ],
+            since: "2026-10-28",
+        },
+    },
+    QueryTopWhileOpenAfterLastRow => {
+        id: "query-top-while-open-after-last-row",
+        assumed: "Query.TopNumberOfRows(N) on a query that is open and was read to its end (a Read returned false: an empty result or the last row read) raises nothing, the getter returns N, the next Read raises the metadata-changed error until Open, and Open again (without Close) reads at most N rows; the last value set before the Open counts. The same on a query not yet read to its end is pinned (misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290, PX_TopNumberOfRows_AroundOpen). Pinned only by the reporter's run of al-runner issue 6039 on real BC.",
+        tests: "No Microsoft test: al-runner issue 6039, the reporter's run on a real BC container (2/2 tests; Base App table 7346 \"Internal Movement Header\" GetFirstLocationCodeFromLocationsofWhseEmployee calls TopNumberOfRows(1) and Open twice on one query variable).",
+        probe: "The TH_ tests of PnAQueryOpenRead.al: TopNumberOfRows after an empty Open and Read, after a full read, twice while open, then Open and the rows read. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6039],
+            files: &[
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterEmptyOpen_ThenReopen",
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterFullRead_ThenReopen",
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopTwiceWhileOpen_LastValueCounts",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    StaleOwnWriteNeighbourAnyCommits => {
+        id: "stale-own-write-neighbour-any-commits",
+        assumed: "A stale buffer from the variable's own Insert (or its own Modify after it), any number of Commits later, when the new transaction did not write that row: (1) LockTable on other tables only with no write, or Inserts into other tables only (locked or not) and a FindSet of the buffer's table: a Modify or Delete through the buffer raises DB:RecordChanged; (2) LockTable on the buffer's table only with no write: a Modify writes the whole buffer and a Delete deletes the row; (3) only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, with no lock: a Modify writes the whole buffer and a Delete deletes the row. With nothing in between it stays refused as pinned. Pinned only by writer TE's and TH's runs on real BC (1, 2, 3, 4, 5, 7, 8 and 10 Commits, not every form at every count) and the reporter's run of al-runner issue 6040; every other count is assumed to behave the same. A ModifyAll or DeleteAll, a Rename whose triggers or related fields write, a mix of write kinds, a write beside a lock, a rollback and a ReadIsolation lock stay refused.",
+        tests: "No Microsoft test: al-runner issue 6040, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
+        probe: "The TE_ and TH_ tests of SbStaleOwnModify.al (1 to 10 Commits crossed with each neighbour). Corpus writers TE and TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6040],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_4C_LockOtherInsertRead_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_8C_ChangeAfter6_LockOtherInsertRead_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_7C_LockFindSetModifyMiddle_DeleteOtherRow_StaleDelete",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_1C_LockSameTable_StaleModify",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    PartKeepsRowAfterUpdateInValidate => {
+        id: "part-keeps-row-after-update-in-validate",
+        assumed: "A ListPart (without OnFindRecord or OnNextRecord) of a Document page, standing on a stored row other than the first of its view, whose control's OnValidate runs CurrPage.Update() or CurrPage.Update(false) while the host's row stays as the host read it, stays on that row: it reads from the row to the end of the view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord. Pinned only by the reporter's run of al-runner issue 6038 on real BC (a view of three rows, in the primary key and with a SubPageView sorting); a view longer than a window is refused.",
+        tests: "No Microsoft test: al-runner issue 6038, the reporter's run on a real BC container (2/2 tests; page 5771 \"Whse. Put-away Subform\" calls CurrPage.Update() in the OnValidate of Bin Code, page 7376 \"Invt. Put-away Subform\" CurrPage.Update(true) in that of Qty. to Handle).",
+        probe: "The TH_ tests of ThPartUpdateCursor.al: SetValue on line 2 and 3 of 3 with Update(true), Update(false), SaveRecord and no trigger, the trigger log and the walk First/SetValue/Next, also with a SubPageView sorting. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6038],
+            files: &["tests/al-language/pages/lt-th-part-update-cursor/ThPartUpdateCursor.al"],
             since: "2026-10-28",
         },
     },
@@ -681,6 +728,41 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
+    XmlReadFromStreamOptions => {
+        id: "xml-readfrom-stream-options",
+        assumed: "XmlDocument.ReadFrom(InStream, XmlReadOptions, var XmlDocument) reads as the stream form without options does when PreserveWhitespace is false (whitespace-only text nodes are kept), and a document that does not parse answers false with the error text of the stream form in GetLastErrorText. PreserveWhitespace true is pinned (xml/XmlDocReadWrite.al:290-307); the statement form of a document that does not parse stays refused.",
+        tests: "No Microsoft test: al-runner issue 6049, the reporter's run on real BC (a shared XML helper reads every document through this overload; 1,299 tests of a partner suite). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:331-389.",
+        probe: "Writer TJ's ReadFrom_InStream_Options_WhitespaceNodes and ReadFrom_InStream_Options_Invalid (corpus PR 774).",
+        awaiting: Awaiting {
+            issues: &[6049],
+            files: &[
+                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_WhitespaceNodes",
+                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_Invalid"
+            ],
+            since: "2026-10-28",
+        },
+    },
+    TextFnDecimalArgument => {
+        id: "text-fn-decimal-argument",
+        assumed: "A Decimal where PadStr, CopyStr, DelStr, InsStr or SelectStr takes an Integer: a whole value within the Integer range works as that Integer; a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value X to System.Int32.`, the arguments converted left to right. Pinned only by corpus writer TG's run on real BC (whole values 2 and 3, fractions 0.5 to 3.6 and -1.5). A whole value beyond the Integer range is refused.",
+        tests: "No Microsoft test: a partner app's receipt printing (PadStr with a Decimal width that was rounded down to a whole number).",
+        probe: "Done on writer TG's branch (corpus PR 771): the Decimal tests of text/lt-text-functions; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLen1",
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalFill1",
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLiteral",
+                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPosLen1",
+                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPosLen1",
+                "tests/al-language/text/lt-text-functions/InsStr.Codeunit.al::InsStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/SelectStr.Codeunit.al::SelectStrDecimalNum1",
+            ],
+            since: "2026-10-28",
+        },
+    },
     XmlportUdnTextAttribute => {
         id: "xmlport-udn-text-attribute",
         assumed: "An XmlPort with UseDefaultNamespace = true and no DefaultNamespace that has text attributes: export writes the root's attributes before its `xmlns` declaration of BC's namespace, and every attribute in no namespace; import reads attributes in no namespace, raises the schema error for a missing required text or field attribute, and fails the schema check for a root attribute prefixed into the port's namespace (`The '<ns>:<name>' attribute is not declared.`). Pinned only by corpus writer TF's run on real BC.",
@@ -693,6 +775,28 @@ registry! {
                 "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import",
                 "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import_Qualified",
             ],
+            since: "2026-10-28",
+        },
+    },
+    QueryReadStateSharedCommitted => {
+        id: "query-read-state-shared-committed",
+        assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
+        tests: "No Microsoft test: al-runner issue 6050, the reporter's run on real BC (47 tests of a partner suite reach a query with ReadState = ReadShared). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, query/TestQueryReadStateContracts.al:135-163.",
+        probe: "Writer TJ's ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne (corpus PR 774).",
+        awaiting: Awaiting {
+            issues: &[6050],
+            files: &["tests/al-language/query/TestQueryReadStateContracts.al::ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne"],
+            since: "2026-10-28",
+        },
+    },
+    OptionDecimalConversion => {
+        id: "option-decimal-conversion",
+        assumed: "An Option (field, variable or member) converts to a Decimal as its ordinal: assignment, a Decimal parameter, Validate of a Decimal field, and arithmetic with a Decimal or Integer. A Decimal converts to an Option when it is a whole number within Integer (an ordinal the Option lacks is kept, Format shows the number); a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value <d> to System.Int32.`. A Decimal beyond Integer is refused.",
+        tests: "No Microsoft test: al-runner issue 6060, the reporter's run on real BC (a payroll suite assigns an Option field to a Decimal field). Writer TL's run on real BC: branch al-runtime-rs-staging-pub-tl, types/lt-implicit-conversions/P79OptionDecimal.al.",
+        probe: "Writer TL's P79OptionDecimal.al (corpus PR 778); a Decimal beyond Integer into an Option is still open.",
+        awaiting: Awaiting {
+            issues: &[6060],
+            files: &["tests/al-language/types/lt-implicit-conversions/P79OptionDecimal.al"],
             since: "2026-10-28",
         },
     },

@@ -44,6 +44,7 @@ mod page_inserts;
 mod pageext;
 mod pages;
 mod part_host_move;
+mod part_keeps_row_after_update;
 mod part_update_propagation;
 mod parts;
 mod procedure_bound_action;

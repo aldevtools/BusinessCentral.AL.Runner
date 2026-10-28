@@ -358,11 +358,7 @@ impl Session {
             return None;
         }
         let facts = self.engine.install_facts.get()?;
-        if let Some(why) = facts.unknown.get(&(object as usize)) {
-            return Some(why);
-        }
-        let (app, why) = facts.unopened.get(&(object as usize))?;
-        (facts.others_opened.get(app).and_then(|o| o.get()) == Some(&false)).then_some(why.as_str())
+        facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
     /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
@@ -373,10 +369,8 @@ impl Session {
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
-        if let Some((app, a)) = facts.assumed.get(&(object as usize)) {
-            if facts.others_opened.get(app).and_then(|o| o.get()) == Some(&true) {
-                al_builtins::assumptions::assume(*a);
-            }
+        if let Some((_, a)) = facts.assumed.get(&(object as usize)) {
+            al_builtins::assumptions::assume(*a);
         }
     }
 
@@ -1399,6 +1393,21 @@ impl Session {
                 );
                 Ok(StaleVerdict::Written)
             }
+            // Writers TE and TH measured the same neighbours at 1 to 10 Commits after the buffer's own write (al-runner issue 6040,
+            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_* and TH_* on the writer branch al-runtime-rs-staging-pub-th):
+            // see `stale_neighbour_shape`. The three shapes of 6028 keep their own assumption below.
+            Some(o)
+                if o.own_write
+                    && !touched
+                    && contact
+                    && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_none()
+                    && self.stale_neighbour_shape(t, &company, pk).is_some() =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnWriteNeighbourAnyCommits,
+                );
+                Ok(self.stale_neighbour_shape(t, &company, pk).expect("checked"))
+            }
             Some(o) if o.own_write && o.commits + 1 == self.commits => {
                 // A buffer that read the row by Get, GetBySystemId or FindFirst in the transaction that wrote it, with no own write
                 // since, follows the same rule (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:467-640, the SF_ tests; al-runner
@@ -1416,7 +1425,8 @@ impl Session {
             }
             // Two or three Commits after the buffer's own write, in the three shapes of the reporter's real-BC repro of al-runner
             // issue 6028 (assumption `stale-own-insert-lock-other-or-other-row-write`, awaiting writer TE's pins in
-            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al). Every other mix is refused below.
+            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al). The neighbours writers TE and TH measured are decided above
+            // (`stale_neighbour_shape`); every other mix is refused below.
             Some(o)
                 if o.own_write && !touched && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_some() =>
             {
@@ -1496,6 +1506,63 @@ impl Session {
             true if other_rows_only(crate::state::TxWriteKind::Delete) => Some(StaleVerdict::Written),
             _ => None,
         }
+    }
+
+    /// The verdict on a stale buffer from the variable's own write, whatever the number of Commits since, when the new transaction
+    /// did not write the buffer's row and has one of the forms writers TE and TH measured on real BC (record/lt-sb-stale-own-modify/
+    /// SbStaleOwnModify.al TE_1C_* to TE_3C_*, TH_4C_*, TH_5C_*, TH_10C_*, TH_8C_*, TH_7C_* on branch al-runtime-rs-staging-pub-th;
+    /// al-runner issue 6040):
+    /// - LockTable on other tables only and no write (TeLockOtherOnly), or Inserts into other tables only, locked or not, and a
+    ///   FindSet of the buffer's table (TeLockOtherInsertRead, TeOtherTableInsertRead; the reporter's shape 1 adds Inserts into a
+    ///   table it did not lock): a Modify or Delete raises DB:RecordChanged;
+    /// - LockTable on the buffer's table only and no write (TeLockSame): written;
+    /// - only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, and no lock (TeModifyOther,
+    ///   TeDeleteOther, TeInsertOther, TeRenameOther): written, the stale buffer winning.
+    ///
+    /// Each needs no rollback, no lock from a ReadIsolation or a RecordRef and no write left out of `tx.writes`. `None` for
+    /// anything else (a ModifyAll or DeleteAll, a mix of kinds, a write beside a lock).
+    fn stale_neighbour_shape(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> Option<StaleVerdict> {
+        use crate::state::TxWriteKind;
+        let tx = &self.tx;
+        if tx.rolled_back || tx.lock_unpinned.is_some() || tx.isolation_lock || !self.writes_all_noted() {
+            return None;
+        }
+        let same_key = |k: &[Value]| {
+            k.len() == pk.len()
+                && k.iter()
+                    .zip(pk)
+                    .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+        };
+        let locks_table = tx.locked_tables.contains(&t.object);
+        let read = tx.find_set_tables.iter().any(|(o, c)| *o == t.object && c == company);
+        if !locks_table
+            && tx
+                .writes
+                .iter()
+                .all(|w| w.kind == TxWriteKind::Insert && w.table != t.object)
+        {
+            let lock_only = tx.lock_tx && !tx.locked_tables.is_empty() && tx.writes.is_empty() && !read;
+            let inserts_and_read = !tx.writes.is_empty() && read;
+            return (lock_only || inserts_and_read).then_some(StaleVerdict::Refused);
+        }
+        if tx.writes.is_empty() {
+            let lock_same = tx.lock_tx && locks_table && tx.locked_tables.iter().all(|o| *o == t.object) && !read;
+            return lock_same.then_some(StaleVerdict::Written);
+        }
+        if tx.lock_tx || !tx.locked_tables.is_empty() {
+            return None;
+        }
+        let kind = tx.writes[0].kind;
+        let other_rows_of_one_kind = matches!(
+            kind,
+            TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete | TxWriteKind::Rename
+        ) && tx
+            .writes
+            .iter()
+            .all(|w| w.kind == kind && w.table == t.object && w.company == *company && !same_key(&w.pk));
+        // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
+        // TE_*_RenameOtherRow_*).
+        other_rows_of_one_kind.then_some(StaleVerdict::Written)
     }
 
     fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {
@@ -4606,6 +4673,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Rename => {
+                let rename_note = (self.tx.writes.len(), self.store.change_counter());
                 self.note_other_write(rec, &t);
                 // Fields that relate to this table follow the rename; a temporary record has none.
                 let refs = if rec.borrow().temporary {
@@ -4721,6 +4789,7 @@ impl Session {
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
                 let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row));
+                let before_store = self.store.change_counter();
                 let outcome = if same_key {
                     match self
                         .store_for(rec)
@@ -4737,6 +4806,20 @@ impl Session {
                 };
                 match outcome {
                     RenameOutcome::Renamed => {
+                        // A Rename of another key with nothing written before it (no trigger write, no field that relates to the
+                        // table) is noted as one write of the row (`stale_neighbour_shape`).
+                        if !same_key
+                            && refs.is_empty()
+                            && before_store == rename_note.1
+                            && self.tx.writes.len() == rename_note.0 + 1
+                            && let Some(w) = self.tx.writes.last_mut()
+                            && w.kind == crate::state::TxWriteKind::Other
+                        {
+                            w.kind = crate::state::TxWriteKind::Rename;
+                            w.pk = t.primary_key(&old_fields);
+                            w.before = rename_note.1;
+                            w.after = self.store.change_counter();
+                        }
                         // The variable's own Rename after its own Insert, in that transaction, makes the buffer's new version its own
                         // write (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:268-298). After a Get it is not pinned: the origin
                         // is left behind, as before.

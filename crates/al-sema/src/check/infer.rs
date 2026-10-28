@@ -258,6 +258,28 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0122 for an Enum assigned to a Decimal, in the three shapes writer TL's must-not-compile cases pin (al-runner
+    /// issue 6060, branch al-runtime-rs-staging-pub-tl): an Enum variable (case 2249), an enum value `"E"::B` (2250)
+    /// and an Enum field of a record into a Decimal field (2251). An Option into a Decimal compiles. Other sources (a
+    /// call, a parenthesized expression) are not judged.
+    pub(crate) fn al_enum_decimal_assignment(&mut self, sc: &Scope, rhs: &SyntaxNode, target: &Ty, source: &Ty) {
+        if self.ws.is_dependency(sc.oi) || !matches!((target, source), (Ty::Decimal, Ty::Enum(_))) {
+            return;
+        }
+        if !matches!(
+            rhs.kind(),
+            SyntaxKind::NameRef | SyntaxKind::ScopeExpr | SyntaxKind::MemberExpr
+        ) {
+            return;
+        }
+        self.diag(
+            sc,
+            rhs,
+            "AL0122",
+            format!("Cannot implicitly convert type '{source}' to 'Decimal'"),
+        );
+    }
+
     /// AL0122 for a condition that is no Boolean (corpus must-not-compile 0285 `if I then`, 0286 `while T do`):
     /// the pairs of an assignment to a Boolean.
     pub(crate) fn al_condition(&mut self, sc: &Scope, cond: &SyntaxNode, source: &Ty) {

@@ -2941,6 +2941,38 @@ fn read_from_stream(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> 
     Ok(result)
 }
 
+/// `XmlDocument.ReadFrom(InStream, XmlReadOptions, var XmlDocument)` (al-runner issue 6049): reads as the stream form
+/// without options does. PreserveWhitespace true is pinned (xml/XmlDocReadWrite.al:290-307 ReadFrom_InStream_Options);
+/// PreserveWhitespace false and a document that does not parse (false, the text in GetLastErrorText) are writer TJ's
+/// (branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:331-389), assumption xml-readfrom-stream-options. The
+/// statement form of a read that fails is not pinned and is refused.
+fn read_from_stream_options(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let preserve = match a.get(1) {
+        Some(Value::Library(_, cell)) => match &*cell.borrow() {
+            LibraryValue::XmlReadOptions { preserve_whitespace } => *preserve_whitespace,
+            _ => false,
+        },
+        other => return unsupported(format!("XmlDocument.ReadFrom with options of {}", other.describe())),
+    };
+    if !preserve {
+        crate::assumptions::assume(crate::assumptions::Assumption::XmlReadFromStreamOptions);
+    }
+    let mut args = [a[0].clone(), a[2].clone()];
+    match read_from_stream(c, None, &mut args) {
+        Ok(v) => {
+            if matches!(v, Value::Boolean(false)) {
+                crate::assumptions::assume(crate::assumptions::Assumption::XmlReadFromStreamOptions);
+            }
+            a[2] = args[1].clone();
+            Ok(v)
+        }
+        Err(e @ Signal::Unsupported(_)) => Err(e),
+        Err(_) => unsupported(
+            "XmlDocument.ReadFrom(InStream, XmlReadOptions) of a document that does not parse, statement form (not pinned)",
+        ),
+    }
+}
+
 /// The encoding a declaration names in a UTF-16 document. `None`: no declaration, no encoding or UTF-16; the document
 /// reads as UTF-16 (xml/lt-ay-xml/AyXmlReadFromStream.al:90-98 ReadFrom_le_bom_decl16). With a UTF-16 LE byte order
 /// mark and exactly `<?xml version="1.0" encoding="utf-8"?>` followed by `<`, BC switches to UTF-8 after the declaration
@@ -5078,6 +5110,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("XmlDocument", "ReadFrom", ["Text", "XmlDocument"]) => read_from_text,
         ("XmlDocument", "ReadFrom", ["Text", "XmlReadOptions", "XmlDocument"]) => read_from_text_options,
         ("XmlDocument", "ReadFrom", ["InStream", "XmlDocument"]) => read_from_stream,
+        ("XmlDocument", "ReadFrom", ["InStream", "XmlReadOptions", "XmlDocument"]) => read_from_stream_options,
         ("XmlDocument", "Create", _) if !sig.instance => doc_create,
         ("XmlElement", "Create", ["Text"] | ["Text", "Any"]) => element_create_name,
         ("XmlElement", "Create", ["Text", "Text"] | ["Text", "Text", "Any"]) => element_create_ns,
