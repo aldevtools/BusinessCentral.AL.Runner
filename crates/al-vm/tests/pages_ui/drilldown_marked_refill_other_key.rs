@@ -230,7 +230,6 @@ codeunit 50120 T
 }
 "##;
 
-
 use al_builtins::native::Signal;
 
 fn refusal(r: Result<al_builtins::value::Value, Signal>) -> String {

@@ -1302,9 +1302,11 @@ impl Session {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
                 // (`settle_on_blank_rec`; pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). Rows left in the view, three deleted
-                // lines (:656, the count differs per major) or no CurrPage.Update(false) are not built.
-                let on_blank = {
+                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). Rows left in the view, more than one
+                // row shown before the action (three deleted lines, :656, run the triggers once on one major and twice on the
+                // others; two are not pinned) or no CurrPage.Update(false) are not built.
+                let one_row_before = held_before.as_ref().is_some_and(|held| held.len() == 1);
+                let on_blank = one_row_before && {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
                 };
