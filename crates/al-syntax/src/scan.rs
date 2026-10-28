@@ -341,7 +341,7 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
                 };
                 obj.properties.push((
                     sig[i].ident_text(),
-                    crate::ast::strip_text_attributes(&sig[i].ident_text(), value),
+                    crate::ast::property_value(&sig[i].ident_text(), value),
                 ));
                 i = j;
                 continue;
@@ -403,7 +403,7 @@ fn scan_layouts(src: &str, body: &[Tok]) -> Vec<ScannedLayout> {
                                         };
                                         properties.push((
                                             body[m].ident_text(),
-                                            crate::ast::strip_text_attributes(&body[m].ident_text(), value),
+                                            crate::ast::property_value(&body[m].ident_text(), value),
                                         ));
                                         m = e;
                                     } else {

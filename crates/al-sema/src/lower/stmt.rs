@@ -1235,26 +1235,34 @@ impl Lowerer<'_> {
             }));
         }
         // `Attr.Value := x` on an XmlAttribute is the call `Attr.Value(x)`: it changes the attribute inside its element, also
-        // after Add, to '' and with a namespace (xml/XmlAttributes.al:549, QZ_Attribute_ValueAssignment). Only the plain
-        // assignment on XmlAttribute is pinned; a compound assignment or another Xml type's Value stays refused.
-        if kids[0].kind() == SyntaxKind::MemberExpr
-            && matches!(kids[0].children().next().map(|b| self.ty_ref(&b)), Some(Ty::Builtin(t)) if t.as_ref() == "XmlAttribute")
-            && member_ident(&kids[0]).is_some_and(|m| m.eq_ignore_ascii_case("Value"))
-            && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign)
-        {
-            let recv = kids[0].children().next().ok_or("member base")?;
-            let receiver = match self.place(&recv) {
-                Ok(p) => ir::Arg::Ref(p),
-                Err(_) => ir::Arg::Value(self.expr(&recv)?),
+        // after Add, to '' and with a namespace (xml/XmlAttributes.al:549, QZ_Attribute_ValueAssignment). The other Xml
+        // properties alc lets code assign are the same call (al-runner issue 6045): XmlText, XmlCData and XmlComment
+        // `Value`, on a variable and on the result of `AsXmlText()`, and XmlDeclaration `Version`, `Encoding` and
+        // `Standalone` (call forms pinned by xml/XmlDocReadWrite.al:622-624). XmlDocumentType and XmlProcessingInstruction
+        // have Set methods, no property (alc: AL0132). A compound assignment stays refused.
+        if kids[0].kind() == SyntaxKind::MemberExpr && sig_tokens(n).iter().any(|t| t.kind() == SyntaxKind::Assign) {
+            let setter = match (
+                kids[0].children().next().map(|b| self.ty_ref(&b)),
+                member_ident(&kids[0]),
+            ) {
+                (Some(Ty::Builtin(t)), Some(m)) => xml_property_setter(t.as_ref(), &m),
+                _ => None,
             };
-            let rhs = self.expr(&kids[1])?;
-            let rhs = self.convert_to(&Ty::Text(None), self.ty_ref(&kids[1]), rhs)?;
-            return Ok(ir::Stmt::Expr(ir::Expr::Builtin {
-                id: super::call::builtin_id("XmlAttribute.Value#1")?,
-                receiver: Some(Box::new(receiver)),
-                args: vec![ir::Arg::Value(rhs)],
-                ret_used: false,
-            }));
+            if let Some(setter) = setter {
+                let recv = kids[0].children().next().ok_or("member base")?;
+                let receiver = match self.place(&recv) {
+                    Ok(p) => ir::Arg::Ref(p),
+                    Err(_) => ir::Arg::Value(self.expr(&recv)?),
+                };
+                let rhs = self.expr(&kids[1])?;
+                let rhs = self.convert_to(&Ty::Text(None), self.ty_ref(&kids[1]), rhs)?;
+                return Ok(ir::Stmt::Expr(ir::Expr::Builtin {
+                    id: super::call::builtin_id(setter)?,
+                    receiver: Some(Box::new(receiver)),
+                    args: vec![ir::Arg::Value(rhs)],
+                    ret_used: false,
+                }));
+            }
         }
         // `Part.PAGE.Proc := value`: the checker picked the one-parameter procedure and recorded it on the target.
         if kids[0].kind() == SyntaxKind::MemberExpr
@@ -2235,4 +2243,19 @@ impl Lowerer<'_> {
             o.id == Some(4100) && o.name.eq_ignore_ascii_case("Temp Blob")
         })
     }
+}
+
+/// The setter that `X.Member := v` calls on an Xml node type, if the member is a property alc lets code assign.
+fn xml_property_setter(ty: &str, member: &str) -> Option<&'static str> {
+    let m = member.to_ascii_lowercase();
+    Some(match (ty, m.as_str()) {
+        ("XmlAttribute", "value") => "XmlAttribute.Value#1",
+        ("XmlText", "value") => "XmlText.Value#1",
+        ("XmlCData", "value") => "XmlCData.Value#1",
+        ("XmlComment", "value") => "XmlComment.Value#1",
+        ("XmlDeclaration", "version") => "XmlDeclaration.Version#1",
+        ("XmlDeclaration", "encoding") => "XmlDeclaration.Encoding#1",
+        ("XmlDeclaration", "standalone") => "XmlDeclaration.Standalone#1",
+        _ => return None,
+    })
 }

@@ -104,7 +104,7 @@ impl Lowerer<'_> {
     /// A procedure of the extension with the name of a callable procedure of its base is compile
     /// error AL0440 in BC (corpus handlers/TestPageExtensionBaseAccessContracts.al:20), so it is
     /// refused: BC never runs such code.
-    pub(crate) fn declared_in_both_proc(&self, object: usize, offset: usize) -> L<()> {
+    pub(crate) fn declared_in_both_proc(&mut self, object: usize, offset: usize) -> L<()> {
         if !crate::base_access::scope_enabled() {
             return Ok(());
         }
@@ -129,6 +129,20 @@ impl Lowerer<'_> {
                 .is_none_or(|m| crate::alcodes::signature(m) == crate::alcodes::signature(b))
         };
         if crate::base_access::visible_procs(&self.ws.object_ast(base), &name).any(|b| same_signature(&b)) {
+            // A local procedure of an extension of another app's page or report next to a public or protected base
+            // procedure with the same parameter types compiles (al-runner issue 6043), and a bare call in the
+            // extension's code runs the extension's own procedure (what alc binds it to; the corpus pin is awaited). In
+            // the base's app the same call does not compile (alc: AL0196, the call is ambiguous): refused below.
+            let local = mine.as_ref().is_some_and(|m| m.is_local());
+            if local && self.ws.objects[object].app != self.ws.objects[base].app {
+                self.assume(al_builtins::assumptions::Assumption::ExtLocalProcNamedLikeBase);
+                return Ok(());
+            }
+            if local {
+                return Err(format!(
+                    "AL0196: the {noun} extension's local method `{name}` and the method of the {noun} it extends, in the same app, make the call ambiguous (BC does not compile it)"
+                ));
+            }
             return Err(format!(
                 "AL0440: the {noun} extension declares a method `{name}` that the {noun} it extends already defines (BC does not compile it)"
             ));

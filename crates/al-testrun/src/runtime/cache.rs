@@ -65,14 +65,16 @@ pub(crate) type CachedCompile = (
     Option<crate::compile_cache::Layers>,
 );
 
-/// The compile of a run with the compile cache (ADR-022): the key of the dependency apps (the
-/// first `kinds` entries), the entry from the cache folder or built now, then the cached compile.
+/// The compile of a run with the compile cache (ADR-022): the key of the dependency apps the cache
+/// holds (the first `n_dep` apps), the entry from the cache folder or built now, then the cached compile.
+/// The dependency apps after them stand on a workspace app and are compiled with the workspace.
 /// An entry that does not fit or is damaged is ignored (and removed), and the run compiles without
 /// it; with `require` it is an error instead.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compile_with_cache(
     cc: &crate::compile_cache::CompileCache,
     mut apps: Vec<al_sema::workspace::AppSource>,
+    n_dep: usize,
     kinds: Vec<al_sema::AppKind>,
     manifests: &[Manifest],
     symbols: &BTreeSet<String>,
@@ -82,7 +84,6 @@ pub(crate) fn compile_with_cache(
     roots: al_sema::check::Roots,
 ) -> Result<CachedCompile, String> {
     use crate::compile_cache as cache;
-    let n_dep = kinds.iter().take_while(|k| **k == al_sema::AppKind::Dependency).count();
     let dep_symbols: Vec<Option<BTreeSet<String>>> = kinds
         .iter()
         .enumerate()
@@ -146,7 +147,7 @@ pub(crate) fn compile_with_cache(
     let load = started.elapsed();
     match al_sema::lower::compile_loaded_cached(ws, load, &catalog, roots.clone(), stack) {
         Ok((ws, lowered)) => {
-            report.relowered = (0..lowered.provided.len())
+            report.relowered = (0..report.objects.min(lowered.provided.len()))
                 .filter(|&i| lowered.dependency[i] && !lowered.provided[i])
                 .count();
             Ok((ws, lowered, Some(report), Some(layers)))
