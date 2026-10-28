@@ -62,6 +62,12 @@ pub const NULL_EXCEPTION: &str = "<no last error>";
 /// that name would take their members.
 pub const RUNTIME_TYPE: &str = "<Type of a last-error exception>";
 
+/// What an AL `OutStream` or `InStream` is when a `DotNet` System.IO.Stream variable holds it: its run-time type name
+/// (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al:118, :387), served by al-vm `dotnet/blob_stream.rs`.
+pub const NAV_BLOB_STREAM: &str = "Microsoft.Dynamics.Nav.Runtime.NavBLOB+InternalStream";
+/// What `GetType()` of that stream answers (only `FullName` is pinned). Not a real CLR type name, as for [`RUNTIME_TYPE`].
+pub const NAV_BLOB_STREAM_TYPE: &str = "<Type of NavBLOB+InternalStream>";
+
 /// The `System.Drawing` types `O365 Brand Color`.MakePicture uses (ADR-044).
 pub const BITMAP: &str = "System.Drawing.Bitmap";
 pub const GRAPHICS: &str = "System.Drawing.Graphics";
@@ -185,6 +191,19 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (NULL_EXCEPTION, "Message", Ret::Text),
     (NULL_EXCEPTION, "GetType", Ret::Object),
     (NULL_EXCEPTION, "ToString", Ret::Text),
+    (NAV_BLOB_STREAM, "GetType", Ret::Object),
+    (NAV_BLOB_STREAM, "CanRead", Ret::Boolean),
+    (NAV_BLOB_STREAM, "CanWrite", Ret::Boolean),
+    (NAV_BLOB_STREAM, "CanSeek", Ret::Boolean),
+    (NAV_BLOB_STREAM, "Length", Ret::Object),
+    (NAV_BLOB_STREAM, "Position", Ret::Object),
+    (NAV_BLOB_STREAM, "ReadByte", Ret::Integer),
+    (NAV_BLOB_STREAM, "WriteByte", Ret::Void),
+    (NAV_BLOB_STREAM, "Write", Ret::Void),
+    (NAV_BLOB_STREAM, "Flush", Ret::Void),
+    (NAV_BLOB_STREAM, "Close", Ret::Void),
+    (NAV_BLOB_STREAM, "Dispose", Ret::Void),
+    (NAV_BLOB_STREAM_TYPE, "FullName", Ret::Text),
     (GZIP_STREAM, "GZipStream", Ret::Object),
     (GZIP_STREAM, "CopyTo", Ret::Void),
     (GZIP_STREAM, "Dispose", Ret::Void),

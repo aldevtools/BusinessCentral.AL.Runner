@@ -299,6 +299,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dataset.rs` (332): The dataset XML `Report.SaveAs(.., Xml, ..)` writes: header, `DataItem` rows, name and text escaping. Entry: `dataset_name` 23, `Header` 91, `Dataset` 217.
 - `dispatch.rs` (338): Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry: `publish` 69, `raise` 117, `event_targets` 183, `has_listeners` 249, `subscription` 279.
 - `dotnet/mod.rs` (488): `DotNet` calls (ADR-014). Entry: `DotNetConfig` 33, `DotNetState` 58, `fit` 455.
+- `dotnet/blob_stream.rs` (495): An AL `OutStream` or `InStream` held by a `DotNet` System.IO.Stream variable (`NavBLOB+InternalStream`, Base Application `DotNet_Stream.FromOutStream`; SgDotNetStreams.al): the conversion in `Op::Convert`, the stream members, refusals of every unpinned shape. Entry: `Session::al_stream_into_dotnet` 62, `types` 471.
 - `dotnet/last_error.rs` (188): The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry: `types` 168, `exception_text` 70.
 - `dotnet/policy.rs` (269): What is refused before a `DotNet` request is sent (ADR-014 section 8). Entry: `Access` 6, `Policy` 14.
 - `dotnet/pure.rs` (~50): The `DotNet` members that answer from their arguments alone; a baseline whose install code calls any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry: `answers_from_arguments`.
