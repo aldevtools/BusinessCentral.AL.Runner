@@ -738,7 +738,11 @@ impl Session {
             return self.xp_import_text(inst, schema, top, &text);
         }
 
-        let root = match al_builtins::xmlport::parse(&text) {
+        let parsed = match &xp.default_ns {
+            None => al_builtins::xmlport::parse(&text),
+            Some(ns) => self.xp_parse_in_namespace(schema, top, table_root, &text, ns)?,
+        };
+        let root = match parsed {
             Ok(r) => r,
             Err(ReadFailure::Malformed(Some(message))) => return Err(xerr(message, "XmlPortImport:Xml")),
             Err(ReadFailure::Malformed(None)) => {
@@ -843,6 +847,48 @@ impl Session {
             return self.xp_import_record(inst, schema, top, &root, true, false);
         }
         self.xp_import_container(inst, schema, top, &root)
+    }
+
+    /// The root element of an import into a port with `UseDefaultNamespace = true` and no `DefaultNamespace`, whose elements
+    /// are all in BC's namespace of the port (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
+    /// xmlport 89580): a root in that namespace, by default or by a prefix, is read with local names; a root in another
+    /// namespace or in none is not found; a first child in no namespace below a root with one child fails the schema check.
+    /// Pinned for a text element root whose name the document's root has.
+    fn xp_parse_in_namespace(
+        &self,
+        schema: &Schema,
+        top: usize,
+        table_root: bool,
+        text: &str,
+        ns: &str,
+    ) -> Result<Result<Elem, ReadFailure>, Signal> {
+        use al_builtins::xmlport::InNamespace;
+        let xp = schema.xp();
+        let root_node = &xp.nodes[top];
+        if table_root || root_node.kind != ir::XmlNodeKind::Text {
+            return unsupported(
+                "XmlPort import with UseDefaultNamespace into a port whose root is not a text element (not pinned)",
+            );
+        }
+        match al_builtins::xmlport::parse_in_namespace(text, ns) {
+            Ok(InNamespace::Tree(e)) => Ok(Ok(e)),
+            Ok(InNamespace::RootElsewhere(local)) if local == root_node.xml_name => Err(xerr(
+                format!("The element <{local}> cannot be found in the object description."),
+                "XmlPortElementNotFound",
+            )),
+            Ok(InNamespace::FirstChildInNone { root, child })
+                if root == root_node.xml_name
+                    && matches!(schema.children(top)[..], [only] if xp.nodes[only].xml_name == child) =>
+            {
+                Err(schema_error(format!(
+                    "The element '{root}' in namespace '{ns}' has invalid child element '{child}'. List of possible elements expected: '{child}' in namespace '{ns}'."
+                )))
+            }
+            Ok(_) => {
+                unsupported("XmlPort import with UseDefaultNamespace of a document of a shape the corpus does not pin")
+            }
+            Err(e) => Ok(Err(e)),
+        }
     }
 
     /// The text of the source stream from its read position, which moves to the end. A byte order
@@ -2401,7 +2447,7 @@ impl Session {
             // A table element as the root is written once per row, one root element after the other; with no row, once with
             // the record as it stands (platform/lt-ag-contoso/AgXmlPortImport.al:557 QX_RootTableElement_Export, :584 _TwoRows).
             if table_root {
-                if xp.inline_schema || !xp.namespaces.is_empty() {
+                if xp.inline_schema || !xp.namespaces.is_empty() || xp.default_ns.is_some() {
                     return unsupported(
                         "XmlPort export of a table element root with InlineSchema or namespaces (not pinned)",
                     );
@@ -2430,6 +2476,11 @@ impl Session {
             match self.xp_export_container(inst, schema, top).map(|mut root| {
                 for (i, (prefix, uri)) in xp.namespaces.iter().enumerate() {
                     root.attrs.insert(i, (format!("xmlns:{prefix}"), uri.clone()));
+                }
+                // UseDefaultNamespace = true without DefaultNamespace: the root declares BC's namespace of the port as the default
+                // and the elements below inherit it (xmlport/lt-bd-xmlport/BdXmlPort.al:511, DgXmlPortLeads.al:290).
+                if let Some(ns) = &xp.default_ns {
+                    root.attrs.insert(0, ("xmlns".into(), ns.clone()));
                 }
                 root
             }) {

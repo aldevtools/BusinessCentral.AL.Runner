@@ -1002,6 +1002,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         utf8: _,
         xml_utf8: _,
         namespaces: _,
+        default_ns: _,
         inline_schema: _,
         use_lax: _,
         xml_v11: _,

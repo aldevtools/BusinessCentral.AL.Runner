@@ -4945,6 +4945,95 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
     convert(&root).map(Ok)
 }
 
+/// The element tree of a document for an import into a port whose elements are all in namespace `want`
+/// (`UseDefaultNamespace = true`, al-builtins xmlport.rs `parse_in_namespace`). Pinned shapes only
+/// (xmlport/lt-bd-xmlport/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
+/// root's first child in no namespace. Anything else in another namespace, and any other namespace declaration, is refused.
+pub(crate) fn read_tree_in(
+    text: &str,
+    want: &str,
+) -> Result<Result<crate::xmlport::InNamespace, Option<String>>, String> {
+    use crate::xmlport::{Elem, InNamespace, Node};
+    fn element(h: &Handle) -> (String, String) {
+        with(h, |d| match d {
+            XData::Element { local, ns, .. } => (local.clone(), ns.clone()),
+            _ => unreachable!("callers pass elements"),
+        })
+    }
+    fn elements(h: &Handle) -> Vec<Handle> {
+        children_of(h)
+            .into_iter()
+            .filter(|c| with(c, |d| matches!(d, XData::Element { .. })))
+            .collect()
+    }
+    fn convert(h: &Handle, want: &str) -> Result<Elem, String> {
+        let (local, ns) = element(h);
+        if ns != want {
+            return Err("an XmlPort document with an element outside the port's namespace (not pinned)".into());
+        }
+        let attrs = with(h, |d| match d {
+            XData::Element { attrs, .. } => attrs.clone(),
+            _ => unreachable!("an element"),
+        });
+        let mut out = Elem::new(&local);
+        for a in attrs {
+            let (p, l, n, v) = with(&a, |d| match d {
+                XData::Attribute {
+                    prefix,
+                    local,
+                    ns,
+                    value,
+                } => (prefix.clone(), local.clone(), ns.clone(), value.clone()),
+                _ => unreachable!("attributes of an element"),
+            });
+            let declaration = p == "xmlns" || (p.is_empty() && l == "xmlns");
+            if declaration && v == want {
+                continue;
+            }
+            if declaration || !p.is_empty() || !n.is_empty() {
+                return Err(
+                    "an XmlPort document with another namespace declaration or a prefixed attribute (not pinned)"
+                        .into(),
+                );
+            }
+            out.attrs.push((l, v));
+        }
+        for c in children_of(h) {
+            match with(&c, |d| match d {
+                XData::Element { .. } => None,
+                XData::Text(t) | XData::CData(t) => Some(Some(t.clone())),
+                _ => Some(None),
+            }) {
+                None => out.children.push(Node::Elem(convert(&c, want)?)),
+                Some(Some(t)) => out.children.push(Node::Text(t)),
+                Some(None) => {}
+            }
+        }
+        Ok(out)
+    }
+    let doc = match parse_document_detail(text, false) {
+        Ok(Ok(d)) => d,
+        Ok(Err(f)) => return Ok(Err(f.map(|f| f.message))),
+        Err(Signal::Unsupported(why)) => return Err(why),
+        Err(other) => return Err(other.describe()),
+    };
+    let root = elements(&doc)
+        .into_iter()
+        .next()
+        .ok_or("a document without a root element")?;
+    let (local, ns) = element(&root);
+    if ns != want {
+        return Ok(Ok(InNamespace::RootElsewhere(local)));
+    }
+    if let Some(first) = elements(&root).first() {
+        let (child, child_ns) = element(first);
+        if child_ns.is_empty() {
+            return Ok(Ok(InNamespace::FirstChildInNone { root: local, child }));
+        }
+    }
+    convert(&root, want).map(|e| Ok(InNamespace::Tree(e)))
+}
+
 pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     let params: Vec<&str> = sig.params.iter().map(|p| p.ty.as_str()).collect();
     let first_by_var = sig.params.first().is_some_and(|p| p.by_var);
