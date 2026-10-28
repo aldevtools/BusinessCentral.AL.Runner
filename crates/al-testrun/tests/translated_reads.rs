@@ -537,19 +537,17 @@ fn find<'a>(
 }
 
 #[test]
-fn the_issues_three_tests_pass_with_the_apps_translation_file_as_flagged_passes() {
+fn the_issues_three_tests_pass_with_the_apps_translation_file() {
     let got = run_translated(vec![dutch()]);
     for test in [
         "Format_Enum_UsesDutchCaption",
         "Evaluate_Enum_AcceptsDutchCaption",
         "Label_UsesDutchText",
     ] {
+        // Pinned: localization/lt-ta-app-xliff/TaXliff.al TA_Enum_Format_And_Evaluate, TA_Label_Text (al-runner issue 5772).
         let (_, outcome, assumed) = find(&got, test);
         assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
-        assert!(
-            assumed.contains(&al_testrun::assumptions::Assumption::AppTranslationApplied),
-            "{test}: {assumed:?}"
-        );
+        assert!(assumed.is_empty(), "{test}: {assumed:?}");
     }
 }
 
@@ -583,12 +581,13 @@ fn unpinned_reads_under_a_translation_stay_refused() {
 #[test]
 fn a_language_with_no_file_of_its_kind_keeps_the_source_text() {
     let got = run_translated(vec![dutch()]);
+    // Pinned: localization/lt-ta-app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File.
     let (_, outcome, assumed) = find(&got, "German_HasNoFile_KeepsTheSource");
     assert!(
         matches!(outcome, Outcome::Fail(m) if m.contains("Hello world")),
         "{outcome:?}"
     );
-    assert!(assumed.contains(&al_testrun::assumptions::Assumption::AppTranslationApplied));
+    assert!(assumed.is_empty(), "{assumed:?}");
 }
 
 #[test]

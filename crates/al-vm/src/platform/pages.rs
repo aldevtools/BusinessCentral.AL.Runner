@@ -74,7 +74,7 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`, and on a Date field `filter('')`, `filter(0D)`, `filter(<> '')` and `const(0D)`
 /// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
-/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), and a Decimal const of a whole number (assumed). Anything else (a const on
+/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), and a Decimal const of a whole number. Anything else (a const on
 /// another type, another filter) is not pinned.
 /// The second value is the assumption the text rests on, if any.
 fn view_text(
@@ -130,7 +130,7 @@ fn view_text(
             return Err(not_pinned());
         }
     }
-    let mut assumed = None;
+    let assumed: Option<al_builtins::assumptions::Assumption> = None;
     if let Some(body) = filters {
         let mut conds = Vec::new();
         for cond in split_top(body).ok_or_else(not_pinned)? {
@@ -142,15 +142,14 @@ fn view_text(
                 .and_then(|r| r.strip_suffix(')'))
                 .filter(|_| matches!(f.ty, RtType::Decimal))
             {
-                // A Decimal const: only the `Field5=` part is known from real BC (al-runner issue 6030, the reporter's repro,
-                // `const(0)`); a whole number reads as written, as an Integer const does (assumption
-                // `page-metadata-view-decimal-const`). Another value is not measured.
+                // A Decimal const of a whole number reads as written (pages/lt-cd-testpage-leads/CdTestPageLeads.al
+                // TD_SourceTableView_Const_Decimal `WHERE(Field2=CONST(0))`, `CONST(-2)`; al-runner issue 6030). A fraction
+                // (`CONST(1.5)` there) is not built yet.
                 let value = value.trim();
                 let digits = value.strip_prefix('-').unwrap_or(value);
                 if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
                     return Err(not_pinned());
                 }
-                assumed = Some(al_builtins::assumptions::Assumption::PageMetadataViewDecimalConst);
                 conds.push(format!("Field{}=CONST({value})", f.id));
             } else if let Some(value) = rest.strip_prefix_ci("const(").and_then(|r| r.strip_suffix(')')) {
                 conds.push(format!(

@@ -1,7 +1,8 @@
 //! An action refills a temporary Worksheet of 3 or 25 rows with two rows and leaves Rec on the first (al-runner issue 6029, the
-//! reporter's repro green on real BC: a First/Next walk lists only `R1 R2`). The reads are the registered assumption
-//! `temp-refill-to-fewer-rows-by-action`: each row of the view once, then the first row twice and OnAfterGetCurrRecord, or once
-//! without that trigger. Rec left on another row, and a refill to more rows than a window, are refused.
+//! reporter's repro green on real BC: a First/Next walk lists only `R1 R2`). With OnAfterGetCurrRecord the reads are pinned
+//! (corpus pages/lt-outside-worksheet/RmTempRefill.al:616 TD_RefillFewer_WithCurrRecord_3To2): Rec's row, each row of the view
+//! once, then the first row twice and OnAfterGetCurrRecord. Without that trigger (the stood-on row is read once more when it
+//! is not the first, :772), Rec left on another row, and a refill to more rows than a window, are refused.
 
 const PAGE: &str = r#"
 page 51495 "TF Ws"
@@ -82,21 +83,23 @@ fn run(current: bool, routine: &str) -> Result<al_builtins::value::Value, al_bui
 fn with_on_after_get_curr_record_the_client_lists_only_the_two_rows() {
     assert_eq!(
         al_testkit::text(run(true, "Three")),
-        "R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;|R1|R1 R2 "
+        "R:R1;R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;|R1|R1 R2 "
     );
     assert_eq!(
         al_testkit::text(run(true, "TwentyFive")),
-        "R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;|R1|R1 R2 "
+        "R:R1;R:R1;R:R1;R:R2;R:R1;R:R1;C:R1;|R1|R1 R2 "
     );
 }
 
 #[test]
-fn without_it_the_client_lists_only_the_two_rows() {
-    assert_eq!(al_testkit::text(run(false, "Three")), "R:R1;R:R1;R:R2;R:R1;|R1|R1 R2 ");
-    assert_eq!(
-        al_testkit::text(run(false, "TwentyFive")),
-        "R:R1;R:R1;R:R2;R:R1;|R1|R1 R2 "
-    );
+fn without_it_the_refill_to_two_rows_is_refused() {
+    for routine in ["Three", "TwentyFive"] {
+        let r = run(false, routine);
+        assert!(
+            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}: {r:?}"
+        );
+    }
 }
 
 #[test]

@@ -227,17 +227,6 @@ registry! {
         tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
         probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
     },
-    AppTranslationApplied => {
-        id: "app-translation-applied",
-        assumed: "In a language other than 1033, a Label, an enum value caption (Format, Evaluate) and a field caption of an app folder that ships a translation file for exactly that language's culture read the unit's <target>, matched by the XLIFF id the compiler writes; a unit with no target, translate=\"no\" or no unit at all gives the source text, and so does a language for which the app ships no file of the same language (de-DE for an app with nl-BE only). A file of the same language but another culture (nl-NL under nl-BE) is refused. Pinned only by the reporter's run of al-runner issue 5772 on real BC (Format and Evaluate of an enum caption and a Label under 2067 with an nl-BE file).",
-        tests: "No Microsoft test: al-runner issue 5772, the reporter's run on a real BC W1 container (3/3 tests pass with the app's nl-BE file).",
-        probe: "An app with an nl-NL file: Format and Evaluate of a translated enum caption, the source caption and a value whose unit has no target under 1043, 2067 and 1031; a translated and an untranslated Label; FieldCaption of a translated field. Corpus writer TA (branch al-runtime-rs-staging-ta).",
-        awaiting: Awaiting {
-            issues: &[5772],
-            files: &["tests/al-language/localization/lt-ta-app-xliff/TaXliff.al"],
-            since: "2026-10-28",
-        },
-    },
     ExtLocalProcNamedLikeBase => {
         id: "ext-local-proc-named-like-base",
         assumed: "A page or report extension of another app's object may declare a local procedure with the name and parameter types of a public or protected procedure of its base. A bare call in the extension's code runs the extension's local procedure; the base's own calls and calls on a variable of the object from outside run the base's procedure. alc compiles it and binds the calls this way (probed with alc: a local F(): Text next to a protected F(): Integer makes `I := F()` in the extension a Text-to-Integer error).",
@@ -246,17 +235,6 @@ registry! {
         awaiting: Awaiting {
             issues: &[6043],
             files: &["tests/al-language/pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al"],
-            since: "2026-10-28",
-        },
-    },
-    PageLookupRefreshWithUnlinkedListPart => {
-        id: "page-lookup-refresh-with-unlinked-list-part",
-        assumed: "TestField.Lookup through a control's own OnLookup on a page whose only parts are ListParts without a SubPageLink, SubPageView or provider, whose code calls `CurrPage.Update(false)` of that page and no other CurrPage method, refreshes that page as it does on a page without parts (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al): a read of a control of the page that computes an expression the page does not keep gives its value now. The parts' own reads after it stay refused.",
-        tests: "No Microsoft test: al-runner issue 6009, the reporter's run on a real BC container (a List with a header field bound to a global record's field and an unlinked ListPart: the field shows the picked value after the Lookup, 2/2 tests).",
-        probe: "The page of ScLookupGlobalRecordField.al with an unlinked ListPart: the field's value after the Lookup with CurrPage.Update(false), with CurrPage.Update(true), with no Update, with a part that has a SubPageLink, and the part's rows after it. Corpus writer ST (branch al-runtime-rs-staging-st).",
-        awaiting: Awaiting {
-            issues: &[6009],
-            files: &["tests/al-language/pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al::LookupUpdateFalseOnPart"],
             since: "2026-10-28",
         },
     },
@@ -495,17 +473,6 @@ registry! {
         tests: "The corpus cases of QdCaptionClassAreas.al that open a page whose source table has CaptionClass expressions (they assert only that empty-record runs happen, the same number per field and per open), and Microsoft tests that open sales and purchase documents and their subforms (Sales Line and Purchase Line fields with CaptionClass = GetCaptionClass(..)) in Tests-ERM; they pass in Microsoft's CI.",
         probe: "The count for the shapes not pinned yet, if BC gives a stable one: a Document page and its part, OpenNew, Page.Run and a modal open, and tables with three and more expression fields and with two different expressions (the order of the runs of each field).",
     },
-    PageOpenCaptionClassEmptyRecordCountPinnedShapes => {
-        id: "page-open-caption-class-empty-record-count-pinned-shapes",
-        assumed: "A Card or a List of its own opened with OpenView or OpenEdit over a table with one CaptionClass expression field runs it with an empty record 8 times (Card) or 7 times (List); with two fields of the same expression, 18 and 16 times in all (9 and 8 for each). Measured by writer SX on the three supported majors, the same in three cycles of each (corpus branch al-runtime-rs-staging-sx, SxCaptionClassCount.al:190-369); al-runner issue 5870 saw 8 for the Card. Waits for the file to reach corpus master.",
-        tests: "al-runner issue 5870 (a partner's tests count the runs of a Card OpenEdit).",
-        probe: "Done on writer SX's branch; wanted: the bump that puts SxCaptionClassCount.al on corpus master.",
-        awaiting: Awaiting {
-            issues: &[5870],
-            files: &["tests/al-language/record/lt-sx-captionclass-count/SxCaptionClassCount.al"],
-            since: "2026-10-28",
-        },
-    },
     WorksheetTempSourceOpenRow => {
         id: "worksheet-temp-source-open-row",
         assumed: "Which row a Worksheet page over a temporary source opens on, when it is opened without a record and its OnOpenPage moved Rec or changed its key, order or filters, leaving it on a row other than the first of its view. Two paths, both assumed: a Rec in the primary key, outside lookup mode and without OnNextRecord, from which `=><` lands on a row other than the first, opens on that row and reads its rows as a List does; every other such Worksheet (a key changed, lookup mode, OnNextRecord, or `=><` landing on the first row) opens on its first row. Pinned, and no longer assumed: a row a procedure of the page variable set before the open, which OnOpenPage left as it was (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2378-2705, the QT_Temp* tests); the List and the Card whose OnOpenPage fills them (:409 QR_TempCard_OpenView_NoMove, :474 QR_TempList_OpenView_NoMove).",
@@ -713,53 +680,6 @@ registry! {
         assumed: "TestFilter.GetFilter of an Enum field filtered to a range over more than two values (SetRange on the record handed to the page, or a SetFilter text range) reads as the two ordinals, `0..2`, as a range of two values does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:923 SH_TestPageFilter_GetFilter_EnumRangeAndList `0..1`, `1..2`).",
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
-    },
-    DrilldownMarkedRefillInItsKey => {
-        id: "drilldown-marked-refill-in-its-key",
-        assumed: "A Worksheet in a key other than the primary key, with OnAfterGetRecord and OnAfterGetCurrRecord, whose field's OnDrillDown marks two rows, turns MarkedOnly on, leaves Rec on the second and calls CurrPage.Update(false): the drilldown reads nothing and the page still shows the row it stood on; GoToRecord of the first marked row then reads Rec's row twice, the row above once, Rec's row three times and runs OnAfterGetCurrRecord on it, walks both rows (each read three times, then OnAfterGetCurrRecord) and answers false on Rec's row. Only this shape is taken; every other call after the drilldown is refused.",
-        tests: "No Microsoft test: al-runner issue 6008, the reporter's repro green on real BC (`open=4:R4;R3;R2;R1;R4;R4;R4;C4; drilldown=4: gotorecord3=No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1; gotorecord1=Yes/1:R3;R3;R3;C3;R1;R1;R1;C1;`), seen in 4 tests of a partner app.",
-        probe: "The reporter's page in the Name key: after the marking drilldown, GoToRecord of each marked row and of an unmarked row, with one, two and three marked rows and Rec left on the first or the last of them; the same with Next, First and GoToKey; and after a refill by TestPage.Filter.SetFilter and by an action with CurrPage.Update(false). Corpus writer SU (branch al-runtime-rs-staging-su).",
-        awaiting: Awaiting {
-            issues: &[6008],
-            files: &["tests/al-language/pages/lt-sg-list-key-moves/SgListKeyMovesTests.al::SU_MarkedDrillDown_GoToRecord"],
-            since: "2026-10-28",
-        },
-    },
-    TempRefillToFewerRowsByAction => {
-        id: "temp-refill-to-fewer-rows-by-action",
-        assumed: "An action on a top-level Worksheet over a temporary source (primary key, no filters, OnAfterGetRecord, no OnFindRecord or OnNextRecord) that refills Rec with two rows or more, up to a window, while a row the client held is gone, and leaves Rec on the first row: the client then holds only those rows. After the read of the row the client stood on, it reads each row once, then the first row twice and runs OnAfterGetCurrRecord, or once more when the page has no OnAfterGetCurrRecord, as with one row (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_*). Only the rows listed are known from real BC.",
-        tests: "No Microsoft test: al-runner issue 6029, the reporter's repro green on real BC (3 and 25 rows refilled to 2 list `R1 R2`, with and without OnAfterGetCurrRecord; a partner app's tree Worksheet recalculates from 40 rows to 10).",
-        probe: "The temporary Worksheet of RmTempRefill.al SH_RefillFewer_, with and without OnAfterGetCurrRecord, opened with 3 and 25 rows, refilled to 2 and 3 rows: the action log, the row shown and the rows a First/Next walk lists. Corpus writer TD (branch al-runtime-rs-staging-td).",
-        awaiting: Awaiting {
-            issues: &[6029],
-            files: &[
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::TD_RefillFewer_WithCurrRecord_3To2",
-                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::TD_RefillFewer_NoCurrRecord_25To2",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    GoneRowRecOnUnheldKey => {
-        id: "gone-row-rec-on-unheld-key",
-        assumed: "A list without the new-row line (a Worksheet with InsertAllowed false, unfiltered or filtered on a key field as pages/lt-outside-worksheet-2/RtFilteredGoneRow.al pins) whose action deletes every row of its view, leaves Rec on a primary key no row has and calls CurrPage.Update(false): the list stands on the blank Rec, which takes the filter value (OnNewRecord, OnAfterGetCurrRecord once), as when Rec keeps the deleted row's key. Without CurrPage.Update(false), or with rows left in the view, it is refused.",
-        tests: "No Microsoft test: al-runner issue 6027, the reporter's repro green on real BC (`N:B1;C:0:B1;`, the shape of page 5510 \"Production Journal\" Post, which leaves Rec on line 1 of the batch; 154 tests of a partner app).",
-        probe: "The filtered Worksheet of RtFilteredGoneRow.al whose action deletes every line and sets Rec's Line No. to a value no row has, with and without CurrPage.Update(false): the trigger log, Rec's fields and the rows listed; the same with one row left in the view. Corpus writer TD (branch al-runtime-rs-staging-td).",
-        awaiting: Awaiting {
-            issues: &[6027],
-            files: &["tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::TD_Ws_DeleteAll_RecOnAnotherKey"],
-            since: "2026-10-28",
-        },
-    },
-    PageMetadataViewDecimalConst => {
-        id: "page-metadata-view-decimal-const",
-        assumed: "The SourceTableView column of Page Metadata shows a `where(<Decimal field> = const(<whole number>))` condition as `Field<n>=CONST(<number as written>)`, as an Integer const reads (misc/W2PageMetadata.al:394). Only the `Field<n>=` part is known from real BC; a fraction is refused.",
-        tests: "No Microsoft test: al-runner issue 6030, the reporter's repro green on real BC (`where(\"Output Qty\" = const(0))` names `Field5`; one test of a partner app).",
-        probe: "Page Metadata.SourceTableView of pages with where(D = const(0)), const(1.5) and const(-2) on a Decimal field. Corpus writer TD (branch al-runtime-rs-staging-td).",
-        awaiting: Awaiting {
-            issues: &[6030],
-            files: &["tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::TD_SourceTableView_DecimalConst_PageMetadata"],
-            since: "2026-10-28",
-        },
     },
 }
 
