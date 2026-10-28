@@ -1786,3 +1786,50 @@ codeunit 50122 C
 "#;
     assert_eq!(text(al_testkit::run_in(src, "C", "Counts")), "5|1|1|2|2|5");
 }
+
+/// al-runner issue 6042 (the reporter's repro): `FieldClass = "FlowField";` is the same value as `FieldClass = FlowField;`.
+/// A quoted identifier is an identifier (corpus record/TestCodeunitMetadataVirtualTable.al:183-208: `Subtype = "Install"`
+/// reads as `Subtype = Install`); alc compiles both spellings and real BC calculates both fields.
+#[test]
+fn a_quoted_fieldclass_value_is_a_flowfield() {
+    let r = run_with(
+        r#"
+table 50100 "Repro Header"
+{
+    fields { field(1; "Code"; Code[10]) { } field(2; Amount; Integer) { } }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+table 50101 "Repro Line"
+{
+    fields
+    {
+        field(1; "Header Code"; Code[10]) { }
+        field(2; "Quoted Amount"; Integer)
+        {
+            FieldClass = "FlowField";
+            CalcFormula = lookup("Repro Header".Amount where("Code" = field("Header Code")));
+        }
+        field(3; "Plain Amount"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("Repro Header".Amount where("Code" = field("Header Code")));
+        }
+        field(4; "Quoted Filter"; Integer) { FieldClass = "FlowFilter"; }
+    }
+    keys { key(PK; "Header Code") { Clustered = true; } }
+}
+"#,
+        r#"
+        procedure F(): Text
+        var Header: Record "Repro Header"; Line: Record "Repro Line";
+        begin
+            Header.Code := 'H1'; Header.Amount := 42; Header.Insert();
+            Line."Header Code" := 'H1'; Line.Insert();
+            Line.CalcFields("Quoted Amount", "Plain Amount");
+            Line.SetFilter("Quoted Filter", '5');
+            exit(Format(Line."Quoted Amount") + '/' + Format(Line."Plain Amount") + '/' + Line.GetFilter("Quoted Filter") + '/' + Format(Line.Count()));
+        end;"#,
+        "F",
+    );
+    assert_eq!(text(r), "42/42/5/1");
+}
