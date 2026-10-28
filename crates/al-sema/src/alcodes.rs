@@ -60,6 +60,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
         "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks; a page field Rec.X the source table lacks",
     ),
     (
+        "AL0335",
+        "a text attribute after a text element inside the same xmlport element (case 2253)",
+    ),
+    (
         "AL0161",
         "a page extension names a non-protected variable or a local procedure of its base page, or a report extension does; a Cloud app names an internal agent table of the platform; a subscriber to the internal event GetRoleCenterBannerPartID of System Action Triggers; a page customization names a variable of its page in Editable of a modify",
     ),
@@ -580,6 +584,7 @@ fn event_subscriptions(ws: &Workspace, out: &mut Vec<Diagnostic>) {
 }
 
 /// AL0124. The property `AutoCalcField` on a table element of an xmlport (corpus 0826; it belongs to report and query columns).
+/// AL0335. A text attribute after a text element inside the same element (case 2253).
 fn xmlport_elements(
     ws: &Workspace,
     file: usize,
@@ -587,6 +592,23 @@ fn xmlport_elements(
     out: &mut Vec<Diagnostic>,
 ) {
     for s in sections {
+        // AL0335. A text attribute after a text element inside the same element (corpus must-not-compile 2253 on branch
+        // al-runtime-rs-staging-pub-tp). Other attribute and element kinds in that order are not pinned and not judged.
+        let mut seen_text_element = false;
+        for c in s.sections() {
+            if c.name().eq_ignore_ascii_case("textelement") {
+                seen_text_element = true;
+            } else if seen_text_element && c.name().eq_ignore_ascii_case("textattribute") {
+                push(
+                    out,
+                    ws,
+                    file,
+                    offset_of(c.syntax()),
+                    "AL0335",
+                    "Attributes must be specified before elements inside of an element.".to_string(),
+                );
+            }
+        }
         if s.name().eq_ignore_ascii_case("tableelement") {
             if let Some(p) = s.properties().find(|p| p.name().eq_ignore_ascii_case("AutoCalcField")) {
                 push(
@@ -1912,6 +1934,15 @@ mod tests {
             .collect();
         v.sort();
         v
+    }
+
+    // Must-not-compile case 2253 (corpus branch al-runtime-rs-staging-pub-tp): a text attribute after a text element.
+    #[test]
+    fn a_text_attribute_after_a_text_element_is_al0335() {
+        let bad = "xmlport 50000 X { schema { textelement(root) { textelement(entry) { textelement(inner) { } textattribute(kind) { } } } } }";
+        assert_eq!(codes(&[bad]), vec!["AL0335".to_string()]);
+        let good = "xmlport 50000 X { schema { textelement(root) { textelement(entry) { textattribute(kind) { } textelement(inner) { } } } } }";
+        assert!(codes(&[good]).is_empty());
     }
 
     fn ctx_codes(src: &str, ctx: &AppContext) -> Vec<String> {
