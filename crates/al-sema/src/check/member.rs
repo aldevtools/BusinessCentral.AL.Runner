@@ -85,9 +85,21 @@ impl<'a> Checker<'a> {
                 if let Some(f) = self.members[ti].field(name) {
                     return Some(E::Val(f.ty.clone()));
                 }
+                // A `local` procedure of the table is not visible outside it: there a built-in Record method of its name
+                // is the call (al-runner issue 6057, `local procedure Get` next to `Rec.Get(Key)`; the reporter's alc
+                // compiles it). With no built-in of the name the local procedure stays the candidate, and the call is
+                // AL0161 (must-not-compile 0359-local-procedure-of-table-via-record.al:1, `al_codeunit_access`).
+                let outside = ti != sc.oi && ti != sc.self_obj;
+                let hides_builtin = |p: &&ProcSig| {
+                    outside
+                        && p.local
+                        && p.declared_in == ti
+                        && receiver_of(t).is_some_and(|recv| !self.catalog.overloads(&recv, name).is_empty())
+                };
                 let mut procs: Vec<Cand> = self.members[ti]
                     .procedures_named(name)
                     .iter()
+                    .filter(|p| !hides_builtin(p))
                     .map(|p| proc_cand(p))
                     .collect();
                 // `Rec.BwSame()` in a third table extension of the twin extension's app runs that extension's body
@@ -137,9 +149,16 @@ impl<'a> Checker<'a> {
                 if *kind == ObjKind::Codeunit && name.eq_ignore_ascii_case("Run") {
                     self.reach_run(oi);
                 }
+                // As for a record: a `local` procedure of the object is not visible outside it, where a built-in method of
+                // its name is the call (al-runner issue 6057).
+                let outside = oi != sc.oi && oi != sc.self_obj;
+                let builtin_named = outside
+                    && *kind != ObjKind::Interface
+                    && receiver_of(t).is_some_and(|recv| !self.catalog.overloads(&recv, name).is_empty());
                 let mut procs: Vec<Cand> = self.members[oi]
                     .procedures_named(name)
                     .iter()
+                    .filter(|p| !(builtin_named && p.local && p.declared_in == oi))
                     .map(|p| proc_cand(p))
                     .collect();
                 // An interface also has the procedures of the interfaces it extends

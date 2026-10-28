@@ -975,3 +975,45 @@ fn an_xmlport_request_page_source_table_gives_the_xmlport_a_rec() {
         );
     }
 }
+
+#[test]
+fn below_the_runtime_floor_a_call_compiles_when_its_overloads_are_the_floors() {
+    // al-runner issue 6061: `TestField(OptionField, Rec.OptionField::Value)` picks the catalog's `(Any, Any)` line, which
+    // no probe expresses. At runtime 15.0 every measured overload of TestField with two arguments compiles exactly as at
+    // the floor, so alc binds the call as it does at the floor (the reporter's alc compiles it at 15.0).
+    let table = "table 50100 \"Repro Table\" { fields { field(1; \"Entry No.\"; Integer) { } field(2; Status; Option) { OptionMembers = Open,Released,Closed; } } }";
+    let src = cu("procedure P() var R: Record \"Repro Table\"; begin R.TestField(Status, R.Status::Released); end;");
+    assert_eq!(diags_declared("28", "15.0", &[table, &src]), Vec::<String>::new());
+    // Below 3.0 the Label and TextConst overloads are AL0196 at alc: the overload set is not the floor's.
+    let got = diags_declared("28", "2.0", &[table, &src]);
+    assert!(got.len() == 1 && got[0].starts_with("AR1007 `TestField`"), "{got:?}");
+}
+
+#[test]
+fn a_local_procedure_of_a_table_does_not_hide_a_builtin_record_method_of_its_name() {
+    // al-runner issue 6057: a `local procedure Get` of a table is not visible outside it, so `Rec.Get(Key)` from another
+    // object is the built-in Record.Get (the reporter's alc compiles it). A local procedure with no built-in of its name
+    // stays AL0161 (must-not-compile 0359-local-procedure-of-table-via-record.al:1).
+    let table = "table 50100 \"Repro Table\" { fields { field(1; \"Code\"; Code[20]) { } field(2; Value; Text[100]) { } } keys { key(PK; \"Code\") { Clustered = true; } } local procedure Get(\"Key\": Text) Value: Text begin exit('local:' + \"Key\"); end; local procedure Secret() begin end; }";
+    let src = cu("procedure P() var R: Record \"Repro Table\"; K: Code[20]; begin if not R.Get(K) then; end;");
+    assert_eq!(diags(&[table, &src]), Vec::<String>::new());
+    let secret = cu("procedure P() var R: Record \"Repro Table\"; begin R.Secret(); end;");
+    assert_eq!(
+        diags(&[table, &secret]),
+        vec!["AL0161 'Secret()' is inaccessible due to its protection level"]
+    );
+}
+
+#[test]
+fn a_local_procedure_of_a_codeunit_does_not_hide_a_builtin_codeunit_method_of_its_name() {
+    // al-runner issue 6057, the same for a codeunit variable: `C.Run()` from another object is the built-in
+    // Codeunit.Run, not the codeunit's `local procedure Run`. Other local names stay AL0161 (must-not-compile 0356).
+    let target = "codeunit 50101 Target { local procedure Run() begin end; local procedure Secret() begin end; }";
+    let src = cu("procedure P() var C: Codeunit Target; begin C.Run(); end;");
+    assert_eq!(diags(&[target, &src]), Vec::<String>::new());
+    let secret = cu("procedure P() var C: Codeunit Target; begin C.Secret(); end;");
+    assert_eq!(
+        diags(&[target, &secret]),
+        vec!["AL0161 'Secret()' is inaccessible due to its protection level"]
+    );
+}

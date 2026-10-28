@@ -897,6 +897,7 @@ pub(crate) fn lower_core(
         timings: CompileTimings::default(),
         program: Default::default(),
         unsupported: Default::default(),
+        refusal_at: Vec::new(),
         calls: Default::default(),
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
@@ -1087,6 +1088,7 @@ pub(crate) fn lower_core(
         slots: Vec::with_capacity(n),
     };
     let mut unsupported: Vec<Vec<Vec<String>>> = Vec::with_capacity(n);
+    let mut refusal_at: Vec<Vec<Option<ir::SrcPos>>> = Vec::with_capacity(n);
     let mut calls: Vec<Vec<Vec<(usize, usize)>>> = Vec::with_capacity(n);
     let mut ndirect: Vec<Vec<u32>> = Vec::with_capacity(n);
     let embeds_of_all: Vec<Vec<usize>> = pieces
@@ -1100,6 +1102,7 @@ pub(crate) fn lower_core(
             // `ndirect` stays aligned with `calls` by object (al-runner issue 6031). The facts hold only the calls the code
             // makes (what a variable drives is in `DepFacts::drivers`): empty means every call is one.
             ndirect.push(Vec::new());
+            refusal_at.push(Vec::new());
             if keep_facts {
                 unsupported.push(Vec::new());
                 calls.push(Vec::new());
@@ -1191,6 +1194,7 @@ pub(crate) fn lower_core(
             });
         }
         unsupported.push(piece.unsupported);
+        refusal_at.push(piece.refusal_at);
         calls.push(piece.calls);
         ndirect.push(piece.ndirect);
         staged.slots.push(Some(Box::new(Staged {
@@ -1208,6 +1212,7 @@ pub(crate) fn lower_core(
         })));
     }
     out.unsupported = super::Refusals::new(unsupported, cached_facts.clone());
+    out.refusal_at = refusal_at;
     out.calls = super::Calls::new(calls, ndirect, cached_facts);
     let field_pos = |t: usize, id: u32| members.get(t).fields.iter().position(|f| f.id == id);
     let field_no = |t: usize, pos: usize| members.get(t).fields.get(pos).map(|f| f.id);
@@ -2311,6 +2316,9 @@ pub fn relower_objects(
     for (oi, mut piece) in pieces {
         al_ir::walk::walk_object(&mut piece.object, &mut FillSets(&piece.expansions));
         old.unsupported[oi] = piece.unsupported;
+        if let Some(slot) = old.refusal_at.get_mut(oi) {
+            *slot = piece.refusal_at;
+        }
         old.calls.replace(oi, piece.calls, piece.ndirect);
         replace.push((
             oi,
@@ -2391,6 +2399,8 @@ pub(crate) struct Piece {
     /// The source positions of its statements, numbered from 0.
     pub(crate) positions: Vec<ir::SrcPos>,
     pub(crate) unsupported: Vec<Vec<String>>,
+    /// Per routine: where the statement is that gave its first reason (see `Lowered::refusal_at`).
+    pub(crate) refusal_at: Vec<Option<ir::SrcPos>>,
     pub(crate) calls: Vec<Vec<(usize, usize)>>,
     /// With `Shared::export`: `calls` without what a page, report or xmlport variable drives.
     pub(crate) direct: Vec<Vec<(usize, usize)>>,

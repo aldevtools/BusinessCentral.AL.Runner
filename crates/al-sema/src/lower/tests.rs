@@ -1209,6 +1209,75 @@ fn a_dependency_apps_relation_resolves_among_the_apps_it_saw() {
     assert_eq!(target, Some(Some(291)), "{:?}", agent.relation_arms);
 }
 
+/// al-runner issue 6059: a table extension's `modify` sets the TableRelation of a base-app field to a table of the
+/// extension's own app. The base app cannot see that table; the extension can, and its relation names it.
+#[test]
+fn a_relation_a_table_extension_sets_by_modify_resolves_in_the_extensions_app() {
+    use crate::workspace::AppKind;
+    let src = |id: &str, deps: &[&str], files: &[(&str, &str)]| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+    };
+    let base = src(
+        "base",
+        &[],
+        &[(
+            "alt.al",
+            "table 5201 \"Alternative Address\" { fields { field(1; \"Employee No.\"; Code[20]) { } \
+                 field(2; Code; Code[10]) { } } keys { key(PK; \"Employee No.\", Code) { } } }",
+        )],
+    );
+    let main = src(
+        "main",
+        &["base"],
+        &[
+            (
+                "code.al",
+                "table 50101 \"Repro Address Code\" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { } } }",
+            ),
+            (
+                "ext.al",
+                "tableextension 50100 \"Repro Ext\" extends \"Alternative Address\" { fields { modify(Code) { \
+                     TableRelation = \"Repro Address Code\".Code; } } }",
+            ),
+            (
+                "c.al",
+                "codeunit 50102 C { procedure P() var A: Record \"Alternative Address\"; begin A.Validate(Code, 'HOME'); end; }",
+            ),
+        ],
+    );
+    let ws = Workspace::load_apps(
+        vec![main, base],
+        vec![AppKind::Workspace, AppKind::Dependency],
+        &Default::default(),
+    );
+    let members = crate::members::build(&ws);
+    let checked = crate::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    let l = lower_with_positions(&ws, &members, &checked, false);
+    let alt = l
+        .program
+        .objects
+        .iter()
+        .find(|o| o.name == "Alternative Address")
+        .expect("compiled");
+    let code = alt
+        .table
+        .as_ref()
+        .unwrap()
+        .fields
+        .iter()
+        .find(|f| f.name == "Code")
+        .unwrap();
+    let target = code
+        .relation_arms
+        .first()
+        .and_then(|a| a.table)
+        .map(|t| l.program.objects[t].id);
+    assert_eq!(target, Some(Some(50101)), "{:?}", code.relation_arms);
+}
+
 // Base Application's `AdjustAddReportingCurrency.Report.al` declares
 // `dataitem(Integer; System.Utilities.Integer)`: a data item whose table is written with its namespace.
 #[test]

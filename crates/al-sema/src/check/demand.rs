@@ -690,11 +690,10 @@ impl Checker<'_> {
                 continue;
             }
             // Validating and calculating read the tables a field relates to.
-            if let Some((_, text)) = f
-                .properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("TableRelation"))
-            {
+            // Each relation in the scope of the object that set it: a table extension's `modify` can name a table of its
+            // own app (al-runner issue 6059).
+            for (text, scope) in f.relation_texts() {
+                let decl_file = scope.map_or(file, |d| self.ws.objects[d].file);
                 for arm in crate::relation::parse(text).unwrap_or_default() {
                     for n in [arm.path.len(), arm.path.len().saturating_sub(1)] {
                         if n == 0 {

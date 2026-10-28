@@ -1164,10 +1164,29 @@ impl Lowerer<'_> {
                 }
             }
             Err(e) => {
+                if self.reasons.is_empty() {
+                    self.refusal_at = self.src_pos(n);
+                }
                 self.reasons.push(e);
                 Vec::new()
             }
         }
+    }
+
+    /// Where statement `n` starts, without adding it to the routine's positions.
+    fn src_pos(&self, n: &SyntaxNode) -> Option<ir::SrcPos> {
+        let lines = self.lines.as_ref()?;
+        let (start, end) = significant_span(n)?;
+        let (line, col) = lines.locate(start);
+        let (end_line, _) = lines.locate(end.saturating_sub(1).max(start));
+        Some(ir::SrcPos {
+            file: lines.file,
+            line,
+            col,
+            end_line,
+            object: self.oi as u32,
+            routine: self.routine_idx as u32,
+        })
     }
 
     pub(crate) fn assign(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<ir::Stmt> {
