@@ -818,6 +818,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportUnlinkedTempInText => {
+        id: "xmlport-unlinked-temp-in-text",
+        assumed: "A text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable (MinOccurs = Zero, only field attributes): export writes all the inner records under every outer row, `<attributes />` when there are none; import stores each inner row (its OnBeforeInsertRecord sees the outer row's attributes) before the outer row's OnBeforeInsertRecord, and the inner rows stay across outer rows; a second container or one after a later element fails the schema check. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (an `attributes` element of attribute rows inside a request row).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Unlinked_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Import_Shapes",
+            ],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",

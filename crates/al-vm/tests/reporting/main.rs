@@ -45,5 +45,6 @@ mod xmlport_root_table;
 mod xmlport_source_table_view;
 mod xmlport_text_encoding;
 mod xmlport_text_in_table;
+mod xmlport_unlinked_temp_in_text;
 mod xmlport_view_after_export;
 mod xmlports;

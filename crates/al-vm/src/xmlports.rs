@@ -1997,6 +1997,25 @@ impl Session {
                     }
                     self.xp_import_attrs(inst, schema, child, ce, Some(&mut assigned))?;
                 }
+                // `unlinked_container`: the inner rows are stored before the outer row, whose OnBeforeInsertRecord runs after them;
+                // they stay in the temporary table across outer rows (QrXpContainerOccurs.al TP_Unlinked_Import,
+                // TP_Unlinked_Import_Shapes on branch al-runtime-rs-staging-pub-tp).
+                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
+                    let mut seq = Sequence::new(schema, child);
+                    let mut seen = false;
+                    for ie in ce.elements() {
+                        let Some(inner) = seq.accept(schema, ie)? else {
+                            continue;
+                        };
+                        self.xp_import_record(inst, schema, inner, ie, !seen, false)?;
+                        seen = true;
+                        if Self::xp_import_stopped(inst) {
+                            return Ok(());
+                        }
+                    }
+                    seq.finish(schema)?;
+                }
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
@@ -2937,6 +2956,16 @@ impl Session {
                         "XmlPort export of a text element with a field attribute and its own text below a table element (not pinned)",
                     );
                 }
+                // `unlinked_container`: every outer row writes ALL the inner records, `<attributes />` when there are none
+                // (QrXpContainerOccurs.al TP_Unlinked_Export, TP_Unlinked_Export_NoAttrs on branch al-runtime-rs-staging-pub-tp).
+                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
+                    let e = self.xp_export_container(inst, schema, child)?;
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
@@ -3625,6 +3654,35 @@ fn attr_container(schema: &Schema, c: usize) -> bool {
                 ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::FieldAttr
             )
         })
+}
+
+/// A text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`,
+/// holding only one temporary table element without LinkTable and with `MinOccurs = Zero` whose nodes are only field
+/// attributes (assumption `xmlport-unlinked-temp-in-text`; corpus branch al-runtime-rs-staging-pub-tp,
+/// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TP_Unlinked_*, xmlport 90023 in TpXpNestedObjects.al).
+fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    let [inner] = kids[..] else {
+        return false;
+    };
+    let t = schema.node(inner);
+    let fields = schema.children(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && n.min_zero
+        && n.max_unbounded == Some(false)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && t.min_zero
+        && !fields.is_empty()
+        && fields
+            .iter()
+            .all(|&f| schema.node(f).kind == ir::XmlNodeKind::FieldAttr)
 }
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
