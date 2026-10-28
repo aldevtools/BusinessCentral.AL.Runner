@@ -815,6 +815,20 @@ registry! {
             since: "2026-10-28",
         },
     },
+    FormatPrecisionFirstCode => {
+        id: "format-precision-first-code",
+        assumed: "Format of a Decimal with `<Precision,A:B>` as the first code and no `<Standard Format,N>`: the value is rounded half away from zero to B decimals before `<Sign>`, `<Integer>`, `<Integer Thousand>` and `<Decimals>`, and `<Decimals>` shows at least A decimals (`-1234.57`, `12.00`, `1,234,50` with `<Comma,,>`). Pinned only by corpus writer TP's run on real BC for 2:2.",
+        tests: "No Microsoft test: a partner app's receipt printing (amounts formatted with `<Precision,2:2>` and a decimal comma).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): types/lt-format-comma-format-string/FormatCommaFormatString.al TP_Format_PrecisionStrings(_Small); wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings",
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings_Small",
+            ],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
