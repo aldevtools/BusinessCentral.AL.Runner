@@ -186,8 +186,15 @@ fn the_table_sequence_is_matched_step_by_step() {
         "procedure F(): Text var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); Row.Get(3); exit(Note()); end;",
     );
     refused(run(&s, "F"), "SQL counter");
+    // A Count right after the Commit that followed writes to the table: one statement that reads one row, whatever the
+    // rows (SqlCounters.al:388-392; SkSqlBudget.al:493-497 counts over 10 and 15 rows).
     let s = src(
         "procedure F(): Text var Row: Record Row; N: Integer; begin Mark(); Seed(); Mark(); N := Row.Count(); exit(Note()); end;",
+    );
+    assert_eq!(text(run(&s, "F")), "statements increased, rows increased");
+    // A Count after a read of the table and no write since: not the measured step.
+    let s = src(
+        "procedure F(): Text var Row: Record Row; N: Integer; begin Mark(); Seed(); Mark(); Row.Get(2); Row.Get(3); N := Row.Count(); exit(Note()); end;",
     );
     refused(run(&s, "F"), "SQL counter");
 }

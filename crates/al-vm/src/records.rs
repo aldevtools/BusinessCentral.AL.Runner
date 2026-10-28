@@ -2421,7 +2421,27 @@ impl Session {
         let entry = self.sql.enter(self.calls_made);
         let rows_before = self.sql_sized_rows(rec);
         let copy = self.sql_copy_shape(rec);
+        let buffer_shape = self.sql_buffer_shape(rec, copy);
+        let setup_key = self.table(rec).ok().map(|t| t.object as usize);
+        let asked_before = setup_key.is_none_or(|k| self.events.global_setups.contains_key(&k));
         let r = self.record_op_tracked(method, rec, args);
+        let first_write = match setup_key {
+            Some(k) if !asked_before => self
+                .events
+                .global_setups
+                .get(&k)
+                .map(|s| (s.insert, s.modify || s.delete || s.rename || s.global_rename)),
+            _ => None,
+        };
+        let dependency_code = self.frames.last().is_some_and(|&o| {
+            let app = self.engine.program.objects[o].app as usize;
+            self.engine.program.apps.get(app).is_some_and(|a| a.dependency)
+        });
+        let info = crate::sqlcount::OpInfo {
+            buffer_shape,
+            first_write,
+            dependency_code,
+        };
         let (temp, table) = {
             let s = rec.borrow();
             (s.temporary, s.table)
@@ -2434,9 +2454,67 @@ impl Session {
             None
         };
         let calls = self.calls_made;
-        self.sql
-            .leave(entry, calls, method, temp, table, args, key, rows_before, copy, &r);
+        self.sql.leave(
+            entry,
+            calls,
+            method,
+            temp,
+            table,
+            args,
+            key,
+            rows_before,
+            copy,
+            &r,
+            info,
+        );
         r
+    }
+
+    /// Whether `rec` is of a shape whose buffered Inserts and Count the corpus measured: the shape of
+    /// [`Session::sql_copy_shape`] (session/lt-bl-sql-counters/SkSqlBudget.al:14-29), or a database table of one Integer key
+    /// field and one Text field (SkSqlBudget.al:380-400, SqlCounters.al:7-20) and a record with no state set but at most one
+    /// filter, on the key field (SkSqlBudget.al:474).
+    fn sql_buffer_shape(&mut self, rec: &Rec, copy: crate::sqlcount::CopyShape) -> bool {
+        if copy != crate::sqlcount::CopyShape::No {
+            return true;
+        }
+        {
+            let s = rec.borrow();
+            let plain = !s.temporary
+                && !s.crm
+                && s.company.is_none()
+                && !s.marked_only
+                && s.read_isolation == 0
+                && s.security_filtering == 0
+                && s.key == 0
+                && s.adhoc.is_none()
+                && s.ascending
+                && s.field_descending == 0
+                && s.load.request.is_none()
+                && s.auto_calc.is_empty()
+                && s.run_page_link.is_none()
+                && s.unpinned_buffer.is_none();
+            let filters_ok = match &s.filters[..] {
+                [] => true,
+                [f] => f.field == 0 && f.group == 0,
+                _ => false,
+            };
+            if !plain || !filters_ok {
+                return false;
+            }
+        }
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        let user: Vec<&al_data::FieldDef> = t.fields.iter().filter(|f| f.id < 2_000_000_000).collect();
+        matches!(
+            &user[..],
+            [k, v] if k.stored && v.stored && k.ty == RtType::Integer && matches!(v.ty, RtType::Text(_))
+        ) && t.keys.first().is_some_and(|k| k[..] == [0])
+            && t.keys
+                .iter()
+                .skip(1)
+                .all(|k| k.iter().all(|&i| t.fields[i].id >= 2_000_000_000))
     }
 
     /// Whether `rec` is of the shape whose copy sizes the corpus measured (session/lt-bl-sql-counters/SkSqlBudget.al:14-29,
