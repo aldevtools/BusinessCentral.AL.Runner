@@ -1623,9 +1623,9 @@ fn test_isolation_required_runs_each_codeunit_under_its_required_test_isolation(
     assert!(l["error"].as_str().is_some_and(|e| e.contains("required")), "{l}");
 }
 
-// Al-runner issue 5748: the OnRun rows of BC 28 and 29 are test lines of the stream too.
+// ADR-055 (al-runner issue 5859): the stream has no `OnRun` lines, and a codeunit whose OnRun raises has no lines.
 #[test]
-fn run_tests_streams_the_on_run_rows() {
+fn run_tests_streams_no_on_run_rows() {
     let d = tempfile::tempdir().unwrap();
     let a = app(
         d.path(),
@@ -1646,14 +1646,10 @@ codeunit 50982 \"Quiet\" { Subtype = Test; trigger OnRun() begin end; [Test] pro
     tests.sort();
     assert_eq!(
         tests,
-        [
-            ("Codeunit50981.OnRun".to_string(), "fail".to_string()),
-            ("Codeunit50982.OnRun".to_string(), "pass".to_string()),
-            ("Codeunit50982.T2".to_string(), "pass".to_string()),
-        ],
+        [("Codeunit50982.T2".to_string(), "pass".to_string())],
         "{lines:?}"
     );
-    assert_eq!(lines.last().unwrap()["exitCode"], 1, "{lines:?}");
+    assert_eq!(lines.last().unwrap()["exitCode"], 0, "{lines:?}");
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
