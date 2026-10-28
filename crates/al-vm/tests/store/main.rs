@@ -42,6 +42,7 @@ mod set_view_adhoc;
 mod set_view_caption;
 mod sql_data_type;
 mod stale_buffer;
+mod stale_buffer_6028;
 mod stale_two_commits_insert;
 mod store_values;
 mod systemid_cleared_on_insert;

@@ -612,7 +612,10 @@ impl Session {
                             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`, :340-355). A RepeatableRead
                             // set without a read, and either on a temporary table, are not pinned.
                             match (*i, r.temporary) {
-                                (ISOLATION_UPDLOCK, false) => self.tx.lock_tx = true,
+                                (ISOLATION_UPDLOCK, false) => {
+                                    self.tx.lock_tx = true;
+                                    self.tx.isolation_lock = true;
+                                }
                                 (ISOLATION_REPEATABLE_READ, false) => {
                                     self.tx.lock_unpinned = Some("a ReadIsolation RepeatableRead set without a read")
                                 }
@@ -1654,6 +1657,7 @@ impl Session {
     /// the call starts, gets the value through `Modify(RunTrigger)`; the buffer is left alone
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+        self.note_other_write(rec, t);
         let pos = arg_pos(args, 0)?;
         if t.fields[pos].id == 2_000_000_000 {
             // Wording after the pinned fragment: record/TestRecordSystemId.al:230-262, docs/probes-needed.md.
