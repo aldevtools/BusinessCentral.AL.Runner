@@ -2,7 +2,7 @@
   "corpus_commit": "84ebf506049a34bc92f72c6cf61e1d0a3bfc3ed8",
   "language": {
     "bc": "27-29",
-    "implemented": 1590,
+    "implemented": 1591,
     "methods": [
       {
         "bc": [
@@ -4827,7 +4827,7 @@
         "scope": "",
         "sig": "(Boolean)",
         "site": "network/lt-cz-http-leads/CzHttpNoNetwork.al:104",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpClient"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 132,
+    "refused": 131,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
