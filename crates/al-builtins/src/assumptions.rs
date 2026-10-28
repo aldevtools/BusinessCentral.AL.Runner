@@ -681,6 +681,23 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
+    InstallCompanyTriggersAllApps => {
+        id: "install-company-triggers-all-apps",
+        assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",
+        tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
+        probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
+    },
+    ShowPrintStatusInert => {
+        id: "show-print-status-inert",
+        assumed: "A report that sets ShowPrintStatus = true runs as one without it: Run, RunModal, Execute and SaveAs give the same triggers, order, results and handler needs. Measured by corpus writer TK on real BC, not yet in the pinned corpus; `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).",
+        tests: "No Microsoft test: al-runner issue 6056, a partner app whose install routine reaches a report with ShowPrintStatus (4,245 tests refused).",
+        probe: "Run, RunModal, Execute and SaveAs of processing-only reports with and without a request page and of an RDLC layout report, each with ShowPrintStatus true, false and unset: trigger log, handler needs, result. Corpus writer TK (branch al-runtime-rs-staging-tk, corpus PR 777).",
+        awaiting: Awaiting {
+            issues: &[6056],
+            files: &["tests/al-language/report/lt-tk-showprintstatus/LtTkShowPrintStatus.al"],
+            since: "2026-10-28",
+        },
+    },
 }
 
 thread_local! {

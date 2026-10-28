@@ -19,6 +19,7 @@ mod report_request_rec_in_init;
 mod report_saveas;
 mod report_saveas_events;
 mod report_saveas_language;
+mod report_show_print_status;
 mod report_substitute_id;
 mod report_temp_globals;
 mod report_trigger_order;

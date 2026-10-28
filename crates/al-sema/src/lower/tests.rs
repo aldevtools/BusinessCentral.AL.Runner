@@ -1056,12 +1056,13 @@ fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_comp
 
 #[test]
 fn unimplemented_builtin_makes_the_routine_unsupported() {
-    let (_, l) = lower_src("codeunit 50100 C { procedure P() begin SerialNumber(); end; procedure Ok() begin end; }");
+    let (_, l) =
+        lower_src("codeunit 50100 C { procedure P() begin Debugger.Deactivate(); end; procedure Ok() begin end; }");
     let (pi, _) = routine(&l, "P");
     let (oi, _) = routine(&l, "Ok");
     assert_eq!(
         l.unsupported[0][pi],
-        vec!["builtin Database.SerialNumber#1 is not implemented".to_string()]
+        vec!["builtin Debugger.Deactivate#1 is not implemented".to_string()]
     );
     assert!(l.unsupported[0][oi].is_empty());
 }

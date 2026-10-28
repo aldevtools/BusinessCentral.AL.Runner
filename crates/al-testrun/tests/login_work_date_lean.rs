@@ -18,12 +18,12 @@ codeunit 40 LogInManagement
 }
 "#;
 
-/// Login code the runtime cannot run: `SerialNumber` is refused when it is lowered.
+/// Login code the runtime cannot run: `Debugger.GetLastErrorText` is refused when it is lowered.
 const LOGIN_REFUSED: &str = r#"
 codeunit 40 LogInManagement
 {
     SingleInstance = true;
-    procedure GetDefaultWorkDate(): Date begin if SerialNumber() = '' then; exit(20240115D); end;
+    procedure GetDefaultWorkDate(): Date begin if Debugger.GetLastErrorText() = '' then; exit(20240115D); end;
 }
 "#;
 
