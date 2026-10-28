@@ -1447,12 +1447,19 @@ impl Session {
         let Some(inst) = st.borrow().instance.clone() else {
             return;
         };
-        let changed = saved.iter().any(|(slot, v)| match (v, &inst.borrow().globals[*slot]) {
-            (Value::Record(s), Value::Record(c)) => {
-                let (s, c) = (s.borrow(), c.borrow());
-                format!("{:?}", s.filters) != format!("{:?}", c.filters)
+        let filters = |r: &Rc<RefCell<RecordState>>| -> Vec<(usize, i32, Option<String>)> {
+            r.borrow()
+                .filters
+                .iter()
+                .map(|f| (f.field, f.group, self.filter_text(&f.expr).ok()))
+                .collect()
+        };
+        let changed = saved.iter().any(|(slot, v)| {
+            let cur = inst.borrow().globals[*slot].clone();
+            match (v, &cur) {
+                (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
+                _ => false,
             }
-            _ => false,
         });
         if changed {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCancelKeepsSavedFilters);
