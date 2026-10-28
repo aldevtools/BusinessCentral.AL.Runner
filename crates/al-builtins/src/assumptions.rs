@@ -230,7 +230,7 @@ registry! {
     PageLookupRefreshWithUnlinkedListPart => {
         id: "page-lookup-refresh-with-unlinked-list-part",
         assumed: "TestField.Lookup through a control's own OnLookup on a page whose only parts are ListParts without a SubPageLink, SubPageView or provider, whose code calls `CurrPage.Update(false)` of that page and no other CurrPage method, refreshes that page as it does on a page without parts (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al): a read of a control of the page that computes an expression the page does not keep gives its value now. The parts' own reads after it stay refused.",
-        tests: "No Microsoft test: al-runner issue 6009, the reporter's run on real BC 29.0.54011.55407 (a List with a header field bound to a global record's field and an unlinked ListPart: the field shows the picked value after the Lookup, 2/2 tests).",
+        tests: "No Microsoft test: al-runner issue 6009, the reporter's run on a real BC container (a List with a header field bound to a global record's field and an unlinked ListPart: the field shows the picked value after the Lookup, 2/2 tests).",
         probe: "The page of ScLookupGlobalRecordField.al with an unlinked ListPart: the field's value after the Lookup with CurrPage.Update(false), with CurrPage.Update(true), with no Update, with a part that has a SubPageLink, and the part's rows after it. Corpus writer ST (branch al-runtime-rs-staging-st).",
         awaiting: Awaiting {
             issues: &[6009],
