@@ -178,9 +178,14 @@ pub enum SqlForm {
         counter: SqlCounter,
         epoch: u32,
         chain: u32,
+        /// The chain this read's chain started from, after a change whose lower bound alone is pinned (0: none). A read
+        /// minus a read of that chain is at least the model's difference ([`SqlForm::AtLeast`]).
+        floor: u32,
     },
     /// The difference of two reads of one epoch, or a sum of such differences whose sign is certain.
     Delta,
+    /// A difference known to be at least the number, its exact size not pinned.
+    AtLeast,
 }
 
 /// Which counter.

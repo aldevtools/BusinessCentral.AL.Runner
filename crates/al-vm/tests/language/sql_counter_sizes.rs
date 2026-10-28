@@ -4,7 +4,7 @@
 //! Any other shape, N, table or precondition keeps only the sign of the change, or refuses.
 
 use al_builtins::native::Signal;
-use al_testkit::{run, text};
+use al_testkit::{run, run_in, run_with, text};
 
 const TABLE: &str = "table 50100 Row { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { Clustered = true; } } }";
 
@@ -169,7 +169,7 @@ fn a_table_in_another_state_is_refused() {
 #[test]
 fn an_unmeasured_shape_is_refused() {
     for body in [
-        "RoReset(5); Mark(); Row.SetRange(Id, 1, 5); Cnt := Row.Count();",
+        "RoReset(5); Mark(); Row.SetRange(Name, 'row 1'); Cnt := Row.Count();",
         "RoReset(0); Mark(); Row.Id := 1; Row.Insert(); Row.Id := 2; Row.Insert();",
         "RoReset(2); Mark(); Row.FindSet(); Row.Next();",
         "RoReset(2); Mark(); Row.Get(1); Cnt := Row.Count();",
@@ -187,4 +187,243 @@ fn an_unmeasured_shape_is_refused() {
 fn nothing_between_two_reads_is_a_change_of_zero() {
     let s = src("procedure F(): Text var X: Integer; begin Mark(); X := 1 + 2; exit(Measured()); end;");
     assert_eq!(text(run(&s, "F")), "0/0");
+}
+
+/// Session/lt-bl-sql-counters/SkSqlBudget.al (writers SK and SZ, al-runner issue 5861): a table whose Global Triggers setup
+/// enables OnDatabaseInsert (Gt), a plain table (Plain) and the reporter's table of two key fields (Line), with subscribers to
+/// the platform's Global Triggers (in the corpus: Base Application's GlobalTriggerManagement and the test's own).
+const BUFFER_SRC: &str = r#"
+table 50110 Gt { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { Clustered = true; } } }
+table 50111 Plain { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { Clustered = true; } } }
+table 50114 Line
+{
+    fields { field(1; "Group Code"; Code[20]) { } field(2; "Line No."; Integer) { } field(3; Value; Text[50]) { } field(4; Weight; Integer) { } }
+    keys { key(PK; "Group Code", "Line No.") { } }
+}
+codeunit 50112 Subs
+{
+    SingleInstance = true;
+    var InsertsSeen: Integer;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        if TableId = Database::Gt then OnDatabaseInsert := true;
+    end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure DbInsert(RecRef: RecordRef)
+    begin
+        if RecRef.Number() = Database::Gt then InsertsSeen += 1;
+    end;
+    procedure Seen(): Integer begin exit(InsertsSeen); end;
+}
+codeunit 50113 C
+{
+    var Stmts: BigInteger; Rows: BigInteger; Seq: Integer;
+    local procedure Mark() begin Stmts := SessionInformation.SqlStatementsExecuted(); Rows := SessionInformation.SqlRowsRead(); end;
+    local procedure Delta(): Text
+    begin
+        exit(Format(SessionInformation.SqlStatementsExecuted() - Stmts) + '/' + Format(SessionInformation.SqlRowsRead() - Rows));
+    end;
+    local procedure Stmt(): BigInteger begin exit(SessionInformation.SqlStatementsExecuted()); end;
+
+    // SkSqlBudget.al:SZ_FirstInsert_TriggerSetupRunsAl.
+    procedure FirstInsert(): Text
+    var Subs: Codeunit Subs; Gt: Record Gt; Plain: Record Plain; GtFirst: BigInteger; PlainFirst: BigInteger; Acc: Text;
+    begin
+        Commit();
+        Mark();
+        Gt.Id := 1; Gt.Insert();
+        GtFirst := Stmt() - Stmts;
+        Mark(); Gt.Id := 2; Gt.Insert(); Acc := 'gt second ' + Delta() + '; ';
+        Mark(); Gt.Id := 3; Gt.Insert(); Acc += 'gt third ' + Delta() + '; ';
+        Mark(); Acc += 'gt count ' + Format(Gt.Count()) + ' ' + Delta() + '; ';
+        Mark(); Plain.Id := 1; Plain.Insert();
+        PlainFirst := Stmt() - Stmts;
+        Mark(); Plain.Id := 2; Plain.Insert(); Acc += 'plain second ' + Delta() + '; ';
+        Mark(); Plain.Id := 3; Plain.Insert(); Acc += 'plain third ' + Delta() + '; ';
+        Mark(); Acc += 'plain count ' + Format(Plain.Count()) + ' ' + Delta();
+        exit(Format(PlainFirst) + ' ' + Format(GtFirst > PlainFirst) + ' ' + Format(GtFirst >= 2) + ' ' + Format(Subs.Seen()) + ' | ' + Acc);
+    end;
+
+    // The size of the first Insert into a table whose setup enables OnDatabaseInsert is not pinned, only its lower bound.
+    procedure GtFirstShown(): Text
+    var Gt: Record Gt; GtFirst: BigInteger;
+    begin
+        Commit();
+        Mark();
+        Gt.Id := 1; Gt.Insert();
+        GtFirst := Stmt() - Stmts;
+        exit(Format(GtFirst));
+    end;
+
+    procedure GtFirstAtMost(): Boolean
+    var Gt: Record Gt; GtFirst: BigInteger;
+    begin
+        Commit();
+        Mark();
+        Gt.Id := 1; Gt.Insert();
+        GtFirst := Stmt() - Stmts;
+        exit(GtFirst <= 1000);
+    end;
+
+    // SkSqlBudget.al:SZ_CopyLoop_WhileInsertsBuffered.
+    local procedure Buffered(K: Integer; N: Integer): Text
+    var Row: Record Plain; Temp: Record Plain temporary; i: Integer; Copy: Text;
+    begin
+        Row.Reset(); Row.DeleteAll(); Commit();
+        for i := 1 to N do begin Temp.Id := i; Temp.Insert(); end;
+        Mark();
+        for i := 1 to K do begin Row.Id := 1000 + i; Row.Insert(); end;
+        Copy := Delta();
+        Mark();
+        if Temp.FindSet() then repeat Row.Id := Temp.Id; Row.Insert(); until Temp.Next() = 0;
+        Copy += ' ' + Delta();
+        Mark();
+        Row.SetRange(Id, 0, 2000);
+        Copy += ' ' + Format(Row.Count()) + ' ' + Delta();
+        exit(Copy);
+    end;
+
+    procedure WarmPlain()
+    var Row: Record Plain;
+    begin
+        Mark(); Row.Id := 1; Row.Insert(); Row.DeleteAll(); Commit();
+    end;
+
+    procedure BufferedSeries(): Text
+    begin
+        WarmPlain();
+        exit(Buffered(0, 10) + ' | ' + Buffered(1, 10) + ' | ' + Buffered(5, 10) + ' | ' + Buffered(5, 1) + ' | ' + Buffered(20, 20));
+    end;
+
+    local procedure FillBuffer(var TempLine: Record Line temporary; N: Integer)
+    var i: Integer;
+    begin
+        TempLine.Reset(); TempLine.DeleteAll();
+        for i := 1 to N do begin
+            TempLine.Init(); TempLine."Group Code" := 'TEMP'; TempLine."Line No." := i; TempLine.Value := 'Value'; TempLine.Weight := i; TempLine.Insert();
+        end;
+    end;
+
+    local procedure CopyLinesOnly(GroupCode: Code[20]; var TempLine: Record Line temporary)
+    var Line: Record Line;
+    begin
+        if TempLine.FindSet() then
+            repeat Line := TempLine; Line."Group Code" := GroupCode; Line.Insert(); until TempLine.Next() = 0;
+    end;
+
+    local procedure CopyLines(GroupCode: Code[20]; var TempLine: Record Line temporary): Integer
+    var Line: Record Line;
+    begin
+        CopyLinesOnly(GroupCode, TempLine);
+        Line.SetRange("Group Code", GroupCode);
+        exit(Line.Count());
+    end;
+
+    // SkSqlBudget.al:SK_Repro_StatementBudget: the first Insert into the table in the session is inside the measurement.
+    procedure ReproBudget(): Text
+    var TempLine: Record Line temporary; Before: BigInteger; After: BigInteger; Executed: BigInteger; Copied: Integer;
+    begin
+        FillBuffer(TempLine, 10);
+        Before := SessionInformation.SqlStatementsExecuted();
+        Copied := CopyLines('BUDGET1', TempLine);
+        After := SessionInformation.SqlStatementsExecuted();
+        Executed := After - Before;
+        exit(Format(Copied) + ' ' + Format(Executed <= 1000) + ' ' + StrSubstNo('SQL statements: %1, expected <= 1000', Executed));
+    end;
+
+    local procedure MeasureCopy(N: Integer; WithCommit: Boolean): Text
+    var TempLine: Record Line temporary; Group: Code[20];
+    begin
+        FillBuffer(TempLine, N);
+        Seq += 1;
+        Group := 'SK' + Format(Seq);
+        if WithCommit then Commit();
+        Mark();
+        CopyLinesOnly(Group, TempLine);
+        exit(Delta());
+    end;
+
+    local procedure Repeat3(N: Integer; WithCommit: Boolean): Text
+    begin
+        exit(MeasureCopy(N, WithCommit) + ' ' + MeasureCopy(N, WithCommit) + ' ' + MeasureCopy(N, WithCommit));
+    end;
+
+    // SkSqlBudget.al:SK_Sizes_CopyOnly, after the table's first Insert.
+    procedure CopyOnly(WithCommit: Boolean): Text
+    var TempLine: Record Line temporary;
+    begin
+        Mark();
+        FillBuffer(TempLine, 1);
+        CopyLines('WARM', TempLine);
+        exit(Repeat3(1, WithCommit) + ', ' + Repeat3(2, WithCommit) + ', ' + Repeat3(5, WithCommit) + ', ' + Repeat3(10, WithCommit) + ', ' + Repeat3(20, WithCommit));
+    end;
+}
+"#;
+
+/// SkSqlBudget.al:405-449 (SZ_FirstInsert_TriggerSetupRunsAl): the first Insert into a table adds one statement when its
+/// Global Triggers setup enables nothing, and at least two when it enables OnDatabaseInsert; later Inserts are buffered, and
+/// a Count sends the three buffered rows one by one.
+#[test]
+fn the_first_insert_into_a_table_and_the_buffered_ones_after_it() {
+    assert_eq!(
+        text(run_in(BUFFER_SRC, "C", "FirstInsert")),
+        "1 Yes Yes 3 | gt second 0/0; gt third 0/0; gt count 3 4/1; plain second 0/0; plain third 0/0; plain count 3 4/1"
+    );
+}
+
+/// Only the lower bound of the first Insert into a table whose setup enables OnDatabaseInsert is pinned (SkSqlBudget.al:400-402).
+#[test]
+fn the_first_insert_with_a_database_trigger_has_only_a_lower_bound() {
+    refused(run_in(BUFFER_SRC, "C", "GtFirstShown"));
+    refused(run_in(BUFFER_SRC, "C", "GtFirstAtMost"));
+}
+
+/// SkSqlBudget.al:476-499 (SZ_CopyLoop_WhileInsertsBuffered): every fifth buffered Insert sends one statement, also across the
+/// copy loop; a Count sends what is left.
+#[test]
+fn a_copy_loop_while_inserts_are_buffered() {
+    assert_eq!(
+        text(run_in(BUFFER_SRC, "C", "BufferedSeries")),
+        "0/0 2/0 10 1/1 | 0/0 2/0 11 2/1 | 1/0 2/0 15 1/1 | 1/0 0/0 6 2/1 | 4/0 4/0 40 1/1"
+    );
+}
+
+/// SkSqlBudget.al:146-166 (SK_Repro_StatementBudget): the reporter's first test, with the table's first Insert in the
+/// measurement.
+#[test]
+fn the_reporters_budget_with_the_first_insert() {
+    assert_eq!(
+        text(run_in(BUFFER_SRC, "C", "ReproBudget")),
+        "10 Yes SQL statements: 4, expected <= 1000"
+    );
+}
+
+/// SkSqlBudget.al:259-279 (SK_Sizes_CopyOnly): without a Commit, Inserts left buffered by one measurement count in the next.
+#[test]
+fn copies_without_a_count_carry_the_buffer_over() {
+    assert_eq!(
+        text(
+            run_with(
+                BUFFER_SRC,
+                "C",
+                "CopyOnly",
+                vec![al_builtins::value::Value::Boolean(false)]
+            )
+            .map(|(v, _)| v)
+        ),
+        "0/0 0/0 0/0, 1/0 0/0 0/0, 1/0 1/0 1/0, 2/0 2/0 2/0, 4/0 4/0 4/0"
+    );
+    assert_eq!(
+        text(
+            run_with(
+                BUFFER_SRC,
+                "C",
+                "CopyOnly",
+                vec![al_builtins::value::Value::Boolean(true)]
+            )
+            .map(|(v, _)| v)
+        ),
+        "0/0 0/0 0/0, 0/0 0/0 0/0, 1/0 1/0 1/0, 2/0 2/0 2/0, 4/0 4/0 4/0"
+    );
 }

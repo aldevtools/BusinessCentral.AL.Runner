@@ -60,6 +60,15 @@ fn names(list: &[&str]) -> Vec<String> {
 }
 
 impl Session {
+    /// Raises a `Global Triggers` event. While the SQL counters log record methods, its AL code is not logged: it is part
+    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`).
+    fn raise_global(&mut self, call: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
+        let m = self.sql.mute_begin(self.calls_made);
+        let r = self.raise(call, args);
+        self.sql.mute_end(m, self.calls_made);
+        r
+    }
+
     /// The setup of table `t`, asking the subscribers the first time (BC caches it per session).
     pub(crate) fn global_setup(&mut self, t: &TableDef) -> Result<GlobalSetup, Signal> {
         let table = t.object as usize;
@@ -82,7 +91,7 @@ impl Session {
                 names: &n,
                 sender: None,
             };
-            if let Err(e) = self.raise(&call, &mut args) {
+            if let Err(e) = self.raise_global(&call, &mut args) {
                 self.events.global_setups.remove(&table);
                 return Err(e);
             }
@@ -125,7 +134,7 @@ impl Session {
                 names: &n,
                 sender: None,
             };
-            if let Err(e) = self.raise(&call, &mut args) {
+            if let Err(e) = self.raise_global(&call, &mut args) {
                 self.events.global_setups.remove(&table);
                 return Err(e);
             }
@@ -233,7 +242,7 @@ impl Session {
                 names: &n,
                 sender: None,
             };
-            self.raise(&call, &mut args)?;
+            self.raise_global(&call, &mut args)?;
         }
         Ok(())
     }

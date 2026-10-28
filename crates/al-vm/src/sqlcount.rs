@@ -20,6 +20,10 @@
 //! the difference of two reads of one chain is a plain number; a segment classified only by its sign starts a new chain.
 //! Logging starts with the session's first read: what ran before it is not known, so a context that reaches back past it is
 //! not classified.
+//!
+//! Database Inserts are buffered, and each record method is also given its cost under the buffer rule that
+//! session/lt-bl-sql-counters/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
+//! sized by their sum, whatever came before it, as long as the buffer was known throughout.
 
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{SqlCount, SqlCounter, SqlForm, Value};
@@ -43,6 +47,34 @@ struct Event {
     rows_before: Option<usize>,
     /// The record and its table are of the shape SkSqlBudget.al:14-29 measured ([`CopyShape`]).
     copy: CopyShape,
+    /// What the method cost under the buffer rule ([`SqlCounters::cost`]).
+    cost: Cost,
+}
+
+/// The cost of one record method under the buffer rule (SkSqlBudget.al).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Cost {
+    /// (statements, rows read).
+    Exact(i64, i64),
+    /// The statements; the rows read are not pinned.
+    Statements(i64),
+    /// At least this many statements; the rows read are not pinned.
+    StatementsAtLeast(i64),
+    #[default]
+    Unknown,
+}
+
+/// What the VM knows about a record method beyond the method itself (`Session::record_op_counted`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct OpInfo {
+    /// The record and its table are of a shape whose buffered Inserts the corpus measured
+    /// (`Session::sql_buffer_shape`).
+    pub(crate) buffer_shape: bool,
+    /// The method asked the table's Global Triggers setup (the session's first write to the table), with whether the setup
+    /// enabled OnDatabaseInsert and whether it enabled anything else; `None` when it did not ask.
+    pub(crate) first_write: Option<(bool, bool)>,
+    /// The AL code that called the method is in a dependency app (Microsoft's), not the app under test.
+    pub(crate) dependency_code: bool,
 }
 
 /// Whether a record of a database table is of the shape whose copy sizes SkSqlBudget.al measured: a table of the fields
@@ -62,8 +94,8 @@ pub(crate) enum CopyShape {
 enum Buffer {
     /// None: a Commit, a transaction with no database Insert, or a Count of the only table inserted into since.
     Empty,
-    /// Inserts into this table only, since the buffer was last known empty.
-    Pending(u32),
+    /// Inserts into this table only, since the buffer was last known empty, with how many of them are not sent yet.
+    Pending(u32, u32),
     #[default]
     Unknown,
 }
@@ -116,6 +148,8 @@ struct Cursor {
     chain: u32,
     /// No database Insert was buffered at the read ([`Buffer::Empty`]).
     flushed: bool,
+    /// The chain this one started from across a change whose lower bound alone is pinned (0: none).
+    floor: u32,
 }
 
 /// The session's counter state.
@@ -145,12 +179,31 @@ pub(crate) struct SqlCounters {
     /// The store operations outside logged record methods when `buffer` was last brought up to date: more since then may
     /// have inserted rows.
     buffer_outside: u64,
+    /// Global Triggers events running ([`SqlCounters::mute_begin`]): their AL code is not logged.
+    mute: u32,
+    /// AL calls made inside Global Triggers events, all told.
+    muted_calls: u64,
+    /// Global Triggers events whose AL code wrote, read in the app under test, or touched the store outside a record
+    /// method, all told.
+    muted_dirty: u64,
+    /// Store operations of the outermost record methods run by the AL code of Global Triggers events, all told.
+    muted_rec_ops: u64,
+    /// Record methods of Global Triggers events that make the event dirty, all told.
+    muted_bad: u64,
+    /// Record methods running when the outermost muted event started.
+    mute_open: u32,
+    /// Database tables an Insert into was logged for: a later Insert into one is not the session's first write to it.
+    inserted: std::collections::HashSet<u32>,
+    /// Database tables written by a logged record method since the last logged read of them.
+    written_since_read: std::collections::HashSet<u32>,
 }
 
 /// What ran between two reads of a counter.
 enum Change {
     /// A pinned size.
     Exact(i64),
+    /// At least this size; nothing else is pinned.
+    AtLeast(i64),
     /// Only the sign is pinned: increased or not.
     Sign(bool),
 }
@@ -160,7 +213,27 @@ pub(crate) struct Entry {
     ops: u64,
     calls: u64,
     outer: bool,
+    muted_calls: u64,
+    muted_dirty: u64,
 }
+
+/// What [`SqlCounters::mute_begin`] noted.
+pub(crate) struct Muted {
+    ops: u64,
+    calls: u64,
+    rec_ops: u64,
+    bad: u64,
+}
+
+/// Database Inserts a segment may hold and still be sized by the buffer rule: the most one measurement of SkSqlBudget.al
+/// made (:284, :497).
+const BUFFER_RULE_MAX_INSERTS: usize = 20;
+/// A buffered Insert sends the buffer when it holds this many rows: one statement for the five (SkSqlBudget.al:264-276,
+/// :494-497; SqlCounters.al:323-332).
+const BATCH: u32 = 5;
+/// A Count sends the rows still buffered one statement each, for up to this many (SkSqlBudget.al:449 three rows,
+/// :495 two, :496 one), then counts with one statement that reads one row.
+const COUNT_SENDS_MAX: u32 = 3;
 
 /// The most events the log holds. Past it the log is dropped (`SqlCounters::reset`): a test that reads a counter once and
 /// then runs many record methods does not keep them all.
@@ -185,6 +258,42 @@ impl SqlCounters {
             ops: al_data::memory::store_ops(),
             calls,
             outer,
+            muted_calls: self.muted_calls,
+            muted_dirty: self.muted_dirty,
+        }
+    }
+
+    /// A Global Triggers event starts (its setup or a database event, raised inside a record method). Its AL code is not
+    /// logged: what it does is part of the record method's cost. The buffer rule pins that cost for the code
+    /// SkSqlBudget.al:396-449 ran: Base Application's GlobalTriggerManagement, which reads setup tables, and the test's
+    /// subscribers, which read only the RecordRef. So the event stays clean only while its code reads records in
+    /// dependency apps alone and touches the store no other way.
+    pub(crate) fn mute_begin(&mut self, calls: u64) -> Option<Muted> {
+        if !self.active {
+            return None;
+        }
+        if self.mute == 0 {
+            self.mute_open = self.open;
+        }
+        self.mute += 1;
+        Some(Muted {
+            ops: al_data::memory::store_ops(),
+            calls,
+            rec_ops: self.muted_rec_ops,
+            bad: self.muted_bad,
+        })
+    }
+
+    /// The event of [`SqlCounters::mute_begin`] ended.
+    pub(crate) fn mute_end(&mut self, m: Option<Muted>, calls: u64) {
+        let Some(m) = m else { return };
+        self.mute -= 1;
+        if self.mute == 0 {
+            self.muted_calls += calls - m.calls;
+            let ops = al_data::memory::store_ops() - m.ops;
+            if ops != self.muted_rec_ops - m.rec_ops || self.muted_bad != m.bad {
+                self.muted_dirty += 1;
+            }
         }
     }
 
@@ -202,29 +311,40 @@ impl SqlCounters {
         rows_before: Option<usize>,
         copy: CopyShape,
         result: &Result<Value, al_builtins::native::Signal>,
+        info: OpInfo,
     ) {
         self.open -= 1;
         if e.outer {
             self.inside += al_data::memory::store_ops() - e.ops;
+        }
+        if self.mute > 0 {
+            // AL code of a Global Triggers event ([`SqlCounters::mute_begin`]).
+            let writes = m.writes()
+                || matches!(
+                    m,
+                    RecordOp::LockTable
+                        | RecordOp::AddLink
+                        | RecordOp::DeleteLink
+                        | RecordOp::DeleteLinks
+                        | RecordOp::CopyLinks
+                );
+            if !temp && (writes || !info.dependency_code) {
+                self.muted_bad += 1;
+            }
+            if self.open == self.mute_open {
+                self.muted_rec_ops += al_data::memory::store_ops() - e.ops;
+            }
+            return;
         }
         let kind = kind(m);
         let ok = ok_of(kind, result);
         let trigger = matches!(kind, Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll)
             && !matches!(args.first(), None | Some(Value::Boolean(false)));
         let nested = !e.outer || calls != e.calls;
-        if !temp {
-            self.buffer = match (self.buffer, kind) {
-                _ if nested || trigger || !ok_of(kind, result) => Buffer::Unknown,
-                (Buffer::Empty, Kind::Insert) => Buffer::Pending(table),
-                (Buffer::Pending(t), Kind::Insert) if t == table => Buffer::Pending(t),
-                // A Count sends the table's buffered inserts (SkSqlBudget.al:8-10).
-                (Buffer::Pending(t), Kind::Count) if t == table => Buffer::Empty,
-                // Methods that neither read nor write the table.
-                (b, Kind::SetRange | Kind::Init) => b,
-                (Buffer::Empty, Kind::Get | Kind::FindSet | Kind::Next | Kind::Count) => Buffer::Empty,
-                _ => Buffer::Unknown,
-            };
-        }
+        // AL code ran inside only in Global Triggers events, and it touched no store.
+        let global_only =
+            e.outer && self.muted_dirty == e.muted_dirty && calls - e.calls == self.muted_calls - e.muted_calls;
+        let cost = self.cost(kind, temp, table, ok, trigger, nested && !global_only, result, info);
         self.log.push(Event {
             kind,
             temp,
@@ -235,10 +355,146 @@ impl SqlCounters {
             key,
             rows_before,
             copy,
+            cost,
         });
         if self.log.len() > LOG_CAP {
             self.reset();
         }
+    }
+
+    /// The cost of a record method under the buffer rule, and what it does to the buffer.
+    ///
+    /// - On a temporary record, Get, FindSet, Next, Count, Insert, Modify, Delete, Init and SetRange cost nothing
+    ///   (SqlCounters.al:161-201; the FindSet loops of SkSqlBudget.al:36-55, :467-471).
+    /// - SetRange and Init cost nothing (SkSqlBudget.al:44, :474; SqlCounters.al:236).
+    /// - An Insert is buffered; the one that fills the buffer to [`BATCH`] rows sends it with one statement
+    ///   (SkSqlBudget.al:264-276, :494-497). The session's first write to a table, an Insert that asks the table's Global
+    ///   Triggers setup, costs one statement more when the setup enables nothing (SkSqlBudget.al:446 "plain first") and at
+    ///   least two more when it enables OnDatabaseInsert alone (:447-448); later Inserts cost the same with OnDatabaseInsert
+    ///   enabled (:449 "gt second 0/0").
+    /// - A Count of the table with rows, after a write to it, sends the rows still buffered one statement each, then counts
+    ///   with one statement that reads one row (SkSqlBudget.al:449, :493-497; SqlCounters.al:327-332, :388-392).
+    ///
+    /// Everything else (another table or record shape, a RunTrigger write, AL code that touched the store, a second table
+    /// with rows buffered, more buffered rows than measured) has no cost here, and leaves the buffer unknown when it may
+    /// have changed it.
+    #[allow(clippy::too_many_arguments)]
+    fn cost(
+        &mut self,
+        kind: Kind,
+        temp: bool,
+        table: u32,
+        ok: bool,
+        trigger: bool,
+        nested: bool,
+        result: &Result<Value, al_builtins::native::Signal>,
+        info: OpInfo,
+    ) -> Cost {
+        if temp {
+            let free = matches!(
+                kind,
+                Kind::Get
+                    | Kind::FindSet
+                    | Kind::Next
+                    | Kind::Count
+                    | Kind::Insert
+                    | Kind::Modify
+                    | Kind::Delete
+                    | Kind::Init
+                    | Kind::SetRange
+            );
+            return if free && !nested && !trigger && (ok || kind == Kind::Next) {
+                Cost::Exact(0, 0)
+            } else {
+                Cost::Unknown
+            };
+        }
+        let written = self.written_since_read.contains(&table);
+        match kind {
+            Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll if ok => {
+                self.written_since_read.insert(table);
+            }
+            Kind::SetRange | Kind::Init => {}
+            _ => {
+                self.written_since_read.remove(&table);
+            }
+        }
+        let before = self.buffer;
+        self.buffer = match (before, kind) {
+            _ if nested || trigger || !ok => Buffer::Unknown,
+            (Buffer::Empty, Kind::Insert) => Buffer::Pending(table, 1),
+            (Buffer::Pending(t, n), Kind::Insert) if t == table => Buffer::Pending(t, (n + 1) % BATCH),
+            // A Count sends the table's buffered inserts (SkSqlBudget.al:8-10).
+            (Buffer::Pending(t, _), Kind::Count) if t == table => Buffer::Empty,
+            // Methods that neither read nor write the table.
+            (b, Kind::SetRange | Kind::Init) => b,
+            (Buffer::Empty, Kind::Get | Kind::FindSet | Kind::Next | Kind::Count) => Buffer::Empty,
+            _ => Buffer::Unknown,
+        };
+        if nested || trigger || !ok {
+            return Cost::Unknown;
+        }
+        let pending = match before {
+            Buffer::Empty => Some(0),
+            Buffer::Pending(t, n) if t == table => Some(n),
+            _ => None,
+        };
+        match kind {
+            Kind::SetRange | Kind::Init => Cost::Exact(0, 0),
+            Kind::Insert => {
+                let first = !self.inserted.contains(&table);
+                self.inserted.insert(table);
+                let (Some(n), true) = (pending, info.buffer_shape) else {
+                    return Cost::Unknown;
+                };
+                let sent = i64::from(n + 1 == BATCH);
+                match (first, info.first_write) {
+                    (false, None) => Cost::Exact(sent, 0),
+                    (true, Some((false, false))) => Cost::Statements(sent + 1),
+                    (true, Some((true, false))) => Cost::StatementsAtLeast(sent + 2),
+                    // A write before it asked the setup, a setup this Insert did not ask (no subscribers), or a setup that
+                    // enables other database triggers: not measured.
+                    _ => Cost::Unknown,
+                }
+            }
+            // Only a Count after a write to the table: a Count after a Get and a FindSet of it, with no write between,
+            // changed neither counter (SqlCounters.al:139-140, :154).
+            Kind::Count => {
+                let rows = matches!(result, Ok(Value::Integer(n)) if *n > 0);
+                match pending {
+                    Some(n) if n <= COUNT_SENDS_MAX && rows && written && info.buffer_shape => {
+                        Cost::Exact(i64::from(n) + 1, 1)
+                    }
+                    _ => Cost::Unknown,
+                }
+            }
+            _ => Cost::Unknown,
+        }
+    }
+
+    /// The size of the segment `from..to` under the buffer rule, where every method in it has a cost.
+    fn buffer_rule(&self, counter: SqlCounter, from: usize, to: usize) -> Option<Change> {
+        let seg = self.events(from, to);
+        if seg.iter().filter(|e| !e.temp && e.kind == Kind::Insert).count() > BUFFER_RULE_MAX_INSERTS {
+            return None;
+        }
+        let (mut sum, mut bound) = (0, false);
+        for e in seg {
+            sum += match (e.cost, counter) {
+                (Cost::Exact(s, _), SqlCounter::Statements) | (Cost::Statements(s), SqlCounter::Statements) => s,
+                (Cost::Exact(_, r), SqlCounter::RowsRead) => r,
+                (Cost::StatementsAtLeast(s), SqlCounter::Statements) => {
+                    bound = true;
+                    s
+                }
+                _ => return None,
+            };
+        }
+        Some(if bound {
+            Change::AtLeast(sum)
+        } else {
+            Change::Exact(sum)
+        })
     }
 
     /// Forgets the log: reads before this no longer compare with reads after it.
@@ -326,6 +582,8 @@ impl SqlCounters {
         } else if cur.at == now {
             // Nothing between the reads (SqlCounters.al:105-119).
             Some(Change::Exact(0))
+        } else if let Some(change) = self.buffer_rule(counter, cur.at, now) {
+            Some(change)
         } else if let Some(size) = cur.clean.then(|| sized(self.events(cur.at, now))).flatten() {
             Some(Change::Exact(pick(counter, size)))
         } else if let Some(size) = cur.flushed.then(|| sized_copy(self.events(cur.at, now))).flatten() {
@@ -347,13 +605,20 @@ impl SqlCounters {
         };
         match change {
             Some(Change::Exact(size)) => cur.n += size,
+            Some(Change::AtLeast(size)) => {
+                cur.n += size;
+                cur.floor = cur.chain;
+                cur.chain = fresh;
+            }
             Some(Change::Sign(up)) => {
                 cur.n += i64::from(up);
                 cur.chain = fresh;
+                cur.floor = 0;
             }
             None => {
                 cur.epoch += 1;
                 cur.chain = fresh;
+                cur.floor = 0;
             }
         }
         cur.clean = clean;
@@ -369,6 +634,7 @@ impl SqlCounters {
                 counter,
                 epoch: cur.epoch,
                 chain: cur.chain,
+                floor: cur.floor,
             },
         });
         self.trim();
@@ -668,6 +934,7 @@ mod tests {
                 None,
                 CopyShape::No,
                 &Ok(Value::Boolean(true)),
+                OpInfo::default(),
             );
         }
         assert!(c.log.len() <= LOG_CAP);
