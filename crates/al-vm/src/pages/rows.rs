@@ -982,7 +982,19 @@ impl Session {
                 "a refill of the rows of a list in a key other than the primary key (its reads are not pinned)",
             );
         }
-        if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
+        // A refill from the first row (a TestPage filter change) after such an open reads the same: the window, then the first row
+        // three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
+        // `4:R4;R2;R3;R4;R4;R4;C4;` against :409 Id_Filter_Refill `2:R2;R3;R4;R2;R2;C2;`; SyKeyMoves.al:209 Name_FilterMoves).
+        let refill_in_key = opening && !st.borrow().open_read && self.still_reads_once_more(st);
+        if refill_in_key {
+            // Pinned for views that end inside the window.
+            if !end_reached || st.borrow().window.len() < 2 {
+                return unsupported(
+                    "a refill of a list in a key other than the primary key with one row or more rows than a window holds (not pinned)",
+                );
+            }
+            self.page_trigger(st, "onaftergetrecord", vec![])?;
+        } else if opening && st.borrow().open_read && self.reads_once_more_in_its_key(st) {
             // The rows above a row OnOpenPage left Rec on count (QrMovedTests.al QS_KeyAsc_List_FindLast, Rec on the last row:
             // `O:A;R:A;R:A;R:B;R:C;R:D;R:A;R:A;R:A;C:A;`).
             let pinned = end_reached && st.borrow().window.len() >= 2;
@@ -1868,6 +1880,22 @@ impl Session {
             && !find_page
             && !self.declares(st, "onnextrecord")
             && self.declares(st, "onaftergetcurrrecord")
+        {
+            return Ok(Some(true));
+        }
+        // Last on such a list in its primary key whose cursor stands on the last row of a view that ends inside the window reads
+        // nothing either (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
+        // miss left the cursor on row 4). In another key it is not pinned and reads the row as before.
+        if how == PageMethod::Last
+            && at + 1 == window.len()
+            && window.len() < Self::WINDOW
+            && st.borrow().host.is_none()
+            && !st.borrow().new_line
+            && !find_page
+            && !self.declares(st, "onnextrecord")
+            && self.declares(st, "onaftergetcurrrecord")
+            && self.declares(st, "onaftergetrecord")
+            && rec.borrow().key == 0
         {
             return Ok(Some(true));
         }
@@ -2785,13 +2813,18 @@ impl Session {
     }
 
     /// GoToRecord after an OnDrillDown marked rows, turned MarkedOnly on, left Rec on the last of them and called
-    /// `CurrPage.Update(false)` on a list in a key other than the primary key (`drilldown_marked_only_refresh`). The client first
-    /// refills its rows around the row Rec was left on: that row twice, the rows above it from the nearest up, that row three
-    /// times and OnAfterGetCurrRecord; GoToRecord of that row then answers true on it. Pinned with three marked rows and Rec on
-    /// the last (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, `goto 3`
-    /// `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`; al-runner issue 6008). Another number of marked rows, Rec on another row and a
-    /// GoToRecord of another row are refused: the reporter's GoToRecord of the first of two marked rows gave `No/1` on its
-    /// Windows run and `Yes/3` on a SaaS sandbox, and no corpus test pins it.
+    /// `CurrPage.Update(false)` (`drilldown_marked_only_refresh`). The client first refills its rows around the row Rec was left on,
+    /// as the refresh after an action reads them from Rec's row (`read_list_again_from_row_as`): in a key other than the primary
+    /// key that row once more, then the row, the rows above it from the nearest up, and the row read as a move onto it (three times
+    /// in such a key, twice in the primary key) with OnAfterGetCurrRecord. Then:
+    /// - a GoToRecord of Rec's row answers true on it (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269
+    ///   Name_DrillDown_GoToRecord `goto 3` `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`, in the key ByName);
+    /// - a GoToRecord of another row walks the marked rows from the first, finds none and answers false, on the row the walk
+    ///   ended on (SuRefillKey.al:379 Id_DrillDown_GoToRecord `goto 3` `No/5:R5;R3;R2;R5;R5;C5;R2;R2;C2;R3;R3;C3;R5;R5;C5;`, in
+    ///   the primary key; al-runner issue 6008).
+    ///
+    /// Each answer is pinned in one key only: the other key's, Rec on a row with marked rows after it and more marked rows than
+    /// a window holds are refused.
     fn go_to_record_after_marked_refill(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
         let Some(left) = st.borrow_mut().marked_refill_in_key.take() else {
             return unsupported("GoToRecord after a marking OnDrillDown without the rows it left (not pinned)");
@@ -2799,16 +2832,21 @@ impl Session {
         self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, st));
         let refuse = |what: &str| -> Result<Value, Signal> {
             unsupported(format!(
-                "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list in a key other \
-                 than the primary key, {what} (not pinned)"
+                "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list, {what} (not pinned)"
             ))
         };
+        let in_key = self.still_reads_once_more(st);
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
         rec.borrow_mut().fields = left;
         let left_key = self.row_key(&rec)?;
-        if !Self::same_key(want, &left_key) {
-            return refuse("of a row other than the row Rec was left on");
+        let of_recs_row = Self::same_key(want, &left_key);
+        if of_recs_row != in_key {
+            return refuse(if in_key {
+                "in a key other than the primary key, of a row other than the row Rec was left on"
+            } else {
+                "in the primary key, of the row Rec was left on"
+            });
         }
         if !self.nav_find(st, "=")? {
             return refuse("with Rec left outside the marked rows");
@@ -2822,15 +2860,12 @@ impl Session {
         let mut above = Vec::new();
         while self.nav_next(st, -1)? {
             above.push((self.row_key(&rec)?, rec.borrow().fields.clone()));
-            if above.len() > 2 {
-                break;
+            if above.len() >= Self::WINDOW {
+                return refuse("with more marked rows than a window holds");
             }
         }
-        if above.len() != 2 {
-            return refuse("with a number of marked rows other than three");
-        }
-        rec.borrow_mut().fields = stored.clone();
-        for _ in 0..2 {
+        let reads = if in_key { 2 } else { 1 };
+        for _ in 0..reads {
             rec.borrow_mut().fields = stored.clone();
             self.populate_current(st)?;
         }
@@ -2853,7 +2888,7 @@ impl Session {
             return refuse("with the row Rec was left on gone");
         }
         let stored = rec.borrow().fields.clone();
-        for _ in 0..3 {
+        for _ in 0..reads + 1 {
             rec.borrow_mut().fields = stored.clone();
             self.populate_current(st)?;
         }
@@ -2877,7 +2912,17 @@ impl Session {
         self.set_xrec_fields(st, stored);
         let r = self.current_record_trigger(st, before);
         self.torn_down_on_error(st, r)?;
-        Ok(Value::Boolean(true))
+        if of_recs_row {
+            return Ok(Value::Boolean(true));
+        }
+        // The walk over the marked rows from the first one, a move onto each (SuRefillKey.al:379 `goto 3`: `R2;R2;C2;R3;R3;C3;
+        // R5;R5;C5;` after the refill); it ends on Rec's row, the last, so there is no move back.
+        let last = st.borrow().window.len() - 1;
+        for idx in 0..=last {
+            let r = self.arrive_held(st, idx);
+            self.torn_down_on_error(st, r)?;
+        }
+        Ok(Value::Boolean(false))
     }
 
     /// `FindFirstField` / `FindNextField` / `FindPreviousField`: walks the rows of the view from the
