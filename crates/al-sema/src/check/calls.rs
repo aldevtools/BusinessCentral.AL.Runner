@@ -617,6 +617,17 @@ impl<'a> Checker<'a> {
         if !globals.is_empty() {
             return Some(E::Callable(globals));
         }
+        // A bare `Update()`, `Close()`, `SetSelectionFilter(Rec)` ... in a page or page extension is `CurrPage.<method>`,
+        // as alc compiles it (al-runner issue 6021). Only names nothing above resolved get here: a procedure of the
+        // page (or of the extended page) with the same name, any arity, keeps its old resolution.
+        if matches!(self.ws.objects[sc.oi].kind, ObjKind::Page | ObjKind::PageExtension)
+            && let Some(page @ Ty::Object(ObjKind::Page, _)) = sc.globals.get("currpage").cloned()
+        {
+            let c = self.catalog_cands("Page", &n, true, &page);
+            if !c.is_empty() {
+                return Some(E::Callable(c));
+            }
+        }
         let keyword = match key.as_str() {
             "database" | "table" => Some(E::ObjKeyword(ObjKind::Table)),
             "codeunit" => Some(E::ObjKeyword(ObjKind::Codeunit)),
