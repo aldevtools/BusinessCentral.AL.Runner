@@ -54,8 +54,9 @@ on the main machine or as a remote worker (`docs/agents/remote-worker.md`).
 - **A runtime fix for a user issue from a repro** (FAST FLOW: the corpus pin is not on `master` yet)
   registers its assumption with `awaiting: Awaiting { issues: &[N], files: &["tests/al-language/<area>/<file>.al"],
   since: "YYYY-MM-DD" }`: the al-runner issue and the corpus file(s) the writer is adding. A test fails when an
-  entry names an al-runner issue without it. The commit and PR say `Refs #N`, never `Fixes #N`: the issue
-  closes when the pin lands. Once every awaited file is in the pinned corpus, `al-test-cli --root .
+  entry names an al-runner issue without it. When the fix implements what the reporter asked, the PR
+  says `Fixes #N` even though its passes are flagged (owner, 2026-10-28: close implemented issues, they can be
+  reopened); `Refs #N` only while cases of the issue are still refused. Once every awaited file is in the pinned corpus, `al-test-cli --root .
   --awaiting-assumptions` (run by `cargo test`, `check.sh` and `tools/corpus_bump.sh`) fails until the entry is
   removed and the pin cited, or the code is fixed where the pin disagrees. `--awaiting-assumptions --summary`
   prints one status line, the oldest entry first.
