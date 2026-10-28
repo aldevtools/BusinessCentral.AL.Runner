@@ -229,3 +229,169 @@ codeunit 50301 T { Subtype = Test;
     end; }";
     all_pass(run_with_deps(&[base], ext));
 }
+
+/// Compiles like `run_with_deps` and returns the AL codes of the must-not-compile checks (`alcodes`) with the outcomes
+/// (none when there is a code: alc does not compile the app).
+fn codes_and_outcomes(apps: &[&str], objects: &str) -> (Vec<&'static str>, Vec<(String, Outcome)>) {
+    let mut sources = Vec::new();
+    let mut kinds = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for (i, src) in apps.iter().chain([&objects]).enumerate() {
+        let id = format!("app{i}");
+        sources.push(AppSource {
+            id: id.clone(),
+            name: id.clone(),
+            dependencies: ids.clone(),
+            files: vec![(format!("{id}.al"), src.to_string())],
+        });
+        kinds.push(if i < apps.len() {
+            AppKind::Dependency
+        } else {
+            AppKind::Workspace
+        });
+        ids.push(id);
+    }
+    let (ws, l) = al_sema::lower::compile_apps(sources, kinds, &Default::default());
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let codes: Vec<&'static str> = al_sema::alcodes::check_workspace(&ws).iter().map(|d| d.code).collect();
+    if !codes.is_empty() {
+        return (codes, Vec::new());
+    }
+    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let engine = Engine::new(l.program.clone(), blocked);
+    (codes, run_codeunit(&engine, &l, oi))
+}
+
+const TWIN_TABLE: &str = "table 50200 \"Repro Rec\" { fields { field(1; \"No.\"; Code[10]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+codeunit 50202 \"Repro Log\" { SingleInstance = true; var L: Text;
+    procedure Add(T: Text) begin L += T + ';'; end; procedure Take(): Text begin exit(L); end; }";
+
+/// A page (and a report) with procedure `ActivateFields` of access `base`, and the code that calls it from the base.
+fn twin_base(base: &str) -> String {
+    format!(
+        "{TWIN_TABLE}
+page 50201 \"Repro Card\" {{ PageType = Card; SourceTable = \"Repro Rec\";
+    {base} procedure ActivateFields() var Log: Codeunit \"Repro Log\"; begin Log.Add('base'); end;
+    procedure FromBase() begin ActivateFields(); end; }}
+report 50203 \"Repro Rep\" {{ ProcessingOnly = true; dataset {{ dataitem(R; \"Repro Rec\") {{ }} }}
+    {base} procedure ActivateFields() begin end; }}"
+    )
+}
+
+/// Issue 6043 (the part PR 6052 left): a page extension procedure with the name and parameter types of a procedure of
+/// the page it extends. alc, every access pair (`public` is no keyword), page and report extension:
+/// - another app, both public or protected: the page extension compiles with warning AL0523; the report extension is
+///   error AL0440;
+/// - another app, `internal` on either side: both compile;
+/// - the same app, both public or protected: AL0440, page and report;
+/// - the same app, `internal` on either side: the declarations compile, a bare call in the extension is AL0196.
+///
+/// No corpus test pins which body a call runs in the shapes that compile, so every call of the name refuses: a bare
+/// call in the base and in the extension, and a call on a page variable from outside.
+#[test]
+fn issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_does_and_its_calls_refuse() {
+    let refused = |r: &[(String, Outcome)], name: &str| {
+        let o = &r
+            .iter()
+            .find(|(n, _)| n.ends_with(name))
+            .unwrap_or_else(|| panic!("{name}: {r:?}"))
+            .1;
+        assert!(
+            matches!(o, Outcome::NotRun(why) if why.contains("ActivateFields") && why.contains("not pinned")),
+            "{name}: {o:?}"
+        );
+    };
+    let passes = |r: &[(String, Outcome)], name: &str| {
+        let o = &r
+            .iter()
+            .find(|(n, _)| n.ends_with(name))
+            .unwrap_or_else(|| panic!("{name}: {r:?}"))
+            .1;
+        assert_eq!(o, &Outcome::Pass, "{name}");
+    };
+    // Another app.
+    for (ext, base, outside) in [
+        ("", "", true),
+        ("", "protected", true),
+        ("protected", "", true),
+        ("protected", "protected", false),
+        ("", "internal", true),
+        ("protected", "internal", false),
+        ("internal", "", true),
+        ("internal", "protected", true),
+        ("internal", "internal", true),
+    ] {
+        let both_visible = !ext.contains("internal") && !base.contains("internal");
+        let page_ext = format!(
+            "pageextension 50300 \"Repro Card Ext\" extends \"Repro Card\" {{
+    {ext} procedure ActivateFields() var Log: Codeunit \"Repro Log\"; begin Log.Add('ext'); end;
+    procedure FromExt() begin ActivateFields(); end; }}"
+        );
+        let outside_test = if outside {
+            "[Test] procedure Outside() var P: Page \"Repro Card\"; begin P.ActivateFields(); end;"
+        } else {
+            ""
+        };
+        let tests = format!(
+            "codeunit 50301 T {{ Subtype = Test;
+    [Test] procedure Base() var P: Page \"Repro Card\"; begin P.FromBase(); end;
+    [Test] procedure Ext() var P: Page \"Repro Card\"; begin P.FromExt(); end;
+    {outside_test}
+    [Test] procedure Other() begin end; }}"
+        );
+        let label = format!("another app, ext `{ext}`, base `{base}`");
+        let (codes, r) = codes_and_outcomes(&[&twin_base(base)], &format!("{page_ext}\n{tests}"));
+        assert!(codes.is_empty(), "{label}: {codes:?}");
+        refused(&r, "Base");
+        refused(&r, "Ext");
+        if outside {
+            refused(&r, "Outside");
+        }
+        passes(&r, "Other");
+        // The report extension of another app: AL0440 where both are visible, else it compiles.
+        let rep_ext = format!(
+            "reportextension 50302 \"Repro Rep Ext\" extends \"Repro Rep\" {{ {ext} procedure ActivateFields() begin end; }}"
+        );
+        let (codes, _) = codes_and_outcomes(&[&twin_base(base)], &format!("{rep_ext}\n{tests}"));
+        let want: Vec<&str> = if both_visible { vec!["AL0440"] } else { vec![] };
+        assert_eq!(codes, want, "report, {label}");
+    }
+    // The same app.
+    for (ext, base) in [
+        ("", ""),
+        ("", "protected"),
+        ("protected", ""),
+        ("protected", "protected"),
+        ("", "internal"),
+        ("protected", "internal"),
+        ("internal", ""),
+        ("internal", "protected"),
+        ("internal", "internal"),
+    ] {
+        let both_visible = !ext.contains("internal") && !base.contains("internal");
+        let src = format!(
+            "{}
+pageextension 50300 \"Repro Card Ext\" extends \"Repro Card\" {{
+    {ext} procedure ActivateFields() var Log: Codeunit \"Repro Log\"; begin Log.Add('ext'); end; }}
+reportextension 50302 \"Repro Rep Ext\" extends \"Repro Rep\" {{ {ext} procedure ActivateFields() begin end; }}
+codeunit 50301 T {{ Subtype = Test;
+    [Test] procedure Base() var P: Page \"Repro Card\"; begin P.FromBase(); end;
+    [Test] procedure Other() begin end; }}",
+            twin_base(base)
+        );
+        let label = format!("same app, ext `{ext}`, base `{base}`");
+        let (codes, r) = codes_and_outcomes(&[], &src);
+        if both_visible {
+            assert_eq!(codes, vec!["AL0440", "AL0440"], "{label}");
+        } else {
+            assert!(codes.is_empty(), "{label}: {codes:?}");
+            refused(&r, "Base");
+            passes(&r, "Other");
+        }
+    }
+}
