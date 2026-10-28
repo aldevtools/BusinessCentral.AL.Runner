@@ -2228,7 +2228,10 @@ impl Session {
             found = at_key(self, idx) == Some(true);
             idx += 1;
         }
-        if !found {
+        // A miss whose walk ended on the row the list stood on stays there without another move (pages/
+        // lt-qr-onopenpage-moves-rec/SuRefillKey.al Id_Filter_Refill `goto 1 outside` `No/4:R2;R2;C2;R3;R3;C3;R4;R4;C4;`).
+        let last = st.borrow().window.len() - 1;
+        if !found && origin != last {
             let r = self.arrive_held(st, origin);
             self.torn_down_on_error(st, r)?;
         }

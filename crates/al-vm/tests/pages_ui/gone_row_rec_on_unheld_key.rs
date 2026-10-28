@@ -1,7 +1,7 @@
 //! A Worksheet without the new-row line, filtered in filter group 2 on a key field, whose action deletes every line and leaves
 //! Rec on a primary key no row has (page 5510 "Production Journal" Post): the list stands on the blank Rec, which takes the
 //! filter value, as when Rec keeps the deleted row's key (al-runner issue 6027, the reporter's repro green on real BC
-//! `N:B1;C:0:B1;`; registered assumption `gone-row-rec-on-unheld-key`). Without CurrPage.Update(false) it is refused.
+//! `N:B1;C:0:B1;`; corpus RtFilteredGoneRow.al TD_LeavesKey_Line1WithUpdate_OneLine). Without CurrPage.Update(false) it is refused.
 
 const SRC: &str = r#"
 table 51500 "UK Line"

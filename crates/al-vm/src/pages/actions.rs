@@ -302,6 +302,17 @@ impl Session {
         // (`go_to_record_after_marked_refill`; corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269
         // Name_DrillDown_GoToRecord `drilldown` `4:` with an empty log while Rec was left on row 3). Every other call until then
         // is refused (`marked_only_unshown_call`).
+        // In the primary key, when the drilldown left Rec on another row than the one shown, the page refills as
+        // ScDrillDownMarkedOnly.al pins for the moves after it (below), but a field read before any move still shows the old
+        // row (SuRefillKey.al:379 Id_DrillDown_GoToRecord `drilldown` `1:`, Rec left on row 5): that read is refused.
+        let rec_moved = shown_before.as_ref().is_some_and(|shown| {
+            let rec = self.page_rec(st);
+            self.table(&rec)
+                .is_ok_and(|t| !Self::same_key(&t.primary_key(shown), &t.primary_key(&rec.borrow().fields)))
+        });
+        if !with_parts && rec_moved && !self.still_reads_once_more(st) {
+            st.borrow_mut().marked_only_read_unbuilt = true;
+        }
         let in_its_key = !with_parts
             && self.still_reads_once_more(st)
             && st.borrow().cursor == Cursor::Row
@@ -350,6 +361,25 @@ impl Session {
             return unsupported(format!(
                 "{method} after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list in a key other than \
                  the primary key (not pinned)"
+            ));
+        }
+        if st.borrow().marked_only_read_unbuilt {
+            if method == PageOp::TestFieldValue {
+                return unsupported(
+                    "reading a field after an OnDrillDown turned MarkedOnly on, moved Rec and called CurrPage.Update(false) on a list \
+                     in its primary key, before any move (not built)",
+                );
+            }
+            st.borrow_mut().marked_only_read_unbuilt = false;
+        }
+        if st.borrow().marked_only_by_action {
+            if method == PageOp::TestPageClose {
+                st.borrow_mut().marked_only_by_action = false;
+                return f(self);
+            }
+            return unsupported(format!(
+                "{method} after an action turned MarkedOnly on for a list with OnAfterGetRecord or OnAfterGetCurrRecord (the \
+                 marked rows the client then holds are not built)"
             ));
         }
         if st.borrow().marked_only_unpinned {
@@ -796,7 +826,20 @@ impl Session {
         // One that was pending before the action is not pinned and keeps its code.
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
+        let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
         let r = self.action_invoke_body(st, idx);
+        // An action that turned MarkedOnly on for a list with row triggers: the moves after it walk only the marked rows
+        // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`); the client
+        // rows kept here still hold every row, so every call but Close after it is refused until that is built.
+        if r.is_ok()
+            && !marked_only_before
+            && st.borrow().open
+            && self.page_rec(st).borrow().marked_only
+            && self.is_list(st)
+            && (self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord"))
+        {
+            st.borrow_mut().marked_only_by_action = true;
+        }
         self.action_save_captions_done(st);
         match r {
             Err(Signal::Error(mut e))
@@ -1230,6 +1273,11 @@ impl Session {
                 if saved && !self.is_list(st) && !st.borrow().parts.is_empty() {
                     st.borrow_mut().refresh_without_curr = true;
                 }
+                // On a list without parts too: `Act:Save:after;AGR:R1:7;QueryClose` (pages/lt-tc-bare-page-methods/
+                // TcBarePageMethodsTests.al:209 SaveRecordAction_BareMatchesCurrPage).
+                if saved && self.is_list(st) && st.borrow().parts.is_empty() && st.borrow().host.is_none() {
+                    st.borrow_mut().refresh_without_curr = true;
+                }
                 st.borrow_mut().refresh = true;
                 st.borrow_mut().refresh_by_update = false;
             } else if read_after_goto && reads_rows && self.is_list(st) && !self.declares(st, "onaftergetcurrrecord") {
@@ -1253,8 +1301,9 @@ impl Session {
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
-                // (`settle_on_blank_rec`; al-runner issue 6027, the reporter's repro on real BC `N:B1;C:0:B1;`; registered
-                // assumption `gone-row-rec-on-unheld-key`). Rows left in the view, or no CurrPage.Update(false), are not pinned.
+                // (`settle_on_blank_rec`; pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
+                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). Rows left in the view, three deleted
+                // lines (:656, the count differs per major) or no CurrPage.Update(false) are not built.
                 let on_blank = {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
@@ -1264,7 +1313,6 @@ impl Session {
                         "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
                     );
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GoneRowRecOnUnheldKey);
             }
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
             // CurrPage.Update(false) (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:351
