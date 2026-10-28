@@ -590,6 +590,20 @@ registry! {
         tests: "No Microsoft test: a partner app's tests (A=2;B=1;C=0 after `B := A`, a by-value AddText and Clear of a copy).",
         probe: "A BigText passed by value to an event subscriber that calls AddText: the publisher's length; a procedure that returns a BigText the caller then grows: the callee's copy.",
     },
+    TableFilterEvaluateOptionMember => {
+        id: "table-filter-evaluate-option-member",
+        assumed: "Evaluate of `<table name>: <field>=<member>` into a TableFilter field, where the field is an Option field and the value is one of its member names written as declared, answers true and stores the text as written (Format gives it back). Pinned is the same form with a Code field (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158); writer SI probes the Option form on corpus branch al-runtime-rs-staging-si.",
+        tests: "No Microsoft test: al-runner issue 5998, a user's install code that evaluates `Repro Certificate: Report Type=LGDIAM` into a TableFilter field (not run on real BC by the reporter).",
+        probe: "Evaluate into a TableFilter field of `<table>: <option field>=<member>`, by name, caption, number and other casing: the answer and Format of the field after it.",
+        awaiting: Awaiting {
+            issues: &[5998],
+            files: &[
+                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_AcceptedForms",
+                "tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_StoredValue",
+            ],
+            since: "2026-10-27",
+        },
+    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",

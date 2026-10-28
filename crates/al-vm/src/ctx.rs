@@ -365,6 +365,29 @@ impl al_builtins::native::Ctx for Session {
     ) -> Option<Result<Option<al_builtins::value::LibraryValue>, Signal>> {
         Some(self.evaluate_record_id_text(text, number))
     }
+    fn table_filter_field(&mut self, table: &str, field: &str) -> Option<Option<al_builtins::value::RtType>> {
+        let objects: Vec<usize> = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.table.is_some() && o.name == table)
+            .map(|(i, _)| i)
+            .collect();
+        let [object] = objects.as_slice() else {
+            return Some(None);
+        };
+        let Some(def) = self.engine.tables.get(*object).cloned().flatten() else {
+            return Some(None);
+        };
+        let mut fields = def.fields.iter().filter(|f| f.name == field);
+        match (fields.next(), fields.next()) {
+            (Some(f), None) => Some(Some(f.ty.clone())),
+            _ => Some(None),
+        }
+    }
     fn evaluate_field_target(&mut self, v: &Value) -> Option<Result<al_builtins::native::FieldTarget, Signal>> {
         let Value::Library(_, l) = v else { return None };
         let (rec, pos) = match &*l.borrow() {
