@@ -682,6 +682,42 @@ registry! {
             since: "2026-10-28",
         },
     },
+    TempRefillToFewerRowsByAction => {
+        id: "temp-refill-to-fewer-rows-by-action",
+        assumed: "An action on a top-level Worksheet over a temporary source (primary key, no filters, OnAfterGetRecord, no OnFindRecord or OnNextRecord) that refills Rec with two rows or more, up to a window, while a row the client held is gone, and leaves Rec on the first row: the client then holds only those rows. After the read of the row the client stood on, it reads each row once, then the first row twice and runs OnAfterGetCurrRecord, or once more when the page has no OnAfterGetCurrRecord, as with one row (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_*). Only the rows listed are known from real BC.",
+        tests: "No Microsoft test: al-runner issue 6029, the reporter's repro green on real BC (3 and 25 rows refilled to 2 list `R1 R2`, with and without OnAfterGetCurrRecord; a partner app's tree Worksheet recalculates from 40 rows to 10).",
+        probe: "The temporary Worksheet of RmTempRefill.al SH_RefillFewer_, with and without OnAfterGetCurrRecord, opened with 3 and 25 rows, refilled to 2 and 3 rows: the action log, the row shown and the rows a First/Next walk lists. Corpus writer TD (branch al-runtime-rs-staging-td).",
+        awaiting: Awaiting {
+            issues: &[6029],
+            files: &[
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::TD_RefillFewer_WithCurrRecord_3To2",
+                "tests/al-language/pages/lt-outside-worksheet/RmTempRefill.al::TD_RefillFewer_NoCurrRecord_25To2",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    GoneRowRecOnUnheldKey => {
+        id: "gone-row-rec-on-unheld-key",
+        assumed: "A list without the new-row line (a Worksheet with InsertAllowed false, unfiltered or filtered on a key field as pages/lt-outside-worksheet-2/RtFilteredGoneRow.al pins) whose action deletes every row of its view, leaves Rec on a primary key no row has and calls CurrPage.Update(false): the list stands on the blank Rec, which takes the filter value (OnNewRecord, OnAfterGetCurrRecord once), as when Rec keeps the deleted row's key. Without CurrPage.Update(false), or with rows left in the view, it is refused.",
+        tests: "No Microsoft test: al-runner issue 6027, the reporter's repro green on real BC (`N:B1;C:0:B1;`, the shape of page 5510 \"Production Journal\" Post, which leaves Rec on line 1 of the batch; 154 tests of a partner app).",
+        probe: "The filtered Worksheet of RtFilteredGoneRow.al whose action deletes every line and sets Rec's Line No. to a value no row has, with and without CurrPage.Update(false): the trigger log, Rec's fields and the rows listed; the same with one row left in the view. Corpus writer TD (branch al-runtime-rs-staging-td).",
+        awaiting: Awaiting {
+            issues: &[6027],
+            files: &["tests/al-language/pages/lt-outside-worksheet-2/RtFilteredGoneRow.al::TD_Ws_DeleteAll_RecOnAnotherKey"],
+            since: "2026-10-28",
+        },
+    },
+    PageMetadataViewDecimalConst => {
+        id: "page-metadata-view-decimal-const",
+        assumed: "The SourceTableView column of Page Metadata shows a `where(<Decimal field> = const(<whole number>))` condition as `Field<n>=CONST(<number as written>)`, as an Integer const reads (misc/W2PageMetadata.al:394). Only the `Field<n>=` part is known from real BC; a fraction is refused.",
+        tests: "No Microsoft test: al-runner issue 6030, the reporter's repro green on real BC (`where(\"Output Qty\" = const(0))` names `Field5`; one test of a partner app).",
+        probe: "Page Metadata.SourceTableView of pages with where(D = const(0)), const(1.5) and const(-2) on a Decimal field. Corpus writer TD (branch al-runtime-rs-staging-td).",
+        awaiting: Awaiting {
+            issues: &[6030],
+            files: &["tests/al-language/pages/lt-cd-testpage-leads/CdTestPageLeads.al::TD_SourceTableView_DecimalConst_PageMetadata"],
+            since: "2026-10-28",
+        },
+    },
 }
 
 thread_local! {

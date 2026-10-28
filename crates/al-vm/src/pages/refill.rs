@@ -155,34 +155,54 @@ impl Session {
         self.read_refilled_rows(st, &rows, 0)
     }
 
-    /// An action that refilled the rows of a temporary Worksheet with one row, a row the client held being gone, Rec left on that
-    /// row: after the read of the row the client stood on that comes before every action, the client reads the row three times
-    /// and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
+    /// An action that refilled the rows of a temporary Worksheet, a row the client held being gone, Rec left on the first row of
+    /// the view. With one row: after the read of the row the client stood on that comes before every action, the client reads the
+    /// row three times and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
     /// (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
-    /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). A refill with two rows or more is not handled here.
+    /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). With two rows up to a window it holds only those rows
+    /// (al-runner issue 6029, the reporter's repro on real BC lists `R1 R2` after 3 and 25 rows); the reads, each row once, then
+    /// the first row twice and OnAfterGetCurrRecord, or once without that trigger, are the registered assumption
+    /// `temp-refill-to-fewer-rows-by-action`. Rec on another row of the view, and more rows than a window, are refused.
     /// Returns whether it handled the action.
-    pub(super) fn reread_after_refill_to_one_row(&mut self, st: &St) -> Result<bool, Signal> {
-        if !self.temp_refill_shape_any_current(st) {
+    pub(super) fn reread_after_refill_to_fewer_rows(&mut self, st: &St) -> Result<bool, Signal> {
+        if !self.temp_refill_shape_any_current(st) || !self.held_row_gone(st)? {
             return Ok(false);
         }
         let rec = self.page_rec(st);
-        let rows = self.view_rows(&rec, 2)?;
-        let table = self.table(&rec)?;
-        let now = self.row_key(&rec)?;
-        let [row] = rows.as_slice() else { return Ok(false) };
-        if !Self::same_key(&table.primary_key(row), &now) || !self.held_row_gone(st)? {
+        let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
+        if rows.is_empty() {
             return Ok(false);
         }
-        let with_current = self.declares(st, "onaftergetcurrrecord");
-        let before = self.xrec_before_move(st);
-        let mut held = self.read_refilled_row(st, &rec, row)?;
-        let reads = if with_current { 2 } else { 1 };
-        for _ in 0..reads {
-            held = self.read_refilled_row(st, &rec, row)?;
+        let table = self.table(&rec)?;
+        let now = self.row_key(&rec)?;
+        if !Self::same_key(&table.primary_key(&rows[0]), &now) {
+            return unsupported(
+                "an action on a temporary Worksheet that refilled it, a row the client held being gone, and left Rec on a row other than the first of its view (not pinned)",
+            );
         }
+        if rows.len() > Self::WINDOW {
+            return unsupported(
+                "an action on a temporary Worksheet that refilled it with more rows than the client reads at once, a row the client held being gone (not pinned)",
+            );
+        }
+        if rows.len() > 1 {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TempRefillToFewerRowsByAction);
+        }
+        if self.declares(st, "onaftergetcurrrecord") {
+            // Each row once, the first twice more, then OnAfterGetCurrRecord (with one row: `R:R1;R:R1;R:R1;C:R1;`).
+            self.read_refilled_rows(st, &rows, 0)?;
+            return Ok(true);
+        }
+        // Without OnAfterGetCurrRecord: each row once, the first once more (with one row: `R:R1;R:R1;`).
+        let mut held = Vec::new();
+        for r in &rows {
+            held.push(self.read_refilled_row(st, &rec, r)?);
+        }
+        let first = self.read_refilled_row(st, &rec, &rows[0])?;
         {
             let mut s = st.borrow_mut();
-            s.window = vec![held];
+            held[0].shown = first.shown;
+            s.window = held;
             s.window_from_start = true;
             s.window_eof = true;
             s.window_whole = true;
@@ -193,9 +213,6 @@ impl Session {
             s.settled_first_row = false;
             s.refresh = false;
             s.cursor = Cursor::Row;
-        }
-        if with_current {
-            self.current_record_trigger(st, before)?;
         }
         Ok(true)
     }
