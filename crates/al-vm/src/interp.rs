@@ -1268,6 +1268,7 @@ impl Session {
                                             db_row: false,
                                             first_write_truncates: false,
                                             file: false,
+                                            dotnet_view: 0,
                                         },
                                     )))
                                 }

@@ -138,6 +138,12 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UserInfo\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo\"; \"TenantInfo\") { }
   }
+  assembly(\"mscorlib\") {
+    type(\"System.IO.Stream\"; \"Stream\") { }
+    type(\"System.Object\"; \"ClrObject\") { }
+    type(\"System.Byte[]\"; \"ClrBytes\") { }
+    type(\"System.IO.MemoryStream\"; \"MsMemoryStream\") { }
+  }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
 
@@ -1458,6 +1464,15 @@ fn the_declared_result_types_match_the_registry() {
     }
     // The kind of value each parameterless member returns.
     for (clr, member, ret) in SIGS {
+        // Need an AL stream; the tests of a DotNet Stream over an AL stream below run them.
+        if [
+            al_builtins::dotnet_sigs::NAV_BLOB_STREAM,
+            al_builtins::dotnet_sigs::NAV_BLOB_STREAM_TYPE,
+        ]
+        .contains(clr)
+        {
+            continue;
+        }
         let t = reg.get(clr).unwrap();
         let m = t.members.iter().find(|m| m.name == *member).unwrap();
         let args: Vec<Value> = match *member {
@@ -2071,4 +2086,191 @@ fn xml_document_save_to_a_file_of_the_temporary_folder_saves_into_a_stream_and_w
     let vars = "X: DotNet XmlDocument; F: File; I: InStream; T: Text;";
     let r = run_temp(&host, vars, body, Some(TempFolder::default()));
     assert_eq!(text(r), "<a />");
+}
+
+// ---- An AL stream held by a DotNet System.IO.Stream (SgDotNetStreams.al) ------------------
+
+const STREAM_VARS: &str = "B: Record \"ALT Blob\" temporary; O: OutStream; I: InStream; S: DotNet Stream; T: Text;";
+
+/// What the Blob holds, read back as text.
+const READ_BACK: &str = "B.Data.CreateInStream(I); I.ReadText(T); exit(T);";
+
+/// A host that answers `Encoding.UTF8.GetBytes('cde')` with byte[] handle 7 and `Convert.ToBase64String` of it.
+fn bytes_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Get(DotNetTarget::Static(t), m) if t.name == "System.Text.Encoding" && m == "UTF8" => {
+            reply(handle(6, "System.Text.UTF8Encoding"))
+        }
+        Req::Invoke(DotNetTarget::Instance(6), m, _) if m == "GetBytes" => reply(handle(7, "System.Byte[]")),
+        Req::Get(DotNetTarget::Instance(7), m) if m == "Length" => reply(DotNetValue::Int32(3)),
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Convert" && m == "ToBase64String" => {
+            assert_eq!(a[0].value, handle(7, "System.Byte[]"));
+            reply(DotNetValue::Str("Y2Rl".into()))
+        }
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+#[test]
+fn an_outstream_given_to_a_stream_variable_describes_itself_without_a_host() {
+    let host = no_host();
+    let r = run(
+        &host,
+        STREAM_VARS,
+        "B.Data.CreateOutStream(O); O.WriteText('ab'); S := O; \
+         exit(S.GetType().FullName + '|' + Format(S.CanRead) + Format(S.CanWrite) + Format(S.CanSeek) + '|' + \
+         Format(S.Length) + '|' + Format(S.Position) + '|' + Format(IsNull(S)));",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "Microsoft.Dynamics.Nav.Runtime.NavBLOB+InternalStream|YesYesYes|2|2|No"
+    );
+    assert_eq!(host.log(), vec![]);
+}
+
+#[test]
+fn write_byte_and_write_of_a_byte_array_reach_the_blob_at_once() {
+    let host = bytes_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} E: DotNet Encoding; Bytes: DotNet ClrBytes;"),
+        &format!(
+            "B.Data.CreateOutStream(O); S := O; S.WriteByte(65); S.WriteByte(66); Bytes := E.UTF8.GetBytes('cde'); \
+             S.Write(Bytes, 0, Bytes.Length); S.Write(Bytes, 1, 1); S.Flush(); {READ_BACK}"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "ABcded");
+}
+
+#[test]
+fn al_writes_and_stream_writes_keep_their_own_positions() {
+    let r = run(
+        &no_host(),
+        STREAM_VARS,
+        &format!(
+            "B.Data.CreateOutStream(O); O.WriteText('a'); S := O; S.WriteByte(66); O.WriteText('c'); S.WriteByte(68); {READ_BACK}"
+        ),
+        ": Text",
+    );
+    assert_eq!(text(r), "acD");
+}
+
+#[test]
+fn after_close_or_dispose_an_al_write_goes_over_the_stream_bytes() {
+    for end in ["Close", "Dispose"] {
+        let r = run(
+            &no_host(),
+            STREAM_VARS,
+            &format!("B.Data.CreateOutStream(O); S := O; S.WriteByte(65); S.{end}(); O.WriteText('z'); {READ_BACK}"),
+            ": Text",
+        );
+        assert_eq!(text(r), "z", "{end}");
+    }
+}
+
+#[test]
+fn a_stream_write_after_close_succeeds_but_what_it_wrote_is_not_pinned() {
+    let r = run(
+        &no_host(),
+        STREAM_VARS,
+        &format!("B.Data.CreateOutStream(O); S := O; S.WriteByte(65); S.Close(); S.WriteByte(66); {READ_BACK}"),
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("after Close"), "{}", unsupported(&r));
+}
+
+#[test]
+fn an_outstream_given_to_a_system_object_raises_not_supported_type() {
+    let r = run(
+        &no_host(),
+        "B: Record \"ALT Blob\" temporary; O: OutStream; X: DotNet ClrObject;",
+        "B.Data.CreateOutStream(O); asserterror X := O; exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(IsNull(X)));",
+        ": Text",
+    );
+    assert_eq!(text(r), "The type NavOutStream is unknown.|NotSupportedType|Yes");
+}
+
+#[test]
+fn an_instream_given_to_a_stream_variable_reads_by_itself_and_ends_where_al_read_to() {
+    let host = no_host();
+    let r = run(
+        &host,
+        &format!("{STREAM_VARS} T2: Text;"),
+        "B.Data.CreateOutStream(O); O.WriteText('hello'); B.Data.CreateInStream(I); S := I; \
+         T := S.GetType().FullName + '|' + Format(S.CanRead) + Format(S.CanWrite) + Format(S.CanSeek) + '|' + \
+         Format(S.Length) + '|' + Format(S.Position) + '|' + Format(S.ReadByte()) + '|'; \
+         I.ReadText(T2); exit(T + T2 + '|' + Format(S.ReadByte()));",
+        ": Text",
+    );
+    let _ = host;
+    assert_eq!(
+        text(r),
+        "Microsoft.Dynamics.Nav.Runtime.NavBLOB+InternalStream|YesYesYes|5|0|104|hello|-1"
+    );
+}
+
+#[test]
+fn what_no_test_pins_about_a_dotnet_stream_over_an_al_stream_is_refused() {
+    let refused = |vars: &str, body: &str| -> String {
+        let host = Fake::new(|r| match r {
+            Req::Construct(..) => reply(handle(9, "System.IO.MemoryStream")),
+            other => panic!("unexpected request {other:?}"),
+        });
+        let r = run(
+            &host,
+            &format!("{STREAM_VARS} {vars}"),
+            &format!("{body} exit('');"),
+            ": Text",
+        );
+        unsupported(&r)
+    };
+    // A .NET read after an AL read that stopped before the end.
+    refused(
+        "T2: Text[1];",
+        "B.Data.CreateOutStream(O); O.WriteText('hello'); B.Data.CreateInStream(I); S := I; I.Read(T2, 1); S.ReadByte();",
+    );
+    // A byte value WriteByte cannot hold.
+    refused("", "B.Data.CreateOutStream(O); S := O; S.WriteByte(256);");
+    // A read from the OutStream side, a write to the InStream side.
+    refused("", "B.Data.CreateOutStream(O); S := O; S.ReadByte();");
+    refused(
+        "",
+        "B.Data.CreateOutStream(O); B.Data.CreateInStream(I); S := I; S.WriteByte(1);",
+    );
+    // Length and Position after a write.
+    refused(
+        "",
+        "B.Data.CreateOutStream(O); S := O; S.WriteByte(65); T := Format(S.Length);",
+    );
+    refused(
+        "",
+        "B.Data.CreateOutStream(O); B.Data.CreateInStream(I); S := I; S.ReadByte(); T := Format(S.Position);",
+    );
+    // A member no test calls.
+    refused("", "B.Data.CreateOutStream(O); S := O; S.SetLength(0);");
+    // An OutStream whose position is not the end of the Blob.
+    refused(
+        "",
+        "B.Data.CreateOutStream(O); O.WriteText('ab'); B.Data.CreateOutStream(O); S := O;",
+    );
+    // An AL write that ends elsewhere than the .NET stream's position.
+    refused(
+        "",
+        "B.Data.CreateOutStream(O); S := O; S.WriteByte(65); S.WriteByte(66); O.WriteText('z'); S.WriteByte(67);",
+    );
+    // The stream handed to a .NET object.
+    assert!(
+        refused(
+            "M: DotNet MsMemoryStream;",
+            "B.Data.CreateOutStream(O); S := O; M := M.MemoryStream(); M.CopyTo(S);",
+        )
+        .contains("runtime-provided")
+    );
+    // An InStream given to a System.Object.
+    refused(
+        "X: DotNet ClrObject;",
+        "B.Data.CreateOutStream(O); B.Data.CreateInStream(I); X := I;",
+    );
 }

@@ -266,7 +266,7 @@ fn to_base64(b: &[u8]) -> String {
 
 /// The bytes of a canonical Base64 text (length a multiple of 4, `=` only as the last one or two characters); anything
 /// else, white space included, is left to .NET.
-fn from_base64(s: &str) -> Option<Vec<u8>> {
+pub fn from_base64(s: &str) -> Option<Vec<u8>> {
     let b = s.as_bytes();
     if b.len() % 4 != 0 {
         return None;
