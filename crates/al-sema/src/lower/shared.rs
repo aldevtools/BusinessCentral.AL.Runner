@@ -201,6 +201,8 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         local_textconst_languages: HashMap::default(),
         global_locked_labels: Default::default(),
         local_locked_labels: Default::default(),
+        global_maxlength_labels: Default::default(),
+        local_maxlength_labels: Default::default(),
         global_var_attrs: HashMap::default(),
         local_var_attrs: HashMap::default(),
         run_refusals: Default::default(),
@@ -496,6 +498,9 @@ pub(crate) fn lower_object<'a>(
             }
             if v.type_ref().as_ref().is_some_and(label_locked) {
                 lw.global_locked_labels.insert(n.to_lowercase());
+            }
+            if v.type_ref().as_ref().is_some_and(label_maxlength) {
+                lw.global_maxlength_labels.insert(n.to_lowercase());
             }
             if let Some(why) = refusal {
                 global_reasons.push(format!("global `{n}`: {why}"));
@@ -1139,6 +1144,18 @@ pub(crate) fn label_locked(t: &ast::TypeRef) -> bool {
             && w[1].kind() == SyntaxKind::Eq
             && w[2].text().eq_ignore_ascii_case("true")
     })
+}
+
+/// Whether a Label declaration sets `MaxLength`.
+pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    toks.windows(2)
+        .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
 }
 
 /// Whether a declaration is of type `TextConst`.

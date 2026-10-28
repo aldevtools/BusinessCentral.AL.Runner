@@ -2483,8 +2483,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata".SourceTableView of a page whose view is `where(<Decimal field> = const(0))` is returned and names the field
-/// (al-runner issue 6030, the reporter's repro on real BC; assumption `page-metadata-view-decimal-const`). A fractional value
-/// is not measured and refused.
+/// (al-runner issue 6030; corpus CdTestPageLeads.al TD_SourceTableView_Const_Decimal). A fractional value
+/// is not built yet and refused.
 #[test]
 fn a_decimal_const_view_is_in_page_metadata() {
     let o = outcomes(
