@@ -554,6 +554,13 @@ impl Parser<'_> {
             // A quoted empty text is the blank date (corpus record/lt-loadfields-pagesource-validate/P81DateFilters.al:193-194,
             // :308). The unquoted empty text stays refused.
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Date) => return Ok(Value::Date(0, false)),
+            // On a Media field a quoted empty text, alone or after `<>`, raises the Guid format error
+            // (media/lt-so-media-filter/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
+            Tok::Quoted(s)
+                if s.is_empty() && matches!(self.ty, T::Library(crate::library_kind::LibraryKind::Media)) =>
+            {
+                return Err(INVALID_GUID.to_string());
+            }
             Tok::Raw(s) | Tok::Quoted(s) | Tok::Arg(s) => s,
             Tok::Op(o) => return Err(format!("operator `{o}` where a value was expected")),
         };
@@ -648,7 +655,7 @@ impl Parser<'_> {
             // A Guid text on a Media field compares with the field's media id, braced or plain, with `=` or `<>` before it: an empty
             // field equals the null Guid (al-runner issue 5991: media/lt-so-media-filter/SoMediaFilter.al SO_MediaFilter_NullGuidForms,
             // SO_MediaFilter_MediaIdOfFilledRow, SO_MediaFilter_FieldRefReproShape). Letters, `*` and a number raise the Guid format
-            // error, as on a Guid field (SO_MediaFilter_InvalidText `abc`, `star`, `0`). The empty text stays refused below.
+            // error, as on a Guid field (SO_MediaFilter_InvalidText `abc`, `star`, `0`).
             T::Library(crate::library_kind::LibraryKind::Media) if !text.trim().is_empty() => {
                 match crate::evaluate::read_text(&T::Guid, text.trim()) {
                     Some(v @ Value::Guid(_)) if !text.trim().starts_with('(') => v,
@@ -657,6 +664,15 @@ impl Parser<'_> {
                     }
                     _ => return Err(format!("text filter value `{text}` for Media: not pinned")),
                 }
+            }
+            // The null Guid as text on a MediaSet field compares with the field's set id: an empty set equals it, so `<>` keeps no
+            // empty row (media/lt-so-media-filter/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Another Guid, and a text
+            // that is no Guid, are not pinned on a MediaSet field: refused below.
+            T::Library(crate::library_kind::LibraryKind::MediaSet)
+                if !text.trim().starts_with('(')
+                    && matches!(crate::evaluate::read_text(&T::Guid, text.trim()), Some(Value::Guid(g)) if g == [0; 16]) =>
+            {
+                Value::Guid([0; 16])
             }
             other => {
                 return Err(format!(
