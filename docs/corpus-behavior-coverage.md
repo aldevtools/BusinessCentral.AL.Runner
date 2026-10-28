@@ -12,7 +12,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | attributes | 42 | 33 | 78.6% | 29 | 69.0% | 0 | 13 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
-| properties | 720 | 671 | 93.2% | 575 | 79.9% | 8 | 137 | 2 |
+| properties | 720 | 671 | 93.2% | 607 | 84.3% | 7 | 106 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
 | triggers | 128 | 128 | 100.0% | 116 | 90.6% | 3 | 9 | 0 |
 
@@ -43,38 +43,38 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 
 | Owner | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| AllPageCustomization | 6 | 6 | 100.0% | 3 | 50.0% | 0 | 3 | 0 |
+| AllPageCustomization | 6 | 6 | 100.0% | 5 | 83.3% | 0 | 1 | 0 |
 | Codeunit | 17 | 16 | 94.1% | 14 | 82.4% | 0 | 3 | 0 |
 | ControlAddInObject | 19 | 19 | 100.0% | 3 | 15.8% | 0 | 16 | 0 |
-| Entitlement | 5 | 5 | 100.0% | 2 | 40.0% | 0 | 3 | 0 |
+| Entitlement | 5 | 5 | 100.0% | 3 | 60.0% | 0 | 2 | 0 |
 | EnumType | 9 | 9 | 100.0% | 8 | 88.9% | 0 | 1 | 0 |
 | EnumValue | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
-| Field | 46 | 46 | 100.0% | 37 | 80.4% | 0 | 9 | 0 |
+| Field | 46 | 46 | 100.0% | 39 | 84.8% | 0 | 7 | 0 |
 | FieldGroup | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
-| FieldModify | 8 | 7 | 87.5% | 7 | 87.5% | 0 | 1 | 0 |
+| FieldModify | 8 | 7 | 87.5% | 8 | 100.0% | 0 | 0 | 0 |
 | Interface | 5 | 5 | 100.0% | 5 | 100.0% | 0 | 0 | 0 |
 | Key | 11 | 11 | 100.0% | 8 | 72.7% | 0 | 3 | 0 |
 | Page | 46 | 45 | 97.8% | 39 | 84.8% | 0 | 7 | 1 |
-| PageAction | 14 | 14 | 100.0% | 11 | 78.6% | 0 | 3 | 0 |
+| PageAction | 14 | 14 | 100.0% | 12 | 85.7% | 0 | 2 | 0 |
 | PageActionArea | 3 | 0 | 0.0% | 3 | 100.0% | 0 | 0 | 0 |
-| PageActionGroup | 6 | 6 | 100.0% | 5 | 83.3% | 0 | 1 | 0 |
+| PageActionGroup | 6 | 6 | 100.0% | 6 | 100.0% | 0 | 0 | 0 |
 | PageActionModify | 3 | 3 | 100.0% | 2 | 66.7% | 0 | 1 | 0 |
 | PageActionRef | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
 | PageActionSeparator | 4 | 4 | 100.0% | 3 | 75.0% | 0 | 1 | 0 |
 | PageArea | 3 | 0 | 0.0% | 3 | 100.0% | 0 | 0 | 0 |
-| PageControlModify | 21 | 20 | 95.2% | 14 | 66.7% | 0 | 7 | 0 |
-| PageCueGroup | 16 | 10 | 62.5% | 10 | 62.5% | 0 | 6 | 0 |
-| PageCustomAction | 13 | 13 | 100.0% | 6 | 46.2% | 0 | 7 | 0 |
+| PageControlModify | 21 | 20 | 95.2% | 17 | 81.0% | 0 | 4 | 0 |
+| PageCueGroup | 16 | 10 | 62.5% | 12 | 75.0% | 0 | 4 | 0 |
+| PageCustomAction | 13 | 13 | 100.0% | 7 | 53.8% | 0 | 6 | 0 |
 | PageCustomizationObject | 10 | 10 | 100.0% | 6 | 60.0% | 0 | 4 | 0 |
 | PageExtension | 14 | 13 | 92.9% | 12 | 85.7% | 0 | 2 | 0 |
-| PageField | 46 | 46 | 100.0% | 34 | 73.9% | 0 | 12 | 0 |
-| PageFileUploadAction | 10 | 10 | 100.0% | 6 | 60.0% | 0 | 4 | 0 |
-| PageFixed | 16 | 9 | 56.2% | 10 | 62.5% | 0 | 6 | 0 |
-| PageGrid | 16 | 10 | 62.5% | 10 | 62.5% | 0 | 6 | 0 |
-| PageGroup | 16 | 9 | 56.2% | 10 | 62.5% | 0 | 6 | 0 |
-| PageLabel | 16 | 16 | 100.0% | 9 | 56.2% | 0 | 7 | 0 |
-| PagePart | 15 | 15 | 100.0% | 14 | 93.3% | 0 | 1 | 0 |
-| PageRepeater | 16 | 14 | 87.5% | 10 | 62.5% | 0 | 6 | 0 |
+| PageField | 46 | 46 | 100.0% | 37 | 80.4% | 0 | 9 | 0 |
+| PageFileUploadAction | 10 | 10 | 100.0% | 7 | 70.0% | 0 | 3 | 0 |
+| PageFixed | 16 | 9 | 56.2% | 12 | 75.0% | 0 | 4 | 0 |
+| PageGrid | 16 | 10 | 62.5% | 12 | 75.0% | 0 | 4 | 0 |
+| PageGroup | 16 | 9 | 56.2% | 12 | 75.0% | 0 | 4 | 0 |
+| PageLabel | 16 | 16 | 100.0% | 11 | 68.8% | 0 | 5 | 0 |
+| PagePart | 15 | 15 | 100.0% | 15 | 100.0% | 0 | 0 | 0 |
+| PageRepeater | 16 | 14 | 87.5% | 12 | 75.0% | 0 | 4 | 0 |
 | PageSystemAction | 1 | 1 | 100.0% | 1 | 100.0% | 0 | 0 | 0 |
 | PageSystemPart | 13 | 11 | 84.6% | 13 | 100.0% | 0 | 0 | 0 |
 | PageUserControl | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
@@ -86,15 +86,15 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 | QueryColumn | 6 | 6 | 100.0% | 6 | 100.0% | 0 | 0 | 0 |
 | QueryDataItem | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
 | QueryFilter | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
-| Report | 36 | 34 | 94.4% | 31 | 86.1% | 5 | 0 | 0 |
+| Report | 36 | 34 | 94.4% | 32 | 88.9% | 4 | 0 | 0 |
 | ReportColumn | 11 | 11 | 100.0% | 11 | 100.0% | 0 | 0 | 0 |
 | ReportDataItem | 13 | 13 | 100.0% | 13 | 100.0% | 0 | 0 | 0 |
 | ReportExtension | 3 | 3 | 100.0% | 3 | 100.0% | 0 | 0 | 0 |
 | ReportExtensionModify | 2 | 2 | 100.0% | 2 | 100.0% | 0 | 0 | 0 |
 | ReportLayout | 12 | 9 | 75.0% | 12 | 100.0% | 0 | 0 | 0 |
 | RequestPage | 22 | 21 | 95.5% | 22 | 100.0% | 0 | 0 | 0 |
-| Table | 24 | 23 | 95.8% | 18 | 75.0% | 0 | 6 | 1 |
-| TableExtension | 4 | 4 | 100.0% | 3 | 75.0% | 0 | 1 | 0 |
+| Table | 24 | 23 | 95.8% | 19 | 79.2% | 0 | 5 | 1 |
+| TableExtension | 4 | 4 | 100.0% | 4 | 100.0% | 0 | 0 | 0 |
 | XmlPort | 26 | 26 | 100.0% | 26 | 100.0% | 0 | 0 | 0 |
 | XmlPortFieldAttribute | 7 | 7 | 100.0% | 7 | 100.0% | 0 | 0 | 0 |
 | XmlPortFieldElement | 8 | 8 | 100.0% | 8 | 100.0% | 0 | 0 | 0 |
@@ -105,17 +105,17 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 #### properties: unpinned items by owner
 
 - **Codeunit** (1 of 17): `TestHandlers` unknown, BC 29
-- **FieldModify** (1 of 8): `MaskType` unknown
+- **FieldModify** (1 of 8): `MaskType` implemented
 - **Page** (1 of 46): `ContextSensitiveHelpPage` implemented, MS 36
 - **PageActionArea** (3 of 3): `ObsoleteReason` implemented; `ObsoleteState` implemented; `ObsoleteTag` implemented
 - **PageArea** (3 of 3): `ObsoleteReason` implemented; `ObsoleteState` implemented; `ObsoleteTag` implemented
-- **PageControlModify** (1 of 21): `MaskType` unknown
-- **PageCueGroup** (6 of 16): `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` unknown; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` unknown
+- **PageControlModify** (1 of 21): `MaskType` implemented
+- **PageCueGroup** (6 of 16): `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` implemented; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` implemented
 - **PageExtension** (1 of 14): `ContextSensitiveHelpPage` implemented
-- **PageFixed** (7 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` unknown; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` unknown
-- **PageGrid** (6 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` unknown
-- **PageGroup** (7 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` unknown; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` unknown
-- **PageRepeater** (2 of 16): `CuegroupLayout` implemented; `GridLayout` unknown
+- **PageFixed** (7 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` implemented; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` implemented
+- **PageGrid** (6 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` implemented
+- **PageGroup** (7 of 16): `CuegroupLayout` implemented; `FileUploadRowAction` unknown; `FreezeColumn` unknown; `GridLayout` implemented; `IndentationColumn` implemented; `IndentationControls` unknown; `TreeInitialState` implemented
+- **PageRepeater** (2 of 16): `CuegroupLayout` implemented; `GridLayout` implemented
 - **PageSystemPart** (2 of 13): `SubPageLink` implemented; `SubPageView` implemented
 - **Query** (1 of 24): `ContextSensitiveHelpPage` implemented
 - **Report** (2 of 36): `DefaultHeaderFooterPart` implemented, BC 29; `DefaultThemePart` implemented, BC 29
@@ -172,7 +172,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Dimension | Catalog | Pinned | Used by Microsoft | Microsoft-used and unpinned | of those, runtime does not read |
 |---|---:|---:|---:|---:|---:|
 | Triggers per object kind | 188 | 187 | 128 | 0 | 0 |
-| Object properties per object kind | 1350 | 805 | 1074 | 545 | 515 |
+| Object properties per object kind | 1350 | 805 | 1074 | 545 | 512 |
 | Platform and system events | 123 | 37 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
@@ -205,7 +205,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `DocumentationLabel` | 19 | no | 0 |
 | xmlport | `Comment` | 18 | yes | 0 |
 | tableextension | `Comment` | 13 | yes | 0 |
-| pageextension/field | `Importance` | 10 | no | 0 |
+| pageextension/field | `Importance` | 10 | yes | 0 |
 | report/labels | `PageCaption` | 9 | yes | 0 |
 | table/field | `Locked` | 8 | yes | 0 |
 | report/labels | `PostingDateCaption` | 8 | no | 0 |
@@ -243,6 +243,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | pageextension | `Comment` | 2 | yes | 0 |
 | report/dataitem | `Locked` | 2 | yes | 0 |
 | report/labels | `Page` | 2 | yes | 0 |
+| report/labels | `PageLabel` | 2 | yes | 0 |
 | report/labels | `AmountCaption` | 2 | no | 0 |
 | report/labels | `CopyCaption` | 2 | no | 0 |
 | report/labels | `CustNameCaption` | 2 | no | 0 |
@@ -258,7 +259,6 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `LineNoCaption` | 2 | no | 0 |
 | report/labels | `LineTypeCaption` | 2 | no | 0 |
 | report/labels | `OfCaption` | 2 | no | 0 |
-| report/labels | `PageLabel` | 2 | no | 0 |
 | report/labels | `ProfitLabel` | 2 | no | 0 |
 | report/labels | `ProfitPctLabel` | 2 | no | 0 |
 | report/labels | `ReportTitle` | 2 | no | 0 |
@@ -270,6 +270,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | page | `MaxLength` | 1 | yes | 0 |
 | pageextension | `Locked` | 1 | yes | 0 |
 | pageextension/action | `Locked` | 1 | yes | 0 |
+| pageextension/group | `ShowAs` | 1 | yes | 0 |
 | report/field | `Width` | 1 | yes | 0 |
 | report/labels | `Amount` | 1 | yes | 0 |
 | report/labels | `Capacity` | 1 | yes | 0 |
@@ -278,7 +279,6 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `Warning` | 1 | yes | 0 |
 | reportextension | `Comment` | 1 | yes | 0 |
 | xmlport | `Locked` | 1 | yes | 0 |
-| pageextension/group | `ShowAs` | 1 | no | 0 |
 | report/labels | `AbleToMakeQtyCaption` | 1 | no | 0 |
 | report/labels | `AboutTheReportLbl` | 1 | no | 0 |
 | report/labels | `AccountNameCaption` | 1 | no | 0 |

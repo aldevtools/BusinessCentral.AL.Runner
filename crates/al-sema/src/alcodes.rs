@@ -69,7 +69,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0169",
-        "a query ReadState that is not ReadUncommitted, ReadCommitted, ReadShared or Default (case 2248, NoLocks)",
+        "a property set to a name that is none of its values, where the AL language server lists the values for that element kind (property_values.rs: PageType, MaskType, ObsoleteState, Style, Importance, UpdatePropagation and others; cases 0106 to 1180 and 2248)",
     ),
     ("AL0197", "two objects of one type and name in one app"),
     ("AL0264", "two codeunits or two tables with one id in one app"),
@@ -461,10 +461,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
             ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
-            ObjKind::Query => {
-                query_read_state(ws, o.file, &obj, &mut out);
-                query_joins(ws, o.file, obj.sections(), &mut out)
-            }
+            ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -472,6 +469,8 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             _ => {}
         }
     }
+    // AL0169: a property value that is none of the property's values.
+    crate::property_values::check(ws, &mut out);
     out
 }
 
@@ -1532,30 +1531,6 @@ fn properties_of(s: &ast::Section) -> Vec<(String, String)> {
 }
 
 /// AL0365. `DataItemLink` on a query data item whose `SqlJoinType` is `CrossJoin` (corpus 0009).
-/// AL0169 for a query `ReadState` that is none of its values. Writer TJ's must-not-compile 2248 (branch
-/// al-runtime-rs-staging-pub-tj, al-runner issue 6050) pins `NoLocks` and states the values: ReadUncommitted,
-/// ReadCommitted, ReadShared and the default (`Default`).
-fn query_read_state(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
-    const VALUES: &[&str] = &["ReadUncommitted", "ReadCommitted", "ReadShared", "Default"];
-    for p in obj.properties().filter(|p| p.name().eq_ignore_ascii_case("ReadState")) {
-        let value = p.value_text();
-        let value = value.trim();
-        if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric()) {
-            continue;
-        }
-        if !VALUES.iter().any(|v| v.eq_ignore_ascii_case(value)) {
-            push(
-                out,
-                ws,
-                file,
-                offset_of(p.syntax()),
-                "AL0169",
-                format!("The option value '{value}' is not valid. Check the enum definition for valid values."),
-            );
-        }
-    }
-}
-
 fn query_joins(ws: &Workspace, file: usize, sections: impl Iterator<Item = ast::Section>, out: &mut Vec<Diagnostic>) {
     for s in sections {
         let name = s.name();
