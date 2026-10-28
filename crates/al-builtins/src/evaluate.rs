@@ -1397,58 +1397,265 @@ pub fn evaluate_typed(
     })
 }
 
-/// `Evaluate(TableFilterField, Text)` (al-runner issue 5998). Pinned: `<table name>: <field>=<value>` with a Code field and a plain
-/// value answers true and keeps the text as written, which Format gives back
-/// (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158). An Option field with one of its member names is the
-/// assumption `table-filter-evaluate-option-member`. Several Code conditions and Code values with spaces are
-/// the assumption `table-filter-evaluate-several-code-fields` (see [`several_code_conditions`]). Every other text (filter operators, names in another case,
-/// unknown tables or fields, the rejected forms and their errors) and every format number but 0 is refused until a probe pins it.
+/// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
+/// TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
+/// _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The text is
+/// `<table>: <field>=<filter>,<field>=<filter>`: the table by its name in any casing, quoted or by number (not by caption); `:`
+/// with or without a space; the conditions split at each comma, trimmed, a trailing comma dropped; each field by name or caption
+/// in any casing, quoted or not. The stored value names the table by its name and each field by its caption, the conditions in
+/// the order of their field numbers (a field given twice keeps both), joined by a comma alone; Format with 0 and 9 gives it
+/// back. The empty text stores the empty value. Each filter is read by [`table_filter_value`]; a form it does not know, another
+/// field type and every format number but 0 and 9 are refused.
 fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) -> Result<Value, Signal> {
-    let refuse = || {
+    let refuse = |why: &str| {
         unsupported(format!(
-            "Evaluate of `{text}` into TableFilter (not pinned by the corpus)"
+            "Evaluate of `{text}` into TableFilter: {why} (not pinned by the corpus)"
         ))
     };
-    if number != 0 {
-        return refuse();
+    if number != 0 && number != 9 {
+        return refuse("format number");
     }
-    let Some((table, condition)) = text.split_once(": ") else {
-        return refuse();
-    };
-    if condition.contains(',')
-        || condition.contains(' ') && condition.split_once('=').is_some_and(|(_, v)| v.contains(' '))
-    {
-        if !several_code_conditions(c, table, condition)? {
-            return refuse();
+    let ret_used = c.ret_used();
+    // A rejected text: with the result used false and the error as the last one, else the error.
+    let reject = |c: &mut dyn Ctx, more: &str, code: &str| -> Result<Value, Signal> {
+        let e = crate::native::AlError {
+            message: format!("The value \"{text}\" can't be evaluated into type TableFilter.{more}"),
+            code: code.into(),
+            ..Default::default()
+        };
+        if ret_used {
+            c.set_last_error(e);
+            return Ok(Value::Boolean(false));
         }
-        crate::assumptions::assume(crate::assumptions::Assumption::TableFilterEvaluateSeveralCodeFields);
-        return Ok(store_table_filter(a, text));
-    }
-    let Some((field, value)) = condition.split_once('=') else {
-        return refuse();
+        Err(Signal::Error(Box::new(e)))
     };
-    // A plain value: letters and digits only, so no filter operator, wildcard, range or second condition.
-    let plain = |v: &str| !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphanumeric());
-    if table.trim() != table || field.trim() != field || !plain(value) {
-        return refuse();
+    if text.is_empty() {
+        return Ok(store_table_filter(a, ""));
     }
-    let ty = match c.table_filter_field(table, field) {
-        Some(Some(ty)) => ty,
-        Some(None) => return refuse(),
+    let Some((table, rest)) = text.split_once(':') else {
+        return reject(c, "", "Evaluate");
+    };
+    let table = table.trim();
+    let table = table
+        .strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(table);
+    let def = match c.table_filter_table(table) {
+        Some(Ok(Some(def))) => def,
+        Some(Ok(None)) => return reject(c, "", "Evaluate:MetadataNotFound"),
+        Some(Err(e)) => return Err(e),
         None => return unsupported("Evaluate into TableFilter without a program"),
     };
-    match ty {
-        crate::value::RtType::Code(len) | crate::value::RtType::Text(len)
-            if len.is_none_or(|n| value.chars().count() <= n as usize) => {}
-        crate::value::RtType::Option(members) if members.iter().any(|m| m == value) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::TableFilterEvaluateOptionMember);
-        }
-        _ => return refuse(),
+    // `<table>: ` with no condition (TableFilterEvaluate_RejectedForms `ret_table_colon_only`).
+    if rest == " " {
+        return Ok(store_table_filter(a, &format!("{}: ", def.name)));
     }
-    Ok(store_table_filter(a, text))
+    let mut parts: Vec<&str> = rest.split(',').collect();
+    // A trailing comma is dropped (TableFilterEvaluate_SrRejectedForms `trailing_comma`).
+    if parts.len() > 1 && parts.last().is_some_and(|p| p.trim().is_empty()) {
+        parts.pop();
+    }
+    let mut conditions: Vec<(u32, String)> = Vec::new();
+    for (i, part) in parts.into_iter().enumerate() {
+        let part = part.trim();
+        if part.is_empty() {
+            return refuse("an empty condition");
+        }
+        let Some((field, value)) = part.split_once('=') else {
+            // A second condition without '=': false and no error (`missing_equals_second`). The first condition without '=',
+            // and the error as a statement, are not pinned.
+            if ret_used && i > 0 {
+                return Ok(Value::Boolean(false));
+            }
+            return refuse("a condition without '=' that is not a second condition of a used result");
+        };
+        let field = field.trim();
+        let field = field
+            .strip_prefix('"')
+            .and_then(|f| f.strip_suffix('"'))
+            .unwrap_or(field);
+        let mut by_name = def.fields.iter().filter(|f| f.name.eq_ignore_ascii_case(field));
+        let found = match (by_name.next(), by_name.next()) {
+            (Some(f), None) => Some(f),
+            (Some(_), Some(_)) => return refuse("a field name two fields have"),
+            (None, _) => {
+                let mut by_caption = def
+                    .fields
+                    .iter()
+                    .filter(|f| f.caption.as_ref().is_ok_and(|c| c.eq_ignore_ascii_case(field)));
+                match (by_caption.next(), by_caption.next()) {
+                    (Some(f), None) => Some(f),
+                    (Some(_), Some(_)) => return refuse("a field caption two fields have"),
+                    (None, _) => None,
+                }
+            }
+        };
+        let Some(f) = found else {
+            // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
+            if def
+                .fields
+                .iter()
+                .any(|f| f.caption.is_err() && f.number < 2_000_000_000)
+            {
+                return refuse("an unknown field of a table whose captions are refused");
+            }
+            return reject(
+                c,
+                &format!(
+                    " The supplied field number '{field}' cannot be found in the '{}' table.",
+                    def.caption
+                ),
+                "Evaluate:FieldNotFound",
+            );
+        };
+        let caption = match &f.caption {
+            Ok(caption) => caption.clone(),
+            Err(why) => return unsupported(why.clone()),
+        };
+        match table_filter_value(f, value)? {
+            Ok(v) => conditions.push((f.number, format!("{caption}={v}"))),
+            Err(more) => return reject(c, &format!(" {more}"), "Evaluate:InvalidFilterExpression"),
+        }
+    }
+    conditions.sort_by_key(|(n, _)| *n);
+    let joined = conditions.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(",");
+    Ok(store_table_filter(a, &format!("{}: {joined}", def.name)))
 }
 
-/// The TableFilter field `a[0]` holds `text` as written; Evaluate answers true.
+/// The filter `value` of a TableFilter condition on field `f` as the stored text gives it back, `Ok(Err(text))` with the error
+/// text after `can't be evaluated into type TableFilter.`, or a refusal for a form no test pins (records/W4PlatformAndMeta.al):
+/// - a value starting `'`: a comma inside cut it at the split, `An single quote (') is missing.` (`single_quoted_comma`); a Code
+///   value in quotes is unquoted, kept in quotes when it holds `|` (`single_quoted_space`, `single_quoted_pipe`); a Code value in
+///   double quotes is unquoted (`double_quoted_value`);
+/// - Code: trimmed and in capitals, of letters, digits and inner spaces, with `<>` before one value, `|` and `..` between values
+///   (`range_space_values`, `or_space_values`, `not_equal_value`) or `@` and `*` (`code_wildcard`); one value too long gives the
+///   length error (`value_too_long`); the empty value is kept (`empty_value`);
+/// - Text: letters, digits and spaces kept as written (`text_space_value`);
+/// - Integer: numbers with `<>` before one, `..` and `|` (`integer_expression`, `integer_not_zero`); letters give the Integer
+///   error (`ret_bad_integer`);
+/// - Option: one member by name in any casing, caption or ordinal, stored as its caption (`name_form`, `option_caption_value`,
+///   `option_number_value`); letters that are none give `'X' is not an option` (`ret_bad_option`); `FILTER(` or `CONST(` gives
+///   the `(` error (`filter_wrapper`, `const_wrapper`).
+fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Result<Result<String, String>, Signal> {
+    use crate::value::RtType;
+    let refuse = || {
+        unsupported(format!(
+            "Evaluate into TableFilter of the filter `{value}` on field {} (not pinned by the corpus)",
+            f.name
+        ))
+    };
+    let v = value.trim();
+    if v.starts_with('\'') && (v.len() < 2 || !v.ends_with('\'')) {
+        return Ok(Err("An single quote (') is missing.".into()));
+    }
+    let words = |s: &str| {
+        !s.is_empty()
+            && s.split(' ')
+                .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()))
+    };
+    match &f.ty {
+        RtType::Code(len) => {
+            if v.is_empty() {
+                return Ok(Ok(String::new()));
+            }
+            if let Some(inner) = v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+                if inner.contains('\'') {
+                    return refuse();
+                }
+                if inner.contains('|') && inner.split('|').all(words) {
+                    return Ok(Ok(format!("'{}'", inner.to_uppercase())));
+                }
+                if words(inner) {
+                    return Ok(Ok(inner.to_uppercase()));
+                }
+                return refuse();
+            }
+            if let Some(inner) = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                if words(inner) && !inner.contains(' ') {
+                    return Ok(Ok(inner.to_uppercase()));
+                }
+                return refuse();
+            }
+            if words(v) {
+                if let Some(n) = len.filter(|n| v.chars().count() > *n as usize) {
+                    // The error shows the value as given: pinned for a value in capitals (`value_too_long`).
+                    if v.chars().any(|ch| ch.is_ascii_lowercase()) {
+                        return refuse();
+                    }
+                    return Ok(Err(format!(
+                        "The length of the string is {}, but it must be less than or equal to {n} characters. Value: {v}",
+                        v.chars().count()
+                    )));
+                }
+                return Ok(Ok(v.to_uppercase()));
+            }
+            let fits = |w: &str| words(w) && len.is_none_or(|n| w.chars().count() <= n as usize);
+            if let Some(w) = v.strip_prefix("<>").filter(|w| fits(w)) {
+                return Ok(Ok(format!("<>{}", w.to_uppercase())));
+            }
+            if let Some((x, y)) = v.split_once("..").filter(|(x, y)| fits(x) && fits(y)) {
+                return Ok(Ok(format!("{}..{}", x.to_uppercase(), y.to_uppercase())));
+            }
+            if v.contains('|') && v.split('|').all(fits) {
+                return Ok(Ok(v.to_uppercase()));
+            }
+            if let Some(w) = v.strip_prefix('@').and_then(|w| w.strip_suffix('*')) {
+                if !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+                    return Ok(Ok(format!("@{}*", w.to_uppercase())));
+                }
+            }
+            refuse()
+        }
+        RtType::Text(len) if words(v) && v == value && len.is_none_or(|n| v.chars().count() <= n as usize) => {
+            Ok(Ok(v.to_string()))
+        }
+        RtType::Integer => {
+            let int = |s: &str| {
+                let d = s.strip_prefix('-').unwrap_or(s);
+                !d.is_empty() && d.chars().all(|ch| ch.is_ascii_digit()) && s.parse::<i32>().is_ok()
+            };
+            let range = |s: &str| int(s) || s.split_once("..").is_some_and(|(x, y)| int(x) && int(y));
+            if v.strip_prefix("<>").is_some_and(int) || v.split('|').all(range) {
+                return Ok(Ok(v.to_string()));
+            }
+            if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphabetic()) {
+                return Ok(Err(format!("The value \"{v}\" can't be evaluated into type Integer.")));
+            }
+            refuse()
+        }
+        RtType::Option(_) => {
+            let members = match &f.options {
+                Ok(Some(m)) => m,
+                Ok(None) => return refuse(),
+                Err(why) => return unsupported(why.clone()),
+            };
+            let upper = v.to_ascii_uppercase();
+            if upper.starts_with("FILTER(") || upper.starts_with("CONST(") {
+                return Ok(Err(
+                    "An error occurred while interpreting the filter: Did not expect '('.".into(),
+                ));
+            }
+            let hit = v
+                .parse::<usize>()
+                .ok()
+                .filter(|_| v.chars().all(|ch| ch.is_ascii_digit()))
+                .and_then(|i| members.get(i))
+                .or_else(|| members.iter().find(|(name, _)| name.eq_ignore_ascii_case(v)))
+                .or_else(|| members.iter().find(|(_, caption)| caption == v));
+            if let Some((_, caption)) = hit {
+                return Ok(Ok(caption.clone()));
+            }
+            if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphabetic()) {
+                let list = members.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>().join(",");
+                return Ok(Err(format!("'{v}' is not an option. The existing options are: {list}")));
+            }
+            refuse()
+        }
+        _ => refuse(),
+    }
+}
+
+/// The TableFilter field `a[0]` holds `text`; Evaluate answers true.
 fn store_table_filter(a: &mut [Value], text: &str) -> Value {
     a[0] = Value::Library(
         crate::library_kind::LibraryKind::from_name("TableFilter"),
@@ -1457,46 +1664,6 @@ fn store_table_filter(a: &mut [Value], text: &str) -> Value {
         ))),
     );
     Value::Boolean(true)
-}
-
-/// Whether `condition` (the part after `<table name>: `) is one of the forms al-runner issue 6006 measured on real BC, the assumption
-/// `table-filter-evaluate-several-code-fields`: one or two `<field>=<value>` joined by a comma alone, each field a Code field of
-/// the table whose caption is its name, two fields in the order of their numbers, and each value upper-case letters and digits with
-/// single inner spaces that fit the field. Measured: `Bin: Location Code=MAIN,Code=BIN01`, `Bin: Code=BIN WITH SPACE`,
-/// `Bin: Location Code=MAIN,Code=BIN WITH SPACE`. Every other form (filter operators, quotes, other field types, captions that
-/// differ, other casing, more fields) is not measured and the caller refuses it. `Err` where the context has no program.
-fn several_code_conditions(c: &mut dyn Ctx, table: &str, condition: &str) -> Result<bool, Signal> {
-    let parts: Vec<&str> = condition.split(',').collect();
-    if parts.len() > 2 || table.trim() != table {
-        return Ok(false);
-    }
-    let value_ok = |v: &str| {
-        !v.is_empty()
-            && v.split(' ')
-                .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()))
-    };
-    let mut last_number = 0;
-    for part in parts {
-        let Some((field, value)) = part.split_once('=') else {
-            return Ok(false);
-        };
-        if field.is_empty() || field.trim() != field || !value_ok(value) {
-            return Ok(false);
-        }
-        let len = match c.table_filter_field(table, field) {
-            Some(Some(crate::value::RtType::Code(len))) => len,
-            Some(_) => return Ok(false),
-            None => return unsupported("Evaluate into TableFilter without a program"),
-        };
-        if len.is_some_and(|n| value.chars().count() > n as usize) {
-            return Ok(false);
-        }
-        match c.table_filter_field_meta(table, field) {
-            Some((number, true)) if number > last_number => last_number = number,
-            _ => return Ok(false),
-        }
-    }
-    Ok(true)
 }
 
 /// `Evaluate(RecordId, Text)`: a table name and the primary key after a colon, or only the table name; the empty text gives the

@@ -1800,7 +1800,24 @@ impl Session {
         // `ret_used`: the callee's builtins must not change it.
         let ret_used = self.ret_used;
         let r = if facts.publisher {
-            self.publish(object, routine, instance, args)
+            // [CommitBehavior] on the event declaration governs the subscribers the raise runs: Ignore drops their Commit, Error
+            // raises the commit error (misc/lt-cu-odd-leads/CuCommitTests.al SP_CommitBehaviorIgnore_OnIntegrationEvent_*,
+            // SP_CommitBehaviorError_OnIntegrationEvent_*, SP_CommitBehavior{Ignore,Error}_OnBusinessEvent_*). Any other
+            // attribute text on a publisher is refused.
+            if facts.odd_attributes {
+                self.depth -= 1;
+                return Err(Signal::Unsupported(
+                    "an event publisher with a CommitBehavior or ErrorBehavior attribute other than one CommitBehavior Ignore or Error"
+                        .into(),
+                ));
+            }
+            let saved = self.tx.commit_behavior;
+            if let Some(b) = facts.commit_behavior {
+                self.tx.commit_behavior = self.tx.commit_behavior.nested(b);
+            }
+            let r = self.publish(object, routine, instance, args);
+            self.tx.commit_behavior = saved;
+            r
         } else {
             self.call_inner(object, routine, instance, args, facts)
         };

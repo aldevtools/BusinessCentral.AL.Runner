@@ -836,18 +836,57 @@ fn as_integer(s: &Scalar) -> Result<Value, Signal> {
         .or_else(|_| unsupported("number out of Integer range"))
 }
 
+/// A JSON string read by AsBigInteger, AsByte or AsOption (json/JsonValueGetters.al Sq_DigitText_BigIntegerByteOption): digits with
+/// an optional `-` and leading blanks are the number (`"42"`, `" 42"`, `"-5"`, `"3000000000"`), `Some(None)` for a number with a
+/// fraction (`"4.5"`, the conversion error); `None` for any other text, which is not pinned.
+fn digit_text(s: &Scalar) -> Option<Option<i64>> {
+    let (Scalar::Val(Value::Text(t)) | Scalar::Val(Value::Code(t))) = s else {
+        return None;
+    };
+    let t = t.trim_start_matches(' ');
+    let digits = t.strip_prefix('-').unwrap_or(t);
+    if all_digits(digits) {
+        return t.parse::<i64>().ok().map(Some);
+    }
+    match t.split_once('.') {
+        Some((a, b)) if all_digits(a) && all_digits(b) => Some(None),
+        _ => None,
+    }
+}
+
 fn as_biginteger(s: &Scalar) -> Result<Value, Signal> {
+    match digit_text(s) {
+        Some(Some(n)) => return Ok(Value::BigInteger(n)),
+        Some(None) => {
+            return Err(conversion(
+                NAV_JSON_VALUE,
+                "Microsoft.Dynamics.Nav.Runtime.NavBigInteger",
+            ));
+        }
+        None => {}
+    }
     as_i64(s).map(Value::BigInteger)
 }
 
 fn as_byte(s: &Scalar) -> Result<Value, Signal> {
+    if let Some(n) = digit_text(s) {
+        return n
+            .and_then(|n| u8::try_from(n).ok())
+            .map(Value::Byte)
+            .ok_or_else(|| conversion(NAV_JSON_VALUE, "System.Byte"));
+    }
     u8::try_from(as_i64(s)?)
         .map(Value::Byte)
         .or_else(|_| unsupported("number out of Byte range"))
 }
 
 fn as_option(s: &Scalar) -> Result<Value, Signal> {
-    let n = i32::try_from(as_i64(s)?).or_else(|_| unsupported("number out of Option range"))?;
+    let n = match digit_text(s) {
+        Some(n) => n
+            .and_then(|n| i32::try_from(n).ok())
+            .ok_or_else(|| conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavOption"))?,
+        None => i32::try_from(as_i64(s)?).or_else(|_| unsupported("number out of Option range"))?,
+    };
     Ok(Value::Option(n, std::sync::Arc::from(Vec::<String>::new())))
 }
 

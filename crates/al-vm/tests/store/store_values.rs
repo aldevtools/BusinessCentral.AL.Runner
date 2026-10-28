@@ -672,10 +672,11 @@ fn transfer_fields_from_another_table_copies_the_four_audit_fields() {
     );
 }
 
-/// What `Media.ExportStream` of an empty Media field answers is not pinned (it writes nothing: streams/StTMedia.al
-/// MediaExportStreamEmpty). The Layout of a Report Layout List row refuses in the lowering (host/media.rs, al-runner issue 5712).
+/// `Media.ExportStream` of an empty Media field answers false (al-runner issue 5993: streams/StTMedia.al
+/// SO_MediaExportStream_InitNotInserted). The Layout of a Report Layout List row refuses in the lowering (host/media.rs, al-runner
+/// issue 5712).
 #[test]
-fn what_an_export_of_an_empty_media_field_answers_is_refused() {
+fn an_export_of_an_empty_media_field_answers_false() {
     let src = r#"
 table 69940 "EM Row" { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } } keys { key(PK; Id) { } } }
 table 69941 "EM Out" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }
@@ -689,8 +690,8 @@ codeunit 69942 C
     end;
 }
 "#;
-    match al_testkit::run_in(src, "C", "F") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("what it answers"), "{why}"),
-        other => panic!("{other:?}"),
-    }
+    assert!(matches!(
+        al_testkit::run_in(src, "C", "F"),
+        Ok(al_builtins::value::Value::Boolean(false))
+    ));
 }
