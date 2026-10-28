@@ -1374,14 +1374,16 @@ pub(crate) fn signature(r: &ast::Routine) -> Vec<(bool, String)> {
 
 /// AL0440. A page or report extension procedure with the name and parameter types of a procedure of
 /// its base object that it could otherwise reach (not `local`), corpus 0003 (page), 0042 (report) and
-/// handlers/TestPageExtensionBaseAccessContracts.al:20.
+/// handlers/TestPageExtensionBaseAccessContracts.al:20. A `local` procedure of the extension does not clash: code outside
+/// the extension cannot reach it (al-runner issue 6043; alc compiles it next to a public or protected base procedure, in
+/// the same app and in another app).
 fn extension_procedures(ws: &Workspace, oi: usize, obj: &ast::Object, base_kind: ObjKind, out: &mut Vec<Diagnostic>) {
     let Some(base) = ws.extension_target(oi) else { return };
     if ws.objects[base].kind != base_kind {
         return;
     }
     let base_ast = ws.object_ast(base);
-    for r in obj.routines() {
+    for r in obj.routines().filter(|r| !r.is_local()) {
         let name = r.name();
         let sig = signature(&r);
         if crate::base_access::visible_procs(&base_ast, &name).any(|b| signature(&b) == sig) {
@@ -1899,6 +1901,21 @@ mod tests {
         assert!(codes(&[BASE, &ext("procedure Plus(a: Text): Integer begin exit(2); end;")]).is_empty());
         // A local base procedure is not reachable, so it is not a clash.
         assert!(codes(&[BASE, &ext("procedure Secret(): Integer begin exit(2); end;")]).is_empty());
+        // al-runner issue 6043: a local procedure of the extension is not reachable from outside it, so it does not
+        // clash with a protected or public base procedure (alc compiles it, same app or another app).
+        assert!(codes(&[BASE, &ext("local procedure Bump(): Integer begin exit(2); end;")]).is_empty());
+        assert!(
+            codes(&[
+                BASE,
+                &ext("local procedure Plus(a: Integer): Integer begin exit(2); end;")
+            ])
+            .is_empty()
+        );
+        // A protected extension procedure still clashes (alc: AL0440 in the same app).
+        assert_eq!(
+            codes(&[BASE, &ext("protected procedure Bump(): Integer begin exit(2); end;")]),
+            vec!["AL0440"]
+        );
     }
 
     /// al-runner issue 6012: a page and its extension each get a generated `__visible_N` routine for a `Visible = Flag;`

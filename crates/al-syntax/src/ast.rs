@@ -157,6 +157,51 @@ pub struct DotNetTypeDecl {
     pub offset: usize,
 }
 
+/// Properties whose value is a member of a fixed list (an enum value), not a name of an object or code.
+const ENUM_VALUED_PROPERTIES: &[&str] = &[
+    "Access",
+    "DataAccessIntent",
+    "DataClassification",
+    "DefaultLayout",
+    "Direction",
+    "EventSubscriberInstance",
+    "ExtendedDatatype",
+    "FieldClass",
+    "Importance",
+    "Method",
+    "ObsoleteState",
+    "PageType",
+    "PromotedCategory",
+    "QueryType",
+    "RequiredTestIsolation",
+    "RunPageMode",
+    "SqlDataType",
+    "SqlJoinType",
+    "Subtype",
+    "TableType",
+    "TestIsolation",
+    "TestPermissions",
+    "TestType",
+    "TextEncoding",
+    "UsageCategory",
+];
+
+/// A property value as the readers see it. The value of an enum-valued property written as a quoted identifier loses its
+/// quotes: a quoted identifier is the identifier (corpus record/TestCodeunitMetadataVirtualTable.al:183-208, `Subtype =
+/// "Install"` reads as `Subtype = Install`; al-runner issue 6042, `FieldClass = "FlowField"`, which alc compiles and
+/// real BC calculates as a FlowField). Text values lose their attributes ([`strip_text_attributes`]).
+pub(crate) fn property_value(property: &str, text: String) -> String {
+    if ENUM_VALUED_PROPERTIES.iter().any(|p| p.eq_ignore_ascii_case(property)) && is_lone_quoted_ident(&text) {
+        return unquote_ident(&text);
+    }
+    strip_text_attributes(property, text)
+}
+
+/// `"Name"` (doubled quotes inside allowed) and nothing else.
+fn is_lone_quoted_ident(t: &str) -> bool {
+    t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].replace("\"\"", "").contains('"')
+}
+
 /// `'text', Locked = true` / `, MaxLength = 40` / `, Comment = '..'`: a text property keeps its literal and drops the attributes that follow
 /// it (corpus pageext/lt-page-ext-properties/TableKeyProps.al:P123_TableCaptionsLocked, P123_MaxLengthCaptions). On a `Caption`,
 /// `MaxLength = n` cuts the literal to n characters, as it cuts a Label (record/lt-u-table-field-props/UTableTextSearch.al:41-44: a
@@ -501,7 +546,7 @@ impl Property {
             .find(|n| n.kind() == SyntaxKind::PropertyValue)
             .map(|v| trimmed_code(&v))
             .unwrap_or_default();
-        strip_text_attributes(&self.name(), text)
+        property_value(&self.name(), text)
     }
 }
 
@@ -1047,6 +1092,52 @@ tableextension 50100 Ext extends "Sales Header" { fields { field(50100; F; Integ
         let v = f.properties().next().expect("CalcFormula").value_text();
         assert!(!v.contains('#') && !v.contains("note"), "{v:?}");
         assert!(v.contains("C = field(D)") && v.contains("E = const(0)"), "{v:?}");
+    }
+
+    /// al-runner issue 6042: the value of a property that names a member of a fixed list may be written as a quoted
+    /// identifier; it reads as the bare identifier. A property whose value names an object or is code keeps its quotes.
+    #[test]
+    fn a_quoted_enum_property_value_reads_without_quotes() {
+        let src = "table 1 T { TableType = \"Temporary\"; DataClassification = \"CustomerContent\";\n\
+                   fields { field(1; A; Integer) { FieldClass = \"FlowField\"; ObsoleteState = \"pending\"; \
+                   TableRelation = \"Some Table\"; CalcFormula = count(\"Other\"); } } }";
+        let o = file(src).objects().next().unwrap();
+        let props: Vec<_> = o.properties().map(|p| (p.name(), p.value_text())).collect();
+        assert_eq!(
+            props,
+            vec![
+                ("TableType".to_string(), "Temporary".to_string()),
+                ("DataClassification".to_string(), "CustomerContent".to_string()),
+            ]
+        );
+        let f = o
+            .sections()
+            .flat_map(|s| s.sections().collect::<Vec<_>>())
+            .next()
+            .expect("field");
+        let props: Vec<_> = f.properties().map(|p| (p.name(), p.value_text())).collect();
+        assert_eq!(
+            props,
+            vec![
+                ("FieldClass".to_string(), "FlowField".to_string()),
+                ("ObsoleteState".to_string(), "pending".to_string()),
+                ("TableRelation".to_string(), "\"Some Table\"".to_string()),
+                ("CalcFormula".to_string(), "count(\"Other\")".to_string()),
+            ]
+        );
+        // The declaration scan of a dependency's sources reads object properties the same way.
+        let scanned = crate::scan::scan(
+            "codeunit 5 C { Subtype = \"Test\"; EventSubscriberInstance = \"Manual\"; Permissions = tabledata \"X\" = R; }",
+            &Default::default(),
+        );
+        assert_eq!(
+            scanned.objects[0].properties,
+            vec![
+                ("Subtype".to_string(), "Test".to_string()),
+                ("EventSubscriberInstance".to_string(), "Manual".to_string()),
+                ("Permissions".to_string(), "tabledata \"X\" = R".to_string()),
+            ]
+        );
     }
 
     #[test]
