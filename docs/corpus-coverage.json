@@ -2,7 +2,7 @@
   "corpus_commit": "55ad94c33e6c1cdf3aa0d0befec1994c8ff55319",
   "language": {
     "bc": "27-29",
-    "implemented": 1594,
+    "implemented": 1595,
     "methods": [
       {
         "bc": [
@@ -1019,7 +1019,7 @@
         "scope": "",
         "sig": "()",
         "site": "platform/lt-system-database-members/DbSerialNumber.al:23",
-        "state": "refused",
+        "state": "implemented",
         "type": "Database"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 128,
+    "refused": 127,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
