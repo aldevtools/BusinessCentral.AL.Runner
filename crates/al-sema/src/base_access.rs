@@ -76,8 +76,12 @@ pub fn declares_var(base: &ast::Object, name: &str) -> bool {
 /// The routine `name` of the base object that extension code may call: a procedure that is not
 /// `local` (public and `protected` ones work, pages and reports alike).
 pub fn visible_procs<'a>(base: &'a ast::Object, name: &'a str) -> impl Iterator<Item = ast::Routine> + 'a {
-    base.routines()
-        .filter(move |r| r.name().eq_ignore_ascii_case(name) && !r.is_local())
+    // A routine `pages::expand` generated for a control property is not an AL method of the base: an extension's own
+    // generated routine may carry the same name (al-runner issue 6012), and AL code never calls one.
+    base.routines().filter(move |r| {
+        let n = r.name();
+        n.eq_ignore_ascii_case(name) && !r.is_local() && !crate::pages::is_synthetic(&n)
+    })
 }
 
 /// The slot of variable `name` among the globals of the base object, from its syntax only (the

@@ -136,6 +136,7 @@ fn manifest(publisher: &str) -> Manifest {
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
+        translation_files: Vec::new(),
         symbols: vec![],
     }
 }

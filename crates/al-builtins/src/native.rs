@@ -182,6 +182,13 @@ pub trait Ctx: FormatCtx {
         Ok(())
     }
 
+    /// The text of the Label of the app with id `app` whose XLIFF unit is `xliff`, in the language in force (ADR-053 step 2,
+    /// `System.TranslatedText#1` with an id): `None` keeps the source text. A context without a program has none.
+    fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
+        let _ = (app, what, xliff);
+        Ok(None)
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
@@ -298,6 +305,11 @@ pub trait Ctx: FormatCtx {
     /// The captions the values of enum object `id` declare, as (ordinal, caption).
     fn enum_captions(&self, _id: u32) -> Vec<(i32, String)> {
         Vec::new()
+    }
+    /// The declared (source) captions of enum `id` when [`Self::enum_captions`] gives translated ones in the language in
+    /// force (ADR-053 step 2); `None` when they are the source captions.
+    fn enum_source_captions(&self, _id: u32) -> Option<Vec<(i32, String)>> {
+        None
     }
     /// Builtins that read or change session state (number sequences, the transaction state): the
     /// VM implements them. `id` is the catalog overload id (`NumberSequence.Next#1`); `args` holds
@@ -868,13 +880,23 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     // (streams/lt-dc-stream-leads/DcInStreamScope.al:107-166).
     ("InStream.OwnerOutOfScope#1", crate::stream::owner_out_of_scope),
     // A Label or an OptionCaption list of an app (value, app id, what is read): the value as it is, refused where a translation
-    // file of the app could change it in the language in force (ADR-053 step 1, al-runner issue 5772).
+    // file of the app could change it in the language in force (ADR-053 step 1, al-runner issue 5772). With a fourth argument,
+    // the Label's XLIFF unit id: the text of that unit in the language in force (ADR-053 step 2).
     ("System.TranslatedText#1", |c, _, a| {
-        if let [value, Value::Text(app), Value::Text(what)] = a {
-            c.translated_app_read(app, what)?;
-            return Ok(value.clone());
+        match a {
+            [value, Value::Text(app), Value::Text(what)] => {
+                c.translated_app_read(app, what)?;
+                return Ok(value.clone());
+            }
+            [value, Value::Text(app), Value::Text(what), Value::Text(xliff)] => {
+                return Ok(match c.translated_app_text(app, what, xliff)? {
+                    Some(text) => Value::Text(text.into()),
+                    None => value.clone(),
+                });
+            }
+            _ => {}
         }
-        unsupported("System.TranslatedText with other arguments than a value, an app id and a text")
+        unsupported("System.TranslatedText with other arguments than a value, an app id, a text and an XLIFF id")
     }),
     // A TextConst whose text depends on the language in force (language code, text, ... in declaration order).
     ("System.TextConstText#1", |c, _, a| textconst_text(c.language(), a)),

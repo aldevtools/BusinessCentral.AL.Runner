@@ -312,18 +312,11 @@ pub(crate) fn run_codeunit_core(
         runner_reset::RunnerReset::of(engine)
     };
     let on_run_rows = scratch.on_run_rows;
-    // A refused OnRun: whether it would raise is not known, so neither is the shape of the rows. Under `OnRunRows::Bc28`
-    // the OnRun row is not run as well as the tests.
-    let on_run_refused = |why: String| {
-        let mut rows = Vec::new();
-        if on_run_rows == OnRunRows::Bc28 {
-            rows.push((ON_RUN_ROW.to_string(), Outcome::NotRun(why.clone())));
-        }
-        rows.extend(all(Outcome::NotRun(why)));
-        rows
-    };
-    // The passed row of the OnRun trigger, the first of the codeunit (`OnRunRows::Bc28`).
-    let mut on_run_row: Option<(String, Outcome)> = None;
+    // A refused OnRun: whether it would raise is not known, so neither is whether the tests run.
+    let on_run_refused = |why: String| all(Outcome::NotRun(why));
+    // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
+    // the unprobed reporting of OnRun (ADR-055).
+    let mut on_run_shape_assumed = false;
     if let Some(on_run) = (0..obj.routines.len())
         .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
         .filter(|_| !execute)
@@ -341,11 +334,9 @@ pub(crate) fn run_codeunit_core(
         session.clear_stop();
         let watchdog = limit.map(|l| Watchdog::start_paused(session.stop_flag(), l, None, None));
         session.start_sleep_budget(limit);
-        // What OnRun runs through counts for its own row (`OnRunRows`), not for the first test.
+        // What OnRun runs through does not count for the first test.
         al_builtins::assumptions::clear_hits();
-        let on_run_started = std::time::Instant::now();
         let ran = session.call(object, on_run, instance.clone(), Vec::new());
-        let on_run_took = on_run_started.elapsed();
         let timed_out = watchdog.is_some_and(Watchdog::finish);
         let slept_out = session.sleep_budget_passed();
         let slept_ms = session.slept_in_test_ms();
@@ -420,66 +411,24 @@ pub(crate) fn run_codeunit_core(
                     return on_run_refused(format!("OnRun failed after install code that did not run: {why}"));
                 }
                 let marks = al_builtins::assumptions::take_hits();
-                if on_run_rows == OnRunRows::Bc27 {
-                    // BC 27.5: the codeunit is Skipped and has no rows. Its text is not reported, so an unpinned one does
-                    // not matter; an error reached through an unprobed assumption may not happen on BC, and then the tests
-                    // would run.
-                    if !marks.is_empty() {
-                        let ids: Vec<&str> = marks.iter().map(|a| a.info().id).collect();
-                        return all(Outcome::NotRun(format!(
-                            "OnRun failed through unprobed assumptions ({}), so whether the tests run is not known: {}",
-                            ids.join(", "),
-                            e.message
-                        )));
-                    }
-                    return Vec::new();
+                // Microsoft's Test Runner app (ADR-055): the codeunit is Skipped and has no rows, and the run stays
+                // green (al-runner issue 5859, BC 29.0; corpus writer RL's probe c69419f6, BC 27.5). Its text is not
+                // reported, so an unpinned one does not matter; an error reached through an unprobed assumption may not
+                // happen on BC, and then the tests would run.
+                if !marks.is_empty() {
+                    let ids: Vec<&str> = marks.iter().map(|a| a.info().id).collect();
+                    return all(Outcome::NotRun(format!(
+                        "OnRun failed through unprobed assumptions ({}), so whether the tests run is not known: {}",
+                        ids.join(", "),
+                        e.message
+                    )));
                 }
-                // BC 28.5 and 29.0: one failed row `OnRun` with the error's text, and no rows for the tests.
-                al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-                let outcome = if al_builtins::native::text_unpinned(&e) {
-                    // An error whose text is not pinned would put a made-up text in the row: the row is not run.
-                    let Err(Signal::Unsupported(r)) =
-                        al_builtins::native::refuse_unpinned_text(&e, "The OnRun row of the test result")
-                    else {
-                        unreachable!("an unpinned error is refused")
-                    };
-                    Outcome::NotRun(r)
-                } else {
-                    if !e.call_stack.is_empty() {
-                        stacks.push((ON_RUN_ROW.into(), e.call_stack.clone()));
-                    }
-                    Outcome::Fail(e.message.clone())
-                };
-                let mut marks = marks;
-                marks.extend(al_builtins::assumptions::take_hits());
-                hits.push((ON_RUN_ROW.into(), marks));
-                times.push((ON_RUN_ROW.into(), on_run_took));
-                return vec![(ON_RUN_ROW.into(), outcome)];
+                // No row carries the assumption here: the skipped codeunit has none (`test-codeunit-onrun-rows`).
+                return Vec::new();
             }
             Err(_) => {}
         }
-        // BC 28.5 and 29.0: a declared OnRun that does not raise has a passed row of its own, before the tests.
-        if on_run_rows == OnRunRows::Bc28 {
-            al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-            hits.push((ON_RUN_ROW.into(), al_builtins::assumptions::take_hits()));
-            times.push((ON_RUN_ROW.into(), on_run_took));
-            on_run_row = Some((ON_RUN_ROW.to_string(), Outcome::Pass));
-            if crate::events::wants_events() {
-                crate::events::report(crate::events::TestEvent {
-                    codeunit: obj.id.unwrap_or(0),
-                    codeunit_name: obj.name.clone(),
-                    test: ON_RUN_ROW.into(),
-                    outcome: Outcome::Pass,
-                    call_stack: String::new(),
-                    time: on_run_took,
-                    slept_ms: 0,
-                    coverage: Vec::new(),
-                    captured: None,
-                    stubs: Vec::new(),
-                    entry: None,
-                });
-            }
-        }
+        on_run_shape_assumed = on_run_rows == OnRunRows::TestRunner;
     }
     // Function isolation returns the database to its state after OnRun when each test ends
     // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
@@ -495,7 +444,7 @@ pub(crate) fn run_codeunit_core(
         }
         None => None,
     };
-    let mut out: Vec<(String, Outcome)> = on_run_row.into_iter().collect();
+    let mut out: Vec<(String, Outcome)> = Vec::new();
     // The rows of `out` before the first test's.
     let first_test = out.len();
     // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
@@ -572,6 +521,9 @@ pub(crate) fn run_codeunit_core(
                         .watch(company_open.tables.union(&leak).copied().collect());
                     session.last_error = Default::default();
                     al_builtins::assumptions::clear_hits();
+                    if on_run_shape_assumed {
+                        al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
+                    }
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                     // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                     session.start_random_scope();

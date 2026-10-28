@@ -148,6 +148,8 @@ impl Session {
         };
         st.borrow_mut().refresh = false;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
+        let shown_before =
+            (method == PageMethod::DrillDown && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
         let result = if method == PageMethod::Lookup {
@@ -200,7 +202,7 @@ impl Session {
             st.borrow_mut().refresh = false;
         }
         let v = result?;
-        self.drilldown_marked_only_refresh(st, method, marked_only_before);
+        self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
         // The client refreshes the page after an AssistEdit trigger: OnAfterGetRecord runs again
         // (pages/lt-page-runtime/P82Lookups.al:AssistEdit_Trigger, `OnAssistEdit;OnAfterGetRecord(L1)`). A DrillDown and a Lookup are not pinned to.
         // The row is not read again: a field the trigger set on the record stays (pages/lt-page-editability-width-lookups/
@@ -249,7 +251,13 @@ impl Session {
     /// triggers, a page with a part in the content or FactBoxes area does the same (al-runner issue 5886, the reporter's run on
     /// real BC; assumption drilldown-marked-only-with-part until writer SF's pins SF_WithPart_* and SF_WithFactBox_* land); the
     /// other shapes of a page with parts stay as they were.
-    fn drilldown_marked_only_refresh(&mut self, st: &St, method: PageMethod, marked_only_before: bool) {
+    fn drilldown_marked_only_refresh(
+        &mut self,
+        st: &St,
+        method: PageMethod,
+        marked_only_before: bool,
+        shown_before: Option<Vec<Value>>,
+    ) {
         let (shape, with_parts) = {
             let s = st.borrow();
             (
@@ -289,6 +297,30 @@ impl Session {
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return;
         }
+        // In a key other than the primary key, on a page without parts standing on a stored row: the drilldown reads nothing
+        // and the page keeps showing the row it stood on; the next GoToRecord refills the rows around the row Rec was left on
+        // (`go_to_record_after_marked_refill`; al-runner issue 6008, the reporter's run on real BC: `drilldown=4:` with an
+        // empty log while Rec was left on row 1). Every other call until then is refused (`marked_only_unshown_call`).
+        let in_its_key = !with_parts
+            && self.still_reads_once_more(st)
+            && st.borrow().cursor == Cursor::Row
+            && shown_before.is_some();
+        if in_its_key && let Some(shown) = shown_before {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillInItsKey);
+            let rec = self.page_rec(st);
+            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+            let mut s = st.borrow_mut();
+            s.marked_refill_in_key = Some(left);
+            s.refresh = false;
+            s.window.clear();
+            s.window_from_start = false;
+            s.window_top_unread = false;
+            drop(s);
+            if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
+                self.pages.scope_unpinned.push(st.clone());
+            }
+            return;
+        }
         // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part in the content area or in the
         // FactBoxes area by :460 SF_WithPart_ListAndGoTo, :480 SF_WithPart_GoToRecordMissesTheUnmarkedRow, :494
         // SF_WithFactBox_ListAndGoTo and :514 SF_WithFactBox_GoToRecordMissesTheUnmarkedRow (al-runner issue 5886).
@@ -310,6 +342,16 @@ impl Session {
         f: impl FnOnce(&mut Self) -> Result<Value, Signal>,
     ) -> Result<Value, Signal> {
         use al_builtins::page_op::PageOp;
+        // After the marking drilldown on a list in another key (`drilldown_marked_only_refresh`): reading what a field shows and
+        // GoToRecord are measured (al-runner issue 6008); nothing else is.
+        if st.borrow().marked_refill_in_key.is_some()
+            && !matches!(method, PageOp::TestFieldValue | PageOp::TestPageGoToRecord)
+        {
+            return unsupported(format!(
+                "{method} after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list in a key other than \
+                 the primary key (not pinned)"
+            ));
+        }
         if st.borrow().marked_only_unpinned {
             if method == PageOp::TestPageClose {
                 st.borrow_mut().marked_only_unpinned = false;

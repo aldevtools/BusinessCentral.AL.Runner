@@ -486,6 +486,35 @@ pub fn ships_translations(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// The translation files of the app folder `dir` (`crate::package::is_translation_file`, ADR-053 step 2): name relative to the
+/// app (`/` separators) and the parsed file, or why it could not be read. Sorted by name. A package gives none here.
+pub fn translation_files(dir: &Path) -> Vec<(String, Result<crate::xliff::Xliff, String>)> {
+    let mut out = Vec::new();
+    if !dir.is_dir() {
+        return out;
+    }
+    let mut stack = vec![dir.join("Translations")];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Ok(rel) = p.strip_prefix(dir) {
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                if crate::package::is_translation_file(&rel) {
+                    let parsed = std::fs::read(&p)
+                        .map_err(|e| e.to_string())
+                        .and_then(|b| crate::xliff::parse(&b));
+                    out.push((rel, parsed));
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// Reads the sources of the packages a plan chose, side by side.
 pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, String> {
     use rayon::prelude::*;

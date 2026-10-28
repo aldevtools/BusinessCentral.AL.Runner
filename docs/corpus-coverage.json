@@ -1,8 +1,8 @@
 {
-  "corpus_commit": "84ebf506049a34bc92f72c6cf61e1d0a3bfc3ed8",
+  "corpus_commit": "55ad94c33e6c1cdf3aa0d0befec1994c8ff55319",
   "language": {
     "bc": "27-29",
-    "implemented": 1591,
+    "implemented": 1594,
     "methods": [
       {
         "bc": [
@@ -8767,7 +8767,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "json/TestJsonTypedGetters.al:299",
+        "site": "json/JsonValueGetters.al:383",
         "state": "implemented",
         "type": "JsonValue"
       },
@@ -8895,7 +8895,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "json/TestJsonComplete.al:221",
+        "site": "json/JsonValueGetters.al:387",
         "state": "implemented",
         "type": "JsonValue"
       },
@@ -12075,7 +12075,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Integer, [Table], [Joker])",
-        "site": "autoformat/TestAutoFormatExpressionTiming.al:632",
+        "site": "autoformat/TestAutoFormatExpressionTiming.al:628",
         "state": "implemented",
         "type": "Page"
       },
@@ -14822,7 +14822,7 @@
         "scope": "",
         "sig": "(Text)",
         "site": "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:25",
-        "state": "refused",
+        "state": "implemented",
         "type": "RecordRef"
       },
       {
@@ -14870,7 +14870,7 @@
         "scope": "",
         "sig": "(Text)",
         "site": "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:72",
-        "state": "refused",
+        "state": "implemented",
         "type": "RecordRef"
       },
       {
@@ -15427,7 +15427,7 @@
         "pinned": true,
         "scope": "",
         "sig": "(Text, [Boolean], [Text])",
-        "site": "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:302",
+        "site": "must-not-compile/cases/0665-fqn-overloads-runtime16.al:46",
         "state": "refused",
         "type": "RecordRef"
       },
@@ -15668,7 +15668,7 @@
         "scope": "",
         "sig": "(Table, Boolean)",
         "site": "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:187",
-        "state": "refused",
+        "state": "implemented",
         "type": "RecordRef"
       },
       {
@@ -19056,7 +19056,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "autoformat/TestAutoFormatExpressionTiming.al:876",
+        "site": "autoformat/TestAutoFormatExpressionTiming.al:880",
         "state": "implemented",
         "type": "TestField"
       },
@@ -19828,7 +19828,7 @@
         "pinned": true,
         "scope": "",
         "sig": "([Joker...])",
-        "site": "autoformat/TestAutoFormatExpressionTiming.al:722",
+        "site": "autoformat/TestAutoFormatExpressionTiming.al:726",
         "state": "implemented",
         "type": "TestPage"
       },
@@ -19876,7 +19876,7 @@
         "pinned": true,
         "scope": "",
         "sig": "()",
-        "site": "autoformat/TestAutoFormatExpressionTiming.al:864",
+        "site": "autoformat/TestAutoFormatExpressionTiming.al:868",
         "state": "implemented",
         "type": "TestPage"
       },
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 131,
+    "refused": 128,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",
@@ -31494,7 +31494,7 @@
           "id": "JsonValue.AsByte#1",
           "pinned": true,
           "signature": "JsonValue.AsByte inst () -> Byte",
-          "site": "json/TestJsonTypedGetters.al:299"
+          "site": "json/JsonValueGetters.al:383"
         },
         {
           "id": "JsonValue.AsChar#1",
@@ -31542,7 +31542,7 @@
           "id": "JsonValue.AsOption#1",
           "pinned": true,
           "signature": "JsonValue.AsOption inst () -> Option",
-          "site": "json/TestJsonComplete.al:221"
+          "site": "json/JsonValueGetters.al:387"
         },
         {
           "id": "JsonValue.AsText#1",
@@ -32670,7 +32670,7 @@
           "id": "Page.RunModal#5",
           "pinned": true,
           "signature": "Page.RunModal static (Number: Integer, ?Record: Record, ?Field: Any) -> Action?",
-          "site": "autoformat/TestAutoFormatExpressionTiming.al:632"
+          "site": "autoformat/TestAutoFormatExpressionTiming.al:628"
         },
         {
           "id": "Page.RunModal#6",
@@ -33959,7 +33959,7 @@
           "id": "RecordRef.Open#1",
           "pinned": true,
           "signature": "RecordRef.Open inst (FullyQualifiedName: Text, ?Temp: Boolean, ?CompanyName: Text) @17.0",
-          "site": "misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:302"
+          "site": "must-not-compile/cases/0665-fqn-overloads-runtime16.al:46"
         },
         {
           "id": "RecordRef.Open#2",
@@ -35397,7 +35397,7 @@
           "id": "TestField.Caption#1",
           "pinned": true,
           "signature": "TestField.Caption inst () -> Text",
-          "site": "autoformat/TestAutoFormatExpressionTiming.al:876"
+          "site": "autoformat/TestAutoFormatExpressionTiming.al:880"
         },
         {
           "id": "TestField.Drilldown#1",
@@ -35689,7 +35689,7 @@
           "id": "TestPage.GoToKey#1",
           "pinned": true,
           "signature": "TestPage.GoToKey inst (?Value: Any*) -> Boolean?",
-          "site": "autoformat/TestAutoFormatExpressionTiming.al:722"
+          "site": "autoformat/TestAutoFormatExpressionTiming.al:726"
         },
         {
           "id": "TestPage.GoToRecord#1",
@@ -35707,7 +35707,7 @@
           "id": "TestPage.Last#1",
           "pinned": true,
           "signature": "TestPage.Last inst () -> Boolean?",
-          "site": "autoformat/TestAutoFormatExpressionTiming.al:864"
+          "site": "autoformat/TestAutoFormatExpressionTiming.al:868"
         },
         {
           "id": "TestPage.New#1",

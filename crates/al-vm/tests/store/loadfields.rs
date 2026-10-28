@@ -255,12 +255,28 @@ fn a_record_ref_load_set_with_no_numbers_goes_back_to_a_full_load() {
 }
 
 #[test]
-fn a_field_number_the_table_lacks_is_an_error_with_no_pinned_text() {
-    // record/TestRecordPartialLoad.al:PartialLoad_SetLoadFields_UnknownFieldNo_Throws pins that
-    // the call fails and that the text names the number; the text is not pinned.
+fn a_field_number_the_table_lacks_raises_field_not_found() {
+    // misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:159-171 and records/W4PlatformAndMeta.al:517-518 pin
+    // the text and code for one unknown number; which number a call with several names is not pinned.
     let r = text(
         "RR: RecordRef;",
         "RR.Open(50800); RR.SetLoadFields(9999); exit('no error');",
+    );
+    match r {
+        Err(Signal::Error(e)) => {
+            assert!(
+                e.message
+                    .starts_with("The supplied field number '9999' cannot be found in the '"),
+                "{}",
+                e.message
+            );
+            assert_eq!(e.code, "FieldNotFound");
+        }
+        other => panic!("{other:?}"),
+    }
+    let r = text(
+        "RR: RecordRef;",
+        "RR.Open(50800); RR.SetLoadFields(2, 9999); exit('no error');",
     );
     match r {
         Err(Signal::Error(e)) => assert_eq!(e.message, al_builtins::native::UNPINNED_ERROR),

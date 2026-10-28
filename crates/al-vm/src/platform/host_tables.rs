@@ -934,6 +934,12 @@ pub(crate) fn time_zone_get_refusal(no: &Value) -> Option<&'static str> {
     )
 }
 
+/// The culture name of Windows language `id` (`nl-BE` for 2067) from the Windows Language table, for the translation file
+/// of that language (ADR-053 decision 3).
+pub(crate) fn culture_name(id: i32) -> Option<&'static str> {
+    LANGUAGES.iter().find(|l| l.0 == id).map(|l| l.4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -123,7 +123,12 @@ impl<'a> Checker<'a> {
                 } else {
                     0
                 };
-                let score = fit * 1000 + exact;
+                // RecordRef.Open with a Variant: the compiler warns AL0916 and takes Open(Integer), not the Text overload
+                // that comes first (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:255-305
+                // BM_OpenVariantArgument). Other builtins with a Variant argument are not pinned and keep the catalog order.
+                let variant_open = matches!(&c.target, Res::Builtin(id) if id == "RecordRef.Open#2")
+                    && matches!(args.first(), Some(Ty::Variant));
+                let score = fit * 1000 + exact + usize::from(variant_open);
                 if best.is_none_or(|(_, s)| score > s) {
                     best = Some((c, score));
                 }

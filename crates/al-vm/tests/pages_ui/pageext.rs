@@ -849,3 +849,44 @@ fn a_procedure_of_a_part_pages_extension_runs_on_the_extensions_instance() {
     );
     assert_eq!(text(r), "ext|sub-base;subext-ext;");
 }
+
+/// al-runner issue 6012: a page and its extension in another app each hold a `Visible = <variable>;` property at the
+/// same offset of their objects, in files with LF or CRLF line endings. The generated routines of the two then share a
+/// name; each control still reads its own object's variable, and the apps compile.
+#[test]
+fn a_page_and_its_extension_with_visible_expressions_at_the_same_offset_compile_and_read_their_own_variables() {
+    let page = |nl: &str, pad: usize| {
+        format!(
+            "page 52090 \"PX Same\"{nl}{{{nl}PageType = Card; SourceTable = \"PX Row\";{nl}layout {{ area(Content) {{{nl}{}field(BaseCtl; Rec.Name) {{ Visible = BaseShow; }}{nl}}} }}{nl}var BaseShow: Boolean;{nl}trigger OnOpenPage() begin BaseShow := false; end;{nl}}}",
+            " ".repeat(pad)
+        )
+    };
+    let ext = |nl: &str, pad: usize| {
+        format!(
+            "pageextension 52090 \"PX Same Ext\" extends \"PX Same\"{nl}{{{nl}layout {{ addlast(Content) {{{nl}{}field(ExtCtl; Rec.Other) {{ Visible = ExtShow; }}{nl}}} }}{nl}var ExtShow: Boolean;{nl}trigger OnOpenPage() begin ExtShow := true; end;{nl}}}",
+            " ".repeat(pad)
+        )
+    };
+    let at = |s: &str| s.find("Visible").unwrap();
+    for (page_nl, ext_nl) in [("\n", "\n"), ("\r\n", "\r\n"), ("\r\n", "\n"), ("\n", "\r\n")] {
+        let (p0, e0) = (at(&page(page_nl, 0)), at(&ext(ext_nl, 0)));
+        let (p, e) = (page(page_nl, e0.saturating_sub(p0)), ext(ext_nl, p0.saturating_sub(e0)));
+        assert_eq!(at(&p), at(&e));
+        let test =
+            "codeunit 52200 C { procedure F(): Text var R: Record \"PX Row\"; P: TestPage \"PX Same\"; X: Text; begin
+            R.\"No.\" := 'A'; R.Insert();
+            P.OpenView();
+            X := Format(P.BaseCtl.Visible()) + Format(P.ExtCtl.Visible());
+            P.Close();
+            exit(X);
+        end; }";
+        let r = run_apps(
+            vec![
+                vec![("objects.al".into(), OBJECTS.to_string()), ("page.al".into(), p)],
+                vec![("ext.al".into(), e), ("test.al".into(), test.to_string())],
+            ],
+            "F",
+        );
+        assert_eq!(text(r), "NoYes", "{:?}", (page_nl, ext_nl));
+    }
+}

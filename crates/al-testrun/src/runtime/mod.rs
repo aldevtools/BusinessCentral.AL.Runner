@@ -69,6 +69,8 @@ pub struct Manifest {
     /// The app ships a translation file (`Translations/*.xlf` that is not the generated `*.g.xlf`): BC translates its
     /// labels and captions under another language, which the runtime refuses (ADR-053 step 1, al-runner issue 5772).
     pub translations: bool,
+    /// The translation files of an app folder (ADR-053 step 2); empty for a package.
+    pub translation_files: Vec<al_ir::TranslationFile>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -174,6 +176,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .unwrap_or(false),
         layout_files: load_layout_files(dir),
         translations: al_deps::load::ships_translations(dir),
+        translation_files: translation_files(dir),
         id_ranges: manifest["idRanges"]
             .as_array()
             .into_iter()
@@ -810,3 +813,29 @@ pub use self::cache::*;
 pub use self::compiled::*;
 use self::handlers::*;
 pub use self::run::*;
+
+/// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
+/// reason, and its language refuses every translated read.
+pub fn translation_files(dir: &std::path::Path) -> Vec<al_ir::TranslationFile> {
+    al_deps::load::translation_files(dir)
+        .into_iter()
+        .map(|(name, parsed)| translation_file(name, parsed))
+        .collect()
+}
+
+/// [`translation_files`] for one file that has been read.
+pub fn translation_file(name: String, parsed: Result<al_deps::xliff::Xliff, String>) -> al_ir::TranslationFile {
+    match parsed {
+        Ok(x) => al_ir::TranslationFile {
+            name,
+            target_language: x.target_language,
+            units: x.units,
+            error: None,
+        },
+        Err(e) => al_ir::TranslationFile {
+            name,
+            error: Some(e),
+            ..Default::default()
+        },
+    }
+}
