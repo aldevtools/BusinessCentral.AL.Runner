@@ -1088,6 +1088,7 @@ pub(crate) fn lower_core(
     };
     let mut unsupported: Vec<Vec<Vec<String>>> = Vec::with_capacity(n);
     let mut calls: Vec<Vec<Vec<(usize, usize)>>> = Vec::with_capacity(n);
+    let mut ndirect: Vec<Vec<u32>> = Vec::with_capacity(n);
     let embeds_of_all: Vec<Vec<usize>> = pieces
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
@@ -1188,6 +1189,7 @@ pub(crate) fn lower_core(
         }
         unsupported.push(piece.unsupported);
         calls.push(piece.calls);
+        ndirect.push(piece.ndirect);
         staged.slots.push(Some(Box::new(Staged {
             object: piece.object,
             positions: piece.positions,
@@ -1203,7 +1205,7 @@ pub(crate) fn lower_core(
         })));
     }
     out.unsupported = super::Refusals::new(unsupported, cached_facts.clone());
-    out.calls = super::Calls::new(calls, cached_facts);
+    out.calls = super::Calls::new(calls, ndirect, cached_facts);
     let field_pos = |t: usize, id: u32| members.get(t).fields.iter().position(|f| f.id == id);
     let field_no = |t: usize, pos: usize| members.get(t).fields.get(pos).map(|f| f.id);
     let field_numbers = |t: usize| members.get(t).fields.iter().map(|f| f.id).collect::<Vec<u32>>();
@@ -2298,7 +2300,7 @@ pub fn relower_objects(
     for (oi, mut piece) in pieces {
         al_ir::walk::walk_object(&mut piece.object, &mut FillSets(&piece.expansions));
         old.unsupported[oi] = piece.unsupported;
-        old.calls[oi] = piece.calls;
+        old.calls.replace(oi, piece.calls, piece.ndirect);
         replace.push((
             oi,
             super::localize::localize(
@@ -2381,6 +2383,9 @@ pub(crate) struct Piece {
     pub(crate) calls: Vec<Vec<(usize, usize)>>,
     /// With `Shared::export`: `calls` without what a page, report or xmlport variable drives.
     pub(crate) direct: Vec<Vec<(usize, usize)>>,
+    /// Per routine: how many of its `calls` come first and are calls its code makes; the rest is what a page, report or
+    /// xmlport variable drives.
+    pub(crate) ndirect: Vec<u32>,
     /// The objects whose extensions or implementers the lowering read (see `provided.rs`).
     pub(crate) embeds: Vec<usize>,
     /// With a compile cache: the key the cache recorded for the object (a layer build's placeholder has no object to take it from).

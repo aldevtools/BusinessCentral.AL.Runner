@@ -160,6 +160,23 @@ impl Lowered {
     /// [`calls_of`](Self::calls_of), appended to `out`.
     pub fn calls_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
         self.calls.extend_into(o, r, out);
+        self.cached_driven_into(o, r, out);
+    }
+
+    /// The part of [`calls_into`](Self::calls_into) that is calls the code of routine `r` of object `o` makes.
+    pub fn direct_calls_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
+        self.calls.extend_direct_into(o, r, out);
+    }
+
+    /// The rest of [`calls_into`](Self::calls_into): what a variable of a page, report or xmlport type in routine `r` of
+    /// object `o` drives.
+    pub fn driven_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
+        self.calls.extend_driven_into(o, r, out);
+        self.cached_driven_into(o, r, out);
+    }
+
+    /// What the variables of routine `r` of object `o` drive, for an object a compile cache supplied.
+    fn cached_driven_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
         if !self.provided.get(o).copied().unwrap_or(false) {
             return;
         }
