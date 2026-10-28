@@ -1893,3 +1893,119 @@ fn count_zero_column_filter_on_the_outer_child_keeps_the_parents_without_childre
     ));
     assert_eq!(text(r), "D3:1,0,30 D4:1,0,40 |D3:1,0,30 D4:1,0,40 ");
 }
+
+const TOP_WHILE_OPEN: &str = r#"
+table 60870 "QX Num"
+{
+    fields { field(1; "No."; Integer) { } field(4; Grp; Code[10]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+query 60890 "QX Top Open"
+{
+    QueryType = Normal;
+    elements
+    {
+        dataitem(Num; "QX Num")
+        {
+            column(No; "No.") { }
+            filter(Grp; Grp) { }
+        }
+    }
+}
+codeunit 50100 C
+{
+    var Q: Query "QX Top Open";
+    procedure Seed()
+    var N: Record "QX Num"; i: Integer;
+    begin
+        for i := 1 to 5 do begin N."No." := i; N.Grp := 'A'; N.Insert(); end;
+    end;
+    procedure ReadAll() Rows: Text
+    begin
+        while Q.Read() do Rows += Format(Q.No) + ',';
+    end;
+    [TryFunction]
+    procedure TryTop(N: Integer)
+    begin
+        Q.TopNumberOfRows(N);
+    end;
+    [TryFunction]
+    procedure TryReadAll(var Rows: Text)
+    begin
+        Rows := ReadAll();
+    end;
+    procedure TryRead(): Text
+    var Rows: Text;
+    begin
+        if TryReadAll(Rows) then exit('Yes ' + Rows);
+        exit('No ' + GetLastErrorCode());
+    end;
+    // misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen.
+    procedure AroundOpen(): Text
+    var Seen: Text;
+    begin
+        Seed();
+        Q.Open();
+        Seen += Format(TryTop(2)) + ' ' + TryRead() + '|';
+        Q.Close();
+        Clear(Q);
+        Q.TopNumberOfRows(2);
+        Q.Open();
+        Seen += TryRead() + '|';
+        Clear(Q);
+        Q.Open();
+        Seen += Format(Q.Read()) + ' ' + Format(TryTop(1)) + ' ' + TryRead() + '|';
+        Q.Open();
+        exit(Seen + TryRead());
+    end;
+    // Writer TH: PnAQueryOpenRead.al TH_TopAfterEmptyOpen_ThenReopen (al-runner issue 6039).
+    procedure AfterEmptyOpen(): Text
+    var Seen: Text;
+    begin
+        Seed();
+        Q.SetRange(Grp, 'X');
+        Q.TopNumberOfRows(1);
+        Seen += Format(Q.Open()) + ' ' + Format(Q.Read()) + ' ';
+        Q.SetRange(Grp);
+        Seen += Format(TryTop(1)) + ' ' + Format(Q.TopNumberOfRows()) + ' ' + Format(Q.Open()) + ' ';
+        exit(Seen + TryRead());
+    end;
+    // Writer TH: TH_TopAfterFullRead_ThenReopen and TH_TopTwiceWhileOpen_LastValueCounts.
+    procedure AfterFullRead(): Text
+    var Seen: Text;
+    begin
+        Seed();
+        Q.Open();
+        Seen += ReadAll() + ' ' + Format(TryTop(2)) + ' ' + Format(Q.TopNumberOfRows()) + ' ' + Format(Q.Open()) + ' ' + TryRead() + '|';
+        Q.TopNumberOfRows(1);
+        Q.TopNumberOfRows(3);
+        Seen += TryRead() + ' ';
+        Q.Open();
+        exit(Seen + TryRead());
+    end;
+}
+"#;
+
+// misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290 PX_TopNumberOfRows_AroundOpen: TopNumberOfRows after Open (before or
+// after a Read) raises nothing, the next Read raises the metadata-changed error (code Query), and Open again takes the new top.
+#[test]
+fn top_number_of_rows_on_an_open_query_applies_to_the_next_open() {
+    al_builtins::assumptions::clear_hits();
+    let r = al_testkit::run_in(TOP_WHILE_OPEN, "C", "AroundOpen");
+    assert_eq!(text(r), "Yes No Query|Yes 1,2,|Yes Yes No Query|Yes 1,");
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
+}
+
+// Writer TH (al-runner issue 6039): the same on a query read to its end, under an assumption until the pin lands.
+#[test]
+fn top_number_of_rows_on_a_query_read_to_the_end_applies_to_the_next_open() {
+    al_builtins::assumptions::clear_hits();
+    let r = al_testkit::run_in(TOP_WHILE_OPEN, "C", "AfterEmptyOpen");
+    assert_eq!(text(r), "Yes No Yes 1 Yes Yes 1,");
+    let r = al_testkit::run_in(TOP_WHILE_OPEN, "C", "AfterFullRead");
+    assert_eq!(text(r), "1,2,3,4,5, Yes 2 Yes Yes 1,2,|No Query Yes 1,2,3,");
+    assert_eq!(
+        al_builtins::assumptions::take_hits(),
+        vec![al_builtins::assumptions::Assumption::QueryTopWhileOpenAfterLastRow]
+    );
+}

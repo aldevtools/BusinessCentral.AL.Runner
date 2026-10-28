@@ -82,7 +82,10 @@ pub(crate) enum TxWriteKind {
     Insert,
     Modify,
     Delete,
-    /// A ModifyAll, DeleteAll, Rename or Truncate: its own writes are not told apart.
+    /// A Rename of a row to another key, with no trigger write before it and no field that relates to the table (`pk` is the
+    /// old key).
+    Rename,
+    /// A ModifyAll, DeleteAll, Truncate or another Rename: its own writes are not told apart.
     Other,
 }
 

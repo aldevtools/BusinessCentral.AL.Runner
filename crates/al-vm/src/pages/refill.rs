@@ -54,7 +54,7 @@ impl Session {
     }
 
     /// The rows of the view from its start, up to `limit` of them.
-    fn view_rows(&mut self, rec: &Rec, limit: usize) -> Result<Vec<Vec<Value>>, Signal> {
+    pub(super) fn view_rows(&mut self, rec: &Rec, limit: usize) -> Result<Vec<Vec<Value>>, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         let mut rows = Vec::new();
         self.ret_used = true;
@@ -236,11 +236,25 @@ impl Session {
     /// The reads from row `at` of `rows` (the view from its start), then OnAfterGetCurrRecord on it; the client then holds the
     /// rows it read.
     fn read_refilled_rows(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, false)
+    }
+
+    /// A ListPart whose control's OnValidate ran `CurrPage.Update` (with or without `false`) on a Document host whose row did not
+    /// change, standing on a later row of its view than the first: it stays on that row. It reads from the row to the end of the
+    /// view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord
+    /// (writer TH, pages/lt-th-part-update-cursor/ThPartUpdateCursor.al:357 TH_Line2_UpdateTrue `R2 R3 R2 R1 R2 R2 C2`, :373
+    /// TH_Line2_UpdateFalse, :437 TH_Line3_UpdateFalse `R3 R2 R1 R3 R3 C3`, :453 TH_Walk_*; on branch al-runtime-rs-staging-pub-th,
+    /// assumption part-keeps-row-after-update-in-validate). `rows` is the view from its start, up to a window.
+    pub(super) fn read_part_rows_around(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, true)
+    }
+
+    fn read_refilled_rows_as(&mut self, st: &St, rows: &[Vec<Value>], at: usize, part: bool) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let before = self.xrec_before_move(st);
         let window_end = rows.len().min(at + Self::WINDOW);
         let mut held = Vec::new();
-        if at > 0 {
+        if at > 0 && !part {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         for r in &rows[at..window_end] {
@@ -258,7 +272,9 @@ impl Session {
             above.extend(held);
             held = above;
         }
-        self.read_refilled_row(st, &rec, &rows[at])?;
+        if !(part && at == 0 && window_end == 1) {
+            self.read_refilled_row(st, &rec, &rows[at])?;
+        }
         let current = self.read_refilled_row(st, &rec, &rows[at])?;
         let whole = rows.len() <= Self::WINDOW && held.len() == rows.len();
         {
