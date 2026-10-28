@@ -83,20 +83,86 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
 }
 
 /// UseDefaultNamespace = true without DefaultNamespace puts the port in BC's own default namespace
-/// (`urn:microsoft-dynamics-nav/xmlports/x<id>`, the export of xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290
-/// Item108_NamespaceRules). That port has a namespace, so the "root in a namespace is not found" pin of a port without one
-/// does not apply. Its import and export are not pinned: refused, both with and without the namespace on the root.
+/// `urn:microsoft-dynamics-nav/xmlports/x<id>` (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
+/// xmlport 89580). The import takes a root in that namespace, by default or by prefix; a root in another namespace or in none
+/// is not found; a child reset to no namespace fails the schema check.
+const UDN: &str = "UseDefaultNamespace = true;";
+const BC_NS: &str = "urn:microsoft-dynamics-nav/xmlports/x69942";
+
 #[test]
-fn use_default_namespace_without_default_namespace_is_refused() {
-    let p = "UseDefaultNamespace = true;";
+fn use_default_namespace_imports_a_root_in_bcs_namespace() {
+    assert_eq!(
+        import(
+            UDN,
+            &format!("<Root xmlns=\"{BC_NS}\"><R><Id>1</Id></R><R><Id>2</Id></R></Root>")
+        ),
+        Ok("2".into())
+    );
+    assert_eq!(
+        import(
+            UDN,
+            &format!("<p:Root xmlns:p=\"{BC_NS}\"><p:R><p:Id>1</p:Id></p:R></p:Root>")
+        ),
+        Ok("1".into())
+    );
+}
+
+#[test]
+fn use_default_namespace_does_not_find_a_root_elsewhere() {
     for doc in [
-        "<Root xmlns=\"urn:microsoft-dynamics-nav/xmlports/x69942\"><R><Id>1</Id></R></Root>",
+        "<Root xmlns=\"urn:other\"><R><Id>1</Id></R></Root>",
         "<Root><R><Id>1</Id></R></Root>",
+        "<Root xmlns=\"urn:microsoft-dynamics-nav/xmlports/x81085\"><R><Id>1</Id></R></Root>",
+    ] {
+        assert_eq!(import(UDN, doc), Err(NOT_FOUND.into()), "{doc}");
+    }
+}
+
+#[test]
+fn use_default_namespace_rejects_a_child_in_no_namespace() {
+    assert_eq!(
+        import(
+            UDN,
+            &format!("<Root xmlns=\"{BC_NS}\"><R xmlns=\"\"><Id>1</Id></R></Root>")
+        ),
+        Err(format!(
+            "Imported XML cannot validate with the schema: The element 'Root' in namespace '{BC_NS}' has invalid child element 'R'. \
+             List of possible elements expected: 'R' in namespace '{BC_NS}'.|XmlPortInvalidXml"
+        ))
+    );
+}
+
+#[test]
+fn use_default_namespace_exports_bcs_namespace_on_the_root() {
+    let src = src(UDN, "").replace(
+        "exit('');\n    end;",
+        "B.Data.CreateInStream(InS, TextEncoding::UTF16);\n        while not InS.EOS() do begin InS.ReadText(Line); R += Line + '|'; end;\n        exit(R);\n    end;",
+    ).replace(
+        "var B: Record \"XN Blob\" temporary; OutS: OutStream;\n",
+        "var B: Record \"XN Blob\" temporary; OutS: OutStream; InS: InStream; Line: Text; R: Text; Row: Record \"XN Row\";\n",
+    ).replace(
+        "B.Data.CreateOutStream(OutS);\n        Xmlport.Export",
+        "Row.Id := 1; Row.Insert(); B.Data.CreateOutStream(OutS);\n        Xmlport.Export",
+    );
+    assert_eq!(
+        al_testkit::text(run(&src, "Export")),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>|<Root xmlns=\"{BC_NS}\">|  <R>|    <Id>1</Id>|  </R>|</Root>|"
+        )
+    );
+}
+
+/// Shapes the corpus does not pin stay refused: an attribute, a Namespaces entry, a text format.
+#[test]
+fn use_default_namespace_refuses_unpinned_shapes() {
+    let doc = format!("<Root xmlns=\"{BC_NS}\"><R><Id>1</Id></R></Root>");
+    for p in [
+        "UseDefaultNamespace = true; Namespaces = p = 'urn:p';",
+        "UseDefaultNamespace = true; UseLax = true;",
     ] {
         assert!(
-            matches!(run(&src(p, doc), "Import"), Err(Signal::Unsupported(_))),
-            "{doc}"
+            matches!(run(&src(p, &doc), "Import"), Err(Signal::Unsupported(_))),
+            "{p}"
         );
     }
-    assert!(matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
 }

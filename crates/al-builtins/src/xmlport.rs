@@ -76,6 +76,27 @@ pub fn parse(text: &str) -> Result<Elem, ReadFailure> {
     }
 }
 
+/// What an import into a port whose elements are all in one namespace (`UseDefaultNamespace = true`) finds in a document.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InNamespace {
+    /// Every element is in the namespace; names are local and the declarations of that namespace are dropped.
+    Tree(Elem),
+    /// The root element is in another namespace or in none; its local name.
+    RootElsewhere(String),
+    /// The root is in the namespace and its first child element is in no namespace: the local names of both.
+    FirstChildInNone { root: String, child: String },
+}
+
+/// Reads the root element of `text` for a port whose elements are all in namespace `ns`.
+pub fn parse_in_namespace(text: &str, ns: &str) -> Result<InNamespace, ReadFailure> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    match crate::xml::read_tree_in(text, ns) {
+        Ok(Ok(e)) => Ok(e),
+        Ok(Err(message)) => Err(ReadFailure::Malformed(message)),
+        Err(why) => Err(ReadFailure::Unsupported(why)),
+    }
+}
+
 /// The document text as an export writes it: the declaration, a carriage return and a line feed, then the root with
 /// two spaces of indentation per level. An element without content is `<X />`; an element with
 /// text only is on one line (xmlport/TestXmlPortExportImportContracts.al:XmlPortExport_Document_FullText reads it line by line, which drops the CR; the lengths in xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al count it).
@@ -284,6 +305,46 @@ fn type_name(v: &Value) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_document_in_the_ports_namespace_reads_with_local_names() {
+        let ns = "urn:n";
+        let Ok(InNamespace::Tree(e)) = parse_in_namespace("<p:a xmlns:p=\"urn:n\"><p:b>1</p:b></p:a>", ns) else {
+            panic!()
+        };
+        assert_eq!((e.name.as_str(), e.attrs.len()), ("a", 0));
+        assert_eq!(e.elements().next().map(|b| b.name.as_str()), Some("b"));
+        assert!(matches!(
+            parse_in_namespace("<a xmlns=\"urn:n\"><b/></a>", ns),
+            Ok(InNamespace::Tree(_))
+        ));
+        assert_eq!(
+            parse_in_namespace("<a><b/></a>", ns),
+            Ok(InNamespace::RootElsewhere("a".into()))
+        );
+        assert_eq!(
+            parse_in_namespace("<a xmlns=\"urn:o\"/>", ns),
+            Ok(InNamespace::RootElsewhere("a".into()))
+        );
+        assert_eq!(
+            parse_in_namespace("<a xmlns=\"urn:n\"><b xmlns=\"\"/></a>", ns),
+            Ok(InNamespace::FirstChildInNone {
+                root: "a".into(),
+                child: "b".into()
+            })
+        );
+        // Not pinned: a later child elsewhere, an element in a third namespace, another namespace declared.
+        for doc in [
+            "<a xmlns=\"urn:n\"><b/><c xmlns=\"\"/></a>",
+            "<a xmlns=\"urn:n\"><b><c xmlns=\"urn:o\"/></b></a>",
+            "<a xmlns=\"urn:n\" xmlns:z=\"urn:z\"><b/></a>",
+        ] {
+            assert!(
+                matches!(parse_in_namespace(doc, ns), Err(ReadFailure::Unsupported(_))),
+                "{doc}"
+            );
+        }
+    }
 
     #[test]
     fn a_document_is_written_indented_with_a_declaration() {
