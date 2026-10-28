@@ -16,8 +16,10 @@ pub struct Manifest {
     pub application: Option<Version>,
     pub target: String,
     pub dependencies: Vec<DepDecl>,
-    /// `preprocessorSymbols` of the app's `app.json`, when the package is a source archive or
-    /// folder. A compiled package carries none: its publisher compiled it with its own.
+    /// The preprocessor symbols the app's code is compiled with: the `preprocessorSymbols` of its
+    /// `app.json` (a source archive or folder), or those alc recorded in `NavxManifest.xml` when it
+    /// compiled the package (`<PreprocessorSymbols><PreprocessorSymbol Name=".."/>`; alc writes the
+    /// app.json list there, in order, and defines no symbol of its own: al-runner issue 6048).
     pub preprocessor_symbols: Vec<String>,
 }
 
@@ -74,6 +76,8 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
     let mut manifest: Option<Manifest> = None;
     let mut in_dependencies = false;
     let mut dependencies = Vec::new();
+    let mut in_symbols = false;
+    let mut symbols = Vec::new();
     loop {
         match reader.read_event() {
             Err(e) => return Err(bad(e.to_string())),
@@ -104,14 +108,22 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
                         optional: false,
                     });
                 }
+                b"PreprocessorSymbols" => in_symbols = true,
+                b"PreprocessorSymbol" if in_symbols => {
+                    if let Some(n) = get(&attrs(&e)?, "Name").filter(|n| !n.is_empty()) {
+                        symbols.push(n);
+                    }
+                }
                 _ => {}
             },
             Ok(Event::End(e)) if e.name().as_ref() == b"Dependencies" => in_dependencies = false,
+            Ok(Event::End(e)) if e.name().as_ref() == b"PreprocessorSymbols" => in_symbols = false,
             Ok(_) => {}
         }
     }
     let mut m = manifest.ok_or_else(|| bad("no <App> element".into()))?;
     m.dependencies = dependencies;
+    m.preprocessor_symbols = symbols;
     Ok(m)
 }
 
@@ -716,6 +728,22 @@ mod tests {
         let e = read_info(&z).unwrap_err().to_string();
         assert!(e.contains("$(app_currentVersion)"), "{e}");
         assert!(Vars::for_build("27.5").is_none(), "a build has four parts");
+    }
+
+    /// al-runner issue 6048: alc records the app.json `preprocessorSymbols` in the manifest, in order.
+    #[test]
+    fn a_compiled_package_reports_the_preprocessor_symbols_of_its_manifest() {
+        let with = MANIFEST.replace(
+            "</Package>",
+            r#"<PreprocessorSymbols><PreprocessorSymbol Name="NEWBASE" /><PreprocessorSymbol Name="Second" /></PreprocessorSymbols><SuppressWarnings /></Package>"#,
+        );
+        assert_eq!(
+            parse_manifest(&with).unwrap().preprocessor_symbols,
+            vec!["NEWBASE".to_string(), "Second".to_string()]
+        );
+        let empty = MANIFEST.replace("</Package>", "<PreprocessorSymbols /></Package>");
+        assert!(parse_manifest(&empty).unwrap().preprocessor_symbols.is_empty());
+        assert!(parse_manifest(MANIFEST).unwrap().preprocessor_symbols.is_empty());
     }
 
     #[test]

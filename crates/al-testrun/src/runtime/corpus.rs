@@ -231,24 +231,41 @@ impl CorpusRuntime {
         let compile_started = std::time::Instant::now();
         // The compile cache holds the dependency apps, which come first in the program (ADR-022).
         // The caller's order is kept in `order` (program app -> caller app) for what it gets back.
-        let use_cache = opts.compile_cache.is_some()
-            && kinds.contains(&al_sema::AppKind::Dependency)
-            && std::env::var_os("AL_EAGER_DEPENDENCIES").is_none();
         let n_apps = apps.len();
+        // A dependency app that stands on a workspace app (directly or through another dependency app)
+        // cannot be cached: a layer is compiled without the workspace, so its references into the workspace
+        // app would be refused as outside the workspace (al-runner issue 6044). It is compiled with the
+        // workspace, after the cached dependency apps.
+        let on_workspace = dependency_apps_on_workspace(&apps, &kinds);
+        let use_cache = opts.compile_cache.is_some()
+            && (0..n_apps).any(|i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
+            && std::env::var_os("AL_EAGER_DEPENDENCIES").is_none();
+        // How many apps, from the first of the program, the compile cache holds.
+        let mut n_cached = 0;
         let (apps, mut kinds, manifests, suites_in, only, order) = if use_cache {
             // Dependency apps first, Microsoft's before the others (the layers of the compile
-            // cache follow this order), then the workspace's.
-            let deps: Vec<usize> = (0..n_apps)
-                .filter(|&i| kinds[i] == al_sema::AppKind::Dependency)
-                .collect();
-            let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
-            let dep_manifests: Vec<Manifest> = deps
-                .iter()
-                .map(|&i| manifests.get(i).cloned().unwrap_or_default())
-                .collect();
-            let order: Vec<usize> = crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
+            // cache follow this order), then the dependency apps that stand on a workspace app,
+            // then the workspace's.
+            let in_order = |deps: Vec<usize>| -> Vec<usize> {
+                let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
+                let dep_manifests: Vec<Manifest> = deps
+                    .iter()
+                    .map(|&i| manifests.get(i).cloned().unwrap_or_default())
+                    .collect();
+                crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
+                    .into_iter()
+                    .map(|k| deps[k])
+                    .collect()
+            };
+            let cached = in_order(
+                (0..n_apps)
+                    .filter(|&i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
+                    .collect(),
+            );
+            n_cached = cached.len();
+            let order: Vec<usize> = cached
                 .into_iter()
-                .map(|k| deps[k])
+                .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
                 .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
                 .collect();
             let mut new_of = vec![0; n_apps];
@@ -467,6 +484,7 @@ impl CorpusRuntime {
                     let (ws, lowered, report, layers) = compile_with_cache(
                         cc,
                         apps,
+                        n_cached,
                         kinds,
                         manifests,
                         symbols,
@@ -1810,6 +1828,39 @@ impl CorpusRuntime {
 
 /// What a baseline a warm server keeps over the test data of `engine` depends on (`baseline_cache::read_kept`): the
 /// test data and the program the rows read from it are built for.
+/// Which apps are dependency apps that depend on a workspace app, directly or through other dependency apps
+/// (al-runner issue 6044: a `--dep` app on a workspace app). Such an app cannot come from the compile cache, whose
+/// layers are compiled without the workspace apps.
+pub(crate) fn dependency_apps_on_workspace(
+    apps: &[al_sema::workspace::AppSource],
+    kinds: &[al_sema::AppKind],
+) -> Vec<bool> {
+    let is_dep = |i: usize| kinds.get(i) == Some(&al_sema::AppKind::Dependency);
+    let mut marked: Vec<bool> = vec![false; apps.len()];
+    let mut ids: Vec<String> = (0..apps.len())
+        .filter(|&i| !is_dep(i))
+        .map(|i| apps[i].id.to_ascii_lowercase())
+        .collect();
+    loop {
+        let next: Vec<usize> = (0..apps.len())
+            .filter(|&i| is_dep(i) && !marked[i])
+            .filter(|&i| {
+                apps[i]
+                    .dependencies
+                    .iter()
+                    .any(|d| ids.contains(&d.to_ascii_lowercase()))
+            })
+            .collect();
+        if next.is_empty() {
+            return marked;
+        }
+        for i in next {
+            marked[i] = true;
+            ids.push(apps[i].id.to_ascii_lowercase());
+        }
+    }
+}
+
 fn kept_backing(engine: &Engine) -> String {
     format!(
         "{:?} {:p}",

@@ -533,6 +533,64 @@ fn a_dependency_app_reads_its_own_packaged_resources() {
     assert!(t.contains("Tests: 1 total, 1 passed"), "{t}");
 }
 
+/// al-runner issue 6048: a compiled `.app` with source records the `preprocessorSymbols` its publisher compiled it
+/// with in `NavxManifest.xml` (`<PreprocessorSymbols><PreprocessorSymbol Name=".."/>`; alc writes exactly the
+/// app.json list there and defines no symbol of its own). Its code is compiled with those symbols, so `#if` takes the
+/// branch alc took.
+#[test]
+fn a_compiled_dependency_app_is_compiled_with_the_preprocessor_symbols_of_its_manifest() {
+    let d = tempfile::tempdir().unwrap();
+    let lib_id = "22222222-0000-0000-0000-000000000021";
+    let pkg = d.path().join("pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    let manifest = format!(
+        r#"<Package xmlns="http://schemas.microsoft.com/navx/2015/manifest">
+  <App Id="{lib_id}" Name="Pre Ext" Publisher="Test" Version="1.0.0.0" Runtime="17.0" Target="Cloud" ShowMyCode="False" />
+  <Dependencies />
+  <PreprocessorSymbols>
+    <PreprocessorSymbol Name="NEWBASE" />
+  </PreprocessorSymbols>
+  <SuppressWarnings />
+</Package>"#
+    );
+    std::fs::write(
+        pkg.join("Test_Pre Ext_1.0.0.0.app"),
+        zip(&[
+            ("NavxManifest.xml", &manifest),
+            (
+                "src/Ext.al",
+                "codeunit 50320 \"Pre Ext Value\" { procedure Value(): Integer begin\n#if NEWBASE\n exit(1);\n#else\n exit(2);\n#endif\n end; }",
+            ),
+        ]),
+    )
+    .unwrap();
+    let app = d.path().join("tests");
+    write(
+        &app,
+        "app.json",
+        &app_json(
+            "22222222-0000-0000-0000-000000000022",
+            "Pre Tests",
+            &[(lib_id, "Pre Ext")],
+        ),
+    );
+    write(
+        &app,
+        "T.Codeunit.al",
+        "codeunit 50321 \"Pre Tests\" { Subtype = Test; [Test] procedure UsesItsOwnSymbols() var V: Codeunit \"Pre Ext Value\"; begin if V.Value() <> 1 then Error('Value = %1', V.Value()); end; }",
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--dep",
+        pkg.to_str().unwrap(),
+        "--no-download",
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 0, "{t}");
+    assert!(t.contains("Tests: 1 total, 1 passed"), "{t}");
+}
+
 #[test]
 fn a_missing_dependency_refuses_the_tests_that_need_it_instead_of_failing_the_run() {
     let d = tempfile::tempdir().unwrap();
