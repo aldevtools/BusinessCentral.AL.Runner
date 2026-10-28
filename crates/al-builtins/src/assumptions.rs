@@ -681,6 +681,27 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
+    TextFnDecimalArgument => {
+        id: "text-fn-decimal-argument",
+        assumed: "A Decimal where PadStr, CopyStr, DelStr, InsStr or SelectStr takes an Integer: a whole value within the Integer range works as that Integer; a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value X to System.Int32.`, the arguments converted left to right. Pinned only by corpus writer TG's run on real BC (whole values 2 and 3, fractions 0.5 to 3.6 and -1.5). A whole value beyond the Integer range is refused.",
+        tests: "No Microsoft test: a partner app's receipt printing (PadStr with a Decimal width that was rounded down to a whole number).",
+        probe: "Done on writer TG's branch (corpus PR 771): the Decimal tests of text/lt-text-functions; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLen1",
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalFill1",
+                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLiteral",
+                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPosLen1",
+                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPosLen1",
+                "tests/al-language/text/lt-text-functions/InsStr.Codeunit.al::InsStrDecimalPos1",
+                "tests/al-language/text/lt-text-functions/SelectStr.Codeunit.al::SelectStrDecimalNum1",
+            ],
+            since: "2026-10-28",
+        },
+    },
 }
 
 thread_local! {
