@@ -3,7 +3,7 @@ title: "Continuous integration"
 weight: 80
 ---
 
-AL Runner needs no Docker, no SQL Server and no license, so it runs on an ordinary
+AL Runner runs without a BC service tier, Docker or SQL Server, so it runs on an ordinary
 hosted runner. Version 3 is an alpha. Use `--allow-not-run` so refused tests do not
 fail the job, and drop it when you want every test to run.
 

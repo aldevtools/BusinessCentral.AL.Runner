@@ -1,0 +1,4 @@
+# Paths tools/legal_guard.sh lets through, as "<check> <path>". Each entry needs a reason above it.
+
+# A retired research note under docs/history, kept as written.
+marker docs/history/dotnet-generic.md

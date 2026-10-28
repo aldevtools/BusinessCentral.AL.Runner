@@ -168,6 +168,7 @@ jobs:
           fi
           cp LICENSE stage/LICENSE
           cp release/README.txt stage/README.txt
+          cp NOTICE stage/NOTICE
           if [ "${{ matrix.ext }}" = zip ]; then
             (cd stage && 7z a -tzip "../dist/$name.zip" . > /dev/null)
           else

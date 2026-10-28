@@ -24,7 +24,7 @@
     <!-- pack.sh passes the release version (-p:Version=...). This default only marks a local build. -->
     <Version>0.0.0-local</Version>
     <Authors>Stefan Maron</Authors>
-    <Description>Runs the tests of Business Central AL apps without a BC server, Docker or SQL Server. Version 3 is a wrapper around the native al-runner binary, which is in the package for linux-x64, linux-arm64, osx-arm64 and win-x64.</Description>
+    <Description>Runs the tests of Business Central AL apps without a BC service tier, Docker or SQL Server. Version 3 is a wrapper around the native al-runner binary, which is in the package for linux-x64, linux-arm64, osx-arm64 and win-x64.</Description>
     <PackageTags>business-central;al;unit-test;runner</PackageTags>
     <PackageProjectUrl>https://aldev.tools/al-runner/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/aldevtools/BusinessCentral.AL.Runner</RepositoryUrl>
@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../NOTICE" Pack="true" PackagePath="/" />
     <None Include="README.md" Pack="true" PackagePath="/" />
     <!-- The binaries pack.sh unpacked: native/<rid>/al-runner[.exe]. They are published next to the
          wrapper, so they land in tools/net8.0/any/native/<rid>/ of the package. -->

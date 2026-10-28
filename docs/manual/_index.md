@@ -3,8 +3,7 @@ title: "AL Runner"
 weight: 1
 ---
 
-Run Business Central AL tests without a service tier, without Docker, without
-SQL Server and without a license.
+Run Business Central AL tests without a BC service tier, Docker or SQL Server.
 
 AL Runner reads your AL source with its own front end and runs it in its own
 virtual machine, against an in-memory database. Microsoft's apps (System

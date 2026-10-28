@@ -208,7 +208,7 @@ older.
 | CI-3 | Exit codes as a gate; `--no-strict-exit` | `README.md` | Partial | Exit codes work (OUT-9). Missing: `--no-strict-exit` (OUT-10). |
 | CI-4 | Cache artifacts between CI runs | `README.md` `AL_RUNNER_ARTIFACTS_ROOT` | Done | `--cache-dir` or `ALRUNNER_CACHE`; `--require-compile-cache`; `--affected-store` (`--help`; `docs/manual/ci.md`). |
 | CI-5 | AL-Go integration | none in v2 | N/A | v2 has none. |
-| CI-6 | Run without Docker, SQL or a license | `README.md` | Done | Microsoft's apps and demo data come from the artifact feed (`docs/manual/getting-started.md`). |
+| CI-6 | Run without a BC service tier, Docker or SQL Server | `README.md` | Done | Microsoft's apps and demo data come from the artifact feed (`docs/manual/getting-started.md`). |
 
 ## 9. Environment variables
 
