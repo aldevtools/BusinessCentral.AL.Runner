@@ -64,6 +64,13 @@ impl Session {
 
     pub(crate) fn http_send_impl(&mut self, request: HttpOutgoing) -> Result<TestHttpResponseState, Signal> {
         let policy = self.http_policy;
+        // After UseServerCertificateValidation only a request a handler answers is pinned (al-language-onprem/network/
+        // HttpClientAuthConfig.al:117-126): with no handler, or a relative path the handler never sees, it is refused.
+        if request.cert_validation_set && (!self.has_http_handler() || !request.url.contains("://")) {
+            return unsupported(
+                "a request of an HttpClient after UseServerCertificateValidation that no [HttpClientHandler] answers (not pinned)",
+            );
+        }
         // A bound handler is called under every policy, on every major: BC 29 asserted (al-language-onprem/session/PZHttpBlock.al:50,
         // :106; network/lt-ay-http-handler/AyHttpHandler.al and PyHttpPolicy.al, the BC29PLUS legs). Windows BC 27.5 and 28.5 give the
         // same values (Windows check 2026-10-22); the Linux images of 27 and 28 never call the handler (bc-linux issue 192), so the
@@ -132,6 +139,11 @@ impl Session {
             // Under BlockOutboundRequests the request may not go out: PZHttpBlock.al:131-155
             // (RS_PassOnHandler_ReturnsTrue_UnderBlockOutboundRequests, BC 29; the handler ran once). BC 27 and 28 are not measured
             // (the corpus discards those legs); refusing there would lose that baseline case, so they raise the same error.
+            Value::Boolean(true) if request.cert_validation_set => {
+                return unsupported(
+                    "an [HttpClientHandler] that lets the request of an HttpClient after UseServerCertificateValidation go out (not pinned)",
+                );
+            }
             Value::Boolean(true) if policy == Some("BlockOutboundRequests") => {
                 return raise(
                     "Explicit HTTP client handler fallthrough is not allowed when the TestHttpRequestPolicy property is set to 'BlockOutboundRequests'.",
