@@ -314,6 +314,35 @@ codeunit 69985 M
         exit(s + Format(TenantMedia.Get(First)));
     end;
 
+    // media/TestMediaPngImport.al TP_TenantMedia_Delete (corpus branch al-runtime-rs-staging-pub-tp).
+    procedure DeleteTenantMedia(): Text
+    var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; Id: Guid; outs: OutStream; s: Text;
+    begin
+        Row.Id := 1; Row.Insert(); Import(Row, 'one'); Row.Modify();
+        Row.Get(1);
+        Id := Row.Pic.MediaId();
+        s := Format(TenantMedia.Get(Id)) + Format(TenantMedia.Delete()) + Format(TenantMedia.Get(Id));
+        Row.Get(1);
+        Row.Src.CreateOutStream(outs);
+        s += Format(Row.Pic.HasValue()) + Format(Row.Pic.MediaId() = Id) + Format(Row.Pic.ExportStream(outs));
+        TenantMedia.Init();
+        TenantMedia.ID := CreateGuid();
+        exit(s + Format(TenantMedia.Delete()));
+    end;
+
+    // Delete(true) of a Tenant Media row that exists, the return value unused (assumption tenant-media-delete).
+    procedure DeleteTenantMediaRunTrigger(): Text
+    var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; Id: Guid;
+    begin
+        Row.Id := 1; Row.Insert(); Import(Row, 'one'); Row.Modify();
+        Row.Get(1);
+        Id := Row.Pic.MediaId();
+        if TenantMedia.Get(Id) then
+            TenantMedia.Delete(true);
+        Row.Get(1);
+        exit(Format(TenantMedia.Get(Id)) + Format(Row.Pic.HasValue()));
+    end;
+
     // A rollback brings back the Tenant Media row a Delete removed, with the row.
     procedure DeleteThenRollback(): Text
     var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; First: Guid;
@@ -362,6 +391,22 @@ codeunit 69985 M
 #[test]
 fn a_shared_media_stays_until_its_last_row_goes() {
     assert_eq!(text(al_testkit::run_in(MEDIA, "M", "SharedReplace")), "YesYesYesNo");
+}
+
+#[test]
+fn a_delete_of_a_tenant_media_row_takes_the_value_from_its_holder() {
+    assert_eq!(
+        text(al_testkit::run_in(MEDIA, "M", "DeleteTenantMedia")),
+        "YesYesNoNoYesNoNo"
+    );
+}
+
+#[test]
+fn a_delete_with_run_trigger_of_an_existing_tenant_media_row_removes_it() {
+    assert_eq!(
+        text(al_testkit::run_in(MEDIA, "M", "DeleteTenantMediaRunTrigger")),
+        "NoNo"
+    );
 }
 
 #[test]

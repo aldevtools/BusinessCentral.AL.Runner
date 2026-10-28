@@ -815,6 +815,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    TenantMediaDelete => {
+        id: "tenant-media-delete",
+        assumed: "Delete() of a Tenant Media row, its return value used: the media leaves Tenant Media and Delete returns true, the row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false without an error. Pinned only by corpus writer TP's run on real BC (BC containers; a SaaS sandbox refuses the Delete for license reasons). Also assumed: `Delete(true)` and a Delete whose return value is unused do the same on a row that exists (Tenant Media has no trigger code; the pin uses `Delete()` with its return value).",
+        tests: "No Microsoft test: a partner app's tests (a cleanup that deletes the Tenant Media row of a picture).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): media/TestMediaPngImport.al TP_TenantMedia_Delete; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/media/TestMediaPngImport.al::TP_TenantMedia_Delete"],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
