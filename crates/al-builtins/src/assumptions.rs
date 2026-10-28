@@ -793,6 +793,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    Utf8ReadNonAsciiUnterminated => {
+        id: "utf-eight-read-non-ascii-unterminated",
+        assumed: "InStream.Read into a Text on a UTF-8 stream of non-ASCII characters with no zero byte after them reads them to the end and counts their bytes plus one, as for ASCII (`wörld` gives 7). Pinned only by corpus writer TO's run on real BC.",
+        tests: "No Microsoft test: a partner app's report tests read a UTF-8 stream of non-ASCII text.",
+        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): PnE04Streams.al TO_ReadText_NonAscii_NoTerminator; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-probes-needed-5/PnE04Streams.al::TO_ReadText_NonAscii_NoTerminator"],
+            since: "2026-10-28",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
