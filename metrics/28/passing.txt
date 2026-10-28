@@ -3139,6 +3139,7 @@
 60775 PartialLoad_FilteredFields_AreForceLoaded
 60775 PartialLoad_ReadOmittedField_JitLoadsRealValue
 60775 PartialLoad_SetLoadFieldsNoArgs_ResetsToFullLoad
+60775 PartialLoad_SetLoadFields_UnknownFieldNo_Throws
 60777 RecordLinkManagement_CopyLinks_CopiesTheSourceRowsAndLeavesOthersAlone
 60777 RecordLinkManagement_CopyLinks_IsVisibleToHasLinksOnTheTarget
 60777 RecordLinkManagement_CopyLinks_SourceOntoItself_DoesNotDuplicateTheRows
@@ -5008,6 +5009,7 @@
 68056 PartialRecords_RecordLoadFields
 68056 PartialRecords_SetBaseLoadFieldsOnAPartialRecord
 68056 PartialRecords_SetBaseLoadFieldsWithoutSetLoadFields
+68056 PartialRecords_UnknownFieldNumber
 68056 RecordRef_SystemIdFieldAndHiddenKey
 68056 RemovedField_GeneralLedgerSetupField110
 68056 RemovedField_InRecordRef
@@ -10343,6 +10345,8 @@
 72054 Rename_SameVariable_SeesGlobalsOfInsert
 72054 Rename_TriggerSeesIdAndXRec
 72056 Counts_AndExistence
+72056 FieldByIndex
+72056 FieldByNumber
 72056 Row_ReadThroughRecordAndRecordRef
 72058 NonTempCrm_ForComparison_NoConnection
 72058 TempCrm_InitResetDeleteAllCount
@@ -10933,7 +10937,14 @@
 72693 Guid_To_Text_BadText_Errors
 72693 List_Of_Text_Add_Guid_And_Dict_Of_Guid
 72693 Text_To_Guid_RoundTrip
+72697 BM_OpenVariantArgument
+72697 P107_FieldByName
+72697 P107_FieldExistByName
 72697 P107_IsDirty
+72697 P107_LoadFields
+72697 P107_SetTableShare
+72697 P107_SetTableShareTemporary
+72697 P107_SetTableWrongTable
 72698 P107_CopyLinksTemporary
 72700 P107_DictionarySetOld
 72700 P107_DictionarySetOldText
@@ -11254,6 +11265,7 @@
 73020 Open_TemporaryFalse_ExplicitCompany
 73021 FieldExist_Cases
 73021 Field_Active_Flags
+73021 Field_Invalid_Numbers
 73021 KeyRef_Record
 73021 Keys_Basics
 73021 Keys_Order_Of_Iteration
