@@ -1175,13 +1175,34 @@ impl Session {
         // (platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
         // A text attribute of the root text element without `Occurrence` is required too
         // (xmlport/lt-xmlport-query-datatransfer/XpTImportOptions.al:282 Import_TextElementsMissingAttribute, xmlport 73421).
+        // So is a text attribute without `Occurrence` of a text element right below a table element in a pinned shape
+        // (`text_in_table`; QrXpContainerOccurs.al TO_AttrItem_Trigger_Import `attribute missing`, TO_TextContent_Import
+        // `no kind`, on branch al-runtime-rs-staging-pub-to); beside a field attribute it is not pinned.
         let root_text = schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text;
+        let in_table = text_in_table(schema, node).is_some();
+        let lacks = |n: &ir::XmlNode| !elem.attrs.iter().any(|(name, _)| *name == n.xml_name);
+        let below_table = schema.node(node).kind == ir::XmlNodeKind::Text
+            && schema
+                .node(node)
+                .parent
+                .is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+        if below_table && !in_table {
+            let unpinned = schema.children(node).into_iter().any(|a| {
+                let n = schema.node(a);
+                n.kind == ir::XmlNodeKind::TextAttr && n.required.is_none() && lacks(n)
+            });
+            if unpinned {
+                return unsupported(
+                    "XmlPort import of a text element below a table element without a text attribute that has no Occurrence, beside a field attribute (not pinned)",
+                );
+            }
+        }
         let missing = schema.children(node).into_iter().find(|&a| {
             let n = schema.node(a);
             ((n.kind == ir::XmlNodeKind::FieldAttr && n.required != Some(false))
                 || (n.kind == ir::XmlNodeKind::TextAttr
-                    && (n.required == Some(true) || (n.required.is_none() && root_text))))
-                && !elem.attrs.iter().any(|(name, _)| *name == n.xml_name)
+                    && (n.required == Some(true) || (n.required.is_none() && (root_text || in_table)))))
+                && lacks(n)
         });
         // A declaration of a namespace of the port is no attribute (YXmlPortProps.al:NodeProperties_Import_NamesPrefixes).
         let declares_ns = |name: &str, value: &str| {
@@ -1954,9 +1975,19 @@ impl Session {
                         return Ok(());
                     }
                 }
+                ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTextInTable);
+                    self.xp_import_text_in_table(inst, schema, child, ce, &mut assigned)?;
+                }
                 // A text element holding only attributes, of the row's fields or its own (xmlport/lt-sg-xmlport-occurs/
                 // SgXmlPortOccurs.al:114-175 SG_AttrBelowText_Import*): its attributes are read into the row as the row's own.
+                // Its own text and elements below it, beside a field attribute, are not pinned.
                 ir::XmlNodeKind::Text if attr_container(schema, child) => {
+                    if !ce.text().is_empty() || ce.elements().next().is_some() {
+                        return unsupported(
+                            "XmlPort import of a text element with a field attribute and its own text or elements below a table element (not pinned)",
+                        );
+                    }
                     self.xp_import_attrs(inst, schema, child, ce, Some(&mut assigned))?;
                 }
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
@@ -1990,6 +2021,59 @@ impl Session {
             self.xp_save_record(inst, schema, node, &assigned, true)?;
         }
         Ok(())
+    }
+
+    /// A text element right below a table element in a pinned shape (`text_in_table`): its attributes, then the elements below
+    /// it, then its own text with its OnAfterAssignVariable (QrXpContainerOccurs.al TO_AttrItem_Trigger_Import log
+    /// `init;no=R1;attr=1;item=REQ;before insert ...`, TO_TextContent_Import `kind=k1;name=N1;sub=s1;info=;`, and
+    /// TO_TextContent_Import_Shapes `info=T` for `<info kind="k1">T<name>..`, on branch al-runtime-rs-staging-pub-to). An element
+    /// below a text-only one fails the schema check (TO_AttrItem_Trigger_Import_Missing `child element`), pinned with every
+    /// attribute present.
+    fn xp_import_text_in_table(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        elem: &Elem,
+        assigned: &mut Vec<usize>,
+    ) -> Result<(), Signal> {
+        let shape = text_in_table(schema, node).expect("checked by the caller");
+        if shape == TextInTable::Attrs
+            && let Some(x) = elem.elements().next()
+        {
+            let declared: Vec<&str> = schema
+                .children(node)
+                .into_iter()
+                .map(|a| schema.node(a).xml_name.as_str())
+                .collect();
+            let exact = elem.attrs.len() == declared.len()
+                && declared.iter().all(|d| elem.attrs.iter().any(|(name, _)| name == d));
+            if !exact {
+                return unsupported(
+                    "XmlPort import of an element below a text-only element that also lacks or adds an attribute (which error wins is not pinned)",
+                );
+            }
+            return Err(schema_error(format!(
+                "The element '{}' cannot contain child element '{}' because the parent element's content model is text only.",
+                schema.node(node).xml_name,
+                x.name
+            )));
+        }
+        self.xp_import_attrs(inst, schema, node, elem, Some(assigned))?;
+        if shape == TextInTable::Content {
+            let mut seq = Sequence::new(schema, node);
+            for ce in elem.elements() {
+                let Some(child) = seq.accept(schema, ce)? else {
+                    continue;
+                };
+                match schema.node(child).kind {
+                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                    _ => self.xp_assign_variable(inst, schema, child, ce.text())?,
+                }
+            }
+            seq.finish(schema)?;
+        }
+        self.xp_assign_variable(inst, schema, node, elem.text())
     }
 
     /// A container text element inside a table element that holds only table elements linked to it
@@ -2756,8 +2840,42 @@ impl Session {
                     e.children.push(Node::Text(v));
                     out.children.push(Node::Elem(e));
                 }
+                // A text element right below a table element in a pinned shape (`text_in_table`): its OnBeforePassVariable runs
+                // before its attributes', its text follows its attributes and an empty text leaves the element empty
+                // (QrXpContainerOccurs.al TO_AttrItem_Trigger_Export, TO_AttrItem_Plain_Export on branch al-runtime-rs-staging-pub-to);
+                // with elements below it, its OnBeforePassVariable runs first and then its attributes and elements
+                // (TO_TextContent_Export). Its own text next to elements below it is not pinned.
+                ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTextInTable);
+                    let text = got!(self.xp_pass_variable(inst, schema, child));
+                    if !text.is_empty() && text_in_table(schema, child) == Some(TextInTable::Content) {
+                        return unsupported(
+                            "XmlPort export of a text element below a table element with both its own text and elements below it (not pinned)",
+                        );
+                    }
+                    let mut e = Elem::new(&c.xml_name);
+                    let r = self.xp_export_content(inst, schema, child, &mut e);
+                    if !text.is_empty() {
+                        e.children.push(Node::Text(text));
+                    }
+                    out.children.push(Node::Elem(e));
+                    r?;
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 // A text element holding only attributes below a table element is written as any container (xmlport/
-                // lt-sg-xmlport-occurs/SgXmlPortOccurs.al:78-110 SG_AttrBelowText_Export_*).
+                // lt-sg-xmlport-occurs/SgXmlPortOccurs.al:78-110 SG_AttrBelowText_Export_*). Its own text beside a field
+                // attribute is not pinned.
+                ir::XmlNodeKind::Text
+                    if schema.node(node).kind == ir::XmlNodeKind::Table
+                        && attr_container(schema, child)
+                        && !self.xp_pass_variable(inst, schema, child)?.is_empty() =>
+                {
+                    return unsupported(
+                        "XmlPort export of a text element with a field attribute and its own text below a table element (not pinned)",
+                    );
+                }
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
@@ -3374,6 +3492,36 @@ fn export_triggers_below(schema: &Schema, node: usize) -> bool {
             .children(node)
             .into_iter()
             .any(|c| export_triggers_below(schema, c))
+}
+
+/// The two shapes of a text element right below a table element that the corpus pins with its triggers and text
+/// (assumption `xmlport-text-in-table`; corpus branch al-runtime-rs-staging-pub-to,
+/// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*, objects
+/// ToXpTextInTableObjects.al xmlports 90001-90003; the same test as al-sema xmlports.rs `text_in_table_shape`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TextInTable {
+    /// Its nodes are only text attributes (xmlports 90001, 90002): `<item option_value="1">REQUIRED</item>`.
+    Attrs,
+    /// Text attributes and leaf text and field elements, at least one element (xmlport 90003).
+    Content,
+}
+
+fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    let below_table = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
+    if n.kind != ir::XmlNodeKind::Text || !below_table || kids.is_empty() {
+        return None;
+    }
+    let mut elements = false;
+    for &k in &kids {
+        match schema.node(k).kind {
+            ir::XmlNodeKind::TextAttr => {}
+            ir::XmlNodeKind::Text | ir::XmlNodeKind::Field if schema.children(k).is_empty() => elements = true,
+            _ => return None,
+        }
+    }
+    Some(if elements { TextInTable::Content } else { TextInTable::Attrs })
 }
 
 /// A text element without triggers whose nodes are all attributes (at least one).
