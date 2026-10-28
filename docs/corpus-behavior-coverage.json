@@ -16279,7 +16279,7 @@
         "code": "ALSystemString",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 543,
+        "line": 575,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Text.al:113",
         "template": "Incorrect use of the where parameter."
@@ -16288,7 +16288,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 586,
+        "line": 618,
         "pinned": true,
         "site": "text/TestProbeTextDateFormatContracts.al:1093",
         "template": "The result of incrementing cannot be negative."
@@ -16297,7 +16297,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 901,
+        "line": 933,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16306,7 +16306,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
-        "line": 1034,
+        "line": 1066,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
