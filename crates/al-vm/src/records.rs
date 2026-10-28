@@ -785,7 +785,7 @@ impl Session {
                 .map_err(|e| Signal::Unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
-                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs)?;
+                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
                 if verdict != StaleVerdict::Fresh {
                     let mut hooks = run && self.table_trigger(t, "OnDelete").is_some();
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {
@@ -877,6 +877,7 @@ impl Session {
                 }
             }
         };
+        let before = self.store.change_counter();
         match self
             .store_for(rec)
             .delete(&cx, t, &pk)
@@ -884,6 +885,7 @@ impl Session {
         {
             WriteOutcome::Done => {
                 self.deletes += 1;
+                self.note_write(rec, t, crate::state::TxWriteKind::Delete, &pk, before);
                 for (i, g) in media {
                     self.release_media(&cx, t, i, g)?;
                 }
@@ -1243,6 +1245,42 @@ impl Session {
     /// Every write gets a new, increasing SystemRowVersion.
     /// Returns the previous value, so a refused write can give it back
     /// (record/TestRefusedWriteRowVersion.al).
+    /// Records a Record write to the database store (not a temporary table's) for `stale_verdict`; `before` is the store's
+    /// change counter before the write.
+    fn note_write(&mut self, rec: &Rec, t: &TableDef, kind: crate::state::TxWriteKind, pk: &[Value], before: u64) {
+        if rec.borrow().temporary {
+            return;
+        }
+        let company = rec.borrow().company.clone();
+        self.tx.writes.push(crate::state::TxWrite {
+            table: t.object,
+            company,
+            kind,
+            pk: pk.to_vec(),
+            before,
+            after: self.store.change_counter(),
+        });
+    }
+
+    /// Records a ModifyAll, DeleteAll, Rename or Truncate of a database table: `stale_verdict` does not tell its writes apart.
+    pub(crate) fn note_other_write(&mut self, rec: &Rec, t: &TableDef) {
+        let now = self.store.change_counter();
+        self.note_write(rec, t, crate::state::TxWriteKind::Other, &[], now);
+    }
+
+    /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.writes`: the
+    /// counters chain from the Commit's to the store's current one.
+    fn writes_all_noted(&self) -> bool {
+        let mut at = self.tx.commit_counter;
+        for w in &self.tx.writes {
+            if w.before != at {
+                return false;
+            }
+            at = w.after;
+        }
+        at == self.store.change_counter()
+    }
+
     /// The error of a write through a stale buffer (record/TestRecordStaleBufferWrite.al).
     fn record_changed(&self, t: &TableDef, rec: &Rec) -> Result<Signal, Signal> {
         let identification = self.identification(t, &rec.borrow().fields)?;
@@ -1272,7 +1310,8 @@ impl Session {
     /// buffer read by Get, with no own write since, is refused whatever the new transaction did (:604, :623, :642). Not pinned, refused: other contact
     /// with the table in the new transaction (another write, another lock, a rollback), an Insert buffer older than one
     /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
-    /// under the assumption stale-buffer-other-origin-written.
+    /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
+    /// decided under the assumption stale-own-insert-lock-other-or-other-row-write.
     fn stale_verdict(
         &mut self,
         t: &TableDef,
@@ -1280,6 +1319,7 @@ impl Session {
         cx: &al_data::AccessContext,
         pk: &[Value],
         theirs: i64,
+        deleting: bool,
     ) -> Result<StaleVerdict, Signal> {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) else {
             return Ok(StaleVerdict::Fresh);
@@ -1357,6 +1397,19 @@ impl Session {
                 }
                 Ok(StaleVerdict::Refused)
             }
+            // Two or three Commits after the buffer's own write, in the three shapes of the reporter's real-BC repro of al-runner
+            // issue 6028 (assumption `stale-own-insert-lock-other-or-other-row-write`, awaiting writer TE's pins in
+            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al). Every other mix is refused below.
+            Some(o)
+                if o.own_write && !touched && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_some() =>
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::StaleOwnInsertLockOtherOrOtherRowWrite,
+                );
+                Ok(self
+                    .stale_6028_shape(t, &company, pk, o.commits, deleting)
+                    .expect("checked"))
+            }
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name
@@ -1369,6 +1422,62 @@ impl Session {
                 Ok(StaleVerdict::Written)
             }
             None => Ok(StaleVerdict::Refused),
+        }
+    }
+
+    /// The verdict on a stale buffer from the variable's own write `commits` Commits into the session, when the new
+    /// transaction has one of the three shapes al-runner issue 6028 measured on real BC 28.5 (reporter's repro, 3/3 green):
+    /// - two Commits later, LockTable on other tables only, Inserts into those tables only and a FindSet of the buffer's table:
+    ///   a Modify raises DB:RecordChanged (the text of record/TestRecordStaleBufferWrite.al);
+    /// - three Commits later, Modifies of other rows of the table as the only writes: a Modify writes the whole buffer;
+    /// - three Commits later, Deletes of other rows of the table as the only writes: a Delete deletes the row.
+    ///
+    /// Each needs no rollback, no lock from a ReadIsolation or a RecordRef and no write left out of `tx.writes`. `None` for
+    /// anything else.
+    fn stale_6028_shape(
+        &self,
+        t: &TableDef,
+        company: &Option<String>,
+        pk: &[Value],
+        commits: u64,
+        deleting: bool,
+    ) -> Option<StaleVerdict> {
+        let tx = &self.tx;
+        if tx.rolled_back
+            || tx.lock_unpinned.is_some()
+            || tx.isolation_lock
+            || tx.writes.is_empty()
+            || !self.writes_all_noted()
+        {
+            return None;
+        }
+        let same_key = |k: &[Value]| {
+            k.len() == pk.len()
+                && k.iter()
+                    .zip(pk)
+                    .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
+        };
+        let other_rows_only = |kind: crate::state::TxWriteKind| {
+            tx.writes
+                .iter()
+                .all(|w| w.kind == kind && w.table == t.object && w.company == *company && !same_key(&w.pk))
+        };
+        if commits + 2 == self.commits {
+            let locked_others = tx.lock_tx && !tx.locked_tables.is_empty() && !tx.locked_tables.contains(&t.object);
+            let inserts_into_locked = tx
+                .writes
+                .iter()
+                .all(|w| w.kind == crate::state::TxWriteKind::Insert && tx.locked_tables.contains(&w.table));
+            let read = tx.find_set_tables.iter().any(|(o, c)| *o == t.object && c == company);
+            return (!deleting && locked_others && inserts_into_locked && read).then_some(StaleVerdict::Refused);
+        }
+        if commits + 3 != self.commits || tx.lock_tx || !tx.locked_tables.is_empty() {
+            return None;
+        }
+        match deleting {
+            false if other_rows_only(crate::state::TxWriteKind::Modify) => Some(StaleVerdict::Written),
+            true if other_rows_only(crate::state::TxWriteKind::Delete) => Some(StaleVerdict::Written),
+            _ => None,
         }
     }
 
@@ -2799,7 +2908,8 @@ impl Session {
             // reads under a locking isolation are not pinned; a ReadUncommitted read opens none under an assumption.
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
-                    self.tx.lock_tx = true
+                    self.tx.lock_tx = true;
+                    self.tx.isolation_lock = true;
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
                     self.tx.lock_unpinned =
@@ -2807,6 +2917,12 @@ impl Session {
                 }
                 ISOLATION_READ_UNCOMMITTED => self.tx.read_uncommitted_read = true,
                 _ => {}
+            }
+            if method == RecordOp::FindSet {
+                let key = (t.object, rec.borrow().company.clone());
+                if !self.tx.find_set_tables.contains(&key) {
+                    self.tx.find_set_tables.push(key);
+                }
             }
         }
         match method {
@@ -3073,12 +3189,15 @@ impl Session {
                     return Ok(Value::Boolean(true));
                 }
                 Self::mark_blobs_inserted(rec, &stored, true);
+                let before = self.store.change_counter();
                 match self
                     .store_for(rec)
                     .insert(&cx, &t, stored.clone())
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
+                        let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
+                        self.note_write(rec, &t, crate::state::TxWriteKind::Insert, &pk, before);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
@@ -3215,7 +3334,7 @@ impl Session {
                 if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs))? == StaleVerdict::Refused {
+                    if self.stale_verdict(&t, rec, &cx, &pk, version(&theirs), false)? == StaleVerdict::Refused {
                         return Err(self.record_changed(&t, rec)?);
                     }
                     // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
@@ -3372,12 +3491,14 @@ impl Session {
                     return unsupported("a Modify of a value its SQL column cannot hold (not pinned)");
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
+                let before = self.store.change_counter();
                 match self
                     .store_for(rec)
                     .modify(&cx, &t, stored.clone())
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     WriteOutcome::Done => {
+                        self.note_write(rec, &t, crate::state::TxWriteKind::Modify, &pk, before);
                         Self::clear_blob_written(rec);
                         if !rec.borrow().temporary {
                             let image = rec.borrow().fields.clone();
@@ -3458,6 +3579,7 @@ impl Session {
                 self.delete_row(&t, rec, run)
             }
             RecordOp::DeleteAll => {
+                self.note_other_write(rec, &t);
                 let run = arg_bool(args, 0)?;
                 // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
                 self.tenant_license_state_refuses(&t, "delete")?;
@@ -4464,6 +4586,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Rename => {
+                self.note_other_write(rec, &t);
                 // Fields that relate to this table follow the rename; a temporary record has none.
                 let refs = if rec.borrow().temporary {
                     Vec::new()
@@ -4680,7 +4803,10 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => self.truncate(&t, rec, arg_bool(args, 0)?),
+            RecordOp::Truncate => {
+                self.note_other_write(rec, &t);
+                self.truncate(&t, rec, arg_bool(args, 0)?)
+            }
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields

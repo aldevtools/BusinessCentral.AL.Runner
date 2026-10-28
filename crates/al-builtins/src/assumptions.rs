@@ -641,6 +641,21 @@ registry! {
         tests: "No Microsoft test: a partner app's tests (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order).",
         probe: "The SH_OwnModify_ tests of SbStaleOwnModify.al with an own Insert only, with a Modify of another row beside the Insert, and with three Commits.",
     },
+    StaleOwnInsertLockOtherOrOtherRowWrite => {
+        id: "stale-own-insert-lock-other-or-other-row-write",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC 28.5; every other count of Commits, write mix or lock is refused.",
+        tests: "No Microsoft test: al-runner issue 6028, the reporter's run on a real BC 28.5 container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
+        probe: "The TE_ tests of SbStaleOwnModify.al: 1, 2 and 3 Commits, crossed with LockTable on another table with an Insert and a read, LockTable only, LockTable on the same table, Modify, Delete, Insert or Rename of another row, for a stale Modify and a stale Delete. Corpus writer TE (branch al-runtime-rs-staging-te).",
+        awaiting: Awaiting {
+            issues: &[6028],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_2C_LockOtherInsertRead_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_ModifyOtherRow_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_DeleteOtherRow_StaleDelete",
+            ],
+            since: "2026-10-28",
+        },
+    },
     ViewBlankDateFilter => {
         id: "view-blank-date-filter",
         assumed: "A view property's condition `filter('')` on a Date field (an action's RunPageView, a part's SourceTableView or SubPageView, a report's or XMLport's view) selects the blank date, as a top-level page's SourceTableView does (pages/lt-cd-testpage-leads/CdTestPageLeads.al:842 SH_SourceTableView_DateFilterBlank_Rows) and `filter('')` of a TableRelation or CalcFormula selects the blank value (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al).",

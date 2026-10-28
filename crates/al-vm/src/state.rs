@@ -30,6 +30,15 @@ pub(crate) struct TxState {
     pub(crate) tables_inserted: Vec<(u32, Option<String>)>,
     /// The tables a `Record.LockTable` locked since the last Commit or rollback.
     pub(crate) locked_tables: Vec<u32>,
+    /// The database store's change counter when the last Commit or rollback ran: with `writes` it tells whether every write
+    /// since was a Record Insert, Modify or Delete (`Session::stale_verdict`, al-runner issue 6028).
+    pub(crate) commit_counter: u64,
+    /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
+    pub(crate) writes: Vec<TxWrite>,
+    /// The tables (table object, company) a Record FindSet read since the last Commit or rollback (`Session::stale_verdict`).
+    pub(crate) find_set_tables: Vec<(u32, Option<String>)>,
+    /// A locking ReadIsolation (a FindFirst under RepeatableRead or UpdLock) set `lock_tx` in the open transaction.
+    pub(crate) isolation_lock: bool,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
@@ -67,6 +76,27 @@ pub(crate) struct TxState {
     pub(crate) read_uncommitted_read: bool,
 }
 
+/// What kind of Record write a [`TxWrite`] was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TxWriteKind {
+    Insert,
+    Modify,
+    Delete,
+    /// A ModifyAll, DeleteAll, Rename or Truncate: its own writes are not told apart.
+    Other,
+}
+
+/// One Record write to the database store: the store's change counter before and after it.
+#[derive(Clone, Debug)]
+pub(crate) struct TxWrite {
+    pub(crate) table: u32,
+    pub(crate) company: Option<String>,
+    pub(crate) kind: TxWriteKind,
+    pub(crate) pk: Vec<Value>,
+    pub(crate) before: u64,
+    pub(crate) after: u64,
+}
+
 impl TxState {
     /// The transaction state of a session that has just started: no transaction, nothing locked.
     pub(crate) fn fresh() -> TxState {
@@ -81,6 +111,10 @@ impl TxState {
             rows_touched: Vec::new(),
             tables_inserted: Vec::new(),
             locked_tables: Vec::new(),
+            commit_counter: 0,
+            writes: Vec::new(),
+            find_set_tables: Vec::new(),
+            isolation_lock: false,
             rolled_back: false,
             last_commit_wrote: false,
             deferred_insert: None,
