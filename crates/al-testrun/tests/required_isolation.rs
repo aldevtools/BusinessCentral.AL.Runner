@@ -243,7 +243,7 @@ codeunit 50650 "DOnRun"
     Subtype = Test;
     RequiredTestIsolation = Disabled;
     var Rows: Codeunit "Rows";
-    [Test] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); SerialNumber(); end;
+    [Test] procedure D1() var R: Record "Row"; begin R.K := 'X'; R.Insert(); Debugger.Deactivate(); end;
 }
 codeunit 50651 "Reader"
 {
@@ -259,7 +259,7 @@ codeunit 50652 "Unrelated"
 "#,
         true,
     );
-    assert!(not_run(outcome(&o, "D1"), "SerialNumber"), "{o:?}");
+    assert!(not_run(outcome(&o, "D1"), "Debugger"), "{o:?}");
     assert!(not_run(outcome(&o, "R1"), "was"), "{o:?}");
     assert_eq!(outcome(&o, "U1"), &Outcome::Pass, "{o:?}");
     let o = run(

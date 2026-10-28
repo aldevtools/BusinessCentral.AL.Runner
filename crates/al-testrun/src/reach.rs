@@ -537,10 +537,10 @@ mod tests {
     fn the_refused_routines_a_root_reaches_are_listed_by_reason() {
         let src = r#"
 codeunit 50130 "Build" { trigger OnRun() begin A(); B(); end;
-  local procedure A() begin SerialNumber(); end;
+  local procedure A() begin Debugger.Deactivate(); end;
   local procedure B() begin C(); end;
-  local procedure C() begin SerialNumber(); end; }
-codeunit 50131 "Other" { trigger OnRun() begin SerialNumber(); end; }
+  local procedure C() begin Debugger.Deactivate(); end; }
+codeunit 50131 "Other" { trigger OnRun() begin Debugger.Deactivate(); end; }
 "#;
         let (_, l) = al_sema::lower::compile(
             vec![al_sema::workspace::AppSource {
@@ -575,9 +575,9 @@ codeunit 50131 "Other" { trigger OnRun() begin SerialNumber(); end; }
 codeunit 50132 "Steps" { Subtype = Test;
   [Test] procedure StepA() var B: Codeunit "Build2"; begin B.A(); end;
   [Test] procedure StepB() var B: Codeunit "Build2"; begin B.Fine(); end;
-  procedure Helper() begin SerialNumber(); end; }
+  procedure Helper() begin Debugger.Deactivate(); end; }
 codeunit 50133 "Build2" {
-  procedure A() begin SerialNumber(); end;
+  procedure A() begin Debugger.Deactivate(); end;
   procedure Fine() begin end; }
 "#;
         let (_, l) = al_sema::lower::compile(

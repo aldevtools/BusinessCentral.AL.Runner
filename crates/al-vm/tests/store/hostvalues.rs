@@ -228,6 +228,14 @@ fn tenant_id_is_not_empty() {
 }
 
 #[test]
+fn serial_number_is_stable_not_blank_and_at_most_250_long() {
+    // platform/lt-system-database-members/DbSerialNumber.al:33-41 (al-runner issue 6055).
+    assert!(truth("S: Text;", "Database.SerialNumber() = Database.SerialNumber()"));
+    assert!(truth("", "Database.SerialNumber() <> ''"));
+    assert!(truth("", "StrLen(Database.SerialNumber()) <= 250"));
+}
+
+#[test]
 fn platform_answers_of_a_test_session() {
     // session/TestBCPlatformContracts.al:27-42,205-211, session/TestFinalCoverage.al:62-73.
     assert!(truth("", "GuiAllowed()"));

@@ -65,7 +65,7 @@ const SRC: &str = "codeunit 60100 T
 
     local procedure Helper()
     begin
-        SerialNumber();
+        Debugger.Deactivate();
     end;
 
     procedure NotATest()
@@ -98,7 +98,7 @@ fn runs_tests_in_order_after_onrun_on_one_instance() {
 fn unreachable_code_does_not_block_but_reachable_unsupported_code_does() {
     let o = outcomes(SRC);
     assert!(
-        matches!(&o[2].1, Outcome::NotRun(r) if r.contains("SerialNumber")),
+        matches!(&o[2].1, Outcome::NotRun(r) if r.contains("Debugger")),
         "{:?}",
         o[2].1
     );
@@ -862,7 +862,7 @@ fn an_installer_trigger_that_ran_keeps_its_rows_when_the_next_one_cannot_run() {
             table 60901 Co { fields { field(1; K; Code[10]) { } } }
             codeunit 60901 Inst { Subtype = Install;
                 trigger OnInstallAppPerDatabase() var R: Record Db; begin R.K := 'DB'; R.Insert(); end;
-                trigger OnInstallAppPerCompany() var R: Record Co; begin SerialNumber(); R.K := 'CO'; R.Insert(); end; }
+                trigger OnInstallAppPerCompany() var R: Record Co; begin Debugger.Deactivate(); R.K := 'CO'; R.Insert(); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure SeededByTheTriggerThatRan() var R: Record Db; begin if not R.Get('DB') then Error('the per-database seed was rolled back'); end;
                 [Test] procedure SeededByTheTriggerThatDidNot() var R: Record Co; begin if R.Count() = 0 then Error('unseeded'); end; }",
@@ -883,7 +883,7 @@ fn a_blocked_installer_also_blocks_tests_on_tables_its_event_subscribers_touch()
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnSeed', '', false, false)]
                 local procedure Seed() var R: Record Seed; begin R.Insert(); end; }
             codeunit 60901 Inst { Subtype = Install;
-                trigger OnInstallAppPerCompany() var P: Codeunit Pub; begin SerialNumber(); P.OnSeed(); end; }
+                trigger OnInstallAppPerCompany() var P: Codeunit Pub; begin Debugger.Deactivate(); P.OnSeed(); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure UsesSeed() var R: Record Seed; begin end; }",
     );
@@ -901,7 +901,7 @@ fn a_blocked_installer_also_blocks_tests_on_tables_written_by_table_event_subscr
                 [EventSubscriber(ObjectType::Table, Database::Src, 'OnAfterInsertEvent', '', false, false)]
                 local procedure Seed(var Rec: Record Src) var R: Record Seed; begin R.K := 'X'; R.Insert(); end; }
             codeunit 60901 Inst { Subtype = Install;
-                trigger OnInstallAppPerCompany() var S: Record Src; begin SerialNumber(); S.K := 'A'; S.Insert(); end; }
+                trigger OnInstallAppPerCompany() var S: Record Src; begin Debugger.Deactivate(); S.K := 'A'; S.Insert(); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure UsesSeed() var R: Record Seed; begin end; }",
     );
@@ -959,7 +959,7 @@ fn a_blocked_installer_only_blocks_tests_that_touch_its_tables() {
         "table 60900 S { fields { field(1; K; Code[10]) { } } }
             table 60903 Other { fields { field(1; K; Code[10]) { } } }
             codeunit 60901 Inst { Subtype = Install;
-                trigger OnInstallAppPerCompany() var R: Record S; begin SerialNumber(); R.Insert(); end; }
+                trigger OnInstallAppPerCompany() var R: Record S; begin Debugger.Deactivate(); R.Insert(); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure UsesS() var R: Record S; begin end;
                 [Test] procedure UsesOther() var R: Record Other; begin end; }",
@@ -1094,7 +1094,7 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
         [MessageHandler] procedure Msg(M: Text[1024]) begin Seen := M; end;
         [MessageHandler] procedure Msg2(M: Text[1024]) begin end;
         [MessageHandler] procedure Boom(M: Text[1024]) begin Error('boom in handler'); end;
-        [MessageHandler] procedure Blocked(M: Text[1024]) begin SerialNumber(); end;
+        [MessageHandler] procedure Blocked(M: Text[1024]) begin Debugger.Deactivate(); end;
         [ConfirmHandler] procedure Yes(Q: Text[1024]; var Reply: Boolean) begin Reply := true; end;
         [ConfirmHandler] procedure No(Q: Text[1024]; var Reply: Boolean) begin Fired += 1; Asked := Q; Reply := false; end;
         [ConfirmHandler] procedure Silent(Q: Text[1024]; var Reply: Boolean) begin end;
@@ -1158,7 +1158,7 @@ fn handlers_the_runtime_cannot_run_are_refused_explicitly() {
     };
     assert!(nr("UnknownHandlerNameIsRefused").contains("Nope"));
     assert!(nr("NamingARoutineThatIsNoHandlerIsRefused").contains("Helper"));
-    assert!(nr("HandlerWithUnsupportedCodeIsRefused").contains("SerialNumber"));
+    assert!(nr("HandlerWithUnsupportedCodeIsRefused").contains("Debugger"));
     assert!(nr("TwoHandlersOfOneKindAreRefused").contains("Msg2"));
 }
 
@@ -1676,7 +1676,7 @@ codeunit 50120 "GT Mgt" {
   local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean) begin Check(); end;
   [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
   local procedure Ins(RecRef: RecordRef) begin Check(); end;
-  local procedure Check() var C: Record "Cfg"; begin if C.IsEmpty() then exit; SerialNumber(); end; }
+  local procedure Check() var C: Record "Cfg"; begin if C.IsEmpty() then exit; Debugger.Deactivate(); end; }
 "#;
 
 const GT_WATCHED: &str = r#"
@@ -1785,7 +1785,7 @@ fn a_test_codeunit_starts_from_the_baseline_whatever_an_earlier_one_committed() 
 
 #[test]
 fn a_missing_row_is_refused_only_where_the_baseline_did_not_create_it() {
-    // The installer cannot run (SerialNumber is not implemented), so the rows it
+    // The installer cannot run (Debugger.Deactivate is not implemented), so the rows it
     // would create are missing: a Get that finds nothing, from dependency code or from the
     // tests' own, is then not BC's answer. Where the baseline did create rows, the real
     // error is reported.
@@ -1794,7 +1794,7 @@ table 50100 "K" { fields { field(1; "No."; Code[10]) { } } }
 table 50103 "Seeded" { fields { field(1; "No."; Code[10]) { } } }
 codeunit 50110 "Installer" { Subtype = Install;
   trigger OnInstallAppPerCompany() var S: Record "Seeded"; begin S."No." := 'X'; S.Insert(); Later(); end;
-  local procedure Later() var K: Record "K"; begin SerialNumber(); K.Insert(); end; }
+  local procedure Later() var K: Record "K"; begin Debugger.Deactivate(); K.Insert(); end; }
 codeunit 50101 "Lib" { procedure ReadK() var S: Record "K"; begin S.Get(); end; procedure ReadSeeded() var S: Record "Seeded"; begin S.Get('NOPE'); end; }
 "#;
     let outcome = with_baseline(
@@ -1826,7 +1826,7 @@ table 50103 "Other" { fields { field(1; "No."; Code[10]) { } } keys { key(PK; "N
 table 50104 "Holder" { fields { field(1; "No."; Code[10]) { } field(2; Cnt; Integer) { FieldClass = FlowField; CalcFormula = count(K); }
   field(3; Ref; Code[10]) { TableRelation = K; } } keys { key(PK; "No.") { } } }
 codeunit 50110 "Installer" { Subtype = Install;
-  trigger OnInstallAppPerCompany() var S: Record "K"; begin SerialNumber(); S.Insert(); end; }
+  trigger OnInstallAppPerCompany() var S: Record "K"; begin Debugger.Deactivate(); S.Insert(); end; }
 codeunit 50101 "Lib" { procedure Count(): Integer var S: Record "K"; begin exit(S.Count()); end; }
 "#;
     let main = r#"codeunit 50001 "T" { Subtype = Test; var L: Codeunit "Lib";
@@ -1871,7 +1871,7 @@ table 50100 "Setup" { fields { field(1; "Primary Key"; Code[10]) { } } keys { ke
 table 50104 "Never" { fields { field(1; "Primary Key"; Code[10]) { } } keys { key(PK; "Primary Key") { } } }
 codeunit 2 "Company-Initialize" {
   trigger OnRun() var S: Record "Setup"; begin S.Insert(); Later(); end;
-  local procedure Later() var N: Record "Never"; begin SerialNumber(); N.Insert(); end; }
+  local procedure Later() var N: Record "Never"; begin Debugger.Deactivate(); N.Insert(); end; }
 codeunit 50101 "Lib" { procedure SetupCount(): Integer var S: Record "Setup"; begin exit(S.Count()); end;
   procedure ReadNever() var N: Record "Never"; begin N.Get(); end; }
 "#;
@@ -2893,7 +2893,7 @@ fn a_step_that_does_not_run_to_its_end_blocks_the_company() {
         "{SETUP_DEP}
 table 50103 \"Tenant Log\" {{ DataPerCompany = false; fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
 codeunit 50130 \"Build Company\" {{
-  procedure Setup() var L: Record \"Order Log\"; begin L.What := 'setup'; L.Insert(); SerialNumber(); end; }}
+  procedure Setup() var L: Record \"Order Log\"; begin L.What := 'setup'; L.Insert(); Debugger.Deactivate(); end; }}
 codeunit 50131 \"Tenant Step\" {{
   trigger OnRun() var T: Record \"Tenant Log\"; begin T.K := 1; T.Insert(); end; }}"
     );
@@ -2924,7 +2924,7 @@ fn a_company_data_codeunit_that_does_not_run_to_its_end_leaves_every_test_not_ru
     let dep = format!(
         "{SETUP_DEP}
 codeunit 50130 \"Build Company\" {{
-  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'demo'; L.Insert(); SerialNumber(); end; }}"
+  trigger OnRun() var L: Record \"Order Log\"; begin L.What := 'demo'; L.Insert(); Debugger.Deactivate(); end; }}"
     );
     let main = "codeunit 50001 \"T\" { Subtype = Test; [Test] procedure Plain() begin end; }";
     let outcome = with_company_data(main, &dep, demo_company(None));

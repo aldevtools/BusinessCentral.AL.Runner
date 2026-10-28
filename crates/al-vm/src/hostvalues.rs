@@ -159,6 +159,10 @@ impl Session {
             },
             ids::DATABASE_SERVICEINSTANCEID_1 => Ok(Value::Integer(self.host.identity.service_instance_id())),
             ids::DATABASE_TENANTID_1 => Ok(Value::Text(self.host.identity.tenant_id().into())),
+            // One fixed value per run: the same at every call, not blank, at most 250 characters
+            // (platform/lt-system-database-members/DbSerialNumber.al:33-41). The text itself is not pinned; AL Runner v2
+            // answered `STANDALONE` too (al-runner issue 6055).
+            ids::DATABASE_SERIALNUMBER_1 => Ok(Value::Text("STANDALONE".into())),
             // A step of the Contoso company build runs without a client (`set_no_client`).
             ids::SYSTEM_GUIALLOWED_1 if self.no_client => {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ContosoBuildNoClient);
