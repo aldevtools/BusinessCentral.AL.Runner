@@ -422,3 +422,102 @@ fn a_page_procedure_called_only_from_an_action_is_refused_only_when_the_action_r
         }
     }
 }
+
+// al-runner issue 6031, reopened: `al-runner test` reads the dependency apps from the compile cache (ADR-022), and the
+// objects the cache supplies come before the workspace's in the program. The same shapes as `LOCAL`, with the table and
+// the codeunit in a dependency app, through a cache entry built by a first run and used by a second.
+fn cached_local_outcomes() -> Vec<(String, Outcome)> {
+    use al_testrun::compile_cache::CompileCache;
+    use al_testrun::runtime::Manifest;
+    let split = LOCAL.find("page 50451").unwrap();
+    let (dep, main) = (&LOCAL[..split], &LOCAL[split..]);
+    let manifest = |publisher: &str, version: &str| Manifest {
+        publisher: publisher.into(),
+        version: version.into(),
+        resources: vec![],
+        include_source: false,
+        target: String::new(),
+        layout_files: Vec::new(),
+        id_ranges: Vec::new(),
+        translations: false,
+        translation_files: Vec::new(),
+        symbols: vec![],
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let run = |require: bool| {
+        CorpusRuntime::try_run_suites_with(
+            vec![
+                AppSource {
+                    id: "main".into(),
+                    name: "main".into(),
+                    dependencies: vec!["base".into()],
+                    files: vec![("main.al".into(), main.into())],
+                },
+                AppSource {
+                    id: "base".into(),
+                    name: "base".into(),
+                    dependencies: vec![],
+                    files: vec![("base.al".into(), dep.into())],
+                },
+            ],
+            vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+            &[manifest("Me", "1.0.0.0"), manifest("Microsoft", "29.0.0.0")],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                compile_cache: Some(CompileCache {
+                    dir: dir.path().to_path_buf(),
+                    require,
+                    rebuild: false,
+                    country: String::new(),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let _build = run(false);
+    let rt = run(true);
+    assert!(
+        rt.phases.cache.as_ref().is_some_and(|c| c.hit),
+        "the second run reads the cache"
+    );
+    rt.results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone()))
+        .collect()
+}
+
+#[test]
+fn a_page_procedure_called_only_from_an_action_is_refused_only_when_the_action_runs_with_a_compile_cache() {
+    let outcomes = cached_local_outcomes();
+    let get = |n: &str| {
+        outcomes
+            .iter()
+            .find(|(k, _)| k == n)
+            .map(|(_, o)| o.clone())
+            .unwrap_or_else(|| panic!("{n}: {outcomes:?}"))
+    };
+    for n in [
+        "OpenCardWhosePartActionCallsCodeunit",
+        "OpenCardWhosePartActionCallsLocalProcedure",
+        "OpenCardWhoseOwnActionCallsLocalProcedures",
+        "OpenPageWithGlobalProcedure",
+    ] {
+        assert_eq!(get(n), Outcome::Pass, "{n}");
+    }
+    for n in [
+        "InvokePartActionCallingLocalProcedure",
+        "InvokeOwnActionCallingLocalProcedures",
+        "OpenPageWhoseOnOpenCallsTheProcedure",
+        "OpenPageWhoseFieldTriggerCallsTheProcedure",
+        "OwnCodeCallsTheGlobalProcedure",
+    ] {
+        match get(n) {
+            Outcome::NotRun(why) => assert!(why.contains("CodeCoverageLoad"), "{n}: {why}"),
+            o => panic!("{n}: {o:?}"),
+        }
+    }
+}

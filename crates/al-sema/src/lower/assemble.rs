@@ -1097,6 +1097,9 @@ pub(crate) fn lower_core(
         let Some(piece) = piece else {
             // Supplied by the cache: its refusals and calls are read from the facts, or copied without them kept.
             let facts = src.expect("a supplied object has a source").facts(oi);
+            // `ndirect` stays aligned with `calls` by object (al-runner issue 6031). The facts hold only the calls the code
+            // makes (what a variable drives is in `DepFacts::drivers`): empty means every call is one.
+            ndirect.push(Vec::new());
             if keep_facts {
                 unsupported.push(Vec::new());
                 calls.push(Vec::new());

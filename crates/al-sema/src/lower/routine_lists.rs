@@ -113,6 +113,7 @@ impl Calls {
         ndirect: Vec<Vec<u32>>,
         cached: Option<CachedFacts>,
     ) -> Calls {
+        debug_assert_eq!(own.len(), ndirect.len(), "one entry per object in both");
         Calls { own, ndirect, cached }
     }
 
