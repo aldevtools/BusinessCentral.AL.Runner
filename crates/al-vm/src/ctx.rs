@@ -388,6 +388,31 @@ impl al_builtins::native::Ctx for Session {
             _ => Some(None),
         }
     }
+    fn table_filter_field_meta(&mut self, table: &str, field: &str) -> Option<(u32, bool)> {
+        let objects: Vec<usize> = self
+            .engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.table.is_some() && o.name == table)
+            .map(|(i, _)| i)
+            .collect();
+        let [object] = objects.as_slice() else {
+            return None;
+        };
+        let def = self.engine.tables.get(*object).cloned().flatten()?;
+        let mut fields = def.fields.iter().enumerate().filter(|(_, f)| f.name == field);
+        let ((pos, f), None) = (fields.next()?, fields.next()) else {
+            return None;
+        };
+        let caption_is_name = matches!(
+            self.field_caption_written(&def, pos),
+            Ok(crate::recmeta::WrittenCaption::Text(c)) if c == f.name
+        );
+        Some((f.id, caption_is_name))
+    }
     fn evaluate_field_target(&mut self, v: &Value) -> Option<Result<al_builtins::native::FieldTarget, Signal>> {
         let Value::Library(_, l) = v else { return None };
         let (rec, pos) = match &*l.borrow() {

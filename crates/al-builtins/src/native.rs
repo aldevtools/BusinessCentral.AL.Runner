@@ -266,6 +266,12 @@ pub trait Ctx: FormatCtx {
     fn table_filter_field(&mut self, _table: &str, _field: &str) -> Option<Option<crate::value::RtType>> {
         None
     }
+    /// `Evaluate` into a TableFilter of several conditions (al-runner issue 6006): the field number of the field `field` of the
+    /// table named `table` (names as in [`Self::table_filter_field`]) and whether its caption is its name, as a literal Caption,
+    /// CaptionML or no caption at all gives it. `None` where no single table or field has that name or the context has no program.
+    fn table_filter_field_meta(&mut self, _table: &str, _field: &str) -> Option<(u32, bool)> {
+        None
+    }
     /// The field a `FieldRef` stands on, for `Evaluate` into it: its record buffer, position, declared type and whether the field
     /// declares an OptionCaption. `None` where the context has no program or `v` is no assigned `FieldRef`.
     fn evaluate_field_target(&mut self, _v: &Value) -> Option<Result<FieldTarget, Signal>> {

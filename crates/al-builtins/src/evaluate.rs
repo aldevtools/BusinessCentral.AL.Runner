@@ -1400,7 +1400,8 @@ pub fn evaluate_typed(
 /// `Evaluate(TableFilterField, Text)` (al-runner issue 5998). Pinned: `<table name>: <field>=<value>` with a Code field and a plain
 /// value answers true and keeps the text as written, which Format gives back
 /// (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158). An Option field with one of its member names is the
-/// assumption `table-filter-evaluate-option-member`. Every other text (filter operators, several fields, names in another case,
+/// assumption `table-filter-evaluate-option-member`. Several Code conditions and Code values with spaces are
+/// the assumption `table-filter-evaluate-several-code-fields` (see [`several_code_conditions`]). Every other text (filter operators, names in another case,
 /// unknown tables or fields, the rejected forms and their errors) and every format number but 0 is refused until a probe pins it.
 fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) -> Result<Value, Signal> {
     let refuse = || {
@@ -1414,6 +1415,15 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
     let Some((table, condition)) = text.split_once(": ") else {
         return refuse();
     };
+    if condition.contains(',')
+        || condition.contains(' ') && condition.split_once('=').is_some_and(|(_, v)| v.contains(' '))
+    {
+        if !several_code_conditions(c, table, condition)? {
+            return refuse();
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::TableFilterEvaluateSeveralCodeFields);
+        return Ok(store_table_filter(a, text));
+    }
     let Some((field, value)) = condition.split_once('=') else {
         return refuse();
     };
@@ -1435,13 +1445,58 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         }
         _ => return refuse(),
     }
+    Ok(store_table_filter(a, text))
+}
+
+/// The TableFilter field `a[0]` holds `text` as written; Evaluate answers true.
+fn store_table_filter(a: &mut [Value], text: &str) -> Value {
     a[0] = Value::Library(
         crate::library_kind::LibraryKind::from_name("TableFilter"),
         std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(
             text.to_string(),
         ))),
     );
-    Ok(Value::Boolean(true))
+    Value::Boolean(true)
+}
+
+/// Whether `condition` (the part after `<table name>: `) is one of the forms al-runner issue 6006 measured on real BC, the assumption
+/// `table-filter-evaluate-several-code-fields`: one or two `<field>=<value>` joined by a comma alone, each field a Code field of
+/// the table whose caption is its name, two fields in the order of their numbers, and each value upper-case letters and digits with
+/// single inner spaces that fit the field. Measured: `Bin: Location Code=MAIN,Code=BIN01`, `Bin: Code=BIN WITH SPACE`,
+/// `Bin: Location Code=MAIN,Code=BIN WITH SPACE`. Every other form (filter operators, quotes, other field types, captions that
+/// differ, other casing, more fields) is not measured and the caller refuses it. `Err` where the context has no program.
+fn several_code_conditions(c: &mut dyn Ctx, table: &str, condition: &str) -> Result<bool, Signal> {
+    let parts: Vec<&str> = condition.split(',').collect();
+    if parts.len() > 2 || table.trim() != table {
+        return Ok(false);
+    }
+    let value_ok = |v: &str| {
+        !v.is_empty()
+            && v.split(' ')
+                .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()))
+    };
+    let mut last_number = 0;
+    for part in parts {
+        let Some((field, value)) = part.split_once('=') else {
+            return Ok(false);
+        };
+        if field.is_empty() || field.trim() != field || !value_ok(value) {
+            return Ok(false);
+        }
+        let len = match c.table_filter_field(table, field) {
+            Some(Some(crate::value::RtType::Code(len))) => len,
+            Some(_) => return Ok(false),
+            None => return unsupported("Evaluate into TableFilter without a program"),
+        };
+        if len.is_some_and(|n| value.chars().count() > n as usize) {
+            return Ok(false);
+        }
+        match c.table_filter_field_meta(table, field) {
+            Some((number, true)) if number > last_number => last_number = number,
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
 }
 
 /// `Evaluate(RecordId, Text)`: a table name and the primary key after a colon, or only the table name; the empty text gives the
