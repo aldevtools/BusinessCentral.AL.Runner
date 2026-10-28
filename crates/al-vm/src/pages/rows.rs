@@ -283,13 +283,10 @@ impl Session {
             };
             // How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one
             // CaptionClass expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
-            // branch al-runtime-rs-staging-sx, record/lt-sx-captionclass-count/SxCaptionClassCount.al:190-369, the same in three
-            // cycles on 27.5, 28.5 and 29.0; al-runner issue 5870 saw 8 for the Card). Not on master yet: a registered
-            // assumption that waits for that file.
+            // record/lt-sx-captionclass-count/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282
+            // SX_ListOne_OpenEdit, :328 SX_ListTwo_OpenEdit and their OpenView twins, the same in three cycles on every
+            // supported major; al-runner issue 5870).
             if let Some(runs) = self.caption_empty_runs_pinned(st, &exprs) {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCountPinnedShapes,
-                );
                 for _ in 0..runs {
                     for (pos, expr) in &exprs {
                         self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;

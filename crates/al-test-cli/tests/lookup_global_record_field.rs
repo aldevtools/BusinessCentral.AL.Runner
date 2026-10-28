@@ -321,11 +321,10 @@ fn part_outcome(update: &str, link: &str) -> Outcome {
 }
 
 #[test]
-fn a_lookup_on_a_page_with_an_unlinked_part_shows_the_picked_value_under_an_assumption() {
+fn a_lookup_on_a_page_with_an_unlinked_part_shows_the_picked_value() {
+    // Pinned: pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:469 LookupUpdateFalseOnPart `shows=[R2]`.
     assert_eq!(part_outcome("CurrPage.Update(false);", ""), Outcome::Pass);
-    assert!(al_builtins::assumptions::hit(
-        al_builtins::assumptions::Assumption::PageLookupRefreshWithUnlinkedListPart
-    ));
+    assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
 #[test]
