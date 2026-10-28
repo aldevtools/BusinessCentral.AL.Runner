@@ -1426,10 +1426,44 @@ impl Session {
         let saved: Vec<(usize, Value)> = self
             .var_slots(st)
             .into_iter()
-            .map(|slot| (slot, inst.borrow().globals[slot].clone()))
+            .map(|slot| (slot, detached(&inst.borrow().globals[slot])))
             .collect();
         let object = st.borrow().object;
         self.pages.saved_values.insert(object, saved);
+    }
+
+    /// A SaveValues request page closed by Cancel: whether a data item's filters the page changed are kept. The stored record
+    /// is a copy (`detached`), so they are not; that a Cancel does not store the page's variables is pinned
+    /// (handlers/TestReportRequestPageSaveValues.al, misc/lt-probes-needed-6/PnF02SaveValuesExt.al), for a data item's
+    /// filters it is assumed (request-page-cancel-keeps-saved-filters, al-runner issue 6065).
+    pub(super) fn note_cancelled_saved_filters(&mut self, st: &St) {
+        if !self.is_request_page(st) || !self.save_values(st) {
+            return;
+        }
+        let object = st.borrow().object;
+        let Some(saved) = self.pages.saved_values.get(&object) else {
+            return;
+        };
+        let Some(inst) = st.borrow().instance.clone() else {
+            return;
+        };
+        let filters = |r: &Rc<RefCell<RecordState>>| -> Vec<(usize, i32, Option<String>)> {
+            r.borrow()
+                .filters
+                .iter()
+                .map(|f| (f.field, f.group, self.filter_text(&f.expr).ok()))
+                .collect()
+        };
+        let changed = saved.iter().any(|(slot, v)| {
+            let cur = inst.borrow().globals[*slot].clone();
+            match (v, &cur) {
+                (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
+                _ => false,
+            }
+        });
+        if changed {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCancelKeepsSavedFilters);
+        }
     }
 
     pub(super) fn restore_page_values(&mut self, st: &St) {
@@ -1472,7 +1506,7 @@ impl Session {
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
                 continue;
             }
-            inst.borrow_mut().globals[slot] = v;
+            inst.borrow_mut().globals[slot] = detached(&v);
         }
     }
 
@@ -1821,6 +1855,8 @@ impl Session {
         // Close() and a platform close store too, docs/probes-needed.md).
         if !(via_action && matches!(action, "Cancel" | "LookupCancel" | "No")) {
             self.store_page_values(st);
+        } else {
+            self.note_cancelled_saved_filters(st);
         }
         // Not on the blank new-line row of a page: corpus misc/lt-page-run-overloads RunModal_NonTempRecord_ShowsDbRows keeps
         // `Row.Code` = D1 after a handler that read the page down to its new line and pressed OK.
@@ -2917,5 +2953,15 @@ impl Session {
         };
         rec.borrow_mut().fields[last] = ops::convert(Value::Decimal(number), &ty)?;
         Ok(())
+    }
+}
+
+/// A stored request page value that shares nothing with the page it came from or goes to: a data item's record is copied, so
+/// filters the report body sets after the page closed do not change what is stored, and an edit on a later page does not change
+/// it before an OK (al-runner issue 6065). Other values are copied as they are.
+fn detached(v: &Value) -> Value {
+    match v {
+        Value::Record(r) => Value::Record(Rc::new(RefCell::new(r.borrow().clone()))),
+        v => v.clone(),
     }
 }
