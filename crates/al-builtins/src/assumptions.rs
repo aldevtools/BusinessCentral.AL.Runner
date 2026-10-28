@@ -605,13 +605,13 @@ registry! {
     },
     TestCodeunitOnRunRows => {
         id: "test-codeunit-onrun-rows",
-        assumed: "How the runner reports the OnRun trigger of a test codeunit. From the gate TestCodeunitOnRunRowFrom28 on: a declared OnRun gets a row 'OnRun' of its own, failed with the error's text when it raises (and then the test methods have no rows), else passed. Before that gate: a codeunit whose OnRun raises has no rows at all. Measured by corpus writer RL in the corpus CI (the three supported majors on Linux, probe commit c69419f6 on branch al-runtime-rs-staging-rl, codeunit/lt-outside-onrun-error/RlOnRunError.al); not a green corpus case, because the probe codeunit fails the corpus CI by design.",
-        tests: "No Microsoft test: al-runner issue 5748 (a user's test codeunit whose OnRun raises; owner decision 2026-10-25 to mirror the reporting of the newer majors).",
-        probe: "The probe of commit c69419f6 (al-runtime-rs-staging-rl): a test codeunit whose OnRun raises and one whose OnRun does not, read from the XUnit result per major. It cannot stay in the green corpus; an oracle of runner rows would need a corpus leg that expects a red codeunit.",
+        assumed: "How the runner reports the OnRun trigger of a test codeunit, on every major (ADR-055): as Microsoft's Test Runner app (page 130455, runner codeunit 130450, the way BcContainerHelper and AL-Go run tests) does. No row 'OnRun'; a codeunit whose OnRun raises is Skipped with no rows and the run stays green; the tests of a codeunit whose OnRun does not raise run after it. Measured on the newest major by the reporter of al-runner issue 5859 and on the oldest supported major by corpus writer RL (probe commit c69419f6, codeunit/lt-outside-onrun-error/RlOnRunError.al); the middle major through that runner is not measured. The tests of a codeunit with a declared OnRun are flagged.",
+        tests: "No Microsoft test: al-runner issue 5859 (a user's run through BcContainerHelper on the newest major; owner decision 2026-10-28, ADR-055).",
+        probe: "Through Microsoft's Test Runner app on each supported major: a test codeunit whose OnRun raises, one whose OnRun does not, and one whose OnRun calls a test method; the rows and outcomes the runner reports.",
         awaiting: Awaiting {
-            issues: &[5748],
-            files: &["tests/al-language/codeunit/lt-outside-onrun-error/RlOnRunError.al"],
-            since: "2026-10-25",
+            issues: &[5859],
+            files: &["tests/al-language/codeunit/lt-sw-onrun-runner/SwOnRunRunner.al"],
+            since: "2026-10-28",
         },
     },
 
