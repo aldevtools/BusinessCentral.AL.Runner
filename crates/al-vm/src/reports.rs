@@ -1746,6 +1746,16 @@ impl Session {
 
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
+        // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`). `false` with Report.Run is pinned
+        // (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45); the rest was measured by corpus writer TK and
+        // is not yet in the pinned corpus (al-runner issue 6056).
+        if self.engine.program.objects[schema.object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("ShowPrintStatus") && !v.trim().eq_ignore_ascii_case("false"))
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ShowPrintStatusInert);
+        }
         let report = schema.report();
         // A reportextension that changes the run gets an instance of its own for this run, whose
         // names for the base items point at the report's own records.

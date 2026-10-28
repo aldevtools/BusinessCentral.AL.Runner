@@ -594,6 +594,120 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
+/// Per test, the ids of the assumptions it hit.
+type TestHits = Vec<(String, Vec<&'static str>)>;
+
+/// The outcomes and the assumption ids each test hit, of the test codeunit `codeunit` of a program of several apps (id,
+/// dependencies, source); the app with id `dep` is a dependency app (ADR-013), the others are under test.
+fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> (Vec<(String, Outcome)>, TestHits) {
+    let (ws, l) = al_sema::lower::compile_apps(
+        apps.iter()
+            .map(|(id, deps, src)| AppSource {
+                id: (*id).into(),
+                name: (*id).into(),
+                dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
+                files: vec![(format!("{id}.al"), (*src).into())],
+            })
+            .collect(),
+        apps.iter()
+            .map(|(id, _, _)| {
+                if *id == "dep" {
+                    al_sema::AppKind::Dependency
+                } else {
+                    al_sema::AppKind::Workspace
+                }
+            })
+            .collect(),
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let engine = Engine::new(l.program.clone(), blocked);
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
+    let mut hits = Vec::new();
+    let done = run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let hits = hits
+        .into_iter()
+        .map(|(n, h)| (n, h.iter().map(|a| a.info().id).collect()))
+        .collect();
+    (done, hits)
+}
+
+// ADR-046 amendment 1, A4 item 4, owner decision 2026-10-19 (al-runner issue 6046): the install session of an app raises
+// Company Triggers OnCompanyOpen to the subscribers of every installed app, not only its own: an assumption until probe Q3.
+// A per-company install routine that reads what another app's subscriber wrote runs, and a test that reads what it wrote
+// is a flagged pass; a test that touches none of those tables is a clean pass.
+#[test]
+fn company_triggers_of_other_installed_apps_run_in_the_install_session_as_an_assumption() {
+    let dep = "table 60900 Feature { fields { field(1; K; Code[10]) { } } }
+        codeunit 60901 DepOpen {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+            local procedure Open() var F: Record Feature; begin F.K := 'F'; if F.Insert() then; end; }";
+    let main = "table 60910 Log { fields { field(1; K; Code[10]) { } field(2; Seen; Boolean) { } } }
+        table 60913 Other { fields { field(1; K; Code[10]) { } } }
+        codeunit 60911 Inst { Subtype = Install;
+            trigger OnInstallAppPerCompany() var F: Record Feature; L: Record Log; begin L.K := 'L'; L.Seen := F.Get('F'); L.Insert(); end; }
+        codeunit 60912 T { Subtype = Test;
+            [Test] procedure ReadsWhatTheInstallSaw() var L: Record Log; begin L.Get('L'); if not L.Seen then Error('not seen'); end;
+            [Test] procedure TouchesNoneOfIt() var O: Record Other; begin O.K := 'X'; O.Insert(); end; }";
+    let (o, hits) = outcomes_and_hits_of_apps(&[("dep", &[], dep), ("main", &["dep"], main)], "T");
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    let of = |n: &str| hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone());
+    assert_eq!(
+        of("ReadsWhatTheInstallSaw"),
+        Some(vec!["install-company-triggers-all-apps"]),
+        "{hits:?}"
+    );
+    assert_eq!(of("TouchesNoneOfIt"), None, "{hits:?}");
+}
+
+// ADR-046 amendment 1, A4 item 4: when a Company Triggers subscriber of another installed app cannot run in this runtime (as
+// System Application's System Initialization cannot), none of the other apps' subscribers run: what they did is rolled back,
+// the app's own subscribers and install routines run, and a test that reads what a routine that could see the difference
+// wrote is not run.
+#[test]
+fn when_another_apps_company_triggers_subscriber_cannot_run_none_of_them_run() {
+    let dep = "table 60900 Feature { fields { field(1; K; Code[10]) { } } }
+        codeunit 60901 DepOpen {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+            local procedure Open() var F: Record Feature; begin F.K := 'F'; F.Insert(); end; }
+        codeunit 60902 DepOpenLater {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+            local procedure Open() begin Debugger.Deactivate(); end; }";
+    let main = "table 60910 Log { fields { field(1; K; Code[10]) { } field(2; Seen; Boolean) { } } }
+        table 60913 Other { DataPerCompany = false; fields { field(1; K; Code[10]) { } } }
+        codeunit 60911 Inst { Subtype = Install;
+            trigger OnInstallAppPerCompany() var F: Record Feature; L: Record Log; begin L.K := 'L'; L.Seen := F.Get('F'); L.Insert(); end; }
+        codeunit 60914 InstOther { Subtype = Install;
+            trigger OnInstallAppPerDatabase() var O: Record Other; begin O.K := 'O'; O.Insert(); end; }
+        codeunit 60912 T { Subtype = Test;
+            [Test] procedure ReadsWhatTheInstallSaw() var L: Record Log; begin L.FindFirst(); end;
+            [Test] procedure ReadsTheOtherRow() var O: Record Other; begin O.Get('O'); end; }";
+    let (o, hits) = outcomes_and_hits_of_apps(&[("dep", &[], dep), ("main", &["dep"], main)], "T");
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("one of those cannot run in this runtime")),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    assert!(hits.is_empty(), "{hits:?}");
+}
+
 // Al-runner issue 5751: install code runs without a client. A plain Message does not stop it, GuiAllowed() is false,
 // CurrentClientType() is SOAP, StrMenu, Confirm and Page.Run raise CallbackNotAllowed, Dialog, Hyperlink and
 // Notification.Send do nothing (install/lt-outside-install-ui/RlInstallUi.al:210-241; Confirm, Page.RunModal with a write open and
