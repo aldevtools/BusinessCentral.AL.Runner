@@ -38,6 +38,8 @@ pub struct Layout {
     pub utf8: bool,
     pub xml_utf8: bool,
     pub namespaces: Vec<(String, String)>,
+    /// `UseDefaultNamespace = true` without `DefaultNamespace`: BC's own namespace of the port.
+    pub default_ns: Option<String>,
     pub inline_schema: bool,
     pub use_lax: bool,
     pub xml_v11: bool,
@@ -164,6 +166,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         utf8: false,
         xml_utf8: false,
         namespaces: Vec::new(),
+        default_ns: None,
         inline_schema: false,
         use_lax: false,
         xml_v11: false,
@@ -177,6 +180,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         export_reasons: Vec::new(),
     };
     let (mut default_namespace, mut use_default_namespace) = (false, Some(false));
+    let mut bc_namespace = false;
     for p in obj.properties() {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
         match name.as_str() {
@@ -338,11 +342,13 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .push("xmlport property defaultnamespace with UseDefaultNamespace is not supported yet".into()),
         }
     } else if use_default_namespace == Some(true) {
-        // Without DefaultNamespace the port uses BC's own namespace `urn:microsoft-dynamics-nav/xmlports/x<id>` (the export of
-        // xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290 Item108_NamespaceRules), so it is not a port without namespaces and
-        // the import pins of one do not apply. What its import and export do is not pinned.
-        out.run_reasons
-            .push("xmlport property usedefaultnamespace = true without DefaultNamespace is not supported yet".into());
+        // Without DefaultNamespace the port uses BC's own namespace `urn:microsoft-dynamics-nav/xmlports/x<id>` for every element
+        // (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace, xmlport 89580: a text root, a table
+        // element and field elements, no Namespaces; also the export of xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290) and
+        // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:469-531 SG_DefaultNs_* (xmlport 89364: Encoding = UTF8, a field attribute
+        // in no namespace). Text attributes, prefixes, Namespaces, UseLax, InlineSchema, XmlVersionNo = V11, PreserveWhiteSpace and
+        // the text formats are not pinned with it.
+        bc_namespace = true;
     }
     if let Some(enc) = out.encoding.clone() {
         match enc.to_ascii_lowercase().as_str() {
@@ -376,6 +382,36 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for i in 0..out.nodes.len() {
         if let Some(why) = occurs_refusal(&out, i) {
             out.run_reasons.push(why);
+        }
+    }
+    if bc_namespace {
+        let unpinned = if out.format != ir::XmlFormat::Xml {
+            Some("a text format")
+        } else if !out.namespaces.is_empty() {
+            Some("Namespaces")
+        } else if out.use_lax {
+            Some("UseLax")
+        } else if out.inline_schema {
+            Some("InlineSchema")
+        } else if out.xml_v11 {
+            Some("XmlVersionNo = V11")
+        } else if out.preserve_whitespace {
+            Some("PreserveWhiteSpace")
+        } else if out.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::TextAttr) {
+            Some("a text attribute")
+        } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
+            Some("a NamespacePrefix")
+        } else {
+            None
+        };
+        match (unpinned, obj.id()) {
+            (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
+            (Some(what), _) => out.run_reasons.push(format!(
+                "xmlport property usedefaultnamespace = true without DefaultNamespace, with {what} (not pinned)"
+            )),
+            (None, None) => out
+                .run_reasons
+                .push("xmlport property usedefaultnamespace = true without an object id".into()),
         }
     }
     out
@@ -498,8 +534,14 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // On a field attribute it is pinned for one of a table element, on import (platform/lt-ag-contoso/
                 // AgXmlPortImport.al:27-53, :248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
                 let value = p.value_text().trim().to_ascii_lowercase();
+                // A field attribute of a text element directly below a table element: xmlport/lt-sg-xmlport-occurs/
+                // SgXmlPortOccurs.al:78-175 SG_AttrBelowText_* (xmlport 89361), export and import.
                 let parent_ok = parent.is_some_and(|i| match kind {
-                    K::FieldAttr => out.nodes[i].kind == K::Table,
+                    K::FieldAttr => {
+                        out.nodes[i].kind == K::Table
+                            || (out.nodes[i].kind == K::Text
+                                && out.nodes[i].parent.is_some_and(|g| out.nodes[g].kind == K::Table))
+                    }
                     _ => matches!(out.nodes[i].kind, K::Text | K::Table),
                 });
                 if !parent_ok || !matches!(value.as_str(), "required" | "optional") {
@@ -637,7 +679,10 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (&[], &[])
             }
         }
-        K::Table => (&["zero"], &["unbounded"]),
+        // MaxOccurs = Once on a table element that is not below another one: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:229-445
+        // (SG_OnceTemp_*: below the root and below a container text element, temporary, MinOccurs = Zero; SG_OnceReal_*: a real
+        // table with the default MinOccurs), export and import.
+        K::Table => (&["zero"], &["unbounded", "once"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
         _ => return None,
@@ -912,6 +957,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         utf8: layout.utf8,
         xml_utf8: layout.xml_utf8,
         namespaces: layout.namespaces.clone(),
+        default_ns: layout.default_ns.clone(),
         inline_schema: layout.inline_schema,
         use_lax: layout.use_lax,
         xml_v11: layout.xml_v11,
