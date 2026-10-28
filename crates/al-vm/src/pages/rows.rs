@@ -281,14 +281,35 @@ impl Session {
             let Value::Record(empty) = self.default_value(&RtType::Record(t.object, false)) else {
                 return unsupported("an empty record of the page's source table");
             };
-            // How many times is no oracle (it differs between BC runs): every open that runs them is a flagged pass at best
-            // (owner decision 2026-10-21).
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
-            );
-            for _ in 0..20 {
-                for (pos, expr) in &exprs {
-                    self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
+            // How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one
+            // CaptionClass expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
+            // branch al-runtime-rs-staging-sx, record/lt-sx-captionclass-count/SxCaptionClassCount.al:190-369, the same in three
+            // cycles on 27.5, 28.5 and 29.0; al-runner issue 5870 saw 8 for the Card). Not on master yet: a registered
+            // assumption that waits for that file.
+            if let Some(runs) = self.caption_empty_runs_pinned(st, &exprs) {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCountPinnedShapes,
+                );
+                for _ in 0..runs {
+                    for (pos, expr) in &exprs {
+                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
+                    }
+                }
+            } else {
+                // Any other shape: the number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field Card open,
+                // QdCaptionClassAreas.al:657), and it matters only when an expression leaves something behind that AL code can
+                // read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at best
+                // (owner decision 2026-10-21).
+                if let Some(why) = self.caption_class_lasting_effect(&t, &exprs) {
+                    return unsupported(why);
+                }
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
+                );
+                for _ in 0..20 {
+                    for (pos, expr) in &exprs {
+                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
+                    }
                 }
             }
         } else {
@@ -463,6 +484,49 @@ impl Session {
         let r = self.fill_field_caption_expressions(st);
         st.borrow_mut().field_captions_fill_first = false;
         r
+    }
+
+    /// How many times each CaptionClass expression of `t` runs with an empty record when page `st` opens, where writer SX
+    /// pinned it (SxCaptionClassCount.al:190-369): a Card or a List of its own (no host, not modal) opened with OpenView or
+    /// OpenEdit, over a table with one expression field (Card 8, List 7) or two whose expressions are the same text
+    /// (Card 18, List 16 in all: 9 and 8 for each; with the same expression which field ran is not observable).
+    /// `None` for any other shape: three or more fields do not follow from these counts (two fields are not twice one).
+    fn caption_empty_runs_pinned(&self, st: &St, exprs: &[(usize, String)]) -> Option<usize> {
+        use al_ir::PageType;
+        let s = st.borrow();
+        if s.host.is_some() || s.modal || !matches!(s.mode, PageMode::View | PageMode::Edit) {
+            return None;
+        }
+        let card = match self.engine.object_facts[s.object as usize].page_type.as_ref() {
+            Some(PageType::Card) => true,
+            Some(PageType::List) => false,
+            _ => return None,
+        };
+        match exprs {
+            [_] => Some(if card { 8 } else { 7 }),
+            [(_, ea), (_, eb)] if ea.trim() == eb.trim() => Some(if card { 9 } else { 8 }),
+            _ => None,
+        }
+    }
+
+    /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
+    /// something behind (`Engine::lasting_effect`), so how many times BC runs it, which is not pinned, can be read later.
+    /// Writes only to variables of SingleInstance codeunits are kept (`effects::Effect::Kept`): refusing them costs
+    /// baseline cases.
+    fn caption_class_lasting_effect(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
+        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
+        exprs.iter().find_map(|(pos, _)| {
+            let (object, routine) = table.fields.get(*pos)?.caption_class?;
+            let crate::effects::Effect::Refused(effect) = self.engine.lasting_effect(object, routine)? else {
+                return None;
+            };
+            Some(format!(
+                "the CaptionClass expression of field {} of table {} {effect}, and how many times BC runs it with an empty \
+                 record during a page open is not pinned (al-runner issue 5870)",
+                t.fields[*pos].name,
+                self.engine.program.objects[t.object as usize].name
+            ))
+        })
     }
 
     /// The page shapes whose CaptionClass expression runs are pinned (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al): a

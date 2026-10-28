@@ -38,6 +38,7 @@ mod companies;
 mod dataset;
 mod dispatch;
 pub mod dotnet;
+mod effects;
 mod errorcollect;
 pub mod events;
 mod faultsite;
@@ -142,6 +143,8 @@ pub struct Engine {
     /// The profiles that get an All Profile row (see `platform::profiles::profile_seeds`).
     pub(crate) profile_seeds: std::sync::OnceLock<Vec<(usize, i32)>>,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
+    /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
     facts: Arc<[std::sync::OnceLock<Box<[RoutineFacts]>>]>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).
@@ -392,6 +395,7 @@ impl Engine {
             enumerable_fields,
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             delete_subscribed: Default::default(),
+            lasting_effects: Default::default(),
             profile_seeds: Default::default(),
             facts,
             exec: Arc::new(exec),
@@ -432,6 +436,7 @@ impl Engine {
             enumerable_fields: self.enumerable_fields.clone(),
             uid: NEXT_ENGINE_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             delete_subscribed: Default::default(),
+            lasting_effects: Default::default(),
             profile_seeds: Default::default(),
             facts: self.facts.clone(),
             exec: self.exec.clone(),
@@ -499,6 +504,7 @@ impl Engine {
             // Caches that are worked out from the program on first use.
             profile_seeds: _,
             delete_subscribed: _,
+            lasting_effects: _,
             positions_by_object: _,
             enumerable_fields: _,
             served_tables: _,
