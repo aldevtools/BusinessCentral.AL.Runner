@@ -604,6 +604,17 @@ registry! {
             since: "2026-10-27",
         },
     },
+    TableFilterEvaluateSeveralCodeFields => {
+        id: "table-filter-evaluate-several-code-fields",
+        assumed: "Evaluate of `<table name>: <field>=<value>,<field>=<value>` (two Code fields in the order of their field numbers, no space after the comma) or of a Code value with single inner spaces into a TableFilter field answers true, sets no error and stores the text as written, which Format and Format(..., 0, 9) give back. Only Code fields whose caption is their name and upper-case values of letters, digits and single spaces that fit the field are taken; every other form is refused. The single plain Code condition is pinned (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158); writer SR probes these forms on corpus branch al-runtime-rs-staging-sr.",
+        tests: "No Microsoft test: al-runner issue 6006, the reporter measured on real BC with Base Application's Bin table: `Bin: Location Code=MAIN,Code=BIN01`, `Bin: Code=BIN WITH SPACE` and `Bin: Location Code=MAIN,Code=BIN WITH SPACE` (true, Format and Format(..., 0, 9) give the text back, no last error).",
+        probe: "Evaluate into a TableFilter field of two and three Code conditions, in and out of field-number order, with a space after the comma, a field given twice, a non-Code second field, a field whose caption differs from its name, and Code values with spaces, lower case and filter operators: the answer, Format, Format(..., 0, 9) and the last error.",
+        awaiting: Awaiting {
+            issues: &[6006],
+            files: &["tests/al-language/records/W4PlatformAndMeta.al::TableFilterEvaluate_SeveralCodeFields"],
+            since: "2026-10-28",
+        },
+    },
     GroupEnabledDisablesField => {
         id: "group-enabled-disables-field",
         assumed: "A control inside a group whose Enabled reads No is disabled whatever its own Enabled says on a page type other than a card or a request page, and for a group Enabled bound to an expression. Pinned: a request page (misc/lt-object-properties-runtime-effect/ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled) and a card's field with or without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895 Ap16_GroupEnabledFalse_Card, :1082 Ap16_GroupEnabledFalse_FieldEnabledTrue).",
