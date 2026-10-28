@@ -287,7 +287,15 @@ pub fn compile_loaded_cached(
     let blocks_started = std::time::Instant::now();
     let prepared = (|| {
         let n_dep = crate::provided::dependency_prefix(&ws).ok_or("a dependency app follows a workspace app")?;
-        provided_blocks(&ws, n_dep, src)
+        // The source may hold fewer: the dependency apps after it stand on a workspace app and are compiled
+        // here, with the workspace (al-runner issue 6044).
+        if src.len() > n_dep {
+            return Err(format!(
+                "the cache holds {} dependency objects, the dependency apps have {n_dep}",
+                src.len()
+            ));
+        }
+        provided_blocks(&ws, src.len(), src)
     })();
     let blocks = match prepared {
         Ok(b) => b,
