@@ -843,6 +843,17 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlNodeListClear => {
+        id: "xml-node-list-clear",
+        assumed: "Clear of an XmlNodeList leaves it empty (Count 0, Get false, foreach runs no time), a copy taken before keeps its nodes, and SelectNodes fills it again. Pinned only by corpus writer TP's run on real BC.",
+        tests: "No Microsoft test: a partner app's tests (a report that clears a node list it reuses).",
+        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): xml/XmlNodes.al TP_NodeList_Clear; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xml/XmlNodes.al::TP_NodeList_Clear"],
+            since: "2026-10-29",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
