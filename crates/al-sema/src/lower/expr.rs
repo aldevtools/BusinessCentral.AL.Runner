@@ -105,6 +105,7 @@ impl Lowerer<'_> {
     /// error AL0440 in BC (corpus handlers/TestPageExtensionBaseAccessContracts.al:20), so it is
     /// refused: BC never runs such code.
     pub(crate) fn declared_in_both_proc(&mut self, object: usize, offset: usize) -> L<()> {
+        self.twin_call_refusal(object, offset)?;
         if !crate::base_access::scope_enabled() {
             return Ok(());
         }
@@ -146,6 +147,81 @@ impl Lowerer<'_> {
             return Err(format!(
                 "AL0440: the {noun} extension declares a method `{name}` that the {noun} it extends already defines (BC does not compile it)"
             ));
+        }
+        Ok(())
+    }
+
+    /// A call of procedure `offset` of `object` where a page or report and an extension of it both declare that name
+    /// with the same parameter types, in a shape alc compiles ([`crate::alcodes::Twin::Compiles`]: a page extension of
+    /// another app with both public or protected, or `internal` on either side). No corpus test pins which body runs,
+    /// from the base's code, the extension's code or a variable of the object elsewhere, so the call is refused
+    /// (al-runner issue 6043). A `local` extension procedure (`ext-local-proc-named-like-base`) and the shapes alc
+    /// rejects (AL0440) are not handled here.
+    pub(crate) fn twin_call_refusal(&self, object: usize, offset: usize) -> L<()> {
+        use crate::alcodes::{Twin, signature, twin};
+        let ws = self.ws;
+        let is_base = |o: usize| matches!(ws.objects[o].kind, ObjKind::Page | ObjKind::Report);
+        let pairs: Vec<(usize, usize)> = match ws.objects[object].kind {
+            ObjKind::PageExtension | ObjKind::ReportExtension => ws
+                .extension_target(object)
+                .filter(|&b| is_base(b))
+                .map(|b| (object, b))
+                .into_iter()
+                .collect(),
+            ObjKind::Page | ObjKind::Report => ws
+                .extensions_of(object)
+                .iter()
+                .filter(|&&e| matches!(ws.objects[e].kind, ObjKind::PageExtension | ObjKind::ReportExtension))
+                .map(|&e| (e, object))
+                .collect(),
+            _ => return Ok(()),
+        };
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        let Some(mine) = ast::routines_in(ws.object_ast(object).syntax())
+            .into_iter()
+            .find(|r| usize::from(r.syntax().text_range().start()) == offset)
+        else {
+            return Ok(());
+        };
+        let name = mine.name();
+        if crate::pages::is_synthetic(&name) {
+            return Ok(());
+        }
+        let sig = signature(&mine);
+        for (e, b) in pairs {
+            let same_app = ws.objects[e].app == ws.objects[b].app;
+            let report = ws.objects[b].kind == ObjKind::Report;
+            let exts: Vec<ast::Routine> = if e == object {
+                vec![mine.clone()]
+            } else {
+                ws.object_ast(e)
+                    .routines()
+                    .filter(|r| r.name().eq_ignore_ascii_case(&name) && signature(r) == sig)
+                    .collect()
+            };
+            let bases: Vec<ast::Routine> = if b == object {
+                if mine.is_local() {
+                    Vec::new()
+                } else {
+                    vec![mine.clone()]
+                }
+            } else {
+                crate::base_access::visible_procs(&ws.object_ast(b), &name)
+                    .filter(|r| signature(r) == sig)
+                    .collect()
+            };
+            if exts
+                .iter()
+                .any(|x| bases.iter().any(|y| twin(x, y, same_app, report) == Twin::Compiles))
+            {
+                let noun = if report { "report" } else { "page" };
+                return Err(format!(
+                    "`{name}` is declared with the same parameter types by the {noun} `{}` and by its extension `{}`, which alc compiles: which of the two a call runs is not pinned (al-runner issue 6043)",
+                    ws.objects[b].name, ws.objects[e].name
+                ));
+            }
         }
         Ok(())
     }
