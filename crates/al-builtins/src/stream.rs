@@ -63,6 +63,9 @@ pub struct BlobBuf {
     /// The buffer is the content of a `File` (on-premises): writes of a Record, a RecordId or a BigText raise another text
     /// there (al-language-onprem/lt-file-type/FileQProbes.al:1309 `invalid stream mode: FileBinary`).
     pub file: bool,
+    /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
+    /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
+    pub dotnet_view: u32,
 }
 
 thread_local! {
@@ -97,6 +100,11 @@ pub const UNLOADED_WRITE: &str = "Blob.CreateOutStream without CalcFields";
 /// The mark a stream write puts on a Blob when `CalcFields` (or another load) came between `CreateOutStream` on the unloaded
 /// database-row Blob and the first write: whether the write still replaces the content is not pinned.
 pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields, loaded before the write";
+
+/// The mark a `DotNet` System.IO.Stream over an `OutStream` puts on the Blob when it is written to after `Close` or `Dispose`:
+/// the write succeeds (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetStreams.al:192, `stream write after close ok`), what
+/// it leaves in the Blob is not pinned (al-vm `dotnet/blob_stream.rs`).
+pub const DOTNET_WRITE_AFTER_CLOSE: &str = "System.IO.Stream write after Close";
 
 /// The mark on the Metadata Blob of a query's Application Object Metadata row: the bytes hold only the query's id, for
 /// Microsoft's `QueryMetadataReader.FromStream` (al-vm `dotnet/query_metadata.rs`). What BC stores there is not pinned, so
@@ -189,6 +197,13 @@ pub fn render_pending_error(report: &str) -> Signal {
         return Signal::Unsupported(
             "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
              does not pin the bytes)"
+                .into(),
+        );
+    }
+    if report == DOTNET_WRITE_AFTER_CLOSE {
+        return Signal::Unsupported(
+            "a Blob a DotNet System.IO.Stream wrote to after Close or Dispose (the write succeeds; what the Blob holds then is not \
+             pinned)"
                 .into(),
         );
     }
@@ -288,6 +303,7 @@ pub fn new_blob() -> BlobRef {
         db_row: false,
         first_write_truncates: false,
         file: false,
+        dotnet_view: 0,
     }))
 }
 
@@ -315,6 +331,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         db_row: false,
         first_write_truncates: false,
         file: false,
+        dotnet_view: 0,
     }))
 }
 
@@ -662,6 +679,7 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
+        buf.dotnet_view = 0;
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
@@ -677,9 +695,11 @@ fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
         // one) is not pinned: it is marked until a write reaches the stored content's end (`UNLOADED_WRITE`). A mark from an
         // earlier stream stays, as the stored bytes still decide what the Blob holds.
         let unloaded_content = !buf.loaded && !buf.bytes.is_empty();
+        buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else {
+        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE) {
+            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content.
             buf.render_pending = None;
         }
         buf.write_pos = 0;
@@ -722,6 +742,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         db_row: false,
         first_write_truncates: false,
         file: false,
+        dotnet_view: 0,
     });
     set_stream(
         &a[0],
@@ -771,6 +792,7 @@ fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     let mut buf = b.borrow_mut();
     buf.bytes = bytes;
     buf.write_pos = 0;
+    buf.dotnet_view = 0;
     buf.loaded = true;
     buf.refetch = false;
     buf.persisted = false;

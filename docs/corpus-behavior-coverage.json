@@ -16225,7 +16225,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 951,
+        "line": 973,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16234,7 +16234,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1145,
+        "line": 1167,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16243,7 +16243,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1335,
+        "line": 1357,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16252,7 +16252,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1367,
+        "line": 1389,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16261,7 +16261,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1609,
+        "line": 1631,
         "pinned": true,
         "site": "streams/lt-stream-length/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16270,7 +16270,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1745,
+        "line": 1767,
         "pinned": true,
         "site": "misc/lt-probes-needed-1/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."
@@ -16357,10 +16357,19 @@
         "template": "The binding of codeunit % was unsuccessful. %"
       },
       {
+        "code": "NotSupportedType",
+        "file": "crates/al-vm/src/dotnet/blob_stream.rs",
+        "generic": false,
+        "line": 81,
+        "pinned": true,
+        "site": "lt-sg-dotnet/SgDotNetStreams.al:260",
+        "template": "The type NavOutStream is unknown."
+      },
+      {
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 455,
+        "line": 463,
         "pinned": true,
         "site": "types/TestFormatEvaluateTextContracts.al:228",
         "template": "An error was expected inside an ASSERTERROR statement."
@@ -16369,7 +16378,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 602,
+        "line": 610,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16441,7 +16450,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1511,
+        "line": 1512,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16450,7 +16459,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1588,
+        "line": 1589,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16459,7 +16468,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1598,
+        "line": 1599,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16717,8 +16726,8 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 92,
-    "sites": 94
+    "pinned": 93,
+    "sites": 95
   },
   "language": {
     "bc": "27-29",
