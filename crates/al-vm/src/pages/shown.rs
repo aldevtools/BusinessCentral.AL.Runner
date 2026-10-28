@@ -59,16 +59,9 @@ const DOUBT_OTHER: u16 = 64;
 /// `TestPage.Next`, `TestPage.Filter`, a `TestFilter` call, `TestField.Activate` or `TestField.Caption`: a read of an expression the page does not keep is computed as
 /// it is now, under an assumption (module comment).
 const DOUBT_ASSUMED: u16 = 128;
-/// TestField.Lookup through the control's own OnLookup trigger, on a page with no parts, whose code calls no `CurrPage` method
-/// but `CurrPage.Update(false)` of that page: a read of an expression the page does not keep is computed as it is now
-/// (al-runner issue 5843, pinned by pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: the picked value with and without
-/// the Update, the kept one after a cancel or a false answer).
+/// TestField.Lookup through the control's own OnLookup trigger on the page itself (not a part): a read of an expression the
+/// page does not keep is computed as it is now (`Session::lookup_refresh_pinned` lists the pinned shapes).
 const DOUBT_LOOKUP: u16 = 256;
-/// The same Lookup on a page whose only parts are ListParts of its own without a SubPageLink, SubPageView or provider, whose
-/// code calls `CurrPage.Update(false)` of that page and no other `CurrPage` method: a read of an expression the page (not a
-/// part) does not keep is computed as it is now, under assumption page-lookup-refresh-with-unlinked-list-part (al-runner
-/// issue 6009, the reporter's run on real BC; the corpus pin is on its way).
-const DOUBT_LOOKUP_PARTS: u16 = 512;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
 const DOUBT_KEPT: u16 =
     DOUBT_SET_VALUE | DOUBT_HOST_SET_VALUE | DOUBT_GO_TO_RECORD | DOUBT_FIRST | DOUBT_READ | DOUBT_HOST_ACTION_UPDATE;
@@ -156,31 +149,14 @@ impl Session {
                     DOUBT_READ
                 }
                 PageMethod::Lookup
-                    if on_root
-                        && tree.len() == 1
+                    if is_p
+                        && on_root
                         && r.is_ok()
-                        && notes
-                            .iter()
-                            .all(|n| matches!(n, ShownNote::UpdateFalse(x) if *x == Rc::as_ptr(&root)))
+                        && self.lookup_refresh_pinned(&root, &tree, &notes)
                         && matches!(target, Some(ControlTarget::Control(i))
                             if page_of(&self.engine(), st).controls[*i].triggers.iter().any(|(n, _)| n == "onlookup")) =>
                 {
                     DOUBT_LOOKUP
-                }
-                PageMethod::Lookup
-                    if is_p
-                        && on_root
-                        && tree.len() > 1
-                        && r.is_ok()
-                        && !notes.is_empty()
-                        && notes
-                            .iter()
-                            .all(|n| matches!(n, ShownNote::UpdateFalse(x) if *x == Rc::as_ptr(&root)))
-                        && self.only_unlinked_list_parts(&root, &tree)
-                        && matches!(target, Some(ControlTarget::Control(i))
-                            if page_of(&self.engine(), st).controls[*i].triggers.iter().any(|(n, _)| n == "onlookup")) =>
-                {
-                    DOUBT_LOOKUP_PARTS
                 }
                 _ if method.recv() == PageRecv::TestFilter
                     || matches!(
@@ -370,16 +346,14 @@ impl Session {
             .map(|(_, v)| v.clone());
         let Some(kept) = kept else {
             let doubts = st.borrow().shown_doubts;
-            if doubts & !(DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP | DOUBT_LOOKUP_PARTS) != 0 {
+            if doubts & !(DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP) != 0 {
                 return unsupported(format!(
                     "control {} shows an expression computed when it is read, after {}, whose refresh of the page is not pinned",
                     page_of(&self.engine(), st).controls[idx].name,
                     st.borrow().shown_doubt_call.unwrap_or("a call")
                 ));
             }
-            // DOUBT_LOOKUP: a Lookup through OnLookup with `CurrPage.Update(false)` refreshes the page (pinned:
-            // pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al, codeunit 89008); DOUBT_LOOKUP_PARTS, the same on a page
-            // with an unlinked ListPart (:469 LookupUpdateFalseOnPart `shows=[R2]`; al-runner issue 6009).
+            // DOUBT_LOOKUP: the pinned shapes of a Lookup through OnLookup show the picked value (`lookup_refresh_pinned`).
             if doubts & DOUBT_ASSUMED != 0 {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::PageExpressionControlLiveReadAfterNextFilterActivate,
@@ -406,9 +380,25 @@ impl Session {
         ))
     }
 
-    /// Every page of `tree` but `root` is a ListPart hosted by `root` itself through a part control without a SubPageLink,
-    /// SubPageView or provider (the shape of al-runner issue 6009).
-    fn only_unlinked_list_parts(&self, root: &St, tree: &[St]) -> bool {
+    /// A TestField.Lookup through OnLookup on `root`, whose code noted `notes`, is pinned to show the picked value in a control
+    /// the page does not keep (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al, codeunit 89008, every read
+    /// `shows=[R2]`): the code calls no `CurrPage` method but `CurrPage.Update` of `root`, and
+    /// - without parts: no Update or `Update(false)` (:382 LookupShowsThePickedResource, :434
+    ///   LookupWithoutUpdateShowsThePickedResource); `Update(true)` there is not pinned;
+    /// - with parts: no Update, `Update(false)` or `Update(true)` (:469, :493, :517, :541, :565, :589), when every other page
+    ///   of the tree is a ListPart hosted by `root` with no SubPageView or provider and a SubPageLink that is absent or one
+    ///   `field(..)` entry (pages 89631 and 89632). A filter entry, more entries, a view or a provider are not pinned.
+    fn lookup_refresh_pinned(&self, root: &St, tree: &[St], notes: &[ShownNote]) -> bool {
+        let with_parts = tree.len() > 1;
+        let root_ptr = Rc::as_ptr(root);
+        let notes_ok = notes.iter().all(|n| match n {
+            ShownNote::UpdateFalse(x) => *x == root_ptr,
+            ShownNote::UpdateTrue(x) => with_parts && *x == root_ptr,
+            ShownNote::Other => false,
+        });
+        if !notes_ok {
+            return false;
+        }
         let engine = self.engine();
         tree.iter().filter(|q| !Rc::ptr_eq(q, root)).all(|q| {
             let host = q.borrow().host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i)));
@@ -417,11 +407,12 @@ impl Session {
                 &engine.object_facts[q.borrow().object as usize].page_type,
                 Some(ir::PageType::Other(o)) if o == "listpart"
             );
-            let unlinked = page_of(&engine, &h).controls[i]
-                .part_link
-                .as_ref()
-                .is_none_or(|l| l.entries.is_empty() && l.view.is_none() && l.provider.is_none());
-            Rc::ptr_eq(&h, root) && list_part && unlinked
+            let link_ok = page_of(&engine, &h).controls[i].part_link.as_ref().is_none_or(|l| {
+                l.view.is_none()
+                    && l.provider.is_none()
+                    && (l.entries.is_empty() || matches!(l.entries.as_slice(), [ir::LinkEntry::Field(..)]))
+            });
+            Rc::ptr_eq(&h, root) && list_part && link_ok
         })
     }
 

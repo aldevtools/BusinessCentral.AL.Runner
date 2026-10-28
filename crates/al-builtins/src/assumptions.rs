@@ -789,6 +789,32 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportTextInTable => {
+        id: "xmlport-text-in-table",
+        assumed: "A text element right below a table element whose nodes are only text attributes, or text attributes and leaf text and field elements: export runs its OnBeforePassVariable before its attributes' and writes its text after its attributes (`<item option_value=\"1\">REQUIRED</item>`, empty text gives `<item option_value=\"2\" />`); import reads the attributes (a text attribute without Occurrence is required), then the elements below, then the element's own text with its OnAfterAssignVariable; a child element in a text-only element fails the schema check. Pinned only by corpus writer TO's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a text element with an option_value attribute, and request elements with content, below a table element).",
+        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): the TO_AttrItem_* and TO_TextContent_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_AttrItem_Trigger_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_AttrItem_Plain_Import",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_TextContent_Import_Shapes",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    Utf8ReadNonAsciiUnterminated => {
+        id: "utf-eight-read-non-ascii-unterminated",
+        assumed: "InStream.Read into a Text on a UTF-8 stream of non-ASCII characters with no zero byte after them reads them to the end and counts their bytes plus one, as for ASCII (`wörld` gives 7). Pinned only by corpus writer TO's run on real BC.",
+        tests: "No Microsoft test: a partner app's report tests read a UTF-8 stream of non-ASCII text.",
+        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): PnE04Streams.al TO_ReadText_NonAscii_NoTerminator; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-probes-needed-5/PnE04Streams.al::TO_ReadText_NonAscii_NoTerminator"],
+            since: "2026-10-28",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",

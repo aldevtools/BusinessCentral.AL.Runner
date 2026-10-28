@@ -178,9 +178,14 @@ pub enum SqlForm {
         counter: SqlCounter,
         epoch: u32,
         chain: u32,
+        /// The chain this read's chain started from, after a change whose lower bound alone is pinned (0: none). A read
+        /// minus a read of that chain is at least the model's difference ([`SqlForm::AtLeast`]).
+        floor: u32,
     },
     /// The difference of two reads of one epoch, or a sum of such differences whose sign is certain.
     Delta,
+    /// A difference known to be at least the number, its exact size not pinned.
+    AtLeast,
 }
 
 /// Which counter.
@@ -527,6 +532,11 @@ pub struct PageState {
     pub marked_only_unpinned: bool,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
+    /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
+    /// read (`marked_rows_held`).
+    pub marking_action: bool,
+    /// The refresh after such an action took the marked rows it read as the rows the client holds.
+    pub marked_rows_held: bool,
     /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
     /// before the next move is refused (the page still shows the old row there; not built).
     pub marked_only_read_unbuilt: bool,
@@ -857,6 +867,8 @@ impl PageState {
             marked_only_unshown: false,
             marked_only_unpinned: false,
             marked_only_by_action: false,
+            marking_action: false,
+            marked_rows_held: false,
             marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,

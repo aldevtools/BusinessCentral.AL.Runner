@@ -125,24 +125,34 @@ fn the_reporters_budget_test_passes() {
 }
 
 /// Inserts still buffered from an earlier copy change the next measurement (SkSqlBudget.al:9-10, :273): the copy after a
-/// copy without Count and without Commit is not sized, and neither is a copy after database inserts made before the
-/// session's first read.
+/// copy without Count and without Commit counts them, and a copy after database inserts made before the session's first
+/// read, whose buffer is not known, is not sized.
 #[test]
 fn a_copy_with_inserts_still_buffered_is_refused() {
     let mut b = Built::from_source(&src("procedure CopyOnly(): Text begin exit(Measure(2, 1, false)); end;
 "));
     assert_eq!(text(b.run("CopyOnly")), "0/0");
-    refused(
-        Built::from_source(&src(
-            "procedure F(): Text begin exit(Measure(2, 1, false) + Measure(2, 1, false)); end;",
-        ))
-        .run("F"),
+    // Once the session has inserted into the table, a copy after a copy without Count and without Commit counts the row
+    // the first left buffered (SkSqlBudget.al:264-266, :272-273 "copy N=1 0/0 0/0 0/0", "copy N=2 1/0 0/0 0/0").
+    assert_eq!(
+        text(
+            Built::from_source(&src(
+                "procedure F(): Text begin exit(Measure(2, 1, false) + Measure(2, 1, false)); end;",
+            ))
+            .run("F")
+        ),
+        "0/00/0"
     );
-    refused(
-        Built::from_source(&src(
-            "procedure F(): Text begin exit(Measure(2, 1, false) + Measure(1, 2, false)); end;",
-        ))
-        .run("F"),
+    // A copy of two rows and a Count with one row left buffered: the Count sends three rows, one statement each
+    // (SkSqlBudget.al:449 "gt count 3 4/1").
+    assert_eq!(
+        text(
+            Built::from_source(&src(
+                "procedure F(): Text begin exit(Measure(2, 1, false) + Measure(1, 2, false)); end;",
+            ))
+            .run("F")
+        ),
+        "0/04/1"
     );
     refused(Built::from_source(&src(
         "procedure InsertFirst(): Text var R: Record RuleLine; begin R.\"Group Code\" := 'X'; R.\"Line No.\" := 1; R.Insert(); exit(Measure(1, 2, false)); end;",

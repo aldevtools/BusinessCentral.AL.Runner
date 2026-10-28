@@ -75,6 +75,17 @@ pub fn feature(kind: FeatureKind, ctx: &str, name: &str, value: Option<&str>) ->
     t.get(&(kind, ctx, name, "*".to_string()))
 }
 
+/// Whether the table has a row of its own for property `name` with value `value` at element kind `ctx`: alc compiled
+/// that value there at some runtime (`Importance = Optional` on a page field), so it is a value of the property.
+pub fn has_value_row(ctx: &str, name: &str, value: &str) -> bool {
+    table().contains_key(&(
+        FeatureKind::Property,
+        ctx.to_lowercase(),
+        name.to_lowercase(),
+        value.trim().to_lowercase(),
+    ))
+}
+
 /// The AL0666 diagnostics alc reports for the feature at runtime `at`, as (the name alc quotes, the text after "The
 /// supported runtime versions are: "); empty when the feature compiles there, when alc reports something else, or
 /// when the table has no row.

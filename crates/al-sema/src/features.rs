@@ -70,18 +70,9 @@ pub fn check(ws: &Workspace, catalog: &Catalog) -> Vec<Diagnostic> {
         let obj = ws.object_ast(oi);
         let kind = obj.kind();
         out.gate(FeatureKind::Object, "-", &kind, None, obj.syntax());
-        for p in obj.properties() {
-            out.gate(
-                FeatureKind::Property,
-                &kind,
-                &p.name(),
-                Some(&p.value_text()),
-                p.syntax(),
-            );
-        }
-        for s in obj.sections() {
-            section(&mut out, ws, oi, &kind, &s, &mut Vec::new(), None);
-        }
+        for_each_property(ws, oi, |ctx, p| {
+            out.gate(FeatureKind::Property, ctx, &p.name(), Some(&p.value_text()), p.syntax())
+        });
         // Data types as a variable declares them (the form alc was asked about).
         for n in obj.syntax().descendants().filter(|n| n.kind() == SyntaxKind::VarDecl) {
             let Some(t) = ast::VarDecl::cast(n.clone()).and_then(|d| d.type_ref()) else {
@@ -102,16 +93,32 @@ pub fn check(ws: &Workspace, catalog: &Catalog) -> Vec<Diagnostic> {
     diags
 }
 
+/// Calls `f` with every property of object `oi` and its element kind: the object type, then the keywords of the
+/// sections without arguments above (`layout`, `actions`), then the keyword of the innermost section with arguments
+/// (`field`, `area`), and for a `modify` the kind of what it modifies (`modify:field`); the form
+/// `catalog/alc-features.txt` keys its rows by. A page extension's or page customization's `modify` whose target is
+/// not found is skipped with everything in it.
+pub(crate) fn for_each_property(ws: &Workspace, oi: usize, mut f: impl FnMut(&str, &ast::Property)) {
+    let obj = ws.object_ast(oi);
+    let kind = obj.kind();
+    for p in obj.properties() {
+        f(&kind, &p);
+    }
+    for s in obj.sections() {
+        section(ws, oi, &kind, &s, &mut Vec::new(), None, &mut f);
+    }
+}
+
 /// The properties of `s` and of the sections in it. `structural`: the keywords of the sections without arguments
 /// above (`layout`, `actions`); `element`: the keyword of the innermost section with arguments above, if any.
 fn section(
-    out: &mut Out<'_>,
     ws: &Workspace,
     oi: usize,
     kind: &str,
     s: &ast::Section,
     structural: &mut Vec<String>,
     element: Option<String>,
+    f: &mut impl FnMut(&str, &ast::Property),
 ) {
     let name = s.name().to_ascii_lowercase();
     let has_args = !s.args().is_empty();
@@ -140,17 +147,11 @@ fn section(
             .collect::<Vec<_>>()
             .join("/");
         for p in s.properties() {
-            out.gate(
-                FeatureKind::Property,
-                &ctx,
-                &p.name(),
-                Some(&p.value_text()),
-                p.syntax(),
-            );
+            f(&ctx, &p);
         }
     }
     for inner in s.sections() {
-        section(out, ws, oi, kind, &inner, structural, element.clone());
+        section(ws, oi, kind, &inner, structural, element.clone(), f);
     }
     if pushed {
         structural.pop();
@@ -164,7 +165,15 @@ fn modified_kind(ws: &Workspace, oi: usize, kind: &str, structural: &[String], s
         return None;
     }
     let target = s.args().into_iter().next()?;
-    let base = ws.extension_target(oi)?;
+    // A page customization is no extension: its page is the one `customizes` names.
+    let base = match ws.extension_target(oi) {
+        Some(b) => b,
+        None if kind == "pagecustomization" => {
+            let parts = ws.object_ast(oi).customizes_parts()?;
+            ws.lookup(Some(ws.objects[oi].app), ObjKind::Page, &parts.join("."))?
+        }
+        None => return None,
+    };
     let top = structural.first()?;
     let page = ws.object_ast(base);
     let mut stack: Vec<ast::Section> = page.sections().filter(|x| x.name().eq_ignore_ascii_case(top)).collect();

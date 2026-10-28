@@ -182,15 +182,9 @@ impl Session {
     /// match (corpus handlers/TestPageFilterPosition_Tests.al:SetFilter_ExcludingTheCurrentRow_*,
     /// SetFilter_EvenWhenCurrentRowStillQualifies_RepositionsToTheFirstMatch).
     fn filter_changed(&mut self, st: &St) -> Result<(), Signal> {
-        // A list that reads each row once more in a key other than its primary key: the refill after a filter reads the first
-        // row three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill
-        // `filter` `4:R4;R2;R3;R4;R4;R4;C4;`, SyKeyMoves.al Name_FilterMoves); the refill here reads it twice. Refused until it
-        // is built.
-        if self.still_reads_once_more(st) {
-            return unsupported(
-                "a TestPage filter change on a list in a key other than the primary key (its refill reads are not built)",
-            );
-        }
+        // A list that reads each row once more in a key other than its primary key refills as it opens, the first row three times
+        // before OnAfterGetCurrRecord (`populate_window`; pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill
+        // `filter` `4:R4;R2;R3;R4;R4;R4;C4;`, SyKeyMoves.al:209 Name_FilterMoves `filter` `4:R4;R2;R1;R4;R4;R4;C4;`).
         self.save_row(st)?;
         {
             let mut s = st.borrow_mut();

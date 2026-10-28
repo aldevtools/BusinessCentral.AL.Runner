@@ -710,6 +710,24 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
     None
 }
 
+/// A text element right below a table element whose nodes (at least one) are only text attributes, or text attributes and
+/// leaf text and field elements (QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_* on the corpus branch
+/// al-runtime-rs-staging-pub-to; the same test as al-vm xmlports.rs `text_in_table`).
+fn text_in_table_shape(layout: &Layout, i: usize) -> bool {
+    use ir::XmlNodeKind as K;
+    let kids: Vec<usize> = (0..layout.nodes.len())
+        .filter(|&k| layout.nodes[k].parent == Some(i))
+        .collect();
+    layout.nodes[i].kind == K::Text
+        && layout.nodes[i].parent.is_some_and(|p| layout.nodes[p].kind == K::Table)
+        && !kids.is_empty()
+        && kids.iter().all(|&k| match layout.nodes[k].kind {
+            K::TextAttr => true,
+            K::Text | K::Field => !layout.has_children(k),
+            _ => false,
+        })
+}
+
 pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     let layout = cx.layout;
     let mut run_reasons = layout.run_reasons.clone();
@@ -787,7 +805,15 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // No corpus test pins a trigger on a container text element (one with child
                 // elements; Base App's xmlport 1 has OnAfterAssignVariable on one), so running
                 // the port is refused, not declaring it.
-                if kind == ir::XmlNodeKind::Text && layout.has_children(i) && !node.triggers.is_empty() {
+                // Pinned (assumption xmlport-text-in-table, corpus branch al-runtime-rs-staging-pub-to,
+                // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
+                // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
+                // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers.
+                if kind == ir::XmlNodeKind::Text
+                    && layout.has_children(i)
+                    && !node.triggers.is_empty()
+                    && !text_in_table_shape(layout, i)
+                {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",
                         raw.name

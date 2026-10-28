@@ -3799,6 +3799,9 @@ impl Session {
                 )
             }
             Value::Decimal(_) => {
+                // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/report/lt-aq/
+                // AqSaveAsXml.al:257 `AmountC`).
+                schema_type = Some("xs:decimal");
                 attribute = Some(("decimalformatter", self.decimal_column_formatter(&t, c)?));
                 // The decimal as it is, scale and all: `12.345678 * 1.5` is `18.5185170`
                 // (handlers/TestReportSaveAsColumnTypesContracts.al:174-180); Format would trim the zero.
