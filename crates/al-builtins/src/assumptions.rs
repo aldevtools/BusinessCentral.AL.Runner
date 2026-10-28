@@ -763,6 +763,21 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportUdnTextAttribute => {
+        id: "xmlport-udn-text-attribute",
+        assumed: "An XmlPort with UseDefaultNamespace = true and no DefaultNamespace that has text attributes: export writes the root's attributes before its `xmlns` declaration of BC's namespace, and every attribute in no namespace; import reads attributes in no namespace, raises the schema error for a missing required text or field attribute, and fails the schema check for a root attribute prefixed into the port's namespace (`The '<ns>:<name>' attribute is not declared.`). Pinned only by corpus writer TF's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (UseDefaultNamespace with text attributes).",
+        probe: "Done on writer TF's branch: the TF_NsAttr_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import_Qualified",
+            ],
+            since: "2026-10-28",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
@@ -782,6 +797,24 @@ registry! {
         awaiting: Awaiting {
             issues: &[6060],
             files: &["tests/al-language/types/lt-implicit-conversions/P79OptionDecimal.al"],
+            since: "2026-10-28",
+        },
+    },
+    XmlportMinOccursOnceTable => {
+        id: "xmlport-min-occurs-once-table",
+        assumed: "An explicit MinOccurs = Once on an XmlPort table element that is not below another table element (temporary or real, with or without MaxOccurs = Once) behaves as the default: an export with no rows writes the record as it stands, an import without the element fails the schema check. Pinned only by corpus writer TF's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (MinOccurs = Once on their table elements).",
+        probe: "Done on writer TF's branch: the TF_MinOnce_*, TF_MinMaxOnce_* and TF_MinMaxOnceReal_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Import",
+            ],
             since: "2026-10-28",
         },
     },

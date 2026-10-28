@@ -5057,6 +5057,25 @@ pub(crate) fn read_tree_in(
     if ns != want {
         return Ok(Ok(InNamespace::RootElsewhere(local)));
     }
+    let prefixed = with(&root, |d| match d {
+        XData::Element { attrs, .. } => attrs
+            .iter()
+            .filter_map(|a| {
+                with(a, |d| match d {
+                    XData::Attribute { prefix, local, ns, .. }
+                        if !prefix.is_empty() && prefix != "xmlns" && ns == want =>
+                    {
+                        Some(local.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .next(),
+        _ => None,
+    });
+    if let Some(attr) = prefixed {
+        return Ok(Ok(InNamespace::RootAttributeInNamespace(attr)));
+    }
     if let Some(first) = elements(&root).first() {
         let (child, child_ns) = element(first);
         if child_ns.is_empty() {

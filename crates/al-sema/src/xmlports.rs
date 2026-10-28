@@ -397,8 +397,6 @@ pub fn layout(obj: &ast::Object) -> Layout {
             Some("XmlVersionNo = V11")
         } else if out.preserve_whitespace {
             Some("PreserveWhiteSpace")
-        } else if out.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::TextAttr) {
-            Some("a text attribute")
         } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
             Some("a NamespacePrefix")
         } else {
@@ -682,7 +680,11 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         // MaxOccurs = Once on a table element that is not below another one: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:229-445
         // (SG_OnceTemp_*: below the root and below a container text element, temporary, MinOccurs = Zero; SG_OnceReal_*: a real
         // table with the default MinOccurs), export and import.
-        K::Table => (&["zero"], &["unbounded", "once"]),
+        // An explicit MinOccurs = Once on such a table element is the default: export writes the record as it stands when there
+        // are no rows, import of none fails the schema (corpus writer TF's branch al-runtime-rs-staging-pub-tf,
+        // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*; awaiting the bump,
+        // so `build` registers `xmlport-min-occurs-once-table`).
+        K::Table => (&["zero", "once"], &["unbounded", "once"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
         _ => return None,
@@ -971,6 +973,41 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         unsupported: reasons,
         run_unsupported: run_reasons,
         export_unsupported: export_reasons,
+        assumes: layout_assumed(layout),
+    }
+}
+
+/// The unprobed assumptions the layout rests on: `xmlport-min-occurs-once-table` when a table element that is not below another
+/// one says `MinOccurs = Once` (`occurs_refusal`); `xmlport-udn-text-attribute` when a port in BC's own namespace
+/// (UseDefaultNamespace without DefaultNamespace) has a text attribute.
+fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
+    let mut out = min_once_assumed(layout);
+    if layout
+        .default_ns
+        .as_deref()
+        .is_some_and(|d| d.starts_with("urn:microsoft-dynamics-nav/xmlports/x"))
+        && layout.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::TextAttr)
+    {
+        out.push(al_builtins::assumptions::Assumption::XmlportUdnTextAttribute);
+    }
+    out
+}
+
+fn min_once_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
+    let explicit_once = (0..layout.nodes.len()).any(|i| {
+        let raw = &layout.nodes[i];
+        raw.kind == ir::XmlNodeKind::Table
+            && !raw
+                .parent
+                .is_some_and(|p| layout.nodes[p].kind == ir::XmlNodeKind::Table)
+            && layout
+                .property(i, "MinOccurs")
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("once"))
+    });
+    if explicit_once {
+        vec![al_builtins::assumptions::Assumption::XmlportMinOccursOnceTable]
+    } else {
+        Vec::new()
     }
 }
 
@@ -1033,6 +1070,37 @@ mod tests {
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
     // a nested table element's MinOccurs below an AutoUpdate parent and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
+    fn an_explicit_min_occurs_once_on_a_table_element_runs_as_an_assumption() {
+        // Writer TF's branch, SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*: the default, written out.
+        let l = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(
+            min_once_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportMinOccursOnceTable]
+        );
+        let plain = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(min_once_assumed(&plain).is_empty());
+    }
+
+    #[test]
+    fn a_text_attribute_in_bc_s_own_namespace_runs_as_an_assumption() {
+        // Writer TF's branch, SgXmlPortOccurs.al TF_NsAttr_*: UseDefaultNamespace without DefaultNamespace and text attributes.
+        let l = layout_of(
+            "xmlport 7 X { UseDefaultNamespace = true; schema { textelement(R) { textattribute(V) { } tableelement(H; Cust) { MinOccurs = Zero; fieldattribute(N; H.X) { } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(l.default_ns.as_deref(), Some("urn:microsoft-dynamics-nav/xmlports/x7"));
+        assert_eq!(
+            layout_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportUdnTextAttribute]
+        );
+    }
+
+    #[test]
     fn only_the_pinned_occurs_values_run() {
         let ok = layout_of(
             "xmlport 1 X { schema { textelement(R) { MaxOccurs = Once; textelement(Q) { MinOccurs = Once; MaxOccurs = Once; tableelement(H; Cust) { MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; H.X) { MinOccurs = Zero; MaxOccurs = Once; } } } textelement(S) { MinOccurs = Zero; MaxOccurs = Unbounded; } } } }",
@@ -1048,8 +1116,8 @@ mod tests {
                 "minoccurs = zero of container textelement R",
             ),
             (
-                "textelement(R) { tableelement(H; Cust) { MinOccurs = Once; } }",
-                "minoccurs = once of tableelement H",
+                "textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Once; } } }",
+                "minoccurs = once of tableelement C",
             ),
             (
                 "textelement(R) { tableelement(H; Cust) { AutoUpdate = true; tableelement(C; Cust) { MinOccurs = Zero; } } }",

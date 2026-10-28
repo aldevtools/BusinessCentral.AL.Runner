@@ -728,6 +728,9 @@ pub struct XmlPort {
     /// export).
     #[serde(default)]
     pub export_unsupported: Vec<String>,
+    /// The unprobed assumptions the port's layout rests on; the VM marks them when the port runs.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
