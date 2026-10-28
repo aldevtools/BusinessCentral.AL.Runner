@@ -229,8 +229,8 @@ registry! {
     },
     AppTranslationApplied => {
         id: "app-translation-applied",
-        assumed: "In a language other than 1033, a Label, an enum value caption (Format, Evaluate) and a field caption of an app folder that ships a translation file for exactly that language's culture read the unit's <target>, matched by the XLIFF id the compiler writes; a unit with no target, translate=\"no\" or no unit at all gives the source text, and so does a language for which the app ships no file of the same language (de-DE for an app with nl-BE only). A file of the same language but another culture (nl-NL under nl-BE) is refused. Pinned only by the reporter's run of al-runner issue 5772 on real BC 28.1 (Format and Evaluate of an enum caption and a Label under 2067 with an nl-BE file).",
-        tests: "No Microsoft test: al-runner issue 5772, the reporter's run on a real BC 28.1 W1 container (3/3 tests pass with the app's nl-BE file).",
+        assumed: "In a language other than 1033, a Label, an enum value caption (Format, Evaluate) and a field caption of an app folder that ships a translation file for exactly that language's culture read the unit's <target>, matched by the XLIFF id the compiler writes; a unit with no target, translate=\"no\" or no unit at all gives the source text, and so does a language for which the app ships no file of the same language (de-DE for an app with nl-BE only). A file of the same language but another culture (nl-NL under nl-BE) is refused. Pinned only by the reporter's run of al-runner issue 5772 on real BC (Format and Evaluate of an enum caption and a Label under 2067 with an nl-BE file).",
+        tests: "No Microsoft test: al-runner issue 5772, the reporter's run on a real BC W1 container (3/3 tests pass with the app's nl-BE file).",
         probe: "An app with an nl-NL file: Format and Evaluate of a translated enum caption, the source caption and a value whose unit has no target under 1043, 2067 and 1031; a translated and an untranslated Label; FieldCaption of a translated field. Corpus writer TA (branch al-runtime-rs-staging-ta).",
         awaiting: Awaiting {
             issues: &[5772],
