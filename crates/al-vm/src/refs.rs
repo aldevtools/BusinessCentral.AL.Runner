@@ -429,7 +429,28 @@ impl Session {
                 ..Default::default()
             })));
         }
-        let no = int_arg(args, 0)?;
+        // A Text reaches Open(Integer) only in a Variant (the checker picks this overload for one): a text of digits opens
+        // that table, a table name raises TypeConversion:Format (misc/lt-open-overloads-collections-isolated/
+        // P107RecRefNames.al:269-278). Other texts (a sign, spaces, a digit first and letters after) are not pinned.
+        let no = match args.first() {
+            Some(v @ (Value::Text(_) | Value::Code(_))) => {
+                let s = al_builtins::native::text_of(v).unwrap_or_default();
+                let s = s.as_str();
+                if !s.is_empty() && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()) {
+                    s.parse::<i64>().unwrap_or_default()
+                } else if s.bytes().next().is_some_and(|b| b.is_ascii_alphabetic()) {
+                    return Err(crate::transactions::al_error_code(
+                        "The expression Variant cannot be type-converted to a Integer value.",
+                        "TypeConversion:Format",
+                    ));
+                } else {
+                    return unsupported(format!(
+                        "RecordRef.Open of a Variant that holds the text '{s}' (not pinned)"
+                    ));
+                }
+            }
+            _ => int_arg(args, 0)?,
+        };
         let temp = match args.get(1) {
             Some(v) => ops::truthy(v)?,
             None => false,
@@ -696,6 +717,46 @@ impl Session {
         Ok(Value::Boolean(false))
     }
 
+    /// `The supplied field number '<supplied>' cannot be found in the '<table caption>' table.`, code FieldNotFound
+    /// (recordref/lt-refs/RfTMeta.al:114-123 names the table by its caption; P107RecRefNames.al:52-60 by a name given as text).
+    fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
+        crate::transactions::al_error_code(
+            &format!(
+                "The supplied field number '{supplied}' cannot be found in the '{}' table.",
+                self.caption(t)
+            ),
+            "FieldNotFound",
+        )
+    }
+
+    /// The position of the field the name argument of RecordRef.Field/FieldExist names: matched case-insensitively,
+    /// not trimmed, against the field names only (P107RecRefNames.al:25-44, 72-81). Not pinned, so refused: a name that
+    /// reaches a removed or disabled field or a system field, and a missing name that could be a system field's.
+    fn field_by_name(&self, t: &TableDef, args: &[Value], method: &str) -> Result<Option<usize>, Signal> {
+        let Some(name) = args.first().and_then(al_builtins::native::text_of) else {
+            return unsupported(format!(
+                "RecordRef.{method} with {}",
+                args.first().map_or("no argument".to_string(), |a| a.describe())
+            ));
+        };
+        let name = name.as_str();
+        match t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) {
+            Some(pos) if t.fields[pos].id >= SYSTEM_FIELD_BASE => unsupported(format!(
+                "RecordRef.{method}('{name}') of a system field by name (not pinned)"
+            )),
+            Some(pos) if self.field_removed(t, pos) || !self.field_enabled(t, pos) => unsupported(format!(
+                "RecordRef.{method}('{name}') of a removed or disabled field (not pinned)"
+            )),
+            Some(pos) => Ok(Some(pos)),
+            None if name.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("system")) || name.starts_with('$') => {
+                unsupported(format!(
+                    "RecordRef.{method}('{name}'), a name a system field could have (not pinned)"
+                ))
+            }
+            None => Ok(None),
+        }
+    }
+
     fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
         // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`).
         if !self.global_group1.is_empty() && method != "FilterGroup" {
@@ -859,6 +920,17 @@ impl Session {
             }
             _ => {}
         }
+        // Field/FieldExist by name on a RecordRef that is not open: only the number overloads are pinned (P92Fields.al).
+        // SetTable(Rec, ShareTable) likewise: only SetTable(Rec) is pinned there (P92SetTable.al:84-101).
+        if matches!(&*lib.borrow(), LibraryValue::Empty)
+            && (matches!(method, "Field" | "FieldExist")
+                && !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_)))
+                || method == "SetTable" && args.len() == 2)
+        {
+            return unsupported(format!(
+                "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
+            ));
+        }
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
         let t = self.table(&rec)?;
         match method {
@@ -904,6 +976,12 @@ impl Session {
                     };
                     match t.fields.iter().position(|f| i64::from(f.id) == i64::from(*n)) {
                         Some(p) => positions.push(Value::Integer(p as i32)),
+                        // One unknown number raises FieldNotFound naming it (misc/lt-open-overloads-collections-isolated/
+                        // P107RecRefNames.al:159-171, records/W4PlatformAndMeta.al:517-518). Which number a call with
+                        // several arguments names is not pinned.
+                        None if args.len() == 1 && method != "AreFieldsLoaded" => {
+                            return Err(self.field_not_found(&t, &n.to_string()));
+                        }
                         None => return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error()))),
                     }
                 }
@@ -1014,6 +1092,24 @@ impl Session {
             // (recordref/lt-recordref-fieldref-members/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
             "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
+            // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
+            // name; an unknown name raises FieldNotFound with the supplied text
+            // (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:25-60).
+            "Field" if !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_))) => {
+                let pos = self.field_by_name(&t, args, "Field")?;
+                match pos {
+                    Some(pos) => Ok(handle("FieldRef", LibraryValue::FieldRef(rec, pos))),
+                    None => {
+                        let name = al_builtins::native::text_of(&args[0]).unwrap_or_default();
+                        Err(self.field_not_found(&t, name.as_str()))
+                    }
+                }
+            }
+            // FieldExist(FieldName): the same match; a caption, a padded name, a number as text and '' do not exist
+            // (P107RecRefNames.al:65-97).
+            "FieldExist" if !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_))) => {
+                Ok(Value::Boolean(self.field_by_name(&t, args, "FieldExist")?.is_some()))
+            }
             "Field" => {
                 let no = int_arg(args, 0)?;
                 // BC 29 has the user-name FlowFields at 2000000005-8 (platform/fields.rs `USER_NAME_SYSTEM_FIELDS`); the
@@ -1046,6 +1142,11 @@ impl Session {
                         ))
                     }
                     Some(pos) => Ok(handle("FieldRef", LibraryValue::FieldRef(rec, pos))),
+                    // A number no field has: -1, a gap, 99999, the largest Integer and 10000 raise FieldNotFound
+                    // (recordref/lt-refs/RfTMeta.al:100-123). The rest of the system range is not pinned.
+                    None if no < i64::from(SYSTEM_FIELD_BASE) || no == i64::from(i32::MAX) => {
+                        Err(self.field_not_found(&t, &no.to_string()))
+                    }
                     None => unsupported(format!(
                         "RecordRef.Field({no}) on a field {} does not have (error text not pinned yet)",
                         t.name
@@ -1080,6 +1181,13 @@ impl Session {
                 // SystemCreatedAt, SystemCreatedBy, SystemModifiedAt, SystemModifiedBy (corpus
                 // recordref/TestRecordRefRuntimeContracts.al:RecordRef_FieldCount_ExcludesSystemFields_...);
                 // what follows them is not pinned.
+                // Index 0 is the timestamp field, number 0, on every major (misc/lt-probes-needed-4/
+                // PnD12_RemovedFieldRecordRef.al:120-136 FieldByIndex `index0`).
+                if i == 0 {
+                    if let Some(pos) = t.fields.iter().position(|f| f.id == SYSTEM_ROW_VERSION_ID) {
+                        return Ok(handle("FieldRef", LibraryValue::FieldRef(rec, pos)));
+                    }
+                }
                 let normal = enumerable_fields(self, &t);
                 let reached = usize::try_from(i - 1).ok().and_then(|i| match normal.get(i) {
                     Some(&p) => Some(p),
@@ -1167,6 +1275,30 @@ impl Session {
                         "TableIdMismatch",
                     ));
                 }
+                // SetTable(Rec, ShareTable) (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:175-253): another
+                // table raises TableIdMismatch whatever ShareTable is (:243-251); with ShareTable true two records that are
+                // not temporary raise the Copy error and the record keeps its buffer (:190-200); two temporary records share
+                // the table (:219-221); with false it is SetTable(Rec) (:187-189, :223-225). One temporary and one not is
+                // not pinned.
+                let share = match args.get(1) {
+                    Some(v) => {
+                        let (src_temp, dst_temp) = (rec.borrow().temporary, dst.borrow().temporary);
+                        if src_temp != dst_temp {
+                            return unsupported(
+                                "RecordRef.SetTable(Rec, ShareTable) between a temporary and a normal record (not pinned)",
+                            );
+                        }
+                        let share = ops::truthy(v)?;
+                        if share && !src_temp {
+                            return Err(crate::transactions::al_error_code(
+                                "The COPY function can only be used with the shareTable argument set to true if both records are temporary.",
+                                "Argument",
+                            ));
+                        }
+                        share
+                    }
+                    None => false,
+                };
                 // The record variable keeps its own rows and its own kind: a temporary RecordRef set into a permanent record leaves it
                 // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
                 // current record and the filters pass (recordref/lt-settable-temporary/SetTableTemporaryToPermanent.al:
@@ -1186,6 +1318,9 @@ impl Session {
                     d.position = s.position.clone();
                     d.load.buffer = s.load.buffer.clone();
                     d.load.partial = s.load.partial;
+                    if share {
+                        d.temp_id = s.temp_id.clone();
+                    }
                 }
                 Ok(Value::Null)
             }
