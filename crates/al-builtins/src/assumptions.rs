@@ -681,6 +681,39 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
+    XmlportUdnTextAttribute => {
+        id: "xmlport-udn-text-attribute",
+        assumed: "An XmlPort with UseDefaultNamespace = true and no DefaultNamespace that has text attributes: export writes the root's attributes before its `xmlns` declaration of BC's namespace, and every attribute in no namespace; import reads attributes in no namespace, raises the schema error for a missing required text or field attribute, and fails the schema check for a root attribute prefixed into the port's namespace (`The '<ns>:<name>' attribute is not declared.`). Pinned only by corpus writer TF's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (UseDefaultNamespace with text attributes).",
+        probe: "Done on writer TF's branch: the TF_NsAttr_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import_Qualified",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    XmlportMinOccursOnceTable => {
+        id: "xmlport-min-occurs-once-table",
+        assumed: "An explicit MinOccurs = Once on an XmlPort table element that is not below another table element (temporary or real, with or without MaxOccurs = Once) behaves as the default: an export with no rows writes the record as it stands, an import without the element fails the schema check. Pinned only by corpus writer TF's run on real BC.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (MinOccurs = Once on their table elements).",
+        probe: "Done on writer TF's branch: the TF_MinOnce_*, TF_MinMaxOnce_* and TF_MinMaxOnceReal_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Import",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Export",
+                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Import",
+            ],
+            since: "2026-10-28",
+        },
+    },
     InstallCompanyTriggersAllApps => {
         id: "install-company-triggers-all-apps",
         assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",
