@@ -445,7 +445,8 @@ functions or methods; the file is in the module list above.
 
 1. `CorpusRuntime::try_run_suites_with` (testrun/runtime/corpus.rs), with `RunOptions::compile_cache`: the apps are put in the
    program order a cache needs, dependency apps first, Microsoft's before the others and every app after the apps it
-   depends on (`compile_cache::dependency_order`; the caller's order is kept in `order` for `TestResult::app`,
+   depends on (`compile_cache::dependency_order`); a dependency app that stands on a workspace app is not cached and comes
+   after the cached ones (`dependency_apps_on_workspace`, al-runner issue 6044; the caller's order is kept in `order` for `TestResult::app`,
    `SuiteRun::app` and `RunOptions::only`). No cache with `AL_EAGER_DEPENDENCIES` or without dependency apps.
 2. `compile_with_cache` -> `compile_cache::open_or_build_with`: the dependency set is cached in layers (owner decision
    2026-10-15): `layer_ranges` (layer 1 = the Microsoft apps, then one layer per other app), `layer_keys` (each layer's key
