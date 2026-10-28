@@ -44,6 +44,8 @@ const S_ID: usize = 6;
 // The position and the Blob length when AL gave the stream to .NET: `Length` and `Position` are pinned only then.
 const S_START: usize = 7;
 const S_START_LEN: usize = 8;
+// Whether a .NET read or write ran on the stream, even one that moved nothing (a `ReadByte` at the end).
+const S_TOUCHED: usize = 9;
 
 static NEXT_VIEW: AtomicU32 = AtomicU32::new(1);
 
@@ -110,6 +112,7 @@ impl Session {
                     Value::BigInteger(i64::from(id)),
                     big(buf.write_pos),
                     big(buf.bytes.len()),
+                    Value::Boolean(false),
                 ]
             }
             LibraryValue::InStream(st) => {
@@ -134,6 +137,7 @@ impl Session {
                     Value::BigInteger(0),
                     big(0),
                     big(st.len()),
+                    Value::Boolean(false),
                 ]
             }
             other => {
@@ -300,6 +304,7 @@ fn sync(state: &RefCell<Vec<Value>>) -> Result<(), Signal> {
 fn put(state: &RefCell<Vec<Value>>, bytes: &[u8]) -> Result<(), Signal> {
     let blob = blob_of(state)?;
     let pos = int(&state.borrow()[S_POS]);
+    state.borrow_mut()[S_TOUCHED] = Value::Boolean(true);
     {
         let mut buf = blob.borrow_mut();
         let at = pos.min(buf.bytes.len());
@@ -351,7 +356,11 @@ fn untouched<'a>(this: Option<&'a Rc<DotNetObject>>, member: &str) -> Result<&'a
     let state = open(this, member)?;
     let len = blob_of(state)?.borrow().bytes.len();
     let s = state.borrow();
-    if int(&s[S_POS]) != int(&s[S_START]) || int(&s[S_SEEN]) != int(&s[S_START]) || len != int(&s[S_START_LEN]) {
+    if matches!(s[S_TOUCHED], Value::Boolean(true))
+        || int(&s[S_POS]) != int(&s[S_START])
+        || int(&s[S_SEEN]) != int(&s[S_START])
+        || len != int(&s[S_START_LEN])
+    {
         return unsupported(format!(
             "DotNet Stream.{member} over an AL stream after a read or write (pinned only right after the assignment)"
         ));
@@ -378,6 +387,7 @@ fn read_byte(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> R
     let blob = blob_of(state)?;
     let pos = int(&state.borrow()[S_POS]);
     let next = blob.borrow().bytes.get(pos).copied();
+    state.borrow_mut()[S_TOUCHED] = Value::Boolean(true);
     Ok(match next {
         Some(b) => {
             state.borrow_mut()[S_POS] = big(pos + 1);
