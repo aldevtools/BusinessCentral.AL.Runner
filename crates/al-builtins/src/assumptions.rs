@@ -227,6 +227,17 @@ registry! {
         tests: "Price Lists UI.T003_SalesPriceListsDiscountsFromCustomersList and 5 more after TestPage.Next, T171_ShowPriceListLinesForItemDiscGroup after TestPage.Filter; Price List Line UT.VerifyPriceListLineforJobTaskAfterCopyJob after TestField.Activate, VarifyFieldsOnPurchaseJobPriceListsPage and VarifyFieldsOnSalesJobPriceListsPage after TestField.Caption; ERM Invoice Discount And VAT and Document Totals Pages.SalesOrderTotalsUnchangedWhenLineDescriptionChanged after TestFilter.SetFilter.",
         probe: "A list whose expression control reads the record (`Rec.Amount * 2`) and one that calls a page procedure: read after Next(), Filter.SetFilter, Activate and a control's Caption.",
     },
+    AppTranslationApplied => {
+        id: "app-translation-applied",
+        assumed: "In a language other than 1033, a Label, an enum value caption (Format, Evaluate) and a field caption of an app folder that ships a translation file for exactly that language's culture read the unit's <target>, matched by the XLIFF id the compiler writes; a unit with no target, translate=\"no\" or no unit at all gives the source text, and so does a language for which the app ships no file of the same language (de-DE for an app with nl-BE only). A file of the same language but another culture (nl-NL under nl-BE) is refused. Pinned only by the reporter's run of al-runner issue 5772 on real BC (Format and Evaluate of an enum caption and a Label under 2067 with an nl-BE file).",
+        tests: "No Microsoft test: al-runner issue 5772, the reporter's run on a real BC W1 container (3/3 tests pass with the app's nl-BE file).",
+        probe: "An app with an nl-NL file: Format and Evaluate of a translated enum caption, the source caption and a value whose unit has no target under 1043, 2067 and 1031; a translated and an untranslated Label; FieldCaption of a translated field. Corpus writer TA (branch al-runtime-rs-staging-ta).",
+        awaiting: Awaiting {
+            issues: &[5772],
+            files: &["tests/al-language/localization/lt-ta-app-xliff/TaXliff.al"],
+            since: "2026-10-28",
+        },
+    },
     PageLookupRefreshWithUnlinkedListPart => {
         id: "page-lookup-refresh-with-unlinked-list-part",
         assumed: "TestField.Lookup through a control's own OnLookup on a page whose only parts are ListParts without a SubPageLink, SubPageView or provider, whose code calls `CurrPage.Update(false)` of that page and no other CurrPage method, refreshes that page as it does on a page without parts (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al): a read of a control of the page that computes an expression the page does not keep gives its value now. The parts' own reads after it stay refused.",

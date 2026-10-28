@@ -353,6 +353,7 @@ pub fn load_project_with(
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
             translations: d.translations,
+            translation_files: Vec::new(),
         });
         summary.push(format!("{} {}", d.app.name, d.version));
         lazy.push(d.lazy);

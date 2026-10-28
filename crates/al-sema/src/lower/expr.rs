@@ -258,11 +258,47 @@ impl Lowerer<'_> {
     /// object's app could change it (`translatable`: not a `TextConst` and not `Locked = true`), which refuses the read in a
     /// language other than 1033 when the app ships one (ADR-053 step 1, al-runner issue 5772).
     pub(crate) fn label_read(&self, text: String, translatable: bool, object: usize) -> L<ir::Expr> {
+        self.label_read_xliff(text, translatable, object, None)
+    }
+
+    /// [`Self::label_read`] of a Label whose XLIFF unit id is `xliff` when it is known: the read takes the text a translation
+    /// file of the app gives in the language in force (ADR-053 step 2).
+    pub(crate) fn label_read_xliff(
+        &self,
+        text: String,
+        translatable: bool,
+        object: usize,
+        xliff: Option<String>,
+    ) -> L<ir::Expr> {
         let value = ir::Expr::Const(ir::Const::Text(text.clone()));
         if !translatable {
             return Ok(value);
         }
-        self.translated_text(value, object, format!("the Label '{text}'"))
+        let mut read = self.translated_text(value, object, format!("the Label '{text}'"))?;
+        if let (Some(id), ir::Expr::Builtin { args, .. }) = (xliff, &mut read) {
+            args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(id))));
+        }
+        Ok(read)
+    }
+
+    /// The XLIFF unit id of Label `name` declared in the object being lowered (`routine`: in that routine), as the compiler
+    /// writes it into the generated `.g.xlf` (`Codeunit <hash> - NamedType <hash>`, `... - Method <hash> - NamedType <hash>`;
+    /// al-runner issue 5772's file, Microsoft's `.g.xlf` files). `None` where the shape is not known: a routine that is not
+    /// declared directly in the object (a field, control or action trigger), an event-handler trigger, or an object kind
+    /// with no XLIFF name. Such a Label keeps the step 1 refusal.
+    pub(crate) fn label_xliff_id(&self, routine: Option<&ast::Routine>, name: &str) -> Option<String> {
+        let o = &self.ws.objects[self.oi];
+        let kind = al_ir::xliff_object_kind(o.kind)?;
+        let mut id = al_ir::xliff_part(kind, &o.name);
+        if let Some(r) = routine {
+            let top = r.syntax().parent().is_some_and(|p| p.kind() == SyntaxKind::ObjectBody);
+            let routine_name = r.name();
+            if !top || routine_name.is_empty() || routine_name.contains("::") {
+                return None;
+            }
+            id = format!("{id} - {}", al_ir::xliff_part("Method", &routine_name));
+        }
+        Some(format!("{id} - {}", al_ir::xliff_part("NamedType", name)))
     }
 
     /// `value` through `System.TranslatedText#1`: the same value, refused in a language other than 1033 when the app of
@@ -752,12 +788,14 @@ impl Lowerer<'_> {
                 Some(Res::Local(name)) if self.local_labels.contains_key(&name) => {
                     let text = self.local_labels[&name].clone();
                     let plain = self.local_textconsts.contains(&name) || self.local_locked_labels.contains(&name);
-                    self.label_read(text, !plain, self.oi)
+                    let xliff = self.local_label_xliff.get(&name).cloned();
+                    self.label_read_xliff(text, !plain, self.oi, xliff)
                 }
                 Some(Res::Global(name)) if self.global_labels.contains_key(&name) => {
                     let text = self.global_labels[&name].clone();
                     let plain = self.global_textconsts.contains(&name) || self.global_locked_labels.contains(&name);
-                    self.label_read(text, !plain, self.oi)
+                    let xliff = self.global_label_xliff.get(&name).cloned();
+                    self.label_read_xliff(text, !plain, self.oi, xliff)
                 }
                 // A Label of the base object is its text. Whether it is Locked is not looked up: it is read as translatable.
                 Some(Res::BaseGlobal(name)) if self.base_var(&name)?.2.is_some() => {
