@@ -10,6 +10,7 @@
 # (`-p al-test-cli` would select other features and build al-vm and the crates below it again).
 # Issue #45 has the measurements.
 set -euo pipefail
+tools/legal_guard.sh
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo test --workspace --no-default-features -q

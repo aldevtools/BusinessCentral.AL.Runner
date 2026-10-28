@@ -1,6 +1,6 @@
 # AL Runner
 
-`al-runner` runs the tests of Business Central AL apps without a BC server,
+`al-runner` runs the tests of Business Central AL apps without a BC service tier,
 Docker or SQL Server.
 
 This package is version 3: a small .NET tool around the native `al-runner`
@@ -18,3 +18,6 @@ Without `--prerelease`, `dotnet tool install` gives the last version 2 release.
 
 Documentation: https://aldev.tools/al-runner/
 Report problems: https://github.com/aldevtools/BusinessCentral.AL.Runner/issues
+
+AL Runner is an independent project. It is not affiliated with, endorsed by or sponsored by
+Microsoft. Microsoft, Dynamics 365 and Business Central are trademarks of Microsoft Corporation.
