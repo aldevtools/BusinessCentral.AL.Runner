@@ -537,6 +537,23 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane (for example Tests-SCM-Warehouse codeunit 137015): their company is built by the DemoTool, which inserts Acc. Schedule Lines whose OnInsert runs `Description := Description = '' ? GLAccCategory.Description : Description` (Base App AccScheduleLine.Table.al:113, a Text[80] true branch and a Text[100] false branch into a Text[100] field), and they pass in Microsoft's CI.",
         probe: "`T100 := Cond ? T80 : T100` and `T50 := Cond ? T80 : T100` with a false-branch value of 10, 80 and 90 characters: the value read back or the error (text and code); the same with a Code[100] false branch.",
     },
+    TernaryLabelBranch => {
+        id: "ternary-label-branch",
+        assumed: "A conditional expression with a Label branch against a Code[N] or Text[N] branch, or a non-empty text literal true branch against a Label false branch: the true branch decides the result type. A Code[N] true branch makes the Label false branch a Code (upper case; StringLengthExceeded past N, with the label's own text in the message, even when the result goes into an unbounded Text); a Text[N] true branch limits the Label to N; a Label or literal true branch is a Text that takes the false branch as it is. A TextConst or MaxLength label in these pairs is refused. Pinned only by corpus writer TI's run on real BC (Code[20] and Text[10] against Labels of 7, 10, 15, 20 and 30 characters, each way).",
+        tests: "No Microsoft test: al-runner issue 6047 (a partner suite's `Validate(Field, Cond ? Rec.\"Code\" : DefaultCodeTok)`, a Code[20] true branch and a Locked Label false branch, 38 tests).",
+        probe: "Done on writer TI's branch: the TI_Ternary_* tests of types/TestTernaryContracts.al; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[6047],
+            files: &[
+                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_CodeTrueLabelFalse_1",
+                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_LabelTrueCodeFalse_1",
+                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_TextNLabel_1",
+                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_LabelLabelAndConst_1",
+                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_CodeLabelOverflowTexts",
+            ],
+            since: "2026-10-28",
+        },
+    },
     ResourceFileNameCase => {
         id: "resource-file-name-case",
         assumed: "A File.Open, File.Exists or read of a resource file of the company data (`--company-data demotool`) whose name differs from the file on disk only in case finds the file, as on the Windows server BCApps' CI builds the DemoTool company on (the DemoTool opens `CurrencyData.txt`, BCApps ships `CurrencyData.TXT`). A name that matches exactly does not take this path.",

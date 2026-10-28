@@ -659,7 +659,11 @@ impl Lowerer<'_> {
                 let yes = self.expr(&kids[1])?;
                 let no = self.expr(&kids[2])?;
                 let (t, f) = (self.ty_of(&kids[1]), self.ty_of(&kids[2]));
-                let no = self.ternary_false_branch(&t, &f, no, target.as_ref())?;
+                let no = if t != f && (matches!(t, Ty::Label) || matches!(f, Ty::Label)) {
+                    self.ternary_label_pair(&t, &f, (&kids[1], &yes), (&kids[2], no))?
+                } else {
+                    self.ternary_false_branch(&t, &f, no, target.as_ref())?
+                };
                 Ok(ir::Expr::Ternary(Box::new(cond), Box::new(yes), Box::new(no)))
             }
             CallExpr => {

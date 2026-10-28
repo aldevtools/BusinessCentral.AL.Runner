@@ -109,6 +109,7 @@ mod strsubstno_unit_amount_field;
 mod table_ext_base_vars;
 mod temp_record_array;
 mod ternary_args;
+mod ternary_label;
 mod text_append;
 mod text_methods;
 mod text_scans;
