@@ -226,8 +226,8 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 // A4 item 4 (owner decision 2026-10-19): the Company Triggers subscribers of the other installed apps run in
                 // the install session ([`company_open`]), an assumption until probe Q3. What they write, and what a
                 // per-company routine that reads it or shares a SingleInstance codeunit with them writes, relies on it: a
-                // test that touches such a table is a flagged pass. When one of them cannot run here, none of them run, and
-                // what such a routine writes is not known.
+                // test that touches such a table is a flagged pass. When one of them cannot run here, the routines do not
+                // run ([`run_apps_under_test`]).
                 if !dependency && part == Part::Company && !routines.is_empty() {
                     let others: Vec<Closure> = company_open_subscribers(lowered, events, |o| {
                         installed(lowered, o, app.app) && objs[o].app as usize != app.app
@@ -235,7 +235,6 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                     .into_iter()
                     .map(|(o, r)| closure(lowered, o, r))
                     .collect();
-                    out.others_opened.insert(app.app, std::sync::OnceLock::new());
                     let written: BTreeSet<u32> = others.iter().flat_map(|c| c.written.iter().copied()).collect();
                     let singles: BTreeSet<usize> = others.iter().flat_map(|c| c.singles.iter().copied()).collect();
                     for &t in &written {
@@ -244,21 +243,14 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                             al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
                         ));
                     }
-                    for (i, c) in closures.iter().enumerate() {
+                    for c in &closures {
                         if c.read.intersection(&written).next().is_some()
                             || c.singles.intersection(&singles).next().is_some()
                         {
-                            let who = label(lowered, routines[i].0, routines[i].1);
                             for &t in &c.written {
                                 out.assumed.entry(t as usize).or_insert((
                                     app.app,
                                     al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
-                                ));
-                                out.unopened.entry(t as usize).or_insert((
-                                    app.app,
-                                    format!(
-                                        "{who} can see what the Company Triggers OnCompanyOpen subscribers of other apps do, and one of those cannot run in this runtime, so none ran in the install session (ADR-046 amendment 1, A4 item 4; probe Q3)"
-                                    ),
                                 ));
                             }
                         }
@@ -402,6 +394,18 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
             match open {
                 Err(why) => {
                     session.rollback_transaction();
+                    // What the subscribers wrote before the one that could not run is rolled back, and BC would have
+                    // kept it: a test that touches what any of them can write is not run either.
+                    for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app.app)) {
+                        skipped.push((
+                            touched(&engine, lowered, so, sr),
+                            format!(
+                                "Company Triggers subscriber {} in the install session of {} could not run: {why}",
+                                label(lowered, so, sr),
+                                lowered.program.apps.get(app.app).map(|a| a.name.as_str()).unwrap_or("an app under test")
+                            ),
+                        ));
+                    }
                     for &(oi, ri) in routines {
                         skipped.push((
                             touched(&engine, lowered, oi, ri),
@@ -475,51 +479,24 @@ fn company_open_subscribers(
 /// BC does in each company before the per-company install routines (install/lt-bf-install-probes/BfInstallTests.al:125-140,
 /// subscribers at events/lt-bf-company-open/BfCompanyOpenFixtures.al:51-71). Pinned for the app's own subscribers; the owner
 /// decided that every installed app's subscribers get them (ADR-046 amendment 1, A4 item 4, 2026-10-19), an assumption until
-/// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). When a subscriber of
-/// another app cannot run here (System Application's System Initialization reaches .NET this runtime refuses), what they did
-/// is rolled back and only the app's own subscribers run; what could see the difference is refused
-/// (`InstallFacts::unopened`). An own subscriber that cannot run stops the app's per-company install routines.
+/// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). A subscriber of
+/// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
 fn company_open(lowered: &Lowered, session: &mut Session, app: usize) -> Result<(), String> {
     let engine = session.engine.clone();
-    let objs = &lowered.program.objects;
     let all = company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app));
-    let others = all.iter().any(|&(o, _)| objs[o].app as usize != app);
-    if others {
-        match run_subscribers(lowered, session, &all) {
-            Ok(()) => {
-                opened(&engine, app, true);
-                return Ok(());
-            }
-            // An own subscriber that cannot run stops the install as before.
-            Err((o, why)) if objs[o].app as usize == app => return Err(why),
-            Err(_) => {
-                session.rollback_transaction();
-                session.reset_single_instances();
-            }
-        }
-    }
-    opened(&engine, app, false);
-    let own: Vec<(usize, usize)> = all.into_iter().filter(|&(o, _)| objs[o].app as usize == app).collect();
-    run_subscribers(lowered, session, &own).map_err(|(_, why)| why)
+    run_subscribers(lowered, session, &all)
 }
 
-/// Records for the tests whether the other installed apps' Company Triggers subscribers ran in app `app`'s install session.
-fn opened(engine: &Engine, app: usize, ran: bool) {
-    if let Some(o) = engine.install_facts.get().and_then(|f| f.others_opened.get(&app)) {
-        let _ = o.set(ran);
-    }
-}
-
-/// Runs `subs` in order; the first that cannot run, with why.
-fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usize)]) -> Result<(), (usize, String)> {
+/// Runs `subs` in order; why the first that cannot run cannot.
+fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usize)]) -> Result<(), String> {
     for &(o, r) in subs {
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err((o, reason));
+            return Err(reason);
         }
         match session.call_parameterless_subscriber(o, r) {
             Ok(()) => {}
-            Err(Signal::Unsupported(r)) => return Err((o, r)),
-            Err(Signal::Error(e)) => return Err((o, format!("failed (behaviour not pinned): {}", e.message))),
+            Err(Signal::Unsupported(r)) => return Err(r),
+            Err(Signal::Error(e)) => return Err(format!("failed (behaviour not pinned): {}", e.message)),
             Err(_) => return Ok(()),
         }
     }

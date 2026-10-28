@@ -358,11 +358,7 @@ impl Session {
             return None;
         }
         let facts = self.engine.install_facts.get()?;
-        if let Some(why) = facts.unknown.get(&(object as usize)) {
-            return Some(why);
-        }
-        let (app, why) = facts.unopened.get(&(object as usize))?;
-        (facts.others_opened.get(app).and_then(|o| o.get()) == Some(&false)).then_some(why.as_str())
+        facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
     /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
@@ -373,10 +369,8 @@ impl Session {
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
-        if let Some((app, a)) = facts.assumed.get(&(object as usize)) {
-            if facts.others_opened.get(app).and_then(|o| o.get()) == Some(&true) {
-                al_builtins::assumptions::assume(*a);
-            }
+        if let Some((_, a)) = facts.assumed.get(&(object as usize)) {
+            al_builtins::assumptions::assume(*a);
         }
     }
 
