@@ -552,7 +552,8 @@ impl Dataset {
     /// Text is `<Name />` (AqSaveAsXml.al:258 `<NameC />`; TO_SaveAsXml_Nested_Rows `<PName />`). Anything else
     /// is refused.
     pub(crate) fn finish_data_set(self) -> Result<Vec<u8>, Signal> {
-        const NOT_FLAT: &str = "a SaveAsXml data file of a report that is not one flat data item with rows (not pinned)";
+        const NOT_FLAT: &str =
+            "a SaveAsXml data file of a report that is not one flat data item with rows (not pinned)";
         let flat = &self.flat;
         if flat.is_empty() || flat.iter().any(|r| r.depth > 1) {
             return unsupported(NOT_FLAT);
@@ -653,7 +654,11 @@ impl Dataset {
                     }
                     out.push_str(&format!("    <{} />\r\n", c.name));
                 } else {
-                    out.push_str(&format!("    <{name}>{text}</{name}>\r\n", name = c.name, text = c.text));
+                    out.push_str(&format!(
+                        "    <{name}>{text}</{name}>\r\n",
+                        name = c.name,
+                        text = c.text
+                    ));
                 }
                 if c.ty == Some("xs:decimal") {
                     let f = c.formatter.as_deref().unwrap_or_default();
@@ -735,11 +740,26 @@ mod tests {
     #[test]
     fn a_nested_data_item_gives_one_result_per_child_row() {
         let mut d = Dataset::default();
-        d.begin("Parent", None, &[col("PId", "xs:int", "1"), col("PName", "xs:string", "a")], true);
-        d.begin("Child", None, &[col("CLine", "xs:int", "10"), col("CQty", "xs:decimal", "1.5")], false);
+        d.begin(
+            "Parent",
+            None,
+            &[col("PId", "xs:int", "1"), col("PName", "xs:string", "a")],
+            true,
+        );
+        d.begin(
+            "Child",
+            None,
+            &[col("CLine", "xs:int", "10"), col("CQty", "xs:decimal", "1.5")],
+            false,
+        );
         d.end_row(false);
         d.end_row(false);
-        d.begin("Parent", None, &[col("PId", "xs:int", "2"), col("PName", "xs:string", "")], true);
+        d.begin(
+            "Parent",
+            None,
+            &[col("PId", "xs:int", "2"), col("PName", "xs:string", "")],
+            true,
+        );
         d.end_row(false);
         assert_eq!(
             data_file_rows(d),

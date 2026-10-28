@@ -10857,6 +10857,7 @@
 72521 SmallerArray_ByValue
 72521 SmallerArray_VarParameter
 72525 ReadText_Utf8_NoTerminator
+72525 ReadText_Utf8_NonAscii
 72525 ReadText_Utf8_WithTerminator
 72540 DataItemLink_ParentAndGrandparent
 72540 MethodSum_OverFlowFields_Read

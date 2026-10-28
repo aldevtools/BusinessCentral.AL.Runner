@@ -3521,7 +3521,11 @@ fn text_in_table(schema: &Schema, c: usize) -> Option<TextInTable> {
             _ => return None,
         }
     }
-    Some(if elements { TextInTable::Content } else { TextInTable::Attrs })
+    Some(if elements {
+        TextInTable::Content
+    } else {
+        TextInTable::Attrs
+    })
 }
 
 /// A text element without triggers whose nodes are all attributes (at least one).
