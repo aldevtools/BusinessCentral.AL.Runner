@@ -225,6 +225,72 @@ codeunit 50160 C
         Prepare(Row, 3); Locked.LockTable(); ModifyAnother();
         exit(StaleModify(Row));
     end;
+    // Writer TH (al-runner issue 6040) and writer TE: the same neighbours with 1 to 10 Commits
+    // (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*, TH_* on branch al-runtime-rs-staging-pub-th).
+    procedure LockMany(Commits: Integer; Deleting: Boolean): Text
+    var Row: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits); LockAnotherTableAndRead(true);
+        Row.Qty := 5;
+        if Deleting then asserterror Row.Delete(false) else asserterror Row.Modify(true);
+        exit(GetLastErrorCode());
+    end;
+
+    procedure LockOnly(Commits: Integer): Text
+    var Row: Record "Repro N2 Row"; Middle: Record "Repro N2 Other";
+    begin
+        Prepare(Row, Commits); Middle.LockTable();
+        exit(TryStaleModify(Row));
+    end;
+
+    procedure LockSame(Commits: Integer): Text
+    var Row: Record "Repro N2 Row"; Same: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits); Same.LockTable();
+        exit(StaleModify(Row));
+    end;
+
+    procedure ModifyMany(Commits: Integer; Deleting: Boolean): Text
+    var Row: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits); ModifyAnother();
+        if Deleting then exit(StaleDelete(Row));
+        exit(StaleModify(Row));
+    end;
+
+    procedure DeleteMany(Commits: Integer; Deleting: Boolean): Text
+    var Row: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits); DeleteAnother();
+        if Deleting then exit(StaleDelete(Row));
+        exit(StaleModify(Row));
+    end;
+
+    procedure InsertMany(Commits: Integer): Text
+    var Row: Record "Repro N2 Row"; Another: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits);
+        Another."No." := 'N2-THIRD'; Another.Insert(true);
+        exit(StaleModify(Row));
+    end;
+
+    procedure NothingMany(Commits: Integer): Text
+    var Row: Record "Repro N2 Row";
+    begin
+        Prepare(Row, Commits);
+        exit(TryStaleModify(Row));
+    end;
+
+    // The reporter's shape 1: an Insert into a table that is not locked beside the lock on another table.
+    procedure LockEightWithLog(): Text
+    var Row: Record "Repro N2 Row"; Third: Record "Repro N2 Third";
+    begin
+        Prepare(Row, 8);
+        Third."No." := 'LOG-1'; Third.Insert(true);
+        LockAnotherTableAndRead(true);
+        Third."No." := 'LOG-2'; Third.Insert(true);
+        exit(TryStaleModify(Row));
+    end;
 }
 "#;
 
@@ -253,24 +319,68 @@ fn a_delete_of_another_row_three_commits_later_lets_the_stale_delete_delete() {
 fn the_unmeasured_neighbours_are_refused() {
     for routine in [
         "LockTwoNoRead",
-        "LockTwoStaleDelete",
-        "LockOne",
-        "LockThree",
-        "LockTwoAndThirdTable",
         "LockTwoUpdLock",
-        "ModifyTwo",
-        "ModifyFour",
-        "ModifyThreeStaleDelete",
-        "DeleteThreeStaleModify",
         "ModifyThreeAndInsert",
         "ModifyThreeAndOtherTable",
         "ModifyAllThree",
-        "RenameThree",
-        "InsertThree",
         "ModifyThreeLocked",
     ] {
         let r = al_testkit::run_in(SRC, "C", routine);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
+    }
+}
+
+#[test]
+fn the_neighbours_writers_te_and_th_measured_follow_one_rule_at_any_commit_count() {
+    let run = |call: &str| {
+        let src = SRC.replacen(
+            "codeunit 50160 C\n{",
+            &format!("codeunit 50160 C\n{{\n    procedure Probe(): Text begin exit({call}); end;"),
+            1,
+        );
+        clear_hits();
+        let r = text(al_testkit::run_in(&src, "C", "Probe"));
+        assert!(
+            take_hits().contains(&Assumption::StaleOwnWriteNeighbourAnyCommits),
+            "{call}"
+        );
+        r
+    };
+    // The three shapes of 6028 (two Commits, lock; three Commits, Modify or Delete of another row) keep their own assumption.
+    for n in [1, 3, 4, 5, 10] {
+        assert_eq!(run(&format!("LockMany({n}, false)")), "DB:RecordChanged", "{n}");
+    }
+    for n in [1, 2, 3, 4, 5, 10] {
+        assert_eq!(run(&format!("LockMany({n}, true)")), "DB:RecordChanged", "{n}");
+        assert_eq!(run(&format!("LockSame({n})")), "start|5", "{n}");
+    }
+    for n in [1, 2, 3] {
+        assert_eq!(run(&format!("LockOnly({n})")), "DB:RecordChanged", "{n}");
+    }
+    for n in [1, 2, 4, 5, 10] {
+        assert_eq!(run(&format!("ModifyMany({n}, false)")), "start|5", "{n}");
+        assert_eq!(run(&format!("DeleteMany({n}, false)")), "start|5", "{n}");
+    }
+    assert_eq!(run("DeleteMany(3, false)"), "start|5");
+    assert_eq!(run("ModifyMany(3, true)"), "No");
+    for n in [4, 5, 10] {
+        assert_eq!(run(&format!("ModifyMany({n}, true)")), "No", "{n}");
+        assert_eq!(run(&format!("DeleteMany({n}, true)")), "No", "{n}");
+    }
+    assert_eq!(run("InsertMany(3)"), "start|5");
+    assert_eq!(run("RenameThree()"), "start|5");
+    assert_eq!(run("LockEightWithLog()"), "DB:RecordChanged");
+}
+
+#[test]
+fn a_stale_buffer_with_nothing_in_the_new_transaction_is_refused_at_any_commit_count() {
+    for n in [1, 4, 5, 10] {
+        let src = SRC.replacen(
+            "codeunit 50160 C\n{",
+            &format!("codeunit 50160 C\n{{\n    procedure Probe(): Text begin exit(NothingMany({n})); end;"),
+            1,
+        );
+        assert_eq!(text(al_testkit::run_in(&src, "C", "Probe")), "DB:RecordChanged", "{n}");
     }
 }
 

@@ -1399,7 +1399,9 @@ impl Session {
         }
         self.set_xrec(st);
         if !both {
-            self.sync_part(host, c, st)?;
+            if !self.part_keeps_later_row(st)? {
+                self.sync_part(host, c, st)?;
+            }
             return Ok(true);
         }
         let mut h = host.borrow_mut();
@@ -1412,6 +1414,50 @@ impl Session {
         host.borrow_mut().read_keeps_xrec = false;
         r?;
         self.set_xrec(host);
+        Ok(true)
+    }
+
+    /// A ListPart on a stored row other than the first of its view, after its control's OnValidate ran `CurrPage.Update` on a
+    /// Document host whose row did not change: it stays on its row (`read_part_rows_around`; writer TH, pages/lt-th-part-update-
+    /// cursor/ThPartUpdateCursor.al, al-runner issue 6038, assumption part-keeps-row-after-update-in-validate). On the first row it
+    /// reads as the part read again with its host (`sync_part`, pinned: pages/lt-qj-part-propagation/QjPartPropagation.al:1134,
+    /// :1162). Another host type, a part that serves its rows from OnFindRecord or OnNextRecord, a row its view no longer holds
+    /// and a view longer than a window are refused. Returns whether it handled the part.
+    fn part_keeps_later_row(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
+        let table = self.table(&rec)?;
+        let held = self.row_key(&rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), &held));
+        if at == Some(0) {
+            return Ok(false);
+        }
+        let host_document = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| {
+                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+            });
+        if !self.is_list(st) || !host_document || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord")
+        {
+            return unsupported(
+                "a part's CurrPage.Update in a control's OnValidate on a row other than its first, other than a list part on a Document host without OnFindRecord (which row it shows then is not pinned)",
+            );
+        }
+        let Some(at) = at else {
+            return unsupported(
+                "a part's CurrPage.Update in a control's OnValidate after the part's view left its row (which row it shows then is not pinned)",
+            );
+        };
+        if rows.len() > Self::WINDOW {
+            return unsupported(
+                "a part's CurrPage.Update in a control's OnValidate on a row other than its first of a view longer than a window (not pinned)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartKeepsRowAfterUpdateInValidate);
+        self.read_part_rows_around(st, &rows, at)?;
         Ok(true)
     }
 

@@ -638,7 +638,7 @@ registry! {
     },
     StaleOwnInsertLockOtherOrOtherRowWrite => {
         id: "stale-own-insert-lock-other-or-other-row-write",
-        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC; every other count of Commits, write mix or lock is refused.",
+        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC; the other counts and forms writers TE and TH measured follow stale-own-write-neighbour-any-commits.",
         tests: "No Microsoft test: al-runner issue 6028, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
         probe: "The TE_ tests of SbStaleOwnModify.al: 1, 2 and 3 Commits, crossed with LockTable on another table with an Insert and a read, LockTable only, LockTable on the same table, Modify, Delete, Insert or Rename of another row, for a stale Modify and a stale Delete. Corpus writer TE (branch al-runtime-rs-staging-te).",
         awaiting: Awaiting {
@@ -648,6 +648,48 @@ registry! {
                 "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_ModifyOtherRow_StaleModify",
                 "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_DeleteOtherRow_StaleDelete",
             ],
+            since: "2026-10-28",
+        },
+    },
+    QueryTopWhileOpenAfterLastRow => {
+        id: "query-top-while-open-after-last-row",
+        assumed: "Query.TopNumberOfRows(N) on a query that is open and was read to its end (a Read returned false: an empty result or the last row read) raises nothing, the getter returns N, the next Read raises the metadata-changed error until Open, and Open again (without Close) reads at most N rows; the last value set before the Open counts. The same on a query not yet read to its end is pinned (misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290, PX_TopNumberOfRows_AroundOpen). Pinned only by the reporter's run of al-runner issue 6039 on real BC.",
+        tests: "No Microsoft test: al-runner issue 6039, the reporter's run on a real BC container (2/2 tests; Base App table 7346 \"Internal Movement Header\" GetFirstLocationCodeFromLocationsofWhseEmployee calls TopNumberOfRows(1) and Open twice on one query variable).",
+        probe: "The TH_ tests of PnAQueryOpenRead.al: TopNumberOfRows after an empty Open and Read, after a full read, twice while open, then Open and the rows read. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6039],
+            files: &[
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterEmptyOpen_ThenReopen",
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterFullRead_ThenReopen",
+                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopTwiceWhileOpen_LastValueCounts",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    StaleOwnWriteNeighbourAnyCommits => {
+        id: "stale-own-write-neighbour-any-commits",
+        assumed: "A stale buffer from the variable's own Insert (or its own Modify after it), any number of Commits later, when the new transaction did not write that row: (1) LockTable on other tables only with no write, or Inserts into other tables only (locked or not) and a FindSet of the buffer's table: a Modify or Delete through the buffer raises DB:RecordChanged; (2) LockTable on the buffer's table only with no write: a Modify writes the whole buffer and a Delete deletes the row; (3) only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, with no lock: a Modify writes the whole buffer and a Delete deletes the row. With nothing in between it stays refused as pinned. Pinned only by writer TE's and TH's runs on real BC (1, 2, 3, 4, 5, 7, 8 and 10 Commits, not every form at every count) and the reporter's run of al-runner issue 6040; every other count is assumed to behave the same. A ModifyAll or DeleteAll, a Rename whose triggers or related fields write, a mix of write kinds, a write beside a lock, a rollback and a ReadIsolation lock stay refused.",
+        tests: "No Microsoft test: al-runner issue 6040, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
+        probe: "The TE_ and TH_ tests of SbStaleOwnModify.al (1 to 10 Commits crossed with each neighbour). Corpus writers TE and TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6040],
+            files: &[
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_4C_LockOtherInsertRead_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_8C_ChangeAfter6_LockOtherInsertRead_StaleModify",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_7C_LockFindSetModifyMiddle_DeleteOtherRow_StaleDelete",
+                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_1C_LockSameTable_StaleModify",
+            ],
+            since: "2026-10-28",
+        },
+    },
+    PartKeepsRowAfterUpdateInValidate => {
+        id: "part-keeps-row-after-update-in-validate",
+        assumed: "A ListPart (without OnFindRecord or OnNextRecord) of a Document page, standing on a stored row other than the first of its view, whose control's OnValidate runs CurrPage.Update() or CurrPage.Update(false) while the host's row stays as the host read it, stays on that row: it reads from the row to the end of the view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord. Pinned only by the reporter's run of al-runner issue 6038 on real BC (a view of three rows, in the primary key and with a SubPageView sorting); a view longer than a window is refused.",
+        tests: "No Microsoft test: al-runner issue 6038, the reporter's run on a real BC container (2/2 tests; page 5771 \"Whse. Put-away Subform\" calls CurrPage.Update() in the OnValidate of Bin Code, page 7376 \"Invt. Put-away Subform\" CurrPage.Update(true) in that of Qty. to Handle).",
+        probe: "The TH_ tests of ThPartUpdateCursor.al: SetValue on line 2 and 3 of 3 with Update(true), Update(false), SaveRecord and no trigger, the trigger log and the walk First/SetValue/Next, also with a SubPageView sorting. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
+        awaiting: Awaiting {
+            issues: &[6038],
+            files: &["tests/al-language/pages/lt-th-part-update-cursor/ThPartUpdateCursor.al"],
             since: "2026-10-28",
         },
     },
