@@ -217,6 +217,7 @@ impl Session {
     ) -> Result<Option<Handler>, Signal> {
         let test_open = std::mem::take(&mut self.pages.test_open);
         let rec_unpinned = st.borrow_mut().open_rec_unpinned.take();
+        st.borrow_mut().run_page_link_opened = rec_unpinned.is_some();
         let rec_fill = st.borrow_mut().open_rec_fill.take();
         let mut handler = None;
         let engine = self.engine();

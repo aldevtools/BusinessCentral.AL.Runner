@@ -1294,6 +1294,9 @@ impl Session {
         if empty_view_list && how == PageMethod::First {
             return Ok(Value::Boolean(false));
         }
+        if how == PageMethod::First && self.first_on_first_row_of_a_linked_list(st)? {
+            return Ok(Value::Boolean(true));
+        }
         let answer_used = self.ret_used;
         // A list row whose OnValidate refused an entry: Next() raises nothing, runs no OnModify and stores nothing of the row
         // (pages/lt-ah-pages/PwCloseRevalidate.al:270 PW_List_RefusedOnValidate_ThenNext_ThenClose). Where the cursor lands
@@ -1387,6 +1390,40 @@ impl Session {
             return Err(raised?);
         }
         self.torn_down_on_error(st, r).map(Value::Boolean)
+    }
+
+    /// Whether `First()` on a list an action opened through `RunPageLink` stands on the first row of its view already: it then
+    /// answers Yes and runs no OnAfterGetCurrRecord (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:337-350, :368-410
+    /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
+    /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part.
+    fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open
+                && s.run_page_link_opened
+                && s.host.is_none()
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && !s.dirty
+                && !s.new_line
+                && s.after_new.is_none()
+        } && self.is_list(st)
+            && !["onaftergetrecord", "onfindrecord", "onnextrecord"]
+                .iter()
+                .any(|t| self.declares(st, t));
+        if !shape {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(false);
+        }
+        Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?))
     }
 
     /// An AL error of OnNextRecord on `Next()` of a card opened for editing: "Page <caption> has to close.", the caption with

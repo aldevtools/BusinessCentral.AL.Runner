@@ -2170,13 +2170,33 @@ impl Session {
             }
             _ => false,
         };
-        if !runs && !link_read {
+        // With the linked fields filled (`RUN_PAGE_LINK_OPEN_FILLED`), Rec answers like any record of that buffer and view:
+        // Count() counts the linked rows of the view, Find() looks for the buffer's primary key (No for a List whose key is
+        // blank, Yes on a Card linked on its own key, reading the row), FindFirst() and FindLast() move Rec to the first or
+        // last linked row of the view, and leave the buffer as it was when there is none
+        // (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:14-21, :314-334, :353-365, :397-425, :427-450).
+        let filled = rec.borrow().unpinned_buffer == Some(RUN_PAGE_LINK_OPEN_FILLED);
+        let find_read = filled
+            && match method {
+                RecordOp::Count | RecordOp::FindFirst | RecordOp::FindLast => args.is_empty(),
+                RecordOp::Find => match args {
+                    [] => true,
+                    [Value::Text(w)] => w.as_str() == "=",
+                    _ => false,
+                },
+                _ => false,
+            };
+        if !runs && !link_read && !find_read {
             let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
             return unsupported(format!("Rec.{}() {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
-        if !(method == RecordOp::Get && matches!(r, Ok(Value::Boolean(true)))) {
+        let refilled = matches!(
+            method,
+            RecordOp::Get | RecordOp::Find | RecordOp::FindFirst | RecordOp::FindLast
+        );
+        if !(refilled && matches!(r, Ok(Value::Boolean(true)))) {
             rec.borrow_mut().unpinned_buffer = flag;
         }
         r
