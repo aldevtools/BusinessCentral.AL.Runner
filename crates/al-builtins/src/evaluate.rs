@@ -1397,6 +1397,53 @@ pub fn evaluate_typed(
     })
 }
 
+/// `Evaluate(TableFilterField, Text)` (al-runner issue 5998). Pinned: `<table name>: <field>=<value>` with a Code field and a plain
+/// value answers true and keeps the text as written, which Format gives back
+/// (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:125,157-158). An Option field with one of its member names is the
+/// assumption `table-filter-evaluate-option-member`. Every other text (filter operators, several fields, names in another case,
+/// unknown tables or fields, the rejected forms and their errors) and every format number but 0 is refused until a probe pins it.
+fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) -> Result<Value, Signal> {
+    let refuse = || {
+        unsupported(format!(
+            "Evaluate of `{text}` into TableFilter (not pinned by the corpus)"
+        ))
+    };
+    if number != 0 {
+        return refuse();
+    }
+    let Some((table, condition)) = text.split_once(": ") else {
+        return refuse();
+    };
+    let Some((field, value)) = condition.split_once('=') else {
+        return refuse();
+    };
+    // A plain value: letters and digits only, so no filter operator, wildcard, range or second condition.
+    let plain = |v: &str| !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphanumeric());
+    if table.trim() != table || field.trim() != field || !plain(value) {
+        return refuse();
+    }
+    let ty = match c.table_filter_field(table, field) {
+        Some(Some(ty)) => ty,
+        Some(None) => return refuse(),
+        None => return unsupported("Evaluate into TableFilter without a program"),
+    };
+    match ty {
+        crate::value::RtType::Code(len) | crate::value::RtType::Text(len)
+            if len.is_none_or(|n| value.chars().count() <= n as usize) => {}
+        crate::value::RtType::Option(members) if members.iter().any(|m| m == value) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::TableFilterEvaluateOptionMember);
+        }
+        _ => return refuse(),
+    }
+    a[0] = Value::Library(
+        crate::library_kind::LibraryKind::from_name("TableFilter"),
+        std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(
+            text.to_string(),
+        ))),
+    );
+    Ok(Value::Boolean(true))
+}
+
 /// `Evaluate(RecordId, Text)`: a table name and the primary key after a colon, or only the table name; the empty text gives the
 /// blank RecordId, also for one that is not blank (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:Evaluate_IntoSetRecordId
 /// `emptyResult`, `emptyUnusedResult`). A text that names no table, has more key values than the key has fields or holds a value that
@@ -1553,6 +1600,9 @@ fn evaluate_with_max(
     }
     if matches!(&a[0], Value::Library(crate::library_kind::LibraryKind::RecordId, _)) {
         return into_record_id(c, a, &text, number);
+    }
+    if matches!(&a[0], Value::Library(name, _) if name == "TableFilter") {
+        return into_table_filter(c, a, &text, number);
     }
     let parsed = match &a[0] {
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,

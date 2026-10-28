@@ -1023,6 +1023,9 @@ impl Session {
                     return Ok(Value::Null);
                 }
             }
+            if before.is_some() && self.reread_after_refill_to_one_row(st)? {
+                return Ok(Value::Null);
+            }
             // A temporary Worksheet whose action left Rec on another row (a refill: RmTempRefill.al:323-:420) is read again from the
             // row the client stood on and Rec's row (`reread_after_refill_by_action`), with or without CurrPage.Update.
             if let Some(before) = &before {
@@ -1362,6 +1365,24 @@ impl Session {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
                 Ok(())
             }
+            // A Worksheet with the new-row line opened for edit on an empty view, left on that line by an action that inserted
+            // rows through another record variable: the next action first reads the line, OnAfterGetRecord on the blank Rec
+            // (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
+            // Another number of rows is the registered assumption `empty-worksheet-filled-by-action`.
+            (EmptyShape::EditList, _)
+                if self.engine.object_facts[st.borrow().object as usize].page_type
+                    == Some(al_ir::PageType::Worksheet) =>
+            {
+                if n != 2 {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction,
+                    );
+                }
+                self.calc_row_flowfields(st)?;
+                self.populate_expressions(st)?;
+                self.page_trigger(st, "onaftergetrecord", vec![])?;
+                Ok(())
+            }
             _ => unsupported(
                 "an action on a page that shows no row while its view holds rows (what the client reads first is not pinned)",
             ),
@@ -1391,11 +1412,65 @@ impl Session {
             return Ok(false);
         }
         let n = self.view_row_count(st)?;
-        if n > 1 {
-            return Ok(false);
-        }
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
+        if n > 1 {
+            // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
+            // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
+            // it with a blank xRec and goes back to its new-row line (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573
+            // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, :601 _FillThenWalk `calculate log =
+            // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; more rows up to a window are the
+            // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
+            let worksheet =
+                self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
+            if shape != EmptyShape::EditList || !worksheet || self.stored_row(&rec)?.is_some() {
+                return Ok(false);
+            }
+            if n as usize > Self::WINDOW {
+                return unsupported(
+                    "an action that stored more rows than a window into an empty Worksheet standing on its new-row line (not pinned)",
+                );
+            }
+            if n != 2 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetFilledByAction);
+            }
+            st.borrow_mut().refresh = false;
+            st.borrow_mut().save_record_called = false;
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            let mut rows = Vec::new();
+            self.ret_used = true;
+            if matches!(
+                self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+                Value::Boolean(true)
+            ) {
+                loop {
+                    rows.push(probe.borrow().fields.clone());
+                    self.ret_used = true;
+                    if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
+                    {
+                        break;
+                    }
+                }
+            }
+            {
+                let mut s = st.borrow_mut();
+                s.cursor = Cursor::Row;
+                s.draft = false;
+                s.dirty = false;
+                s.blank_on_open = false;
+            }
+            for r in rows.iter().chain([&rows[0], &rows[0]]) {
+                rec.borrow_mut().fields = r.clone();
+                self.populate_current(st)?;
+            }
+            let blank = self.initial_fields(table);
+            self.set_xrec_fields(st, blank);
+            self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+            self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+            self.land_on_new_line(st)?;
+            st.borrow_mut().empty_list_row_behind = true;
+            return Ok(true);
+        }
         if n == 0 {
             // A page opened for view still shows nothing, also when the action stored a row the view hides (pages/W1ShowRow.al:277
             // FilteredList_InsertedRowTheViewHides, a page without row triggers). Which triggers run then is not pinned.
@@ -1404,6 +1479,8 @@ impl Session {
             }
             st.borrow_mut().refresh = false;
             st.borrow_mut().save_record_called = false;
+            // No row is behind the line any more (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `first` No).
+            st.borrow_mut().empty_list_row_behind = false;
             self.land_on_new_line(st)?;
             self.land_on_new_line(st)?;
             return Ok(true);
@@ -1489,6 +1566,26 @@ impl Session {
             s.draft = false;
             s.dirty = false;
         }
+        // The other rows of the view, which the client read after the action (`empty_page_after_action` with two rows or more).
+        let mut rest = Vec::new();
+        loop {
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
+            {
+                break;
+            }
+            let f = probe.borrow().fields.clone();
+            rest.push(al_builtins::value::WindowRow {
+                key: self.table(&probe)?.primary_key(&f),
+                stored: f.clone(),
+                shown: f,
+            });
+            if rest.len() >= Self::WINDOW {
+                return unsupported(
+                    "First after an action stored more rows than a window behind the new-row line of an empty list (not pinned)",
+                );
+            }
+        }
         self.populate_current(st)?;
         self.populate_current(st)?;
         let key = self.row_key(&rec)?;
@@ -1501,6 +1598,13 @@ impl Session {
                 shown,
             }];
             s.window_from_start = true;
+            // With more rows the client holds them all and walks them as on a list it opened, then onto its new-row line
+            // (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenWalk `walk log = R:10000;R:10000;C:10000;R:20000;R:20000;
+            // C:20000;N:0;C:0;`; registered assumption `empty-worksheet-filled-by-action`).
+            if !rest.is_empty() {
+                s.window.extend(rest);
+                s.view_read_to_end = true;
+            }
         }
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
@@ -2357,6 +2461,11 @@ impl Session {
         if !self.has_source(st) {
             return Ok(());
         }
+        if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
+            return unsupported(
+                "a second action on a List opened for view that lost its only row to an action (not pinned)",
+            );
+        }
         self.show_row_page_code_positioned(st)?;
         let again = {
             let s = st.borrow();
@@ -2430,6 +2539,7 @@ impl Session {
             if !new_line
                 && (st.borrow().mode != PageMode::View
                     || flag_denied(&self.engine(), st.borrow().object as usize, "InsertAllowed")?)
+                && !self.read_only_view_list_shows_nothing(st)
             {
                 return unsupported("a list without the new-row line that lost its only row to an action (not pinned)");
             }
@@ -2504,15 +2614,65 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
         let lookup_list = st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st);
-        if read_only || lookup_list || self.tree_indentation(st).is_some() {
+        if read_only || lookup_list {
             return Ok(false);
         }
         let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
+        // A Worksheet that shows its rows as a tree, opened for edit, stands on the blank Rec the same way, at the action and at a
+        // later one (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:509 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
+        // `R:10000;N:0;C:0;`, :535 _EmptyRecTwice `N:0;C:0;`, a page with InsertAllowed, DeleteAllowed and ModifyAllowed false).
+        // Another combination is the registered assumption `tree-worksheet-gone-only-row-blank-rec`. A tree list whose blank Rec
+        // would take a filter value is not pinned (`settle_on_blank_rec`).
+        if self.tree_indentation(st).is_some() {
+            let tree_pinned = worksheet && st.borrow().mode == PageMode::Edit;
+            if tree_pinned
+                && !(flag_denied(&engine, object, "DeleteAllowed")? && flag_denied(&engine, object, "ModifyAllowed")?)
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::TreeWorksheetGoneOnlyRowBlankRec,
+                );
+            }
+            return Ok(tree_pinned);
+        }
         Ok(match st.borrow().mode {
             PageMode::Edit => worksheet || self.is_list_page(st),
             PageMode::View => worksheet,
             _ => false,
         })
+    }
+
+    /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
+    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
+    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
+    /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
+    fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let read_only = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
+        let lookup = st.borrow().lookup_set && st.borrow().lookup;
+        let pinned = read_only
+            && !lookup
+            && st.borrow().mode == PageMode::View
+            && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.tree_indentation(st).is_none();
+        if pinned {
+            // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another
+            // combination is the registered assumption `read-only-view-list-gone-only-row`.
+            let all_denied = ["DeleteAllowed", "ModifyAllowed"].iter().all(|p| {
+                engine.program.objects[object]
+                    .properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
+            });
+            if !all_denied {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
+            }
+            st.borrow_mut().gone_view_list = true;
+        }
+        pinned
     }
 
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
@@ -2530,12 +2690,33 @@ impl Session {
         let stamped = rec.borrow().fields.clone();
         rec.borrow_mut().fields = fresh.clone();
         if !Self::same_values(&stamped, &fresh) {
-            if !self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? {
+            if self.tree_indentation(st).is_some() {
+                return unsupported(
+                    "a filtered tree list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
+                );
+            }
+            let Some(related) = self.blank_rec_takes_key_filters(st, rec, &stamped, &fresh)? else {
                 return unsupported(
                     "a filtered list without the new-row line that lost its only row to an action (whether its blank Rec takes the filter is not pinned)",
                 );
-            }
+            };
             rec.borrow_mut().fields = stamped.clone();
+            // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
+            // there the blank Rec takes it as without the relation; without it nothing runs
+            // (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
+            // _BatchMissing).
+            for pos in related {
+                self.ret_used = false;
+                match self.record_op(
+                    RecordOp::Validate,
+                    rec,
+                    &mut [Value::Integer(pos as i32), stamped[pos].clone()],
+                ) {
+                    Ok(_) => {}
+                    Err(Signal::Error(_)) => return self.blank_rec_relation_failed(st, rec),
+                    Err(e) => return Err(e),
+                }
+            }
         }
         {
             let mut s = st.borrow_mut();
@@ -2566,16 +2747,40 @@ impl Session {
         Ok(())
     }
 
+    /// The relation check of a value the blank Rec takes failed (RtFilteredGoneRow.al:550 _BatchMissing): the error is swallowed, no trigger runs, then or at a later action, and the list shows no row. What Rec and xRec hold
+    /// and what GetLastErrorText reads are not known: a read of them is refused.
+    fn blank_rec_relation_failed(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
+        let unknown: Vec<Value> = rec
+            .borrow()
+            .fields
+            .iter()
+            .map(|_| {
+                Value::Unknown(std::sync::Arc::from(
+                    "Rec of a filtered list whose blank Rec failed the table relation of a filter value (not pinned)",
+                ))
+            })
+            .collect();
+        rec.borrow_mut().fields = unknown.clone();
+        self.set_xrec_fields(st, unknown);
+        self.last_error = al_builtins::native::unpinned_error();
+        let mut s = st.borrow_mut();
+        s.refresh = false;
+        s.cursor = Cursor::None;
+        s.gone_blank_no_new_line = false;
+        Ok(())
+    }
+
     /// Whether every value the filters stamp on the blank Rec (`stamped` against `fresh`) is of the pinned form (see
-    /// `settle_on_blank_rec`): one `SetRange` value of a primary-key field in filter group 0 or 2, on a field without OnValidate,
-    /// table relation or validate subscriber, on a page without PopulateAllFields.
+    /// `settle_on_blank_rec`): one `SetRange` value of a primary-key field in filter group 0 or 2, on a field without OnValidate
+    /// or validate subscriber, on a page without PopulateAllFields. `Some` holds the fields among them with a TableRelation,
+    /// which the caller checks under an assumption; `None` is not pinned.
     fn blank_rec_takes_key_filters(
         &mut self,
         st: &St,
         rec: &Rec,
         stamped: &[Value],
         fresh: &[Value],
-    ) -> Result<bool, Signal> {
+    ) -> Result<Option<Vec<usize>>, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         if engine.program.objects[object]
@@ -2583,8 +2788,9 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("PopulateAllFields") && v.trim().eq_ignore_ascii_case("true"))
         {
-            return Ok(false);
+            return Ok(None);
         }
+        let mut related = Vec::new();
         let table = self.table(rec)?;
         let schema = engine.program.objects[table.object as usize]
             .table
@@ -2610,16 +2816,18 @@ impl Session {
             if !pinned_filter
                 || !table.keys[0].contains(&pos)
                 || f.on_validate.is_some()
-                || f.relation
                 || !f.ext_before_validate.is_empty()
                 || !f.ext_after_validate.is_empty()
                 || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
                 || self.listened(&table, "onaftervalidateevent", Some(&f.name))?
             {
-                return Ok(false);
+                return Ok(None);
+            }
+            if f.relation {
+                related.push(pos);
             }
         }
-        Ok(true)
+        Ok(Some(related))
     }
 
     /// A list that serves its rows from OnFindRecord lost its current row to an action. The client asks

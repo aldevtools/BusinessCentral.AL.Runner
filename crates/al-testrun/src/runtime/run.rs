@@ -1,5 +1,7 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
-use super::written::{ReachFacts, ReachIndex, reach_facts, settled_flags, unfinished_reach_facts};
+use super::written::{
+    self, ReachFacts, ReachIndex, reach_facts, remainder_reach_facts, settled_flags, unfinished_reach_facts,
+};
 use super::*;
 
 /// Outcomes of every `[Test]` procedure of test codeunit `object`, in order.
@@ -531,6 +533,9 @@ pub(crate) fn run_codeunit_core(
         // Why a step of the test runner around this test was refused or failed (runner_reset.rs): what it left is not
         // known, so a later failure of the codeunit is not trusted.
         let mut runner_refused: Option<String> = None;
+        // A refusal raised by a statement of the test method itself: the statement's index in the body and the tables
+        // the test wrote before the refusal (al-runner issue 5961), for the trust of later failures.
+        let mut refused_rest: Option<Rest> = None;
         session.clear_fault_site();
         al_builtins::assumptions::clear_hits();
         session.take_tdd_reached();
@@ -570,7 +575,10 @@ pub(crate) fn run_codeunit_core(
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                     // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                     session.start_random_scope();
+                    // What the test (and the runner's steps around it) writes counts from here.
+                    let changes_from = session.store_mut().change_counter();
                     let reset = runner.before(&mut session, obj, routine);
+                    let reset_ok = reset.is_ok();
                     if let Err(why) = &reset {
                         runner_refused = Some(why.clone());
                     }
@@ -629,6 +637,25 @@ pub(crate) fn run_codeunit_core(
                     session.set_runner_frames(String::new());
                     let timed_out = watchdog.is_some_and(Watchdog::finish);
                     let slept_out = session.sleep_budget_passed();
+                    // A refusal the method's call raised, whose innermost frame is the method: the statement it came
+                    // from. The writes are read before the rollback below undoes them.
+                    if reset_ok
+                        && !panicked
+                        && !timed_out
+                        && !slept_out
+                        && matches!(result, Err(Signal::Unsupported(_)))
+                    {
+                        refused_rest = session
+                            .refusal_site()
+                            .and_then(|site| site.last().copied())
+                            .filter(|f| f.object == object && f.routine == r)
+                            .and_then(|f| written::statement_at(lowered, object, r, f.pos))
+                            .map(|from| Rest {
+                                from,
+                                handlers: bound.iter().map(|&(_, h)| h).collect(),
+                                written: session.store_mut().tables_changed_since(changes_from),
+                            });
+                    }
                     session.end_sleep_budget();
                     // The reason names the limit; the VM only knows that it was stopped. Both reasons start with the
                     // same words, which the outputs turn into the timeout row (`Test exceeded <N>s timeout.`).
@@ -746,9 +773,11 @@ pub(crate) fn run_codeunit_core(
         // codeunit and of the codeunits it holds, single-instance codeunits, and session state such as the `Random`
         // sequence. A failure of a later test is not trusted when an unfinished test's static reach can change what the
         // failing test reads (Tests-ERM "Discount Setup Notifications": the refused test would have reset the posting
-        // setups the test before it left blank). A refused test's partial run counts as its whole reach. A failed test
-        // counts only through the `Random` sequence: its draws are not rolled back, while its database writes are, as
-        // they are in BC when the test fails there too.
+        // setups the test before it left blank). A refused test's partial run counts as its whole reach, except for one a
+        // statement of its own body refused: what it wrote before the refusal and the reach of the statements from that one
+        // on count (`remainder_reach_facts`, al-runner issue 5961). A failed test counts only through the `Random`
+        // sequence: its draws are not rolled back, while its database writes are, as they are in BC when the test fails
+        // there too.
         // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
         // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
         let drew = session.inherited_random_draws() > draws_before;
@@ -783,9 +812,23 @@ pub(crate) fn run_codeunit_core(
                     if u.ended == Ended::Failed && !drew {
                         return None;
                     }
-                    let facts = u
-                        .facts
-                        .get_or_insert_with(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine));
+                    let facts = u.facts.get_or_insert_with(|| {
+                        u.rest
+                            .as_ref()
+                            .and_then(|rest| {
+                                remainder_reach_facts(
+                                    &engine.events,
+                                    lowered,
+                                    index,
+                                    object,
+                                    u.routine,
+                                    rest.from,
+                                    &rest.handlers,
+                                    &rest.written,
+                                )
+                            })
+                            .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
+                    });
                     match u.ended {
                         Ended::Failed => facts.random().then(|| {
                             format!(
@@ -839,6 +882,11 @@ pub(crate) fn run_codeunit_core(
                 what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
                 ended,
                 facts: None,
+                rest: if ended == Ended::RefusedMidRun {
+                    refused_rest.take()
+                } else {
+                    None
+                },
             });
         }
         // A runner step that did not run to its end may have left anything (decision 2026-10-19: a refused construct
@@ -848,6 +896,7 @@ pub(crate) fn run_codeunit_core(
                 routine: r,
                 what: format!("{}: {why}", routine.name).chars().take(120).collect(),
                 ended: Ended::RefusedMidRun,
+                rest: None,
                 facts: Some(ReachFacts {
                     unknown: Some("a step of the test runner around it did not run to its end".into()),
                     ..Default::default()
@@ -1201,4 +1250,16 @@ struct Unfinished {
     ended: Ended,
     /// Its reach facts, worked out at the first later failure that asks.
     facts: Option<ReachFacts>,
+    /// For a test refused by a statement of its own body: what it did not run (al-runner issue 5961).
+    rest: Option<Rest>,
+}
+
+/// What a test refused by a statement of its own body left undone, for [`remainder_reach_facts`].
+struct Rest {
+    /// The index in the body of the statement it was refused in.
+    from: usize,
+    /// Its handler functions (routines of the test codeunit).
+    handlers: Vec<usize>,
+    /// The tables it wrote before the refusal, which the rollback undid.
+    written: BTreeSet<u32>,
 }

@@ -1,8 +1,7 @@
 //! A manual subscriber instance that unbinds itself in its first subscriber method does not run its second method in
-//! the same raise (al-runner issue 5941, the reporter's repro on real BC; registered assumption
-//! `self-unbind-skips-rest-of-raise`). An instance unbound by another subscriber is not pinned and is refused.
+//! the same raise (handlers/ProbeEventSubscriberOrder.al:253 ManualSubscriber_UnbindsItselfInFirstMethod_SecondMethodInSameRaise).
+//! An instance unbound by another subscriber is not pinned and is refused.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
 
 const PUB: &str = "
@@ -24,12 +23,10 @@ fn second_method_of_a_self_unbound_instance_is_not_called() {
         "{PUB} codeunit 50710 C {{ procedure F(): Text var U: Codeunit Unbinder; P: Codeunit Pub; L: Codeunit Log; begin
             BindSubscription(U); P.Ping('stop'); P.Ping('again'); exit(L.Get()); end; }}"
     );
-    clear_hits();
     assert_eq!(
         al_testkit::text(al_testkit::run_in(&src, "C", "F")),
         "A:stop;after-unbind"
     );
-    assert!(take_hits().contains(&Assumption::SelfUnbindSkipsRestOfRaise));
 }
 
 #[test]

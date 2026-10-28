@@ -583,6 +583,16 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         {
             String::new()
         }
+        // A TableFilter Evaluate set formats as the text it was given
+        // (permissions/lt-av-permission-filter/AvSetPermissionFilter.al:131,158; evaluate.rs into_table_filter).
+        Value::Library(name, l)
+            if name == "TableFilter" && matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
+        {
+            match &*l.borrow() {
+                crate::value::LibraryValue::Text(s) => s.clone(),
+                _ => unreachable!(),
+            }
+        }
         // A document type or an XML declaration formats as its markup (xml/lt-xml-doctype-declaration/DocTypeErrors.al:
         // FormatOfUninitialisedAndInitialised); an unassigned one raises.
         Value::Library(name, l) if matches!(name.as_str(), "XmlDocumentType" | "XmlDeclaration") => {
@@ -646,6 +656,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     // one is a fresh default one (types/ProbeTypeFormsAndFilters.al:Clear_JsonTypes_GiveFreshUnassigned). al-runner
                     // issue 5956.
                     crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 0 => "[]".to_string(),
+                    // Standard format 9 of a JsonArray nobody touched raises (json/JsonWriteTo.al FormatOfEmptyJsonArrays
+                    // `untouched format 9`).
+                    crate::value::LibraryValue::Empty if name == "JsonArray" && standard == 9 => {
+                        return Err(no_such_format(9, "JsonArray"));
+                    }
                     crate::value::LibraryValue::Empty if matches!(name.as_str(), "JsonValue" | "JsonToken") => {
                         "null".to_string()
                     }

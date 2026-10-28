@@ -1,5 +1,6 @@
-//! A field with `Enabled = true` inside a group with `Enabled = false` is disabled on a TestPage of a card (al-runner
-//! issue 5945, the reporter's repro on real BC; registered assumption `group-enabled-disables-field`).
+//! A field with `Enabled = true` inside a group with `Enabled = false` is disabled on a TestPage of a card
+//! (pages/lt-ap-testpage-642/ApTestPageTests.al:1082 Ap16_GroupEnabledFalse_FieldEnabledTrue). Another page type is the
+//! registered assumption `group-enabled-disables-field`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
@@ -40,6 +41,14 @@ codeunit 50768 C
 fn a_field_in_a_disabled_group_is_disabled() {
     clear_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "F")), "No,Yes");
+    assert!(!take_hits().contains(&Assumption::GroupEnabledDisablesField));
+}
+
+#[test]
+fn a_field_in_a_disabled_group_of_a_document_is_the_assumption() {
+    let src = SRC.replace("PageType = Card;", "PageType = Document;");
+    clear_hits();
+    assert_eq!(al_testkit::text(al_testkit::run_in(&src, "C", "F")), "No,Yes");
     assert!(take_hits().contains(&Assumption::GroupEnabledDisablesField));
 }
 
