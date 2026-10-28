@@ -328,23 +328,49 @@ fn a_lookup_on_a_page_with_an_unlinked_part_shows_the_picked_value() {
 }
 
 #[test]
+fn a_lookup_on_a_page_with_a_part_shows_the_picked_value_in_every_pinned_form() {
+    // Pinned: pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al LookupUpdateTrueOnPart (:493), LookupNoUpdateOnPart
+    // (:517), LookupUpdateFalseOnLinkedPart (:541), LookupUpdateTrueOnLinkedPart (:565), LookupNoUpdateOnLinkedPart (:589):
+    // `shows=[R2]` in each.
+    let linked = "SubPageLink = \"No.\" = field(\"No.\");";
+    for (update, link) in [
+        ("CurrPage.Update(true);", ""),
+        ("", ""),
+        ("CurrPage.Update(false);", linked),
+        ("CurrPage.Update(true);", linked),
+        ("", linked),
+    ] {
+        assert_eq!(
+            part_outcome(update, link),
+            Outcome::Pass,
+            "update {update:?}, link {link:?}"
+        );
+        assert!(al_builtins::assumptions::take_hits().is_empty());
+    }
+}
+
+#[test]
 fn a_lookup_on_a_page_with_a_part_keeps_the_unmeasured_forms_refused() {
-    // A part with a SubPageLink.
-    let linked = part_outcome("CurrPage.Update(false);", "SubPageLink = \"No.\" = field(\"No.\");");
-    assert!(
-        matches!(linked, Outcome::NotRun(ref r) if r.contains("not pinned")),
-        "{linked:?}"
-    );
-    // No CurrPage.Update in the OnValidate.
-    let no_update = part_outcome("", "");
-    assert!(
-        matches!(no_update, Outcome::NotRun(ref r) if r.contains("not pinned")),
-        "{no_update:?}"
-    );
-    // CurrPage.Update(true).
-    let update_true = part_outcome("CurrPage.Update(true);", "");
-    assert!(
-        matches!(update_true, Outcome::NotRun(ref r) if r.contains("not pinned")),
-        "{update_true:?}"
-    );
+    // A SubPageLink with a filter entry, two field entries, and a SubPageView: no corpus test reads the host after a lookup
+    // with these.
+    for link in [
+        "SubPageLink = \"No.\" = const('R1');",
+        "SubPageLink = \"No.\" = field(\"No.\"), \"No.\" = field(\"No.\");",
+        "SubPageView = where(\"No.\" = const('R1'));",
+    ] {
+        let o = part_outcome("CurrPage.Update(false);", link);
+        assert!(
+            matches!(o, Outcome::NotRun(ref r) if r.contains("not pinned")),
+            "{link}: {o:?}"
+        );
+    }
+}
+
+/// CurrPage.Update(true) in the OnValidate on a page without parts: no corpus test reads the control after it.
+#[test]
+fn a_lookup_with_update_true_on_a_page_without_parts_stays_refused() {
+    let src = SRC.replace("CurrPage.Update(false);", "CurrPage.Update(true);");
+    let o = al_testkit::outcomes_in(&src, "T");
+    let r = outcome(&o, "LookupShowsThePickedResource");
+    assert!(matches!(r, Outcome::NotRun(ref m) if m.contains("not pinned")), "{r:?}");
 }
