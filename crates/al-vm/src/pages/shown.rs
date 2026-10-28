@@ -378,12 +378,8 @@ impl Session {
                 ));
             }
             // DOUBT_LOOKUP: a Lookup through OnLookup with `CurrPage.Update(false)` refreshes the page (pinned:
-            // pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al, codeunit 89008).
-            if doubts & DOUBT_LOOKUP_PARTS != 0 {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::PageLookupRefreshWithUnlinkedListPart,
-                );
-            }
+            // pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al, codeunit 89008); DOUBT_LOOKUP_PARTS, the same on a page
+            // with an unlinked ListPart (:469 LookupUpdateFalseOnPart `shows=[R2]`; al-runner issue 6009).
             if doubts & DOUBT_ASSUMED != 0 {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::PageExpressionControlLiveReadAfterNextFilterActivate,

@@ -1,12 +1,12 @@
 {
-  "corpus_commit": "55ad94c33e6c1cdf3aa0d0befec1994c8ff55319",
+  "corpus_commit": "eb8cf902baeabfe6228a105c06ef09f4dc91d031",
   "dimensions": [
     {
       "catalog": 188,
       "dimension": "triggers",
       "items": [
         {
-          "corpus_uses": 579,
+          "corpus_uses": 613,
           "group": "page/action",
           "ms_uses": 6517,
           "name": "OnAction",
@@ -24,7 +24,7 @@
           "site": "_fixtures/tables/ALTErrorTrigger.al:14"
         },
         {
-          "corpus_uses": 116,
+          "corpus_uses": 122,
           "group": "page/field",
           "ms_uses": 3476,
           "name": "OnValidate",
@@ -33,7 +33,7 @@
           "site": "_fixtures/pages/ALTRunTxNoneCardPage.al:34"
         },
         {
-          "corpus_uses": 23,
+          "corpus_uses": 25,
           "group": "page/field",
           "ms_uses": 2863,
           "name": "OnDrillDown",
@@ -42,7 +42,7 @@
           "site": "errors/lt-ms-refusals-128/P128Callstack.al:108"
         },
         {
-          "corpus_uses": 314,
+          "corpus_uses": 323,
           "group": "page",
           "ms_uses": 1332,
           "name": "OnOpenPage",
@@ -78,7 +78,7 @@
           "site": "_fixtures/reports/ALTManualReportIntegrationEvent.al:19"
         },
         {
-          "corpus_uses": 247,
+          "corpus_uses": 256,
           "group": "page",
           "ms_uses": 923,
           "name": "OnAfterGetRecord",
@@ -87,7 +87,7 @@
           "site": "autoformat/TestAutoFormatExpressionTiming.al:408"
         },
         {
-          "corpus_uses": 19,
+          "corpus_uses": 25,
           "group": "page/field",
           "ms_uses": 572,
           "name": "OnLookup",
@@ -114,7 +114,7 @@
           "site": "_fixtures/xmlports/ALTVariableXmlPort.al:48"
         },
         {
-          "corpus_uses": 233,
+          "corpus_uses": 241,
           "group": "page",
           "ms_uses": 480,
           "name": "OnAfterGetCurrRecord",
@@ -186,7 +186,7 @@
           "site": "errors/lt-ms-refusals-128/P128ClearAllReport.al:83"
         },
         {
-          "corpus_uses": 84,
+          "corpus_uses": 85,
           "group": "page",
           "ms_uses": 282,
           "name": "OnNewRecord",
@@ -213,7 +213,7 @@
           "site": "_fixtures/tables/ALTErrorTrigger.al:40"
         },
         {
-          "corpus_uses": 82,
+          "corpus_uses": 84,
           "group": "page",
           "ms_uses": 192,
           "name": "OnQueryClosePage",
@@ -375,7 +375,7 @@
           "site": "errors/lt-ms-refusals-135/P135CallstackXmlportEtc.al:77"
         },
         {
-          "corpus_uses": 76,
+          "corpus_uses": 78,
           "group": "page",
           "ms_uses": 41,
           "name": "OnClosePage",
@@ -1723,7 +1723,7 @@
           "site": "_fixtures/ALTRelationOwnDepImportedWriters.al:22"
         },
         {
-          "corpus_uses": 82,
+          "corpus_uses": 84,
           "group": "page/field",
           "ms_uses": 6274,
           "name": "Editable",
@@ -1750,7 +1750,7 @@
           "site": "_fixtures/tables/ALTParentChild.al:19"
         },
         {
-          "corpus_uses": 268,
+          "corpus_uses": 269,
           "group": "codeunit",
           "ms_uses": 2933,
           "name": "Locked",
@@ -1786,7 +1786,7 @@
           "site": "pages/lt-page-presentation-properties/P119PageExt.al:26"
         },
         {
-          "corpus_uses": 1453,
+          "corpus_uses": 1487,
           "group": "page",
           "ms_uses": 2786,
           "name": "PageType",
@@ -1813,7 +1813,7 @@
           "site": "_fixtures/ALTRelationOwnDepImportedWriters.al:26"
         },
         {
-          "corpus_uses": 1333,
+          "corpus_uses": 1367,
           "group": "page",
           "ms_uses": 2619,
           "name": "SourceTable",
@@ -1894,7 +1894,7 @@
           "site": "errors/lt-ms-refusals-129/P129FormatFieldRef.al:53"
         },
         {
-          "corpus_uses": 1739,
+          "corpus_uses": 1747,
           "group": "table/key",
           "ms_uses": 1769,
           "name": "Clustered",
@@ -1948,7 +1948,7 @@
           "site": "errors/lt-ms-refusals-130/P130ReportInclCap.al:20"
         },
         {
-          "corpus_uses": 173,
+          "corpus_uses": 174,
           "group": "table/field",
           "ms_uses": 1288,
           "name": "OptionMembers",
@@ -2002,7 +2002,7 @@
           "site": "handlers/TestPageActionEnabledSourceField_Objects.al:102"
         },
         {
-          "corpus_uses": 46,
+          "corpus_uses": 47,
           "group": "table/field",
           "ms_uses": 1145,
           "name": "OptionCaption",
@@ -2020,7 +2020,7 @@
           "site": "autoformat/AutoFormatCard.Page.al:76"
         },
         {
-          "corpus_uses": 112,
+          "corpus_uses": 115,
           "group": "page",
           "ms_uses": 1073,
           "name": "Editable",
@@ -2065,7 +2065,7 @@
           "site": "pages/lt-page-autoformat-lookups/P113AutoFormat.al:89"
         },
         {
-          "corpus_uses": 44,
+          "corpus_uses": 53,
           "group": "page",
           "ms_uses": 846,
           "name": "InsertAllowed",
@@ -2182,7 +2182,7 @@
           "site": "testpart/TestPartRow.Table.al:41"
         },
         {
-          "corpus_uses": 32,
+          "corpus_uses": 36,
           "group": "page",
           "ms_uses": 748,
           "name": "DeleteAllowed",
@@ -2191,7 +2191,7 @@
           "site": "handlers/TprlHeadList.Page.al:13"
         },
         {
-          "corpus_uses": 45,
+          "corpus_uses": 48,
           "group": "table/field",
           "ms_uses": 734,
           "name": "CaptionClass",
@@ -2200,7 +2200,7 @@
           "site": "events/lt-platform-triggers/PtObjects.al:20"
         },
         {
-          "corpus_uses": 179,
+          "corpus_uses": 180,
           "group": "page/part",
           "ms_uses": 716,
           "name": "SubPageLink",
@@ -2380,7 +2380,7 @@
           "site": "handlers/TestPageRuntimeContracts.al:69"
         },
         {
-          "corpus_uses": 100,
+          "corpus_uses": 118,
           "group": "page",
           "ms_uses": 417,
           "name": "SourceTableView",
@@ -2434,7 +2434,7 @@
           "site": "_fixtures/pages/ALTSourceObjectPropsPage.al:30"
         },
         {
-          "corpus_uses": 13,
+          "corpus_uses": 15,
           "group": "page",
           "ms_uses": 377,
           "name": "ModifyAllowed",
@@ -2443,7 +2443,7 @@
           "site": "events/lt-ab-page-events/ABPageEventFixtures.al:60"
         },
         {
-          "corpus_uses": 53,
+          "corpus_uses": 55,
           "group": "page",
           "ms_uses": 364,
           "name": "SourceTableTemporary",
@@ -2515,7 +2515,7 @@
           "site": "errors/lt-error-handling/ErTFixtures.al:30"
         },
         {
-          "corpus_uses": 48,
+          "corpus_uses": 49,
           "group": "page",
           "ms_uses": 314,
           "name": "DelayedInsert",
@@ -2713,7 +2713,7 @@
           "site": "permissions/lt-permissions-mock-indirect/RiskyScopeAccess.al:10"
         },
         {
-          "corpus_uses": 16,
+          "corpus_uses": 17,
           "group": "table",
           "ms_uses": 211,
           "name": "TableType",
@@ -2857,7 +2857,7 @@
           "site": "report/lt-report-requestpage/RptFilters.al:114"
         },
         {
-          "corpus_uses": 455,
+          "corpus_uses": 458,
           "group": "codeunit",
           "ms_uses": 146,
           "name": "SingleInstance",
@@ -2947,7 +2947,7 @@
           "site": "pages/lt-report-page-properties/03-report-autocalc.al:22"
         },
         {
-          "corpus_uses": 51,
+          "corpus_uses": 52,
           "group": "table/field",
           "ms_uses": 132,
           "name": "AutoIncrement",
@@ -3154,7 +3154,7 @@
           "site": "handlers/TestPageActionRunObjectKinds_Objects.al:387"
         },
         {
-          "corpus_uses": 10,
+          "corpus_uses": 14,
           "group": "page/repeater",
           "ms_uses": 107,
           "name": "Editable",
@@ -3298,7 +3298,7 @@
           "site": "pages/W1Controls.al:197"
         },
         {
-          "corpus_uses": 90,
+          "corpus_uses": 91,
           "group": "codeunit",
           "ms_uses": 88,
           "name": "EventSubscriberInstance",
@@ -3577,7 +3577,7 @@
           "site": "_fixtures/xmlports/ALTUniversalManualXmlPort.al:21"
         },
         {
-          "corpus_uses": 2897,
+          "corpus_uses": 2903,
           "group": "codeunit",
           "ms_uses": 59,
           "name": "Subtype",
@@ -11380,7 +11380,7 @@
           "site": "codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:257"
         },
         {
-          "corpus_uses": 2767,
+          "corpus_uses": 2773,
           "group": "codeunit",
           "ms_uses": 0,
           "name": "TestPermissions",
@@ -14976,7 +14976,7 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 868313,
+          "corpus_uses": 872303,
           "group": "expression",
           "ms_uses": 1809637,
           "name": "NameRef",
@@ -14985,7 +14985,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 318247,
+          "corpus_uses": 319895,
           "group": "expression",
           "ms_uses": 475470,
           "name": "MemberExpr",
@@ -14994,7 +14994,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 377004,
+          "corpus_uses": 378750,
           "group": "expression",
           "ms_uses": 389686,
           "name": "CallExpr",
@@ -15003,7 +15003,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 266443,
+          "corpus_uses": 267643,
           "group": "statement",
           "ms_uses": 248561,
           "name": "ExprStmt",
@@ -15012,7 +15012,7 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 41643,
+          "corpus_uses": 41901,
           "group": "statement",
           "ms_uses": 188839,
           "name": "Block",
@@ -15021,7 +15021,7 @@
           "site": "ALTCallstackModuleInfos.al:8"
         },
         {
-          "corpus_uses": 37327,
+          "corpus_uses": 37462,
           "group": "statement",
           "ms_uses": 136362,
           "name": "AssignStmt",
@@ -15030,7 +15030,7 @@
           "site": "ALTInternalCodeunit.al:19"
         },
         {
-          "corpus_uses": 6331,
+          "corpus_uses": 6366,
           "group": "statement",
           "ms_uses": 101593,
           "name": "IfStmt",
@@ -15039,7 +15039,7 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 7313,
+          "corpus_uses": 7370,
           "group": "statement",
           "ms_uses": 81177,
           "name": "ExitStmt",
@@ -15048,7 +15048,7 @@
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 56133,
+          "corpus_uses": 56393,
           "group": "expression",
           "ms_uses": 77744,
           "name": "Literal:Integer",
@@ -15057,7 +15057,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 9013,
+          "corpus_uses": 9054,
           "group": "expression",
           "ms_uses": 71175,
           "name": "ScopeExpr",
@@ -15066,7 +15066,7 @@
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 337102,
+          "corpus_uses": 338480,
           "group": "expression",
           "ms_uses": 54387,
           "name": "Literal:StringLit",
@@ -15075,7 +15075,7 @@
           "site": "BwXaObjects.al:21"
         },
         {
-          "corpus_uses": 2943,
+          "corpus_uses": 2951,
           "group": "expression",
           "ms_uses": 33696,
           "name": "BinExpr =",
@@ -15084,7 +15084,7 @@
           "site": "TestDotNetValueKindsContracts.al:170"
         },
         {
-          "corpus_uses": 813,
+          "corpus_uses": 817,
           "group": "expression",
           "ms_uses": 25509,
           "name": "ParenExpr",
@@ -15093,7 +15093,7 @@
           "site": "_fixtures/Assert.al:176"
         },
         {
-          "corpus_uses": 3850,
+          "corpus_uses": 3886,
           "group": "expression",
           "ms_uses": 24498,
           "name": "Literal:false",
@@ -15102,7 +15102,7 @@
           "site": "_fixtures/ALTFixtureCleanup.al:28"
         },
         {
-          "corpus_uses": 1290,
+          "corpus_uses": 1301,
           "group": "expression",
           "ms_uses": 24382,
           "name": "PrefixExpr not",
@@ -15111,7 +15111,7 @@
           "site": "_fixtures/Assert.al:56"
         },
         {
-          "corpus_uses": 4639,
+          "corpus_uses": 4664,
           "group": "expression",
           "ms_uses": 23439,
           "name": "Literal:true",
@@ -15120,7 +15120,7 @@
           "site": "_fixtures/ALTImplicitReturnCallee.al:19"
         },
         {
-          "corpus_uses": 743,
+          "corpus_uses": 751,
           "group": "expression",
           "ms_uses": 23304,
           "name": "BinExpr <>",
@@ -15138,7 +15138,7 @@
           "site": "_fixtures/ProbeObserver.Codeunit.al:27"
         },
         {
-          "corpus_uses": 3108,
+          "corpus_uses": 3116,
           "group": "statement",
           "ms_uses": 15938,
           "name": "CaseBranch",
@@ -15147,7 +15147,7 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 33966,
+          "corpus_uses": 34448,
           "group": "expression",
           "ms_uses": 15888,
           "name": "BinExpr +",
@@ -15156,7 +15156,7 @@
           "site": "BwXaObjects.al:26"
         },
         {
-          "corpus_uses": 313,
+          "corpus_uses": 315,
           "group": "expression",
           "ms_uses": 11383,
           "name": "BinExpr and",
@@ -15165,7 +15165,7 @@
           "site": "_fixtures/Assert.al:186"
         },
         {
-          "corpus_uses": 606,
+          "corpus_uses": 618,
           "group": "statement",
           "ms_uses": 6695,
           "name": "RepeatStmt",
@@ -15183,7 +15183,7 @@
           "site": "_fixtures/Assert.al:176"
         },
         {
-          "corpus_uses": 562,
+          "corpus_uses": 567,
           "group": "expression",
           "ms_uses": 4880,
           "name": "BinExpr -",
@@ -15192,7 +15192,7 @@
           "site": "TestDotNetValueKindsContracts.al:163"
         },
         {
-          "corpus_uses": 573,
+          "corpus_uses": 575,
           "group": "statement",
           "ms_uses": 4793,
           "name": "CaseStmt",
@@ -15201,7 +15201,7 @@
           "site": "TestDotNetValueKindsContracts.al:427"
         },
         {
-          "corpus_uses": 832,
+          "corpus_uses": 833,
           "group": "expression",
           "ms_uses": 3898,
           "name": "BinExpr >",
@@ -15210,7 +15210,7 @@
           "site": "TestDotNetValueKindsContracts.al:404"
         },
         {
-          "corpus_uses": 445,
+          "corpus_uses": 446,
           "group": "expression",
           "ms_uses": 3188,
           "name": "BinExpr *",
@@ -15219,7 +15219,7 @@
           "site": "ALTInternalCodeunit.al:7"
         },
         {
-          "corpus_uses": 3791,
+          "corpus_uses": 3841,
           "group": "statement",
           "ms_uses": 3049,
           "name": "AssignStmt +=",
@@ -15255,7 +15255,7 @@
           "site": "collections/DictKeys.al:185"
         },
         {
-          "corpus_uses": 422,
+          "corpus_uses": 424,
           "group": "expression",
           "ms_uses": 2169,
           "name": "BinExpr <",
@@ -15291,7 +15291,7 @@
           "site": "_fixtures/Assert.al:440"
         },
         {
-          "corpus_uses": 195,
+          "corpus_uses": 196,
           "group": "expression",
           "ms_uses": 1188,
           "name": "BinExpr >=",
@@ -15309,7 +15309,7 @@
           "site": "_fixtures/Assert.al:415"
         },
         {
-          "corpus_uses": 1130,
+          "corpus_uses": 1148,
           "group": "statement",
           "ms_uses": 743,
           "name": "ForStmt",
@@ -15568,7 +15568,7 @@
           "site": "ALTInternalCodeunit.al:10"
         },
         {
-          "corpus_uses": 699,
+          "corpus_uses": 701,
           "group": "procedure",
           "ms_uses": 3349,
           "name": "EventSubscriber",
@@ -15739,7 +15739,7 @@
           "site": "record/TestFilterAdvancedContracts.al:15"
         },
         {
-          "corpus_uses": 144,
+          "corpus_uses": 146,
           "group": "procedure",
           "ms_uses": 0,
           "name": "PageHandler",
@@ -15802,7 +15802,7 @@
           "site": "errors/lt-ms-refusals-133/P133MessageInHandlers.al:100"
         },
         {
-          "corpus_uses": 18960,
+          "corpus_uses": 19040,
           "group": "procedure",
           "ms_uses": 0,
           "name": "Test",
@@ -15847,7 +15847,7 @@
           "site": "events/lt-platform-triggers/PtObserve.al:610"
         },
         {
-          "corpus_uses": 1502,
+          "corpus_uses": 1510,
           "group": "procedure",
           "ms_uses": 0,
           "name": "HandlerFunctions",
@@ -16504,7 +16504,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/rows.rs",
         "generic": false,
-        "line": 3492,
+        "line": 3495,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."

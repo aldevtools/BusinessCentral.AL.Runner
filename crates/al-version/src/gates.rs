@@ -227,6 +227,15 @@ pub enum Gate {
     /// do not (al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al:212-216 ToString_OtherCodeunit). Consumed by `al-vm`
     /// dotnet/last_error.rs `exception_text`.
     ExceptionTraceValueTaskFrameFrom29,
+    /// A list action that deletes three worksheet lines of a filtered page and leaves Rec on a key no row has runs
+    /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
+    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`). BC 28
+    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
+    /// settle of a list action).
+    ThreeLineLeavesKeyOnceFrom28,
+    /// The end of [`Gate::ThreeLineLeavesKeyOnceFrom28`]: from BC 29 the triggers run twice again, as on BC 27
+    /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Consumed with it.
+    ThreeLineLeavesKeyTwiceAgainFrom29,
 }
 
 impl Gate {
@@ -247,6 +256,8 @@ impl Gate {
         Gate::PartLineBeforeHostKeyFrom28,
         Gate::RecordRefIsDirtyFrom28,
         Gate::EmptyTableFindExcludeFlagFrom28,
+        Gate::ThreeLineLeavesKeyOnceFrom28,
+        Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
         Gate::ReportPartNamePropertiesFrom29,
         Gate::GetTextArgumentEvaluateErrorFrom28,
@@ -322,6 +333,7 @@ impl Gate {
             | Gate::DocxMediaRezippedFrom29
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
+            | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
@@ -335,6 +347,7 @@ impl Gate {
             | Gate::FileDownloadWithoutClientFrom28
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
+            | Gate::ThreeLineLeavesKeyOnceFrom28
             | Gate::EmptyTableFindExcludeFlagFrom28
             | Gate::PartLineBeforeHostKeyFrom28
             | Gate::RequestPageExtensionRecordTriggerOrderFrom28
@@ -494,6 +507,10 @@ impl Gate {
             Gate::EmptyTableFindExcludeFlagFrom28 => &[Evidence {
                 file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
                 lines: "76",
+            }],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[Evidence {
+                file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",
+                lines: "662",
             }],
             Gate::RecordRefIsDirtyFrom28 => &[
                 Evidence {

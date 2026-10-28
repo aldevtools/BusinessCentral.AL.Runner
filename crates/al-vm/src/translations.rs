@@ -6,12 +6,36 @@
 //! accepts it in `Evaluate`, and answers `Hallo wereld` for `Label 'Hello world'` (issue 5772, three tests that pass on
 //! BC). The runtime does not apply translations, so in a language other than 1033 such a read is refused instead of
 //! answering the source text. Which file applies (exact culture, a fallback, an `en-US` file under 1033) is not pinned
-//! (ADR-053 probes P1 to P4), so any translation file of the app refuses, whatever its language.
+//! (ADR-053 probes P1 to P4), so a translation file of the language in force refuses, whatever its culture; files of other
+//! languages only keep the source texts (`translates_into`).
 //!
 //! An app without a translation file keeps the source text in every language, as the corpus pins under 1031 for its own
 //! apps, which ship none (record/lt-enum-filter-caption/EnumFilterByCaption.al, pages/lt-page-controls-aa/AaFieldProps.al).
 
 use super::*;
+
+/// Whether app `a` may translate a text in `language`: it ships a translation file of that language (any culture), or one
+/// whose language is not known (a package, whose files are not read; a file that could not be read; a language without a
+/// known culture). An app whose files are all of other languages keeps its source texts, as an app without a file does:
+/// localization/lt-ta-app-xliff/TaXliff.al:230 TA_Captions_Language_Without_File (nl-NL file, 1031: field caption, table
+/// caption and option caption keep the source) and the corpus cases that read captions, CaptionML, option captions and
+/// control captions under 1031 in the corpus app that ships the nl-NL file (for example misc/lt-probes-needed-5/
+/// PnE10Formats.al OptionField_CaptionDiffersFromMember_German, pages/lt-ap-testpage-642/ApTestPageTests.al Ap17_NotBlank_List).
+fn translates_into(a: &al_ir::AppInfo, language: i32) -> bool {
+    if !a.translations {
+        return false;
+    }
+    if a.translation_files.is_empty() {
+        return true;
+    }
+    let Some(culture) = crate::platform::culture_name(language) else {
+        return true;
+    };
+    let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
+    a.translation_files
+        .iter()
+        .any(|f| f.error.is_some() || family(&f.target_language) == family(culture))
+}
 
 impl Session {
     /// Why a read of a translatable text of object `object` (a table, field, enum value, page or control caption, an
@@ -23,10 +47,10 @@ impl Session {
             return None;
         }
         let p = &self.engine.program;
-        if !p.apps.iter().any(|a| a.translations) {
+        if !p.apps.iter().any(|a| translates_into(a, language)) {
             return None;
         }
-        let translated = |o: &al_ir::Object| p.apps.get(o.app as usize).is_some_and(|a| a.translations);
+        let translated = |o: &al_ir::Object| p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language));
         let base = p.objects.get(object)?;
         let hit = translated(base)
             || (base.id.is_some()
@@ -59,7 +83,7 @@ impl Session {
             .program
             .apps
             .iter()
-            .any(|a| a.translations && a.id.eq_ignore_ascii_case(app));
+            .any(|a| translates_into(a, language) && a.id.eq_ignore_ascii_case(app));
         if shipped {
             return Err(Signal::Unsupported(refusal(what, language)));
         }
@@ -96,8 +120,9 @@ impl Session {
     /// The text of XLIFF unit `xliff` of app `app` in the language in force: `Ok(None)` keeps the source text, `Ok(Some)` is
     /// the unit's target, `Err` the reason the read is refused. In 1033, or for an app that ships no translation file, the
     /// source text stays (as in step 1). Otherwise the app's file for exactly the language's culture gives the target, and a
-    /// unit without one gives the source; a language with no file of its own language keeps the source too. Both rest on
-    /// the reporter's real-BC run of al-runner issue 5772 (assumption `app-translation-applied`). Refused: a package, whose
+    /// unit without one gives the source; a language with no file of its own language keeps the source too
+    /// (localization/lt-ta-app-xliff/TaXliff.al: TA_Enum_Format_And_Evaluate, TA_Label_Text and TA_Captions_And_Options under
+    /// 1043, TA_Captions_Language_Without_File under 1031; al-runner issue 5772). Refused: a package, whose
     /// files are not read; two files for one culture; a file that could not be read; and a file of the same language but
     /// another culture (nl-NL under nl-BE: which one BC uses is not pinned, ADR-053 P3).
     pub(crate) fn app_translation(
@@ -140,7 +165,6 @@ impl Session {
                 if let Some(e) = &f.error {
                     return refuse(&format!("the translation file {} could not be read: {e}", f.name));
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AppTranslationApplied);
                 Ok(f.target(xliff).map(str::to_string))
             }
             (None, None) => {
@@ -153,7 +177,6 @@ impl Session {
                         "the app ships a translation file of the same language for another culture than {culture}"
                     ));
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AppTranslationApplied);
                 Ok(None)
             }
             (None, Some(_)) => unreachable!(),

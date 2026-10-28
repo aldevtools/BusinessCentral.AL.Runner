@@ -5,6 +5,7 @@ mod multi_reportext;
 mod queries;
 mod query_outer_link;
 mod report_calcfields;
+mod report_column_source_error;
 mod report_custom_layout;
 mod report_header_address;
 mod report_link_filter;

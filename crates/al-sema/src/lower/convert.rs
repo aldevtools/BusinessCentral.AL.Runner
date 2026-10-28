@@ -333,6 +333,64 @@ impl<'a> Lowerer<'a> {
     /// and fails StringLengthExceeded with the target's length when it does not (types/lt-qx-ternary-sized/QxTernarySized.al:
     /// 142-144, :152-155 `T80 := Cond ? T80 : T100`): whether BC converts it to the true branch's type first or not, the
     /// result is the same there. Into another target the two differ, which no test pins: refused.
+    /// The false branch of a conditional expression whose branches have different types, one of them a Label (al-runner issue
+    /// 6047). The true branch decides the result type, as for the other pairs: a Code[N] true branch makes the Label false
+    /// branch a Code (upper case, StringLengthExceeded past N), a Text[N] true branch limits it to N, and a Label true branch
+    /// is a Text that takes a Code[N] or Text[N] false branch as it is.
+    /// Pinned on corpus master: a Label true branch against a text literal, MaxLength label included (types/TestTernaryContracts.al:
+    /// 464, :504-516), and an empty literal true branch against a Label (:466). Writer TI's pins (corpus branch
+    /// al-runtime-rs-staging-ti, the same file, TI_Ternary_*) cover Code[20] and Text[10] against a Label either way and a
+    /// literal true branch against a Label; until they reach the pinned corpus they run on the assumption `ternary-label-branch`.
+    /// A TextConst branch (BC does not publish the app, :518-521), a MaxLength label in any other pair and every other pair are
+    /// refused.
+    pub(crate) fn ternary_label_pair(
+        &mut self,
+        t: &Ty,
+        f: &Ty,
+        yes: (&SyntaxNode, &ir::Expr),
+        no: (&SyntaxNode, ir::Expr),
+    ) -> L<ir::Expr> {
+        let (no_node, value) = no;
+        let form = |lw: &Self, node: &SyntaxNode| -> (bool, bool) {
+            match lw.res(node) {
+                Some(Res::Local(n)) => (lw.local_textconsts.contains(n), lw.local_maxlength_labels.contains(n)),
+                Some(Res::Global(n)) => (lw.global_textconsts.contains(n), lw.global_maxlength_labels.contains(n)),
+                _ => (false, false),
+            }
+        };
+        let label_node = if matches!(t, Ty::Label) { yes.0 } else { no_node };
+        let (textconst, maxlength) = form(self, label_node);
+        if textconst {
+            return Err(format!(
+                "a conditional expression with a TextConst branch ({t} and {f}): BC does not publish it, so its conversion is not pinned"
+            ));
+        }
+        let literal = |e: &ir::Expr| match e {
+            ir::Expr::Const(ir::Const::Text(s)) => Some(s.clone()),
+            _ => None,
+        };
+        let unpinned = || {
+            Err(format!(
+                "a conditional expression whose branches have different types ({t} and {f}): the conversion of the false branch is not pinned"
+            ))
+        };
+        match (t, f) {
+            // Pinned on master (:464, :504-516): a Label true branch, MaxLength or not, takes a literal false branch as it is.
+            (Ty::Label, Ty::Text(_)) if literal(&value).is_some() => {}
+            // Pinned on master (:466): an empty literal true branch takes a Label false branch as it is.
+            (Ty::Text(_), Ty::Label) if !maxlength && literal(yes.1).is_some_and(|s| s.is_empty()) => {}
+            _ if maxlength => return unpinned(),
+            (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
+            }
+            (Ty::Code(Some(_)) | Ty::Text(Some(_)), Ty::Label) | (Ty::Label, Ty::Code(Some(_)) | Ty::Text(Some(_))) => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
+            }
+            _ => return unpinned(),
+        }
+        self.convert_to(t, f, value)
+    }
+
     pub(crate) fn ternary_false_branch(&mut self, t: &Ty, f: &Ty, value: ir::Expr, target: Option<&Ty>) -> L<ir::Expr> {
         if t == f || matches!(t, Ty::Unknown) || matches!(f, Ty::Unknown) {
             return Ok(value);

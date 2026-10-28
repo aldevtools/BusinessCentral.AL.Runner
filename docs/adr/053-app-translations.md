@@ -249,8 +249,11 @@ P1, P2, P3, P4 and P11 come first: they decide the lookup rule. The others decid
   Another language: the app's file whose `target-language` is the language's culture gives the unit's target; a unit with
   no target, an empty one or `translate="no"` gives the source text; no file of that language at all (de-DE for an app with
   nl-BE only) gives the source text. Refused: two files for one culture, a file that could not be read, and a file of the
-  same language for another culture (nl-NL under nl-BE, P3). Every applied lookup marks the assumption
-  `app-translation-applied` until writer TA's probe (`localization/lt-ta-app-xliff/TaXliff.al`) lands.
+  same language for another culture (nl-NL under nl-BE, P3). Pinned by writer TA's probe
+  (`localization/lt-ta-app-xliff/TaXliff.al`, corpus bump of 2026-10-28; the assumption `app-translation-applied` is
+  retired). An app whose files are all of other languages refuses no read: it keeps its source texts as an app without a
+  file does (TaXliff.al TA_Captions_Language_Without_File and the corpus cases under 1031 in the corpus app with its nl-NL
+  file).
 - **Reads built.** A Label declared in the object or in a routine declared directly in it (`Codeunit X - NamedType L`,
   `Codeunit X - Method P - NamedType L`); Format of an enum value of an `Enum` object (`Enum E - EnumValue V - Property
   Caption`); Evaluate into such an enum, which accepts only a translated caption under a translation (ordinals, member
