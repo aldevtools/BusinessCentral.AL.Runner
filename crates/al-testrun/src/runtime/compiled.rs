@@ -1,36 +1,19 @@
 //! What a compile produces and keeps (`Compiled`), the warm slot (`Warm`), and what a run asks for.
 use super::*;
 
-/// How the `OnRun` trigger of a test codeunit shows in the results of a run. Measured in the corpus CI by writer RL
-/// (al-runner issue 5748; probe commit c69419f6 of `al-runtime-rs-staging-rl`, not a green corpus case): what Microsoft's
-/// test runner reports, which AL code does not see. The rows are flagged with the assumption
-/// `test-codeunit-onrun-rows`.
+/// How the `OnRun` trigger of a test codeunit shows in the results of a run: what Microsoft's test runner reports, which
+/// AL code does not see.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OnRunRows {
     /// No row of its own: an OnRun that raises makes every test of the codeunit not run. The corpus job: the oracle
     /// leaves the runner's `OnRun` row out (`al-test-cli` `oracle::RUNNER_PSEUDO_CASE`).
     #[default]
     PerTest,
-    /// Before `Gate::TestCodeunitOnRunRowFrom28`: a codeunit whose OnRun raises has no rows at all (its codeunit line is Skipped); one that does not
-    /// raise has no row for its OnRun.
-    Bc27,
-    /// From `Gate::TestCodeunitOnRunRowFrom28` on: a declared OnRun has a row `OnRun`: failed with the error's text when it raises, and then the
-    /// test methods have no rows; else passed, before the rows of the tests.
-    Bc28,
-}
-
-/// The name of the row of a test codeunit's `OnRun` trigger (`OnRunRows::Bc28`), as BC's XUnit result names it.
-pub const ON_RUN_ROW: &str = "OnRun";
-
-impl OnRunRows {
-    /// The shape of a target.
-    pub fn of_target(target: &al_version::Target) -> OnRunRows {
-        if target.has(al_version::Gate::TestCodeunitOnRunRowFrom28) {
-            OnRunRows::Bc28
-        } else {
-            OnRunRows::Bc27
-        }
-    }
+    /// Microsoft's Test Runner app (page 130455, runner codeunit 130450, as BcContainerHelper and AL-Go run it) on every
+    /// major (ADR-055): no `OnRun` row; a codeunit whose OnRun raises is Skipped and has no rows at all. Measured on BC 29.0
+    /// by the reporter of al-runner issue 5859 and on BC 27.5 by corpus writer RL (probe commit c69419f6); flagged with the
+    /// assumption `test-codeunit-onrun-rows` until the corpus pins it.
+    TestRunner,
 }
 
 /// What a run is asked to do beyond running everything.

@@ -469,9 +469,20 @@ registry! {
     },
     PageOpenCaptionClassEmptyRecordCount => {
         id: "page-open-caption-class-empty-record-count",
-        assumed: "A page open that runs the CaptionClass expressions of its source table's fields with an empty record runs each one 20 times. The corpus pins only that such runs happen: their number differs between BC runs (240, 480 and 492 calls on the newest major for the same open, record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422 Page_ControlCaptions `open_calls`), so it is no oracle. Every open that runs them marks this assumption (owner decision 2026-10-21: refusing them costs 11 baseline cases of the newest major and 5 QF cases).",
-        tests: "The corpus cases of QdCaptionClassAreas.al that open a page whose source table has CaptionClass expressions, and Microsoft tests that open sales and purchase documents and their subforms (Sales Line and Purchase Line fields with CaptionClass = GetCaptionClass(..)) in Tests-ERM; they pass in Microsoft's CI.",
-        probe: "A stable count, if BC has one: the same open repeated on a fresh service tier and after a warm-up, on every major, to tell whether the number depends on caching in the tier.",
+        assumed: "A page open that runs the CaptionClass expressions of its source table's fields with an empty record, in a shape writer SX did not pin (another page type or open mode, a part, a modal open, three or more expression fields, two with different expressions), runs each one 20 times. BC gives no stable number for these: the corpus saw 240, 480 and 492 calls on the newest major for the same 12-field Card open (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:657) and asserts only that such runs happen and give the same count per field and per open (:1227 SF_Count_CardOpenViewFiveTimes). Narrowed: the number matters only when an expression leaves something behind, so such a page open whose expression can leave anything behind (a database write, a dialog or error, a .NET or interface call, a write to a variable that outlives the call, also through an event subscriber) is refused, decided from the code before the expressions run (al-vm effects.rs). Kept, not pinned: an expression whose only lasting effect is a write to a variable of a SingleInstance codeunit still runs 20 times (refusing it costs 33 baseline cases of codeunit 86504, which count the runs in a SingleInstance log on a 12-field table, and Base Application's Sales Line CaptionClass Mgmt keeps the document header in one).",
+        tests: "The corpus cases of QdCaptionClassAreas.al that open a page whose source table has CaptionClass expressions (they assert only that empty-record runs happen, the same number per field and per open), and Microsoft tests that open sales and purchase documents and their subforms (Sales Line and Purchase Line fields with CaptionClass = GetCaptionClass(..)) in Tests-ERM; they pass in Microsoft's CI.",
+        probe: "The count for the shapes not pinned yet, if BC gives a stable one: a Document page and its part, OpenNew, Page.Run and a modal open, and tables with three and more expression fields and with two different expressions (the order of the runs of each field).",
+    },
+    PageOpenCaptionClassEmptyRecordCountPinnedShapes => {
+        id: "page-open-caption-class-empty-record-count-pinned-shapes",
+        assumed: "A Card or a List of its own opened with OpenView or OpenEdit over a table with one CaptionClass expression field runs it with an empty record 8 times (Card) or 7 times (List); with two fields of the same expression, 18 and 16 times in all (9 and 8 for each). Measured by writer SX on the three supported majors, the same in three cycles of each (corpus branch al-runtime-rs-staging-sx, SxCaptionClassCount.al:190-369); al-runner issue 5870 saw 8 for the Card. Waits for the file to reach corpus master.",
+        tests: "al-runner issue 5870 (a partner's tests count the runs of a Card OpenEdit).",
+        probe: "Done on writer SX's branch; wanted: the bump that puts SxCaptionClassCount.al on corpus master.",
+        awaiting: Awaiting {
+            issues: &[5870],
+            files: &["tests/al-language/record/lt-sx-captionclass-count/SxCaptionClassCount.al"],
+            since: "2026-10-28",
+        },
     },
     WorksheetTempSourceOpenRow => {
         id: "worksheet-temp-source-open-row",
@@ -583,13 +594,13 @@ registry! {
     },
     TestCodeunitOnRunRows => {
         id: "test-codeunit-onrun-rows",
-        assumed: "How the runner reports the OnRun trigger of a test codeunit. From the gate TestCodeunitOnRunRowFrom28 on: a declared OnRun gets a row 'OnRun' of its own, failed with the error's text when it raises (and then the test methods have no rows), else passed. Before that gate: a codeunit whose OnRun raises has no rows at all. Measured by corpus writer RL in the corpus CI (the three supported majors on Linux, probe commit c69419f6 on branch al-runtime-rs-staging-rl, codeunit/lt-outside-onrun-error/RlOnRunError.al); not a green corpus case, because the probe codeunit fails the corpus CI by design.",
-        tests: "No Microsoft test: al-runner issue 5748 (a user's test codeunit whose OnRun raises; owner decision 2026-10-25 to mirror the reporting of the newer majors).",
-        probe: "The probe of commit c69419f6 (al-runtime-rs-staging-rl): a test codeunit whose OnRun raises and one whose OnRun does not, read from the XUnit result per major. It cannot stay in the green corpus; an oracle of runner rows would need a corpus leg that expects a red codeunit.",
+        assumed: "How the runner reports the OnRun trigger of a test codeunit, on every major (ADR-055): as Microsoft's Test Runner app (page 130455, runner codeunit 130450, the way BcContainerHelper and AL-Go run tests) does. No row 'OnRun'; a codeunit whose OnRun raises is Skipped with no rows and the run stays green; the tests of a codeunit whose OnRun does not raise run after it. Measured on the newest major by the reporter of al-runner issue 5859 and on the oldest supported major by corpus writer RL (probe commit c69419f6, codeunit/lt-outside-onrun-error/RlOnRunError.al); the middle major through that runner is not measured. The tests of a codeunit with a declared OnRun are flagged.",
+        tests: "No Microsoft test: al-runner issue 5859 (a user's run through BcContainerHelper on the newest major; owner decision 2026-10-28, ADR-055).",
+        probe: "Through Microsoft's Test Runner app on each supported major: a test codeunit whose OnRun raises, one whose OnRun does not, and one whose OnRun calls a test method; the rows and outcomes the runner reports.",
         awaiting: Awaiting {
-            issues: &[5748],
-            files: &["tests/al-language/codeunit/lt-outside-onrun-error/RlOnRunError.al"],
-            since: "2026-10-25",
+            issues: &[5859],
+            files: &["tests/al-language/codeunit/lt-sw-onrun-runner/SwOnRunRunner.al"],
+            since: "2026-10-28",
         },
     },
 
