@@ -146,6 +146,28 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (v @ Value::Query(_), T::Query(_)) => v,
         // A DotNet variable shares the object it is assigned (ADR-014; probe pending).
         (v @ Value::DotNet(_), T::DotNet(_)) => v,
+        // A .NET enum value into an Integer or a BigInteger is its number, also for a combination of flags
+        // (tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger: Wednesday 3,
+        // AllowCurrencySymbol 256, Number 111, BigInteger 3). A number beyond the Integer range is not pinned.
+        (Value::DotNet(o), T::Integer | T::BigInteger) if matches!(o.kind, crate::value::DotNetKind::Enum { .. }) => {
+            let crate::value::DotNetKind::Enum {
+                ordinal,
+                ref clr_type,
+                ref name,
+            } = o.kind
+            else {
+                unreachable!("matched above")
+            };
+            match (t, i32::try_from(ordinal)) {
+                (T::BigInteger, _) => Value::BigInteger(ordinal),
+                (_, Ok(n)) => Value::Integer(n),
+                (_, Err(_)) => {
+                    return unsupported(format!(
+                        "DotNet enum value {clr_type}.{name} into an Integer: beyond the Integer range (not pinned)"
+                    ));
+                }
+            }
+        }
         // A DotNet variable holds the AL primitive stored into it, as the .NET value it marshals to
         // (a `DotNet Byte` takes a Byte; ADR-014 section 4, ADR-024). Date and Time have no pinned mapping.
         (
@@ -1654,6 +1676,34 @@ pub fn truthy(v: &Value) -> Result<bool, Signal> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_dotnet_enum_converts_to_its_number_in_an_integer_and_a_biginteger() {
+        // tests/al-language-onprem-dotnet/lt-sg-dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.
+        use crate::value::{DotNetKind, DotNetObject};
+        use std::rc::Rc;
+        let e = |n: i64| {
+            Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Enum {
+                clr_type: "System.DayOfWeek".into(),
+                name: "Wednesday".into(),
+                ordinal: n,
+            })))
+        };
+        assert!(matches!(super::convert(e(3), &RtType::Integer), Ok(Value::Integer(3))));
+        assert!(matches!(
+            super::convert(e(256), &RtType::BigInteger),
+            Ok(Value::BigInteger(256))
+        ));
+        // Beyond the Integer range is not pinned.
+        assert!(matches!(
+            super::convert(e(1 << 40), &RtType::Integer),
+            Err(Signal::Unsupported(_))
+        ));
+        assert!(matches!(
+            super::convert(e(3), &RtType::Decimal),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+
     #[test]
     fn text_keys_are_equal_without_trailing_blanks_and_ordered_by_case_last() {
         use super::text_key_order;
