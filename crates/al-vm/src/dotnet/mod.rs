@@ -1292,7 +1292,10 @@ pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
             | (Value::Time(_), T::Time)
             | (Value::Duration(_), T::Duration)
             | (Value::Guid(_), T::Guid)
-    ) || (matches!(t, T::DotNet(_)) && boxed_clr_type(&v).is_some());
+    ) || (matches!(t, T::DotNet(_)) && boxed_clr_type(&v).is_some())
+        // A .NET enum into an Integer or a BigInteger: its number (`ops::convert`, SgDotNetEnumToInteger.al:42-122).
+        || (matches!(t, T::Integer | T::BigInteger)
+            && matches!(&v, Value::DotNet(o) if matches!(o.kind, DotNetKind::Enum { .. })));
     if !ok {
         return unsupported(format!(
             "a .NET result of kind {} stored into {t}: BC's conversion is not pinned (ADR-014 section 4)",
