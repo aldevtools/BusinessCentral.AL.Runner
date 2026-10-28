@@ -35,6 +35,18 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// Whether `field` (the receiver of a Media method, `X.Layout`) is a field of a Report Layout List record.
+    fn report_layout_list_field(&self, field: &SyntaxNode) -> bool {
+        if field.kind() != SyntaxKind::MemberExpr {
+            return false;
+        }
+        let Some(rec) = field.children().next() else {
+            return false;
+        };
+        matches!(self.ty_ref(&rec), crate::types::Ty::Record { table, .. }
+            if crate::types::display_name(table).eq_ignore_ascii_case("Report Layout List"))
+    }
+
     /// `--tdd` (ADR-051 decision 4): a stub site becomes `ir::Expr::TddStub`; one whose return type is not known is
     /// refused with the reason the checker gave.
     fn tdd_stub(&mut self, site: &crate::check::tdd::TddSite, args: &[SyntaxNode]) -> L<ir::Expr> {
@@ -312,6 +324,20 @@ impl Lowerer<'_> {
                 Ok(ir::Expr::Refused(format!(
                     "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
                 )))
+            }
+            // The Layout of a Report Layout List row: the corpus pins its HasValue as No for a built-in layout
+            // (report/PZReportLayoutMedia.al:51-53), not what its export writes (Custom Report Layout.InitBuiltInLayout exports it).
+            // Refused when it runs; an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
+            Some(Res::Builtin(id))
+                if id == "Media.ExportStream#1"
+                    && receiver_node
+                        .as_ref()
+                        .is_some_and(|r| self.report_layout_list_field(r)) =>
+            {
+                Ok(ir::Expr::Refused(
+                    "Media.ExportStream of the Layout of a Report Layout List row: what a built-in layout exports is not pinned (docs/probes-needed.md)"
+                        .into(),
+                ))
             }
             Some(Res::Builtin(id)) if id == "System.GetDotNetType#1" => self.get_dotnet_type_call(args),
             Some(Res::Builtin(id)) => {

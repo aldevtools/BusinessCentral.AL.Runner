@@ -281,11 +281,15 @@ fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let id = id_of(&r)?;
     if id == [0; 16] {
-        // Custom Report Layout.InitBuiltInLayout exports the Layout of a built-in Report Layout List row: the corpus pins its
-        // HasValue as No (report/PZReportLayoutMedia.al:51-53), not what the export answers or writes (docs/probes-needed.md).
-        return unsupported(
-            "Media.ExportStream of an empty field (not pinned; this includes the Layout of a built-in layout in Report Layout List, whose content the corpus does not pin)",
-        );
+        // An empty field exports without an error and writes nothing (streams/StTMedia.al:177-192 MediaExportStreamEmpty `len` 0,
+        // types/W7Media.al:155-171 ExportStream_OfAnEmptyField `exported length` 0). What the call answers is not pinned. The Layout
+        // of a built-in Report Layout List row, whose content the corpus does not pin, refuses in the lowering (al-sema call.rs).
+        if c.ret_used() {
+            return unsupported(
+                "Media.ExportStream of an empty field: what it answers is not pinned (it writes nothing: streams/StTMedia.al MediaExportStreamEmpty)",
+            );
+        }
+        return Ok(Value::Boolean(false));
     }
     let Some(obj) = store(c)?.objects.borrow().get(&id).cloned() else {
         // A media another holder let go exports nothing and answers false (media/TestMediaPngImport.al:441-470

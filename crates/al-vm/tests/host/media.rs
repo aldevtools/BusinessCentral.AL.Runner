@@ -214,11 +214,37 @@ fn what_the_corpus_does_not_pin_is_refused() {
         "Rec.Code := 'R3'; Rec.Insert(); id := Rec.Images.Item(-1); exit('');".into(),
         "outside the set",
     );
-    // Exporting an empty field.
+    // What ExportStream of an empty field answers is not pinned.
     refused(
-        "Rec.Code := 'R4'; Rec.Insert(); Rec.Picture.ExportStream(outs); exit('');".into(),
-        "empty field",
+        "Rec.Code := 'R4'; Rec.Insert(); Rec2.Src.CreateOutStream(outs); exit(Format(Rec.Picture.ExportStream(outs)));"
+            .into(),
+        "what it answers",
     );
+}
+
+// The Layout of a built-in layout in Report Layout List: its content is not pinned (report/PZReportLayoutMedia.al:51-53 pins only
+// HasValue No), so its export refuses when it runs. The platform table is not in the test workspace: a table of that name stands in.
+#[test]
+fn export_of_a_report_layout_list_layout_is_refused() {
+    let src = "table 2000000234 \"Report Layout List\" { fields { field(1; \"Report ID\"; Integer) { } field(4; Layout; Media) { } } keys { key(PK; \"Report ID\") { } } }
+        table 60981 B { fields { field(1; K; Integer) { } field(2; Src; Blob) { } } keys { key(PK; K) { } } }
+        codeunit 50102 C { procedure F(): Text var L: Record \"Report Layout List\"; B: Record B; outs: OutStream; begin
+            B.Src.CreateOutStream(outs); L.Layout.ExportStream(outs); exit(''); end; }";
+    let r = al_testkit::run_in(src, "C", "F");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Report Layout List")),
+        "{r:?}"
+    );
+}
+
+// al-runner issue 5993. streams/StTMedia.al:177-192 MediaExportStreamEmpty and types/W7Media.al:155-171 ExportStream_OfAnEmptyField:
+// ExportStream of an empty Media field raises no error and writes nothing.
+#[test]
+fn export_of_an_empty_field_writes_nothing() {
+    let body = "Rec.Init(); Rec.Code := 'E1'; Rec2.Code := 'B'; Rec2.Insert(); Rec2.Src.CreateOutStream(outs); \
+         Rec.Picture.ExportStream(outs); Rec2.Modify(); Rec2.Get('B'); Rec2.CalcFields(Src); \
+         exit(Format(Rec2.Src.Length()) + '|' + Format(Rec.Picture.HasValue()));";
+    assert_eq!(text("", body).unwrap(), "0|No");
 }
 
 // media/PXMediaFileName.al: importing into a Media field that already holds a value replaces it. The exported bytes cannot

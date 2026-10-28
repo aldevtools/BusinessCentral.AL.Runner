@@ -1732,7 +1732,17 @@ impl Session {
             Ok(usize::try_from(i - 1).ok().and_then(|i| members.get(i)))
         };
         let by_ordinal = |args: &[Value]| -> Result<&(i32, String, String), Signal> {
-            let o = int_arg(args, 0)?;
+            // An Option value (FieldRef.Value of an Option field) is its ordinal: al-runner issue 5987, the reporter's repro on
+            // real BC (registered assumption). An Enum value stays refused by `int_arg`.
+            let o = match args.first() {
+                Some(Value::Option(o, _)) => {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::FieldRefOrdinalFromOptionValue,
+                    );
+                    i64::from(*o)
+                }
+                _ => int_arg(args, 0)?,
+            };
             members.iter().find(|m| i64::from(m.0) == o).map_or_else(
                 || unsupported(format!("{method}({o}) for an ordinal the field does not have")),
                 Ok,
