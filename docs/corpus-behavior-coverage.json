@@ -16648,7 +16648,7 @@
         "code": "Evaluate",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 1792,
+        "line": 1796,
         "pinned": true,
         "site": "errors/lt-ms-refusals-136/P136Report.al:349",
         "template": "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
@@ -16657,7 +16657,7 @@
         "code": "",
         "file": "crates/al-vm/src/reports.rs",
         "generic": false,
-        "line": 2649,
+        "line": 2653,
         "pinned": true,
         "site": "handlers/TestReportRuntimeContracts.al:462",
         "template": "The object has been run. Use the function CLEAR(Report)."
@@ -16711,7 +16711,7 @@
         "code": "",
         "file": "crates/al-vm/src/xmlports.rs",
         "generic": false,
-        "line": 1363,
+        "line": 1409,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."

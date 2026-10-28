@@ -163,22 +163,25 @@ pub(super) const RENDERING: u8 = 2;
 pub(super) const CUSTOM: u8 = 4;
 pub(super) const SAVE_AS: u8 = 8;
 pub(super) const SET_FILTER: u8 = 16;
+/// `Report.GetSubstituteReportId` raises `SubstituteReport` when it has a subscriber (P91Unsure.al:112).
+pub(super) const SUBSTITUTE: u8 = 32;
 /// The object's text has been searched.
 const SCANNED: u8 = 128;
 /// The names `mentions` looks for, for its test against `ast::text_contains_ignore_case`.
 #[cfg(test)]
-pub(super) const MENTION_NAMES: [(u8, &str); 5] = [
+pub(super) const MENTION_NAMES: [(u8, &str); 6] = [
     (CAPTION_CLASS, "captionclass"),
     (RENDERING, "rendering"),
     (CUSTOM, "custom"),
     (SAVE_AS, "saveas"),
     (SET_FILTER, "setfilter"),
+    (SUBSTITUTE, "getsubstitutereportid"),
 ];
 
 /// The gating names (`CAPTION_CLASS` ... `SET_FILTER`) the source text of `node` holds, whatever the case, in one pass. As with
 /// `ast::text_contains_ignore_case`, a name is a run of letters and so cannot span two tokens.
 pub(super) fn mentions(node: &SyntaxNode) -> u8 {
-    const ALL: u8 = CAPTION_CLASS | RENDERING | CUSTOM | SAVE_AS | SET_FILTER;
+    const ALL: u8 = CAPTION_CLASS | RENDERING | CUSTOM | SAVE_AS | SET_FILTER | SUBSTITUTE;
     let mut found = 0u8;
     let _ = node.text().try_for_each_chunk(|chunk| {
         let b = chunk.as_bytes();
@@ -187,6 +190,7 @@ pub(super) fn mentions(node: &SyntaxNode) -> u8 {
                 b'c' => &[(CAPTION_CLASS, b"captionclass"), (CUSTOM, b"custom")],
                 b'r' => &[(RENDERING, b"rendering")],
                 b's' => &[(SAVE_AS, b"saveas"), (SET_FILTER, b"setfilter")],
+                b'g' => &[(SUBSTITUTE, b"getsubstitutereportid")],
                 _ => continue,
             };
             for &(bit, name) in candidates {
@@ -934,9 +938,10 @@ impl Checker<'_> {
     }
 
     /// Object `i` calls `SaveAs`: an Xml `SaveAs` raises the platform's `SubstituteReport` and `OnDocumentReady`
-    /// (events/lt-platform-events-v/PeVTests.al:432), so their subscribers are reached.
+    /// (events/lt-platform-events-v/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
+    /// which raises `SubstituteReport` (report/lt-report-members-testrequestpage/P91Unsure.al:112).
     pub(super) fn reach_save_as_events_if_used(&self, i: usize) {
-        if !self.pending(|st| st.save_as_events) || self.mentions(i) & SAVE_AS == 0 {
+        if !self.pending(|st| st.save_as_events) || self.mentions(i) & (SAVE_AS | SUBSTITUTE) == 0 {
             return;
         }
         let first = self.demand.borrow_mut().as_mut().is_some_and(|st| {

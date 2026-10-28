@@ -1402,22 +1402,24 @@ fn include_caption_of_a_field_written_with_a_data_item_name() {
     );
 }
 
-// The order of declared and IncludeCaption labels is only observable in a written dataset: a run that errors before it writes
-// anything raises its own error (report/PZReportLabels.al pins the declared labels alone; the mixed order is not pinned).
+// With two data items the caption labels of every data item come first, in declaration order, then the declared labels
+// (types/lt-format-codes-textbuilder-pagerun-labels/P144ReportLabelsCaption.al:154 Sq_TwoDataItems_Labels_Order). A trigger that
+// fails before any row still raises its own error.
 #[test]
-fn declared_labels_with_an_include_caption_column_are_refused_only_when_the_dataset_is_written() {
-    let body = |fail: bool| {
-        format!(
-            "var R: Report \"Probe Labels Both\"; Buf: Record \"Probe Rep Parent\"; OutStr: OutStream; begin
-                Buf.Data.CreateOutStream(OutStr); R.SetFailEarly({fail});
-                R.SaveAs('', ReportFormat::Xml, OutStr); exit('saved'); end;"
-        )
-    };
-    match run(&body(true)) {
+fn caption_labels_come_before_declared_labels_with_two_data_items() {
+    let body = "var R: Report \"Probe Labels Both\"; Buf: Record \"Probe Rep Parent\"; OutStr: OutStream; begin
+                Buf.Data.CreateOutStream(OutStr); R.SetFailEarly(true);
+                R.SaveAs('', ReportFormat::Xml, OutStr); exit('saved'); end;";
+    match run(body) {
         Err(Signal::Error(e)) => assert_eq!(e.message.to_string(), "stopped before any row"),
         other => panic!("expected the trigger's error, got {other:?}"),
     }
-    assert!(refusal(&body(false)).contains("the order of the two kinds of label is not pinned"));
+    let text = f("var H: Codeunit Helpers; P: Record \"Probe Rep Parent\"; begin
+            P.DeleteAll(); exit(H.Dataset(Report::\"Probe Labels Both\", '')); end;");
+    assert!(
+        text.contains("<Labels>|    <Label name=\"IdColCaption\">Id</Label>|    <Label name=\"Declared\">Declared label</Label>|  </Labels>"),
+        "{text}"
+    );
 }
 
 #[test]
