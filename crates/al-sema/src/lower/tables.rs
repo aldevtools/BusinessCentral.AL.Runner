@@ -13,19 +13,14 @@ impl Lowerer<'_> {
         f: &crate::members::FieldInfo,
         with_filters: bool,
     ) -> Vec<ir::RelationArm> {
-        let texts: Vec<&String> = f
-            .properties
-            .iter()
-            .filter(|(k, _)| k.eq_ignore_ascii_case("TableRelation"))
-            .map(|(_, v)| v)
-            .collect();
+        let texts: Vec<(&str, Option<usize>)> = f.relation_texts().collect();
         if texts.len() > 1 {
-            return self.joined_relation_arms(oi, f, with_filters, &texts);
+            return self.joined_relation_arms(oi, with_filters, &texts);
         }
-        let Some(text) = texts.first().copied() else {
+        let Some(&(text, scope)) = texts.first() else {
             return Vec::new();
         };
-        self.relation_arms_of(oi, f, with_filters, text)
+        self.relation_arms_of(oi, with_filters, text, scope)
     }
 
     /// The arms of a field whose relation a table extension's `modify` extended: the base's arms, then the extension's
@@ -35,13 +30,12 @@ impl Lowerer<'_> {
     fn joined_relation_arms(
         &self,
         oi: usize,
-        f: &crate::members::FieldInfo,
         with_filters: bool,
-        texts: &[&String],
+        texts: &[(&str, Option<usize>)],
     ) -> Vec<ir::RelationArm> {
         let parts: Vec<Vec<ir::RelationArm>> = texts
             .iter()
-            .map(|t| self.relation_arms_of(oi, f, with_filters, t))
+            .map(|&(t, scope)| self.relation_arms_of(oi, with_filters, t, scope))
             .collect();
         if parts.iter().any(Vec::is_empty) {
             return Vec::new();
@@ -57,9 +51,9 @@ impl Lowerer<'_> {
     fn relation_arms_of(
         &self,
         oi: usize,
-        f: &crate::members::FieldInfo,
         with_filters: bool,
         text: &str,
+        scope: Option<usize>,
     ) -> Vec<ir::RelationArm> {
         let Some(parsed) = (if with_filters {
             crate::relation::parse_lenient(text)
@@ -68,9 +62,9 @@ impl Lowerer<'_> {
         }) else {
             return Vec::new();
         };
-        let file = f
-            .declared_in
-            .map_or(self.ws.objects[oi].file, |d| self.ws.objects[d].file);
+        // The names resolve in the scope of the object that set the relation: a table extension's `modify` of a base
+        // field can name a table of the extension's own app (al-runner issue 6059).
+        let file = scope.map_or(self.ws.objects[oi].file, |d| self.ws.objects[d].file);
         let own = &self.members[oi];
         let field_pos =
             |m: &crate::members::Members, name: &str| m.fields.iter().position(|x| x.name.eq_ignore_ascii_case(name));
@@ -217,20 +211,13 @@ impl Lowerer<'_> {
     /// as the Table Relations Metadata table lists it: per arm the related table and field and the
     /// own fields its conditions name, whatever their constants. Empty when even that is unclear.
     pub(crate) fn relation_meta(&self, oi: usize, f: &crate::members::FieldInfo) -> Vec<ir::MetaRelationArm> {
-        let Some(text) = f
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("TableRelation"))
-            .map(|(_, v)| v)
-        else {
+        let Some((text, scope)) = f.relation_texts().next() else {
             return Vec::new();
         };
         let Some(parsed) = crate::relation::parse_lenient(text) else {
             return Vec::new();
         };
-        let file = f
-            .declared_in
-            .map_or(self.ws.objects[oi].file, |d| self.ws.objects[d].file);
+        let file = scope.map_or(self.ws.objects[oi].file, |d| self.ws.objects[d].file);
         let own = &self.members[oi];
         let field_pos =
             |m: &crate::members::Members, name: &str| m.fields.iter().position(|x| x.name.eq_ignore_ascii_case(name));

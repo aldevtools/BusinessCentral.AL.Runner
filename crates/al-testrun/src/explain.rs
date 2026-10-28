@@ -36,6 +36,27 @@ pub struct TestDetail {
 
 /// `object kind id "name".routine`, located at the statement `pos` (`NO_POS`: the routine header).
 pub fn describe(program: &ir::Program, object: usize, routine: usize, pos: u32) -> StackLine {
+    describe_at(program, object, routine, pos, None)
+}
+
+/// The routine that carries a refusal decided before the run, located at the statement the refusal came from when the
+/// lowering knows it (`Lowered::refusal_at`), else at the routine header.
+pub fn describe_refused(lowered: &al_sema::lower::Lowered, object: usize, routine: usize) -> StackLine {
+    let at = lowered
+        .refusal_at
+        .get(object)
+        .and_then(|r| r.get(routine))
+        .and_then(Option::as_ref);
+    describe_at(&lowered.program, object, routine, ir::NO_POS, at)
+}
+
+fn describe_at(
+    program: &ir::Program,
+    object: usize,
+    routine: usize,
+    pos: u32,
+    refused_at: Option<&ir::SrcPos>,
+) -> StackLine {
     let obj = &program.objects[object];
     let r = obj.routines.get(routine);
     let who = format!(
@@ -62,7 +83,9 @@ pub fn describe(program: &ir::Program, object: usize, routine: usize, pos: u32) 
             p.col
         )
     };
-    let at = if let Some(p) = program.pos(pos) {
+    let at = if let Some(p) = refused_at {
+        place(p, " (the statement the refusal came from)")
+    } else if let Some(p) = program.pos(pos) {
         place(p, "")
     } else if let Some(p) = r.and_then(|r| program.pos(r.pos)) {
         place(p, " (routine header; no statement position)")

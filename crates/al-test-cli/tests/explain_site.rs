@@ -1,7 +1,6 @@
 //! `--explain`: where a test was refused or failed. AL source -> compile -> run as a test codeunit
 //! with fault tracing, then read the site the runtime recorded.
 
-use al_ir::NO_POS;
 use al_sema::workspace::AppSource;
 use al_test_cli::explain::{self, ErrorInfo};
 use al_test_cli::isolation::TestIsolation;
@@ -91,9 +90,7 @@ fn run() -> (al_ir::Program, Vec<(String, Outcome, explain::TestDetail)>) {
                 call_stack: e.call_stack.clone(),
             }),
         );
-        d.refused_in = seen
-            .refused_in
-            .map(|(o, r)| explain::describe(&l.program, o, r, NO_POS));
+        d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(&l, o, r));
         details.push((name.to_string(), d));
     };
     let observer: &mut Observer = &mut observe;
@@ -179,7 +176,7 @@ fn an_error_that_was_caught_does_not_stand_for_a_later_one() {
 }
 
 #[test]
-fn a_reason_found_before_the_run_names_its_routine_header() {
+fn a_reason_found_before_the_run_names_the_statement_it_came_from() {
     let (_, rows) = run();
     let (_, outcome, d) = of(&rows, "NeedsAnUnimplementedBuiltin");
     assert!(
@@ -188,11 +185,8 @@ fn a_reason_found_before_the_run_names_its_routine_header() {
     );
     let site = d.refused_in.as_ref().expect("a lowering reason has a routine");
     assert_eq!(site.who, "codeunit 63100 \"T\".NeedsAnUnimplementedBuiltin");
-    assert!(
-        site.at.starts_with("a: src/t.al:") && site.at.contains("routine header"),
-        "{}",
-        site.at
-    );
+    // al-runner issue 6061: the statement of the refused call, not the routine header.
+    assert_eq!(site.at, "a: src/t.al:33:9 (the statement the refusal came from)");
     assert!(d.raised_in.is_empty());
 }
 
