@@ -40,7 +40,7 @@ codeunit 63100 T
     var
         v: Text;
     begin
-        v := Database.SerialNumber();
+        v := Debugger.GetLastErrorText();
     end;
 
     [Test]
@@ -180,7 +180,7 @@ fn a_reason_found_before_the_run_names_the_statement_it_came_from() {
     let (_, rows) = run();
     let (_, outcome, d) = of(&rows, "NeedsAnUnimplementedBuiltin");
     assert!(
-        matches!(outcome, Outcome::NotRun(r) if r.contains("SerialNumber")),
+        matches!(outcome, Outcome::NotRun(r) if r.contains("Debugger")),
         "{outcome:?}"
     );
     let site = d.refused_in.as_ref().expect("a lowering reason has a routine");
@@ -208,7 +208,7 @@ fn blocked_site_finds_the_routine_a_reason_sits_in_through_the_call_graph() {
             dependencies: vec![],
             files: vec![(
                 "f.al".into(),
-                "codeunit 1 C { [Test] procedure T() begin Helper(); end; local procedure Helper() var v: Text; begin v := Database.SerialNumber(); end; }".into(),
+                "codeunit 1 C { [Test] procedure T() begin Helper(); end; local procedure Helper() var v: Text; begin v := Debugger.GetLastErrorText(); end; }".into(),
             )],
         }],
         &Default::default(),

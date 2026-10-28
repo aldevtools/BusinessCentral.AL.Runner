@@ -358,10 +358,26 @@ impl Session {
             return None;
         }
         let facts = self.engine.install_facts.get()?;
-        if facts.unknown.is_empty() {
-            return None;
+        if let Some(why) = facts.unknown.get(&(object as usize)) {
+            return Some(why);
         }
-        facts.unknown.get(&(object as usize)).map(String::as_str)
+        let (app, why) = facts.unopened.get(&(object as usize))?;
+        (facts.others_opened.get(app).and_then(|o| o.get()) == Some(&false)).then_some(why.as_str())
+    }
+
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    pub(crate) fn install_assumed(&self, object: u32) {
+        if self.install_scope {
+            return;
+        }
+        let Some(facts) = self.engine.install_facts.get() else {
+            return;
+        };
+        if let Some((app, a)) = facts.assumed.get(&(object as usize)) {
+            if facts.others_opened.get(app).and_then(|o| o.get()) == Some(&true) {
+                al_builtins::assumptions::assume(*a);
+            }
+        }
     }
 
     /// The refusal of a read of field `pos` of a row of table `table` (`fields`, the record's values) when that field is
@@ -434,6 +450,7 @@ impl Session {
 
     pub(crate) fn unseeded_read(&self, t: &TableDef, temporary: bool, what: &str) -> Result<(), Signal> {
         if !temporary {
+            self.install_assumed(t.object);
             if let Some(why) = self.install_unknown(t.object) {
                 return unsupported(format!("{what} on {}: {why}", t.name));
             }
@@ -2612,6 +2629,9 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        if !rec.borrow().temporary {
+            self.install_assumed(t.object);
+        }
         // A table declared ObsoleteState = Moved is not in the runtime app: AllObj has no row for it and RecordRef.Open
         // fails (platform/lt-aw-fresh-tenant/AwTests.al:413-442). What a record of it does is not pinned.
         if self.engine.object_facts.get(t.object as usize).is_some_and(|f| f.moved) {

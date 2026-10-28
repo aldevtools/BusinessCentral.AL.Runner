@@ -674,3 +674,19 @@ New subscribers need no allow-list change; a new install codeunit does.
    "Retention Policy Installer" both write Retention Policy Allowed Table; also Upgrade Tags, read and written by every
    installer). Counts, tables of System Application and Base Application: BC 29 13 (A2 a to c) and 14 (A2 d); BC 27 10
    and 12.
+
+### A4 item 4 as built (2026-10-28, al-runner issue 6046)
+
+This replaces item 1 of "Decided without owner review (2026-10-20)".
+
+- The install session of an app under test raises Company Triggers `OnCompanyOpen`, then `OnCompanyOpenCompleted`, to the
+  subscribers of every installed app: the dependency apps, the apps under test before it in dependency order, and the app
+  itself, each event in ascending codeunit id. This is the registered assumption `install-company-triggers-all-apps`
+  (registry ids use hyphens; the owner decision named it `install_company_triggers_all_apps`). A test that touches a table
+  the other apps' subscribers write, or a table a per-company routine writes that reads such a table or shares a
+  SingleInstance codeunit with them, is a flagged pass (`InstallFacts::assumed`, marked at the record operation).
+- Decided without owner review (2026-10-28): when a subscriber of another app cannot run in this runtime (on the corpus,
+  System Application's "System Initialization" reaches `NavUserAccountHelper.IsUserDelegatedHelpdesk`, which is refused),
+  what the subscribers did is rolled back and only the app's own subscribers run, as before; reads of the tables that
+  could see the difference are refused as before (`InstallFacts::unopened`). Raising the events without this fallback
+  stopped every per-company install routine of the corpus app: 1026 BC 29 baseline cases stopped passing.

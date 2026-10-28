@@ -70,6 +70,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = via_session![
     "Session.StopSession#1",
     "Database.ServiceInstanceId#1",
     "Database.TenantId#1",
+    "Database.SerialNumber#1",
     "System.GuiAllowed#1",
     "System.IsServiceTier#1",
     "System.WindowsLanguage#1",

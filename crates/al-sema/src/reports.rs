@@ -37,6 +37,12 @@ const INERT_OBJECT_PROPERTIES: &[&str] = &[
     // Report Metadata table. No corpus test runs a report that declares it; a documentation-only assumption
     // (docs/probes-needed.md, "Report properties Extensible and EnableHyperlinks").
     "extensible",
+    // Whether the client shows the print-status window. Run, RunModal, Execute and SaveAs give the same triggers, order,
+    // results and handler needs with it true, false and unset (corpus writer TK, report/lt-tk-showprintstatus/
+    // LtTkShowPrintStatus.al on branch al-runtime-rs-staging-tk; al-runner issue 6056). Until that file is in the pinned
+    // corpus a run of such a report marks the assumption `show-print-status-inert` (al-vm reports.rs `report_prepare`);
+    // `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).
+    "showprintstatus",
 ];
 
 /// Data item properties that change nothing a processing run can observe: they steer the request
