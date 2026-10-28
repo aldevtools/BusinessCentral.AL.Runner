@@ -1494,7 +1494,8 @@ impl Session {
     /// Whether `First()` on a list an action opened through `RunPageLink` stands on the first row of its view already: it then
     /// answers Yes and runs no OnAfterGetCurrRecord (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:337-350, :368-410
     /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
-    /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part.
+    /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
+    /// moved Rec with FindFirst or FindLast; refused when OnOpenPage did not move Rec.
     fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
@@ -1522,7 +1523,17 @@ impl Session {
         ) {
             return Ok(false);
         }
-        Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?))
+        if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
+            return Ok(false);
+        }
+        // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
+        // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
+        if !st.borrow().run_page_link_open_moved {
+            return unsupported(
+                "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
+            );
+        }
+        Ok(true)
     }
 
     /// An AL error of OnNextRecord on `Next()` of a card opened for editing: "Page <caption> has to close.", the caption with

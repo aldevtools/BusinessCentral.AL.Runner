@@ -216,7 +216,6 @@ fn find_findfirst_findlast_and_count_in_onopenpage_of_a_run_page_link_target() {
     let out = run(SRC, "Open Find Tests");
     for t in [
         "DescFindHandler",
-        "PlainHandlerT",
         "DescFindTrap",
         "DescFindNoRows",
         "DescFindLastTrap",
@@ -224,5 +223,21 @@ fn find_findfirst_findlast_and_count_in_onopenpage_of_a_run_page_link_target() {
     ] {
         let o = out.iter().find(|(n, _)| n == t).map(|(_, o)| o.clone()).unwrap();
         assert_eq!(o, Outcome::Pass, "{t}");
+    }
+}
+
+/// A RunPageLink list with no OnOpenPage: whether First() on the row it opened on runs OnAfterGetCurrRecord is not pinned (the
+/// corpus pins it only where OnOpenPage moved Rec, SjRunPageLinkOpenFind.al:337-410), so the case is refused.
+#[test]
+fn first_on_a_run_page_link_list_whose_onopenpage_did_not_move_rec_is_refused() {
+    let out = run(SRC, "Open Find Tests");
+    let o = out
+        .iter()
+        .find(|(n, _)| n == "PlainHandlerT")
+        .map(|(_, o)| o.clone())
+        .unwrap();
+    match o {
+        Outcome::NotRun(why) => assert!(why.contains("did not move Rec"), "{why}"),
+        other => panic!("PlainHandlerT: {other:?}"),
     }
 }

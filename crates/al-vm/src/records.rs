@@ -2198,6 +2198,8 @@ impl Session {
         );
         if !(refilled && matches!(r, Ok(Value::Boolean(true)))) {
             rec.borrow_mut().unpinned_buffer = flag;
+        } else if find_read && matches!(method, RecordOp::FindFirst | RecordOp::FindLast) {
+            self.pages.run_page_link_open_moved = true;
         }
         r
     }

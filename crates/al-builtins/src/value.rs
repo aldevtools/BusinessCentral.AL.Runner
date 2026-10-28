@@ -437,6 +437,8 @@ pub struct PageState {
     pub open_rec_unpinned: Option<&'static str>,
     /// The page was opened by an action through `RunPageLink` (set as it opens, from `open_rec_unpinned`).
     pub run_page_link_opened: bool,
+    /// Its OnOpenPage moved Rec to a linked row with a FindFirst or FindLast that found one.
+    pub run_page_link_open_moved: bool,
     /// The record the page opens on came from an action's RunObject (RunPageOnRec, RunPageLink or RunPageView), not from
     /// Page.Run: the open reads it once.
     pub run_object_record: bool,
@@ -808,6 +810,7 @@ impl PageState {
             onopenpage_kept_rec: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
+            run_page_link_open_moved: false,
             run_object_record: false,
             open_rec_fill: None,
             temp_reads_once_more: false,
