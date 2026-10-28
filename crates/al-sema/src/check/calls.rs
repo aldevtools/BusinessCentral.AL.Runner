@@ -320,8 +320,9 @@ impl<'a> Checker<'a> {
         if c.is_empty() {
             c = base;
         } else {
-            // The same parameter types is AL0440 (the lowering refuses it): the extension's own
-            // procedure stays the candidate then.
+            // The same parameter types is AL0440, or compiles in a shape no corpus test pins (al-runner issue 6043);
+            // the lowering refuses the call either way (`Lowerer::twin_call_refusal`). The extension's own procedure
+            // stays the candidate then.
             let mut all: Vec<Cand> = base
                 .into_iter()
                 .filter(|b| !c.iter().any(|o| o.param_tys == b.param_tys))

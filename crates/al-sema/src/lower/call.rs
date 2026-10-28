@@ -101,6 +101,7 @@ impl Lowerer<'_> {
                 self.interface_call(object, offset, receiver_node.as_ref(), args)
             }
             Some(Res::Proc { object, offset }) => {
+                self.twin_call_refusal(object, offset)?;
                 let routine = self.routine_at.get(&(object, offset)).ok_or("procedure not found")?;
                 let sig = self.members[object]
                     .procedures

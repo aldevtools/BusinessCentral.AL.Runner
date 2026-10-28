@@ -246,7 +246,7 @@ pub struct DependencyApp {
     /// With `Request::lazy_sources`, a package read lazily: `app.files` holds the paths and empty
     /// texts, and this reads a file and hashes the package (ADR-022, "pure tests").
     pub lazy: Option<al_sema::LazySource>,
-    /// The `preprocessorSymbols` of the app's own `app.json` (none for a compiled package). The
+    /// The `preprocessorSymbols` of the app's own `app.json`, or of `NavxManifest.xml` for a compiled package. The
     /// app's sources are preprocessed with these and not with the project's.
     pub preprocessor_symbols: Vec<String>,
     /// The packaged resources (`resources/` of a compiled package): name relative to the folder, content.

@@ -113,6 +113,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
+        "AL0196",
+        "reported only for a bare call, without arguments, in a page extension of its own local or internal procedure without parameters that a procedure of the base page in the same app repeats (cases 2238-2240, 2244); other ambiguous calls need overload resolution the front end does not judge.",
+    ),
+    (
         "AL0175",
         "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",
     ),
@@ -448,6 +452,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             ObjKind::PageExtension => {
                 page_extension_triggers(ws, oi, &obj, &mut out);
                 extension_procedures(ws, oi, &obj, ObjKind::Page, &mut out);
+                ambiguous_bare_calls(ws, oi, &obj, &mut out);
             }
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
@@ -1372,21 +1377,49 @@ pub(crate) fn signature(r: &ast::Routine) -> Vec<(bool, String)> {
         .collect()
 }
 
-/// AL0440. A page or report extension procedure with the name and parameter types of a procedure of
-/// its base object that it could otherwise reach (not `local`), corpus 0003 (page), 0042 (report) and
-/// handlers/TestPageExtensionBaseAccessContracts.al:20. A `local` procedure of the extension does not clash: code outside
-/// the extension cannot reach it (al-runner issue 6043; alc compiles it next to a public or protected base procedure, in
-/// the same app and in another app).
+/// What alc does with a procedure `ext` of a page or report extension that has the name and parameter types of a
+/// procedure `base` of the object it extends (`base` not `local`; a local base procedure is out of the extension's
+/// reach). Probed with alc for every access pair, page and report, the same app and another app (al-runner issue 6043).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Twin {
+    /// `ext` is `local`: it compiles; code outside the extension cannot reach it.
+    Local,
+    /// Error AL0440: both public or protected, in the same app (page and report) or a report extension of another app
+    /// (corpus must-not-compile 0003 and 0042, handlers/TestPageExtensionBaseAccessContracts.al:20).
+    Al0440,
+    /// alc compiles both: a page extension of another app with both public or protected (warning AL0523 only), or
+    /// `internal` on either side (same app or another app; in the same app a bare call of the name in the extension
+    /// is AL0196). Which body a call runs is not pinned.
+    Compiles,
+}
+
+pub(crate) fn twin(ext: &ast::Routine, base: &ast::Routine, same_app: bool, report: bool) -> Twin {
+    if ext.is_local() {
+        Twin::Local
+    } else if ext.is_internal() || base.is_internal() {
+        Twin::Compiles
+    } else if same_app || report {
+        Twin::Al0440
+    } else {
+        Twin::Compiles
+    }
+}
+
+/// AL0440. A page or report extension procedure with the name and parameter types of a procedure of its base object,
+/// where alc rejects it ([`Twin::Al0440`]).
 fn extension_procedures(ws: &Workspace, oi: usize, obj: &ast::Object, base_kind: ObjKind, out: &mut Vec<Diagnostic>) {
     let Some(base) = ws.extension_target(oi) else { return };
     if ws.objects[base].kind != base_kind {
         return;
     }
     let base_ast = ws.object_ast(base);
-    for r in obj.routines().filter(|r| !r.is_local()) {
+    let same_app = ws.objects[oi].app == ws.objects[base].app;
+    for r in obj.routines() {
         let name = r.name();
         let sig = signature(&r);
-        if crate::base_access::visible_procs(&base_ast, &name).any(|b| signature(&b) == sig) {
+        if crate::base_access::visible_procs(&base_ast, &name)
+            .any(|b| signature(&b) == sig && twin(&r, &b, same_app, base_kind == ObjKind::Report) == Twin::Al0440)
+        {
             push(
                 out,
                 ws,
@@ -1401,6 +1434,52 @@ fn extension_procedures(ws: &Workspace, oi: usize, obj: &ast::Object, base_kind:
                 ),
             );
         }
+    }
+}
+
+/// AL0196. In one app, a page extension declares a `local` or `internal` procedure with the name and parameter types
+/// of a procedure of its base page (which compiles) and calls it by its bare name: the call is ambiguous (must-not-compile
+/// 2238 to 2240 and 2244 on corpus branch al-runtime-rs-staging-pub-ti, al-runner issue 6043). Only the pinned shape
+/// is judged: a procedure without parameters, called with no arguments. Other arities are refused when lowered.
+fn ambiguous_bare_calls(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    let Some(base) = ws.extension_target(oi) else { return };
+    if ws.objects[base].kind != ObjKind::Page || ws.objects[oi].app != ws.objects[base].app {
+        return;
+    }
+    let base_ast = ws.object_ast(base);
+    let ambiguous: Vec<String> = obj
+        .routines()
+        .filter(|r| (r.is_local() || r.is_internal()) && signature(r).is_empty())
+        .filter(|r| {
+            crate::base_access::visible_procs(&base_ast, &r.name())
+                .any(|b| signature(&b).is_empty() && twin(r, &b, true, false) != Twin::Al0440)
+        })
+        .map(|r| r.name())
+        .collect();
+    if ambiguous.is_empty() {
+        return;
+    }
+    let app = &ws.apps[ws.objects[oi].app].name;
+    for call in obj.syntax().descendants().filter(|n| n.kind() == SyntaxKind::CallExpr) {
+        let Some(callee) = call.children().next() else { continue };
+        if callee.kind() != SyntaxKind::NameRef || call.children().skip(1).any(|a| a.children().next().is_some()) {
+            continue;
+        }
+        let name = callee.text().to_string().trim().to_string();
+        let Some(n) = ambiguous.iter().find(|n| n.eq_ignore_ascii_case(&name)) else {
+            continue;
+        };
+        push(
+            out,
+            ws,
+            ws.objects[oi].file,
+            offset_of(&call),
+            "AL0196",
+            format!(
+                "The call is ambiguous between the method '{n}()' defined in PageExtension '{}' by the extension '{app}' and the method '{n}()' defined in Page '{}' by the extension '{app}'.",
+                ws.objects[oi].name, ws.objects[base].name
+            ),
+        );
     }
 }
 
@@ -1916,6 +1995,33 @@ mod tests {
             codes(&[BASE, &ext("protected procedure Bump(): Integer begin exit(2); end;")]),
             vec!["AL0440"]
         );
+        // An internal extension procedure compiles next to a protected base procedure in the same app (alc: only a bare
+        // call of it in the extension is AL0196). Another app and the other access pairs: al-test-cli
+        // tests/user_reports.rs, issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_does_and_its_calls_refuse.
+        assert!(codes(&[BASE, &ext("internal procedure Bump(): Integer begin exit(2); end;")]).is_empty());
+    }
+
+    /// Must-not-compile 2238 to 2240 and 2244 (corpus branch al-runtime-rs-staging-pub-ti): in one app, a bare call of a
+    /// local or internal extension procedure that a base page procedure repeats is ambiguous (AL0196).
+    #[test]
+    fn al0196_bare_call_of_an_extension_procedure_the_base_page_repeats() {
+        let call = |decl: &str| {
+            ext(&format!(
+                "{decl} trigger OnOpenPage() var i: Integer; begin i := Bump(); end;"
+            ))
+        };
+        assert_eq!(
+            codes(&[BASE, &call("local procedure Bump(): Integer begin exit(2); end;")]),
+            vec!["AL0196"]
+        );
+        assert_eq!(
+            codes(&[BASE, &call("internal procedure Bump(): Integer begin exit(2); end;")]),
+            vec!["AL0196"]
+        );
+        // Declared and not called: it compiles.
+        assert!(codes(&[BASE, &ext("local procedure Bump(): Integer begin exit(2); end;")]).is_empty());
+        // A call on the page from elsewhere is not the bare call.
+        assert!(codes(&[BASE, &ext("local procedure Other(): Integer begin exit(2); end;")]).is_empty());
     }
 
     /// al-runner issue 6012: a page and its extension each get a generated `__visible_N` routine for a `Visible = Flag;`
