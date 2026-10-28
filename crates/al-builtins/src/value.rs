@@ -525,6 +525,10 @@ pub struct PageState {
     /// (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
+    /// An OnDrillDown turned MarkedOnly on and called `CurrPage.Update(false)` on a list in a key other than the primary key: the
+    /// client still shows the row it stood on and refills its rows at the next GoToRecord (al-runner issue 6008). Holds the
+    /// fields of Rec as the trigger left it; Rec shows the client's row until then.
+    pub marked_refill_in_key: Option<Vec<Value>>,
     /// A TestPage GoToKey moved the cursor of a list without OnAfterGetCurrRecord: the client reads the row once more before
     /// every later action (pages/lt-ai-list-order/AiListOrderTests.al:39 Keep_Nav `update` = `R:R1002;R:R1002;A:filter...`;
     /// QgGoToKeyNextCall.al:297 Plain_GoToKey_ThenActionWithoutUpdate_Twice `second_action_log`), until a move clears it.
@@ -847,6 +851,7 @@ impl PageState {
             view_left: false,
             marked_only_unshown: false,
             marked_only_unpinned: false,
+            marked_refill_in_key: None,
             read_after_goto: false,
             read_after_goto_doubt: false,
             read_after_goto_quiet: false,
