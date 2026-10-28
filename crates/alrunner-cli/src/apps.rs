@@ -43,6 +43,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         id_ranges: Vec::new(),
         symbols: Vec::new(),
         translations: al_deps::load::ships_translations(path),
+        translation_files: Vec::new(),
     };
     let mut versions = AppVersions::parse(
         None,

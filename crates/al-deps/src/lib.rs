@@ -16,4 +16,5 @@ pub mod remote;
 pub mod select;
 pub mod test_apps;
 pub mod version;
+pub mod xliff;
 pub mod zip;

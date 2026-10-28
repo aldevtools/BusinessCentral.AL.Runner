@@ -66,6 +66,7 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,
+        translation_files: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(

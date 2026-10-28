@@ -311,3 +311,305 @@ fn an_app_folder_ships_a_translation_file_when_its_translations_folder_holds_an_
     assert!(al_testrun::runtime::load_manifest(&root).unwrap().translations);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// ADR-053 step 2: the translation file is applied.
+
+/// A unit id of the test app, from the names (`Codeunit`, `ALR Labels`, `NamedType`, `HelloLbl`, ...).
+fn unit(parts: &[(&str, &str)]) -> String {
+    parts
+        .iter()
+        .map(|(k, n)| al_ir::xliff_part(k, n))
+        .collect::<Vec<_>>()
+        .join(" - ")
+}
+
+/// The app's `nl-BE` file: the issue's two units, a field caption, and a unit with no target.
+fn dutch() -> al_ir::TranslationFile {
+    let mut units = vec![
+        (
+            unit(&[("Codeunit", "ALR Labels"), ("NamedType", "HelloLbl")]),
+            "Hallo wereld".to_string(),
+        ),
+        (
+            unit(&[
+                ("Codeunit", "ALR Labels"),
+                ("Method", "GetLocal"),
+                ("NamedType", "LocalLbl"),
+            ]),
+            "Lokaal".to_string(),
+        ),
+        (
+            unit(&[("Enum", "ALR Status"), ("EnumValue", "Rel"), ("Property", "Caption")]),
+            "Vrijgegeven".to_string(),
+        ),
+        (
+            unit(&[("Table", "ALR Item"), ("Field", "No."), ("Property", "Caption")]),
+            "Nummer".to_string(),
+        ),
+    ];
+    units.sort();
+    al_ir::TranslationFile {
+        name: "Translations/AL Runner Repros.nl-BE.xlf".into(),
+        target_language: "nl-BE".into(),
+        units,
+        error: None,
+    }
+}
+
+const APP2: &str = r#"
+enum 50704 "ALR Status"
+{
+    Extensible = true;
+    value(0; Open) { Caption = 'Open'; }
+    value(1; Rel) { Caption = 'Released'; }
+}
+codeunit 50704 "ALR Labels"
+{
+    var
+        HelloLbl: Label 'Hello world';
+        OtherLbl: Label 'Other';
+
+    procedure GetHello(): Text
+    begin
+        exit(HelloLbl);
+    end;
+
+    procedure GetOther(): Text
+    begin
+        exit(OtherLbl);
+    end;
+
+    procedure GetLocal(): Text
+    var
+        LocalLbl: Label 'Local';
+    begin
+        exit(LocalLbl);
+    end;
+}
+table 50705 "ALR Item"
+{
+    Caption = 'Item';
+    fields
+    {
+        field(1; "No."; Code[20]) { Caption = 'Number'; }
+        field(2; Name; Text[30]) { Caption = 'Name'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+const TESTS2: &str = r#"
+codeunit 50756 "ALR Translation Repro"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Format_Enum_UsesDutchCaption()
+    var
+        Status: Enum "ALR Status";
+        Observed: Text;
+    begin
+        Status := Status::Rel;
+        GlobalLanguage(2067);
+        Observed := Format(Status);
+        GlobalLanguage(1033);
+        if Observed <> 'Vrijgegeven' then Error('Format(enum) under 2067: %1', Observed);
+    end;
+
+    [Test]
+    procedure Evaluate_Enum_AcceptsDutchCaption()
+    var
+        Status: Enum "ALR Status";
+        Ok: Boolean;
+    begin
+        GlobalLanguage(2067);
+        Ok := Evaluate(Status, 'Vrijgegeven');
+        GlobalLanguage(1033);
+        if not Ok then Error('Evaluate(enum, Vrijgegeven) under 2067');
+        if Status.AsInteger() <> 1 then Error('ordinal %1', Status.AsInteger());
+    end;
+
+    [Test]
+    procedure Label_UsesDutchText()
+    var
+        Labels: Codeunit "ALR Labels";
+        Observed: Text;
+    begin
+        GlobalLanguage(2067);
+        Observed := Labels.GetHello();
+        GlobalLanguage(1033);
+        if Observed <> 'Hallo wereld' then Error('Label under 2067: %1', Observed);
+    end;
+
+    [Test]
+    procedure Texts_WithoutAUnit_KeepTheSource()
+    var
+        Labels: Codeunit "ALR Labels";
+        Item: Record "ALR Item";
+        Status: Enum "ALR Status";
+        Observed: Text;
+    begin
+        GlobalLanguage(2067);
+        Status := Status::Open;
+        Observed := Labels.GetOther() + '|' + Labels.GetLocal() + '|' + Format(Status) + '|' + Item.FieldCaption("No.") + '|' + Item.FieldCaption(Name);
+        GlobalLanguage(1033);
+        Observed += '|' + Labels.GetHello() + '|' + Item.FieldCaption("No.");
+        Error('%1', Observed);
+    end;
+
+    [Test]
+    procedure Evaluate_Enum_SourceCaption_IsNotPinned()
+    var
+        Status: Enum "ALR Status";
+    begin
+        GlobalLanguage(2067);
+        if Evaluate(Status, 'Released') then;
+    end;
+
+    [Test]
+    procedure TableCaption_StaysRefused()
+    var
+        Item: Record "ALR Item";
+    begin
+        GlobalLanguage(2067);
+        Error('%1', Item.TableCaption());
+    end;
+}
+
+codeunit 50758 "ALR Other Languages"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Dutch_OfTheNetherlands_IsNotPinned()
+    var
+        Labels: Codeunit "ALR Labels";
+    begin
+        GlobalLanguage(1043);
+        Error('%1', Labels.GetHello());
+    end;
+}
+
+codeunit 50759 "ALR No File"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure German_HasNoFile_KeepsTheSource()
+    var
+        Labels: Codeunit "ALR Labels";
+    begin
+        GlobalLanguage(1031);
+        Error('%1', Labels.GetHello());
+    end;
+}
+"#;
+
+fn run_translated(
+    files: Vec<al_ir::TranslationFile>,
+) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
+    let mut m = manifest(true);
+    m.translation_files = files;
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![app("tests", &["app"], TESTS2), app("app", &[], APP2)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Workspace],
+        &[manifest(false), m],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    rt.results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone(), r.assumptions.clone()))
+        .collect()
+}
+
+fn find<'a>(
+    got: &'a [(String, Outcome, Vec<al_testrun::assumptions::Assumption>)],
+    test: &str,
+) -> &'a (String, Outcome, Vec<al_testrun::assumptions::Assumption>) {
+    got.iter()
+        .find(|(t, ..)| t == test)
+        .unwrap_or_else(|| panic!("no test {test}: {got:?}"))
+}
+
+#[test]
+fn the_issues_three_tests_pass_with_the_apps_translation_file_as_flagged_passes() {
+    let got = run_translated(vec![dutch()]);
+    for test in [
+        "Format_Enum_UsesDutchCaption",
+        "Evaluate_Enum_AcceptsDutchCaption",
+        "Label_UsesDutchText",
+    ] {
+        let (_, outcome, assumed) = find(&got, test);
+        assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
+        assert!(
+            assumed.contains(&al_testrun::assumptions::Assumption::AppTranslationApplied),
+            "{test}: {assumed:?}"
+        );
+    }
+}
+
+#[test]
+fn a_text_without_a_unit_or_in_1033_keeps_the_source_and_a_field_caption_is_translated() {
+    let got = run_translated(vec![dutch()]);
+    let (_, outcome, _) = find(&got, "Texts_WithoutAUnit_KeepTheSource");
+    assert!(
+        matches!(outcome, Outcome::Fail(m) if m.contains("Other|Lokaal|Open|Nummer|Name|Hello world|Number")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn unpinned_reads_under_a_translation_stay_refused() {
+    let got = run_translated(vec![dutch()]);
+    for (test, want) in [
+        ("Evaluate_Enum_SourceCaption_IsNotPinned", "Evaluate"),
+        ("TableCaption_StaysRefused", "the caption of table ALR Item"),
+        // A file for nl-BE only, read under nl-NL: which file BC falls back to is not pinned (ADR-053 P3).
+        ("Dutch_OfTheNetherlands_IsNotPinned", "the Label 'Hello world'"),
+    ] {
+        let (_, outcome, _) = find(&got, test);
+        assert!(
+            matches!(outcome, Outcome::NotRun(why) if why.contains(want)),
+            "{test}: want {want:?}, got {outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn a_language_with_no_file_of_its_kind_keeps_the_source_text() {
+    let got = run_translated(vec![dutch()]);
+    let (_, outcome, assumed) = find(&got, "German_HasNoFile_KeepsTheSource");
+    assert!(
+        matches!(outcome, Outcome::Fail(m) if m.contains("Hello world")),
+        "{outcome:?}"
+    );
+    assert!(assumed.contains(&al_testrun::assumptions::Assumption::AppTranslationApplied));
+}
+
+#[test]
+fn an_app_folder_gives_its_parsed_translation_files() {
+    let root = std::env::temp_dir().join(format!("al-translation-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("Translations")).unwrap();
+    std::fs::write(
+        root.join("app.json"),
+        r#"{ "publisher": "AL Harness", "version": "1.0.0.0" }"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("Translations/App.g.xlf"), "<xliff/>").unwrap();
+    std::fs::write(
+        root.join("Translations/App.nl-BE.xlf"),
+        r#"<xliff><file target-language="nl-BE"><body><trans-unit id="X 1"><source>a</source><target>b</target></trans-unit></body></file></xliff>"#,
+    )
+    .unwrap();
+    let m = al_testrun::runtime::load_manifest(&root).unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(m.translation_files.len(), 1);
+    assert_eq!(m.translation_files[0].target_language, "nl-BE");
+    assert_eq!(m.translation_files[0].target("X 1"), Some("b"));
+}

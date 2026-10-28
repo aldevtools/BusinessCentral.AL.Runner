@@ -199,6 +199,9 @@ pub(crate) struct Lowerer<'a> {
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
     local_labels: HashMap<String, String>,
+    /// The XLIFF unit id of Label variables whose id is known (ADR-053 step 2), by lowercase name.
+    global_label_xliff: HashMap<String, String>,
+    local_label_xliff: HashMap<String, String>,
     /// The Label-typed variables declared `TextConst`, by lowercase name (a Label and a TextConst share `Ty::Label`).
     global_textconsts: std::collections::HashSet<String>,
     local_textconsts: std::collections::HashSet<String>,

@@ -179,6 +179,72 @@ pub struct AppInfo {
     /// 1033 BC translates its labels and captions, which the runtime refuses to read (ADR-053 step 1). Set by the runner.
     #[serde(default)]
     pub translations: bool,
+    /// The app's translation files as read from an app folder (ADR-053 step 2), applied in a language other than 1033. Empty
+    /// for a package, whose files are not read: its translated reads stay refused when `translations` is set.
+    #[serde(default)]
+    pub translation_files: Vec<TranslationFile>,
+}
+
+/// One translation file of an app (`Translations/<name>.xlf`), ADR-053 step 2.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationFile {
+    /// Path relative to the app.
+    pub name: String,
+    /// Its `target-language` (`nl-BE`).
+    pub target_language: String,
+    /// `(XLIFF unit id, target)` of the units that give a text, sorted by id.
+    pub units: Vec<(String, String)>,
+    /// Why the file could not be read; its language then refuses every translated read.
+    pub error: Option<String>,
+}
+
+impl TranslationFile {
+    /// The target of unit `id`, when the file gives one.
+    pub fn target(&self, id: &str) -> Option<&str> {
+        self.units
+            .binary_search_by(|(k, _)| k.as_str().cmp(id))
+            .ok()
+            .map(|i| self.units[i].1.as_str())
+    }
+}
+
+/// The number the AL compiler writes for a name in the id of an XLIFF unit (`Codeunit 414859830 - NamedType 868134460`):
+/// 32-bit FNV-1a over the name's UTF-16LE bytes, read as a signed number, plus 2147483647. Checked on the ids of al-runner
+/// issue 5772 (`HelloLbl` 868134460, `ALR Labels` 414859830, `Rel` 2943620325, `Caption` 2879900210) and on about 2 800
+/// units of Microsoft's generated `.g.xlf` files (BC 29, E-Document Core and others, checked locally).
+pub fn xliff_hash(name: &str) -> i64 {
+    let mut h: u32 = 0x811C_9DC5;
+    for unit in name.encode_utf16() {
+        for b in unit.to_le_bytes() {
+            h ^= u32::from(b);
+            h = h.wrapping_mul(0x0100_0193);
+        }
+    }
+    i64::from(h as i32) + 2_147_483_647
+}
+
+/// `<kind> <hash of name>`, one part of an XLIFF unit id.
+pub fn xliff_part(kind: &str, name: &str) -> String {
+    format!("{kind} {}", xliff_hash(name))
+}
+
+/// The word the XLIFF id of a text of an object of kind `kind` starts with; `None` for a kind not mapped (its texts keep
+/// the step 1 refusal).
+pub fn xliff_object_kind(kind: ObjKind) -> Option<&'static str> {
+    Some(match kind {
+        ObjKind::Table => "Table",
+        ObjKind::TableExtension => "TableExtension",
+        ObjKind::Page => "Page",
+        ObjKind::PageExtension => "PageExtension",
+        ObjKind::Codeunit => "Codeunit",
+        ObjKind::Report => "Report",
+        ObjKind::ReportExtension => "ReportExtension",
+        ObjKind::XmlPort => "XmlPort",
+        ObjKind::Query => "Query",
+        ObjKind::Enum => "Enum",
+        ObjKind::EnumExtension => "EnumExtension",
+        _ => return None,
+    })
 }
 
 /// A `.NET` type declared by a `dotnet { }` block.
@@ -1864,5 +1930,32 @@ mod tests {
         let s = Stmt::Assign(Place::BaseGlobal(0), Expr::Const(Const::Integer(1)));
         let back: Stmt = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+}
+
+#[cfg(test)]
+mod xliff_tests {
+    use super::*;
+
+    #[test]
+    fn the_xliff_hash_gives_the_ids_of_issue_5772() {
+        for (name, id) in [
+            ("HelloLbl", 868_134_460),
+            ("ALR Labels", 414_859_830),
+            ("ALR Status", 2_458_498_293),
+            ("Rel", 2_943_620_325),
+            ("Caption", 2_879_900_210),
+            ("OptionCaption", 62_802_879),
+        ] {
+            assert_eq!(xliff_hash(name), id, "{name}");
+        }
+        assert_eq!(
+            format!(
+                "{} - {}",
+                xliff_part("Codeunit", "ALR Labels"),
+                xliff_part("NamedType", "HelloLbl")
+            ),
+            "Codeunit 414859830 - NamedType 868134460"
+        );
     }
 }

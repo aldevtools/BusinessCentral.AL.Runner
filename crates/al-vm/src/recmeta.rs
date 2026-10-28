@@ -217,8 +217,11 @@ impl Session {
         if let Some(why) = self.field_caption_class_refusal(t, pos) {
             return unsupported(why);
         }
-        if let Some(why) = self.field_caption_translated(t, pos) {
-            return unsupported(why);
+        // A translation file of the table's app gives the caption in another language (ADR-053 step 2).
+        match self.field_caption_translation(t, pos) {
+            Err(why) => return unsupported(why),
+            Ok(Some(text)) => return Ok(WrittenCaption::Text(text)),
+            Ok(None) => {}
         }
         let has_caption = self.field_property(t, pos, "Caption").is_some();
         if t.fields[pos].id >= 2_000_000_000 && !has_caption {

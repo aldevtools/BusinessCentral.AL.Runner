@@ -193,6 +193,8 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         locals: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
+        global_label_xliff: HashMap::default(),
+        local_label_xliff: HashMap::default(),
         global_textconsts: Default::default(),
         local_textconsts: Default::default(),
         global_textconst_languages: HashMap::default(),
@@ -479,6 +481,9 @@ pub(crate) fn lower_object<'a>(
             }
             if let Some(l) = &label {
                 lw.global_labels.insert(n.to_lowercase(), l.clone());
+                if let Some(id) = lw.label_xliff_id(None, &n) {
+                    lw.global_label_xliff.insert(n.to_lowercase(), id);
+                }
             }
             if is_textconst(v.type_ref().as_ref()) {
                 lw.global_textconsts.insert(n.to_lowercase());

@@ -23,6 +23,7 @@ impl Lowerer<'_> {
         };
         self.locals.clear();
         self.local_labels.clear();
+        self.local_label_xliff.clear();
         self.local_textconsts.clear();
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
@@ -117,6 +118,9 @@ impl Lowerer<'_> {
                 }
                 if let Some(l) = &label {
                     self.local_labels.insert(n.to_lowercase(), l.clone());
+                    if let Some(id) = self.label_xliff_id(Some(r), &n) {
+                        self.local_label_xliff.insert(n.to_lowercase(), id);
+                    }
                 }
                 if is_textconst(v.type_ref().as_ref()) {
                     self.local_textconsts.insert(n.to_lowercase());

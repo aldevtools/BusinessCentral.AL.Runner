@@ -49,12 +49,21 @@ impl al_builtins::format::FormatCtx for Session {
             _ => None,
         }
     }
+    /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
+    /// that cannot be looked up.
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
-        self.enum_caption_refusal(id, ordinal)
+        match ordinal {
+            Some(v) => self.enum_caption_translated(id, v).err(),
+            None => self.enum_captions_translated(id).err(),
+        }
     }
-    /// The caption a value declares, else its name (types/TestEnumCaption.al).
+    /// The caption a value declares, else its name (types/TestEnumCaption.al); in another language the caption the app's
+    /// translation file gives (ADR-053 step 2).
     fn enum_name(&self, id: u32, value: i32) -> String {
         self.note_enum(id);
+        if let Ok(Some(t)) = self.enum_caption_translated(id, value) {
+            return t;
+        }
         let o = &self.engine.program.objects[id as usize];
         if let Some((_, c)) = o.enum_captions.iter().find(|(v, _)| *v == value) {
             return c.clone();
@@ -73,6 +82,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
         Session::translated_app_read(self, app, what)
+    }
+    fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
+        Session::translated_app_text(self, app, what, xliff)
     }
 
     fn http_send(
@@ -434,7 +446,14 @@ impl al_builtins::native::Ctx for Session {
     }
     fn enum_captions(&self, id: u32) -> Vec<(i32, String)> {
         self.note_enum(id);
+        if let Ok(Some(t)) = self.enum_captions_translated(id) {
+            return t;
+        }
         self.engine.program.objects[id as usize].enum_captions.clone()
+    }
+    fn enum_source_captions(&self, id: u32) -> Option<Vec<(i32, String)>> {
+        matches!(self.enum_captions_translated(id), Ok(Some(_)))
+            .then(|| self.engine.program.objects[id as usize].enum_captions.clone())
     }
     fn commit(&mut self) -> Result<(), Signal> {
         self.commit_builtin()

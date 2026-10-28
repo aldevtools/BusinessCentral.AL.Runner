@@ -1723,7 +1723,25 @@ fn evaluate_with_max(
                 return unsupported(why);
             }
             let captions = c.enum_captions(*id);
-            let found = ordinal
+            // Under a translation file (ADR-053 step 2) only a translated caption is accepted, as al-runner issue 5772's real-BC
+            // run shows (`Vrijgegeven` under 2067); whether an ordinal, a member name or the source caption is still accepted,
+            // and what the error lists, is not pinned (ADR-053 P11).
+            let mut forced = None;
+            if let Some(source) = c.enum_source_captions(*id) {
+                let translated = captions.iter().find(|(o, n)| {
+                    !text.is_empty() && n.eq_ignore_ascii_case(text) && source.iter().any(|(so, sn)| so == o && sn != n)
+                });
+                match translated {
+                    Some((o, _)) => forced = Some(*o),
+                    None => {
+                        return unsupported(format!(
+                            "Evaluate of `{text}` into an Enum whose captions a translation file changes (only a translated caption is pinned)"
+                        ));
+                    }
+                }
+            }
+            let found = forced
+                .or(ordinal)
                 .or_else(|| {
                     members
                         .iter()
