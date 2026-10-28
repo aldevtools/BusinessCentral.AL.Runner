@@ -1,6 +1,6 @@
 # ADR-053: Translations of an app (XLIFF files) under `GlobalLanguage`
 
-- Status: Deferred (owner, 2026-10-25): roadmap item. Step 1 (refuse translated reads in another language) is built; a first part of step 2 (section 8, orchestrator task of 2026-10-28) applies the translation files of an app folder to Labels, enum captions and field captions.
+- Status: Deferred (owner, 2026-10-25): roadmap item; step 2 started (owner, 2026-10-28, issue 5772). Step 1 (refuse translated reads in another language) is built; a first part of step 2 (section 8, orchestrator task of 2026-10-28) applies the translation files of an app folder to Labels, enum captions and field captions.
 - Date: 2026-10-25
 - Related: ADR-009 (observable behavior), ADR-013 (dependency apps from source), ADR-022 (compile cache), ADR-033
   (symbolic IR and stable keys), outside-user issue 5772
@@ -235,7 +235,7 @@ P1, P2, P3, P4 and P11 come first: they decide the lookup rule. The others decid
   invented builtin `System.TranslatedText#1` (value, app id, what is read). `AppInfo::translations` is set by the runner
   from `al_deps::load::ships_translations`.
 
-### 8. Step 2, first part, as built (2026-10-28, decided without owner review)
+### 8. Step 2, first part, as built (2026-10-28, owner approved the merge the same day)
 
 - **The XLIFF id.** The number after each element kind is 32-bit FNV-1a over the name's UTF-16LE bytes, read as a signed
   32-bit number, plus 2147483647 (`al_ir::xliff_hash`). Checked on every id of issue 5772, on writer TA's `nl-NL` file and
