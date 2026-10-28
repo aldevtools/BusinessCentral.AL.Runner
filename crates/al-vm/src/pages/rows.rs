@@ -2520,6 +2520,9 @@ impl Session {
             }
             Err(e) => return Err(e),
         };
+        if st.borrow().marked_refill_in_key.is_some() {
+            return self.go_to_record_after_marked_refill(st, &want);
+        }
         // GoToKey onto the first row while standing on it reads nothing and runs no trigger (pages/lt-testpage-list-rows/
         // ListRowsGoToFirst.al:GoToKeyFirstWhileOnIt_Both5Rows_ReadsLogged and _OnlyCurr30Rows_ReadsLogged: `first-on-first-total = 0`,
         // also the second time).
@@ -2717,6 +2720,99 @@ impl Session {
         Ok(Value::Boolean(found))
     }
 
+    /// GoToRecord after an OnDrillDown marked two rows, turned MarkedOnly on, left Rec on the second and called
+    /// `CurrPage.Update(false)` on a list in a key other than the primary key (`drilldown_marked_only_refresh`). The client first
+    /// refills its rows around the row Rec was left on: that row twice, the row above it, that row three times and
+    /// OnAfterGetCurrRecord; then it walks the rows from the first, each a move (three reads and OnAfterGetCurrRecord), and
+    /// answers false on Rec's row. Measured by the reporter of al-runner issue 6008 on real BC for GoToRecord of the first row
+    /// (`gotorecord3=No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1;`); assumption drilldown-marked-refill-in-its-key until
+    /// the corpus pins it. Another number of marked rows, Rec on another row and another target are refused.
+    fn go_to_record_after_marked_refill(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
+        let Some(left) = st.borrow_mut().marked_refill_in_key.take() else {
+            return unsupported("GoToRecord after a marking OnDrillDown without the rows it left (not pinned)");
+        };
+        self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, st));
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillInItsKey);
+        let refuse = |what: &str| -> Result<Value, Signal> {
+            unsupported(format!(
+                "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list in a key other \
+                 than the primary key, {what} (not pinned)"
+            ))
+        };
+        let before = self.xrec_before_move(st);
+        let rec = self.page_rec(st);
+        rec.borrow_mut().fields = left;
+        if !self.nav_find(st, "=")? {
+            return refuse("with Rec left outside the marked rows");
+        }
+        let key = self.row_key(&rec)?;
+        let stored = rec.borrow().fields.clone();
+        self.populate_current(st)?;
+        if self.nav_next(st, 1)? {
+            return refuse("with marked rows after the row Rec was left on");
+        }
+        rec.borrow_mut().fields = stored.clone();
+        self.populate_current(st)?;
+        rec.borrow_mut().fields = stored.clone();
+        if !self.nav_next(st, -1)? {
+            return refuse("with Rec left on the first marked row");
+        }
+        let above_key = self.row_key(&rec)?;
+        let above_stored = rec.borrow().fields.clone();
+        self.populate_current(st)?;
+        let above_shown = rec.borrow().fields.clone();
+        rec.borrow_mut().fields = above_stored.clone();
+        if self.nav_next(st, -1)? {
+            return refuse("with more than two marked rows");
+        }
+        if !Self::same_key(want, &above_key) {
+            return refuse("of a row other than the first of the two marked rows");
+        }
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::Get, &rec, &mut key.clone())?,
+            Value::Boolean(true)
+        ) {
+            return refuse("with the row Rec was left on gone");
+        }
+        let stored = rec.borrow().fields.clone();
+        for _ in 0..3 {
+            rec.borrow_mut().fields = stored.clone();
+            self.populate_current(st)?;
+        }
+        let shown = rec.borrow().fields.clone();
+        {
+            let mut s = st.borrow_mut();
+            s.window = vec![
+                al_builtins::value::WindowRow {
+                    key: above_key,
+                    stored: above_stored,
+                    shown: above_shown,
+                },
+                al_builtins::value::WindowRow {
+                    key,
+                    stored: stored.clone(),
+                    shown,
+                },
+            ];
+            s.window_from_start = true;
+            s.window_whole = true;
+            s.window_eof = true;
+            s.view_read_to_end = true;
+            s.cursor = Cursor::Row;
+            s.draft = false;
+            s.stale = false;
+        }
+        self.set_xrec_fields(st, stored);
+        let r = self.current_record_trigger(st, before);
+        self.torn_down_on_error(st, r)?;
+        for idx in 0..2 {
+            let r = self.arrive_held(st, idx);
+            self.torn_down_on_error(st, r)?;
+        }
+        Ok(Value::Boolean(false))
+    }
+
     /// `FindFirstField` / `FindNextField` / `FindPreviousField`: walks the rows of the view from the
     /// first row, the row after the current one, or the row before it, and stops on the first row
     /// whose control shows `value`. The Variant is type-sensitive: a Text never matches an Integer
@@ -2854,7 +2950,15 @@ impl Session {
             };
             if Rc::strong_count(&page).saturating_sub(2 + local_holders + own) == 0 {
                 self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, &page));
-                let why = page.borrow().unpinned_state.clone().unwrap_or_default();
+                let why = page.borrow().unpinned_state.clone().unwrap_or_else(|| {
+                    if page.borrow().marked_refill_in_key.is_some() {
+                        "a list in a key other than the primary key after an OnDrillDown turned MarkedOnly on and called \
+                         CurrPage.Update(false) (not pinned)"
+                            .into()
+                    } else {
+                        String::new()
+                    }
+                });
                 return Some(format!("an open TestPage goes out of scope: {why}"));
             }
         }

@@ -687,6 +687,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    DrilldownMarkedRefillInItsKey => {
+        id: "drilldown-marked-refill-in-its-key",
+        assumed: "A Worksheet in a key other than the primary key, with OnAfterGetRecord and OnAfterGetCurrRecord, whose field's OnDrillDown marks two rows, turns MarkedOnly on, leaves Rec on the second and calls CurrPage.Update(false): the drilldown reads nothing and the page still shows the row it stood on; GoToRecord of the first marked row then reads Rec's row twice, the row above once, Rec's row three times and runs OnAfterGetCurrRecord on it, walks both rows (each read three times, then OnAfterGetCurrRecord) and answers false on Rec's row. Only this shape is taken; every other call after the drilldown is refused.",
+        tests: "No Microsoft test: al-runner issue 6008, the reporter's repro green on real BC (`open=4:R4;R3;R2;R1;R4;R4;R4;C4; drilldown=4: gotorecord3=No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1; gotorecord1=Yes/1:R3;R3;R3;C3;R1;R1;R1;C1;`), seen in 4 tests of a partner app.",
+        probe: "The reporter's page in the Name key: after the marking drilldown, GoToRecord of each marked row and of an unmarked row, with one, two and three marked rows and Rec left on the first or the last of them; the same with Next, First and GoToKey; and after a refill by TestPage.Filter.SetFilter and by an action with CurrPage.Update(false). Corpus writer SU (branch al-runtime-rs-staging-su).",
+        awaiting: Awaiting {
+            issues: &[6008],
+            files: &["tests/al-language/pages/lt-sg-list-key-moves/SgListKeyMovesTests.al::SU_MarkedDrillDown_GoToRecord"],
+            since: "2026-10-28",
+        },
+    },
     MediaFilterNullGuid => {
         id: "media-filter-null-guid",
         assumed: "SetFilter on a Media field with the null Guid as text (`00000000-0000-0000-0000-000000000000`, braced or not, in a filter such as `<>...`) compares the field's media id with the null Guid: an empty Media field equals it. Another Guid text and any other text stay refused.",
