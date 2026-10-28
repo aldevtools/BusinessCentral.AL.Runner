@@ -49,7 +49,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0122",
-        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer",
+        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer",
     ),
     (
         "AL0124",
@@ -66,6 +66,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     (
         "AL0162",
         "OnInit, OnFindRecord and OnNextRecord in a page extension; a trigger the object type does not have (any but OnRun in a codeunit; page, table and report triggers of another object type)",
+    ),
+    (
+        "AL0169",
+        "a query ReadState that is not ReadUncommitted, ReadCommitted, ReadShared or Default (case 2248, NoLocks)",
     ),
     ("AL0197", "two objects of one type and name in one app"),
     ("AL0264", "two codeunits or two tables with one id in one app"),
@@ -457,7 +461,10 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
             ObjKind::ReportExtension => extension_procedures(ws, oi, &obj, ObjKind::Report, &mut out),
             ObjKind::Codeunit => duplicate_procedures(ws, oi, &obj, &mut out),
             ObjKind::Page => field_control_procedure_calls(ws, oi, &obj, &mut out),
-            ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
+            ObjKind::Query => {
+                query_read_state(ws, o.file, &obj, &mut out);
+                query_joins(ws, o.file, obj.sections(), &mut out)
+            }
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -1525,6 +1532,30 @@ fn properties_of(s: &ast::Section) -> Vec<(String, String)> {
 }
 
 /// AL0365. `DataItemLink` on a query data item whose `SqlJoinType` is `CrossJoin` (corpus 0009).
+/// AL0169 for a query `ReadState` that is none of its values. Writer TJ's must-not-compile 2248 (branch
+/// al-runtime-rs-staging-pub-tj, al-runner issue 6050) pins `NoLocks` and states the values: ReadUncommitted,
+/// ReadCommitted, ReadShared and the default (`Default`).
+fn query_read_state(ws: &Workspace, file: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    const VALUES: &[&str] = &["ReadUncommitted", "ReadCommitted", "ReadShared", "Default"];
+    for p in obj.properties().filter(|p| p.name().eq_ignore_ascii_case("ReadState")) {
+        let value = p.value_text();
+        let value = value.trim();
+        if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        if !VALUES.iter().any(|v| v.eq_ignore_ascii_case(value)) {
+            push(
+                out,
+                ws,
+                file,
+                offset_of(p.syntax()),
+                "AL0169",
+                format!("The option value '{value}' is not valid. Check the enum definition for valid values."),
+            );
+        }
+    }
+}
+
 fn query_joins(ws: &Workspace, file: usize, sections: impl Iterator<Item = ast::Section>, out: &mut Vec<Diagnostic>) {
     for s in sections {
         let name = s.name();
@@ -2451,6 +2482,52 @@ mod tests {
         assert_eq!(messages(&cu("D := T;")), vec![want]);
         for ok in ["D := V;", "Evaluate(D, T);", "D := 5;"] {
             assert!(messages(&cu(ok)).is_empty(), "{ok}");
+        }
+    }
+
+    // Writer TL's must-not-compile 2249-2251 (branch al-runtime-rs-staging-pub-tl, al-runner issue 6060): an Enum variable,
+    // an enum value and an Enum field into a Decimal are AL0122; an Option into a Decimal compiles
+    // (types/lt-implicit-conversions/P79OptionDecimal.al on the same branch).
+    #[test]
+    fn al0122_enum_into_decimal() {
+        let src = |body: &str| {
+            format!(
+                "enum 52249 \"MNC E\" {{ value(0; A) {{ }} value(5; B) {{ }} }}
+                 table 52254 \"MNC R\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Kind; Enum \"MNC E\") {{ }}
+                   field(3; Amount; Decimal) {{ }} field(4; Opt; Option) {{ OptionMembers = X,Y; }} }}
+                   keys {{ key(PK; Id) {{ Clustered = true; }} }} }}
+                 codeunit 52250 \"MNC C\" {{ procedure DoIt() var K: Enum \"MNC E\"; D: Decimal; O: Option P,Q; S: Record \"MNC R\";
+                   T: Record \"MNC R\" temporary; begin {body} end; }}"
+            )
+        };
+        let want = "AL0122 Cannot implicitly convert type 'Enum \"MNC E\"' to 'Decimal'".to_string();
+        for bad in ["D := K;", "D := \"MNC E\"::B;", "T.Amount := S.Kind;"] {
+            assert_eq!(messages(&src(bad)), vec![want.clone()], "{bad}");
+        }
+        for ok in ["D := O;", "T.Amount := S.Opt;", "D := K.AsInteger();"] {
+            assert!(messages(&src(ok)).is_empty(), "{ok}");
+        }
+    }
+
+    // Writer TJ's must-not-compile 2248 (branch al-runtime-rs-staging-pub-tj): ReadState = NoLocks is AL0169; the
+    // values ReadUncommitted, ReadCommitted and ReadShared compile.
+    #[test]
+    fn al0169_query_read_state_value() {
+        let src = |v: &str| {
+            format!(
+                "table 50000 \"MNC T\" {{ fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ Clustered = true; }} }} }}
+                 query 50001 \"MNC Q\" {{ QueryType = Normal; ReadState = {v}; elements {{ dataitem(T; \"MNC T\") {{ column(Id; Id) {{ }} }} }} }}"
+            )
+        };
+        assert_eq!(
+            messages(&src("NoLocks")),
+            vec![
+                "AL0169 The option value 'NoLocks' is not valid. Check the enum definition for valid values."
+                    .to_string()
+            ]
+        );
+        for ok in ["ReadUncommitted", "ReadCommitted", "ReadShared"] {
+            assert!(messages(&src(ok)).is_empty(), "{ok}");
         }
     }
 

@@ -191,6 +191,29 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // Validate: types/lt-implicit-conversions/P79BigOption.al:194-218).
         (Value::BigInteger(n), T::Option(m)) => Value::Option(bigint_ordinal(n)?, m.clone().into()),
         (Value::Option(o, _), T::Integer) => Value::Integer(o),
+        // An Option into a Decimal is its ordinal: assignment, argument and Validate (al-runner issue 6060; writer TL's
+        // branch al-runtime-rs-staging-pub-tl, types/lt-implicit-conversions/P79OptionDecimal.al:40-77, :139-179).
+        (Value::Option(o, _), T::Decimal) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::OptionDecimalConversion);
+            Value::Decimal(Decimal::from(o))
+        }
+        // A Decimal into an Option: a whole number is the ordinal, kept when the Option lacks it; a fraction raises
+        // ConversionCast (P79OptionDecimal.al:80-107 DecimalToOption_Assign). Beyond Integer is not pinned.
+        (Value::Decimal(d), T::Option(m)) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::OptionDecimalConversion);
+            if d.fract() != Decimal::ZERO {
+                return raise(
+                    format!(
+                        "Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {d} to System.Int32."
+                    ),
+                    "ConversionCast",
+                );
+            }
+            match i32::try_from(d.mantissa() / 10i128.pow(d.scale())) {
+                Ok(n) => Value::Option(n, m.clone().into()),
+                Err(_) => return unsupported(format!("{d} into an Option (beyond Integer, not pinned)")),
+            }
+        }
         (Value::Integer(n), T::Duration) => Value::Duration(i64::from(n)),
         (Value::BigInteger(n), T::Duration) => Value::Duration(n),
         // A Duration into an Integer, BigInteger or Decimal is its milliseconds; into an Integer a value beyond its range raises

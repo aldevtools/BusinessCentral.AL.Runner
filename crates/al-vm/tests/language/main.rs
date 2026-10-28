@@ -87,6 +87,7 @@ mod np_blockers_6;
 mod np_blockers_7;
 mod option_caption_ml;
 mod option_decimal;
+mod option_to_decimal;
 mod pageworks_probes;
 mod partner_gaps_1;
 mod private_use_chars;
