@@ -83,20 +83,29 @@ fn fake_gh(dir: &Path, run: &str, artifacts: &str) -> PathBuf {
 }
 
 fn bump(f: &Fixture, gh: &Path, args: &[&str]) -> (i32, String) {
-    let o = Command::new("bash")
-        .arg(root().join("tools/corpus_bump.sh"))
-        .args(args)
-        .env("CORPUS_BUMP_GH", gh)
-        .env("CORPUS_BUMP_CORPUS", f.dir.path().join("corpus"))
-        .env("CORPUS_BUMP_NO_FETCH", "1")
-        .output()
-        .unwrap();
-    let all = format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    );
-    (o.status.code().unwrap_or(-1), all)
+    // A child forked by another test thread while `fake_gh` had the script open for writing keeps that descriptor until it
+    // execs, and running the script meanwhile fails with ETXTBSY ("Text file busy"). That is the test harness, not the
+    // script under test: run it again.
+    for _ in 0..20 {
+        let o = Command::new("bash")
+            .arg(root().join("tools/corpus_bump.sh"))
+            .args(args)
+            .env("CORPUS_BUMP_GH", gh)
+            .env("CORPUS_BUMP_CORPUS", f.dir.path().join("corpus"))
+            .env("CORPUS_BUMP_NO_FETCH", "1")
+            .output()
+            .unwrap();
+        let all = format!(
+            "{}{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        );
+        if !all.contains("Text file busy") {
+            return (o.status.code().unwrap_or(-1), all);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("{} stayed busy", gh.display());
 }
 
 fn run_json(conclusion: &str, sha: &str) -> String {
