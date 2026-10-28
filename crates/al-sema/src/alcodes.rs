@@ -102,10 +102,6 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
         "IncludeCaption = true on a report column whose source is an expression",
     ),
     (
-        "AL0196",
-        "in one app, a bare call without arguments in a page extension of its own local or internal procedure without parameters that a procedure of the base page repeats (cases 2238-2240, 2244)",
-    ),
-    (
         "AL0440",
         "a page or report extension procedure, or a second procedure of a codeunit, table, page or report, with the signature of a procedure it could reach",
     ),
@@ -116,6 +112,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// the features `catalog/alc-features.txt` measured (`features.rs`);
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
+    (
+        "AL0196",
+        "reported only for a bare call, without arguments, in a page extension of its own local or internal procedure without parameters that a procedure of the base page in the same app repeats (cases 2238-2240, 2244); other ambiguous calls need overload resolution the front end does not judge.",
+    ),
     (
         "AL0175",
         "needs the .NET type behind the alias (an enum is comparable with `=`, a class object is not); the front end has no assembly metadata.",

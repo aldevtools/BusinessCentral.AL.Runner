@@ -290,6 +290,7 @@ report 50203 \"Repro Rep\" {{ ProcessingOnly = true; dataset {{ dataitem(R; \"Re
 /// - another app, `internal` on either side: both compile;
 /// - the same app, both public or protected: AL0440, page and report;
 /// - the same app, `internal` on either side: the declarations compile, a bare call in the extension is AL0196.
+///
 /// No corpus test pins which body a call runs in the shapes that compile, so every call of the name refuses: a bare
 /// call in the base and in the extension, and a call on a page variable from outside.
 #[test]
