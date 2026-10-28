@@ -704,7 +704,9 @@ fn own_types() -> Vec<RegistryType> {
                     m("Dispose", permission_helper_dispose),
                     member(
                         "AddEffectivePermissionSet",
-                        Pin::Corpus("permissions/TestPermissionsMockEnforcement.al:28-47 (the assigned set is enforced)".into()),
+                        Pin::Corpus(
+                            "permissions/TestPermissionsMockEnforcement.al:28-47 (the assigned set is enforced)".into(),
+                        ),
                         permission_helper_add_set,
                     ),
                 ]
@@ -715,7 +717,8 @@ fn own_types() -> Vec<RegistryType> {
             members: vec![member(
                 "IsPlatformAuthorizationConfigured",
                 Pin::Corpus(
-                    "platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94 (false for the caller publisher 'AL Language')".into(),
+                    "platform/lt-ri-aoai/RiAoaiAuthorization.al:44-94 (false for the caller publisher 'AL Language')"
+                        .into(),
                 ),
                 copilot_platform_authorization,
             )],

@@ -396,13 +396,20 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
                     session.rollback_transaction();
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
-                    for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app.app)) {
+                    for (so, sr) in
+                        company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app.app))
+                    {
                         skipped.push((
                             touched(&engine, lowered, so, sr),
                             format!(
                                 "Company Triggers subscriber {} in the install session of {} could not run: {why}",
                                 label(lowered, so, sr),
-                                lowered.program.apps.get(app.app).map(|a| a.name.as_str()).unwrap_or("an app under test")
+                                lowered
+                                    .program
+                                    .apps
+                                    .get(app.app)
+                                    .map(|a| a.name.as_str())
+                                    .unwrap_or("an app under test")
                             ),
                         ));
                     }
