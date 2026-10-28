@@ -1097,3 +1097,100 @@ fn the_apps_below_are_read_and_scanned_once_for_all_missing_layers() {
     let (_, by_layer) = build_layers(tempfile::tempdir().unwrap().path(), names, true);
     assert_eq!(by_layer.layer_files_loaded, 12);
 }
+
+// ---- a dependency app that depends on a workspace app (al-runner issue 6044) ----------------
+
+const CORE_WS: &str = r#"
+table 70000 "Core Setup" { fields { field(1; K; Code[10]) { } field(2; V; Text[30]) { } } keys { key(PK; K) { } } }
+codeunit 70010 "Core Xml" { procedure Tag(T: Text): Text begin exit('<' + T + '>'); end; }
+codeunit 70011 "Core Other" { procedure N(): Integer begin exit(3); end; }
+"#;
+const SYS_DEP: &str = "codeunit 80000 \"Sys Lib\" { procedure One(): Integer begin exit(1); end; }";
+const ONB_DEP: &str = r#"
+codeunit 81000 "Onb Mgt" { procedure Start(): Integer var S: Codeunit "Sys Lib"; O: Codeunit "Core Other"; begin exit(S.One() + O.N()); end; }
+"#;
+const NET_DEP: &str = r#"
+table 82000 "Net Log" { fields { field(1; No; Integer) { } field(2; What; Text[30]) { } } keys { key(PK; No) { } } }
+codeunit 82010 "Net Mgt"
+{
+    procedure Wrap(T: Text): Text var XmlDoc: Codeunit "Core Xml"; begin exit(XmlDoc.Tag(T)); end;
+    procedure Onb(): Integer var O: Codeunit "Onb Mgt"; begin exit(O.Start()); end;
+    procedure Setup(): Text var S: Record "Core Setup"; begin S.K := 'A'; S.V := 'net'; S.Insert(); S.Get('A'); exit(S.V); end;
+}
+"#;
+const PRODUCT_TESTS: &str = r#"
+codeunit 90000 "Product Tests"
+{
+    Subtype = Test;
+    [Test] procedure Wraps() var N: Codeunit "Net Mgt"; begin if N.Wrap('a') <> '<a>' then Error('wrap'); end;
+    [Test] procedure Onboards() var N: Codeunit "Net Mgt"; begin if N.Onb() <> 4 then Error('onb'); end;
+    [Test] procedure Sets_Up() var N: Codeunit "Net Mgt"; begin if N.Setup() <> 'net' then Error('setup'); end;
+    [Test] procedure Base_Count() var D: Codeunit Dep; begin if D.Count() <> 0 then Error('count'); end;
+}
+"#;
+
+/// The shape of al-runner issue 6044: workspace apps `Core` and `Product Test`; dependency apps
+/// `SysLib`, `Onboarding` (on SysLib and Core) and `Network` (on SysLib, Core and Onboarding) over a
+/// Microsoft app. The caller's order is the workspace first, as the command line gives it.
+fn workspace_dep_run(cc: Option<CompileCache>) -> Result<CorpusRuntime, String> {
+    let man = |p: &str, v: &str| Manifest {
+        publisher: p.into(),
+        version: v.into(),
+        resources: vec![],
+        ..Default::default()
+    };
+    use al_sema::AppKind::{Dependency, Workspace};
+    CorpusRuntime::try_run_suites_with(
+        vec![
+            named("core", "Core", &["base"], CORE_WS),
+            named("ptest", "Product Test", &["core", "net", "base"], PRODUCT_TESTS),
+            named("sys", "SysLib", &[], SYS_DEP),
+            named("onb", "Onboarding", &["sys", "core"], ONB_DEP),
+            named("net", "Network", &["sys", "core", "onb"], NET_DEP),
+            named("base", "Base Application", &[], BASE),
+        ],
+        vec![Workspace, Workspace, Dependency, Dependency, Dependency, Dependency],
+        &[
+            man("Me", "1.0.0.0"),
+            man("Me", "1.0.0.0"),
+            man("Me", "1.0.0.0"),
+            man("Me", "1.0.0.0"),
+            man("Me", "1.0.0.0"),
+            ms("27.5.0.0"),
+        ],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            compile_cache: cc,
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn a_dependency_app_on_a_workspace_app_resolves_its_objects_with_the_cache_as_without() {
+    let dir = tempfile::tempdir().unwrap();
+    let want = outcomes(&workspace_dep_run(None).unwrap());
+    assert!(want.iter().all(|l| l.contains("Pass")), "{want:?}");
+    let first = workspace_dep_run(cache(dir.path(), false)).unwrap();
+    assert_eq!(outcomes(&first), want, "the run that builds the cache");
+    // Onboarding and Network stand on the workspace app Core: they are compiled with the workspace.
+    let layers: Vec<Vec<String>> = first
+        .phases
+        .cache
+        .as_ref()
+        .unwrap()
+        .layers
+        .iter()
+        .map(|l| l.apps.clone())
+        .collect();
+    assert_eq!(
+        layers,
+        vec![vec!["Base Application".to_string()], vec!["SysLib".to_string()]]
+    );
+    let second = workspace_dep_run(cache(dir.path(), true)).unwrap();
+    assert!(second.phases.cache.as_ref().unwrap().hit);
+    assert_eq!(outcomes(&second), want, "the run that reads the cache");
+}
