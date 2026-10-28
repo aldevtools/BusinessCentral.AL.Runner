@@ -16345,9 +16345,14 @@
 89002 HiddenControlReportsVisibleFalse
 89008 LookupAnsweringFalseWithTextSetIgnoresTheText
 89008 LookupCancelledKeepsTheValue
+89008 LookupNoUpdateOnLinkedPart
+89008 LookupNoUpdateOnPart
 89008 LookupSavesThePickedResource
 89008 LookupShowsThePickedResource
+89008 LookupUpdateFalseOnLinkedPart
 89008 LookupUpdateFalseOnPart
+89008 LookupUpdateTrueOnLinkedPart
+89008 LookupUpdateTrueOnPart
 89008 LookupWithoutUpdateShowsThePickedResource
 89016 BothTriggersListAndGoTo
 89016 ControlWithoutTriggersShowsOnlyTheMarkedRow
@@ -16391,9 +16396,11 @@
 89178 SJ_PlainFind_Handler_I1
 89178 SJ_PositiveDescFind_Handler_I1
 89192 SK_Repro_StatementAndRowBudget
+89192 SK_Repro_StatementBudget
 89192 SK_Repro_Values
 89192 SK_Sizes_CopyAndCount
 89192 SK_Sizes_CopyAndCount_Commit
+89192 SK_Sizes_CopyOnly
 89192 SK_Sizes_CopyThenCountElsewhere
 89240 SaveAs_Xml_NoRows_LabelsAndColumns
 89240 SaveAs_Xml_TwoRows_LabelsAndColumns
@@ -16454,6 +16461,8 @@
 89717 SX_ListTwo_OpenEdit
 89717 SX_ListTwo_OpenView
 89733 TA_Captions_Language_Without_File
+89753 SZ_CopyLoop_WhileInsertsBuffered
+89753 SZ_FirstInsert_TriggerSetupRunsAl
 89775 CloseAction_BareMatchesCurrPage
 89775 ReadEditableAndCaption_BareMatchesCurrPage
 89775 SaveRecordAction_BareMatchesCurrPage
