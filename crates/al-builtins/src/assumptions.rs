@@ -475,7 +475,7 @@ registry! {
     },
     PageOpenCaptionClassEmptyRecordCountPinnedShapes => {
         id: "page-open-caption-class-empty-record-count-pinned-shapes",
-        assumed: "A Card or a List of its own opened with OpenView or OpenEdit over a table with one CaptionClass expression field runs it with an empty record 8 times (Card) or 7 times (List); with two fields of the same expression, 18 and 16 times in all (9 and 8 for each). Measured by writer SX on 27.5, 28.5 and 29.0, the same in three cycles of each (corpus branch al-runtime-rs-staging-sx, SxCaptionClassCount.al:190-369); al-runner issue 5870 saw 8 for the Card. Waits for the file to reach corpus master.",
+        assumed: "A Card or a List of its own opened with OpenView or OpenEdit over a table with one CaptionClass expression field runs it with an empty record 8 times (Card) or 7 times (List); with two fields of the same expression, 18 and 16 times in all (9 and 8 for each). Measured by writer SX on the three supported majors, the same in three cycles of each (corpus branch al-runtime-rs-staging-sx, SxCaptionClassCount.al:190-369); al-runner issue 5870 saw 8 for the Card. Waits for the file to reach corpus master.",
         tests: "al-runner issue 5870 (a partner's tests count the runs of a Card OpenEdit).",
         probe: "Done on writer SX's branch; wanted: the bump that puts SxCaptionClassCount.al on corpus master.",
         awaiting: Awaiting {
