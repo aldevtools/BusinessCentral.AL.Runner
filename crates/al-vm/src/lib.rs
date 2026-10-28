@@ -1037,6 +1037,7 @@ impl Session {
                 lenient_bind: false,
                 failed_trigger: None,
                 test_open: false,
+                run_page_link_open_moved: false,
                 test_close: false,
             },
             events: EventState {

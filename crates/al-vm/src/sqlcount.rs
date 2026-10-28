@@ -41,6 +41,31 @@ struct Event {
     /// The rows of the table before the method, when the record and its table are of the shape [`sized`] knows: a table
     /// of one Integer key field and one Text field, a record with no filter, key, order, load or isolation set.
     rows_before: Option<usize>,
+    /// The record and its table are of the shape SkSqlBudget.al:14-29 measured ([`CopyShape`]).
+    copy: CopyShape,
+}
+
+/// Whether a record of a database table is of the shape whose copy sizes SkSqlBudget.al measured: a table of the fields
+/// Code[20], Integer, Text[50], Integer with the first two as its primary key, and a record with no state set but, for
+/// `Grouped`, one filter on the first field (the reporter's `SetRange("Group Code", ...)`, SkSqlBudget.al:44-45).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CopyShape {
+    #[default]
+    No,
+    Plain,
+    Grouped,
+}
+
+/// Whether inserts into a database table may still be buffered: BC sends Inserts in batches, a Count of the table sends
+/// what is left (SkSqlBudget.al:8-10), and the next measurement counts what an earlier one left buffered (:273).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Buffer {
+    /// None: a Commit, a transaction with no database Insert, or a Count of the only table inserted into since.
+    Empty,
+    /// Inserts into this table only, since the buffer was last known empty.
+    Pending(u32),
+    #[default]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +79,7 @@ enum Kind {
     Delete,
     Init,
     DeleteAll,
+    SetRange,
     Other,
 }
 
@@ -68,6 +94,7 @@ fn kind(m: RecordOp) -> Kind {
         RecordOp::Delete => Kind::Delete,
         RecordOp::Init => Kind::Init,
         RecordOp::DeleteAll => Kind::DeleteAll,
+        RecordOp::SetRange => Kind::SetRange,
         _ => Kind::Other,
     }
 }
@@ -87,6 +114,8 @@ struct Cursor {
     clean: bool,
     /// Reads of one chain differ by pinned sizes only.
     chain: u32,
+    /// No database Insert was buffered at the read ([`Buffer::Empty`]).
+    flushed: bool,
 }
 
 /// The session's counter state.
@@ -111,6 +140,11 @@ pub(crate) struct SqlCounters {
     ops_at_commit: Option<u64>,
     /// The last chain handed out.
     chains: u32,
+    /// What database Inserts may be buffered, as far as the logged record methods tell.
+    buffer: Buffer,
+    /// The store operations outside logged record methods when `buffer` was last brought up to date: more since then may
+    /// have inserted rows.
+    buffer_outside: u64,
 }
 
 /// What ran between two reads of a counter.
@@ -166,6 +200,7 @@ impl SqlCounters {
         args: &[Value],
         key: Option<Vec<Value>>,
         rows_before: Option<usize>,
+        copy: CopyShape,
         result: &Result<Value, al_builtins::native::Signal>,
     ) {
         self.open -= 1;
@@ -173,25 +208,33 @@ impl SqlCounters {
             self.inside += al_data::memory::store_ops() - e.ops;
         }
         let kind = kind(m);
-        let ok = match (kind, result) {
-            (Kind::Next, Ok(Value::Integer(n))) => *n != 0,
-            (Kind::Next, _) => false,
-            (Kind::Count, Ok(_)) => true,
-            (_, Ok(Value::Boolean(b))) => *b,
-            (_, Ok(_)) => true,
-            (_, Err(_)) => false,
-        };
+        let ok = ok_of(kind, result);
         let trigger = matches!(kind, Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll)
             && !matches!(args.first(), None | Some(Value::Boolean(false)));
+        let nested = !e.outer || calls != e.calls;
+        if !temp {
+            self.buffer = match (self.buffer, kind) {
+                _ if nested || trigger || !ok_of(kind, result) => Buffer::Unknown,
+                (Buffer::Empty, Kind::Insert) => Buffer::Pending(table),
+                (Buffer::Pending(t), Kind::Insert) if t == table => Buffer::Pending(t),
+                // A Count sends the table's buffered inserts (SkSqlBudget.al:8-10).
+                (Buffer::Pending(t), Kind::Count) if t == table => Buffer::Empty,
+                // Methods that neither read nor write the table.
+                (b, Kind::SetRange | Kind::Init) => b,
+                (Buffer::Empty, Kind::Get | Kind::FindSet | Kind::Next | Kind::Count) => Buffer::Empty,
+                _ => Buffer::Unknown,
+            };
+        }
         self.log.push(Event {
             kind,
             temp,
             table,
             ok,
             trigger,
-            nested: !e.outer || calls != e.calls,
+            nested,
             key,
             rows_before,
+            copy,
         });
         if self.log.len() > LOG_CAP {
             self.reset();
@@ -214,6 +257,9 @@ impl SqlCounters {
     /// A Commit made the data durable.
     pub(crate) fn committed(&mut self) {
         self.ops_at_commit = Some(al_data::memory::store_ops());
+        // A Commit sends every buffered insert (SkSqlBudget.al:276-280: a copy right after a Commit is measured alone).
+        self.buffer = Buffer::Empty;
+        self.buffer_outside = al_data::memory::store_ops() - self.inside;
         if self.active {
             self.commit_mark = Some(self.base + self.log.len());
             self.trim();
@@ -225,6 +271,9 @@ impl SqlCounters {
         self.ops_at_commit = None;
         self.resets += 1;
         self.commit_mark = None;
+        // Inserts buffered in the transaction are gone with it: none is sent later.
+        self.buffer = Buffer::Empty;
+        self.buffer_outside = al_data::memory::store_ops() - self.inside;
     }
 
     /// Drops the events no cursor and no context needs any more.
@@ -242,14 +291,31 @@ impl SqlCounters {
     }
 
     /// A read of `counter`.
-    pub(crate) fn read(&mut self, counter: SqlCounter, commits: u64) -> Value {
+    ///
+    /// `nothing_inserted`: the transaction has inserted no row into a database table (so nothing is buffered).
+    pub(crate) fn read(&mut self, counter: SqlCounter, commits: u64, nothing_inserted: bool) -> Value {
+        let outside = al_data::memory::store_ops() - self.inside;
         if !self.active {
             self.active = true;
             self.base = 0;
             self.log.clear();
             self.commit_mark = None;
+            self.buffer = if nothing_inserted {
+                Buffer::Empty
+            } else {
+                Buffer::Unknown
+            };
+            self.buffer_outside = outside;
         }
-        let outside = al_data::memory::store_ops() - self.inside;
+        if self.buffer_outside != outside {
+            // Store access no logged record method made (it may have inserted rows).
+            self.buffer = if nothing_inserted && self.buffer == Buffer::Empty {
+                Buffer::Empty
+            } else {
+                Buffer::Unknown
+            };
+            self.buffer_outside = outside;
+        }
         let now = self.base + self.log.len();
         let cur = match counter {
             SqlCounter::Statements => &self.stmt,
@@ -262,12 +328,15 @@ impl SqlCounters {
             Some(Change::Exact(0))
         } else if let Some(size) = cur.clean.then(|| sized(self.events(cur.at, now))).flatten() {
             Some(Change::Exact(pick(counter, size)))
+        } else if let Some(size) = cur.flushed.then(|| sized_copy(self.events(cur.at, now))).flatten() {
+            Some(Change::Exact(pick(counter, size)))
         } else {
             self.classify(cur.at, now)
                 .map(|signs| Change::Sign(pick(counter, signs)))
         };
         let resets = self.resets;
         let clean = self.ops_at_commit == Some(al_data::memory::store_ops());
+        let flushed = self.buffer == Buffer::Empty;
         let fresh = {
             self.chains = self.chains.wrapping_add(1);
             self.chains
@@ -288,6 +357,7 @@ impl SqlCounters {
             }
         }
         cur.clean = clean;
+        cur.flushed = flushed;
         cur.read = true;
         cur.at = now;
         cur.commits = commits;
@@ -480,6 +550,70 @@ fn sized(seg: &[Event]) -> Option<(i64, i64)> {
     }
 }
 
+/// Whether a record method succeeded: Get and FindSet found a row, Next moved, the others returned without error.
+fn ok_of(kind: Kind, result: &Result<Value, al_builtins::native::Signal>) -> bool {
+    match (kind, result) {
+        (Kind::Next, Ok(Value::Integer(n))) => *n != 0,
+        (Kind::Next, _) => false,
+        (Kind::Count, Ok(_)) => true,
+        (_, Ok(Value::Boolean(b))) => *b,
+        (_, Ok(_)) => true,
+        (_, Err(_)) => false,
+    }
+}
+
+/// The pinned size (statements, rows read) of a copy of a temporary record into a database table, started with no insert
+/// buffered (SkSqlBudget.al:104-133, :211-298): a FindSet loop over one temporary record, N times an Insert of a new row
+/// into one table of [`CopyShape`] between its steps, with or without a SetRange on the first field and a Count after it:
+/// N = 1, 2, 5, 10, 20 gives 0/0, 0/0, 1/0, 2/0, 4/0 without the Count, 2/1, 3/1, 2/1, 3/1, 5/1 with it (the sizes of
+/// SqlCounters.al:323-334). Anything else is not sized.
+fn sized_copy(seg: &[Event]) -> Option<(i64, i64)> {
+    let first = seg.first()?;
+    if first.kind != Kind::FindSet || !first.temp || seg.iter().any(|e| e.nested || e.trigger) {
+        return None;
+    }
+    // FindSet, then Insert and Next N times.
+    let mut n = 0;
+    let mut i = 1;
+    let mut inserted: Vec<&Event> = Vec::new();
+    loop {
+        let (ins, next) = (seg.get(i)?, seg.get(i + 1)?);
+        let insert_ok = ins.kind == Kind::Insert
+            && !ins.temp
+            && ins.ok
+            && ins.copy == CopyShape::Plain
+            && ins.key.is_some()
+            && inserted.first().is_none_or(|f| f.table == ins.table)
+            && inserted
+                .iter()
+                .all(|p| !al_builtins::ops::compare_keys(p.key.as_ref().unwrap(), ins.key.as_ref().unwrap()));
+        if !insert_ok || next.kind != Kind::Next || !next.temp || next.table != first.table {
+            return None;
+        }
+        inserted.push(ins);
+        n += 1;
+        i += 2;
+        if !next.ok {
+            break;
+        }
+    }
+    let table = inserted[0].table;
+    let at = SIZED_N.iter().position(|&m| m == n)?;
+    match &seg[i..] {
+        [] => Some((INSERT_STATEMENTS[at], 0)),
+        [set, count]
+            if set.kind == Kind::SetRange
+                && count.kind == Kind::Count
+                && [set, count].iter().all(|e| !e.temp && e.table == table && e.ok)
+                && set.copy == CopyShape::Plain
+                && count.copy == CopyShape::Grouped =>
+        {
+            Some((INSERT_COUNT_STATEMENTS[at], 1))
+        }
+        _ => None,
+    }
+}
+
 /// The segment is exactly one pinned step (on a temporary record any of them, in any order).
 fn one_step(seg: &[Event]) -> Option<()> {
     let k = seg[0].kind;
@@ -520,14 +654,25 @@ mod tests {
     #[test]
     fn the_log_stays_bounded() {
         let mut c = SqlCounters::default();
-        let first = c.read(SqlCounter::Statements, 0);
+        let first = c.read(SqlCounter::Statements, 0, true);
         for _ in 0..(3 * LOG_CAP) {
             let e = c.enter(0);
-            c.leave(e, 0, RecordOp::Get, true, 1, &[], None, None, &Ok(Value::Boolean(true)));
+            c.leave(
+                e,
+                0,
+                RecordOp::Get,
+                true,
+                1,
+                &[],
+                None,
+                None,
+                CopyShape::No,
+                &Ok(Value::Boolean(true)),
+            );
         }
         assert!(c.log.len() <= LOG_CAP);
         let Value::SqlCount(a) = first else { panic!() };
-        let Value::SqlCount(b) = c.read(SqlCounter::Statements, 0) else {
+        let Value::SqlCount(b) = c.read(SqlCounter::Statements, 0, true) else {
             panic!()
         };
         assert_ne!(a.form, b.form, "a new epoch after the log was dropped");

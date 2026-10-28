@@ -98,6 +98,7 @@ mod relation_error_ext_caption;
 mod round_date2dmy_errors;
 mod self_unbind;
 mod setter_call;
+mod sql_counter_copy;
 mod sql_counter_sizes;
 mod sql_counters;
 mod stream_length_forms;
