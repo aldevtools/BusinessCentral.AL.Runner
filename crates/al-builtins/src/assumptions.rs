@@ -778,6 +778,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    IsolatedStorageOverwriteTx => {
+        id: "isolated-storage-overwrite-tx",
+        assumed: "IsolatedStorage.Set or SetEncrypted over a key that already exists, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a Set of a new key does; the same value, encrypted over plain and plain over encrypted alike. Pinned only by corpus writer TO's run on real BC (right after a Commit).",
+        tests: "No Microsoft test: a partner app's EFT tests overwrite a stored key with SetEncrypted after a Commit.",
+        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/session/lt-cn-session-leads/CnIsolatedStorageLeads.al::TO_IsoOverwrite_OutsideWriteTransaction"],
+            since: "2026-10-28",
+        },
+    },
     QueryReadStateSharedCommitted => {
         id: "query-read-state-shared-committed",
         assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
