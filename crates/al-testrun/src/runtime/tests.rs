@@ -2993,3 +2993,46 @@ fn a_company_open_subscriber_refuses_only_tests_that_touch_what_it_wrote_at_run_
     );
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
+
+// A test's outcome must not depend on which other test codeunits are selected (ADR-013, demand-driven compile): a
+// selected test that calls a procedure of a test codeunit the selection leaves out (a test library that is itself a test
+// codeunit) runs that procedure, and what it reaches in a dependency app, as it does when both codeunits are selected.
+// Found on NP Retail: codeunit 85020 calls `NPR EFT Tests.GenericEFTPaymentSuccess` of test codeunit 85004.
+#[test]
+fn a_test_calling_an_unselected_test_codeunit_has_the_outcome_of_a_run_that_selects_both() {
+    let dep = "codeunit 50200 \"Dep Lib\" { procedure Two(): Integer begin exit(2); end; }";
+    let main = "codeunit 50001 \"Caller Test\" { Subtype = Test; var B: Codeunit \"Callee Test\"; \
+         [Test] procedure UsesOther() begin if B.Helper() <> 3 then Error('wrong'); end; }
+codeunit 50002 \"Callee Test\" { Subtype = Test; var L: Codeunit \"Dep Lib\"; \
+         procedure Helper(): Integer begin exit(L.Two() + 1); end; \
+         [Test] procedure Own() begin if Helper() <> 3 then Error('wrong'); end; }";
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.into())],
+    };
+    let run = |only: Option<Vec<(usize, u32)>>| {
+        let rt = CorpusRuntime::run_suites_with(
+            vec![app("main", &["dep"], main), app("dep", &[], dep)],
+            vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+            &[],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                only,
+                ..Default::default()
+            },
+        );
+        rt.first_outcome(&CaseId {
+            codeunit: 50001,
+            name: "UsesOther".into(),
+        })
+    };
+    let both = run(Some(vec![(0, 50001), (0, 50002)]));
+    assert!(matches!(both, Outcome::Pass), "{both:?}");
+    assert_eq!(run(Some(vec![(0, 50001)])), both, "selected alone");
+    assert_eq!(run(None), both, "everything");
+}
