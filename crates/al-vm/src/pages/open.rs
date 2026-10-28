@@ -245,6 +245,9 @@ impl Session {
             s.field_captions = Vec::new();
             s.field_captions_opened = false;
             s.field_captions_settled = false;
+            s.field_captions_row = None;
+            s.field_captions_quiet = false;
+            s.field_captions_pinned_move = false;
             s.moving_next = false;
             s.window = Vec::new();
             s.window_from_start = false;

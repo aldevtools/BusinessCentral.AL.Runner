@@ -381,6 +381,12 @@ pub struct PageState {
     pub field_captions_opened: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
+    /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
+    pub field_captions_row: Option<Vec<Value>>,
+    /// A move whose row fills run no CaptionClass expression (GoToKey, GoToRecord and Previous on a Card or Document page).
+    pub field_captions_quiet: bool,
+    /// A move whose CaptionClass expression run with the new row is pinned (First and Last on a Card).
+    pub field_captions_pinned_move: bool,
     /// A `Next()` of the page is filling its row.
     pub moving_next: bool,
     /// A fill after the open (a part refilled after its host moved) runs the CaptionClass expressions with its first row
@@ -781,6 +787,9 @@ impl PageState {
             field_captions: Vec::new(),
             field_captions_opened: false,
             field_captions_settled: false,
+            field_captions_row: None,
+            field_captions_quiet: false,
+            field_captions_pinned_move: false,
             moving_next: false,
             field_captions_fill_first: false,
             field_captions_link_refill: false,
