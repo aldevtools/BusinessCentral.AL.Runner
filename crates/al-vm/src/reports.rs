@@ -254,21 +254,25 @@ impl Session {
             }
             // Without a subscriber to SubstituteReport the id itself, also for 0 and an id no report has, with no error
             // (report/lt-report-members-testrequestpage/P91Unsure.al:80 GetSubstituteReportId_Values `own` Yes, `zero` 0,
-            // `unknown` 71999). With a subscriber whether the event is raised and how is not pinned.
+            // `unknown` 71999). With one, SubstituteReport is raised with RunMode Normal, RequestPageXml '', an unopened RecordRef
+            // and NewReportId -1, and a NewReportId a subscriber set is the answer, -1 left as it was the id itself
+            // (P91Unsure.al:112-170 Sq_GetSubstituteReportId_LoggingSubscriber, _PlatformSubscriberChanges, _Unbound).
             ids::REPORT_GETSUBSTITUTEREPORTID_1 => {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported("Report.GetSubstituteReportId with an id that is not an integer");
                 };
-                if self
+                let n = *n;
+                if !self
                     .engine
                     .events
                     .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
                 {
-                    return unsupported(
-                        "Report.GetSubstituteReportId with a subscriber to SubstituteReport (only without one is it pinned)",
-                    );
+                    return Ok(Value::Integer(n));
                 }
-                Ok(Value::Integer(*n))
+                match self.raise_substitute(n, 0, Value::Text(String::new().into()))? {
+                    -1 => Ok(Value::Integer(n)),
+                    new => Ok(Value::Integer(new)),
+                }
             }
             ids::REPORT_DEFAULTLAYOUT_2 => {
                 let Some(Value::Integer(n)) = args.first() else {
@@ -3068,6 +3072,15 @@ impl Session {
     /// likely does (docs/probes-needed.md): RequestPageXml empty and RecordRef unopened.
     fn raise_substitute_report(&mut self, schema: &Schema, request_page_xml: Value) -> Result<Option<i32>, Signal> {
         let report_id = self.object_id_of(schema.object as u32) as i32;
+        match self.raise_substitute(report_id, 4, request_page_xml)? {
+            n if n == -1 || n == report_id => Ok(None),
+            n => Ok(Some(n)),
+        }
+    }
+
+    /// Raises `SubstituteReport(ReportId, RunMode, RequestPageXml, RecordRef, var NewReportId)` with an unopened RecordRef and
+    /// NewReportId -1 on entry, and answers NewReportId as the subscribers left it.
+    fn raise_substitute(&mut self, report_id: i32, run_mode: i32, request_page_xml: Value) -> Result<i32, Signal> {
         let members: std::sync::Arc<[String]> = ["Normal", "ParametersOnly", "Execute", "Print", "SaveAs", "RunModal"]
             .iter()
             .map(|m| m.to_string())
@@ -3078,7 +3091,7 @@ impl Session {
             .collect();
         let mut args = vec![
             Value::Integer(report_id),
-            Value::Option(4, members),
+            Value::Option(run_mode, members),
             request_page_xml,
             Value::Library(
                 "RecordRef".into(),
@@ -3096,8 +3109,7 @@ impl Session {
         };
         self.raise(&call, &mut args)?;
         match args[4] {
-            Value::Integer(n) if n == -1 || n == report_id => Ok(None),
-            Value::Integer(n) => Ok(Some(n)),
+            Value::Integer(n) => Ok(n),
             ref other => unsupported(format!("SubstituteReport set NewReportId to {}", other.describe())),
         }
     }
@@ -3542,58 +3554,73 @@ impl Session {
     /// `ParentIdColCaption` then `ChildIdColCaption`).
     fn dataset_labels(&mut self, schema: &Schema) -> Result<(), Signal> {
         let engine = self.engine.clone();
-        // The labels the report and its extensions declare, base report then extensions, in declaration order
-        // (report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). With a column's caption label too, on a report of one data
-        // item without extension labels, the caption labels come first (report/lt-report-layout-merger/ReportMergerLabelsSM.al:33,
-        // :49, :71, :93, in SaveAs Xml and in the merger's XmlData); other shapes with both kinds are not pinned and are refused.
-        let mut declared: Vec<(String, String)> = schema.report().labels.clone();
-        let mut extension_labels = false;
-        for &e in &schema.report().extensions {
-            if let Some(x) = engine.program.objects[e].report_ext.as_ref() {
-                extension_labels |= !x.labels.is_empty();
-                declared.extend(x.labels.iter().cloned());
+        // The Labels block: the caption labels of the base report's IncludeCaption columns, data items in declaration order
+        // (nested ones where they stand), then the labels it declares, then for an extension the caption labels of its columns in
+        // the order of its `add` blocks and then its labels (types/lt-format-codes-textbuilder-pagerun-labels/
+        // P144ReportLabelsCaption.al:154 Sq_TwoDataItems_Labels_Order, :173 Sq_TwoDataItems_ExtensionLabels_Order: Head, nested
+        // Line, Tail; `add(Line)` before `add(Head)`; report/lt-report-layout-merger/ReportMergerLabelsSM.al:33-93 for one data
+        // item; report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). Two extensions that add captions or labels are not
+        // pinned (their order) and are refused when the dataset is written.
+        // (label, is a caption label): a caption label is written once, a declared one as often as it is declared.
+        let mut labels: Vec<((String, String), bool)> = Vec::new();
+        let push = |label: (String, String), labels: &mut Vec<((String, String), bool)>| {
+            if !labels.iter().any(|(l, caption)| *caption && *l == label) {
+                labels.push((label, true));
+            }
+        };
+        for item in schema.report().items.iter() {
+            for label in self.caption_labels(&item.columns) {
+                push(label, &mut labels);
             }
         }
-        let mut captions: Vec<(String, String)> = Vec::new();
-        for item in schema.report().items.iter() {
-            for c in item
-                .columns
-                .iter()
-                .filter(|c| c.include_caption && c.unsupported.is_none())
-            {
-                let Some(t) = c
-                    .caption_table
-                    .and_then(|t| engine.tables.get(t))
-                    .and_then(|t| t.clone())
-                else {
-                    continue;
-                };
-                let (Some(pos), Ok(name)) = (c.caption_field, dataset::dataset_name(&c.name)) else {
-                    continue;
-                };
-                let label = (format!("{name}Caption"), self.field_caption(&t, pos));
-                if !captions.contains(&label) {
-                    captions.push(label);
-                }
+        labels.extend(schema.report().labels.iter().cloned().map(|l| (l, false)));
+        let mut contributing = 0;
+        for &e in &schema.report().extensions {
+            let Some(x) = engine.program.objects[e].report_ext.as_ref() else {
+                continue;
+            };
+            let captions: Vec<(String, String)> = x.adds.iter().flat_map(|a| self.caption_labels(&a.columns)).collect();
+            if !captions.is_empty() || !x.labels.is_empty() {
+                contributing += 1;
             }
+            for label in captions {
+                push(label, &mut labels);
+            }
+            labels.extend(x.labels.iter().cloned().map(|l| (l, false)));
         }
         let ds = self.report.dataset.as_mut().expect("a SaveAs run has a dataset");
-        if !declared.is_empty() && !captions.is_empty() && (schema.report().items.len() != 1 || extension_labels) {
+        if contributing > 1 {
             // Observable only in the written dataset (`Dataset::finish`).
-            ds.labels.extend(declared);
             ds.labels_unpinned = Some(
-                "a report with declared labels and a column with IncludeCaption, with more than one data item or labels of an extension (the order of the two kinds of label is not pinned)"
+                "a report with two extensions that add caption labels or labels (their order is not pinned)"
                     .to_string(),
             );
-            return Ok(());
         }
-        for label in captions {
-            if !ds.labels.contains(&label) {
+        for (label, caption) in labels {
+            if !caption || !ds.labels.contains(&label) {
                 ds.labels.push(label);
             }
         }
-        ds.labels.extend(declared);
         Ok(())
+    }
+
+    /// The `<Name>Caption` labels of the IncludeCaption columns among `columns`, in their order.
+    fn caption_labels(&self, columns: &[ir::ReportColumn]) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for c in columns.iter().filter(|c| c.include_caption && c.unsupported.is_none()) {
+            let Some(t) = c
+                .caption_table
+                .and_then(|t| self.engine.tables.get(t))
+                .and_then(|t| t.clone())
+            else {
+                continue;
+            };
+            let (Some(pos), Ok(name)) = (c.caption_field, dataset::dataset_name(&c.name)) else {
+                continue;
+            };
+            out.push((format!("{name}Caption"), self.field_caption(&t, pos)));
+        }
+        out
     }
 
     /// The table id and the lower case GUID of the row `rec` stands on.
