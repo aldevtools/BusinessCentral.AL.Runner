@@ -229,6 +229,9 @@ pub(crate) struct Lowerer<'a> {
     /// The Label variables declared `Locked = true`, by lowercase name: no translation changes them (ADR-053 step 1).
     global_locked_labels: std::collections::HashSet<String>,
     local_locked_labels: std::collections::HashSet<String>,
+    /// The Label variables declared with `MaxLength`, by lowercase name (a conditional expression pairs them only where pinned).
+    global_maxlength_labels: std::collections::HashSet<String>,
+    local_maxlength_labels: std::collections::HashSet<String>,
     /// Attributes of variables the lowering reads (`shared::var_attribute_names`), by lowercase name.
     global_var_attrs: HashMap<String, Vec<String>>,
     local_var_attrs: HashMap<String, Vec<String>>,

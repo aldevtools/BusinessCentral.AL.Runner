@@ -3688,7 +3688,26 @@ impl Session {
             return unsupported(format!("report column {}: {why}", c.name));
         }
         let routine = c.routine.expect("a column without a routine is unsupported");
-        let (value, _) = self.call(object, routine, owner.clone(), Vec::new())?;
+        // An error in the source expression is wrapped with the column's name, code ReportSourceExpression
+        // (report/lt-qw-ternary-columns/QwTernaryColumns.al:506-516: a Decimal that does not convert to Integer). Only that
+        // conversion error is pinned; any other error there is refused.
+        let (value, _) = match self.call(object, routine, owner.clone(), Vec::new()) {
+            Err(Signal::Error(mut e)) if e.code == "ConversionCast" => {
+                e.message = format!(
+                    "The SourceExpr for report control '{name}' is not valid. The following error occurred: {}",
+                    e.message
+                );
+                e.code = "ReportSourceExpression".into();
+                return Err(Signal::Error(e));
+            }
+            Err(Signal::Error(e)) => {
+                return unsupported(format!(
+                    "report column {}: an error in its source expression ({}): only a conversion error is pinned",
+                    c.name, e.code
+                ));
+            }
+            r => r?,
+        };
         let t = self.engine.tables[table].clone();
         if c.include_caption {
             // The caption of the field the column reads (the corpus label is the field's Caption), also of a field written
