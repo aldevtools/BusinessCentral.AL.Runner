@@ -112,6 +112,7 @@ mod temp_record_array;
 mod ternary_args;
 mod ternary_label;
 mod text_append;
+mod text_decimal_args;
 mod text_methods;
 mod text_scans;
 mod textconst_languages;

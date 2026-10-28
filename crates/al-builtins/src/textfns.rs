@@ -72,6 +72,38 @@ fn int(a: &[Value], i: usize) -> Result<i64, Signal> {
     }
 }
 
+/// An Integer argument of PadStr, CopyStr, DelStr, InsStr or SelectStr: an Integer as `int` takes it, or a Decimal
+/// (`decimal_as_int`).
+pub(crate) fn int_or_decimal(a: &[Value], i: usize) -> Result<i64, Signal> {
+    match a.get(i) {
+        Some(Value::Decimal(d)) => decimal_as_int(d),
+        _ => int(a, i),
+    }
+}
+
+/// A Decimal where one of these text functions takes an Integer: a whole value is that Integer, a fraction raises
+/// ConversionCast with the value as written (corpus branch al-runtime-rs-staging-pub-tg, text/lt-text-functions/
+/// PadStr.Codeunit.al:122-235, CopyStr, DelStr, InsStr and SelectStr `*Decimal*` tests; awaiting the bump, so marked).
+/// A whole value beyond the Integer range is not pinned.
+pub(crate) fn decimal_as_int(d: &rust_decimal::Decimal) -> Result<i64, Signal> {
+    if !d.fract().is_zero() {
+        crate::assumptions::assume(crate::assumptions::Assumption::TextFnDecimalArgument);
+        return raise(
+            format!("Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {d} to System.Int32."),
+            "ConversionCast",
+        );
+    }
+    match i32::try_from(d.trunc().mantissa() / 10i128.pow(d.trunc().scale())) {
+        Ok(n) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::TextFnDecimalArgument);
+            Ok(i64::from(n))
+        }
+        Err(_) => unsupported(format!(
+            "a whole Decimal {d} beyond the Integer range as a text function argument (not pinned)"
+        )),
+    }
+}
+
 /// Index of `needle` in `hay` at or after `from` (0-based), by UTF-16 code units.
 fn find(hay: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if from > hay.len() || needle.is_empty() {
@@ -593,7 +625,7 @@ fn inc_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 fn pad_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let s = text_or_guid(a, 0)?;
-    let len = int(a, 1)?;
+    let len = int_or_decimal(a, 1)?;
     let fill = if a.len() > 2 { text(a, 2)? } else { " ".into() };
     let mut it = fill.chars();
     // A fill that is not one character and a negative length are range errors (text/lt-text-functions/PadStr.Codeunit.al:
@@ -619,7 +651,7 @@ fn pad_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let s = u16s(&text_or_guid(a, 0)?);
-    let pos = int(a, 1)?;
+    let pos = int_or_decimal(a, 1)?;
     // text/TestProbeTextDateFormatContracts.al:Text_DelStrInsStr: the position must be 1 or more (the upper bound the
     // message names is 2048 without a length and the largest Integer with one); a length must be 0 or more.
     if pos < 1 {
@@ -632,7 +664,7 @@ fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
         ));
     }
     if a.len() > 2 {
-        let n = int(a, 2)?;
+        let n = int_or_decimal(a, 2)?;
         if n < 0 {
             return Err(permitted("DELSTR", 3, n, "0", INT_MAX));
         }
@@ -643,7 +675,7 @@ fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     }
     let from = pos as usize - 1;
     let to = if a.len() > 2 {
-        s.len().min(from + int(a, 2)? as usize)
+        s.len().min(from + int_or_decimal(a, 2)? as usize)
     } else {
         s.len()
     };
@@ -655,7 +687,7 @@ fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 fn ins_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let s = u16s(&text_or_guid(a, 0)?);
     let sub = u16s(&text(a, 1)?);
-    let pos = int(a, 2)?;
+    let pos = int_or_decimal(a, 2)?;
     if pos < 1 {
         return Err(permitted("INSSTR", 3, pos, "1", INT_MAX));
     }
@@ -670,7 +702,7 @@ fn ins_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 /// An index outside the list raises with the text and code of
 /// types/TestFormatEvaluateTextContracts.al:SelectStr_IndexOutsideTheList_Throws (indexes 4, 0 and -1).
 fn select_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let n = int(a, 0)?;
+    let n = int_or_decimal(a, 0)?;
     let list = text_or_guid(a, 1)?;
     let parts: Vec<&str> = list.split(',').collect();
     match usize::try_from(n - 1).ok().and_then(|i| parts.get(i)) {
