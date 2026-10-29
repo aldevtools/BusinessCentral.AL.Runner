@@ -656,6 +656,22 @@ impl Lowerer<'_> {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(field as u32))));
                         continue;
                     }
+                    // `FilterPageBuilder.AddField(Name, Rec."Field", ..)`: the field of a record variable, passed as that record
+                    // and the field's position, so that the runtime can check it is a field of the control's table
+                    // (filterpage/W3FilterPageBuilder.al:180, platform/lt-platform-members/PlTFilterPageBuilder.al:225-230).
+                    if id.starts_with("FilterPageBuilder.AddField#") && i == 1 {
+                        if let Some(Res::Field { table, id: fid }) = self.res(a).cloned() {
+                            self.readable_field_pos(table, fid)?;
+                            let field = self.field_ref(table, fid);
+                            let base = match a.kind() {
+                                SyntaxKind::MemberExpr => self.place(&a.children().next().ok_or("member base")?)?,
+                                _ => self.implicit_rec(a)?,
+                            };
+                            out.push(ir::Arg::Ref(base));
+                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(field as u32))));
+                            continue;
+                        }
+                    }
                     // A parameter named Field... that is an Integer takes the number as a VALUE (`RecRef.Field(Buf."Field No.")`,
                     // `RecRef.FieldExist(R.Number)`); a field reference is passed for a parameter that names a field.
                     let field_param = (p.name.to_ascii_lowercase().starts_with("field") && p.ty != "Integer")

@@ -395,3 +395,63 @@ codeunit 50301 T {{ Subtype = Test;
         }
     }
 }
+
+/// Issue 6168: `FilterPageBuilder.RunModal` reaches the bound `[FilterPageHandler]`, which gets a RecordRef on the
+/// builder's table; the filters it sets come back through `GetView`, and its answer is the result of `RunModal`.
+/// Pins: filterpage/W3FilterPageBuilder.al:159-212 (FieldRef.SetFilter in the handler, answer true and false),
+/// platform/lt-platform-members/PlTFilterPageBuilder.al:293-311 (Record.SetView of the builder's view).
+#[test]
+fn issue_6168_filter_page_handler_answers_run_modal() {
+    let objects = "
+table 69620 \"UR Fp Row\" { fields { field(1; \"No.\"; Code[20]) { } field(2; Name; Text[30]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+codeunit 69621 \"UR Fp App\" {
+    procedure SetFilterViaFilterPage(var MyRec: Record \"UR Fp Row\"): Boolean
+    var
+        FilterPageBuilder: FilterPageBuilder;
+    begin
+        FilterPageBuilder.AddRecord(MyRec.TableCaption(), MyRec);
+        FilterPageBuilder.AddField(MyRec.TableCaption(), MyRec.\"No.\");
+        if not FilterPageBuilder.RunModal() then
+            exit(false);
+        MyRec.SetView(FilterPageBuilder.GetView(MyRec.TableCaption()));
+        exit(true);
+    end;
+}
+codeunit 69622 T {
+    Subtype = Test;
+    var Answer: Boolean;
+    [Test]
+    [HandlerFunctions('MyFilterPageHandler')]
+    procedure FilterIsApplied()
+    var
+        Row: Record \"UR Fp Row\";
+        App: Codeunit \"UR Fp App\";
+    begin
+        Answer := true;
+        if not App.SetFilterViaFilterPage(Row) then
+            Error('RunModal answered false');
+        if Row.GetFilter(\"No.\") <> 'A*' then
+            Error('filter is %1', Row.GetFilter(\"No.\"));
+    end;
+    [Test]
+    [HandlerFunctions('MyFilterPageHandler')]
+    procedure CancelLeavesTheRecord()
+    var
+        Row: Record \"UR Fp Row\";
+        App: Codeunit \"UR Fp App\";
+    begin
+        Answer := false;
+        if App.SetFilterViaFilterPage(Row) then
+            Error('RunModal answered true');
+        if Row.GetFilter(\"No.\") <> '' then
+            Error('filter is %1', Row.GetFilter(\"No.\"));
+    end;
+    [FilterPageHandler]
+    procedure MyFilterPageHandler(var RecRef: RecordRef): Boolean
+    begin
+        RecRef.Field(1).SetFilter('A*');
+        exit(Answer);
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}

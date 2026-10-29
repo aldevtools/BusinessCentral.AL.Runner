@@ -10,7 +10,7 @@ The catalog of each area is what the AL language server offers in probe files (`
 
 | Area | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| attributes | 42 | 33 | 78.6% | 29 | 69.0% | 0 | 13 | 1 |
+| attributes | 42 | 33 | 78.6% | 30 | 71.4% | 0 | 12 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
 | properties | 720 | 671 | 93.2% | 608 | 84.4% | 7 | 105 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
@@ -22,7 +22,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 
 | Owner | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| (code) | 42 | 33 | 78.6% | 29 | 69.0% | 0 | 13 | 1 |
+| (code) | 42 | 33 | 78.6% | 30 | 71.4% | 0 | 12 | 1 |
 
 #### attributes: unpinned items by owner
 
@@ -176,7 +176,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Platform and system events | 123 | 37 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
-| Runtime error sites (text pinned) | 95 | 93 | - | 2 | - |
+| Runtime error sites (text pinned) | 96 | 94 | - | 2 | - |
 
 Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left out of the property catalog.
 
@@ -549,7 +549,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 |---|---|---:|---|---:|
 | procedure | `Native` | 25 | no | 0 |
 
-## Runtime error sites without a corpus test (2 of 95; 0 have too little fixed text to match)
+## Runtime error sites without a corpus test (2 of 96; 0 have too little fixed text to match)
 
 A site is pinned when a corpus string literal holds the message text. Codes are not matched. Sites with a computed message are not listed.
 
