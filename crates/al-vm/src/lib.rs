@@ -614,9 +614,15 @@ pub struct Session {
     /// Emptied vectors of call values (arguments, a frame's slots, a builtin's operands), taken again by the next call
     /// (`spare_vec`, `return_vec`): a call of a procedure or a builtin allocates nothing once there are some.
     spare_vecs: Vec<Vec<Value>>,
+    /// The view each table element with LinkTable and no LinkFields below another table element had at its first pass of the running
+    /// export, by (xmlport instance address, node): every later pass starts from it again (`xmlports.rs` `xp_pass_start`).
+    pub(crate) xp_pass_views: Vec<(usize, usize, xmlports::PassView)>,
     /// The objects of the routines on the call stack, innermost last (builtins scoped to an app,
     /// `NavApp.GetCallerModuleInfo`).
     pub(crate) frames: Vec<usize>,
+    /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
+    /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
+    pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
@@ -945,7 +951,9 @@ impl Session {
             last_error: AlError::default(),
             depth: 0,
             spare_vecs: Vec::new(),
+            xp_pass_views: Vec::new(),
             singletons: Default::default(),
+            xp_unlinked_passes: Vec::new(),
             store,
             temps: Default::default(),
             next_temp: 0,

@@ -349,14 +349,18 @@ pub fn format_with_field_places(
         }
     }
     // A result longer than the length is cut to it (P86FormatDecimal.al:Len_WithFormatString `l4`; a Date:
-    // types/lt-datetime/Format.al:527,537 `date len 5 custom`).
+    // types/lt-datetime/Format.al:527,537 `date len 5 custom`; a Time: writer TU's branch al-runtime-rs-staging-tu, Format.al
+    // TU_Time_Format_CodeNames `len5` ` 9:05`, `0905 len8 ...<Thousands,3>` ` 9:05:03`).
     if length > 0
         && out.chars().count() > length as usize
         && matches!(
             v,
-            Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_) | Value::Date(..)
+            Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_) | Value::Date(..) | Value::Time(_)
         )
     {
+        if matches!(v, Value::Time(_)) {
+            crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+        }
         return Ok(out.chars().take(length as usize).collect());
     }
     Ok(crate::format::pad(out, length))
@@ -800,6 +804,9 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     if code == "Text" && matches!(v, Value::Library(crate::library_kind::LibraryKind::RecordId, _)) {
         return Err(INVALID_FORMAT_MARK.to_string());
     }
+    if let Some(part) = time_code_alias(v, code)? {
+        return Ok(part);
+    }
     let (day_no, closing) = match v {
         Value::Date(n, c) if *n > 0 => (Some(*n), *c),
         Value::DateTime(t) if *t > 0 => (Some((t - 1).div_euclid(86_400_000) as i32 + 1), false),
@@ -814,9 +821,7 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
             "Minutes,2" | "Seconds,2" => Ok("00".into()),
             "Hours12,2" => Ok("12".into()),
             "AM/PM" => Ok("AM".into()),
-            _ if !CODE_NAMES.contains(&code.split_once(',').map_or(code, |(n, _)| n)) => {
-                Err(INVALID_FORMAT_MARK.to_string())
-            }
+            _ if invalid_time_code(code) => Err(INVALID_FORMAT_MARK.to_string()),
             _ => Err(format!("code `<{code}>` on {}", v.describe())),
         };
     }
@@ -962,9 +967,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Quarter", Some((_, m, _)), _) if matches!(v, Value::Date(..)) => format!("{}", (m - 1) / 3 + 1),
         ("Second dec,3", _, Some(_)) => "***".to_string(),
         ("AM/PM", _, Some(ms)) => (if ms / 3_600_000 < 12 { "AM" } else { "PM" }).to_string(),
-        // A name that is no code at all is an invalid format, as for a number (types/lt-datetime/Format.al:
-        // Time_Format_Custom `<Foo>`, error InvalidFormatString).
-        _ if matches!(v, Value::Time(_)) && !CODE_NAMES.contains(&code.split_once(',').map_or(code, |(n, _)| n)) => {
+        // A name that is no code at all is an invalid format, as for a number: only the pinned names (`invalid_time_code`).
+        _ if matches!(v, Value::Time(_)) && invalid_time_code(code) => {
             return Err(INVALID_FORMAT_MARK.to_string());
         }
         // On a Date and a DateTime too: `<Day Text>` and `<Foo>` (types/lt-datetime/Format.al:157-158,186,191 on a Date,
@@ -975,6 +979,69 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         _ => return Err(format!("code `<{code}>` on {}", v.describe())),
     };
     Ok(part)
+}
+
+/// The code names on a Time that are the invalid-format error: `<Foo>` (types/lt-datetime/Format.al:Time_Format_Custom, error
+/// InvalidFormatString), `<Hourz>`, `<Hours24x,2>` and `<Hours 24>` (writer TU's branch al-runtime-rs-staging-tu, Format.al
+/// TU_Time_Format_CodeNames). BC also accepts short names (`<Ho>`, `<Min>`), so another name that is no code is not pinned and is
+/// refused.
+fn invalid_time_code(code: &str) -> bool {
+    let name = code.split_once(',').map_or(code, |(n, _)| n);
+    !CODE_NAMES.contains(&name) && matches!(name, "Foo" | "Hourz" | "Hours24x" | "Hours 24")
+}
+
+/// The short and other names of the clock codes BC accepts on a Time (writer TU's branch al-runtime-rs-staging-tu,
+/// types/lt-datetime/Format.al TU_Time_Format_CodeNames; assumption `format-time-code-names`): `<Hours>`, `<Hour>`, `<Ho>` and `<H>`
+/// are the 24-hour hour (9, 13), `<Minute>` and `<Min>` the minutes, `<Second>` and `<Sec>` the seconds, `<Thou>` the
+/// milliseconds, all without padding, in any case. `<Hours,N>` pads with blanks to N (` 9`, `  9`, ` 13`), `*` when the hour is
+/// longer (`<Hours,1>` of 13), N = 0 is no width; on a DateTime `<Hours,2>` pads with a zero (`09`). Other widths, the other names
+/// on the undefined Time (only `<Hours,2>`, ` 0`) and on a DateTime are refused. `Ok(None)`: not such a name.
+fn time_code_alias(v: &Value, code: &str) -> Result<Option<String>, String> {
+    let (name, width) = match code.split_once(',') {
+        Some((n, w)) => (n, Some(w.trim())),
+        None => (code, None),
+    };
+    let lname = name.to_ascii_lowercase();
+    if !matches!(
+        lname.as_str(),
+        "hours" | "hour" | "ho" | "h" | "minute" | "min" | "second" | "sec" | "thou"
+    ) {
+        return Ok(None);
+    }
+    let refuse = || Err(format!("code `<{code}>` on {} (not pinned)", v.describe()));
+    let ms = match v {
+        Value::DateTime(t) if *t > 0 => {
+            if name == "Hours" && width == Some("2") {
+                crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+                return Ok(Some(format!("{:02}", (t - 1).rem_euclid(86_400_000) / 3_600_000)));
+            }
+            return refuse();
+        }
+        Value::Time(0) => {
+            if lname == "hours" && width == Some("2") {
+                crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+                return Ok(Some(" 0".into()));
+            }
+            return refuse();
+        }
+        Value::Time(t) => t - 1,
+        _ => return Ok(None),
+    };
+    let hour = ms / 3_600_000;
+    let part = match (lname.as_str(), width) {
+        ("hours", None | Some("0")) | ("hour" | "ho" | "h", None) => hour.to_string(),
+        ("hours", Some(w @ ("1" | "2" | "3"))) => {
+            let w: usize = w.parse().unwrap_or(2);
+            let h = hour.to_string();
+            if h.len() > w { "*".repeat(w) } else { format!("{h:>w$}") }
+        }
+        ("minute" | "min", None) => (ms / 60_000 % 60).to_string(),
+        ("second" | "sec", None) => (ms / 1000 % 60).to_string(),
+        ("thou", None) => (ms % 1000).to_string(),
+        _ => return refuse(),
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+    Ok(Some(part))
 }
 
 /// A Text formatted with the pinned forms of `<Text>`: `<Text>` alone is the text (text/lt-text-functions/
@@ -1387,6 +1454,66 @@ mod tests {
             assert!(
                 matches!(r, Err(Signal::Error(ref e)) if e.code == "InvalidFormatString"),
                 "{bad}"
+            );
+        }
+    }
+    // Writer TU's branch al-runtime-rs-staging-tu, types/lt-datetime/Format.al TU_Time_Format_CodeNames: code names on a Time.
+    #[test]
+    fn time_code_names_of_writer_tu() {
+        let tm = |h: i64, m: i64, s: i64, ms: i64| Value::Time((h * 3600 + m * 60 + s) * 1000 + ms + 1);
+        let f = |v: Value, len: i32, template: &str| call("System.Format#2", vec![v, Value::Integer(len), t(template)]);
+        let a = tm(9, 5, 3, 7);
+        let b = tm(13, 45, 6, 78);
+        for (v, len, template, want) in [
+            (a.clone(), 0, "<Hours>", "9"),
+            (b.clone(), 0, "<Hours>", "13"),
+            (a.clone(), 8, "<Hours>", "       9"),
+            (a.clone(), 0, "<Hours,2>", " 9"),
+            (b.clone(), 0, "<Hours,2>", "13"),
+            (a.clone(), 0, "<Hours,1>", "9"),
+            (b.clone(), 0, "<Hours,1>", "*"),
+            (b.clone(), 0, "<Hours,3>", " 13"),
+            (a.clone(), 0, "<Hours,0>", "9"),
+            (a.clone(), 0, "<hours,2>", " 9"),
+            (a.clone(), 0, "<HOURS,2>", " 9"),
+            (a.clone(), 0, "<Hours,2>:<Minutes,2>:<Seconds,2>", " 9:05:03"),
+            (a.clone(), 8, "<Hours,2>:<Minutes,2>:<Seconds,2>", " 9:05:03"),
+            (b.clone(), 0, "<Hours,2>:<Minutes,2>:<Seconds,2>", "13:45:06"),
+            (
+                a.clone(),
+                8,
+                "<Hours24,2>:<Minutes,2>:<Seconds,2>.<Thousands,3>",
+                " 9:05:03",
+            ),
+            (tm(9, 5, 3, 0), 5, "<Hours24,2>:<Minutes,2>:<Seconds,2>", " 9:05"),
+            (Value::Time(0), 8, "<Hours,2>:<Minutes,2>:<Seconds,2>", " 0:00:00"),
+            (tm(0, 0, 0, 0), 8, "<Hours,2>:<Minutes,2>:<Seconds,2>", " 0:00:00"),
+            (b.clone(), 0, "<Hour>", "13"),
+            (a.clone(), 0, "<Minute>", "5"),
+            (b.clone(), 0, "<Second>", "6"),
+            (a.clone(), 0, "<Ho>", "9"),
+            (a.clone(), 0, "<H>", "9"),
+            (a.clone(), 0, "<Min>", "5"),
+            (a.clone(), 0, "<Sec>", "3"),
+            (a.clone(), 0, "<Thou>", "7"),
+            (a.clone(), 8, "<AM/PM>", "      AM"),
+        ] {
+            assert_eq!(text(f(v, len, template)), want, "{template} {len}");
+        }
+        let dt = Value::DateTime(1 + (9 * 3600 + 5 * 60 + 3) * 1000);
+        assert_eq!(text(f(dt.clone(), 0, "<Hours,2>")), "09");
+        assert_eq!(text(f(dt, 0, "<Hours,2>:<Minutes,2>:<Seconds,2>")), "09:05:03");
+        for bad in ["<Hourz>", "<Hours24x,2>", "<Hours 24>"] {
+            assert!(
+                matches!(f(a.clone(), 0, bad), Err(Signal::Error(ref e)) if e.code == "InvalidFormatString"),
+                "{bad}"
+            );
+        }
+        // Not pinned: other widths of the short names, other unknown names, the short names on a DateTime.
+        for refused in ["<Hours,4>", "<Min,2>", "<Hourzz>", "<Mi>"] {
+            assert!(
+                matches!(f(a.clone(), 0, refused), Err(Signal::Unsupported(_))),
+                "{refused}"
             );
         }
     }

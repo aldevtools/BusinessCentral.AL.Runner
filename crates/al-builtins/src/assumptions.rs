@@ -749,6 +749,38 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportLinkedOnce => {
+        id: "xmlport-linked-once",
+        assumed: "XmlPort export of a table element with LinkTable and no LinkFields, MinOccurs = Zero and MaxOccurs = Once, right below another table element: each pass (each row of the element above) writes the first row of the record's view only, with one OnAfterGetRecord, and nothing without rows; the row the record holds after a pass of two or more rows is not pinned (its reads refuse). Import of such an element is refused. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation with its reservation detail).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoPreFilter",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportLinkPassReset => {
+        id: "xmlport-link-pass-reset",
+        assumed: "XmlPort export of a table element with LinkTable and no LinkFields right below another table element: LinkTable adds no filter, and every pass (each row of the element above) starts from the filters the record had at its first pass, with its SourceTableView, and from the SourceTableView's sorting (or the primary key without a sorting in the view), ascending: filters, a key, a direction and a Reset that OnPreXmlItem set at an earlier pass do not carry over. The SourceTableView filters do not show in GetFilters, Count obeys them. A key, direction, filter or mark of the code's own on the record at the first pass, and a view with ORDER, are refused. Pinned only by corpus writer TT's and TU's runs on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation: tickets below a reply row, reservation detail below an admission row).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt (QrXpContainerOccurs.al TT_Confirm_Export_*) and writer TU's branch al-runtime-rs-staging-tu (QrXpContainerOccurs.al TU_LinkedKey_*, the key per pass); wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_TwoReplies",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_KeyAtFirstPass",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_DescendingAtFirstPass",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportRootMinOccursOnce => {
         id: "xmlport-root-min-occurs-once",
         assumed: "An explicit MinOccurs = Once on the root text element is the default: export runs as without it; import accepts an empty root element, fails the schema check on another root element and fails with 'Root element is missing.' on an empty document, as without it. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
@@ -760,6 +792,28 @@ registry! {
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Export",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Import",
             ],
+            since: "2026-10-29",
+        },
+    },
+    FormatTimeCodeNames => {
+        id: "format-time-code-names",
+        assumed: "Format of a Time with the code names <Hours>, <Hour>, <Ho>, <H> (the 24-hour hour), <Minute>, <Min>, <Second>, <Sec> and <Thou>, in any case, without padding; <Hours,N> pads with blanks to N for N = 1 to 3 and writes '*' when the hour is longer, N = 0 is no width; on a DateTime <Hours,2> pads with a zero; the Length argument cuts a longer Time result to its first characters. Other widths and other short names are refused, and only the pinned unknown names raise the invalid-format error. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal requests (a time written with <Hours,2>:<Minutes,2>:<Seconds,2>).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: types/lt-datetime/Format.al TU_Time_Format_CodeNames; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/types/lt-datetime/Format.al::TU_Time_Format_CodeNames"],
+            since: "2026-10-29",
+        },
+    },
+    XmlDocBlankText => {
+        id: "xml-doc-blank-text",
+        assumed: "XmlDocument.Create and XmlDocument.Add with an empty Text add no node; a blank Text, or an empty or blank XmlText, is added as a document node before or after the root without an error, counts in GetChildNodes, and WriteTo writes it as it is (no line break before the root after it). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal web service requests (a document created with two empty texts).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument; wanted: the bump that puts it on corpus master. Open: two text nodes in one document, AddFirst and the sibling methods.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-probes-needed-1/PnAXmlNodeAdds.al::TT_EmptyOrBlankTextIntoXmlDocument"],
             since: "2026-10-29",
         },
     },
@@ -819,6 +873,32 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportTimeMsXml => {
+        id: "xmlport-time-ms-xml",
+        assumed: "XmlPort export with FormatEvaluate = Xml of a Time or a DateTime with milliseconds writes them as Format standard 9 does: the milliseconds without trailing zeros (12:34:56.789, 12:34:56.5, 12:34:56.007), a DateTime with the same fraction and Z; a zero Duration is P0DT0H0M0.0S. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's loyalty SOAP replies (a time stamp with milliseconds).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/PWXmlPortFormatEvaluate.al::TU_Export_TimeMilliseconds"],
+            since: "2026-10-29",
+        },
+    },
+    XmlportNestedUnlinked => {
+        id: "xmlport-nested-unlinked",
+        assumed: "XmlPort export of a table element without LinkTable right below another table element: every pass after the first starts without the filters the pass before left (GetFilters is empty) and the record keeps its row; MinOccurs = Once with MaxOccurs = Unbounded without rows writes the element once from the record as it stands, without OnAfterGetRecord, and runs the elements below; MinOccurs = Zero with MaxOccurs = Once writes the first row and leaves the record on the second row, also of three or more rows. Filters, a key, a filter group or marks the code sets between passes, a key set at a pass, filters of the code's own at the first pass and a SourceTableView are refused, and so is import of MaxOccurs = Once. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change request reply: access entries below a ticket, reservation detail below an access entry).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_*, TU_NestedTemp_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_ItemFilterFirstPass",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_SlotNoFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedTemp_TwoTwoNoneFiltered",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
@@ -842,15 +922,54 @@ registry! {
     },
 }
 
+/// The words of a [`HitBits`]: room for 256 assumptions.
+const HIT_WORDS: usize = 4;
+
+/// The assumption marks as a bit set: bit `a as u32` for assumption `a`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HitBits(pub [u64; HIT_WORDS]);
+
+impl HitBits {
+    /// No marks.
+    pub const EMPTY: HitBits = HitBits([0; HIT_WORDS]);
+
+    /// The bit set with the mark of `a` added.
+    #[inline]
+    pub fn with(self, a: Assumption) -> HitBits {
+        let mut w = self.0;
+        let i = a as usize;
+        w[i / 64] |= 1u64 << (i % 64);
+        HitBits(w)
+    }
+
+    /// Whether the mark of `a` is set.
+    #[inline]
+    pub fn has(self, a: Assumption) -> bool {
+        let i = a as usize;
+        self.0[i / 64] & (1u64 << (i % 64)) != 0
+    }
+}
+
+impl std::ops::BitOr for HitBits {
+    type Output = HitBits;
+    fn bitor(self, o: HitBits) -> HitBits {
+        let mut w = self.0;
+        for (a, b) in w.iter_mut().zip(o.0) {
+            *a |= b;
+        }
+        HitBits(w)
+    }
+}
+
 thread_local! {
-    static HITS: Cell<u128> = const { Cell::new(0) };
+    static HITS: Cell<HitBits> = const { Cell::new(HitBits::EMPTY) };
 }
 
 /// Notes that the code path of `a` ran. Cheap: one thread-local read and write. The runner collects the
 /// marks of each test with [`take_hits`].
 #[inline]
 pub fn assume(a: Assumption) {
-    HITS.with(|h| h.set(h.get() | (1u128 << (a as u32))));
+    HITS.with(|h| h.set(h.get().with(a)));
 }
 
 /// [`assume`] that answers true, for a match guard that decides to take the assumed path.
@@ -862,28 +981,24 @@ pub fn hit(a: Assumption) -> bool {
 
 /// Forgets the marks of this thread (a test is about to start).
 pub fn clear_hits() {
-    HITS.with(|h| h.set(0));
+    HITS.with(|h| h.set(HitBits::EMPTY));
 }
 
 /// The marks of this thread as a bit set (bit `a as u32` for assumption `a`); clears them. With [`add_hit_bits`], a
 /// caller that replays a recorded run of code puts back the marks that run made.
-pub fn take_hit_bits() -> u128 {
-    HITS.with(|h| h.replace(0))
+pub fn take_hit_bits() -> HitBits {
+    HITS.with(|h| h.replace(HitBits::EMPTY))
 }
 
 /// Adds the marks of the bit set `bits` (from [`take_hit_bits`]) to this thread's marks.
-pub fn add_hit_bits(bits: u128) {
+pub fn add_hit_bits(bits: HitBits) {
     HITS.with(|h| h.set(h.get() | bits));
 }
 
 /// The marks of this thread since the last [`clear_hits`] or `take_hits`, in registry order; clears them.
 pub fn take_hits() -> Vec<Assumption> {
-    let bits = HITS.with(|h| h.replace(0));
-    Assumption::ALL
-        .iter()
-        .copied()
-        .filter(|a| bits & (1u128 << (*a as u32)) != 0)
-        .collect()
+    let bits = HITS.with(|h| h.replace(HitBits::EMPTY));
+    Assumption::ALL.iter().copied().filter(|a| bits.has(*a)).collect()
 }
 
 /// The entry with this id.
@@ -974,7 +1089,7 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), Assumption::ALL.len());
-        assert!(Assumption::ALL.len() <= 128, "the marks are a u128");
+        assert!(Assumption::ALL.len() <= 64 * HIT_WORDS, "the marks are a HitBits");
         for a in Assumption::ALL {
             assert_eq!(by_id(a.info().id), Some(*a));
         }

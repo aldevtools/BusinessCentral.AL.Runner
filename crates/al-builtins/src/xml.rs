@@ -3006,8 +3006,52 @@ fn doc_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
         decl: None,
         children: Vec::new(),
     });
-    insert(&doc, None, content_nodes(a)?)?;
+    for arg in a.iter() {
+        if doc_blank_text(&doc, arg)? {
+            continue;
+        }
+        insert(&doc, None, content_nodes(std::slice::from_ref(arg))?)?;
+    }
     Ok(tagged("XmlDocument", doc))
+}
+
+/// `XmlDocument.Create` and `Add` of an empty or blank text to a document (misc/lt-probes-needed-1/PnAXmlNodeAdds.al
+/// TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch al-runtime-rs-staging-tt; assumption `xml-doc-blank-text`): an
+/// empty Text adds no node; a blank Text, or an empty or blank XmlText, is appended as a node before or after the root, and
+/// `WriteTo` writes it as it is. A second text node in the document is not pinned. `false` for any other argument.
+fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> {
+    if kind(doc) != "XmlDocument" {
+        return Ok(false);
+    }
+    let node = match arg {
+        Value::Text(t) | Value::Code(t) if t.is_empty() => {
+            crate::assumptions::assume(crate::assumptions::Assumption::XmlDocBlankText);
+            return Ok(true);
+        }
+        Value::Text(t) | Value::Code(t) if t.trim().is_empty() => new_node(XData::Text(t.to_string())),
+        Value::Library(_, h)
+            if is_xml(h)
+                && parent_of(h).is_none()
+                && with(h, |d| matches!(d, XData::Text(t) if t.trim().is_empty())) =>
+        {
+            h.clone()
+        }
+        _ => return Ok(false),
+    };
+    if children_of(doc)
+        .iter()
+        .any(|c| with(c, |d| matches!(d, XData::Text(_))))
+    {
+        return unsupported("a second empty or blank text added to an XmlDocument (not pinned)");
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::XmlDocBlankText);
+    with(doc, |d| {
+        if let XData::Document { children, .. } = d {
+            children.push(node.clone());
+        }
+    });
+    set_parent(&node, Some(doc));
+    Ok(true)
 }
 
 fn check_name(n: &str) -> Result<(), Signal> {
@@ -3525,6 +3569,9 @@ fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // A text given as a string joins the text node it follows; an XmlText node is its own node
     // (xml/TestProbeXmlContracts.al:AdjacentTextNodes_NotMerged).
     for arg in a.iter() {
+        if doc_blank_text(&h, arg)? {
+            continue;
+        }
         if let Value::Text(t) | Value::Code(t) = arg {
             let last = children_of(&h).last().cloned();
             if let Some(last) = last.filter(|l| with(l, |d| matches!(d, XData::Text(_)))) {
