@@ -119,6 +119,7 @@ fn apps(
                 resources: vec![],
                 include_source: false,
                 target: String::new(),
+                logo: None,
                 layout_files: Vec::new(),
                 symbols: vec![],
                 ..Default::default()

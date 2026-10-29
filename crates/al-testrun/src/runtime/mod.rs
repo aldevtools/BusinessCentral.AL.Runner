@@ -59,6 +59,8 @@ pub struct Manifest {
     pub include_source: bool,
     /// `target` (`Cloud` when the manifest leaves it out); empty when not known (a dependency package).
     pub target: String,
+    /// Whether app.json declares a `logo` (a blank one is none); `None` when not known (a dependency package).
+    pub logo: Option<bool>,
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
@@ -184,6 +186,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .filter_map(|r| Some((r["from"].as_u64()? as u32, r["to"].as_u64()? as u32)))
             .collect(),
         target: manifest["target"].as_str().unwrap_or("Cloud").to_string(),
+        logo: Some(manifest["logo"].as_str().is_some_and(|l| !l.trim().is_empty())),
         symbols: manifest["preprocessorSymbols"]
             .as_array()
             .into_iter()

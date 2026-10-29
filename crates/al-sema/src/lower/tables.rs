@@ -321,15 +321,18 @@ impl Lowerer<'_> {
     }
 
     /// The position of field `id`.
-    pub(crate) fn readable_field_pos(&self, table: usize, id: u32) -> L<usize> {
+    pub(crate) fn readable_field_pos(&mut self, table: usize, id: u32) -> L<usize> {
         // A column of a platform table that no corpus test pins is refused, not defaulted. The
         // table's own triggers read its columns as they are declared.
-        if let Some(why) = self.ws.objects[table]
+        let platform = self.ws.objects[table]
             .id
-            .filter(|_| self.oi != table && self.ws.platform_table(table))
-            .and_then(|t| al_builtins::platform::unpinned_column(t, id))
-        {
+            .filter(|_| self.oi != table && self.ws.platform_table(table));
+        if let Some(why) = platform.and_then(|t| al_builtins::platform::unpinned_column(t, id)) {
             return Err(why);
+        }
+        // A column pinned on a corpus branch whose bump is pending: the read rests on its assumption.
+        if let Some(a) = platform.and_then(|t| al_builtins::platform::assumption_of_column(t, id)) {
+            self.assume(a);
         }
         self.field_pos(table, id).ok_or_else(|| "field position".to_string())
     }

@@ -309,9 +309,11 @@ impl Session {
     pub fn set_company(&mut self, company: &str) -> String {
         let old = std::mem::replace(&mut self.cx.company, company.into()).to_string();
         if old != company && !self.events.global_setups.is_empty() {
-            // UNPROBED (assumption database-trigger-setup-per-company): Microsoft's setup subscribers answer by
-            // CompanyName(), so what was asked in one company is not reused in another.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatabaseTriggerSetupPerCompany);
+            // The per-company part of an install asks for the setup again in each company (corpus branch
+            // al-runtime-rs-staging-ug eff7eb2a, install/lt-ug-install-trigger-setup/UgInstallTests.al
+            // TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart, "asked once for each company"; assumption
+            // install-trigger-setup-per-company-only until the bump).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
             self.events.global_setups.clear();
         }
         old

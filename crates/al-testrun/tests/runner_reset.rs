@@ -214,6 +214,7 @@ fn run() -> CorpusRuntime {
         resources: vec![],
         include_source: false,
         target: String::new(),
+        logo: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,

@@ -1174,3 +1174,126 @@ codeunit 69651 T {
 fn issue_6177_user_name_system_flow_fields_through_record_ref() {
     all_pass(run_with_deps(&[], ISSUE_6177_OBJECTS));
 }
+
+/// Runs the test codeunit `T` of a workspace app with id `main_id` (its app.json declares a logo as `logo` says, `None`
+/// when no manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
+fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &str) -> Vec<(String, Outcome)> {
+    use al_deps::package::read_package;
+    let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
+    let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
+        .expect("System.app reads")
+        .1;
+    let app = |id: &str, deps: Vec<String>, files: Vec<(String, String)>| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps,
+        files,
+    };
+    let mut sources = vec![
+        app(
+            main_id,
+            dep.map(|_| vec![DEP_ID.to_string()]).unwrap_or_default(),
+            vec![("main.al".into(), main.into())],
+        ),
+        app(al_sema::workspace::PLATFORM_APP_ID, Vec::new(), system),
+    ];
+    let mut kinds = vec![AppKind::Workspace, AppKind::Dependency];
+    if let Some(dep) = dep {
+        sources.push(app(DEP_ID, Vec::new(), vec![("dep.al".into(), dep.into())]));
+        kinds.push(AppKind::Dependency);
+    }
+    let symbols = ["BC27PLUS".to_string()].into();
+    let (_, l) = al_sema::lower::compile_apps_with(sources, kinds, &symbols, None, Default::default());
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let mut program = (*l.program).clone();
+    for a in program.apps.iter_mut() {
+        a.version = "1.0.0.0".into();
+        if a.id == main_id {
+            a.logo = logo;
+        }
+    }
+    let engine = Engine::new(std::sync::Arc::new(program), blocked);
+    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
+    run_codeunit(&engine, &l, oi)
+}
+
+const DEP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+const MAIN_ID: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
+
+/// al-runner issue 6148, cause 3: install code asks AllObj for the TableData row of a Base Application table (Contact)
+/// before it seeds setup rows. The row exists with the Table row's name and package ids; a table that does not exist
+/// has none. Pin: metadata/lt-all-obj-namespace/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and
+/// UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption
+/// `allobj-tabledata-row-of-dependency-table` until the bump).
+#[test]
+fn issue_6148_allobj_table_data_row_of_a_dependency_table() {
+    let dep = r#"table 5050 Contact { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }"#;
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure ContactExists() var A: Record AllObj; Tbl: Record AllObj; begin
+    if not A.Get(A."Object Type"::TableData, Database::Contact) then Error('no TableData row');
+    if A."Object Name" <> 'Contact' then Error('name %1', A."Object Name");
+    Tbl.Get(Tbl."Object Type"::Table, 5050);
+    if A."App Package ID" <> Tbl."App Package ID" then Error('package');
+    if A."App Runtime Package ID" <> Tbl."App Runtime Package ID" then Error('runtime package');
+    A.Reset(); A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 5050);
+    if A.IsEmpty() then Error('empty');
+    if A.Count() <> 1 then Error('count %1', A.Count()); end;
+  [Test] procedure MissingTable() var A: Record AllObj; begin
+    if A.Get(A."Object Type"::TableData, 73199) then Error('row');
+    A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 73199);
+    if not A.IsEmpty() then Error('not empty'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, Some(false), Some(dep), main));
+}
+
+/// al-runner issue 6148, cause 2: Company-Initialize reaches Guided Experience Impl.GetExtensionLogo for an app that
+/// registers assisted setup: the Published Application row's Logo, then the Media row by its MediaId. An app whose
+/// app.json declares no logo has a blank Logo and no Media row; an app whose manifest was not read stays refused.
+/// Pin: onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
+/// (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption `published-application-logo-blank-without-manifest-logo`).
+#[test]
+fn issue_6148_extension_logo_of_an_app_without_a_logo() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure GetExtensionLogo() var App: Record "Published Application"; Media: Record Media; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if App.Logo.HasValue() then Error('logo');
+    if not IsNullGuid(App.Logo.MediaId()) then Error('media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if Media.FindFirst() then Error('media row'); end; }}"#
+    );
+    all_pass(run_over_system(MAIN_ID, Some(false), None, &main));
+    let o = run_over_system(MAIN_ID, None, None, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
+/// report while an app installs. A built-in RDLC or Word layout is not user defined; a report without layouts has no
+/// rows. Pin: platform/lt-ug-report-layout-list/UgReportLayoutList.al (corpus branch al-runtime-rs-staging-ug eff7eb2a;
+/// assumption `report-layout-list-built-in-not-user-defined` until the bump).
+#[test]
+fn issue_6191_built_in_layout_is_not_user_defined() {
+    let main = r#"
+report 50100 "UR Layouts" { DefaultRenderingLayout = Rdlc;
+  dataset { dataitem(I; Integer) { column(N; Number) { } } }
+  rendering { layout(Rdlc) { Type = RDLC; LayoutFile = 'a.rdl'; } layout(Word) { Type = Word; LayoutFile = 'a.docx'; } } }
+report 50101 "UR No Layout" { dataset { dataitem(I; Integer) { column(N; Number) { } } } }
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure GetBuiltInLayout() var L: Record "Report Layout List"; begin
+    L.SetRange("Report ID", Report::"UR Layouts");
+    L.SetRange("User Defined", false);
+    if L.Count() <> 2 then Error('count %1', L.Count());
+    L.FindFirst();
+    if L."User Defined" then Error('user defined'); end;
+  [Test] procedure NoLayout() var L: Record "Report Layout List"; begin
+    L.SetRange("Report ID", Report::"UR No Layout");
+    if not L.IsEmpty() then Error('rows'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, Some(false), None, main));
+}
