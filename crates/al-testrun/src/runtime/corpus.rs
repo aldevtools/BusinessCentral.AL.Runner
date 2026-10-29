@@ -585,6 +585,7 @@ impl CorpusRuntime {
             app.resources = m.resources.clone();
             app.include_source = m.include_source;
             app.target = (!m.target.is_empty()).then(|| m.target.clone());
+            app.logo = m.logo;
             app.layout_files = m.layout_files.clone();
             app.translations = m.translations;
             app.translation_files = m.translation_files.clone();
