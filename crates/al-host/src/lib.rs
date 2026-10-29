@@ -863,6 +863,33 @@ impl Default for Host {
 
 #[cfg(test)]
 mod tests {
+    // ADR-046 decision 2: `--companies NAME[,NAME...]` or `all`; a name given twice is a usage error, and the first name
+    // must be the session company.
+    #[test]
+    fn companies_parse_a_list_or_all_and_check_the_session_company_comes_first() {
+        use super::Companies;
+        assert_eq!(Companies::parse("all").unwrap(), Companies::All);
+        assert_eq!(
+            Companies::parse("CRONUS International Ltd., My Company").unwrap(),
+            Companies::List(vec!["CRONUS International Ltd.".into(), "My Company".into()])
+        );
+        assert!(Companies::parse("A,A").is_err());
+        assert!(Companies::parse("A,,B").is_err());
+        let l = Companies::parse("A,B").unwrap();
+        assert!(l.check_session_first("A").is_ok());
+        assert!(l.check_session_first("B").is_err());
+        assert!(Companies::All.check_session_first("B").is_ok());
+        assert_eq!(l.key_text(), "A,B");
+        assert_eq!(Companies::One.key_text(), "");
+        // Every wrapper of the identity hands the list on.
+        let h = super::Host::default()
+            .with_companies(l.clone())
+            .in_company("A")
+            .in_environment(super::Environment::OnPrem)
+            .with_server_url("http://x:1/BC");
+        assert_eq!(h.identity.companies(), l);
+    }
+
     #[test]
     fn the_server_base_url_has_a_default_and_can_be_set_through_every_wrapper() {
         let h = Host::default();

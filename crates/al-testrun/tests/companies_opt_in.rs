@@ -139,22 +139,31 @@ fn a_dependency_table_in_the_other_company_is_refused() {
     );
 }
 
-// Decision 5 inside install code: a per-company install routine of the app under test that reads a dependency table runs in
-// the session company, and stops in the other company; what it touches is not answered.
+// Decisions 5 and 6 inside install code: a per-company install routine of the app under test that reads a dependency
+// table runs in the session company and stops in the other company. What it would have written there is not known in that
+// company only: a per-company table is answered in the session company and refused in the other one; a shared table is
+// refused everywhere.
 #[test]
-fn install_code_that_reads_a_dependency_table_stops_in_the_other_company() {
+fn install_code_that_reads_a_dependency_table_stops_in_the_other_company_only() {
     let dep = "table 60800 DepSetup { fields { field(1; K; Code[10]) { } } }";
     let main = format!(
         "{COMPANY_TABLE}
         table 60901 Seed {{ fields {{ field(1; K; Code[20]) {{ }} field(2; N; Integer) {{ }} }} }}
+        table 60902 Shared {{ DataPerCompany = false; fields {{ field(1; K; Code[40]) {{ }} }} }}
         codeunit 60905 Inst {{ Subtype = Install;
-            trigger OnInstallAppPerCompany() var D: Record DepSetup; S: Record Seed; begin S.K := 'X'; S.N := D.Count(); S.Insert(); end; }}
+            trigger OnInstallAppPerCompany() var D: Record DepSetup; S: Record Seed; Sh: Record Shared;
+            begin S.K := 'X'; S.N := D.Count(); S.Insert(); Sh.K := CompanyName(); Sh.Insert(); end; }}
         codeunit 60102 T {{ Subtype = Test;
-            [Test] procedure ReadsSeed() var S: Record Seed; begin if S.IsEmpty() then; end; }}"
+            [Test] procedure SeedInTheSessionCompany() var S: Record Seed; begin S.Get('X'); if S.Count() <> 1 then Error('rows'); end;
+            [Test] procedure SeedInTheOtherCompany() var S: Record Seed; begin S.ChangeCompany('My Company'); if S.IsEmpty() then; end;
+            [Test] procedure SharedEverywhere() var Sh: Record Shared; begin if Sh.Count() <> 1 then Error('rows'); end; }}"
     );
     let o = outcomes_of_apps(&[("dep", &[], dep), ("main", &["dep"], &main)]);
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("could not run") && r.contains("decision 5")),
-        "{o:?}"
-    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+    for i in [1, 2] {
+        assert!(
+            matches!(&o[i].1, Outcome::NotRun(r) if r.contains("My Company") && r.contains("decision 6")),
+            "{i}: {o:?}"
+        );
+    }
 }

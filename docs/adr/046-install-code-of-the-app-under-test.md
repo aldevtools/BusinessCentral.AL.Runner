@@ -1,6 +1,6 @@
 # ADR-046: The install code of the app under test runs in the install baseline; several companies only as an opt-in
 
-- Status: Accepted; amendment 1 Accepted (owner, 2026-10-19)
+- Status: Accepted; amendment 1 Accepted (owner, 2026-10-19); amendment 2 (step B as built, 2026-10-29) decided without owner review
 - Date: 2026-10-19 (accepted by the owner, 2026-10-19, with the `--companies` flag); amendment 1 2026-10-19
 - Amends: ADR-013 decision 5 (items 1 and 2) and its section "Install baseline and Global Triggers as built"
 - Amendment 1 (Accepted by the owner 2026-10-19, section "Amendment 1" below) replaces the object-order rule of decision 3 and decision 8 with
@@ -691,3 +691,81 @@ This replaces item 1 of "Decided without owner review (2026-10-20)".
   since `NavUserAccountHelper.IsDelegatedUser`, `IsUserDelegatedAdmin` and `IsUserDelegatedHelpdesk` answer false
   (`al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:61-63`); a first build kept a fallback to the app's own
   subscribers while it could not, and that fallback is gone (al-runner issue 6046).
+
+## Amendment 2: step B as built (2026-10-29, branch `companies`)
+
+Status line: Amendment 2, pins P1/P2 landed. Decided without owner review (2026-10-29) where marked; nothing the owner
+decided is changed.
+
+### The pins, checked against the corpus at the pin
+
+- P1 (companies): two companies in key order, "CRONUS International Ltd." (the session company) then "My Company"
+  (`install/lt-bf-install-probes/BfInstallTests.al:47-64`, header `:10`), on 27.5, 28.5 and 29.0.
+- Per-company install code runs once in each company, the session company first, before the per-database part:
+  `BfInstallTests.al:125-140` (rows #1 to #6, then #7 to #9) and `:239`; `install/lt-av-install-order/AvInstallOrder.al:16-69`
+  (`first per-company run` = session company, `per-company after per-database` = No in both companies).
+- `CompanyName()` is that company in the per-company part (`AvInstallOrder.al:43-44`, `:60`, `:64`) and empty in the
+  per-database part (`BfInstallTests.al:138-140`, `blank`).
+- P2 (session company first, or key order) stays open: in the corpus CI the session company also sorts first. The runtime
+  runs the declared list in the order given, which is the session company first; nothing here contradicts the ADR.
+
+### What is built
+
+- `--companies NAME[,NAME...]` and `--companies all` on `al-runner test` and `al-test-cli` (a name given twice, an empty
+  name, or a list whose first name is not the session company is a usage error before anything runs). `al-test-cli
+  --one-company` ignores `companies` of `oracle.toml`. `al_host::Identity::companies` (default: one company) carries the
+  setting; `all` is resolved by the session against the test data (`TableProvider::companies`, the backup's Company
+  table), and without test data it is the session company alone, the same as the default. The setting is part of the
+  baseline cache key.
+- Step 1: one Company row per declared company. Step 4a: each app under test's per-company part once per declared
+  company, in list order, with its own SingleInstance reset and Company Triggers; step 4b once. Steps 2 and 3 are
+  unchanged (session company only).
+- Decision 4: items a (Company table reads) and c (shared tables of per-company install code) apply only in the default
+  mode; under the opt-in the declared list is complete and both are answered.
+- Decision 5: under the opt-in, a per-company table that is not a table of an app under test is refused in a declared
+  company other than the session company (`Session::cx_for`), inside install code and in tests.
+- Decision 6: a routine that stops in another company makes the tables it would have written (`tables_written` of the
+  routine and of the subscribers it reaches) unknown: a per-company table only in that company (`Baseline::company_unknown`,
+  refused at run time), a shared table everywhere (not run, as today).
+- `tools/company_mode_check.sh run` compares an opt-in run with a `--one-company` run.
+
+### Decided without owner review (2026-10-29)
+
+1. **Company Triggers in another company.** A4 item 4 raises `OnCompanyOpen`/`OnCompanyOpenCompleted` to every installed
+   app's subscribers. In a company other than the session company only the subscribers of the apps under test run there:
+   decision 5 keeps the dependency apps in the session company, and System Application's "System Initialization" reads
+   its per-company tables (Job Queue Entry) there, which decision 5 refuses; run, it stopped every per-company routine of
+   the corpus app in "My Company" and 1,104 baseline cases on BC 29 were lost.
+2. **Evaluation Company.** The corpus database's session company is an evaluation company (`BfInstallTests.al:61`), but
+   a user's database need not be, and Company-Initialize reads the flag: with it set, Experience Tier Setup came out
+   Basic where BC has Essential (`session/lt-company-setup-rows/CompanySetupRows.al:50-66`, a failure). So the session
+   company's row stays the row of the default mode; another company's row has `Evaluation Company` No and an empty
+   `Display Name` (pinned for "My Company").
+3. **`companies` is not set in `oracle/oracle.toml` yet.** See the next section.
+
+### Why the corpus run does not use the opt-in yet
+
+Measured with `tools/company_mode_check.sh run` (`--companies "CRONUS International Ltd.,My Company"` against
+`--one-company`): no case passes or fails differently, and no case is not run in the default mode only; but 35 (BC 27),
+34 (BC 28) and 31 (BC 29) cases that pass in the default mode are not run under the opt-in, and neither PeV test passes
+in either mode. The OnPrem and isolation suites show no difference. Cause: in "My Company" every insert of install
+code reaches Base Application's database trigger subscribers, which read per-company setup tables of Base Application
+(CDS Connection Setup) there. Decision 5 refuses that read, so almost every per-company install routine of the corpus app
+stops in "My Company"; by decision 6 the shared tables they would have written (LT V Event Log, LT BF Install Log, and,
+through the static closure of "Install Seeder", Company, Upgrade Tags and Feature Data Update Status) are unknown
+everywhere. The owner's gate (no baseline case lost) rules the key out until one of these lands:
+
+- the measurement A6 describes: run the dependency apps' per-company install code in "My Company" without
+  Company-Initialize and match the counts of fact 2 (P3), then answer the dependency tables there;
+- a probe of what CDS Connection Setup (and the other tables the database trigger setup reads) holds in "My Company".
+
+The default mode is unchanged: `--baseline-diff` on 27, 28 and 29 loses no case with this branch.
+
+### NP Retail with the opt-in (2026-10-29)
+
+`al-runner test <NP>/Application <NP>/Test` against the same with `--companies all` (the backup's companies, session
+company first): without the flag 1,553 pass, 13 fail, 3,810 not run; with it 1,267 pass, 12 fail, 4,097 not run. The
+about 1,070 refusals of decision 4c ("per-company install code of NP Retail writes this DataPerCompany = false table")
+are gone, and 2,817 refusals of decision 6 take their place: every per-company install routine of NP Retail stops in
+"My Company" at the same read of CDS Connection Setup (Base Application's `Global Triggers` `GetDatabaseTableTriggerSetup`
+subscriber calls `CRMIntegrationManagement.GetDatabaseTableTriggerSetup`, which reads that per-company table).
