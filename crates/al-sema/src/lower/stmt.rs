@@ -1212,6 +1212,11 @@ impl Lowerer<'_> {
                 ret_used: false,
             }));
         }
+        // `V := V.Create()` or `V := V.Ctor()` on a `[RunOnClient]` variable: the right side raises first
+        // (`dotnet_member`), so it is lowered before the refused variable on the left.
+        if kids[0].kind() == SyntaxKind::NameRef && self.run_on_client_var(&kids[0]).is_some() {
+            self.expr(&kids[1])?;
+        }
         // `X.Property := value` on a DotNet value (ADR-014).
         if let Some(Res::DotNetMember(name)) = self.res(&kids[0]).cloned() {
             if kids[0].kind() == SyntaxKind::MemberExpr {

@@ -129,7 +129,11 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
+<<<<<<< HEAD
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
+=======
+    type(\"Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider\"; \"AkvProvider\") { }
+>>>>>>> origin/np-keyvault
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
     type(\"Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper\"; \"PermissionTestHelper\") { }
@@ -663,6 +667,7 @@ fn a_server_class_on_the_pure_list_reaches_the_host() {
     assert_eq!(text(r), "aGk");
 }
 
+<<<<<<< HEAD
 /// Owner decision 2026-10-29: the OpenXml spreadsheet classes are pure; the file name form of Create writes a file.
 #[test]
 fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
@@ -685,6 +690,40 @@ fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
     let r = run(&host, "W: DotNet WorkbookWriter; N: Integer;", "N := W.Create(1);", "");
     assert!(r.result.is_ok(), "{:?}", r.result);
     assert!(!host.log().is_empty());
+=======
+/// The App Key Vault provider without a key vault (corpus onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al:84-152).
+#[test]
+fn the_key_vault_provider_without_a_key_vault_raises_the_pinned_errors() {
+    let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+    let r = run(
+        &host,
+        "P: DotNet AkvProvider; S: Text;",
+        "P := P.AzureKeyVaultAppSecretProvider(); asserterror P.InitializeFromCallingAppExceptSystemApplication(); \
+         S := GetLastErrorText() + '#' + GetLastErrorCode(); \
+         asserterror if P.TryGetAzureKeyVaultSecret('x', S) then; \
+         exit(S + '|' + GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    let t = text(r);
+    assert!(
+        t.starts_with("No key vaults specified for extension '") && t.contains("'.#AzureKeyVaultAppSecretProvider|"),
+        "{t}"
+    );
+    assert!(t.ends_with("|Not initialized.#AzureKeyVaultAppSecretProvider"), "{t}");
+    assert_eq!(host.log(), vec![]);
+}
+
+#[test]
+fn a_key_vault_provider_variable_never_constructed_is_not_instantiated() {
+    let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+    let r = run(
+        &host,
+        "P: DotNet AkvProvider; S: Text;",
+        "asserterror if P.TryGetAzureKeyVaultSecret('x', S) then; exit(GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(text(r), "DotNetVariableNotCreated");
+>>>>>>> origin/np-keyvault
 }
 
 // ---- lifetime ----------------------------------------------------------------------------
@@ -1541,6 +1580,8 @@ fn the_declared_result_types_match_the_registry() {
             "GetGroupPage" | "GetGroupInfo" | "FindFirstGroupInfoForDisplayName" | "GetUser" => continue,
             // Answers a null reference by design; graph_get_current_user_returns_null_without_an_error runs it.
             "GetCurrentUser" | "GetTenantDetail" => continue,
+            // Raise by design; the_key_vault_provider_without_a_key_vault_raises_the_pinned_errors runs them.
+            "InitializeFromCallingAppExceptSystemApplication" | "TryGetAzureKeyVaultSecret" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
             "AddEffectivePermissionSet" => continue,
             // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.

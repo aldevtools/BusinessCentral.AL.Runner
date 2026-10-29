@@ -30,6 +30,8 @@ pub const TENANT_SETTINGS_HELPER: &str = "Microsoft.Dynamics.Nav.NavUserAccount.
 pub const COPILOT_FUNCTIONS: &str = "Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions";
 /// `Microsoft.Dynamics.Nav.Runtime.NavTestExecution`.
 pub const TEST_EXECUTION: &str = "Microsoft.Dynamics.Nav.Runtime.NavTestExecution";
+/// `Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider`, behind System Application "App Key Vault Secret Pr. Impl.".
+pub const AKV_PROVIDER: &str = "Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider";
 /// `Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper`, which codeunit 131006 "Permissions Mock" constructs.
 pub const PERMISSION_TEST_HELPER: &str = "Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper";
 /// `Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper`.
@@ -149,6 +151,13 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (USER_ACCOUNT_HELPER, "IsUserDelegatedHelpdesk", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "GetEffectivePermissionForObject", Ret::Text),
     (USER_ACCOUNT_HELPER, "IsPermissionSetAssigned", Ret::Boolean),
+    (AKV_PROVIDER, "AzureKeyVaultAppSecretProvider", Ret::Object),
+    (
+        AKV_PROVIDER,
+        "InitializeFromCallingAppExceptSystemApplication",
+        Ret::Void,
+    ),
+    (AKV_PROVIDER, "TryGetAzureKeyVaultSecret", Ret::Boolean),
     (TEST_EXECUTION, "IsInTestMode", Ret::Boolean),
     (COPILOT_FUNCTIONS, "IsPlatformAuthorizationConfigured", Ret::Boolean),
     (PERMISSION_TEST_HELPER, "PermissionTestHelper", Ret::Object),
