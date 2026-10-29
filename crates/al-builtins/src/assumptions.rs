@@ -980,6 +980,28 @@ registry! {
             since: "2026-10-29",
         },
     },
+    FormatTimeCodeNames => {
+        id: "format-time-code-names",
+        assumed: "Format of a Time with the code names <Hours>, <Hour>, <Ho>, <H> (the 24-hour hour), <Minute>, <Min>, <Second>, <Sec> and <Thou>, in any case, without padding; <Hours,N> pads with blanks to N for N = 1 to 3 and writes '*' when the hour is longer, N = 0 is no width; on a DateTime <Hours,2> pads with a zero; the Length argument cuts a longer Time result to its first characters. Other widths and other short names are refused, and only the pinned unknown names raise the invalid-format error. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal requests (a time written with <Hours,2>:<Minutes,2>:<Seconds,2>).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: types/lt-datetime/Format.al TU_Time_Format_CodeNames; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/types/lt-datetime/Format.al::TU_Time_Format_CodeNames"],
+            since: "2026-10-29",
+        },
+    },
+    XmlDocBlankText => {
+        id: "xml-doc-blank-text",
+        assumed: "XmlDocument.Create and XmlDocument.Add with an empty Text add no node; a blank Text, or an empty or blank XmlText, is added as a document node before or after the root without an error, counts in GetChildNodes, and WriteTo writes it as it is (no line break before the root after it). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal web service requests (a document created with two empty texts).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument; wanted: the bump that puts it on corpus master. Open: two text nodes in one document, AddFirst and the sibling methods.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-probes-needed-1/PnAXmlNodeAdds.al::TT_EmptyOrBlankTextIntoXmlDocument"],
+            since: "2026-10-29",
+        },
+    },
     XmlportImportAgain => {
         id: "xmlport-import-again",
         assumed: "A second Import on an XmlPort instance whose first Import succeeded (unguarded, Format = Xml) reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run again (not OnInitXmlPort), also after SetSource on the same or a new stream, with or without Codeunit.Run. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
