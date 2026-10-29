@@ -129,6 +129,7 @@ mod var_attribute_refusals;
 mod var_global_alias;
 mod version_gates;
 mod xml_attribute_collection_set;
+mod xml_clear_ref;
 mod xml_doctype;
 mod xml_node_list_clear;
 mod xml_options_assign;

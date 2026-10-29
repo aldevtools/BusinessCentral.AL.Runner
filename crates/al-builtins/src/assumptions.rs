@@ -1311,6 +1311,19 @@ registry! {
             since: "2026-10-29",
         },
     },
+    ClearXmlRef => {
+        id: "clear-xml-ref",
+        assumed: "Clear of an XmlElement gives an unassigned one (Name raises NotInitialized naming NavXmlElement), Clear of an XmlNode gives an empty one (IsXmlElement false, AsXmlElement a Conversion error), and Clear of an XmlDocument gives one whose GetRoot statement raises XmlNodeNotFound; another variable that holds the same node or document keeps it. An unassigned variable reads the same.",
+        tests: "No Microsoft test: a partner app's tests (Clear of an XmlElement value).",
+        probe: "Done on writer UL's branch al-runtime-rs-staging-ul (corpus PR 802, commit b753d3fb7a, codeunit 90420); wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xml/lt-ul-clear-ref/UlClearXmlRef.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
     EvaluateRfc1123DateTime => {
         id: "evaluate-rfc-date-time",
         assumed: "Evaluate into a DateTime with number 0 (or none) reads `Ddd, dd Mon yyyy hh:mm:ss GMT` and `+0000` as UTC; a weekday that is not the date's answers false with no error; without the weekday it answers false and leaves `The date is not valid.` (DateInvalid) as the last error.",

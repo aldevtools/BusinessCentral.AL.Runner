@@ -2669,6 +2669,15 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
                 std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
             )
         }
+        // A cleared XmlElement is an unassigned one and a cleared XmlNode an empty one; another variable that holds the same
+        // node keeps it, and the node stays in its document (corpus branch al-runtime-rs-staging-ul b753d3fb7a,
+        // xml/lt-ul-clear-ref/UlClearXmlRef.al:53-86 ClearXmlElement_SecondVariable, :106-142 ClearXmlNode_SecondVariable).
+        Value::Library(name, _)
+            if matches!(name.as_str(), "XmlElement" | "XmlNode")
+                && crate::assumptions::hit(crate::assumptions::Assumption::ClearXmlRef) =>
+        {
+            Value::Library(name.clone(), Default::default())
+        }
         // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again
         // (xml/XmlNodes.al TP_NodeList_Clear).
         Value::Library(name, _) if name.as_str() == "XmlNodeList" => Value::Library(
