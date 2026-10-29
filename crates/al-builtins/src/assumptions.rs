@@ -1292,6 +1292,50 @@ registry! {
             since: "2026-10-28",
         },
     },
+    DotnetTypeUnassignedEnum => {
+        id: "dotnet-type-unassigned-enum",
+        assumed: "GetDotNetType of an unassigned DotNet variable declared as the enum System.DayOfWeek or System.Security.Cryptography.X509Certificates.X509ContentType gives that enum type (FullName and Format the full name, IsEnum true); System.Enum.Parse(that type, name) gives the member (Pkcs12 gives Pfx, 3), and a name that is not a member, or one in another case, fails with 'A call to System.Enum.Parse failed with this message: Requested value '<name>' was not found.' (DotNetInvoke:Argument). Pinned only by corpus writer TV's run on real BC, not yet on corpus master; other enums are refused.",
+        tests: "No Microsoft test: a partner app's tests that reach System Application's X509 certificate code (Enum.Parse of an X509ContentType name).",
+        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_GetDotNetType_UnassignedEnumVariables",
+                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlWriteToOutstreamBuilt => {
+        id: "xml-write-to-outstream-built",
+        assumed: "WriteTo(OutStream) of a document built in code with one root element: a declaration from XmlDeclaration.Create('1.0', 'UTF-8', 'yes' or 'no') is kept as written in UTF-8 ('yes' also with XmlWriteOptions that PreserveWhitespace(true) set, unindented); 'utf-16' with standalone empty or 'yes', and an empty encoding with standalone empty, are written in UTF-16 LE with FF FE and the declaration as written; the stream's own encoding is ignored. Add of an XmlWriteOptions after a node to a document or an element adds nothing. Pinned only by corpus writer TV's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal and SOAP tests (documents built in code and written to a stream).",
+        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_*, TV_XmlWriteOptions_AsContent_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_BuiltWithoutDeclaration_Options",
+                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_Utf8Declaration_OtherStreams",
+                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_Utf16AndNoEncodingDeclarations",
+                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_XmlWriteOptions_AsContent_DocumentAdd",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    FindMissKeyText => {
+        id: "find-miss-key-text",
+        assumed: "Find without a filter whose result is not used, when no row meets the search, on a table that has rows or on an empty table with a key value other than the default: `The <table> does not exist. Identification fields and values: <key>` for none and `=`, and `The <table> does not exist. <search>\\\\Identification fields and values:\\\\<key>` for `>`, `<`, `=>`, `=<` and `=><`, with the record's key (DB:RecordNotFound). Pinned only by corpus writer TV's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's tests (a Find on a record whose key no row has).",
+        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): record/lt-find-empty-table/FindEmptyTable.al TV_Find_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_TableWithRows_NoMatch",
+                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_EmptyTable_KeyNotDefault",
+            ],
+            since: "2026-10-29",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.

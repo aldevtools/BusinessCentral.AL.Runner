@@ -101,7 +101,10 @@ impl Session {
 
     /// A DotNet variable that holds nothing (tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al:233-278, 364, 373):
     /// a `System.String` answers System.Object; `System.Object`, `System.Char`, `System.Byte`, `System.Int32`,
-    /// `System.Text.StringBuilder`, `System.Type` and `System.Exception` answer their own type. Other declared types are not pinned.
+    /// `System.Text.StringBuilder`, `System.Type` and `System.Exception` answer their own type, and so do the enums
+    /// `System.DayOfWeek` and `System.Security.Cryptography.X509Certificates.X509ContentType` (writer TV, corpus branch
+    /// al-runtime-rs-staging-tv 8ae7ac0b, BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables; X509ContentType
+    /// declared from `netstandard`). Other declared types are not pinned.
     /// (`X.GetType()` of the unassigned Object then raises: `dotnet_apply`.)
     fn type_of_unassigned(&mut self, declared: &str) -> Result<Value, Signal> {
         match declared {
@@ -113,6 +116,14 @@ impl Session {
             | "System.Text.StringBuilder"
             | "System.Type"
             | "System.Exception" => self.type_named(declared),
+            "System.DayOfWeek" => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                self.type_named(declared)
+            }
+            "System.Security.Cryptography.X509Certificates.X509ContentType" => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
+            }
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),
             other => unsupported(format!(
                 "GetDotNetType of an unassigned DotNet variable declared as {other} (not pinned; docs/probes-needed.md)"

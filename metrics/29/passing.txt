@@ -11772,6 +11772,7 @@
 73400 ReadFrom_WithDeclaration
 73400 WriteTo_Options
 73400 WriteTo_Options_Whitespace
+73400 WriteTo_OutStream_Options
 73400 WriteTo_OutStream_Unicode
 73401 AddAfterBefore_Self
 73401 Add_AlreadyParented_Node
@@ -14460,6 +14461,9 @@
 79013 RA_FieldTable_ScanByTableNo_KeyOnRowVersionFromTableExtension
 79013 RA_FieldTable_ScanByTableNo_NoKeyOnRowVersion_Control
 79013 RA_FieldTable_ScanByTableNo_OwnKeyOnRowVersion
+79013 SG_FieldTable_RowVersion_AllColumns
+79013 SG_FieldTable_RowVersion_FindFieldByName
+79013 SG_FieldTable_RowVersion_NameWithOtherFilters
 79201 AtContainsFilterMatchesCaseInsensitively
 79201 ContainsFilterWithoutAt
 79201 FieldRefIsOptimizedForTextSearch
