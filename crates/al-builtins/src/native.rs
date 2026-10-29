@@ -1917,11 +1917,13 @@ fn error_text_with(ctx: &mut dyn Ctx, args: &mut [Value], form: ErrorTextForm) -
     let template = text_arg(args, 0)?;
     let mut message = substitute(&template, &args[1..], ctx)?;
     // The error text of `Error(Text)` without arguments shows a CR LF as one backslash (misc/lt-system-functions/ErrorMessage.al:
-    // 606-618, LT_BU_Message_BackslashAndAppendLine: 17 characters). With arguments no corpus test pins it.
+    // 606-618, LT_BU_Message_BackslashAndAppendLine: 17 characters), and so does a CR LF in an argument, alone, between other text
+    // or after a backslash the text holds (ErrorMessage.al:684-718, PYC_Error_CrLfAndLoneCrLf: `a\b`, `xa\by`, `p\q a\b`). A
+    // CR LF in the text itself next to arguments is not pinned.
     if message.contains("\r\n") {
-        if args.len() > 1 {
+        if args.len() > 1 && template.contains("\r\n") {
             return unsupported(
-                "Error with arguments whose text holds a CR LF: the error text is not pinned (docs/probes-needed.md)",
+                "Error with arguments whose own text holds a CR LF: the error text is not pinned (docs/probes-needed.md)",
             );
         }
         message = message.replace("\r\n", "\\");
