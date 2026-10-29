@@ -650,7 +650,11 @@ impl Session {
             // A changed row that is no longer stored (an asserterror rolled its insert back, code deleted it): real BC closes a
             // list in that state without an error (pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:4054
             // QZ_NotBlankEnum_SetValueBlank_List), but whether it writes the row is not pinned.
-            if e.code == "DB:RecordNotFound" {
+            let vetoed = match st.borrow().insert_vetoed_by_ext.clone() {
+                Some(k) => Self::same_key(&k, &self.row_key(&rec)?),
+                None => false,
+            };
+            if e.code == "DB:RecordNotFound" && !vetoed {
                 return unsupported(
                     "a page saves a changed row that is no longer stored (whether the client writes it is not pinned)",
                 );
@@ -732,6 +736,27 @@ impl Session {
         // lt-bg-part-line-all-versions/BgPartLineAllVersions.al:349).
         self.auto_split_key(st)?;
         let go = self.page_trigger_answer(st, "oninsertrecord", vec![Value::Boolean(true)])?;
+        // A page extension's false answer: the row is not stored, and the page goes on as if it were: the next edit runs
+        // OnModifyRecord and its save fails with DB:RecordNotFound (pageext/lt-ue-pageext-leads/UeTriggerTests.al
+        // NewRow_FirstExtensionAnswersFalse: `log` ends `base.OnModifyRecord id=5 amount=7;...`, `try|code` DB:RecordNotFound).
+        // Pinned for a list; another page type is refused.
+        if go == Some(false) && self.pages.ext_vetoed {
+            if !self.is_list(st) || st.borrow().host.is_some() {
+                return unsupported(
+                    "a page extension's OnInsertRecord answered false on a page that is not a top-level list (not pinned)",
+                );
+            }
+            let key = self.row_key(&rec)?;
+            {
+                let mut s = st.borrow_mut();
+                s.draft = false;
+                s.dirty = false;
+                s.cursor = Cursor::Row;
+                s.insert_vetoed_by_ext = Some(key);
+            }
+            self.set_xrec(st);
+            return Ok(());
+        }
         if go == Some(false) {
             // A trigger that inserted the row itself and answered false leaves the page on a stored row: its next edit is
             // a modify (as for a template step in `start_draft`). Not pinned for this answer: Base Application's Item

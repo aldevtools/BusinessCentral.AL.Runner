@@ -101,6 +101,61 @@ impl Lowerer<'_> {
         Ok((slot, ty, label))
     }
 
+    /// The global slot of `name`, a protected variable of page extension `ext` that another extension of the same page names
+    /// (al-runner issue 6159). Pinned in one app (pageext/lt-ue-pageext-leads/UeProtectedVarTests.al, awaiting the corpus pin);
+    /// across apps (the extension's app depends on the declaring one) the writer observed the same on real BC but it is not in
+    /// the corpus. A variable of a simple type only, outside a control's source expression: the other forms are not pinned.
+    pub(crate) fn ext_var(&mut self, ext: usize, name: &str) -> L<usize> {
+        let ast = self.ws.object_ast(ext);
+        let (_, decl) = crate::base_access::visible_vars(&ast)
+            .into_iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("`{name}` is no protected variable of the page extension that declares it"))?;
+        let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+        let simple = matches!(
+            ty,
+            Ty::Integer
+                | Ty::BigInteger
+                | Ty::Decimal
+                | Ty::Boolean
+                | Ty::Text(_)
+                | Ty::Code(_)
+                | Ty::Date
+                | Ty::Time
+                | Ty::DateTime
+                | Ty::Option(_)
+                | Ty::Enum(_)
+        );
+        if !simple {
+            return Err(format!(
+                "`{name}` (a {ty} protected variable of another page extension of the page; only simple types are pinned)"
+            ));
+        }
+        let in_source = self
+            .routine_nodes
+            .get(self.oi)
+            .get(self.routine_idx)
+            .is_some_and(|r| r.name().starts_with("__source"));
+        if in_source {
+            return Err(format!(
+                "`{name}`, a protected variable of another page extension of the page, in a control's source expression (not pinned)"
+            ));
+        }
+        let tr = decl.type_ref();
+        if tr.as_ref().and_then(textconst_languages).is_some() || tr.as_ref().and_then(label_text).is_some() {
+            return Err(format!(
+                "`{name}`: a Label or TextConst of another page extension of the page (not pinned)"
+            ));
+        }
+        let slot = crate::base_access::slot_of(&ast, None, name)
+            .ok_or_else(|| format!("`{name}` has no slot in the page extension that declares it"))?;
+        self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVar);
+        if self.ws.objects[ext].app != self.ws.objects[self.oi].app {
+            self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVarCrossApp);
+        }
+        Ok(slot)
+    }
+
     /// A procedure of the extension with the name of a callable procedure of its base is compile
     /// error AL0440 in BC (corpus handlers/TestPageExtensionBaseAccessContracts.al:20), so it is
     /// refused: BC never runs such code.

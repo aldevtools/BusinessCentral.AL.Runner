@@ -177,6 +177,10 @@ pub(crate) struct PageClients {
     /// The page's own trigger (lower case) whose AL error ended the last page trigger call that failed, with the page's
     /// object; `None` after an extension's trigger failed. Read where the client turns a trigger's error into its own.
     pub(crate) failed_trigger: Option<(u32, String)>,
+    /// The answers the page extensions' triggers of the last page trigger call stated (`exit(Value)`), in the order they ran.
+    pub(crate) ext_answers: Vec<bool>,
+    /// The last `page_trigger_answer` was a veto by a page extension's trigger.
+    pub(crate) ext_vetoed: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through

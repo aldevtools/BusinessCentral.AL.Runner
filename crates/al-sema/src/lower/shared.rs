@@ -843,6 +843,10 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     // extension's trigger (pageext/lt-pageext-ondeleterecord/PageExtOnDeleteRecord.al:121-206, all four result
     // combinations). A client delete is not available, so the trigger never runs here.
     "ondeleterecord",
+    // All of them run, the page's first, and an extension's false answer vetoes the insert or the modify (pageext/
+    // lt-ue-pageext-leads/UeTriggerTests.al, al-runner issue 6149; assumption pageext-record-trigger-answers until the pin lands).
+    "oninsertrecord",
+    "onmodifyrecord",
 ];
 
 /// The triggers a `modify` block can add to a control, which the client runs.
@@ -875,7 +879,10 @@ pub(crate) fn extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
                 continue;
             }
             for t in sec.triggers() {
-                if !MODIFY_TRIGGERS.contains(&t.name().to_ascii_lowercase().as_str()) {
+                // OnAfterAction of a modified action runs after its OnAction (pages/lt-pageext-action-after/
+                // PageExtensionActionOnAfterAction.al; the VM refuses the shapes that file does not pin).
+                let name = t.name().to_ascii_lowercase();
+                if !MODIFY_TRIGGERS.contains(&name.as_str()) && name != "onafteraction" {
                     out.push(format!(
                         "page extension `{ename}`: trigger {} in modify({}) is not supported yet",
                         t.name(),

@@ -220,6 +220,7 @@ impl Graph {
                         al_ir::Place::Local(i) => &r.locals.get(*i)?.ty,
                         al_ir::Place::Global(i) => &o.globals.get(*i)?.ty,
                         al_ir::Place::BaseGlobal(i) => &objs[*base_of.get(&oi)?].globals.get(*i)?.ty,
+                        al_ir::Place::ExtGlobal(e, i) => &objs.get(*e)?.globals.get(*i)?.ty,
                         _ => return None,
                     };
                     while let RtType::Array(_, inner) = ty {

@@ -468,7 +468,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
                 Place::Index(inner, _) => Self::root(inner),
                 // The base object's variable (ADR-023): page and report extension code, which no
                 // install routine runs.
-                Place::Field(..) | Place::BaseGlobal(_) => None,
+                Place::Field(..) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => None,
             }
         }
         fn record_of(&self, p: &Place) -> Option<u32> {
