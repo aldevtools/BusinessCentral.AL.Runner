@@ -1128,6 +1128,11 @@ impl Session {
                     }
                     return Err(Signal::Unsupported(why.into()));
                 }
+                // The buffer of a table element record after an export under SourceTableView is the last row the export read
+                // (QrXpContainerOccurs.al TS_Again_SameData on branch al-runtime-rs-staging-pub-ts).
+                if rc.borrow().unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                }
                 let r = rc.borrow();
                 if !self.engine.unevaluable_init.is_empty() && !r.touched {
                     // The buffer of a record nothing has written is built by this read, which
@@ -1235,10 +1240,6 @@ impl Session {
                         // `XP_VIEW_AFTER_EXPORT`).
                         if let Some(why) = crate::records::xp_export_marked(src) {
                             return Err(Signal::Unsupported(format!("an assignment from a record: {why}")));
-                        }
-                        // Every field of the target is replaced, so the row an earlier export left there no longer matters.
-                        if dst.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
-                            dst.borrow_mut().unpinned_buffer = None;
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
                         // does not tell a copy from a shared Blob (record/TestFormatRecordContracts.al

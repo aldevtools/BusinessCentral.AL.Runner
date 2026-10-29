@@ -329,6 +329,13 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             crate::assumptions::assume(crate::assumptions::Assumption::MediaExportStreamJfif300DpiKept);
             crate::stream::write_bytes(blob, &obj.bytes)
         }
+        // UTF-8 text imported with the two argument ImportStream (no MIME type) comes back as the same bytes (streams/StTMedia.al
+        // TR_MediaImportStream_TextContent_ExportStream, writer TR's branch al-runtime-rs-staging-tr, real BC 29): a registered
+        // assumption until the bump.
+        LibraryValue::OutStream(blob, _) if plain_text(&obj) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::MediaTextContentExported);
+            crate::stream::write_bytes(blob, &obj.bytes)
+        }
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
@@ -344,6 +351,21 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         other => return unsupported(format!("an OutStream was expected, got {}", other.describe())),
     }
     Ok(Value::Boolean(true))
+}
+
+/// Content the two argument ImportStream read that is plain UTF-8 text: no MIME type, no picture signature, no control
+/// characters other than tab, line feed and carriage return (the shape streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream
+/// pins). Anything else keeps the refusal of a look at what ExportStream wrote.
+fn plain_text(o: &MediaObject) -> bool {
+    o.mime.is_empty()
+        && o.pending.is_none()
+        && o.file_column.is_none()
+        && o.file_name.is_empty()
+        && !o.bytes.is_empty()
+        && png_size(&o.bytes).is_none()
+        && jpeg_size(&o.bytes).is_none()
+        && std::str::from_utf8(&o.bytes)
+            .is_ok_and(|t| t.chars().all(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')))
 }
 
 fn set_count(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {

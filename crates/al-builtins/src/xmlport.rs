@@ -14,6 +14,10 @@ pub struct Elem {
     pub name: String,
     pub attrs: Vec<(String, String)>,
     pub children: Vec<Node>,
+    /// Read from `<x />`: an element the document closed in its start tag. `<x></x>` is false (an XmlPort import runs a leaf
+    /// text element's OnAfterAssignVariable twice for the first form only: QrXpContainerOccurs.al TR_EmptyLeaf_Import, writer
+    /// TR's branch al-runtime-rs-staging-tr). An element made in code is false.
+    pub self_closed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +32,7 @@ impl Elem {
             name: name.to_string(),
             attrs: Vec::new(),
             children: Vec::new(),
+            self_closed: false,
         }
     }
 

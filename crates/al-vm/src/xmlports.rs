@@ -1134,7 +1134,7 @@ impl Session {
                     self.xp_import_container(inst, schema, child, ce)?
                 }
                 ir::XmlNodeKind::Text => {
-                    self.xp_assign_variable(inst, schema, child, ce.text())?;
+                    self.xp_assign_leaf_text(inst, schema, child, ce)?;
                     // Break in OnAfterAssignVariable of a text element right below the root ends the import there and
                     // OnPostXmlPort runs; Quit ends it without OnPostXmlPort (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:391
                     // Import_head_Break `pre1;head1;post;`, :417 Import_head_Quit `pre1;head1;`, no rows). Deeper it is not pinned.
@@ -1272,6 +1272,44 @@ impl Session {
             Value::Text(text.into())
         };
         self.xp_run_trigger(inst, schema, node, "onafterassignvariable")
+    }
+
+    /// A leaf text element (no attributes or elements in the schema) read from `ce`: `<x />` runs its OnAfterAssignVariable
+    /// twice, `<x></x>`, `<x> </x>` and `<x>v</x>` once, below the root, below a table element and inside a text element below a
+    /// table element (QrXpContainerOccurs.al TR_EmptyLeaf_Import on writer TR's branch al-runtime-rs-staging-tr, real BC 29; a
+    /// registered assumption until the bump). The variable is set to the empty text again before the second run (the corpus
+    /// triggers only read it). A Break or Quit in the first run ends the import before the second run would come: not pinned.
+    fn xp_assign_leaf_text(&mut self, inst: &Inst, schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
+        // `<x> </x>` gives the empty text (TR_EmptyLeaf_Import `space`: `top=[];`).
+        let text = ce.text();
+        let text = if !text.is_empty() && text.trim().is_empty() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
+            String::new()
+        } else {
+            text
+        };
+        self.xp_assign_variable(inst, schema, node, text)?;
+        if ce.self_closed && schema.node(node).trigger("onafterassignvariable").is_some() {
+            if Self::xp_import_stopped(inst) {
+                return unsupported(
+                    "XmlPort import of `<x />` whose OnAfterAssignVariable ended the import on its first run (whether it runs again is not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
+            self.xp_assign_variable(inst, schema, node, String::new())?;
+        }
+        Ok(())
+    }
+
+    /// `<x />` for a text element with an OnAfterAssignVariable below a field element, a place TR_EmptyLeaf_Import does not
+    /// cover: how often the trigger runs is not pinned.
+    fn xp_refuse_self_closed_leaf(schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
+        if ce.self_closed && schema.node(node).trigger("onafterassignvariable").is_some() {
+            return unsupported(
+                "XmlPort import of `<x />` for a text element with an OnAfterAssignVariable trigger below a field element (how often the trigger runs is not pinned)",
+            );
+        }
+        Ok(())
     }
 
     /// Field element or attribute: the text becomes the field's value, then `OnAfterAssignField`.
@@ -1952,7 +1990,7 @@ impl Session {
                     }
                 }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
-                    self.xp_assign_variable(inst, schema, child, ce.text())?
+                    self.xp_assign_leaf_text(inst, schema, child, ce)?
                 }
                 ir::XmlNodeKind::Table => {
                     // The record is stored before the elements below it are read when they are linked to it by LinkTable (assumption:
@@ -2107,6 +2145,7 @@ impl Session {
                     );
                 }
                 self.xp_import_attrs(inst, schema, child, ce, None)?;
+                // `<admission .. />` with attributes runs the trigger once (TP_Nested_Import, branch al-runtime-rs-staging-pub-tp).
                 self.xp_assign_variable(inst, schema, child, ce.text())?;
             }
             seq.finish(schema)?;
@@ -2117,20 +2156,11 @@ impl Session {
                 let Some(child) = seq.accept(schema, ce)? else {
                     continue;
                 };
-                // Real BC runs the OnAfterAssignVariable of an empty `<tier />` here twice (QrXpContainerOccurs.al
-                // TQ_Response_Import_Shapes `optional leaves absent`, `tier=;tier=;`, on corpus branch al-runtime-rs-staging-pub-tq).
-                // `<tier></tier>` is not pinned and the reader does not tell the two forms apart.
-                if schema.node(child).kind == ir::XmlNodeKind::Text
-                    && schema.node(child).trigger("onafterassignvariable").is_some()
-                    && ce.text().is_empty()
-                {
-                    return unsupported(
-                        "XmlPort import of an empty leaf text element with an OnAfterAssignVariable trigger inside a text element below a table element (real BC runs the trigger twice for `<x />`; `<x></x>` is not pinned)",
-                    );
-                }
+                // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
+                // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
                     ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
-                    _ => self.xp_assign_variable(inst, schema, child, ce.text())?,
+                    _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
             seq.finish(schema)?;
@@ -2209,7 +2239,10 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
-                ir::XmlNodeKind::Text => self.xp_assign_variable(inst, schema, child, ce.text())?,
+                ir::XmlNodeKind::Text => {
+                    Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
+                    self.xp_assign_variable(inst, schema, child, ce.text())?
+                }
                 _ => {
                     return unsupported(
                         "XmlPort import of a node below a field element other than an attribute or a leaf element",
@@ -2570,9 +2603,12 @@ impl Session {
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         inst.borrow_mut().xp_text.push((6, String::new()));
         let result = self.xp_export_inner(inst, schema, guarded);
-        inst.borrow_mut().xp_text.retain(|(k, _)| *k != 6 && *k != 7);
-        // What a table element record's key, order, filters and position are after an export under SourceTableView is not
-        // pinned: every later read of them refuses (records.rs `XP_VIEW_AFTER_EXPORT`).
+        inst.borrow_mut()
+            .xp_text
+            .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
+        inst.borrow_mut().xp_text.push((XP_EXPORTED, String::new()));
+        // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
+        // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, assumption `xmlport-export-again`).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
@@ -2678,6 +2714,7 @@ impl Session {
     /// sorting keeps the record's key and direction. Pinned for Format = Xml without InlineSchema; the rest is refused.
     fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
         let xp = schema.xp();
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
         for (i, n) in xp.nodes.iter().enumerate() {
             let Some(raw) = n.source_view.as_deref() else { continue };
             if xp.format != ir::XmlFormat::Xml || xp.inline_schema {
@@ -2687,17 +2724,44 @@ impl Session {
                 ));
             }
             let view = crate::views::property_view(raw);
+            let lower = view.to_ascii_lowercase();
+            // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
+            // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
+            if n.link_node.is_none() && lower.contains("where") {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportViewFilterUnlinked);
+            }
             let rec = self.xp_record(inst, schema.node(i))?;
             let t = self.table(&rec)?;
+            if again {
+                // A later export on the same instance (QrXpContainerOccurs.al TS_View_SecondExport, TS_Again_KeyBetween on
+                // branch al-runtime-rs-staging-pub-ts): the key is not set again (a key set in between, or the primary key
+                // after Reset, decides the order), the view's filters are applied again, the code's filters stay. After
+                // SetView, or with an ORDER in the view, it is not pinned.
+                if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                    return unsupported(
+                        "XmlPort export after SetView on a table element record an earlier export on the same instance left (not pinned)",
+                    );
+                }
+                if lower.contains("order") {
+                    return unsupported(
+                        "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                let mut r = rec.borrow_mut();
+                if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                    r.unpinned_buffer = None;
+                }
+                r.filters.retain(|f| f.group != XP_VIEW_GROUP);
+            }
             let kept = rec.borrow().filters.clone();
             let kept_order = {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
-            let lower = view.to_ascii_lowercase();
             self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
             let mut r = rec.borrow_mut();
-            if !lower.contains("sorting") {
+            if again || !lower.contains("sorting") {
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
             } else if !lower.contains("order") {
                 // A sorting without order is ascending, also after a SetTableView with Ascending(false) (:654 `SetTableView
@@ -2708,14 +2772,6 @@ impl Session {
             let mut filters = kept;
             filters.extend(r.filters.iter().filter(|f| f.group == XP_VIEW_GROUP).cloned());
             r.filters = filters;
-            // A later export on the same instance: the SourceTableView is applied again, so the view an earlier export left is
-            // replaced; the row that export left in the buffer stays unpinned (assumption `xmlport-unlinked-reply`, the partner
-            // shape of QrXpContainerOccurs.al TR_Booking_Reply_TwoLinesTwoParts on branch al-runtime-rs-staging-tr: an outer
-            // row's OnAfterGetRecord empties and refills the table).
-            if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
-                r.unpinned_buffer = Some(crate::records::XP_BUFFER_AFTER_EXPORT);
-            }
         }
         Ok(())
     }
@@ -3205,11 +3261,6 @@ impl Session {
         // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
         // Export_EmptyTable: 462 bytes, a row of `0`, empty text, `0.00`, `No`).
         if rows.is_empty() && !n.min_zero {
-            if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
-                return unsupported(
-                    "XmlPort export of a table element without rows that writes its record as it is, when an earlier export left that record (not pinned)",
-                );
-            }
             let mut e = Elem::new(&n.xml_name);
             let r = self.xp_export_content(inst, schema, node, &mut e);
             out.push(e);
@@ -3249,9 +3300,6 @@ impl Session {
         }
         for row in rows {
             self.load(&rec, row)?;
-            if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
-                rec.borrow_mut().unpinned_buffer = None;
-            }
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
@@ -3625,6 +3673,9 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
+
+/// The `Instance::xp_text` kind that says an export ran on the instance (its SourceTableView keys are not set again).
+const XP_EXPORTED: u8 = 14;
 
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {

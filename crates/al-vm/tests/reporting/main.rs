@@ -31,6 +31,8 @@ mod request_page_oninit_first_use;
 mod user_gaps_xml_blob;
 mod xmlport_attr_container;
 mod xmlport_bigtext;
+mod xmlport_empty_leaf_import;
+mod xmlport_export_again;
 mod xmlport_field_validation;
 mod xmlport_flowfield_import;
 mod xmlport_import_file;
