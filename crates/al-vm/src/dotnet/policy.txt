@@ -6,6 +6,7 @@
 #   deny-assembly <prefix>          assembly whose simple name starts with <prefix>
 #   allow-type <Type>               this exact CLR type is exempt from deny-type (never a prefix)
 #   deny-type <name>                this CLR type; a name ending in `.` is a namespace prefix
+#   deny-type-off-windows <name>    as deny-type, but lifted when the .NET host runs on Windows
 #   deny-member <Type.Member>       this member of this CLR type
 #   deny-new-without-args <Type>    construction with no arguments
 #   server-prefix <prefix>          assemblies and types that are server classes
@@ -62,8 +63,9 @@ deny-type Microsoft.Win32. | Windows registry and OS
 deny-type System.DirectoryServices. | directory services
 deny-type System.Security.Principal. | OS identity
 # ADR-044: the eight members of O365 Brand Color.MakePicture are served by the registry (dotnet/drawing.rs), which is
-# consulted before this policy. Every other System.Drawing type and member stays refused here.
-deny-type System.Drawing. | needs the Windows drawing stack (AL Runner refuses it for the same reason)
+# consulted before this policy. ADR-027 row 14 (amended 2026-10-29): on Windows every other System.Drawing type and
+# member goes to .NET (GDI+, the same bytes as BC); on any other OS it stays refused here.
+deny-type-off-windows System.Drawing. | needs the Windows drawing stack (AL Runner refuses it for the same reason)
 deny-member System.Threading.Thread.Sleep | wall-clock wait
 
 # Item 5: clock and randomness that bypass the host. The static members DateTime.Now, UtcNow, Today and
