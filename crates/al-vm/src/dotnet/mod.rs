@@ -346,6 +346,8 @@ impl Session {
         };
         let access = if kind == MemberKind::Construct {
             Access::Construct(values.len())
+        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
+            Access::MemberWithText(&member)
         } else {
             Access::Member(&member)
         };
