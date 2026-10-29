@@ -276,6 +276,35 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
             .then(|| p.parse().ok())
             .flatten()
     };
+    // The form a view writes, `yyyy-mm-ddThh:mm:ss[.f]Z` in UTC, reads back (P136Filter.al TV_SetView_DateTime_GetViewRoundTrip
+    // `same view=Yes`, with the view text of UN_DateTimeFilter_* on writer UN's corpus branch, commit d3bcc580).
+    if let Some((d, c)) = t.strip_suffix('Z').and_then(|r| r.split_once('T')) {
+        let p: Vec<&str> = d.split('-').collect();
+        if !(digit_groups(d, '-', 3) && p[0].len() == 4 && p[1].len() == 2 && p[2].len() == 2) {
+            return None;
+        }
+        let (y, m, dd) = (num(p[0], 4)?, num(p[1], 2)?, num(p[2], 2)?);
+        if !(1..=12).contains(&m) || dd < 1 || dd > i64::from(crate::datefns::days_in_month(y as i32, m as u32)) {
+            return None;
+        }
+        let day = crate::format::day_from_civil(y as i32, m as u32, dd as u32);
+        let (hms, frac) = match c.split_once('.') {
+            Some((h, f)) if (1..=3).contains(&f.len()) => (h, Some(f)),
+            Some(_) => return None,
+            None => (c, None),
+        };
+        let (h, mi, sec) = match hms.split(':').collect::<Vec<_>>()[..] {
+            [h, mi, sec] => (num(h, 2)?, num(mi, 2)?, num(sec, 2)?),
+            _ => return None,
+        };
+        let ms = match frac {
+            Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
+            None => 0,
+        };
+        crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+        return (h < 24 && mi < 60 && sec < 60)
+            .then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + mi) * 60 + sec) * 1000 + ms + 1));
+    }
     let parts: Vec<&str> = t.split(' ').collect();
     let (date, clock, suffix) = match parts[..] {
         [d, c] => (d, c, None),
@@ -305,16 +334,79 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
         Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
         None => 0,
     };
+    // Other hours (P136Filter.al UN_DateTimeFilter_HourNotTwelve*, _MoreHourForms* on writer UN's corpus branch, commit
+    // d3bcc580; assumption `datetime-filter-day-and-hours`): `08:30 AM`, `08:30 PM`, `05:45:10.5 PM`, and without a suffix a
+    // 24-hour clock (`08:30`, `17:45`, `00:00`). An hour past 12 with AM or PM is an error whose filter texts are not built here.
     let h = match suffix {
         Some("PM") if h == 12 => 12,
         Some("AM") if h == 12 => 0,
+        Some("PM") if (1..12).contains(&h) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+            h + 12
+        }
+        Some("AM") if (1..12).contains(&h) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+            h
+        }
         Some(_) => return None,
-        // Only the hour 12 is pinned without a suffix; other hours of a 24-hour clock are not.
         None if h == 12 => 12,
+        None if h < 24 => {
+            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+            h
+        }
         None => return None,
     };
     (m < 60 && s < 60)
         .then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1))
+}
+
+/// The day a DateTime filter text names when it is a date alone, in an English session: `MM/DD/YY`, `M/DD/YY` or `YYYY-MM-DD`
+/// (P136Filter.al UN_DateTimeFilter_DateAlone* on writer UN's corpus branch, commit d3bcc580). A date alone stands for the
+/// whole day, from 00:00:00 to 23:59:59 (a row at 23:59:59.999 is not matched). `None` for any other text.
+fn datetime_filter_day(t: &str) -> Option<i32> {
+    let ctx = DATE_CONTEXT.with(std::cell::Cell::get)?;
+    if ctx.language != 1033 {
+        return None;
+    }
+    let p: Vec<&str> = t.split(['/', '-']).collect();
+    let shape = if t.contains('/') {
+        digit_groups(t, '/', 3) && (1..=2).contains(&p[0].len()) && p[1].len() == 2 && p[2].len() == 2
+    } else {
+        digit_groups(t, '-', 3) && p[0].len() == 4 && p[1].len() == 2 && p[2].len() == 2
+    };
+    if !shape {
+        return None;
+    }
+    let text = if t.contains('-') { format!("{}/{}/{}", p[1], p[2], &p[0][2..]) } else { t.to_string() };
+    if t.contains('-') && !p[0].starts_with("20") {
+        return None;
+    }
+    match crate::evaluate::read_text(&crate::value::RtType::Date, &text) {
+        Some(Value::Date(day, false)) if day > 0 => Some(day),
+        _ => None,
+    }
+}
+
+/// `DD.MM.YY` alone or with ` HH:MM`, in an English session.
+fn dotted_datetime_text(t: &str) -> bool {
+    if DATE_CONTEXT.with(std::cell::Cell::get).is_none_or(|c| c.language != 1033) {
+        return false;
+    }
+    let (date, clock) = match t.split_once(' ') {
+        Some((d, c)) => (d, Some(c)),
+        None => (t, None),
+    };
+    digit_groups(date, '.', 3)
+        && date.split('.').all(|p| p.len() == 2)
+        && clock.is_none_or(|c| digit_groups(c, ':', 2) && c.split(':').all(|p| p.len() == 2))
+}
+
+/// The first and the last instant of `day` a date-alone DateTime filter covers.
+fn day_start(day: i32) -> Value {
+    Value::DateTime((i64::from(day) - 1) * 86_400_000 + 1)
+}
+fn day_end(day: i32) -> Value {
+    Value::DateTime((i64::from(day) - 1) * 86_400_000 + 86_399_000 + 1)
 }
 
 /// What the text of a Date filter needs from the session: today, the work date and the language of the messages.
@@ -674,6 +766,12 @@ impl Parser<'_> {
                 time_filter_text(text.trim()).unwrap_or(Value::Time(0))
             }
             T::DateTime if letters_only(text.trim()) => return Err(not_evaluated("DateTime", text.trim())),
+            // A dotted date in an English session, alone or with a clock, is no DateTime (P136Filter.al UN_DateTimeFilter_DateAlone,
+            // _MoreHourForms_3 `15.01.25`, `15.01.25 08:30` on writer UN's corpus branch, commit d3bcc580).
+            T::DateTime if dotted_datetime_text(text.trim()) => {
+                crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+                return Err(not_evaluated("DateTime", text.trim()));
+            }
             T::DateTime if datetime_filter_text(text.trim()).is_some() => {
                 datetime_filter_text(text.trim()).unwrap_or(Value::DateTime(0))
             }
@@ -821,6 +919,31 @@ impl Parser<'_> {
         }
     }
 
+    /// The day of a date-alone value on a DateTime field ([`datetime_filter_day`]); marks the assumption.
+    fn day_alone(&self, t: &Tok) -> Option<i32> {
+        match (t, self.ty) {
+            (Tok::Raw(s), crate::value::RtType::DateTime) => {
+                let day = datetime_filter_day(s.trim())?;
+                crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
+                Some(day)
+            }
+            _ => None,
+        }
+    }
+
+    /// A range end on a DateTime field: a date alone is the start of its day as the low end, its end as the high end.
+    /// A date alone next to a value with a clock is not pinned.
+    fn datetime_range(&self, lo: Option<Tok>, hi: Option<Tok>) -> Result<Option<FilterExpr>, String> {
+        let (dl, dh) = (lo.as_ref().and_then(|t| self.day_alone(t)), hi.as_ref().and_then(|t| self.day_alone(t)));
+        if dl.is_none() && dh.is_none() {
+            return Ok(None);
+        }
+        if (lo.is_some() && dl.is_none()) || (hi.is_some() && dh.is_none()) {
+            return Err("a DateTime filter range of a date alone and a value with a clock (not pinned)".into());
+        }
+        Ok(Some(FilterExpr::Range(dl.map(day_start), dh.map(day_end))))
+    }
+
     fn term(&mut self) -> Result<FilterExpr, String> {
         match self.peek_op() {
             Some("(") => {
@@ -843,6 +966,15 @@ impl Parser<'_> {
                     if let Some(e) = self.not_pattern()? {
                         return Ok(e);
                     }
+                }
+                // `<` before a date alone on a DateTime field is before the start of that day (P136Filter.al
+                // UN_DateTimeFilter_MoreHourForms_3 `<01/15/25`); the other operators before a date alone are not pinned.
+                if let Some(day) = self.toks.get(self.i).and_then(|t| self.day_alone(t)) {
+                    if op != "<" {
+                        return Err(format!("`{op}` before a date alone on a DateTime field (not pinned)"));
+                    }
+                    self.i += 1;
+                    return Ok(FilterExpr::Lt(day_start(day)));
                 }
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
@@ -868,6 +1000,9 @@ impl Parser<'_> {
                     ));
                 }
                 let hi = self.value().ok_or("value expected after ..")?;
+                if let Some(e) = self.datetime_range(None, Some(hi.clone()))? {
+                    return Ok(e);
+                }
                 Ok(FilterExpr::Range(None, Some(self.typed(hi)?)))
             }
             _ => {
@@ -877,6 +1012,12 @@ impl Parser<'_> {
                 };
                 if self.peek_op() == Some("..") {
                     self.i += 1;
+                    let at = self.i;
+                    let hi = self.value();
+                    if let Some(e) = self.datetime_range(Some(lo.clone()), hi)? {
+                        return Ok(e);
+                    }
+                    self.i = at;
                     let lo = self.typed(lo)?;
                     let hi = match self.value() {
                         Some(h) => Some(self.typed(h)?),
@@ -892,6 +1033,9 @@ impl Parser<'_> {
                         return Ok(FilterExpr::RangeSame(lo));
                     }
                     return Ok(FilterExpr::Range(Some(lo), hi));
+                }
+                if let Some(day) = self.day_alone(&lo) {
+                    return Ok(FilterExpr::Range(Some(day_start(day)), Some(day_end(day))));
                 }
                 self.single(lo, false)
             }
@@ -1227,13 +1371,71 @@ mod tests {
                 assert!(f.matches(&v), "{text}");
             }
             for text in [
-                "01/15/24",
                 "11/07/26 1:00 PM",
-                "11/07/26 13:00:00",
+                "11/07/26 13:00 PM",
                 "11/07/26 12:00:00.0331 PM",
                 "2026-11-07 12:00",
                 "11/07/26 12:60 PM",
             ] {
+                let e = parse_filter(text, &[], &T::DateTime).expect_err(text);
+                assert!(!e.starts_with(NOT_EVALUATED), "{text} stays refused: {e}");
+            }
+        });
+    }
+
+    /// P136Filter.al UN_DateTimeFilter_* (writer UN's corpus branch, commit d3bcc580): a date alone covers its whole day, other
+    /// hours read on a 24-hour clock or with AM/PM, `15.01.25` raises the evaluate error.
+    #[test]
+    fn datetime_filter_date_alone_and_other_hours() {
+        use crate::value::RtType as T;
+        let ctx = DateFilterContext {
+            today: 1,
+            work_date: 1,
+            language: 1033,
+        };
+        with_date_context(ctx, || {
+            let day = match crate::evaluate::read_text(&T::Date, "01/15/25") {
+                Some(Value::Date(n, _)) => i64::from(n),
+                other => panic!("{other:?}"),
+            };
+            let at = |d: i64, h: i64, m: i64, s: i64, ms: i64| {
+                Value::DateTime((day + d - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1)
+            };
+            let rows = [
+                (11, at(0, 0, 0, 0, 0)),
+                (12, at(0, 8, 30, 0, 0)),
+                (13, at(0, 8, 30, 30, 0)),
+                (15, at(0, 17, 45, 10, 500)),
+                (16, at(0, 17, 45, 0, 0)),
+                (18, at(1, 0, 0, 0, 0)),
+                (19, at(-1, 20, 0, 0, 0)),
+            ];
+            let ids = |text: &str| -> Vec<i32> {
+                let f = parse_filter(text, &[], &T::DateTime).unwrap_or_else(|e| panic!("{text}: {e}"));
+                rows.iter().filter(|(_, v)| f.matches(v)).map(|(i, _)| *i).collect()
+            };
+            for text in ["01/15/25", "1/15/25", "2025-01-15"] {
+                assert_eq!(ids(text), [11, 12, 13, 15, 16], "{text}");
+            }
+            assert_eq!(ids("..01/15/25"), [11, 12, 13, 15, 16, 19]);
+            assert_eq!(ids("01/15/25.."), [11, 12, 13, 15, 16, 18]);
+            assert_eq!(ids("01/15/25..01/16/25"), [11, 12, 13, 15, 16, 18]);
+            assert_eq!(ids("<01/15/25"), [19]);
+            assert_eq!(ids("01/15/25 08:30"), [12]);
+            assert_eq!(ids("01/15/25 08:30 AM"), [12]);
+            assert_eq!(ids("01/15/25 08:30 PM"), Vec::<i32>::new());
+            assert_eq!(ids("01/15/25 17:45:10.5"), [15]);
+            assert_eq!(ids("01/15/25 05:45:10.5 PM"), [15]);
+            assert_eq!(ids("01/15/25 00:00"), [11]);
+            assert_eq!(ids(">01/15/25 08:30"), [13, 15, 16, 18]);
+            // The text a view writes reads back.
+            assert_eq!(ids("2025-01-15T17:45:10.5Z"), [15]);
+            assert_eq!(ids("2025-01-15T00:00:00Z..2025-01-15T23:59:59Z"), [11, 12, 13, 15, 16]);
+            for text in ["15.01.25", "15.01.25 08:30"] {
+                let e = parse_filter(text, &[], &T::DateTime).expect_err(text);
+                assert!(e.starts_with(NOT_EVALUATED), "{text}: {e}");
+            }
+            for text in [">01/15/25", "01/15/25..01/16/25 08:00", "01/15/25 17:45:10.500 PM"] {
                 let e = parse_filter(text, &[], &T::DateTime).expect_err(text);
                 assert!(!e.starts_with(NOT_EVALUATED), "{text} stays refused: {e}");
             }

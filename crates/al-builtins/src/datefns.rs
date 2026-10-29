@@ -51,7 +51,7 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 const MS_PER_DAY: i64 = 86_400_000;
 const LAST_DAY: i32 = 3_652_059; // 9999-12-31
 
-fn days_in_month(y: i32, m: u32) -> u32 {
+pub(crate) fn days_in_month(y: i32, m: u32) -> u32 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,

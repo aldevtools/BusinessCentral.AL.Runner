@@ -56,6 +56,23 @@ impl Session {
                 return Ok(format!("{y:04}-{m:02}-{day:02}"));
             }
         }
+        // A view writes a DateTime in UTC as `yyyy-mm-ddThh:mm:ssZ`, with the milliseconds after a dot without trailing zeros
+        // (`2025-01-15T17:45:10.5Z`) (P136Filter.al UN_DateTimeFilter_* `view=` on writer UN's corpus branch, commit d3bcc580).
+        if let (true, Value::DateTime(d)) = (iso, v) {
+            if *d != 0 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatetimeFilterDayAndHours);
+                let t = d - 1;
+                let (day, ms) = (t.div_euclid(86_400_000), t.rem_euclid(86_400_000));
+                let (y, m, dd) = al_builtins::format::civil_from_day((day + 1) as i32);
+                let (h, mi, sec, f) = (ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000);
+                let frac = if f == 0 {
+                    String::new()
+                } else {
+                    format!(".{f:03}").trim_end_matches('0').to_string()
+                };
+                return Ok(format!("{y:04}-{m:02}-{dd:02}T{h:02}:{mi:02}:{sec:02}{frac}Z"));
+            }
+        }
         // A date filter writes a two-digit year for 2031 to 2038 too, where Format(Date) writes four digits
         // (record/lt-date-text-forms/DateFilterTextForms.al:GetRange_DateTextForms_English `filter 02/01/31`,
         // GetRange_FourDigits_OtherWorkDate `filter 02/01/38`). The years 2039 to 2049 are not pinned.
@@ -105,7 +122,13 @@ impl Session {
             if *d != 0 && (d - 1) % 1000 != 0 {
                 return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
             }
-            // Seconds without milliseconds: not pinned.
+            // The last second of a day, the end of a date-alone filter, shows its seconds (`01/15/25 11:59:59 PM`, P136Filter.al
+            // UN_DateTimeFilter_DateAlone on writer UN's corpus branch, commit d3bcc580).
+            if *d != 0 && (d - 1) % 86_400_000 == 86_399_000 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DatetimeFilterDayAndHours);
+                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
+            }
+            // Other seconds without milliseconds: not pinned.
             if *d != 0 && (d - 1) / 1000 % 60 != 0 {
                 return unsupported("the filter text of a DateTime with seconds and no milliseconds (not pinned)");
             }
