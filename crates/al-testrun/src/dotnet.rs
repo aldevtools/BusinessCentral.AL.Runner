@@ -95,11 +95,18 @@ pub struct SidecarStats {
 /// together, and a taken one is replaced while the next codeunit runs.
 pub const STANDBY_SIDECARS: usize = 2;
 
-/// The `DotNet` policy for a run whose sidecar starts on this machine. The OS decides here, where the sidecar is
-/// started, not in the core (ADR-006): on Windows .NET has GDI+, so System.Drawing runs for real (ADR-027 row 14,
-/// amended by the owner 2026-10-29); elsewhere it stays refused with the reason in `policy.txt`.
-pub fn sidecar_policy() -> al_vm::dotnet::policy::Policy {
-    al_vm::dotnet::policy::Policy::builtin_for(cfg!(windows))
+/// The `DotNet` set-up for a run whose sidecar starts on this machine. The OS decides here, where the sidecar is
+/// started, not in the core (ADR-006). On Windows .NET has GDI+, so every System.Drawing type and member goes to
+/// .NET (ADR-027 row 14, amended by the owner 2026-10-29): the policy lifts its `deny-type-off-windows` rules and the
+/// registry claims no System.Drawing type. Elsewhere the ADR-044 registry serves its members and the policy refuses
+/// the rest with the reason in `policy.txt`.
+pub fn sidecar_config(host: std::sync::Arc<dyn DotNetHost>) -> al_vm::dotnet::DotNetConfig {
+    let windows = cfg!(windows);
+    al_vm::dotnet::DotNetConfig {
+        host,
+        registry: std::sync::Arc::new(al_vm::dotnet::registry::Registry::builtin_for(windows)),
+        policy: std::sync::Arc::new(al_vm::dotnet::policy::Policy::builtin_for(windows)),
+    }
 }
 
 thread_local! {
@@ -1295,6 +1302,27 @@ mod tests {
             .join("Service");
         std::fs::create_dir_all(&svc).unwrap();
         svc
+    }
+
+    /// The rules a run on this machine gets (ADR-027 row 14): on Windows every System.Drawing type goes to .NET; elsewhere
+    /// the ADR-044 registry serves its members and the policy refuses the rest.
+    #[test]
+    fn sidecar_config_routes_system_drawing_by_os() {
+        let cfg = sidecar_config(std::sync::Arc::new(al_host::dotnet::NoDotNet));
+        let refused = cfg
+            .policy
+            .check(
+                None,
+                "System.Drawing.Image",
+                al_vm::dotnet::policy::Access::Member("Width"),
+            )
+            .is_err();
+        let registered = cfg.registry.get("System.Drawing.Graphics").is_some();
+        if cfg!(windows) {
+            assert!(!refused && !registered);
+        } else {
+            assert!(refused && registered);
+        }
     }
 
     #[test]

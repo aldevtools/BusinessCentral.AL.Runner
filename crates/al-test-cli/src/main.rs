@@ -600,11 +600,7 @@ fn run_version(
         // starts overlap the compile; a run without them starts nothing (ADR-014 section 6).
         sidecar_host.prewarm(al_test_cli::dotnet::STANDBY_SIDECARS);
     }
-    let dotnet = al_vm::dotnet::DotNetConfig {
-        host,
-        policy: std::sync::Arc::new(al_test_cli::dotnet::sidecar_policy()),
-        ..Default::default()
-    };
+    let dotnet = al_test_cli::dotnet::sidecar_config(host);
     let mut runs = vec![runtime::SuiteRun {
         name: String::new(),
         app: None,

@@ -1,6 +1,6 @@
 # ADR-044: `System.Drawing.Bitmap` for Microsoft's brand colors
 
-- Status: Accepted (owner, 2026-10-18, option 3)
+- Status: Accepted (owner, 2026-10-18, option 3). Linux and macOS only since 2026-10-29: on Windows the registry claims no System.Drawing type and every System.Drawing call goes to .NET (ADR-027 row 14)
 - Date: 2026-10-18
 - Related: ADR-027 (scope, row 14), ADR-014 (policy, section 8), ADR-024, ADR-039, ADR-040 (same pattern), ADR-009
 
