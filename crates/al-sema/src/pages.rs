@@ -1981,10 +1981,20 @@ mod tests {
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
-        // A category no action of the page is promoted to stays refused.
+        // A standard category no action of the page is promoted to is an implicit group too (pages/lt-up-page-ext/
+        // UpPromotedCategories.al:176, corpus PR 808; al-runner issue 6217), on an assumption until the corpus bump.
         let ext = "pageextension 50101 E extends P { actions { addlast(Category_Category7) { actionref(Act_Promoted; Act) { } } } }";
         let l = merged(base, &[ext]);
-        assert!(l.reasons.join(";").contains("Category_Category7"), "{:?}", l.reasons);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
+        // A name that is no standard category stays refused (alc: AL0271, must-not-compile 2290).
+        for anchor in ["Category_Category21", "NoSuchGroup"] {
+            let ext = format!(
+                "pageextension 50101 E extends P {{ actions {{ addlast({anchor}) {{ actionref(Act_Promoted; Act) {{ }} }} }} }}"
+            );
+            let l = merged(base, &[&ext]);
+            assert!(l.reasons.join(";").contains(anchor), "{:?}", l.reasons);
+        }
     }
 
     // An area name nothing pins is still refused.
