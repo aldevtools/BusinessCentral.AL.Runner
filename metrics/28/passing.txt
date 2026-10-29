@@ -10931,6 +10931,7 @@
 72513 Message_Length
 72513 Message_Long
 72513 Message_Text_Forms
+72513 PYC_Error_CrLfAndLoneCrLf
 72513 PYC_Message_LoneCrAndLf
 72513 StrMenu_Cancel
 72513 StrMenu_ChoiceBeyondOptions
@@ -11819,6 +11820,7 @@
 73276 TV_GetRecord_AfterLookupCancel_FilteredToNoRow
 73276 TV_GetRecord_AfterLookupOk_FilteredToNoRow
 73276 TV_GetRecord_AfterRunModalOk_FilteredToNoRow
+73276 TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow
 73276 TV_GetRecord_PageTypedHandler_FilteredToNoRow
 73283 P129_Callstack_PageNewRecordAndNestedAction
 73283 P129_Callstack_PageOpenAndClose_Triggers
@@ -13933,6 +13935,8 @@
 74883 Variant_SameTable_NewValues
 74883 Variant_Temporary_ThenPersistent
 74884 NoSettableView_AssignRec
+74884 PageVariable_LookupMode_HandlerSetRecord_Cancel
+74884 PageVariable_LookupMode_HandlerSetRecord_LookupOK
 74884 RunModalWithRecord_HandlerSetRecord_Cancel
 74884 RunModalWithRecord_HandlerSetRecord_LookupOK
 74884 RunModalWithRecord_NoSetRecord_LookupOK
