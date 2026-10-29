@@ -439,6 +439,27 @@ impl<'a> Lowerer<'a> {
             (Ty::Guid, Ty::Text(_) | Ty::Code(_)) => true,
             (Ty::Text(None), Ty::Guid) => true,
             (Ty::Text(Some(n)) | Ty::Code(Some(n)), Ty::Guid) if *n >= 38 => true,
+            // A Text[N] true branch converts an unbounded Text false branch to Text[N]: a value that fits is returned unchanged,
+            // a longer one fails StringLengthExceeded with the value in the message cut to 200 characters plus `...`
+            // (types/lt-up-ternary/UpTernary.al:111, :119, :128 with :152-157 and :183-188, a Text[250] true branch against a
+            // StrSubstNo result and a Text variable, corpus PR 808 at branch commit 910da83e; types/TestTernaryContracts.al:
+            // 390-391 for Text[10], pinned on master; al-runner issue 6213). Text[250] runs on the assumption
+            // `ternary-unbounded-text-false-branch` until PR 808 is in the pinned corpus.
+            // Another length N is not pinned: refused.
+            (Ty::Text(Some(10)), Ty::Text(None)) => true,
+            (Ty::Text(Some(250)), Ty::Text(None)) => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryUnboundedTextFalseBranch);
+                true
+            }
+            // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:
+            // the false branch calls the codeunit's implementation (types/lt-up-ternary/UpTernary.al:60, :70, :81 with :216-227,
+            // corpus PR 808 at branch commit 910da83e; al-runner issue 6215). The reverse order does not compile (AL0122,
+            // must-not-compile 2291 of the same commit) and stays refused here. Runs on the assumption
+            // `ternary-interface-codeunit-branch` until PR 808 is in the pinned corpus.
+            (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Codeunit, _)) => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryInterfaceCodeunitBranch);
+                true
+            }
             _ => false,
         };
         if matches!((t, f), (Ty::Guid, _) | (_, Ty::Guid)) {

@@ -287,6 +287,28 @@ registry! {
             since: "2026-10-29",
         },
     },
+    PageExtImplicitPromotedCategory => {
+        id: "pageext-implicit-promoted-category",
+        assumed: "A page extension may place actions with addafter or addlast at the promoted groups Category_Category7, Category_Category12 and Category_New of a page that declares none of them; the actionrefs are on the page and run their actions.",
+        tests: "No Microsoft test: al-runner issue 6217 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6217],
+            files: &["tests/al-language/pages/lt-up-page-ext/UpPromotedCategories.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtCurrPageProtectedVar => {
+        id: "pageext-currpage-protected-var",
+        assumed: "A page extension reads a protected variable of the page it extends through CurrPage.<name>: the same variable the plain name reads, on the base page's instance.",
+        tests: "No Microsoft test: al-runner issue 6219 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus pages/lt-up-page-ext/UpPageExt.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6219],
+            files: &["tests/al-language/pages/lt-up-page-ext/UpPageExt.al"],
+            since: "2026-10-29",
+        },
+    },
     PageExtSiblingProtectedVar => {
         id: "pageext-sibling-protected-var",
         assumed: "A page extension can read and assign a protected variable that another page extension of the same page declares; both name one variable, on the declaring extension's instance.",
@@ -692,6 +714,28 @@ registry! {
         assumed: "A conditional expression with a Label branch against a Code[N] or Text[N] branch: the true branch decides the result type. A Code[N] true branch makes the Label false branch a Code (upper case; StringLengthExceeded past N, with the label's own text in the message); a Text[N] true branch limits the Label to N; a Label true branch is a Text that takes the false branch as it is. Pinned for Code[20] and Text[10] against Labels of 7, 10, 15, 20 and 30 characters, each way (types/TestTernaryContracts.al TI_Ternary_*); assumed alike for every other length N.",
         tests: "No Microsoft test and no user report: the reported shape (a Code[20] true branch and a Locked Label false branch) is pinned; other lengths take the same lowering.",
         probe: "The TI_Ternary_* tests of TestTernaryContracts.al with Code[10], Code[50] and Text[30] branches, and an unbounded Text branch against a Label either way.",
+    },
+    TernaryUnboundedTextFalseBranch => {
+        id: "ternary-unbounded-text-false-branch",
+        assumed: "A conditional expression with a Text[250] true branch and an unbounded Text false branch (a Text variable or a StrSubstNo result) converts the false value to Text[250]: a value that fits is returned unchanged, a longer one fails StringLengthExceeded with the value in the message cut to 200 characters plus '...'.",
+        tests: "No Microsoft test: al-runner issue 6213 (a URL builder in a dependency app of partner suites). Observed on real BC by corpus writer UP.",
+        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6213],
+            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
+            since: "2026-10-29",
+        },
+    },
+    TernaryInterfaceCodeunitBranch => {
+        id: "ternary-interface-codeunit-branch",
+        assumed: "A conditional expression with an interface true branch and a codeunit false branch that implements the interface compiles; the false branch converts to the interface as an assignment does and calls the codeunit's implementation.",
+        tests: "No Microsoft test: al-runner issue 6215 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6215],
+            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
+            since: "2026-10-29",
+        },
     },
     ResourceFileNameCase => {
         id: "resource-file-name-case",

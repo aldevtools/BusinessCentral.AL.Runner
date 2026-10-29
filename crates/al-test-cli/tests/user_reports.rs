@@ -1487,3 +1487,363 @@ codeunit 50000 T { Subtype = Test;
     if not L.IsEmpty() then Error('rows'); end; }"#;
     all_pass(run_over_system(MAIN_ID, Some(false), None, main));
 }
+
+/// Issue 6213: a conditional expression with a Text[N] true branch and an unbounded Text false branch (a Text variable or a
+/// StrSubstNo result). A false value that fits is returned unchanged; a longer one raises StringLengthExceeded with the value
+/// in the message cut to its first 200 characters plus `...`. Pins: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch
+/// commit 910da83e) UP_Ternary_Text250TrueUnboundedTextFalse and _Length; types/TestTernaryContracts.al PYC_Ternary_MoreBranchPairs
+/// (Text[10] against a 12-character Text).
+const ISSUE_6213_OBJECTS: &str = "
+codeunit 50100 \"TT Url Builder\"
+{
+    var
+        BaseUrl: Text[250];
+        AccountName: Text;
+        Short: Text[30];
+
+    procedure SetAccountName(NewAccountName: Text)
+    begin
+        AccountName := NewAccountName;
+    end;
+
+    procedure SetBaseUrl(NewBaseUrl: Text[250])
+    begin
+        BaseUrl := NewBaseUrl;
+    end;
+
+    procedure GetBaseUrl(): Text[250]
+    begin
+        exit(BaseUrl);
+    end;
+
+    procedure GetUrl(): Text
+    var
+        BaseUrlTok: Label 'https://%1.blob.core.windows.net', Locked = true;
+    begin
+        exit(BaseUrl <> '' ? GetBaseUrl() : StrSubstNo(BaseUrlTok, AccountName));
+    end;
+
+    procedure GetUrlFromText(): Text
+    var
+        Fallback: Text;
+    begin
+        Fallback := 'https://' + AccountName;
+        exit(BaseUrl <> '' ? BaseUrl : Fallback);
+    end;
+
+    procedure GetIntoText(): Text
+    var
+        Result: Text;
+    begin
+        Result := BaseUrl <> '' ? BaseUrl : AccountName;
+        exit(Result);
+    end;
+
+    procedure GetShort(): Text
+    begin
+        exit(Short <> '' ? Short : AccountName);
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FalseValueThatFits()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName('acct');
+        if Builder.GetUrl() <> 'https://acct.blob.core.windows.net' then
+            Error('got %1', Builder.GetUrl());
+        if Builder.GetUrlFromText() <> 'https://acct' then
+            Error('got %1', Builder.GetUrlFromText());
+        if Builder.GetIntoText() <> 'acct' then
+            Error('got %1', Builder.GetIntoText());
+        Builder.SetBaseUrl('https://custom.example');
+        if Builder.GetUrl() <> 'https://custom.example' then
+            Error('got %1', Builder.GetUrl());
+    end;
+
+    [Test]
+    procedure FalseValueTooLong()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName(PadStr('', 300, 'a'));
+        asserterror Builder.GetIntoText();
+        if GetLastErrorCode() <> 'StringLengthExceeded' then
+            Error('code %1', GetLastErrorCode());
+        if GetLastErrorText() <> 'The length of the string is 300, but it must be less than or equal to 250 characters. Value: ' + PadStr('', 200, 'a') + '...' then
+            Error('text %1', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure OtherLength()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName('acct');
+        if Builder.GetShort() <> 'acct' then
+            Error('got %1', Builder.GetShort());
+    end;
+}";
+
+#[test]
+fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
+    // Another length than the pinned 10 and 250 (here Text[30]) is not pinned: refused.
+    for (name, outcome) in run_with_deps(&[], ISSUE_6213_OBJECTS) {
+        if name.ends_with("OtherLength") {
+            assert!(
+                matches!(&outcome, Outcome::NotRun(why) if why.contains("Text[30] and Text") && why.contains("not pinned")),
+                "{outcome:?}"
+            );
+        } else {
+            assert_eq!(outcome, Outcome::Pass, "{name}");
+        }
+    }
+}
+
+/// Issue 6215: an interface true branch and a codeunit false branch that implements it compiles and the false branch calls
+/// the codeunit's implementation. Pin: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch commit 910da83e)
+/// UP_Ternary_InterfaceTrueCodeunitFalse.
+const ISSUE_6215_OBJECTS: &str = "
+interface \"TI Preview\" { procedure GetPreview(): Text; }
+interface \"TI Selector\" { procedure GetName(): Text; }
+codeunit 50100 \"TI Special\" implements \"TI Preview\", \"TI Selector\"
+{
+    procedure GetPreview(): Text begin exit('special'); end;
+    procedure GetName(): Text begin exit('special'); end;
+}
+codeunit 50101 \"TI Default\" implements \"TI Preview\"
+{
+    procedure GetPreview(): Text begin exit('default'); end;
+}
+codeunit 50102 \"TI Factory\"
+{
+    procedure GetSelector(): Interface \"TI Selector\"
+    var
+        Special: Codeunit \"TI Special\";
+    begin
+        exit(Special);
+    end;
+
+    procedure ViaCast(UseSpecial: Boolean): Interface \"TI Preview\"
+    var
+        Default: Codeunit \"TI Default\";
+    begin
+        exit(UseSpecial ? (GetSelector() as \"TI Preview\") : Default);
+    end;
+
+    procedure Assigned(UseSpecial: Boolean): Text
+    var
+        Default: Codeunit \"TI Default\";
+        Special: Codeunit \"TI Special\";
+        Preview: Interface \"TI Preview\";
+        Chosen: Interface \"TI Preview\";
+    begin
+        Preview := Special;
+        Chosen := UseSpecial ? Preview : Default;
+        exit(Chosen.GetPreview());
+    end;
+}
+codeunit 50103 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InterfaceTrueCodeunitFalse()
+    var
+        Factory: Codeunit \"TI Factory\";
+    begin
+        if Factory.ViaCast(false).GetPreview() <> 'default' then
+            Error('cast false %1', Factory.ViaCast(false).GetPreview());
+        if Factory.ViaCast(true).GetPreview() <> 'special' then
+            Error('cast true %1', Factory.ViaCast(true).GetPreview());
+        if Factory.Assigned(false) <> 'default' then
+            Error('assigned false');
+        if Factory.Assigned(true) <> 'special' then
+            Error('assigned true');
+    end;
+}";
+
+#[test]
+fn issue_6215_interface_true_branch_and_implementing_codeunit_false_branch() {
+    all_pass(run_with_deps(&[], ISSUE_6215_OBJECTS));
+}
+
+/// Issue 6217: addafter/addlast of a promoted category group the page does not declare (Category_Category7,
+/// Category_Category12, Category_New) compiles and the extension's action and actionref run from a TestPage. Pin:
+/// pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808, branch commit 910da83e).
+fn issue_6217_objects(anchor: &str) -> String {
+    format!(
+        "
+table 50100 \"MA Entry\" {{ fields {{ field(1; \"No.\"; Code[20]) {{ }} }} keys {{ key(PK; \"No.\") {{ Clustered = true; }} }} }}
+codeunit 50104 \"MA Log\" {{ SingleInstance = true; var L: Text; procedure Add(E: Text) begin L += E; end; procedure Take(): Text begin exit(L); end; }}
+page 50101 \"MA List\"
+{{
+    PageType = List;
+    SourceTable = \"MA Entry\";
+    layout {{ area(Content) {{ repeater(Lines) {{ field(\"No.\"; Rec.\"No.\") {{ }} }} }} }}
+    actions
+    {{
+        area(Processing)
+        {{
+            action(Post) {{ Caption = 'Post'; trigger OnAction() begin end; }}
+        }}
+        area(Promoted)
+        {{
+            group(Category_Process) {{ Caption = 'Process'; actionref(Post_Promoted; Post) {{ }} }}
+            group(Category_Category4) {{ Caption = 'Page'; }}
+        }}
+    }}
+}}
+pageextension 50102 \"MA List Ext\" extends \"MA List\"
+{{
+    actions
+    {{
+        addlast(Processing)
+        {{
+            action(OpenSomething)
+            {{
+                Caption = 'Open Something';
+                ApplicationArea = All;
+                trigger OnAction() var Log: Codeunit \"MA Log\"; begin Log.Add('x'); end;
+            }}
+        }}
+        {anchor}
+        {{
+            group(MyCategory)
+            {{
+                Caption = 'My Category';
+                actionref(OpenSomething_Promoted; OpenSomething) {{ }}
+            }}
+        }}
+    }}
+}}
+codeunit 50103 T
+{{
+    Subtype = Test;
+
+    [Test]
+    procedure P()
+    var
+        MAList: TestPage \"MA List\";
+        Log: Codeunit \"MA Log\";
+        R: Record \"MA Entry\";
+    begin
+        R.\"No.\" := 'A';
+        R.Insert();
+        MAList.OpenView();
+        MAList.OpenSomething.Invoke();
+        MAList.OpenSomething_Promoted.Invoke();
+        MAList.Close();
+        if Log.Take() <> 'xx' then
+            Error('log %1', Log.Take());
+    end;
+}}"
+    )
+}
+
+#[test]
+fn issue_6217_extension_adds_after_an_undeclared_promoted_category() {
+    for anchor in [
+        "addafter(Category_Category7)",
+        "addlast(Category_Category7)",
+        "addafter(Category_Category12)",
+        "addafter(Category_New)",
+        "addlast(Category_New)",
+    ] {
+        let results = run_with_deps(&[], &issue_6217_objects(anchor));
+        assert!(!results.is_empty(), "{anchor}");
+        for (name, outcome) in results {
+            assert_eq!(outcome, Outcome::Pass, "{anchor}: {name}");
+        }
+    }
+}
+
+/// Issue 6217: the forms corpus PR 808 does not pin (another category, addbefore/addfirst) stay refused as not pinned.
+#[test]
+fn issue_6217_unpinned_promoted_category_forms_stay_refused() {
+    for anchor in [
+        "addbefore(Category_Category7)",
+        "addfirst(Category_Category7)",
+        "addafter(Category_Category5)",
+    ] {
+        let results = run_with_deps(&[], &issue_6217_objects(anchor));
+        assert!(
+            matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("not pinned")),
+            "{anchor}: {results:?}"
+        );
+    }
+}
+
+/// Issue 6219: a page extension reads its base page's protected var through `CurrPage.` and assigns the plain name. Pin:
+/// pages/lt-up-page-ext/UpPageExt.al (corpus PR 808, branch commit 910da83e) UP_PageExt_ReadsProtectedVarThroughCurrPage.
+/// Assigning through `CurrPage.<var>` is not pinned (real BC failed to open the page in the writer's probe) and stays refused.
+fn issue_6219_objects(trigger_body: &str) -> String {
+    format!(
+        "
+table 50100 \"CP Entry\" {{ fields {{ field(1; \"No.\"; Code[20]) {{ }} }} keys {{ key(PK; \"No.\") {{ Clustered = true; }} }} }}
+page 50101 \"CP List\"
+{{
+    PageType = List;
+    SourceTable = \"CP Entry\";
+    layout {{ area(Content) {{ repeater(Lines) {{ field(\"No.\"; Rec.\"No.\") {{ }} }} }} }}
+    actions
+    {{
+        area(Processing)
+        {{
+            action(Apply) {{ Caption = 'Apply'; Enabled = ApplyEnabled; trigger OnAction() begin end; }}
+        }}
+    }}
+    trigger OnOpenPage()
+    begin
+        ApplyEnabled := false;
+    end;
+
+    protected var
+        ApplyEnabled: Boolean;
+}}
+pageextension 50102 \"CP List Ext\" extends \"CP List\"
+{{
+    trigger OnOpenPage()
+    begin
+        {trigger_body}
+    end;
+}}
+codeunit 50103 T
+{{
+    Subtype = Test;
+
+    [Test]
+    procedure P()
+    var
+        CPList: TestPage \"CP List\";
+    begin
+        CPList.OpenView();
+        if not CPList.Apply.Enabled() then
+            Error('not enabled');
+        CPList.Close();
+    end;
+}}"
+    )
+}
+
+#[test]
+fn issue_6219_extension_reads_protected_var_through_currpage() {
+    all_pass(run_with_deps(
+        &[],
+        &issue_6219_objects("ApplyEnabled := not CurrPage.ApplyEnabled;"),
+    ));
+}
+
+#[test]
+fn issue_6219_assigning_through_currpage_stays_refused() {
+    let results = run_with_deps(&[], &issue_6219_objects("CurrPage.ApplyEnabled := true;"));
+    assert!(
+        matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("CurrPage.ApplyEnabled") && why.contains("not pinned")),
+        "{results:?}"
+    );
+}
