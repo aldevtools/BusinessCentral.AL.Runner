@@ -3271,6 +3271,8 @@ impl Session {
         modal: bool,
         field: bool,
     ) -> Result<Value, Signal> {
+        // A new run forgets what an earlier Page-typed handler set (`handler_set_record`).
+        st.borrow_mut().handler_set_record = false;
         let handed = record.clone();
         let object = st.borrow().object;
         if let Some(refused) = self.install_page_run(object as usize, modal) {
@@ -3429,6 +3431,7 @@ impl Session {
             // P128ModalOnInit.al:191 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
         let (hobject, hroutine, hinst) = handler;
