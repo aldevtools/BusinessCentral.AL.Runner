@@ -766,6 +766,32 @@ impl Lowerer<'_> {
                     Err(crate::check::tdd_decl::site_reason(&site))
                 }
                 // `Mode::Decompress` with `Mode: DotNet CompressionMode`: the type's static member.
+                // `Graphics.SmoothingMode::AntiAlias`: the member of the .NET enum a property holds (System Application,
+                // ImageImpl.Codeunit.al:97 and :129; passes on real BC: the reporter's run of Image.Resize). BC's
+                // compiler knows the property's type; here the property is read for the type of its value and the
+                // member is read on that value's type. Both reads go without the declared type, so on an unassigned
+                // variable the read is refused, never sent as a static read BC does not make.
+                Some(Res::DotNetMember(name)) if matches!(self.ty_of(n), Ty::DotNet(a) if a.is_empty()) => {
+                    let prop: Vec<SyntaxNode> = kids[0].children().collect();
+                    let (Some(owner), Some(Res::DotNetMember(pname))) = (prop.first(), self.res(&kids[0]).cloned())
+                    else {
+                        return Err(format!("`{}` is not lowered yet", n.text()));
+                    };
+                    self.assume(al_builtins::assumptions::Assumption::DotNetEnumMemberThroughProperty);
+                    let owner = self.expr(owner)?;
+                    let read = ir::Expr::DotNet {
+                        ty: None,
+                        receiver: Some(Box::new(owner)),
+                        op: ir::DotNetOp::Get(pname),
+                        args: Vec::new(),
+                    };
+                    Ok(ir::Expr::DotNet {
+                        ty: None,
+                        receiver: Some(Box::new(read)),
+                        op: ir::DotNetOp::Get(name),
+                        args: Vec::new(),
+                    })
+                }
                 Some(Res::DotNetMember(name)) => {
                     let Ty::DotNet(alias) = self.ty_of(n) else {
                         return Err(format!("`{name}` is not a member of a DotNet value"));

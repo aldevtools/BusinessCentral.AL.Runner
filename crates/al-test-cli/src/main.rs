@@ -602,6 +602,7 @@ fn run_version(
     }
     let dotnet = al_vm::dotnet::DotNetConfig {
         host,
+        policy: std::sync::Arc::new(al_test_cli::dotnet::sidecar_policy()),
         ..Default::default()
     };
     let mut runs = vec![runtime::SuiteRun {

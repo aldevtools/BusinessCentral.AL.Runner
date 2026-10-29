@@ -1352,6 +1352,7 @@ fn test_inner(
     }
     let dotnet = al_vm::dotnet::DotNetConfig {
         host,
+        policy: std::sync::Arc::new(al_testrun::dotnet::sidecar_policy()),
         ..Default::default()
     };
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.

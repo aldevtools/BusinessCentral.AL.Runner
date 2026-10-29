@@ -14,6 +14,8 @@ pub enum Access<'a> {
 pub struct Policy {
     deny_assembly: Vec<(String, String)>,
     deny_type: Vec<(String, String)>,
+    /// `deny-type-off-windows` rules: kept in `deny_type` unless the host runs .NET on Windows.
+    off_windows: Vec<String>,
     allow_type: Vec<String>,
     deny_member: Vec<(String, String, String)>,
     deny_new_no_args: Vec<(String, String)>,
@@ -26,9 +28,22 @@ fn starts_with_ci(s: &str, prefix: &str) -> bool {
 }
 
 impl Policy {
-    /// The rules shipped with the runtime.
+    /// The rules shipped with the runtime, as on a host that does not run .NET on Windows.
     pub fn builtin() -> Policy {
-        Policy::parse(include_str!("policy.txt")).expect("policy.txt is well formed")
+        Policy::builtin_for(false)
+    }
+
+    /// The rules shipped with the runtime for a .NET host on Windows (`windows`) or elsewhere. The front end that
+    /// starts the sidecar decides (ADR-006: the core does not ask the OS). On Windows the `deny-type-off-windows`
+    /// rules are lifted: those types run for real (ADR-027 row 14, amended 2026-10-29).
+    pub fn builtin_for(windows: bool) -> Policy {
+        let mut p = Policy::parse(include_str!("policy.txt")).expect("policy.txt is well formed");
+        if windows {
+            let lifted = std::mem::take(&mut p.off_windows);
+            p.deny_type
+                .retain(|(t, _)| !lifted.iter().any(|l| l.eq_ignore_ascii_case(t)));
+        }
+        p
     }
 
     pub fn parse(text: &str) -> Result<Policy, String> {
@@ -46,6 +61,10 @@ impl Policy {
                 "deny-assembly" => p.deny_assembly.push((subject, rule)),
                 "allow-type" => p.allow_type.push(subject),
                 "deny-type" => p.deny_type.push((subject, rule)),
+                "deny-type-off-windows" => {
+                    p.off_windows.push(subject.clone());
+                    p.deny_type.push((subject, rule));
+                }
                 "deny-member" => {
                     let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
                     p.deny_member.push((ty.to_string(), member.to_string(), rule));
@@ -283,6 +302,43 @@ mod tests {
             "a seeded Random is deterministic"
         );
         assert!(p.check(None, "System.DateTime", Access::Member("Parse")).is_ok());
+    }
+
+    /// ADR-027 row 14 (amended by the owner, 2026-10-29): System.Drawing runs for real through the sidecar on
+    /// Windows, where .NET has GDI+ (the same bytes as BC); on any other OS it stays refused with its reason.
+    #[test]
+    fn system_drawing_is_refused_off_windows_and_sent_to_dotnet_on_windows() {
+        let off = Policy::builtin_for(false);
+        for ty in [
+            "System.Drawing.Bitmap",
+            "System.Drawing.Drawing2D.SmoothingMode",
+            "System.Drawing.Image",
+        ] {
+            refused(
+                off.check(Some("System.Drawing"), ty, Access::Member("X")),
+                &[
+                    ty,
+                    "needs the Windows drawing stack (AL Runner refuses it for the same reason)",
+                ],
+            );
+            assert!(
+                Policy::builtin_for(true)
+                    .check(Some("System.Drawing"), ty, Access::Member("X"))
+                    .is_ok()
+            );
+        }
+        // The default is the refusing one.
+        assert!(p().check(None, "System.Drawing.Bitmap", Access::Construct(2)).is_err());
+        // Only the Windows-only rules are lifted on Windows.
+        let on = Policy::builtin_for(true);
+        refused(
+            on.check(None, "System.IO.File", Access::Member("X")),
+            &["System.IO.File"],
+        );
+        refused(
+            on.check(None, "Microsoft.Win32.Registry", Access::Member("X")),
+            &["Microsoft.Win32"],
+        );
     }
 
     #[test]

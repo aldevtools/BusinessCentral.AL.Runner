@@ -95,6 +95,13 @@ pub struct SidecarStats {
 /// together, and a taken one is replaced while the next codeunit runs.
 pub const STANDBY_SIDECARS: usize = 2;
 
+/// The `DotNet` policy for a run whose sidecar starts on this machine. The OS decides here, where the sidecar is
+/// started, not in the core (ADR-006): on Windows .NET has GDI+, so System.Drawing runs for real (ADR-027 row 14,
+/// amended by the owner 2026-10-29); elsewhere it stays refused with the reason in `policy.txt`.
+pub fn sidecar_policy() -> al_vm::dotnet::policy::Policy {
+    al_vm::dotnet::policy::Policy::builtin_for(cfg!(windows))
+}
+
 thread_local! {
     /// Start-up time of the sidecars that threads started on this thread since the last
     /// [`take_start_time`]: the test runner reads it after each test codeunit.

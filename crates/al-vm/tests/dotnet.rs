@@ -2293,3 +2293,66 @@ fn what_no_test_pins_about_a_dotnet_stream_over_an_al_stream_is_refused() {
         "B.Data.CreateOutStream(O); B.Data.CreateInStream(I); X := I;",
     );
 }
+
+// ---- the member of a .NET enum named through a property (`Graphics.SmoothingMode::AntiAlias`) -------------
+
+/// System Application, Image Impl..Resize (ImageImpl.Codeunit.al:97 and :129) writes
+/// `Graphics.SmoothingMode := Graphics.SmoothingMode::AntiAlias;`: the member of the enum the property holds. It
+/// passes on real BC (the reporter's run of Image.Resize). The property is read for the type of its value, then
+/// the member is read on that type, as for `Mode::Decompress` on a variable (assumption
+/// `dotnet-enum-member-through-property`).
+#[test]
+fn an_enum_member_named_through_a_property_reads_the_member_of_the_property_type() {
+    let ty = "System.Xml.XmlNodeType";
+    let host = Fake::new(move |r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        Req::Get(DotNetTarget::Instance(4), n) if n == "NodeType" => reply(DotNetValue::Enum {
+            ty: ty.into(),
+            name: "Document".into(),
+            ordinal: 9,
+        }),
+        Req::Get(DotNetTarget::Value(DotNetValue::Enum { ty: t, .. }), n) if t == ty && n == "Element" => {
+            reply(DotNetValue::Enum {
+                ty: ty.into(),
+                name: "Element".into(),
+                ordinal: 1,
+            })
+        }
+        Req::Set(DotNetTarget::Instance(4), n, _) if n == "NodeType" => reply(DotNetValue::Null),
+        other => panic!("unexpected {other:?}"),
+    });
+    let r = run(
+        &host,
+        "X: DotNet XmlDocument;",
+        "X := X.XmlDocument(); X.NodeType := X.NodeType::Element;",
+        "",
+    );
+    r.result.as_ref().expect("runs");
+    assert_eq!(
+        host.calls().last(),
+        Some(&Req::Set(
+            DotNetTarget::Instance(4),
+            "NodeType".into(),
+            DotNetValue::Enum {
+                ty: ty.into(),
+                name: "Element".into(),
+                ordinal: 1
+            }
+        ))
+    );
+}
+
+/// On an unassigned variable BC still names the member (its compiler knows the property's type); here the property
+/// cannot be read, so the expression is refused rather than raising an error BC does not raise.
+#[test]
+fn an_enum_member_named_through_a_property_of_an_unassigned_variable_is_refused() {
+    let host = Fake::new(|r| panic!("unexpected {r:?}"));
+    let r = run(
+        &host,
+        "X: DotNet XmlDocument; V: DotNet ClrObject;",
+        "V := X.NodeType::Element;",
+        "",
+    );
+    let why = unsupported(&r);
+    assert!(why.contains("NodeType") && why.contains("unassigned"), "{why}");
+}
