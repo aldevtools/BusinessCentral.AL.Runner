@@ -411,27 +411,8 @@ pub(crate) fn build_shared<'a>(
             }
         }
         page_temporary[oi] = prop("SourceTableTemporary").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
-        // The values a SaveValues page stores are those of its variable-bound controls (corpus
-        // handlers/TestPageSaveValues.al). An extension control bound to `Rec.Field` adds none, so
-        // the stored set is the page's own. One bound to a variable is a control whose stored value
-        // no corpus test pins (docs/probes-needed.md, "SaveValues with page extensions").
-        if prop("SaveValues").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"))
-            && layouts[oi].iter().flat_map(|l| l.controls.iter()).any(|c| {
-                c.owner.is_some()
-                    && c.kind == ir::ControlKind::Field
-                    && !c.section.name().eq_ignore_ascii_case("label")
-                    && c.section.args().get(1).is_some_and(|src| {
-                        !matches!(
-                            crate::pages::classify_source(src, &std::collections::BTreeSet::new()),
-                            crate::pages::Source::RecField(_)
-                        ) && crate::pages::plain_name(src).is_some()
-                    })
-            })
-        {
-            page_reasons[oi].push(
-                "SaveValues on a page that a page extension extends with a control bound to a variable: whether BC stores that variable is not pinned (docs/probes-needed.md)".into(),
-            );
-        }
+        // A SaveValues page stores the variables its page extensions bind as well as its own
+        // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al; the VM's `var_slots`).
     }
     // A page extension shares the page's `Rec`.
     for (&p, list) in &page_extensions {

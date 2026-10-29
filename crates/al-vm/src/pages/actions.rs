@@ -17,17 +17,22 @@ impl Session {
             && !ctl
                 .ext_triggers
                 .iter()
-                .any(|(n, _, _)| n.eq_ignore_ascii_case("onaction") || n.eq_ignore_ascii_case("onafteraction"))
+                .any(|(n, _, _)| matches!(n.as_str(), "onaction" | "onafteraction" | "onbeforeaction"))
     }
 
     /// The `OnAfterAction` triggers that `modify(action)` blocks of page extensions add to action `idx`, in the order the
     /// extensions apply: (extension object, routine).
     fn ext_after_action(&self, st: &St, idx: usize) -> Vec<(usize, usize)> {
+        self.ext_action_triggers(st, idx, "onafteraction")
+    }
+
+    /// The triggers `name` that `modify(action)` blocks of page extensions add to action `idx`: (extension object, routine).
+    fn ext_action_triggers(&self, st: &St, idx: usize, name: &str) -> Vec<(usize, usize)> {
         let engine = self.engine();
         page_of(&engine, st).controls[idx]
             .ext_triggers
             .iter()
-            .filter(|(n, _, _)| n == "onafteraction")
+            .filter(|(n, _, _)| n == name)
             .map(|(_, e, r)| (*e, *r))
             .collect()
     }
@@ -1098,7 +1103,41 @@ impl Session {
         // OnAfterActionEvent, after a RunObject, and what an action without OnAction does to the row of a page with a source
         // table, are not pinned.
         let after = self.ext_after_action(st, idx);
+        // OnBeforeAction of a page extension runs before the action's OnAction, and an error in it stops the action with the
+        // test framework's prefix on its code, on a card with a source table (pages/lt-ab-tests/ABTests.al:979-1018,
+        // ActionAddInErrorInBeforeActionStopsOnAction, ActionAddInBeforeActionRunsBeforeOnAction); also on an action without
+        // OnAction, and an error in it runs neither OnAction nor OnAfterAction (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809:
+        // pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al UQ_BeforeAndAfterInOneModify_Order,
+        // UQ_BeforeActionWithoutBaseOnAction, UQ_BeforeActionRaises_OnActionAndAfterSkipped, UQ_BeforeAction_InvokedTwice_EachTime;
+        // opening the page runs none, UQ_OpenWithoutInvoke_NoBeforeOrAfter). Pinned for one extension with both triggers in one
+        // modify block; the order of two extensions' OnBeforeAction, an OnBeforeAction without an OnAfterAction on an action
+        // without OnAction, and the shapes refused for OnAfterAction below are not.
+        let before_ext = self.ext_action_triggers(st, idx, "onbeforeaction");
         let element = page_of(&engine, st).controls[idx].name.clone();
+        if !before_ext.is_empty() {
+            if before_ext.len() > 1 {
+                return unsupported(format!(
+                    "page extension trigger OnBeforeAction of action {element} in more than one page extension (the order is not pinned)"
+                ));
+            }
+            if page_of(&engine, st).controls[idx].run_object.is_some() {
+                return unsupported(format!(
+                    "page extension trigger OnBeforeAction of the RunObject action {element} (not pinned)"
+                ));
+            }
+            if self.listens_to_action(st, "onafteractionevent", &element)
+                || self.listens_to_action(st, "onbeforeactionevent", &element)
+            {
+                return unsupported(format!(
+                    "page extension trigger OnBeforeAction of action {element} with a subscriber to the action's events (the order is not pinned)"
+                ));
+            }
+            if page_of(&engine, st).controls[idx].trigger("onaction").is_none() && after.is_empty() {
+                return unsupported(format!(
+                    "page extension trigger OnBeforeAction of action {element} that has neither OnAction nor OnAfterAction (not pinned)"
+                ));
+            }
+        }
         if !after.is_empty() {
             if page_of(&engine, st).controls[idx].run_object.is_some() {
                 return unsupported(format!(
@@ -1118,7 +1157,10 @@ impl Session {
                         "page extension trigger OnAfterAction of action {element} that has no OnAction, on a page with a source table (not pinned)"
                     ));
                 }
-                return match self.run_ext_after_action(st, &after) {
+                return match self
+                    .run_ext_after_action(st, &before_ext)
+                    .and_then(|()| self.run_ext_after_action(st, &after))
+                {
                     Err(Signal::Error(mut e)) => {
                         e.code = action_error_code(&e.code, &e.message);
                         Err(Signal::Error(e))
@@ -1210,7 +1252,10 @@ impl Session {
                 };
                 std::mem::replace(&mut st.borrow_mut().action_shown_row, shown)
             };
-            let r = match self.page_action_event(st, "onbeforeactionevent", &element) {
+            let r = match self
+                .page_action_event(st, "onbeforeactionevent", &element)
+                .and_then(|()| self.run_ext_after_action(st, &before_ext))
+            {
                 Ok(()) => self.control_routine(st, idx, r),
                 err => err.map(|()| Value::Null),
             };

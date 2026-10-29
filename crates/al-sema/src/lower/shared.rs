@@ -884,10 +884,11 @@ pub(crate) fn extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
                 continue;
             }
             for t in sec.triggers() {
-                // OnAfterAction of a modified action runs after its OnAction (pages/lt-pageext-action-after/
-                // PageExtensionActionOnAfterAction.al; the VM refuses the shapes that file does not pin).
+                // OnAfterAction of a modified action runs after its OnAction, OnBeforeAction before it (pages/lt-pageext-action-after/
+                // PageExtensionActionOnAfterAction.al; OnBeforeAction: pages/lt-ab-tests/ABTests.al:979-1018 and UQ_* on the corpus
+                // branch al-runtime-rs-staging-uq at d651ec93; the VM refuses the shapes that file does not pin when the action is invoked).
                 let name = t.name().to_ascii_lowercase();
-                if !MODIFY_TRIGGERS.contains(&name.as_str()) && name != "onafteraction" {
+                if !MODIFY_TRIGGERS.contains(&name.as_str()) && name != "onafteraction" && name != "onbeforeaction" {
                     out.push(format!(
                         "page extension `{ename}`: trigger {} in modify({}) is not supported yet",
                         t.name(),

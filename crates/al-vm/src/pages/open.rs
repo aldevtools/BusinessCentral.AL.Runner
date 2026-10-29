@@ -1426,33 +1426,34 @@ impl Session {
 
     pub(super) fn save_values(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
-        let on = self.engine.program.objects[object]
+        self.engine.program.objects[object]
             .properties
             .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SaveValues") && v.trim().eq_ignore_ascii_case("true"));
-        // A SaveValues page that page extensions extend is driven as one without extensions (assumed).
-        if on
-            && self.engine.program.objects[object]
-                .page
-                .as_ref()
-                .is_some_and(|p| !p.extensions.is_empty())
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SaveValuesWithExtensions);
-        }
-        on
+            .any(|(k, v)| k.eq_ignore_ascii_case("SaveValues") && v.trim().eq_ignore_ascii_case("true"))
     }
 
-    pub(super) fn var_slots(&self, st: &St) -> Vec<usize> {
+    /// The variables a SaveValues page stores: (owner, global slot) of every control bound to a variable. On a page that
+    /// includes the variables of its page extensions, their own and the base page's protected ones they bind
+    /// (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
+    /// `second_E`); a request page keeps its own only (a report extension's is not pinned).
+    pub(super) fn var_slots(&self, st: &St) -> Vec<(Option<usize>, usize)> {
         let engine = self.engine();
-        let mut slots: Vec<usize> = page_of(&engine, st)
+        let request = self.is_request_page(st);
+        let mut slots: Vec<(Option<usize>, usize)> = page_of(&engine, st)
             .controls
             .iter()
             .filter_map(|c| {
-                if let (ir::Binding::Var(slot), None) = (&c.binding, c.owner) {
-                    Some(*slot)
-                } else {
-                    None
+                if request {
+                    return if let (ir::Binding::Var(slot), None) = (&c.binding, c.owner) {
+                        Some((None, *slot))
+                    } else {
+                        None
+                    };
                 }
+                if !matches!(c.binding, ir::Binding::Var(_) | ir::Binding::BaseVar(_)) {
+                    return None;
+                }
+                c.binding.var_slot(c.owner).map(|(slot, owner)| (owner, slot))
             })
             .collect();
         slots.sort_unstable();
@@ -1464,13 +1465,17 @@ impl Session {
         if !self.save_values(st) {
             return;
         }
-        let Some(inst) = st.borrow().instance.clone() else {
+        if st.borrow().instance.is_none() {
             return;
-        };
-        let saved: Vec<(usize, Value)> = self
+        }
+        let saved: Vec<(Option<usize>, usize, Value)> = self
             .var_slots(st)
             .into_iter()
-            .map(|slot| (slot, detached(&inst.borrow().globals[slot])))
+            .map(|(owner, slot)| {
+                let inst = self.owner_instance(st, owner);
+                let v = detached(&inst.borrow().globals[slot]);
+                (owner, slot, v)
+            })
             .collect();
         let object = st.borrow().object;
         self.pages.saved_values.insert(object, saved);
@@ -1498,13 +1503,16 @@ impl Session {
                 .map(|f| (f.field, f.group, self.filter_text(&f.expr).ok()))
                 .collect()
         };
-        let changed = saved.iter().any(|(slot, v)| {
-            let cur = inst.borrow().globals[*slot].clone();
-            match (v, &cur) {
-                (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
-                _ => false,
-            }
-        });
+        let changed = saved
+            .iter()
+            .filter(|(owner, _, _)| owner.is_none())
+            .any(|(_, slot, v)| {
+                let cur = inst.borrow().globals[*slot].clone();
+                match (v, &cur) {
+                    (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
+                    _ => false,
+                }
+            });
         if changed {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCancelKeepsSavedFilters);
         }
@@ -1528,7 +1536,14 @@ impl Session {
                 .prepared
                 .iter()
                 .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)));
-        for (slot, v) in saved {
+        for (owner, slot, v) in saved {
+            // A page extension's variable, or the page's protected one an extension binds: restored as the page's own
+            // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205).
+            if owner.is_some() {
+                let ext = self.owner_instance(st, owner);
+                ext.borrow_mut().globals[slot] = detached(&v);
+                continue;
+            }
             // A data item the caller gave a view (`SetTableView`, or the record of `Report.Run`/`RunModal`) keeps that view over the
             // filters stored from an earlier run. Which of the two a request page shows is not pinned: the corpus pins that an OK
             // stores the view's filters (report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:

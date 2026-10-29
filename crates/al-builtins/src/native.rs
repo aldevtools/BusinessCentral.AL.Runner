@@ -480,6 +480,11 @@ pub trait Ctx: FormatCtx {
     }
     /// `Confirm(question, default)`: the question is NOT substituted
     /// (corpus handlers/TestConfirmFormatArgs.al).
+    /// `Hyperlink(url)` in a test with a bound `[HyperlinkHandler]`: runs the handler with the URL and answers true. False
+    /// when no such handler is bound (the caller then raises `Unhandled UI: Hyperlink <url>`).
+    fn ui_hyperlink(&mut self, _url: String) -> Result<bool, Signal> {
+        Ok(false)
+    }
     fn ui_confirm(&mut self, _question: String, _default: bool) -> Result<bool, Signal> {
         Err(Signal::Unsupported("Confirm: this context has no UI".into()))
     }
@@ -2136,13 +2141,17 @@ fn log_audit_message(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value])
     log_message(c, r, args)
 }
 
-/// `Hyperlink(Url)` asks the client to open a page. A test has no handler for it, so the platform raises
-/// `Unhandled UI: Hyperlink <url>` (record/ProbeClearAllSetKeyHyperlink.al:322-338, BC 27.5); a routine
-/// that only mentions the call still runs.
+/// `Hyperlink(Url)` asks the client to open a page. A bound `[HyperlinkHandler]` gets the URL, also an empty one or a
+/// mailto link (handlers/W3Hyperlink.al:24-63); without one the platform raises `Unhandled UI: Hyperlink <url>`
+/// (record/ProbeClearAllSetKeyHyperlink.al:322-338, handlers/W3Hyperlink.al:65-83); a routine that only mentions the call
+/// still runs.
 fn hyperlink(c: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let url = text_arg(args, 0)?;
     // Install code has no client: Hyperlink does nothing there (install/lt-outside-install-ui/RlInstallUi.al:224).
     if c.install_without_client() {
+        return Ok(Value::Null);
+    }
+    if c.ui_hyperlink(url.to_string())? {
         return Ok(Value::Null);
     }
     Err(Signal::Error(Box::new(AlError {

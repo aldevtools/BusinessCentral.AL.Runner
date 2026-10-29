@@ -509,13 +509,13 @@ fn license_permission_answers_its_two_pinned_rows_and_refuses_the_rest() {
   [Test] procedure FirstRow() var L: Record "License Permission"; begin if not L.FindFirst() then Error('empty'); if (L."Object Type" <> L."Object Type"::TableData) or (L."Object Number" <> 0) or (L."Read Permission" <> L."Read Permission"::" ") then Error('first'); end;
   [Test] procedure PinnedTableRow() var L: Record "License Permission"; begin L.SetRange("Object Type", L."Object Type"::Table); L.SetRange("Object Number", 99999); if L.Count() <> 1 then Error('count'); if not L.FindFirst() then Error('find'); if (L."Read Permission" <> L."Read Permission"::Yes) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('perms'); if not L.Get(L."Object Type"::Table, 99999) then Error('get'); end;
   [Test] procedure PinnedCodeunitRows() var L: Record "License Permission"; begin if not L.Get(L."Object Type"::Codeunit, 410) then Error('410'); if (L."Read Permission" <> L."Read Permission"::Yes) or (L."Insert Permission" <> L."Insert Permission"::Yes) or (L."Modify Permission" <> L."Modify Permission"::Yes) or (L."Delete Permission" <> L."Delete Permission"::Yes) or (L."Execute Permission" <> L."Execute Permission"::Yes) or (L."Limited Usage Permission" <> L."Limited Usage Permission"::" ") then Error('perms'); if not L.Get(L."Object Type"::Page, 21) then Error('page'); if not L.Get(L."Object Type"::System, 1) then Error('system'); end;
-  [Test] procedure ACodeunitIsNotPinned() var L: Record "License Permission"; begin L.Get(L."Object Type"::Codeunit, 411); end;
+  [Test] procedure ANegativeNumberIsNotPinned() var L: Record "License Permission"; begin L.Get(L."Object Type"::Codeunit, -411); end;
   [Test] procedure ACountOfEverythingIsNotPinned() var L: Record "License Permission"; begin if L.Count() = 0 then; end; }"#,
     );
     passes(&o, "FirstRow");
     passes(&o, "PinnedTableRow");
     passes(&o, "PinnedCodeunitRows");
-    for t in ["ACodeunitIsNotPinned", "ACountOfEverythingIsNotPinned"] {
+    for t in ["ANegativeNumberIsNotPinned", "ACountOfEverythingIsNotPinned"] {
         let why = not_run(&o, t);
         assert!(why.contains("License Permission"), "{t}: {why}");
     }
@@ -2521,4 +2521,126 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(50003); if M.SourceTableView <> 'SORTING(Field3) ORDER(1) WHERE(Field4=CONST(1),Field3=FILTER(>0))' then Error('desc %1', M.SourceTableView); end; }"#,
     );
     passes(&o, "Views");
+}
+
+// Outside issues (al-runner), kept as regression tests.
+/// Issue 6214: `License Permission.Get` of an object of the customer range, the ISV range or the range up to 2000000000
+/// finds a row with Read, Insert, Modify, Delete and Execute `Yes`; Codeunit 0 a row with every permission blank. Pins
+/// (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809): platform/lt-ag-contoso/AgLicensePermission.al
+/// LicensePermission_ByKey_CustomerAndIsvRanges. Numbers outside those rows are assumed (`license-permission-any-object`);
+/// a negative number is not pinned and stays refused.
+const ISSUE_6214_OBJECTS: &str = "
+codeunit 50000 \"T\" {
+    Subtype = Test;
+
+    local procedure Describe(ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber; No: Integer): Text
+    var
+        LicensePermission: Record \"License Permission\";
+    begin
+        if not LicensePermission.Get(ObjType, No) then
+            exit('absent');
+        exit(StrSubstNo('R=%1 I=%2 M=%3 D=%4 X=%5', LicensePermission.\"Read Permission\", LicensePermission.\"Insert Permission\",
+            LicensePermission.\"Modify Permission\", LicensePermission.\"Delete Permission\", LicensePermission.\"Execute Permission\"));
+    end;
+
+    [Test]
+    procedure IsvAndCustomerRanges()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+        Res: Text;
+    begin
+        Res := Describe(ObjType::Codeunit, 50000) + '|' + Describe(ObjType::Table, 70000123) + '|' + Describe(ObjType::Codeunit, 2000000000)
+            + '|' + Describe(ObjType::Codeunit, 0);
+        if Res <> 'R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes|R=  I=  M=  D=  X= ' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure OtherNumberOfTheIsvRange()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::Codeunit, 70012345) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::Codeunit, 70012345));
+    end;
+
+    [Test]
+    procedure NegativeNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Codeunit, -1);
+    end;
+}";
+
+#[test]
+fn issue_6214_license_permission_of_any_object_number() {
+    let o = outcomes(ISSUE_6214_OBJECTS);
+    passes(&o, "IsvAndCustomerRanges");
+    passes(&o, "OtherNumberOfTheIsvRange");
+    let why = not_run(&o, "NegativeNumber");
+    assert!(why.contains("License Permission"), "{why}");
+}
+
+/// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;
+/// an id that is no Windows zone finds none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
+/// record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo;
+/// `No Such Standard Time` absent). Other Windows ids are assumed (`time-zone-windows-id-is-a-row`); the `No.` and
+/// `Display Name` of such a row are not pinned and are refused when read.
+const ISSUE_6218_OBJECTS: &str = "
+codeunit 50000 \"T\" {
+    Subtype = Test;
+
+    local procedure ById(ZoneId: Text): Text
+    var
+        TimeZone: Record \"Time Zone\";
+    begin
+        TimeZone.SetRange(ID, ZoneId);
+        if TimeZone.FindFirst() then
+            exit('present, ID ' + TimeZone.ID + ', count ' + Format(TimeZone.Count()));
+        exit('absent');
+    end;
+
+    [Test]
+    procedure WindowsZoneIdIsInTimeZoneTable()
+    var
+        TimeZone: Record \"Time Zone\";
+    begin
+        TimeZone.SetRange(ID, 'Arabian Standard Time');
+        if TimeZone.IsEmpty() then
+            Error('Arabian Standard Time is not in the Time Zone table');
+        if ById('Tokyo Standard Time') <> 'present, ID Tokyo Standard Time, count 1' then
+            Error('Tokyo: %1', ById('Tokyo Standard Time'));
+        if ById('No Such Standard Time') <> 'absent' then
+            Error('unknown: %1', ById('No Such Standard Time'));
+    end;
+
+    [Test]
+    procedure OtherWindowsZone()
+    var
+        TimeZone: Record \"Time Zone\";
+    begin
+        TimeZone.SetRange(ID, 'Romance Standard Time');
+        if TimeZone.Count() <> 1 then
+            Error('count %1', TimeZone.Count());
+    end;
+
+    [Test]
+    procedure NumberOfAZoneOutsideTheDefaultRows()
+    var
+        TimeZone: Record \"Time Zone\";
+    begin
+        TimeZone.SetRange(ID, 'Arabian Standard Time');
+        TimeZone.FindFirst();
+        if TimeZone.\"No.\" = 0 then;
+    end;
+}";
+
+#[test]
+fn issue_6218_time_zone_lookup_by_windows_id() {
+    let o = outcomes(ISSUE_6218_OBJECTS);
+    passes(&o, "WindowsZoneIdIsInTimeZoneTable");
+    passes(&o, "OtherWindowsZone");
+    let why = not_run(&o, "NumberOfAZoneOutsideTheDefaultRows");
+    assert!(why.contains("Time Zone"), "{why}");
 }
