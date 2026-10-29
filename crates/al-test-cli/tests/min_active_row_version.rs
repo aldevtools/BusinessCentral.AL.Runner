@@ -72,8 +72,16 @@ codeunit 69991 T
 fn minimum_active_row_version_stays_at_the_codeunit_start_under_codeunit_isolation() {
     let out = outcomes_in(SRC, "T");
     let of = |n: &str| out.iter().find(|(t, _)| t == n).map(|(_, o)| o.clone()).unwrap();
-    assert!(matches!(of("FirstWritesAndCommits"), Outcome::Pass), "{:?}", of("FirstWritesAndCommits"));
-    assert!(matches!(of("LaterTestKeepsIt"), Outcome::Pass), "{:?}", of("LaterTestKeepsIt"));
+    assert!(
+        matches!(of("FirstWritesAndCommits"), Outcome::Pass),
+        "{:?}",
+        of("FirstWritesAndCommits")
+    );
+    assert!(
+        matches!(of("LaterTestKeepsIt"), Outcome::Pass),
+        "{:?}",
+        of("LaterTestKeepsIt")
+    );
     for t in ["AfterInsertAndRead", "AfterModify"] {
         match of(t) {
             Outcome::NotRun(r) => assert!(r.contains("LastUsedRowVersion is not pinned"), "{t}: {r}"),

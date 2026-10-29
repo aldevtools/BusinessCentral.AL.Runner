@@ -288,7 +288,11 @@ impl Session {
                     if self.next_row_version != self.tx.committed_row_version
                         && (self.tx.read_after_write
                             || !self.writes_all_noted()
-                            || self.tx.writes.iter().any(|w| w.kind != crate::state::TxWriteKind::Insert))
+                            || self
+                                .tx
+                                .writes
+                                .iter()
+                                .any(|w| w.kind != crate::state::TxWriteKind::Insert))
                     {
                         return unsupported(
                             "Database.MinimumActiveRowVersion after a Modify, Delete or bulk write, or a read of a table the open transaction inserted into (LastUsedRowVersion is not pinned there)",
