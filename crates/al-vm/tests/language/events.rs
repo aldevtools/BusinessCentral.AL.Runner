@@ -2023,8 +2023,62 @@ fn two_unrelated_apps_under_test_run_in_ascending_app_id() {
     assert_eq!(text(r), "Y;X;");
 }
 
-/// Not pinned, refused: which of an app's two unrelated dependencies BC visits first (T, the lowest app id, declares Y
-/// before X), and whether apps of different publishers are sorted by publisher before app id.
+/// The writer UI pin (corpus branch al-runtime-rs-staging-ui, bump PR 801, BwSubscriberOrderTests.al
+/// SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder and its install variant,
+/// `A1;A2;F1;F2;B1;B2;D1;D2;C1;C2;M1;M2;`): the six apps above, with C now declaring B, A, D and B declaring F before A.
+/// An app's dependencies are visited in ascending app id, not in declared order (A before F), and the publisher does not
+/// order them (B, Zulu, before D, Mike: B has the lower app id).
+#[test]
+fn dependencies_are_visited_in_ascending_app_id_whatever_the_declared_order_and_publisher() {
+    let p = "00000000-0000-0000-0000-00000000000p";
+    let f = "f1e2d3c4-b5a6-7890-fedc-ba9876543210";
+    let b = "c87ced6d-11a6-4ad2-87c7-ac10083d0a2f";
+    let c = "0df0fadc-d339-4b0f-a1d5-51dc51f10900";
+    let m = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    let two = |x: u32, y: u32, tag: &str| {
+        format!(
+            "{}{}",
+            order_sub(x, &format!("{tag}1")),
+            order_sub(y, &format!("{tag}2"))
+        )
+    };
+    let apps = vec![
+        order_app(p, &[], ORDER_PUBLISHER),
+        order_app(f, &[p], &two(61095, 61096, "F")),
+        order_app(A_ID, &[p], &two(61107, 61136, "A")),
+        order_app(D_ID, &[p, A_ID], &two(61161, 61162, "D")),
+        order_app(b, &[p, f, A_ID], &two(61118, 61146, "B")),
+        order_app(c, &[p, b, A_ID, D_ID], &two(61121, 61151, "C")),
+        order_app(m, &[p, f, A_ID, b, c], &two(90241, 90242, "M")),
+    ];
+    let publishers = [
+        (f, "AL Language"),
+        (A_ID, "AL Language"),
+        (b, "Zulu Probe Publisher"),
+        (c, "Bravo Probe Publisher"),
+        (D_ID, "Mike Probe Publisher"),
+        (m, "AL Language"),
+    ];
+    assert_eq!(
+        text(raise_order_published(apps, &publishers)),
+        "A1;A2;F1;F2;B1;B2;D1;D2;C1;C2;M1;M2;"
+    );
+    // The lowest app id declares Y before X: X first (ascending app id).
+    let x = order_sub(61115, "X");
+    let y = order_sub(61125, "Y");
+    let r = raise_order(vec![
+        order_app("a", &[], ORDER_PUBLISHER),
+        order_app("x", &["a"], &x),
+        order_app("y", &["a"], &y),
+        order_app("0t", &["a", "y", "x"], ""),
+    ]);
+    assert_eq!(text(r), "X;Y;");
+}
+
+/// Not pinned, refused (writer UI: "not told apart"): whether BC orders the apps that no other app depends on by
+/// publisher before app id (X and Y, different publishers, nothing depends on either), and whether it starts from
+/// every app in ascending app id or only from those apps (L, a low app id that only R depends on, against Q, an app
+/// nothing depends on whose app id lies between L's and R's).
 #[test]
 fn an_order_the_probe_does_not_decide_is_refused() {
     let refused = |r: Result<Value, Signal>, why: &str| {
@@ -2036,15 +2090,6 @@ fn an_order_the_probe_does_not_decide_is_refused() {
     let x = order_sub(61115, "X");
     let y = order_sub(61125, "Y");
     refused(
-        raise_order(vec![
-            order_app("a", &[], ORDER_PUBLISHER),
-            order_app("x", &["a"], &x),
-            order_app("y", &["a"], &y),
-            order_app("0t", &["a", "y", "x"], ""),
-        ]),
-        "which of an app's dependencies",
-    );
-    refused(
         raise_order_published(
             vec![
                 order_app("a", &[], ORDER_PUBLISHER),
@@ -2054,6 +2099,15 @@ fn an_order_the_probe_does_not_decide_is_refused() {
             &[("x", "Zulu"), ("y", "Alpha")],
         ),
         "publisher",
+    );
+    refused(
+        raise_order(vec![
+            order_app("a", &[], ORDER_PUBLISHER),
+            order_app("l", &["a"], &order_sub(61115, "L")),
+            order_app("q", &["a"], &order_sub(61125, "Q")),
+            order_app("r", &["a", "l"], ""),
+        ]),
+        "no other app depends on",
     );
 }
 
