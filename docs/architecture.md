@@ -54,8 +54,10 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
 - **Store (ADR-003, 004).** AL-shaped operations with typed outcomes.
   Snapshots are root pointers, so commit, rollback and per-test reset are O(1).
   Filter text quotes literal comparison characters, including `>`, and doubles embedded
-  apostrophes. `SetView` preserves those quoted Text/Code literals instead of interpreting them
-  as comparisons (corpus `filters/W4Filters.al` and `record/TestFilterQuotedLiterals.al`).
+  apostrophes. `SetView` at run time reads those quoted Text/Code values as literals; in an object
+  property (`SourceTableView`, `SubPageView`, ...) a quoted `'>B'` still compares (corpus
+  `filters/W4Filters.al`, `record/TestFilterQuotedLiterals.al` and
+  `filters/lt-uc-quoted-values/UcQuotedValues.al`).
 - **Test runner semantics** (pinned by the corpus):
   - One session and one fresh store per test codeunit; install codeunits run first. A test
     codeunit is the **isolation unit** (`al-test-cli/src/isolation.rs`): its methods share the

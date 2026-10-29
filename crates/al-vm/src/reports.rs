@@ -1821,7 +1821,7 @@ impl Session {
             let sorts = view.to_ascii_lowercase().contains("sorting");
             // The filters of a DataItemTableView are the report's, not the record's: GetFilters does not show them, in
             // OnPostReport either (report/TestProbeReportContracts.al:TriggerOrder_NestedAndSecondItem).
-            self.set_view_in(&rec, &t, &view, Some(ITEM_VIEW_GROUP), false, false)?;
+            self.set_view_in(&rec, &t, &view, Some(ITEM_VIEW_GROUP), false, false, false)?;
             if !sorts {
                 let mut r = rec.borrow_mut();
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;

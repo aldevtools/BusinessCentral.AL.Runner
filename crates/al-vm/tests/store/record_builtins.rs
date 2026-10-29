@@ -1007,6 +1007,86 @@ fn code_filter_with_angle_brackets_round_trips_through_a_view() {
     assert_eq!(text(r), "'<64Y>'");
 }
 
+// A parenthesis inside a quoted value does not count as a group of the view: an unmatched ( or ) round trips
+// (the quoting of a value with ( or ) is record/TestSetFilterSpecialTextContracts.al, filters/lt-uc-quoted-values/
+// UcQuotedValues.al:Value05_ApostropheAndParens).
+#[test]
+fn a_value_with_an_unmatched_parenthesis_round_trips_through_a_view() {
+    for (value, quoted) in [
+        ("Diana's (Meals", "'Diana''s (Meals'"),
+        ("A>B)", "'A>B)'"),
+        ("(x", "'(x'"),
+        ("x)", "'x)'"),
+    ] {
+        let literal = value.replace('\'', "''");
+        for setup in [
+            format!("R.SetRange(Descr, '{literal}');"),
+            format!("R.SetFilter(Descr, '%1', '{literal}');"),
+        ] {
+            let r = run(
+                &format!(
+                    r#"procedure F(): Text var R: Record "ALT T"; Other: Record "ALT T"; ViewText: Text;
+                    begin
+                        R."No." := 'MATCH'; R.Descr := '{literal}'; R.Insert();
+                        R."No." := 'OTHER'; R.Descr := 'not the value'; R.Insert();
+                        {setup}
+                        ViewText := R.GetView();
+                        Other.SetView(ViewText);
+                        if Other.Count() <> 1 then Error('View does not round trip');
+                        Other.FindFirst();
+                        if Other."No." <> 'MATCH' then Error('View selects the wrong row');
+                        exit(Other.GetFilter(Descr));
+                    end;"#
+                ),
+                "F",
+            );
+            assert_eq!(text(r), quoted, "{setup}");
+        }
+    }
+}
+
+// filters/lt-uc-quoted-values/UcQuotedValues.al:SetView_FilterGreaterB: in a view given to SetView, FILTER('>B') is
+// the literal value (`view_cd_ids` 2,16, GetFilter `'>B'`) and FILTER(>B) a comparison (`view_cd_plain_ids` 5,14,15).
+#[test]
+fn set_view_reads_a_quoted_greater_than_as_a_literal_and_a_bare_one_as_a_comparison() {
+    let r = run(
+        r#"procedure F(): Text var R: Record "ALT T"; Res: Text;
+        begin
+            R."No." := 'B'; R.Descr := 'B'; R.Insert();
+            R."No." := 'A'; R.Descr := 'A'; R.Insert();
+            R."No." := 'C'; R.Descr := 'C'; R.Insert();
+            R."No." := '>B'; R.Descr := '>b'; R.Insert();
+            R.SetView('WHERE("No."=FILTER(''>B''))');
+            Res := Format(R.Count()) + ':' + R.GetFilter("No.") + ';';
+            R.Reset();
+            R.SetView('WHERE(Descr=FILTER(''>b''))');
+            Res += Format(R.Count()) + ':' + R.GetFilter(Descr) + ';';
+            R.Reset();
+            R.SetView('WHERE("No."=FILTER(>B))');
+            Res += Format(R.Count()) + ';';
+            R.Reset();
+            R.SetView('WHERE(Descr=FILTER(>B))');
+            Res += Format(R.Count());
+            exit(Res);
+        end;"#,
+        "F",
+    );
+    assert_eq!(text(r), "1:'>B';1:'>b';1;1");
+}
+
+// record/TestSetFilterSpecialTextContracts.al pins a case-insensitive `@` value with & | ( ) < = or .. read back
+// quoted, `@` inside the quotes; one with > is not pinned.
+#[test]
+fn setfilter_placeholder_case_insensitive_text_with_a_greater_than_is_refused() {
+    let r = run(
+        "procedure F(): Text var R: Record \"ALT T\"; begin
+            R.SetFilter(Descr, '%1', '@a>b'); exit(R.GetFilter(Descr));
+        end;",
+        "F",
+    );
+    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
 #[test]
 fn setfilter_placeholder_text_with_an_unpinned_filter_character_is_refused() {
     // Wildcards mixed with operators remain outside this implementation.

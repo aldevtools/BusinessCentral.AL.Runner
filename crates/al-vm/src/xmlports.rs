@@ -2856,7 +2856,7 @@ impl Session {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
-            self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
+            self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false, false)?;
             let mut r = rec.borrow_mut();
             if lower.contains("sorting") {
                 keys.push((i, (r.key, r.adhoc.clone())));
