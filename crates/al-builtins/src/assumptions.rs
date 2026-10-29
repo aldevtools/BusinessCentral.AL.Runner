@@ -933,6 +933,17 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlDocBlankText => {
+        id: "xml-doc-blank-text",
+        assumed: "XmlDocument.Create and XmlDocument.Add with an empty Text add no node; a blank Text, or an empty or blank XmlText, is added as a document node before or after the root without an error, counts in GetChildNodes, and WriteTo writes it as it is (no line break before the root after it). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's fiscal web service requests (a document created with two empty texts).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument; wanted: the bump that puts it on corpus master. Open: two text nodes in one document, AddFirst and the sibling methods.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-probes-needed-1/PnAXmlNodeAdds.al::TT_EmptyOrBlankTextIntoXmlDocument"],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
