@@ -103,6 +103,8 @@ pub(crate) struct RowVersionTx {
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// The value rests on a read shape only writer UK's branch pins (`Assumption::RowVersionReadShapes`).
+    pub(crate) assumed: bool,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
