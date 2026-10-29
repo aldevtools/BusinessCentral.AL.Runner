@@ -194,27 +194,33 @@ impl Session {
         if self.engine.table_facts.get(table).is_some_and(|f| f.ordinal_init) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
         }
-        // The values are the same for every record of the table, so a table whose defaults are all scalars is
-        // worked out once per session and copied (a text shares its buffer, copy on write); a table with a Blob, an
-        // array or another shared object builds fresh ones each time.
-        if let Some(Some(template)) = self.initial_cache.get(&table) {
-            return template.clone();
+        // The values are the same for every record of the table, so they are worked out once per session and copied
+        // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
+        // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
+        // built every field anew on each call).
+        if let Some(template) = self.initial_cache.get(&table) {
+            let mut fields = template.values.clone();
+            if !template.fresh.is_empty() {
+                let fresh = Rc::clone(&template.fresh);
+                let engine = self.engine.clone();
+                if let Some(t) = engine.program.objects[table].table.as_ref() {
+                    for &i in fresh.iter() {
+                        fields[i] = self.initial_field(&t.fields[i]);
+                    }
+                }
+            }
+            return fields;
         }
         let engine = self.engine.clone();
         let Some(t) = engine.program.objects[table].table.as_ref() else {
             return Vec::new();
         };
-        let fields: Vec<Value> = t
-            .fields
+        let fields: Vec<Value> = t.fields.iter().map(|f| self.initial_field(f)).collect();
+        let fresh = fields
             .iter()
-            .map(|f| match &f.init {
-                Some(c) => ops::convert(crate::constant(c), &f.ty).unwrap_or_else(|_| self.default_value(&f.ty)),
-                None => self.default_value(&f.ty),
-            })
-            .collect();
-        if let std::collections::hash_map::Entry::Vacant(slot) = self.initial_cache.entry(table) {
-            let scalar = fields.iter().all(|v| {
-                matches!(
+            .enumerate()
+            .filter(|(_, v)| {
+                !matches!(
                     v,
                     Value::Null
                         | Value::Boolean(_)
@@ -234,10 +240,25 @@ impl Session {
                         | Value::Option(..)
                         | Value::Enum(..)
                 )
-            });
-            slot.insert(scalar.then(|| fields.clone()));
-        }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.initial_cache.insert(
+            table,
+            InitialFields {
+                values: fields.clone(),
+                fresh,
+            },
+        );
         fields
+    }
+
+    /// The value of field `f` in a fresh record.
+    fn initial_field(&mut self, f: &al_ir::Field) -> Value {
+        match &f.init {
+            Some(c) => ops::convert(crate::constant(c), &f.ty).unwrap_or_else(|_| self.default_value(&f.ty)),
+            None => self.default_value(&f.ty),
+        }
     }
 
     pub(crate) fn store_for(&mut self, rec: &Rec) -> &mut MemStore {
@@ -565,8 +586,7 @@ impl Session {
 
     /// A record handle holding `fields` and otherwise `rec`'s state: an `xRec`.
     fn xrec_handle(rec: &Rec, fields: Vec<Value>) -> Rec {
-        let mut st = rec.borrow().clone();
-        st.fields = fields;
+        let mut st = state_with_fields(rec, fields);
         // The variable's xRec keeps its globals from one operation to the next (ADR-021).
         st.globals = rec.borrow().globals.xrec();
         Rc::new(RefCell::new(st))
@@ -1235,9 +1255,9 @@ impl Session {
                 // is a blank record, not a copy of the row: Get, Insert, Modify and edits of the
                 // variable do not reach it; only the globals it was given stay (corpus
                 // record/PWTableGlobals.al:196-260, XRecPlainProc_*).
-                let mut st = rec.borrow().clone();
                 let table = rec.borrow().table as usize;
-                st.fields = self.initial_fields(table);
+                let fields = self.initial_fields(table);
+                let mut st = state_with_fields(&rec, fields);
                 st.globals = rec.borrow().globals.xrec();
                 Some(Value::Record(Rc::new(RefCell::new(st))))
             }
@@ -3899,8 +3919,7 @@ impl Session {
                             // record/lt-delete-all-deleted-meanwhile/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
                             continue;
                         }
-                        let mut st = rec.borrow().clone();
-                        st.fields = row;
+                        let mut st = state_with_fields(rec, row);
                         st.filters.clear();
                         st.globals = shared.share();
                         self.delete_row(&t, &Rc::new(RefCell::new(st)), run)?;
@@ -5151,4 +5170,27 @@ fn redact_error(s: Signal, redacted: String) -> Signal {
         }
         other => other,
     }
+}
+
+/// The field values of a fresh record of one table (`Session::initial_fields`): the values to copy, and the positions of
+/// those that are shared objects and are built fresh for each record instead.
+pub(crate) struct InitialFields {
+    values: Vec<Value>,
+    fresh: Rc<[usize]>,
+}
+
+/// A copy of `rec`'s state with `fields` as its field values. Rec's own fields are left out of the copy instead of being
+/// copied only to be replaced (issue 6133: NP Retail's tables are wide).
+pub(crate) fn state_with_fields(rec: &Rec, fields: Vec<Value>) -> RecordState {
+    let mut st = match rec.try_borrow_mut() {
+        Ok(mut r) => {
+            let own = std::mem::take(&mut r.fields);
+            let st = r.clone();
+            r.fields = own;
+            st
+        }
+        Err(_) => rec.borrow().clone(),
+    };
+    st.fields = fields;
+    st
 }

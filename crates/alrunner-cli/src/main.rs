@@ -41,6 +41,8 @@ fn main() -> ExitCode {
         .spawn(real_main)
         .expect("spawn runner thread");
     let joined = worker.join();
+    // `AL_PROFILE`: the samples of a run shorter than the profiler's periodic write reach the file too (issue 6133).
+    al_vm::profile_flush();
     if std::env::var_os("AL_EXEC_REPORT").is_some() {
         eprintln!("{}", al_vm::exec_report());
     }
