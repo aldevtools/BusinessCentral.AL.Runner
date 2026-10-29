@@ -1,5 +1,6 @@
 //! What the SQL `datetime` column behind a Date, Time or DateTime field does to the values of a database (non-temporary)
 //! table: it counts 1/300 s, and it cannot hold every date (corpus record/filters/P130DateFilters.al).
+//! The `decimal(38,20)` column behind a Decimal field cuts it to 20 decimals (docs/decimal-store-probe.md).)
 //! A temporary table keeps the values as they are: whether it rounds too is not pinned, and the old behavior stays.
 
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -105,7 +106,7 @@ pub(crate) enum Stored {
     Bad(AlError),
 }
 
-/// Rounds the Time and DateTime values of `row` and checks its dates against what the column holds. Only the values the corpus
+/// Rounds the Time and DateTime values of `row`, cuts its Decimal values to 20 decimals, and checks its dates against what the column holds. Only the values the corpus
 /// pins raise the platform's error (P130DateFilters.al:255-293, :306-318): the Dates 1753-01-01 and 1752-12-31 (also as a
 /// closing date), the DateTimes 1753-01-01 00:00 and 1752-12-31 12:00, and a DateTime that rounds past 9999-12-31. Any other
 /// value before 1753-01-02 is refused. 0001-01-01 reads back as it was written (:261-262: Format gives '' and it equals
@@ -144,6 +145,22 @@ pub(crate) fn store(
             }
             (RtType::Time, Value::Time(_)) => {
                 row[i] = rounded(&row[i]);
+                None
+            }
+            // The `decimal(38,20)` column cuts a Decimal toward zero to 20 decimals: 1000 / 3600000 reads back as
+            // 0.00027777777777777777, 0.000000000000000000019 as 0.00000000000000000001 (docs/decimal-store-probe.md, measured
+            // on BC 28.5, awaiting its upstream corpus pin). How a primary key value the column cuts is found again is not pinned.
+            (RtType::Decimal, Value::Decimal(d)) => {
+                let cut = d.round_dp_with_strategy(20, rust_decimal::RoundingStrategy::ToZero);
+                if cut != *d {
+                    if t.keys[0].contains(&i) {
+                        return Err(Signal::Unsupported(
+                            "a Decimal primary key value with more than 20 decimals in a database table (not pinned)"
+                                .into(),
+                        ));
+                    }
+                    row[i] = Value::Decimal(cut);
+                }
                 None
             }
             (RtType::DateTime, Value::DateTime(v)) if *v != 0 => {
