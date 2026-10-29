@@ -4883,6 +4883,14 @@ variant_is! {
 /// The element tree of a document, for XmlPort import (`xmlport.rs`). `Ok(None)`: not
 /// well-formed; `Err`: well-formed but uses namespaces or other features the reader does not
 /// carry over.
+/// A parsed element written `<x />`: no children, and not `<x></x>` (`open`).
+fn closed_in_start_tag(h: &Handle) -> bool {
+    with(
+        h,
+        |d| matches!(d, XData::Element { open: false, children, .. } if children.is_empty()),
+    )
+}
+
 pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Option<String>>, String> {
     use crate::xmlport::{Elem, Node};
     fn convert(h: &Handle) -> Result<Elem, String> {
@@ -4954,6 +4962,7 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
                 K::Skip => {}
             }
         }
+        out.self_closed = closed_in_start_tag(h);
         Ok(out)
     }
     let doc = match parse_document_detail(text, false) {
@@ -5041,6 +5050,7 @@ pub(crate) fn read_tree_in(
                 Some(None) => {}
             }
         }
+        out.self_closed = closed_in_start_tag(h);
         Ok(out)
     }
     let doc = match parse_document_detail(text, false) {

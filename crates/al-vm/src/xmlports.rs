@@ -1134,7 +1134,7 @@ impl Session {
                     self.xp_import_container(inst, schema, child, ce)?
                 }
                 ir::XmlNodeKind::Text => {
-                    self.xp_assign_variable(inst, schema, child, ce.text())?;
+                    self.xp_assign_leaf_text(inst, schema, child, ce)?;
                     // Break in OnAfterAssignVariable of a text element right below the root ends the import there and
                     // OnPostXmlPort runs; Quit ends it without OnPostXmlPort (xmlport/lt-ay-xmlport/AyXmlPortFlowTriggers.al:391
                     // Import_head_Break `pre1;head1;post;`, :417 Import_head_Quit `pre1;head1;`, no rows). Deeper it is not pinned.
@@ -1272,6 +1272,44 @@ impl Session {
             Value::Text(text.into())
         };
         self.xp_run_trigger(inst, schema, node, "onafterassignvariable")
+    }
+
+    /// A leaf text element (no attributes or elements in the schema) read from `ce`: `<x />` runs its OnAfterAssignVariable
+    /// twice, `<x></x>`, `<x> </x>` and `<x>v</x>` once, below the root, below a table element and inside a text element below a
+    /// table element (QrXpContainerOccurs.al TR_EmptyLeaf_Import on writer TR's branch al-runtime-rs-staging-tr, real BC 29; a
+    /// registered assumption until the bump). The variable is set to the empty text again before the second run (the corpus
+    /// triggers only read it). A Break or Quit in the first run ends the import before the second run would come: not pinned.
+    fn xp_assign_leaf_text(&mut self, inst: &Inst, schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
+        // `<x> </x>` gives the empty text (TR_EmptyLeaf_Import `space`: `top=[];`).
+        let text = ce.text();
+        let text = if !text.is_empty() && text.trim().is_empty() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
+            String::new()
+        } else {
+            text
+        };
+        self.xp_assign_variable(inst, schema, node, text)?;
+        if ce.self_closed && schema.node(node).trigger("onafterassignvariable").is_some() {
+            if Self::xp_import_stopped(inst) {
+                return unsupported(
+                    "XmlPort import of `<x />` whose OnAfterAssignVariable ended the import on its first run (whether it runs again is not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportSelfClosedLeafAssignTwice);
+            self.xp_assign_variable(inst, schema, node, String::new())?;
+        }
+        Ok(())
+    }
+
+    /// `<x />` for a text element with an OnAfterAssignVariable below a field element, a place TR_EmptyLeaf_Import does not
+    /// cover: how often the trigger runs is not pinned.
+    fn xp_refuse_self_closed_leaf(schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
+        if ce.self_closed && schema.node(node).trigger("onafterassignvariable").is_some() {
+            return unsupported(
+                "XmlPort import of `<x />` for a text element with an OnAfterAssignVariable trigger below a field element (how often the trigger runs is not pinned)",
+            );
+        }
+        Ok(())
     }
 
     /// Field element or attribute: the text becomes the field's value, then `OnAfterAssignField`.
@@ -1952,7 +1990,7 @@ impl Session {
                     }
                 }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
-                    self.xp_assign_variable(inst, schema, child, ce.text())?
+                    self.xp_assign_leaf_text(inst, schema, child, ce)?
                 }
                 ir::XmlNodeKind::Table => {
                     // The record is stored before the elements below it are read when they are linked to it by LinkTable (assumption:
@@ -2107,6 +2145,7 @@ impl Session {
                     );
                 }
                 self.xp_import_attrs(inst, schema, child, ce, None)?;
+                // `<admission .. />` with attributes runs the trigger once (TP_Nested_Import, branch al-runtime-rs-staging-pub-tp).
                 self.xp_assign_variable(inst, schema, child, ce.text())?;
             }
             seq.finish(schema)?;
@@ -2117,20 +2156,11 @@ impl Session {
                 let Some(child) = seq.accept(schema, ce)? else {
                     continue;
                 };
-                // Real BC runs the OnAfterAssignVariable of an empty `<tier />` here twice (QrXpContainerOccurs.al
-                // TQ_Response_Import_Shapes `optional leaves absent`, `tier=;tier=;`, on corpus branch al-runtime-rs-staging-pub-tq).
-                // `<tier></tier>` is not pinned and the reader does not tell the two forms apart.
-                if schema.node(child).kind == ir::XmlNodeKind::Text
-                    && schema.node(child).trigger("onafterassignvariable").is_some()
-                    && ce.text().is_empty()
-                {
-                    return unsupported(
-                        "XmlPort import of an empty leaf text element with an OnAfterAssignVariable trigger inside a text element below a table element (real BC runs the trigger twice for `<x />`; `<x></x>` is not pinned)",
-                    );
-                }
+                // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
+                // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
                     ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
-                    _ => self.xp_assign_variable(inst, schema, child, ce.text())?,
+                    _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
             seq.finish(schema)?;
@@ -2209,7 +2239,10 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
-                ir::XmlNodeKind::Text => self.xp_assign_variable(inst, schema, child, ce.text())?,
+                ir::XmlNodeKind::Text => {
+                    Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
+                    self.xp_assign_variable(inst, schema, child, ce.text())?
+                }
                 _ => {
                     return unsupported(
                         "XmlPort import of a node below a field element other than an attribute or a leaf element",

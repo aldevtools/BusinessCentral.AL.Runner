@@ -815,6 +815,28 @@ registry! {
             since: "2026-10-28",
         },
     },
+    MediaTextContentExported => {
+        id: "media-text-content-exported",
+        assumed: "UTF-8 text (no picture, no MIME type given) imported into a Media field with the two argument ImportStream exports with Media.ExportStream as the same bytes, answering true, on every major; ReadText of the export gives the text back. Pinned only by corpus writer TR's run on real BC (the newest major, SaaS sandbox), not yet on corpus master; the older majors come from the corpus CI majors check.",
+        tests: "No Microsoft test: a partner app's fiscal tests store receipt text in a Media field and read it back.",
+        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream; wanted: the bump that puts it on corpus master. Not covered: text imported with a MIME type, text with control characters, and bytes that are no UTF-8.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/streams/StTMedia.al::TR_MediaImportStream_TextContent_ExportStream"],
+            since: "2026-10-29",
+        },
+    },
+    XmlportSelfClosedLeafAssignTwice => {
+        id: "xmlport-self-closed-leaf-assign-twice",
+        assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element by corpus writer TR's run on real BC (the newest major, SaaS sandbox), not yet on corpus master; assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count.",
+        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import; wanted: the bump that puts it on corpus master, and a trigger that changes its own variable on the first run.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_EmptyLeaf_Import"],
+            since: "2026-10-29",
+        },
+    },
     TenantMediaDelete => {
         id: "tenant-media-delete",
         assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
