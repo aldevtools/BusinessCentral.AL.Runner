@@ -389,6 +389,14 @@ pub fn run_traced(
             a.info().id
         ));
     }
+    // ADR-046 amendment 4: under `--companies`, a run without test data models the corpus CI database, whose session
+    // company is an evaluation company (install/lt-bf-install-probes/BfInstallTests.al:61). Its Company-Initialize ran
+    // with the row of the default mode, which gives Experience Tier Essential there
+    // (session/lt-company-setup-rows/CompanySetupRows.al:50-66); from here on the apps under test and the tests see the
+    // flag. With test data, or with a company the run builds, the row stays as it is.
+    if company.is_none() && engine.test_data.is_none() && session.companies().len() > 1 {
+        session.mark_evaluation_company();
+    }
     // The workspace app's own install codeunits run here, once, so that the data they write is part of what every
     // test codeunit starts from (publishing the app runs them once; they are not re-run for each codeunit).
     let workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);

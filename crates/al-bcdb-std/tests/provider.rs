@@ -108,6 +108,36 @@ fn two_tables_of_one_name_are_told_apart_by_the_declaring_apps_id() {
     }
 }
 
+// ADR-046 amendment 4: under `--companies`, whether a table holds rows in another company of the database than the
+// restored one.
+#[test]
+fn whether_a_table_holds_rows_in_another_company_is_read_from_that_company() {
+    for f in FILES {
+        let p = BackupProvider::open(&fixture(f), Some("TP")).unwrap();
+        let app = Some("11111111-1111-1111-1111-111111111111");
+        assert_eq!(
+            p.holds_rows_in("ProbeCo", &request("ambig", app, true)),
+            Some(true),
+            "{f}"
+        );
+        assert_eq!(
+            p.holds_rows_in("ProbeCo", &request("exttest", None, true)),
+            Some(false),
+            "{f}"
+        );
+        assert_eq!(
+            p.holds_rows_in("TP", &request("exttest", None, true)),
+            Some(true),
+            "{f}"
+        );
+        assert_eq!(
+            p.holds_rows_in("ProbeCo", &request("ambig", None, true)),
+            None,
+            "{f}: ambiguous"
+        );
+    }
+}
+
 #[test]
 fn a_table_the_reader_cannot_join_is_a_reader_error_with_its_text_and_other_tables_still_read() {
     for f in FILES {

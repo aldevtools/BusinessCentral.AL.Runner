@@ -1,6 +1,8 @@
 # ADR-046: The install code of the app under test runs in the install baseline; several companies only as an opt-in
 
 - Status: Accepted; amendment 1 Accepted (owner, 2026-10-19); amendment 2 (step B as built, 2026-10-29) decided without owner review
+- Amendment 4 (2026-10-30): the default mode models a database with one company (Accepted, owner, 2026-10-30); what
+  "My Company" holds under the opt-in (built in parts, see the section)
 - Amendment 3 (2026-10-29, revised the same day): probes Q1 and Q1b landed. Accepted under this ADR's own rule (A2, "a later amendment replaces the refusals a to d with that order"), for the part the probes pin
 - Date: 2026-10-19 (accepted by the owner, 2026-10-19, with the `--companies` flag); amendment 1 2026-10-19
 - Amends: ADR-013 decision 5 (items 1 and 2) and its section "Install baseline and Global Triggers as built"
@@ -845,3 +847,78 @@ to one block of 65536 ids; that limit is gone.
   those ids.
 - **Two subscribers of one codeunit to one install event.** Their order inside the codeunit.
 - **Buffered Insert and SystemRowVersion** in the runtime (UR `:99-147`), which would let refusal d go.
+- **Q1b. The order across blocks of 65536 ids.** One app with three install codeunits in two blocks, for example
+  60100, 70000 and 130000 (`id mod 65536`: 60100, 4464, 64464), sharing a log table and a SingleInstance codeunit as in
+  UM. Ascending id gives 60100, 70000, 130000; ascending `id mod 65536` gives 70000, 60100, 130000; descending block
+  gives 70000, 130000, 60100. Needs an id range above 99999 in a corpus app. This unblocks NP Retail.
+- **Q1c. Ordinary events across blocks.** Fact 5 interleaves install codeunits with Extension Triggers subscribers in
+  one sequence, so BC may order ordinary event subscribers the same way. Every pin of ordinary event order has its
+  subscribers in one block (for example `handlers/ProbeEventSubscriberOrder.al`, 69461 to 69467). The runtime sorts
+  subscribers by plain codeunit id (`al-vm/src/events.rs`). Probe: one event of the main app with subscribers 60100 and
+  70000.
+
+
+## Amendment 4 (2026-10-30): one company by default, "My Company" under the opt-in
+
+### Owner decision (Accepted, owner, 2026-10-30)
+
+"Many code partners write per-company code because they must support customers with more than one company. That
+doesn't mean we can't run the per-company triggers in the one default company the runner runs. But if the caller
+specifies multiple companies or `all`, it has to behave like Microsoft would in a multiple-company environment."
+
+1. **The default mode models a database with one company.** Per-company install code runs once, in that company. A
+   `DataPerCompany = false` table that per-company install code writes holds that one write, and is answered. This
+   replaces decision 4c. Items a and b of decision 4 stay: a test that looks for other companies in the default mode
+   still sees only the one company.
+2. **Under `--companies <list>` or `all` the run behaves like BC with several companies.**
+3. **The corpus CI database has two companies** (A1 fact 1), so the corpus run uses the opt-in through the `companies`
+   key of `oracle/oracle.toml`, once adding it loses no case.
+
+### What "My Company" holds (built, branch `mycompany`)
+
+Corpus PR 804 (writer UO, on corpus master, not yet in the submodule pin) pinned more of "My Company" in
+`install/lt-bf-install-probes/BfInstallTests.al`, the same on 27.5, 28.5 and 29.0:
+`SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany` (no CDS Connection Setup row in either company) and
+`SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany` (no General Ledger Setup, Sales &
+Receivables Setup or Company Information row in "My Company"; one Application Area Setup row, a shared table; one Job
+Queue Entry). A1 fact 2 adds Source Code Setup (none), Report Selections (2) and No. Series (0 or 1).
+
+Decision 5 changes for the per-company tables of dependency apps and the platform in a declared company other than the
+session company. Such a table is answered, starting empty, when the database the run models holds no row of it there:
+
+- **With test data:** the restored database says (`TableProvider::holds_rows_in`, read from the backup's tables of that
+  company). BC has what that database holds. A table that holds rows there stays refused: the runtime serves only the
+  session company's rows.
+- **Without test data:** the run models the corpus CI database. Its "My Company" holds no row of Company Information,
+  General Ledger Setup, Source Code Setup, Sales & Receivables Setup and CDS Connection Setup (Base Application, the
+  pins above). Every other table there stays refused.
+
+Checked against Microsoft's demo database of 29.0 (`al-bcdb read`): its "My Company" holds 0 rows of those five tables,
+2 Report Selections, 1 No. Series and 1 Job Queue Entry, the counts the corpus CI database shows. So the CI database's
+"My Company" is the demo database's, unchanged by the corpus apps.
+
+**The session company is an evaluation company under the opt-in without test data** (`BfInstallTests.al:61`). Its row
+gets `Evaluation Company` Yes after the dependency apps' install code and Company-Initialize, before the apps under test
+install: Company-Initialize keeps the row of the default mode, which gives Experience Tier Essential as pinned
+(`session/lt-company-setup-rows/CompanySetupRows.al:50-66`). This replaces amendment 2's decision 2 for runs without
+test data. With test data the row stays as amendment 2 says.
+
+### Decided without owner review (2026-10-30)
+
+1. The evaluation flag is set after Company-Initialize, not before it: both pins hold only so.
+2. A run without test data that declares "My Company" is taken to be the corpus CI database. A run that declares
+   another name gets decision 5 as before.
+
+### Still open: CDS is not the last table
+
+With the five tables answered, Base Application's database trigger setup in "My Company" next reads CRM Connection
+Setup (`CRMIntegrationManagement.GetDatabaseTableTriggerSetup`). No corpus test pins it there, so it stays refused, and
+the corpus with `companies` still loses 31 (BC 29) to 35 (BC 27) cases, all through "Install Seeder" stopping in "My
+Company". Measured with CRM Connection Setup answered as empty (a local experiment; the demo database holds no row of it
+in either company): BC 27, 28 and 29 each 9 newly pass, 0 fail, 0 lost. Probe wanted: the count of CRM Connection Setup
+in "My Company" (corpus issue 811, docs/probes-needed.md). Once pinned, the table joins the list and the key goes into `oracle.toml`.
+
+Item 1 of the owner decision (decision 4c gone) waits for the key: without it, four corpus cases that see the corpus
+database's two companies run in the default mode and fail (69852 `EventLog_RowsWrittenBeforeTheTestSessionStarted`,
+`EventLog_InstallRowCompany`; 83950 `InstallOrder_ThisApp_FiveSubscribersPerCompanyAndPerDatabase`,
+`InstallOrder_DependencyAppA_TwoSubscribersAndCompanyOpenCalls`). It is built on its own branch.
