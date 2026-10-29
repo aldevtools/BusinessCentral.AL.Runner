@@ -395,3 +395,204 @@ codeunit 50301 T {{ Subtype = Test;
         }
     }
 }
+
+/// Outcomes of the test codeunit `codeunit` of a reporter's repro in fixtures/outside-fb, with the stand-in Library Assert.
+fn repro_outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
+    let src = format!("{}\n{}", file, include_str!("fixtures/outside-fb/LibraryAssert.al"));
+    let o = al_testkit::outcomes_in(&src, codeunit);
+    assert!(!o.is_empty());
+    o
+}
+
+/// Issue 6139: on a worksheet in its primary key with a ListPart and the row triggers, a second marking (from the OnDrillDown
+/// or from an action, both with CurrPage.Update(false)) after row 2 lost its flag: GoToRecord of row 2 answers false and the
+/// page shows row 1, the row the marking left Rec on. Measured by the reporter on BC 29; pinned by corpus writer UD
+/// (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:722, :753, :784 on branch al-runtime-rs-staging-ud).
+#[test]
+fn issue_6139_second_marking_after_the_row_lost_its_flag() {
+    all_pass(repro_outcomes(
+        include_str!("fixtures/outside-fb/Issue6139.al"),
+        "Reapply Probe Tests",
+    ));
+}
+
+/// Issue 6141: on a worksheet in the key ByName with a ListPart and the row triggers, GoToRecord of an unmarked row after a
+/// marking OnDrillDown answers false and the page stays on row 1, the row the drilldown left Rec on, after a walk over the
+/// marked rows (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow on
+/// corpus master). The control, GoToRecord of Rec's row, answers true.
+#[test]
+fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
+    all_pass(repro_outcomes(
+        include_str!("fixtures/outside-fb/Issue6141.al"),
+        "GoTo Other Row Tests",
+    ));
+}
+
+/// Issue 6116: the reporter's repro (fixtures/outside-fb/Issue6116.al, with a stand-in for Library Assert) and a second test
+/// codeunit that checks the exact differences BC gave the reporter. Pins: session/lt-bl-sql-counters/SkSqlBudget.al, writer TW
+/// (TW_*_Counts: 1/1, 1/11, 10/10, 11/5 for the reporter's shapes) and writer TX (TX_*: the cost of each record method alone).
+fn issue_6116_outcomes(exact: &str) -> Vec<(String, Outcome)> {
+    let src = format!(
+        "{}\n{}\n{}",
+        include_str!("fixtures/outside-fb/Issue6116.al"),
+        include_str!("fixtures/outside-fb/LibraryAssert.al"),
+        ISSUE_6116_EXACT
+    );
+    al_testkit::outcomes_in(&src, exact)
+}
+
+const ISSUE_6116_EXACT: &str = "
+// Stands in for Base Application's setup subscriber (Global Triggers asked on the first write to a table, enabling nothing for it).
+codeunit 50111 \"Repro Trigger Setup\"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+    end;
+}
+
+codeunit 50110 \"Repro Exact Counts\"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        StmtsBefore: BigInteger;
+        RowsBefore: BigInteger;
+
+    local procedure Mark()
+    begin
+        StmtsBefore := SessionInformation.SqlStatementsExecuted();
+        RowsBefore := SessionInformation.SqlRowsRead();
+    end;
+
+    local procedure Check(Stmts: BigInteger; Rows: BigInteger)
+    var
+        StmtsDelta: BigInteger;
+        RowsDelta: BigInteger;
+    begin
+        StmtsDelta := SessionInformation.SqlStatementsExecuted() - StmtsBefore;
+        RowsDelta := SessionInformation.SqlRowsRead() - RowsBefore;
+        if (StmtsDelta <> Stmts) or (RowsDelta <> Rows) then
+            Error('%1/%2, expected %3/%4', StmtsDelta, RowsDelta, Stmts, Rows);
+    end;
+
+    local procedure InsertLines(GroupCode: Code[20]; LineCount: Integer)
+    var
+        RuleLine: Record \"Repro Rule Line\";
+        i: Integer;
+    begin
+        for i := 1 to LineCount do begin
+            RuleLine.Init();
+            RuleLine.\"Group Code\" := GroupCode;
+            RuleLine.\"Line No.\" := i;
+            RuleLine.Value := 'Value';
+            RuleLine.Weight := i;
+            RuleLine.Insert();
+        end;
+    end;
+
+    [Test]
+    procedure GetOfOneRow()
+    var
+        RuleStore: Codeunit \"Repro Rule Store\";
+    begin
+        InsertLines('READ1', 10);
+        Mark();
+        if RuleStore.ReadWeight('READ1', 5) <> 5 then Error('weight');
+        Check(1, 1);
+    end;
+
+    [Test]
+    procedure FilteredFindSet()
+    var
+        RuleStore: Codeunit \"Repro Rule Store\";
+    begin
+        InsertLines('READ2', 10);
+        Mark();
+        if RuleStore.SumWeights('READ2') <> 55 then Error('sum');
+        Check(1, 11);
+    end;
+
+    [Test]
+    procedure GetAndModify()
+    var
+        RuleStore: Codeunit \"Repro Rule Store\";
+    begin
+        InsertLines('WRITE1', 10);
+        Mark();
+        RuleStore.RaiseWeights('WRITE1', 5);
+        Check(10, 10);
+    end;
+
+    [Test]
+    procedure FindFirstOrInsert()
+    var
+        RuleStore: Codeunit \"Repro Rule Store\";
+    begin
+        Mark();
+        if RuleStore.BuildPath('TREE1', 5) = 0 then Error('node');
+        Check(11, 5);
+    end;
+
+    // Not pinned (SkSqlBudget.al TX notes): a FindSet that finds rows right after the same query found none costs one statement more
+    // the first time on BC 29 SaaS. Stays refused.
+    [Test]
+    procedure FindSetAfterTheSameQueryFoundNothing()
+    var
+        RuleStore: Codeunit \"Repro Rule Store\";
+    begin
+        InsertLines('READ3', 10);
+        if RuleStore.SumWeights('NONE') <> 0 then Error('sum');
+        Mark();
+        if RuleStore.SumWeights('READ3') <> 55 then Error('sum');
+        Check(1, 11);
+    end;
+}
+";
+
+fn issue_6116_outcome(name: &str) -> Outcome {
+    let o = issue_6116_outcomes("Repro Exact Counts");
+    o.into_iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("no test {name}"))
+        .1
+}
+
+#[test]
+fn issue_6116_reporter_repro_passes() {
+    let o = issue_6116_outcomes("Repro Sql Budget Tests");
+    assert_eq!(o.len(), 4);
+    for (name, outcome) in o {
+        assert_eq!(outcome, Outcome::Pass, "{name}");
+    }
+}
+
+#[test]
+fn issue_6116_get_with_load_fields_counts() {
+    assert_eq!(issue_6116_outcome("GetOfOneRow"), Outcome::Pass);
+}
+
+#[test]
+fn issue_6116_filtered_find_set_counts() {
+    assert_eq!(issue_6116_outcome("FilteredFindSet"), Outcome::Pass);
+}
+
+#[test]
+fn issue_6116_get_and_modify_loop_counts() {
+    assert_eq!(issue_6116_outcome("GetAndModify"), Outcome::Pass);
+}
+
+#[test]
+fn issue_6116_find_first_or_insert_counts() {
+    assert_eq!(issue_6116_outcome("FindFirstOrInsert"), Outcome::Pass);
+}
+
+#[test]
+fn issue_6116_find_set_after_the_same_query_found_nothing_stays_refused() {
+    let o = issue_6116_outcome("FindSetAfterTheSameQueryFoundNothing");
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("SQL counter")),
+        "{o:?}"
+    );
+}
