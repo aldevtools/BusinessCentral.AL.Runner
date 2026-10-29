@@ -97,12 +97,15 @@ pub(crate) fn compile_with_cache(
         })
         .collect();
     // The text of a lazily read app is read when something needs it: building an entry does, a hit
-    // does not.
-    let filled = std::cell::Cell::new(false);
+    // does not. Each app is filled once. Building the layers fills only the cached dependency apps (the first
+    // `n_dep`); the ones after them (a dependency app on a workspace app) are filled when the index is built
+    // (al-runner issue 6044: one flag for all left them without text, so their objects were missing).
+    let filled = std::cell::RefCell::new(vec![false; lazy.len()]);
     let fill = |apps: &mut [al_sema::workspace::AppSource]| {
-        if !filled.replace(true) {
-            for (a, l) in apps.iter_mut().zip(lazy) {
-                if let Some(l) = l {
+        let mut filled = filled.borrow_mut();
+        for ((a, l), done) in apps.iter_mut().zip(lazy).zip(filled.iter_mut()) {
+            if let Some(l) = l {
+                if !std::mem::replace(done, true) {
                     l.fill(a);
                 }
             }

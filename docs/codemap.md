@@ -428,7 +428,7 @@ functions or methods; the file is in the module list above.
    and `resolve_references`.
 3. `members::build`: fields (extensions merged), enum values, procedure signatures.
 4. `check::check_with`: `check_object` for every workspace object (a test selection leaves unselected test codeunits
-   out: `Roots::only_tests`), then `reach_baseline` (install roots) and `run_demand` (check/demand.rs):
+   out: `Roots::only_tests`), then `reach_baseline` (install roots), `reach_dependencies_on_workspace` (a dependency app that stands on a workspace app is reached whole, as the compile cache compiles it; al-runner issue 6044) and `run_demand` (check/demand.rs):
    `activate` / `activate_table` / `activate_ops` / `activate_global` queue routines, `check_reached` checks them;
    files of newly reached dependency objects are parsed ahead on worker threads. Result: `CheckResult`
    (types and resolutions by node position, `Demand`). The demand loop runs in rounds of tasks (check a workspace

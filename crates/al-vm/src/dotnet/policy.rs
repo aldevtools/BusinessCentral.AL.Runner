@@ -6,6 +6,9 @@
 pub enum Access<'a> {
     /// A call or property access of this member (`Now`, `NewGuid`).
     Member(&'a str),
+    /// A call of this member with at least one Text or Code argument. A text argument can be a file path, which
+    /// the `deny-member-with-text` rules refuse (`WorkbookWriter.Create(fileName)`).
+    MemberWithText(&'a str),
     /// A constructor call with this many arguments.
     Construct(usize),
 }
@@ -18,6 +21,8 @@ pub struct Policy {
     off_windows: Vec<String>,
     allow_type: Vec<String>,
     deny_member: Vec<(String, String, String)>,
+    /// `deny-member-with-text` rules: refused only when a Text or Code argument is passed.
+    deny_member_text: Vec<(String, String, String)>,
     deny_new_no_args: Vec<(String, String)>,
     server_prefix: Vec<String>,
     pure: Vec<String>,
@@ -69,6 +74,10 @@ impl Policy {
                     let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
                     p.deny_member.push((ty.to_string(), member.to_string(), rule));
                 }
+                "deny-member-with-text" => {
+                    let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
+                    p.deny_member_text.push((ty.to_string(), member.to_string(), rule));
+                }
                 "deny-new-without-args" => p.deny_new_no_args.push((subject, rule)),
                 "server-prefix" => p.server_prefix.push(subject),
                 "pure" => p.pure.push(subject),
@@ -97,13 +106,23 @@ impl Policy {
             return Err(format!("refused by policy: type '{clr_type}' ({rule})"));
         }
         match access {
-            Access::Member(m) => {
+            Access::Member(m) | Access::MemberWithText(m) => {
                 if let Some((_, _, rule)) = self
                     .deny_member
                     .iter()
                     .find(|(t, n, _)| t.eq_ignore_ascii_case(clr_type) && n.eq_ignore_ascii_case(m))
                 {
                     return Err(format!("refused by policy: member '{clr_type}.{m}' ({rule})"));
+                }
+                if matches!(access, Access::MemberWithText(_))
+                    && let Some((_, _, rule)) = self
+                        .deny_member_text
+                        .iter()
+                        .find(|(t, n, _)| t.eq_ignore_ascii_case(clr_type) && n.eq_ignore_ascii_case(m))
+                {
+                    return Err(format!(
+                        "refused by policy: member '{clr_type}.{m}' with a text argument ({rule})"
+                    ));
                 }
             }
             Access::Construct(0) => {
@@ -121,7 +140,14 @@ impl Policy {
         }
         let server = assembly.is_some_and(|a| self.server_prefix.iter().any(|p| starts_with_ci(a, p)))
             || self.server_prefix.iter().any(|p| starts_with_ci(clr_type, p));
-        if server && !self.pure.iter().any(|t| t.eq_ignore_ascii_case(clr_type)) {
+        let pure = self.pure.iter().any(|t| {
+            if t.ends_with('.') {
+                starts_with_ci(clr_type, t)
+            } else {
+                t.eq_ignore_ascii_case(clr_type)
+            }
+        });
+        if server && !pure {
             return Err(format!(
                 "refused by policy: server class '{clr_type}' is neither registered nor classified pure"
             ));
@@ -213,6 +239,62 @@ mod tests {
                 Some("Microsoft.Dynamics.Nav.Types"),
                 "Microsoft.Dynamics.Nav.Types.Base64UrlHelper",
                 Access::Member("EncodeBase64UrlString")
+            )
+            .is_ok()
+        );
+    }
+
+    /// Owner decision 2026-10-29: the OpenXml spreadsheet classes and the QR code provider are pure BC server
+    /// classes. They run in the sidecar; only the members that touch the disk stay refused. NP Retail tests reach
+    /// both through Excel Buffer and a barcode report.
+    #[test]
+    fn spreadsheet_classes_and_the_qr_provider_are_pure_except_for_disk_members() {
+        let p = p();
+        let asm = Some("Microsoft.Dynamics.Nav.OpenXml");
+        for ty in [
+            "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter",
+            "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter",
+            "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.CellPosition",
+        ] {
+            assert!(p.check(asm, ty, Access::Member("AddWorksheet")).is_ok(), "{ty}");
+        }
+        // The stream forms are pure; the file name forms write or read a file.
+        let wbw = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
+        assert!(p.check(asm, wbw, Access::Member("Create")).is_ok());
+        for m in ["Create", "Open"] {
+            refused(p.check(asm, wbw, Access::MemberWithText(m)), &[wbw, m, "text argument"]);
+        }
+        refused(
+            p.check(
+                asm,
+                "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader",
+                Access::MemberWithText("Open"),
+            ),
+            &["WorkbookReader", "text argument"],
+        );
+        // The Word classes are not classified.
+        refused(
+            p.check(
+                asm,
+                "Microsoft.Dynamics.Nav.OpenXml.Word.OfficeWordComposer",
+                Access::Member("Compose"),
+            ),
+            &["neither registered nor classified pure"],
+        );
+        let qr = "Microsoft.Dynamics.Nav.MX.BarcodeProviders.QRCodeProvider";
+        let mx = Some("Microsoft.Dynamics.Nav.MX");
+        assert!(p.check(mx, qr, Access::Construct(0)).is_ok());
+        assert!(p.check(mx, qr, Access::Member("GetBarcodeStream")).is_ok());
+        refused(
+            p.check(mx, qr, Access::Member("GetBarcode")),
+            &[qr, "GetBarcode", "temp"],
+        );
+        // The enum argument of GetBarcodeStream lives in the same assembly.
+        assert!(
+            p.check(
+                mx,
+                "Microsoft.Dynamics.QRCode.ErrorCorrectionLevel",
+                Access::Member("High")
             )
             .is_ok()
         );
@@ -347,5 +429,6 @@ mod tests {
         assert!(Policy::parse("deny-type X").is_err());
         assert!(Policy::parse("frobnicate X | y").is_err());
         assert!(Policy::parse("deny-member NoDot | y").is_err());
+        assert!(Policy::parse("deny-member-with-text NoDot | y").is_err());
     }
 }
