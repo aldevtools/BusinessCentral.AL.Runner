@@ -275,6 +275,9 @@ pub struct QueryState {
     /// The query's OnBeforeOpen trigger is running: `CurrQuery.Open` and `Close` raise
     /// (query/lt-ch-query-leads/ChQueryLeads.al:259-290).
     pub in_before_open: bool,
+    /// `Close` ran since the last `Open`: a filter element read then is not pinned (only before `Open` is,
+    /// assumption query-filter-element-read-without-row).
+    pub closed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1917,6 +1920,7 @@ impl Value {
                 run: None,
                 instance: None,
                 in_before_open: false,
+                closed: false,
             }))),
             // Records need the table's field types: the VM builds them.
             RtType::Record(..) => Value::Null,
