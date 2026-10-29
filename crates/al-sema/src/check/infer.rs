@@ -1211,6 +1211,18 @@ impl<'a> Checker<'a> {
                         self.record(sc, node, Res::OptionValue(i as i32));
                         E::Val(Ty::Builtin(enum_name.into()))
                     }
+                    // `Graphics.SmoothingMode::AntiAlias` on a `DotNet Graphics` variable: the member of the .NET enum
+                    // the property holds (System Application, ImageImpl.Codeunit.al:97 and :129). The property's
+                    // type is known only at run time, so the type is an unnamed DotNet value.
+                    E::Callable(c)
+                        if !c.is_empty()
+                            && c.iter().all(|c| matches!(c.target, Res::DotNetMember(_)))
+                            && kids[0].kind() == MemberExpr =>
+                    {
+                        self.record(sc, &kids[0], c[0].target.clone());
+                        self.record(sc, node, Res::DotNetMember(rhs.clone()));
+                        E::Val(Ty::DotNet("".into()))
+                    }
                     // `RecRef.SecurityFiltering::Ignored`: the member of the option a call answers
                     // (Base Application's "Find Record Management"). Its type is the option's.
                     E::Callable(c) => {

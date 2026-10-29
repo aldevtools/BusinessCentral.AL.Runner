@@ -78,8 +78,21 @@ pub struct Registry {
 
 impl Registry {
     /// The registry shipped with the runtime: the BC server classes of `server_classes.rs`.
+    /// As on a host that does not run .NET on Windows.
     pub fn builtin() -> Registry {
         Registry::new(super::server_classes::types()).expect("the shipped registry names a source for every member")
+    }
+
+    /// The shipped registry for a .NET host on Windows (`windows`) or elsewhere; the front end that starts the sidecar
+    /// decides (ADR-006). On Windows it claims no System.Drawing type: GDI+ is there, so every System.Drawing type
+    /// and member goes to .NET and a Bitmap and a Graphics are always real .NET objects (ADR-027 row 14, ADR-044
+    /// note of 2026-10-29). Elsewhere the ADR-044 members of O365 Brand Color.MakePicture are served here.
+    pub fn builtin_for(windows: bool) -> Registry {
+        let mut r = Registry::builtin();
+        if windows {
+            r.types.retain(|t| !t.clr_name.starts_with("System.Drawing."));
+        }
+        r
     }
 
     /// A registry with no type, for tests that exercise the router without any server class.
@@ -132,5 +145,41 @@ impl RegistryType {
                 None
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DRAWING: [&str; 6] = [
+        "System.Drawing.Bitmap",
+        "System.Drawing.Graphics",
+        "System.Drawing.ColorTranslator",
+        "System.Drawing.Color",
+        "System.Drawing.SolidBrush",
+        "System.Drawing.Imaging.ImageFormat",
+    ];
+
+    /// Off Windows the ADR-044 registry serves the eight MakePicture members of these types.
+    #[test]
+    fn off_windows_the_registry_claims_the_drawing_types() {
+        let r = Registry::builtin_for(false);
+        for t in DRAWING {
+            assert!(r.get(t).is_some(), "{t}");
+        }
+        assert!(Registry::builtin().get("System.Drawing.Bitmap").is_some());
+    }
+
+    /// On Windows every System.Drawing type goes to .NET (ADR-027 row 14, orchestrator 2026-10-29), so a Bitmap and a
+    /// Graphics are always real .NET objects. The server classes stay.
+    #[test]
+    fn on_windows_the_registry_claims_no_drawing_type_and_keeps_the_server_classes() {
+        let (on, off) = (Registry::builtin_for(true), Registry::builtin_for(false));
+        for t in DRAWING {
+            assert!(on.get(t).is_none(), "{t}");
+        }
+        assert!(on.types().iter().all(|t| !t.clr_name.starts_with("System.Drawing.")));
+        assert_eq!(on.types().len(), off.types().len() - DRAWING.len());
     }
 }
