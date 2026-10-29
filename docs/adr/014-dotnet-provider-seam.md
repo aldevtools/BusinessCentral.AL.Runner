@@ -319,11 +319,17 @@ before a request is sent. Every refusal names the type or member and the rule.
    `System.IO.File`, `FileInfo`, `Directory`, `DirectoryInfo`, `FileStream`,
    `System.IO.Path` temp and current-directory members; `System.Net.*`,
    `System.Net.Http.*`, `System.Net.Mail.*`; `System.Diagnostics.Process`;
-   `System.Environment`; `System.AppDomain`; `System.Reflection.Assembly` load
+   `System.Environment` (except `GetEnvironmentVariable`, below); `System.AppDomain`; `System.Reflection.Assembly` load
    members; `System.Runtime.InteropServices.*`; `Microsoft.Win32.*`;
    `System.DirectoryServices.*`; `System.Security.Principal.*`;
    `System.Drawing.*` (AL Runner refuses it for the same reason, `docs/scope.md`
    3.16); `System.Threading.Thread.Sleep`.
+   Amended 2026-10-30 (owner decision, issue 6222): `System.Environment.GetEnvironmentVariable(name)` and
+   `(name, target)` are a modeled answer, served by the registry before this policy: every variable reads as
+   not set, as on a BC container that sets none. The answer is a null string, which AL reads as `''`
+   (corpus `tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:130-131, :181-190`). The host's
+   environment is never read, so every machine gets the same answer. Every other member of
+   `System.Environment` stays refused (`Type.Member`, item 2).
 5. **Clock and randomness that bypass the host**, refused by member in the
    first version: `DateTime.Now`, `UtcNow`, `Today`, `DateTimeOffset.Now`,
    `UtcNow`, `Guid.NewGuid`, `new Random()` without a seed, `Environment.TickCount`,
