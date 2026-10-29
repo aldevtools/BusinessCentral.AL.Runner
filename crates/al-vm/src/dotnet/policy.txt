@@ -37,6 +37,7 @@ deny-assembly MailKit | mail needs the network
 deny-assembly MimeKit | mail needs the network
 
 # Item 4: environment-touching namespaces and types.
+# ADR-056: the static File and Directory members it serves are answered from the in-memory file system before this policy.
 deny-type System.IO.File | touches the file system
 deny-type System.IO.FileInfo | touches the file system
 deny-type System.IO.Directory | touches the file system
