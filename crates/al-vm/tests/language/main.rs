@@ -133,6 +133,7 @@ mod xml_clear_ref;
 mod xml_doctype;
 mod xml_node_list_clear;
 mod xml_options_assign;
+mod xml_reserved_prefix;
 mod xml_sibling_unparented;
 mod xml_text_into_document;
 mod xml_value_assign;

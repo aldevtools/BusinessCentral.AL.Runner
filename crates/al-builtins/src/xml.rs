@@ -1363,6 +1363,10 @@ impl Writer {
                 String::new()
             } else if !ap.is_empty() && mapped(&self.scope, ap).as_deref() == Some(ans.as_str()) {
                 ap.clone()
+            } else if ap == "xml" && ans == XML_URI {
+                // The `xml` prefix is bound without a declaration and written as it is (xml/XmlDocReadWrite.al:259-265
+                // ReadFrom_Whitespace_TextNode `xmlspace`: `<a xml:space="preserve">` is written back unchanged).
+                ap.clone()
             } else if let Some((p, _)) = self.scope.iter().rev().find(|(p, u)| !p.is_empty() && u == ans) {
                 p.clone()
             } else if ap.is_empty() && self.scope.is_empty() && generated.is_none() && children.is_empty() {
@@ -1471,6 +1475,15 @@ fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal> {
             XData::Document { decl, .. } => decl.clone(),
             _ => None,
         });
+        // A read declaration that names an encoding is written as its own node; one without an encoding is replaced by the
+        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, misc/lt-probes-needed-1/PnAXmlWriteTo.al:90: a line end after
+        // `<?xml version="1.0"?>` is written once).
+        let has_decl = decl.as_ref().is_some_and(|d| {
+            with(
+                d,
+                |x| matches!(x, XData::Declaration { encoding, explicit: false, .. } if !encoding.is_empty()),
+            )
+        });
         let text = match decl {
             Some(d) => with(&d, |x| match x {
                 XData::Declaration {
@@ -1503,12 +1516,18 @@ fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal> {
                 "InvalidOperation",
             ));
         }
-        for c in kids {
+        for (i, c) in kids.into_iter().enumerate() {
             match with(&c, |d| match d {
                 XData::Text(s) => Some(s.clone()),
                 _ => None,
             }) {
                 Some(s) => {
+                    // A line end read right after the document's own declaration (one that names an encoding) is written on a
+                    // line of its own: the declaration ends its line first (xml/XmlDocReadWrite.al:409-430 WriteTo_OutStream_RoundTrip `reread_out`).
+                    // Other white space there is written as before.
+                    if i == 0 && has_decl && s == "\n" {
+                        w.push_text("\n");
+                    }
                     let mut esc = String::new();
                     escape_dom_text(&s, &mut esc);
                     w.document_text(&esc);
