@@ -1392,6 +1392,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    DatetimeFilterDayAndHours => {
+        id: "datetime-filter-day-and-hours",
+        assumed: "In an English session a DateTime filter text that is a date alone (`01/15/25`, `1/15/25`, `2025-01-15`) covers the whole day from 00:00:00 to 23:59:59 (as a range end: the start of the day below, its end above; after `<`: before the start of the day), and GetFilter shows its end as `11:59:59 PM`; a clock reads any hour (`08:30`, `17:45`, `00:00` on a 24-hour clock, `08:30 AM`, `05:45:10.5 PM`); `15.01.25` alone or with a clock raises the evaluate error of DateTime.",
+        tests: "No Microsoft test: a partner app's tests (DateTime filters of a date alone and of other hours).",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_DateAlone",
+                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_HourNotTwelve",
+            ],
+            since: "2026-10-30",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
