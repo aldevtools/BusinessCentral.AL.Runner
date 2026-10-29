@@ -146,6 +146,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.required_isolation {
         h.update(b"required_isolation");
     }
+    // `--ignore-permission-mock` changes outcomes (not run becomes a flagged pass); a run without it keeps the hash.
+    if a.ignore_permission_mock {
+        h.update(b"ignore_permission_mock");
+    }
     // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
     if a.company_demotool {
         h.update(b"company-data demotool ");
