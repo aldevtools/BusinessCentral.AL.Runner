@@ -210,6 +210,10 @@ impl Session {
                 changed[r.pos] = new_value.clone();
                 if let Some(i) = child.fields.iter().position(|f| f.id == 2_000_000_005) {
                     self.next_row_version += 1;
+                    // A row version of the database the open transaction's Inserts and Modifies do not account for
+                    // (`Session::last_used_row_version`).
+                    self.tx.row_versions.handed_out += 1;
+                    self.tx.row_versions.last = self.next_row_version;
                     changed[i] = Value::BigInteger(self.next_row_version);
                 }
                 self.stamp_row_modified(&child, &mut changed);

@@ -275,9 +275,14 @@ impl Session {
         match id {
             // The counter has handed out `next_row_version` so far; the database never reports
             // zero (session/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
-            // What the database holds committed: a row inserted in the open transaction does not count yet
-            // (record/TestProbeRecordRefContracts.al:LastUsedRowVersion_StartsAndGrows, `grows_after_insert` No).
-            ids::DATABASE_LASTUSEDROWVERSION_1 => return Ok(Value::BigInteger(self.tx.committed_row_version.max(1))),
+            // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
+            // transaction does not count until a Get of its table or a Modify (`Session::last_used_row_version`).
+            ids::DATABASE_LASTUSEDROWVERSION_1 => {
+                return match self.last_used_row_version() {
+                    Ok(v) => Ok(Value::BigInteger(v)),
+                    Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
+                };
+            }
             // After a Commit that ended a transaction without writes, and with no write since, it is LastUsedRowVersion() + 1
             // (platform/lt-platform-members/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed line 40 and
             // _PrefixedCallEqualsBareCall). Inside a write transaction, or after a Commit that made writes durable, the value is not
@@ -291,18 +296,12 @@ impl Session {
                     // on BC (PlTRowVersionValue.al:157-172, `insert open last > start last`), and after a Modify too
                     // (PlTDatabase.al:220-245, `after_modify_greater`): tests compare the two, so the value is refused while
                     // the open transaction holds such a write, or a Delete, Rename or bulk write whose effect is not pinned.
-                    if self.next_row_version != self.tx.committed_row_version
-                        && (self.tx.read_after_write
-                            || !self.writes_all_noted()
-                            || self
-                                .tx
-                                .writes
-                                .iter()
-                                .any(|w| w.kind != crate::state::TxWriteKind::Insert))
-                    {
-                        return unsupported(
-                            "Database.MinimumActiveRowVersion after a Modify, Delete or bulk write, or a read of a table the open transaction inserted into (LastUsedRowVersion is not pinned there)",
-                        );
+                    // It stays at the start value through Insert, Insert + Get, Modify + Get and Commit (PlTRowVersionValue.al:
+                    // 157-226): where LastUsedRowVersion() is not pinned, tests that compare the two are not either.
+                    if let Err(why) = self.last_used_row_version() {
+                        return unsupported(format!(
+                            "Database.MinimumActiveRowVersion after {why} (LastUsedRowVersion is not pinned there)"
+                        ));
                     }
                     if self.iso_min_unpinned {
                         return unsupported(
