@@ -16348,6 +16348,15 @@
         "template": "Truncate is not supported when the field has Media and/or MediaSet fields."
       },
       {
+        "code": "",
+        "file": "crates/al-vm/src/control_add_in.rs",
+        "generic": false,
+        "line": 31,
+        "pinned": false,
+        "site": null,
+        "template": "The control add-in on control % on page % has not been instantiated."
+      },
+      {
         "code": "EventBinding",
         "file": "crates/al-vm/src/dispatch.rs",
         "generic": false,
@@ -16378,7 +16387,7 @@
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 463,
+        "line": 464,
         "pinned": true,
         "site": "types/TestFormatEvaluateTextContracts.al:228",
         "template": "An error was expected inside an ASSERTERROR statement."
@@ -16387,7 +16396,7 @@
         "code": "AL:InvalidOperation",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
-        "line": 610,
+        "line": 611,
         "pinned": true,
         "site": "TestDotNetValueKindsContracts.al:314",
         "template": "Collection was modified; enumeration operation may not execute."
@@ -16486,7 +16495,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1865,
+        "line": 1866,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16504,7 +16513,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open.rs",
         "generic": false,
-        "line": 1609,
+        "line": 1631,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16745,7 +16754,7 @@
       }
     ],
     "pinned": 94,
-    "sites": 97
+    "sites": 98
   },
   "language": {
     "bc": "27-29",

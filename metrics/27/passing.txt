@@ -4773,6 +4773,8 @@
 67763 Errors_SameNameForASecondTable
 67763 Errors_SetViewOnUnknownControl
 67763 PageCaption_DefaultOfAFreshBuilder
+67763 RunModal_WithAFilterPageHandler_Cancelled
+67763 RunModal_WithAFilterPageHandler_Confirmed
 67763 UnusedResult_AddFieldOnUnknownControl
 67763 UnusedResult_SetViewWithAnEmptyView
 67767 Metadata_ReportWithBothFlagsSet
@@ -13059,6 +13061,7 @@
 74211 SettingsAreCopies
 74211 Uninitialized_Defaults
 74212 AddFieldNo_Variants
+74212 AddField_Variants
 74212 AddRecord_NoFiltersAndSorting
 74212 AddRecord_WithFilters
 74212 AddTable_CountAndNames
@@ -13067,6 +13070,9 @@
 74212 GetSetView_RoundTrip
 74212 Name_IndexErrors
 74212 PageCaption_SetAndRead
+74212 RunModal_Accept
+74212 RunModal_CancelKeepsSetView
+74212 RunModal_HandlerSetsView
 74214 CanCreateTask_Twice
 74214 CancelTask_UnknownIds
 74214 CreateTask_ErrorUnknownCodeunit
@@ -14769,6 +14775,7 @@
 80606 VariantToText_Language1033_EnumOption
 80606 VariantToText_Language1033_IntDec
 80627 CodeunitRun_Confirm_NoHandler
+80627 FilterPageBuilder_NoHandler
 80670 NoOrderBy_EqualSums
 80670 NoOrderBy_TwoGroupsSameCat
 80670 RecordIdColumn_GroupAndOrderBy
@@ -15103,6 +15110,7 @@
 84111 Ca14_OptionalHandlers_SentAndRecalled
 84111 Ca14_OptionalRecallHandler_NothingRecalled
 84111 Ca14_OptionalSendHandler_NothingSent
+84168 FilterPageBuilder_RunModal_NoHandler
 84168 Handler_OverloadedWithPlainProcedure_IsTheHandler
 84168 Handlers_AnswerEverySecondCall
 84168 Message_WhileDialogOpen_IsHandledAtOnce
