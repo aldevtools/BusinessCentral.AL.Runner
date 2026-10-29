@@ -787,6 +787,32 @@ impl<'a> Checker<'a> {
             PrefixExpr => {
                 let t = kids.first().map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 let op = first_token(node).to_ascii_lowercase();
+                // Unary minus on an Enum or Option and unary minus or plus on a Duration do not compile, though the binary
+                // operators take an Enum or Option as its ordinal: AL0172 (must-not-compile cases 2268 Enum variable, 1531 and
+                // 1728 Option variable, 1532 Option field, 0584 and 0585 Duration variable; al-runner issue 6156). Only a variable
+                // or a field operand is pinned; reported for the workspace only.
+                let ambiguous = match &t {
+                    Ty::Enum(_) | Ty::Option(_) => op == "-",
+                    Ty::Duration => op == "-" || op == "+",
+                    _ => false,
+                };
+                if ambiguous
+                    && let Some(k) = kids.first()
+                    && matches!(k.kind(), SyntaxKind::NameRef | SyntaxKind::MemberExpr)
+                    && !self.ws.is_dependency(sc.oi)
+                {
+                    let shown = if matches!(t, Ty::Option(_)) {
+                        "Option".to_string()
+                    } else {
+                        t.to_string()
+                    };
+                    self.diag(
+                        sc,
+                        node,
+                        "AL0172",
+                        format!("Operator '{op}' is ambiguous on an operand of type '{shown}'"),
+                    );
+                }
                 if op == "not" {
                     if let Some(k) = kids.first() {
                         self.tdd_settle(sc, k, &Ty::Boolean);

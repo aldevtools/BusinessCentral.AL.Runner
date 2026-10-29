@@ -1439,6 +1439,10 @@ pub struct HeaderBag {
     pub kind: HeaderKind,
     pub items: Vec<(String, Vec<String>)>,
     pub secret: Vec<(String, Vec<String>)>,
+    /// The headers of a content written from a SecretText: they list one header that is not the Content-Type, which no test
+    /// names (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:Secret_Content_Headers `keys` 1, `has_type` No). Reading
+    /// the list, or a header other than the Content-Type, is refused.
+    pub unnamed_secret_header: bool,
 }
 
 /// The headers of an `HttpContent`, request, response or client, shared with every `HttpHeaders` handed out.
@@ -1492,6 +1496,8 @@ pub struct HttpContentState {
     pub copied: bool,
     /// The last `WriteFrom` took an `InStream`.
     pub from_stream: bool,
+    /// The last `WriteFrom` took a `SecretText` (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al).
+    pub secret: bool,
 }
 
 impl Default for HttpContentState {
@@ -1509,6 +1515,7 @@ impl Default for HttpContentState {
             written: false,
             copied: false,
             from_stream: false,
+            secret: false,
         }
     }
 }

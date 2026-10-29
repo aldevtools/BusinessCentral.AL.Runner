@@ -1661,20 +1661,6 @@ fn array_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<
 /// Invalid JSON is reported as `false` when the result is used (docs: "returns false if
 /// the operation was not successful"; no corpus test feeds invalid JSON, see probes-needed.md).
 fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Option<&str>) -> Result<Value, Signal> {
-    let mut r = r;
-    let mut h = recv(r.as_deref_mut())?;
-    // A variable whose node sits inside a container (it was added) reads into a new node of its own: the container keeps what it
-    // holds (json/lt-json-typed-overloads/P101ArrayAdd.al:P101_Add_JsonToken, `Tk.ReadFrom(..)` after `A.Add(Tk)` leaves `A` as it was).
-    if parent_link(&h).and_then(|w| w.upgrade()).is_some() {
-        if let Some(slot @ Value::Library(..)) = r {
-            let Value::Library(name, _) = &*slot else {
-                unreachable!()
-            };
-            let fresh = new_handle(JsonNode::Scalar(Scalar::Null));
-            *slot = Value::Library(name.clone(), fresh.clone());
-            h = fresh;
-        }
-    }
     // ReadFrom(InStream) reads the rest of the stream and parses it like the text form.
     let text = if matches!(&a[0], Value::Library(_, h) if matches!(&*h.borrow(), LibraryValue::InStream(_))) {
         let text = crate::stream::read_serialised_text(&mut a[0])?;
@@ -1702,7 +1688,43 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
         }
         .to_string()
     };
-    let syntax = parse(&text)?;
+    read_text_into(c.ret_used(), r, &text, want)
+}
+
+/// `Evaluate(JsonArray, Text)`: the text is read as `ReadFrom` reads it, and a text that is no array leaves the array as it was
+/// and fails with ReadFrom's statement error, which the form with a used result leaves as the last error and answers false
+/// (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:88-176: an array, an empty one and one with blanks around it are
+/// read; an object, a number, a string and null fail InvalidJsonType, `[1,`, the empty text and `not json` InvalidJsonData;
+/// :178-194 the array is usable afterwards; al-runner issue 6175).
+pub fn evaluate_array(c: &mut dyn Ctx, slot: &mut Value, text: &str) -> Result<Value, Signal> {
+    crate::assumptions::assume(crate::assumptions::Assumption::EvaluateJsonArray);
+    match read_text_into(false, Some(slot), text, Some("array")) {
+        Err(Signal::Error(e)) if c.ret_used() => {
+            c.set_last_error(*e);
+            Ok(Value::Boolean(false))
+        }
+        other => other,
+    }
+}
+
+/// Replaces the content of the receiver's node with `text` parsed as the wanted kind; a text that is not one answers false
+/// when `ret_used`, else raises the statement form's error.
+fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Option<&str>) -> Result<Value, Signal> {
+    let mut r = r;
+    let mut h = recv(r.as_deref_mut())?;
+    // A variable whose node sits inside a container (it was added) reads into a new node of its own: the container keeps what it
+    // holds (json/lt-json-typed-overloads/P101ArrayAdd.al:P101_Add_JsonToken, `Tk.ReadFrom(..)` after `A.Add(Tk)` leaves `A` as it was).
+    if parent_link(&h).and_then(|w| w.upgrade()).is_some() {
+        if let Some(slot @ Value::Library(..)) = r {
+            let Value::Library(name, _) = &*slot else {
+                unreachable!()
+            };
+            let fresh = new_handle(JsonNode::Scalar(Scalar::Null));
+            *slot = Value::Library(name.clone(), fresh.clone());
+            h = fresh;
+        }
+    }
+    let syntax = parse(text)?;
     let parsed = syntax.clone().filter(|p| {
         with_node(p, |n| {
             matches!(
@@ -1715,7 +1737,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
         })
     });
     let Some(parsed) = parsed else {
-        return if c.ret_used() {
+        return if ret_used {
             Ok(Value::Boolean(false))
         } else if syntax.is_none() {
             // json/TestJsonRuntimeContracts.al:JsonObject_ReadFrom_InvalidJson_ReturnsFalse_AndStatementFormThrows

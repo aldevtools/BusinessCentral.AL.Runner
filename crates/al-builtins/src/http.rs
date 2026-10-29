@@ -1744,8 +1744,20 @@ fn headers_contains(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> 
     let name = text(a, 0)?;
     with_bag(r.as_deref(), |b| {
         restricted_lookup(b, &name)?;
+        unnamed_secret_header(b, Some(&name))?;
         Ok(Value::Boolean(find(&b.items, &name).is_some()))
     })?
+}
+
+/// Refuses a read of a secret content's headers that could meet the header no test names (`HeaderBag::unnamed_secret_header`):
+/// the list of keys, and a header other than the Content-Type.
+fn unnamed_secret_header(b: &HeaderBag, name: Option<&str>) -> Result<(), Signal> {
+    if b.unnamed_secret_header && !name.is_some_and(|n| n.eq_ignore_ascii_case("Content-Type")) {
+        return unsupported(
+            "the headers of an HttpContent written from a SecretText: the header it lists besides the Content-Type is not pinned",
+        );
+    }
+    Ok(())
 }
 
 fn headers_contains_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -1763,11 +1775,14 @@ fn headers_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out
 
 fn headers_keys(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let keys = with_bag(r.as_deref(), |b| {
-        b.items
-            .iter()
-            .map(|(n, _)| Value::Text(n.clone().into()))
-            .collect::<Vec<_>>()
-    })?;
+        unnamed_secret_header(b, None)?;
+        Ok::<_, Signal>(
+            b.items
+                .iter()
+                .map(|(n, _)| Value::Text(n.clone().into()))
+                .collect::<Vec<_>>(),
+        )
+    })??;
     Ok(Value::List(Rc::new(RefCell::new(keys.into()))))
 }
 
@@ -1780,6 +1795,7 @@ fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     // A content header name asked of request, response or client headers is no header there: GetValues answers false
     // (lt-http-header-rules/P87Matrix.al `get=No/n=0`), where Contains raises.
     let (values, kind) = with_bag(r.as_deref(), |b| {
+        unnamed_secret_header(b, Some(&name))?;
         if restricted_lookup(b, &name).is_err() {
             return Ok::<_, Signal>((None, b.kind));
         }
@@ -1879,6 +1895,46 @@ fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     with_content(r, |s| s.write_body(t.into_bytes())).map(|()| Value::Null)
 }
 
+/// `WriteFrom(SecretText)`: the body is the secret's text and the content is secret: `IsSecretContent` is true, `ReadAs(SecretText)`
+/// gives it back, `ReadAs(Text)` answers false, and the headers no longer list the Content-Type
+/// (xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:83-101, :103-117, :119-150, :152-168; al-runner issue 6161). A later
+/// WriteFrom of text or a stream, and Clear, make it plain again (:119-150, :170-190).
+fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let (t, _) = text_or_secret(a, 0)?;
+    with_content(r, |s| {
+        s.write_body(t.into_bytes());
+        s.secret = true;
+        let mut bag = s.headers.borrow_mut();
+        bag.items.retain(|(n, _)| !n.eq_ignore_ascii_case("Content-Type"));
+        bag.unnamed_secret_header = true;
+    })
+    .map(|()| Value::Null)
+}
+
+/// `IsSecretContent()`: the last WriteFrom took a SecretText (P97ContentSecret.al:83-150; network/lt-uf-http-clear/UfHttpClear.al:102
+/// after a Clear and a WriteFrom of text).
+fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    with_content(r, |s| Value::Boolean(s.secret))
+}
+
+/// `ReadAs(var SecretText)` with its result used answers true and gives the body as a secret, of a secret or a plain content, a
+/// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234). The statement form and the content of a request that has
+/// none are not pinned.
+fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if !c.ret_used() {
+        return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
+    }
+    let (data, uninit) = with_content(r, |s| (s.data.clone(), s.uninitialized))?;
+    if uninit {
+        return unsupported("HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)");
+    }
+    let Ok(t) = String::from_utf8(data) else {
+        return unsupported("HttpContent.ReadAs(SecretText) of a body that is not UTF-8 (not pinned)");
+    };
+    a[0] = lib("SecretText", LibraryValue::Text(t));
+    Ok(Value::Boolean(true))
+}
+
 /// `WriteFrom(InStream)` takes the bytes the stream has left. The source then is not at its end
 /// (network/lt-db-http-leads/DbHttpContentLeads.al:310); any other use of it is not pinned and refused (`stream::hand_to_content`).
 fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -1902,6 +1958,17 @@ fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
 ///
 /// A copy with the result used is refused. Probe wanted (docs/probes-needed.md).
 fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let mut r = r;
+    // A secret content does not read as text: with the result used the call answers false and leaves the text
+    // (P97ContentSecret.al:30-38 with :83-101, :119-168). The statement form is not pinned.
+    if with_content(r.as_deref_mut(), |s| s.secret)? {
+        if c.ret_used() {
+            return Ok(Value::Boolean(false));
+        }
+        return unsupported(
+            "HttpContent.ReadAs(Text) as a statement on a content written from a SecretText (not pinned)",
+        );
+    }
     let (data, uninit, copied, charset, taken) = with_content(r, |s| {
         let charset = s
             .headers
@@ -1982,6 +2049,14 @@ fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// `ReadAs(var InStream)` hands the body out once: a second read gets an empty stream
 /// (network/lt-http/HttpContent.al:ReadAsInStreamTwice).
 fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let mut r = r;
+    // On a secret content the stream is left not initialized (P97ContentSecret.al:40-51: its EOS raises NotInitialized); what the
+    // call answers is not pinned.
+    if with_content(r.as_deref_mut(), |s| s.secret)? {
+        return unsupported(
+            "HttpContent.ReadAs(InStream) on a content written from a SecretText (its result is not pinned)",
+        );
+    }
     let (data, uninit) = with_content(r, |s| {
         let out = if s.stream_taken { Vec::new() } else { s.data.clone() };
         s.stream_taken = true;
@@ -2547,6 +2622,9 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     match (sig.receiver.as_str(), sig.name.as_str()) {
         ("HttpContent", "WriteFrom") if n == 1 && ty(0) == "Text" => Some(write_from),
         ("HttpContent", "WriteFrom") if n == 1 && ty(0) == "InStream" => Some(write_from_stream),
+        ("HttpContent", "WriteFrom") if n == 1 && ty(0) == "SecretText" => Some(write_from_secret),
+        ("HttpContent", "ReadAs") if n == 1 && ty(0) == "SecretText" => Some(read_as_secret),
+        ("HttpContent", "IsSecretContent") => Some(is_secret_content),
         ("HttpContent", "ReadAs") if n == 1 && ty(0) == "Text" => Some(read_as),
         ("HttpContent", "ReadAs") if n == 1 && ty(0) == "InStream" => Some(read_as_stream),
         ("HttpContent", "GetHeaders") => Some(get_headers),
@@ -2679,6 +2757,7 @@ impl HttpContentState {
             let mut c = copy.borrow_mut();
             c.items = bag.items.clone();
             c.secret = bag.secret.clone();
+            c.unnamed_secret_header = bag.unnamed_secret_header;
         }
         HttpContentState {
             data: self.data.clone(),
@@ -2688,6 +2767,7 @@ impl HttpContentState {
             written: self.written,
             copied: true,
             from_stream: self.from_stream,
+            secret: self.secret,
         }
     }
 
@@ -2706,6 +2786,7 @@ impl HttpContentState {
         self.stream_taken = false;
         self.written = false;
         self.from_stream = false;
+        self.secret = false;
     }
 
     /// `WriteFrom` of text or a stream: the body is replaced, the header collection stays the one every `HttpHeaders` handed out
@@ -2739,6 +2820,7 @@ impl HttpContentState {
         self.stream_taken = false;
         self.written = true;
         self.from_stream = false;
+        self.secret = false;
     }
 }
 
