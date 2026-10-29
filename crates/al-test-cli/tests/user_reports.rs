@@ -1363,6 +1363,7 @@ codeunit 50111 T
         "{:?}",
         get("ByVar")
     );
+}
 
 /// Runs the test codeunit `T` of a workspace app with id `main_id` (its app.json declares a logo as `logo` says, `None`
 /// when no manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
