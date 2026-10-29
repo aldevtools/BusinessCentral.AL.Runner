@@ -643,6 +643,9 @@ pub struct PageState {
     pub request_lookup_mode: bool,
     /// With `unpinned_state`: Close is refused too.
     pub unpinned_close: bool,
+    /// An action failed on a control add-in call: the client reads the row again (OnAfterGetRecord, OnAfterGetCurrRecord) before
+    /// the next call on the page (al-vm pages/actions.rs `read_row_after_add_in_error`).
+    pub add_in_reread: bool,
     /// The row a new line was started below (`New()` on a stored row of a list): after the new row
     /// is saved, `Next()` goes to the row below that one, as the client's own row order has it.
     pub after_new: Option<Vec<Value>>,
@@ -906,6 +909,7 @@ impl PageState {
             typed_before_key: false,
             unpinned_state: None,
             unpinned_close: false,
+            add_in_reread: false,
             after_new: None,
             opening: false,
             editable_off: false,

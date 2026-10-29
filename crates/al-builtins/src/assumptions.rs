@@ -1034,6 +1034,22 @@ registry! {
             since: "2026-10-29",
         },
     },
+    ControlAddInCallTriggerContexts => {
+        id: "control-add-in-call-trigger-contexts",
+        assumed: "A control add-in call (the add-in is never created in a test session) in a card's OnAfterGetRecord or OnAfterGetCurrRecord during TestPage.OpenEdit raises the add-in's error itself (code DotNetControlAddInNotCreated, with `:TargetInvocation` added out of OnAfterGetCurrRecord) instead of closing the page, and in OnClosePage it comes wrapped as an AL Error does (`One or more errors occurred while closing the page.`, TestWrapped). After an action of a card failed on such a call, the card reads its row again (OnAfterGetRecord, OnAfterGetCurrRecord) before the next call on the page: the TZ tests show the read after a failed Invoke in a TryFunction followed by another Invoke, and no read when the log is taken right after the failed Invoke, so when exactly it runs is assumed. Pinned by corpus writer TZ on corpus master (commit 01d7177f, PR 792), not yet in the pinned corpus.",
+        tests: "No Microsoft test: ADR-027 section 3 row 18 (control add-ins in test sessions).",
+        probe: "Done on corpus master (PR 792): lt-ac/ACControlAddIn.al TZ_*; wanted: the bump that puts them in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetRecord_TestPageOpen",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetCurrRecord_TestPageOpen",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnClosePage_TestPageClose",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_TwoProceduresFromActions_PageStaysUsable",
+            ],
+            since: "2026-10-29",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.

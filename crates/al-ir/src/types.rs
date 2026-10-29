@@ -125,6 +125,7 @@ pub fn kind_of(e: &Expr) -> u8 {
         Expr::TddStub { .. } => 23,
         Expr::TddFit { .. } => 24,
         Expr::FitOrRefuse { .. } => 25,
+        Expr::ControlAddInCall { .. } => 26,
     }
 }
 
@@ -247,7 +248,12 @@ fn args_children(a: &[Arg], f: &mut dyn FnMut(&Expr)) {
 /// Calls `f` on the expressions directly inside `e` (through places, arguments and sets), in the order of the table.
 pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match e {
-        Expr::Const(_) | Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
+        Expr::Const(_)
+        | Expr::BaseInstance
+        | Expr::ThisInstance
+        | Expr::Refused(_)
+        | Expr::Fail { .. }
+        | Expr::ControlAddInCall { .. } => {}
         Expr::Load(p) => place_children(p, f),
         Expr::Unary(_, x) | Expr::Convert(_, x) | Expr::DotNetCoerce(_, x) | Expr::DotNetOperand(x, _) => f(x),
         Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {

@@ -372,7 +372,8 @@ impl Walk<'_> {
             | Expr::BaseInstance
             | Expr::ThisInstance
             | Expr::Refused(_)
-            | Expr::Fail { .. } => Ok(()),
+            | Expr::Fail { .. }
+            | Expr::ControlAddInCall { .. } => Ok(()),
             Expr::Unary(_, a)
             | Expr::Convert(_, a)
             | Expr::FieldOf(a, _)

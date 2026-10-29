@@ -80,7 +80,7 @@ pub enum Gate {
     MetadataNotFoundNamesTheCallerFrom28,
     /// The fully qualified name overloads of Report.Run, Page.Run and RecordRef.Open exist from BC 28 (runtime 17.0); the test file is compiled from BC 28 on (report/lt-t-fqn-run/LtTFqnRun.al, corpus bump 26). Not consumed yet.
     FullyQualifiedNameRunAndOpenFrom28,
-    /// Setting a field whose control add-in was not created raises `NSValidationFailed:DotNetControlAddInNotCreated` from BC 28 (lt-ac/ACControlAddIn.al, corpus bump 26). Not consumed yet.
+    /// Setting a field whose control add-in was not created raises `NSValidationFailed:DotNetControlAddInNotCreated` from BC 28 (lt-ac/ACControlAddIn.al, corpus bump 26). Consumed by al-vm `control_add_in.rs`: every call of a control add-in procedure raises the not-instantiated error from BC 28 and refuses before.
     ControlAddInNotInstantiatedErrorFrom28,
     /// `JsonObject.SelectTokens` and `JsonArray.SelectTokens` into a List of [JsonToken] need app runtime 17: the test file is
     /// compiled from BC 28 on, and BC 27 refuses the methods at compile time (json/lt-json-selecttokens/SelectTokensList.al,
