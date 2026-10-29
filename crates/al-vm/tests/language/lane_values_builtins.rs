@@ -451,7 +451,7 @@ codeunit 50181 C
         Sig[1] := 137; Sig[2] := 80; Sig[3] := 78; Sig[4] := 71; Sig[5] := 13; Sig[6] := 10; Sig[7] := 26; Sig[8] := 10;
         Row.Src.CreateOutStream(Out);
         for I := 1 to 8 do begin
-            if Png then B := Sig[I] else B := 65;
+            if Png then B := Sig[I] else B := 1;
             Out.Write(B);
         end;
         Row.Src.CreateInStream(Ins);
@@ -498,6 +498,8 @@ fn the_bytes_of_an_exported_media_are_refused_on_every_major() {
     // types/W7Media.al:141-145 (ExportStream_OfAnImportedPicture, corpus bump 34): Windows BC re-encodes the imported 68-byte PNG
     // to 99 bytes on 27, 28 and 29 (bc-linux #161), bytes the corpus does not pin. The export itself succeeds
     // (streams/StTMedia.al:170, MediaExportStream), so only a look at the exported bytes is refused.
+    // ExportLengthNoPng imports control bytes, not text: plain UTF-8 text exports as the same bytes (assumption
+    // media-text-content-exported, streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream).
     let r = |bc: &str, routine: &str| out(run_on(bc, MEDIA_EXPORT, routine));
     for bc in ["27.5", "28.5", "29.0"] {
         assert_eq!(r(bc, "ExportOnly"), "exported", "{bc}");
