@@ -1477,6 +1477,19 @@ registry! {
             since: "2026-10-30",
         },
     },
+    EvaluateDateLettersStatement => {
+        id: "evaluate-date-letters-statement",
+        assumed: "An Evaluate statement into a Date that fails on a text of ASCII letters with number 9, or on letters mixed with digits and `-./` (such as `not-a-date`) with number 0, 9 or none, raises the Date-format error (`The format of the Date '<text>' does not match your device's date settings...`, code Evaluate) in an English session and keeps the value.",
+        tests: "No Microsoft test: a partner app's tests (Evaluate of a text that is no date into a Date, result unused).",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-130/P130EvaluateDate.al::UN_Evaluate_Statement_NotADate_ByTarget",
+            ],
+            since: "2026-10-30",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
