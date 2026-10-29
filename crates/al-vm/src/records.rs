@@ -69,7 +69,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
 pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
-    why == RUN_PAGE_LINK_OPEN_FILLED || why == RUN_PAGE_LINK_COPY || why == MEDIA_KEY
+    why == RUN_PAGE_LINK_OPEN_FILLED || why == RUN_PAGE_LINK_COPY || why == MEDIA_KEY || why == XP_VIEW_AFTER_EXPORT
 }
 
 /// Whether two filter lists are the same filters, in any order.
@@ -2440,25 +2440,47 @@ impl Session {
         r
     }
 
-    /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]): `Reset`
-    /// and `SetView` give it a view of its own (its buffer stays unpinned, [`XP_BUFFER_AFTER_EXPORT`]), the table's names
-    /// and `FieldNo` run, every other method reads or builds on the unpinned view and refuses.
+    /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]). What corpus
+    /// writer TS pinned runs (assumption `xmlport-export-again`; QrXpContainerOccurs.al TS_Again_* and TS_View_* on branch
+    /// al-runtime-rs-staging-pub-ts): `Count` and `GetView(false)` (the view's key, the code's filters; the view's own filters
+    /// count but do not show), `SetCurrentKey`, `SetRange` and `SetFilter` in filter group 0 (kept by a later export), `Init`
+    /// (primary key kept, SystemId null), `TransferFields(From, true)` from the same table (SystemId not copied), and `Reset`
+    /// (primary key, no filters: the mark goes). `SetView` gives it a view of its own with the buffer still marked
+    /// ([`XP_BUFFER_AFTER_EXPORT`]); the table's names and `FieldNo` run; every other method refuses.
     fn xp_view_after_export_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        let resets = matches!(method, RecordOp::Reset | RecordOp::SetView);
-        let runs = resets
+        let group0 = rec.borrow().filter_group == 0;
+        let pinned = match method {
+            RecordOp::Count | RecordOp::Reset | RecordOp::SetCurrentKey => true,
+            RecordOp::GetView => matches!(args, [Value::Boolean(false)]),
+            RecordOp::SetRange | RecordOp::SetFilter => group0,
+            RecordOp::Init => args.is_empty(),
+            RecordOp::TransferFields => {
+                matches!(args.first(), Some(Value::Record(src)) if src.borrow().table == rec.borrow().table)
+                    && args.get(1).is_none_or(|v| matches!(v, Value::Boolean(true)))
+            }
+            _ => false,
+        };
+        let runs = pinned
             || matches!(
                 method,
-                RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption
+                RecordOp::SetView
+                    | RecordOp::FieldNo
+                    | RecordOp::IsTemporary
+                    | RecordOp::TableName
+                    | RecordOp::TableCaption
             );
         if !runs {
             return unsupported(format!("Record.{}(): {XP_VIEW_AFTER_EXPORT}", method.name()));
         }
+        if pinned {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+        }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
-        rec.borrow_mut().unpinned_buffer = if resets && r.is_ok() {
-            Some(XP_BUFFER_AFTER_EXPORT)
-        } else {
-            flag
+        rec.borrow_mut().unpinned_buffer = match method {
+            RecordOp::Reset if r.is_ok() => None,
+            RecordOp::SetView if r.is_ok() => Some(XP_BUFFER_AFTER_EXPORT),
+            _ => flag,
         };
         r
     }

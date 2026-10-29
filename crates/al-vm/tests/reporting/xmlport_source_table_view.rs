@@ -73,14 +73,14 @@ fn an_import_ignores_the_source_table_view() {
 }
 
 #[test]
-fn a_filter_on_an_element_that_is_not_linked_on_export_and_on_a_linked_one_on_import_stay_refused() {
-    for (view, link, export) in [(FILTERED, false, true), (FILTERED, true, false)] {
-        let r = run(&src(view, link, export), "F");
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("sourcetableview")),
-            "{view} {link} {export}: {r:?}"
-        );
-    }
+fn a_filter_on_a_linked_element_on_import_stays_refused() {
+    // A filter on an element that is not linked runs on export under assumption `xmlport-view-filter-unlinked` (writer TS);
+    // the descending ORDER of FILTERED is pinned on the first export.
+    let r = run(&src(FILTERED, true, false), "F");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("sourcetableview")),
+        "{r:?}"
+    );
 }
 
 /// A linked element with a view, under a parent (RaXmlPortExport.al:328-470, xmlports 87923 to 87926).

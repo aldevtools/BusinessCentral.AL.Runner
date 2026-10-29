@@ -2603,9 +2603,12 @@ impl Session {
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         inst.borrow_mut().xp_text.push((6, String::new()));
         let result = self.xp_export_inner(inst, schema, guarded);
-        inst.borrow_mut().xp_text.retain(|(k, _)| *k != 6 && *k != 7);
-        // What a table element record's key, order, filters and position are after an export under SourceTableView is not
-        // pinned: every later read of them refuses (records.rs `XP_VIEW_AFTER_EXPORT`).
+        inst.borrow_mut()
+            .xp_text
+            .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
+        inst.borrow_mut().xp_text.push((XP_EXPORTED, String::new()));
+        // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
+        // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, assumption `xmlport-export-again`).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
@@ -2711,6 +2714,7 @@ impl Session {
     /// sorting keeps the record's key and direction. Pinned for Format = Xml without InlineSchema; the rest is refused.
     fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
         let xp = schema.xp();
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
         for (i, n) in xp.nodes.iter().enumerate() {
             let Some(raw) = n.source_view.as_deref() else { continue };
             if xp.format != ir::XmlFormat::Xml || xp.inline_schema {
@@ -2720,17 +2724,44 @@ impl Session {
                 ));
             }
             let view = crate::views::property_view(raw);
+            let lower = view.to_ascii_lowercase();
+            // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
+            // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
+            if n.link_node.is_none() && lower.contains("where") {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportViewFilterUnlinked);
+            }
             let rec = self.xp_record(inst, schema.node(i))?;
             let t = self.table(&rec)?;
+            if again {
+                // A later export on the same instance (QrXpContainerOccurs.al TS_View_SecondExport, TS_Again_KeyBetween on
+                // branch al-runtime-rs-staging-pub-ts): the key is not set again (a key set in between, or the primary key
+                // after Reset, decides the order), the view's filters are applied again, the code's filters stay. After
+                // SetView, or with an ORDER in the view, it is not pinned.
+                if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                    return unsupported(
+                        "XmlPort export after SetView on a table element record an earlier export on the same instance left (not pinned)",
+                    );
+                }
+                if lower.contains("order") {
+                    return unsupported(
+                        "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                let mut r = rec.borrow_mut();
+                if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                    r.unpinned_buffer = None;
+                }
+                r.filters.retain(|f| f.group != XP_VIEW_GROUP);
+            }
             let kept = rec.borrow().filters.clone();
             let kept_order = {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
-            let lower = view.to_ascii_lowercase();
             self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
             let mut r = rec.borrow_mut();
-            if !lower.contains("sorting") {
+            if again || !lower.contains("sorting") {
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
             } else if !lower.contains("order") {
                 // A sorting without order is ascending, also after a SetTableView with Ascending(false) (:654 `SetTableView
@@ -3002,8 +3033,20 @@ impl Session {
                 }
                 // `unlinked_container`: every outer row writes ALL the inner records, `<attributes />` when there are none
                 // (QrXpContainerOccurs.al TP_Unlinked_Export, TP_Unlinked_Export_NoAttrs on branch al-runtime-rs-staging-pub-tp).
-                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
+                // `unlinked_reply_container`: the inner table writes the rows it holds when it is reached, so an outer row's
+                // OnAfterGetRecord that empties and refills it gives each outer row its own rows; an optional inner table without rows
+                // leaves the text element empty (`<details />`) (QrXpContainerOccurs.al TR_Booking_Reply_* on branch
+                // al-runtime-rs-staging-tr).
+                ir::XmlNodeKind::Text
+                    if unlinked_container(schema, child, node) || unlinked_reply_container(schema, child, node) =>
+                {
+                    if unlinked_container(schema, child, node) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText,
+                        );
+                    } else {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                    }
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
@@ -3197,11 +3240,18 @@ impl Session {
         self.xp_rows(inst, schema, node, &mut rows)?;
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
+        // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
+        // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. More rows are not pinned.
+        let mut ends_on = None;
         if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
-                return unsupported(
-                    "XmlPort export of a table element with MaxOccurs = Once, several rows and export triggers (not pinned)",
-                );
+                if rows.len() > 2 {
+                    return unsupported(
+                        "XmlPort export of a table element with MaxOccurs = Once, more than two rows and export triggers (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                ends_on = rows.pop();
             }
             rows.truncate(1);
         }
@@ -3253,6 +3303,11 @@ impl Session {
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
+                Ok(Some(Flow::Break | Flow::Skip)) if ends_on.is_some() => {
+                    return unsupported(
+                        "XmlPort export of a table element with MaxOccurs = Once and two rows whose first OnAfterGetRecord skips or breaks (not pinned)",
+                    );
+                }
                 Ok(Some(Flow::Break)) => break,
                 Ok(Some(Flow::Skip)) => continue,
                 Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
@@ -3269,6 +3324,9 @@ impl Session {
             if Self::xp_quit(inst) {
                 return Ok(out);
             }
+        }
+        if let Some(row) = ends_on {
+            self.load(&rec, row)?;
         }
         Ok(out)
     }
@@ -3616,6 +3674,9 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
 
+/// The `Instance::xp_text` kind that says an export ran on the instance (its SourceTableView keys are not set again).
+const XP_EXPORTED: u8 = 14;
+
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {
     let n = schema.node(node);
@@ -3727,6 +3788,32 @@ fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && fields
             .iter()
             .all(|&f| schema.node(f).kind == ir::XmlNodeKind::FieldAttr)
+}
+
+/// For export only: a text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and
+/// `MaxOccurs = Once`, holding only one temporary table element without LinkTable that is optional (`MinOccurs = Zero`) or
+/// required and repeating (`MinOccurs = Once`, `MaxOccurs = Unbounded`), with any nodes the export supports below it
+/// (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr, QrXpContainerOccurs.al TR_Booking_*, xmlport
+/// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`).
+fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    let [inner] = kids[..] else {
+        return false;
+    };
+    let t = schema.node(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && n.min_zero
+        && n.max_unbounded == Some(false)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && (t.min_zero || t.max_unbounded == Some(true))
+        && !schema.children(inner).is_empty()
 }
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {

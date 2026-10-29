@@ -1128,6 +1128,11 @@ impl Session {
                     }
                     return Err(Signal::Unsupported(why.into()));
                 }
+                // The buffer of a table element record after an export under SourceTableView is the last row the export read
+                // (QrXpContainerOccurs.al TS_Again_SameData on branch al-runtime-rs-staging-pub-ts).
+                if rc.borrow().unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                }
                 let r = rc.borrow();
                 if !self.engine.unevaluable_init.is_empty() && !r.touched {
                     // The buffer of a record nothing has written is built by this read, which
