@@ -16,7 +16,7 @@ pub enum Ret {
     Boolean,
     Integer,
     Text,
-    /// A `DotNet` object (for example `Instance()`); its type stays "known at run time".
+    /// A `DotNet` object (for example `Instance()`), or any result whose kind is known only at run time (a null string).
     Object,
     /// No result (a setter): the call is a statement.
     Void,
@@ -40,6 +40,9 @@ pub const GRAPH_QUERY: &str = "Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQu
 /// `Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo` (the answer of `GraphQuery.GetTenantDetail`).
 pub const TENANT_INFO: &str = "Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo";
 pub const USER_ACCOUNT_HELPER: &str = "Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper";
+/// `System.Environment`: only `GetEnvironmentVariable` is served, and it answers "not set" for every variable (owner
+/// decision 2026-10-30, issue 6222). Its result is a null string, so it is typed as a value known at run time (`Object`).
+pub const ENVIRONMENT: &str = "System.Environment";
 
 /// `System.IO.Compression.GZipStream`, behind System Application's "Data Compression".
 /// The exceptions `GetLastErrorObject` answers and the `System.Type` of `GetType()` on them
@@ -160,6 +163,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (AKV_PROVIDER, "TryGetAzureKeyVaultSecret", Ret::Boolean),
     (TEST_EXECUTION, "IsInTestMode", Ret::Boolean),
     (COPILOT_FUNCTIONS, "IsPlatformAuthorizationConfigured", Ret::Boolean),
+    (ENVIRONMENT, "GetEnvironmentVariable", Ret::Object),
     (PERMISSION_TEST_HELPER, "PermissionTestHelper", Ret::Object),
     (PERMISSION_TEST_HELPER, "Clear", Ret::Void),
     (PERMISSION_TEST_HELPER, "Dispose", Ret::Void),

@@ -147,6 +147,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Object\"; \"ClrObject\") { }
     type(\"System.Byte[]\"; \"ClrBytes\") { }
     type(\"System.IO.MemoryStream\"; \"MsMemoryStream\") { }
+    type(\"System.Environment\"; \"Environment\") { }
+    type(\"System.EnvironmentVariableTarget\"; \"EnvironmentVariableTarget\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -1578,6 +1580,9 @@ fn the_declared_result_types_match_the_registry() {
             "GetGroupPage" | "GetGroupInfo" | "FindFirstGroupInfoForDisplayName" | "GetUser" => continue,
             // Answers a null reference by design; graph_get_current_user_returns_null_without_an_error runs it.
             "GetCurrentUser" | "GetTenantDetail" => continue,
+            // Answers a null string by design (declared Object: its kind is known at run time);
+            // every_environment_variable_reads_as_a_null_string_without_the_host runs it.
+            "GetEnvironmentVariable" => continue,
             // Raise by design; the_key_vault_provider_without_a_key_vault_raises_the_pinned_errors runs them.
             "InitializeFromCallingAppExceptSystemApplication" | "TryGetAzureKeyVaultSecret" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
@@ -2728,4 +2733,97 @@ fn workbook_writer_open_of_a_file_is_refused_before_the_host() {
         W := W.Open('temp/1.xlsx'); exit('ran');";
     let r = run_mem(&host, "W: DotNet WorkbookWriter; F: File; O: OutStream;", body);
     assert!(unsupported(&r).contains("file by its path"), "{}", unsupported(&r));
+}
+
+// ---- System.Environment.GetEnvironmentVariable (issue 6222) --------------------------------
+
+/// Every environment variable reads as not set (owner decision 2026-10-30, issue 6222): the answer of a BC container
+/// that sets none, never the host's environment. An unset variable is a null string: `= ''` is true, `+ 'x'` gives
+/// 'x', assigned to a Text it is empty and to a Variant it is neither Text nor DotNet
+/// (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:130-131 and :181-190).
+#[test]
+fn every_environment_variable_reads_as_a_null_string_without_the_host() {
+    let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+    let r = run(
+        &host,
+        "E: DotNet Environment; T: Text; V: Variant;",
+        "T := E.GetEnvironmentVariable('PATH'); V := E.GetEnvironmentVariable('HOME'); \
+         exit(Format(E.GetEnvironmentVariable('X') = '') + '|' + Format(StrLen(T)) + '|' + \
+         (E.GetEnvironmentVariable('X') + 'x') + '|' + Format(V.IsText()) + Format(V.IsDotNet()));",
+        ": Text",
+    );
+    assert_eq!(text(r), "Yes|0|x|NoNo");
+    assert_eq!(host.log(), vec![]);
+}
+
+/// The overload with a target answers the same, whatever the target (owner decision 2026-10-30, issue 6222).
+#[test]
+fn the_overload_with_a_target_also_reads_as_not_set() {
+    let host = Fake::new(|r| match r {
+        Req::Get(DotNetTarget::Static(t), n) if t.name == "System.EnvironmentVariableTarget" && n == "Machine" => {
+            reply(DotNetValue::Enum {
+                ty: "System.EnvironmentVariableTarget".into(),
+                name: "Machine".into(),
+                ordinal: 2,
+            })
+        }
+        other => panic!("unexpected {other:?}"),
+    });
+    let r = run(
+        &host,
+        "E: DotNet Environment; Target: DotNet EnvironmentVariableTarget; T: Text;",
+        "T := E.GetEnvironmentVariable('PATH', Target.Machine); exit('[' + T + ']');",
+        ": Text",
+    );
+    assert_eq!(text(r), "[]");
+}
+
+/// Every other member of System.Environment stays refused: it would read the host (issue 6222).
+#[test]
+fn other_environment_members_stay_refused() {
+    let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+    for body in [
+        "exit(E.MachineName);",
+        "exit(E.GetEnvironmentVariable());",
+        "E.SetEnvironmentVariable('A', 'B');",
+    ] {
+        let ret = if body.starts_with("exit") { ": Text" } else { "" };
+        let r = run(&host, "E: DotNet Environment;", body, ret);
+        let why = unsupported(&r);
+        assert!(why.contains("System.Environment"), "{body}: {why}");
+    }
+}
+
+/// The shape of issue 6222: a TryFunction that raises an error when the variable is empty, and a caller that falls
+/// back when it returns false. On a BC container that sets no variable the TryFunction returns false.
+#[test]
+fn the_issue_6222_try_function_falls_back_when_the_variable_is_not_set() {
+    let src = "dotnet { assembly(\"mscorlib\") { type(\"System.Environment\"; \"System.Environment\") { } } }
+codeunit 50100 C
+{
+    procedure HostEnvironmentType(): Text
+    var
+        Env: Text;
+    begin
+        if TryGetHostEnvironmentType(Env) then
+            exit(Env);
+        exit('from the web client URL');
+    end;
+
+    [TryFunction]
+    local procedure TryGetHostEnvironmentType(var EnvironmentType: Text)
+    var
+        Environment: DotNet \"System.Environment\";
+        HostEnvironment: Text;
+    begin
+        HostEnvironment := Environment.GetEnvironmentVariable('MY_HOST_ENVIRONMENT');
+        if HostEnvironment = '' then
+            Error('No MY_HOST_ENVIRONMENT environment variable set.');
+        EnvironmentType := HostEnvironment;
+    end;
+}";
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "HostEnvironmentType")),
+        "from the web client URL"
+    );
 }

@@ -16,7 +16,7 @@
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{
-    AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
+    AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
     TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
 };
 use al_builtins::native::Signal;
@@ -614,6 +614,30 @@ fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, _: A
     ))
 }
 
+/// How AL reads an unset environment variable: a null string (tests/al-language-onprem-dotnet/
+/// TestDotNetValueKindsContracts.al:130-131, :181-190 and :438, all with a variable no host sets).
+const UNSET_VARIABLE_PIN: &str = "tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:130-131, :181-190, :438 \
+    (an unset variable is a null string); owner decision 2026-10-30 (issue 6222): every variable reads as not set";
+
+/// `System.Environment.GetEnvironmentVariable(name)` and `(name, target)`: every variable reads as not set, as on a BC
+/// container that sets none (owner decision 2026-10-30, issue 6222). The host's environment is never read, so a run
+/// gives the same answer on every machine. The answer is a null string (`UNSET_VARIABLE_PIN`): `= ''` is true, a Text
+/// gets '' and a Variant stays empty. Every other member of System.Environment is refused (a registry type serves only
+/// its listed members).
+fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    if !matches!(
+        args,
+        [Value::Text(_) | Value::Code(_)] | [Value::Text(_) | Value::Code(_), _]
+    ) {
+        return Err(Signal::Unsupported(format!(
+            "DotNet System.Environment.GetEnvironmentVariable with {} arguments (only (name) and (name, target) are served)",
+            args.len()
+        )));
+    }
+    s.dotnet.null_string = true;
+    Ok(Value::Null)
+}
+
 fn probe(what: &str) -> Pin {
     Pin::Probe(format!("{ENV_PROBE}:{what}"))
 }
@@ -661,6 +685,14 @@ fn own_types() -> Vec<RegistryType> {
                 cfg("UsePermissionsFromExtensions", permission_sets_from_extensions),
                 cfg("IsSaaS", membership_entitlement),
             ],
+        },
+        RegistryType {
+            clr_name: ENVIRONMENT.into(),
+            members: vec![member(
+                "GetEnvironmentVariable",
+                Pin::Corpus(UNSET_VARIABLE_PIN.into()),
+                environment_variable,
+            )],
         },
         RegistryType {
             clr_name: TENANT_SETTINGS_HELPER.into(),

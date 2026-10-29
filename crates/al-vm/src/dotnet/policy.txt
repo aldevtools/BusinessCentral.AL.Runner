@@ -62,6 +62,8 @@ deny-member System.IO.Path.GetRandomFileName | randomness that bypasses the host
 allow-type System.Net.Mail.MailAddress | owner decision 2026-10-18: parses text, no network
 deny-type System.Net. | touches the network
 deny-type System.Diagnostics.Process | starts processes
+# Owner 2026-10-30 (issue 6222): GetEnvironmentVariable is served by the registry before this rule (every variable reads
+# as not set, server_classes.rs); every other member stays refused.
 deny-type System.Environment | reads the environment
 deny-type System.AppDomain | reads the process
 deny-member System.Reflection.Assembly.Load | loads assemblies
