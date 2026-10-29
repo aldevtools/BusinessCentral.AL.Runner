@@ -148,7 +148,7 @@ block names an assembly and a type. At run time `NavAutomationHelper` calls
 | BC step | Mirrored? | Our rule |
 |---|---|---|
 | Default load context (the .NET shared framework, so the standard library) | yes | The sidecar's own default context. The standard library comes from the installed .NET 8 runtime, not from the artifact. |
-| 1. Add-ins folder (`<service>/Add-Ins`, recursive, `*.dll` then `*.exe`; also a temp copy) | partly | The `Add-ins` folders of the selected platform package, recursive. Not the temp copy. |
+| 1. Add-ins folder (`<service>/Add-Ins`, recursive, `*.dll` then `*.exe`; also a temp copy) | partly | The `Add-ins` folder of each probe folder, recursive, searched after the folder itself (2026-10-29: the QR code provider lives in `Add-ins/ElectronicInvoice`). Not the temp copy. |
 | 2. The service folder, top level | yes | The service-tier folder of the selected platform package (Newtonsoft, OpenXml, `Microsoft.Dynamics.Nav.*`). |
 | 3. Registered add-in resolver | no | Replaced by `--dotnet-assembly-dir DIR` (repeatable), searched after step 2. For community DLLs on disk. |
 | 4. Registered app add-in resolver | no | Not needed. |

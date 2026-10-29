@@ -1356,7 +1356,7 @@ impl Session {
 
     /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.writes`: the
     /// counters chain from the Commit's to the store's current one.
-    fn writes_all_noted(&self) -> bool {
+    pub(crate) fn writes_all_noted(&self) -> bool {
         let mut at = self.tx.commit_counter;
         for w in &self.tx.writes {
             if w.before != at {
@@ -3161,6 +3161,11 @@ impl Session {
                     | RecordOp::CalcSums
             )
         {
+            // A read of a table the open transaction inserted into: what LastUsedRowVersion reports from here on is not
+            // pinned (`sessionops.rs`).
+            if self.tx.tables_inserted.iter().any(|(table, _)| *table == t.object) {
+                self.tx.read_after_write = true;
+            }
             use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other

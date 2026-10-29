@@ -84,6 +84,7 @@ cargo build --release
 
 Documents for contributors:
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): how to report a problem or contribute a change. Start here.
 - `CLAUDE.md`: the rules every contributor and agent follows.
 - `docs/architecture.md`: pipeline, crates, runtime model, budgets.
 - `docs/codemap.md`: which module owns what, and where the entry points are.

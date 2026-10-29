@@ -129,6 +129,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
     type(\"Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper\"; \"PermissionTestHelper\") { }
@@ -660,6 +661,30 @@ fn a_server_class_on_the_pure_list_reaches_the_host() {
         ": Text",
     );
     assert_eq!(text(r), "aGk");
+}
+
+/// Owner decision 2026-10-29: the OpenXml spreadsheet classes are pure; the file name form of Create writes a file.
+#[test]
+fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, _)
+            if t.name == "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter" && m == "Create" =>
+        {
+            reply(DotNetValue::Int32(1))
+        }
+        other => panic!("unexpected {other:?}"),
+    });
+    let r = run(&host, "W: DotNet WorkbookWriter;", "W.Create('x.xlsx');", "");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("WorkbookWriter.Create") && why.contains("text argument"),
+        "{why}"
+    );
+    assert_eq!(host.log(), vec![]);
+    // A call with no text argument reaches the host.
+    let r = run(&host, "W: DotNet WorkbookWriter; N: Integer;", "N := W.Create(1);", "");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(!host.log().is_empty());
 }
 
 // ---- lifetime ----------------------------------------------------------------------------
