@@ -22,13 +22,13 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 }
 
 /// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
-/// TestSetFilterSpecialTextContracts.al, BC 27.5), and `..`.
+/// TestSetFilterSpecialTextContracts.al, filters/W4Filters.al:174-191), and `..`.
 fn needs_quotes(s: &str) -> bool {
-    s.contains(['|', '&', '<', '=', '(', ')']) || s.contains("..")
+    s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
 
 /// Characters in a value `GetFilter` cannot show yet: nothing pins them.
-const FILTER_UNPINNED: &[char] = &['>', '*', '?', '"'];
+const FILTER_UNPINNED: &[char] = &['*', '?', '"'];
 
 impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
@@ -74,10 +74,11 @@ impl Session {
                 return Ok("''".into());
             }
             if needs_quotes(s) {
-                if s.contains(FILTER_UNPINNED) || s.contains('\'') || s.starts_with('@') {
+                if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
                     return unsupported("a filter value that needs quoting and holds more filter characters");
                 }
-                return Ok(format!("'{s}'"));
+                // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
+                return Ok(format!("'{}'", s.replace('\'', "''")));
             }
             if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
@@ -383,7 +384,7 @@ impl Session {
 
     /// `SetView`: replaces the key, the order and all filters by those of the view.
     pub(crate) fn set_view(&mut self, rec: &Rec, t: &TableDef, view: &str) -> Result<(), Signal> {
-        self.set_view_in(rec, t, view, None, false, false)
+        self.set_view_in(rec, t, view, None, false, false, true)
     }
 
     /// `set_view`, writing the filters of the view to filter group `group` (default: the current
@@ -391,7 +392,10 @@ impl Session {
     /// names no ORDER keeps its direction (a part page's SourceTableView after the part control's
     /// SubPageView, corpus handlers/TestPartOwnSortVsSubPageView.al:1-45). With `order_needs_key`,
     /// an ORDER without a SORTING is ignored (a part's SubPageView, corpus
-    /// handlers/TestPartSubPageViewSorting.al:SubPageViewOrderOnly_KeepsPrimaryKeyOrder).
+    /// handlers/TestPartSubPageViewSorting.al:SubPageViewOrderOnly_KeepsPrimaryKeyOrder). `runtime` is a
+    /// view given to SetView at run time; otherwise it is an object property (SourceTableView, SubPageView, ...),
+    /// which reads a quoted Text/Code operator differently (see the WHERE arm).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_view_in(
         &mut self,
         rec: &Rec,
@@ -400,6 +404,7 @@ impl Session {
         group: Option<i32>,
         keep_unnamed: bool,
         order_needs_key: bool,
+        runtime: bool,
     ) -> Result<(), Signal> {
         let mut key = None;
         let mut adhoc: Option<Vec<usize>> = None;
@@ -471,6 +476,17 @@ impl Session {
                             .trim()
                             .strip_prefix('\'')
                             .and_then(|v| v.strip_suffix('\''))
+                            // In a view given to SetView, a quoted value of a Text/Code field is the literal value (as
+                            // GetView writes it): FILTER('>B') selects `>B`, FILTER(>B) compares. In an object property
+                            // it compares, as above (filters/lt-uc-quoted-values/UcQuotedValues.al: SetView_FilterGreaterB,
+                            // PageAndQuery_FilterGreaterB, BC 27.5-29.0).
+                            .filter(|_| {
+                                !runtime
+                                    || !matches!(
+                                        ty,
+                                        al_builtins::value::RtType::Text(_) | al_builtins::value::RtType::Code(_)
+                                    )
+                            })
                             // Only a literal that starts with a comparison operator (`'>10'`, `'>=2'`) is read as a filter; a quoted name such as a
                             // member with parentheses keeps its quotes (record/TestCalcFormulaQuotedFilterTests.Codeunit.al:60308).
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
@@ -802,14 +818,24 @@ fn rewrite_al_quotes(raw: &str) -> String {
     out
 }
 
-/// `(a(b)c)rest` → (`a(b)c`, `rest`).
+/// `(a(b)c)rest` → (`a(b)c`, `rest`). Parentheses inside a quoted value or name do not count: GetView quotes
+/// a value such as `Diana's (Meals` as `'Diana''s (Meals'` (apostrophes doubled, record/TestFilterQuotedLiterals.al:95-105),
+/// and SetView must read it back. A view whose quotes do not pair is scanned as before, quotes ignored.
 fn balanced(s: &str) -> Option<(&str, &str)> {
+    balanced_with(s, true).or_else(|| balanced_with(s, false))
+}
+
+fn balanced_with(s: &str, quotes: bool) -> Option<(&str, &str)> {
     let mut depth = 0usize;
+    let mut quote = None;
     for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') if quotes => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => {
+                depth = depth.checked_sub(1)?;
                 if depth == 0 {
                     return Some((&s[1..i], &s[i + 1..]));
                 }
@@ -820,14 +846,22 @@ fn balanced(s: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// `s` split at each `sep` outside parentheses and quotes (see `balanced`).
 fn split_top(s: &str, sep: char) -> Vec<&str> {
+    split_top_with(s, sep, true).unwrap_or_else(|| split_top_with(s, sep, false).unwrap_or_else(|| vec![s]))
+}
+
+fn split_top_with(s: &str, sep: char, quotes: bool) -> Option<Vec<&str>> {
     let mut out = Vec::new();
-    let (mut depth, mut start) = (0i32, 0usize);
+    let (mut depth, mut start, mut quote) = (0i32, 0usize, None);
     for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            c if c == sep && depth == 0 => {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') if quotes => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth -= 1,
+            (None, c) if c == sep && depth == 0 => {
                 out.push(&s[start..i]);
                 start = i + c.len_utf8();
             }
@@ -835,7 +869,7 @@ fn split_top(s: &str, sep: char) -> Vec<&str> {
         }
     }
     out.push(&s[start..]);
-    out
+    quote.is_none().then_some(out)
 }
 
 /// A view names a field by its name or, in the numeric form, as `Field<n>`.

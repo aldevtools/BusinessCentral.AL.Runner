@@ -323,7 +323,7 @@ impl Session {
         if let (Some(view), true) = (&sub_view, has_source) {
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
-            self.set_view_in(&rec, &table, view, Some(parts::LINK_GROUP), false, true)?;
+            self.set_view_in(&rec, &table, view, Some(parts::LINK_GROUP), false, true, false)?;
         }
         // A record handed to Page.Run brings its own filters, key and order; they come first and the page's
         // SourceTableView then adds to them: the record's filters stay in their groups, the view's land in group 2 beside the
@@ -401,7 +401,7 @@ impl Session {
                 }
                 st.borrow_mut().unpinned_filter_fields = blank_dates;
             }
-            self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false)?;
+            self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
             // A field the view filters itself keeps the view's filter alone (two equal filters of one field read as a doubled value
             // when a new line takes it: Purchase Price List's "Price Type").
             let mut r = rec.borrow_mut();

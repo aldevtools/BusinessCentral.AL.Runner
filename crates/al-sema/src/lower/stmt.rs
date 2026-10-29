@@ -1510,11 +1510,11 @@ impl Lowerer<'_> {
         // or a returned value is another path (VariantNumberToField.al; assumption date-to-text-is-format).
         let variant_into_text_variable = matches!(
             place,
-            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)
+            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..)
         ) && matches!(target_ty, Ty::Text(_) | Ty::Code(_))
             && matches!(self.ty_ref(&kids[1]), Ty::Variant)
             && matches!(op_kind, Some(SyntaxKind::Assign) | None)
-            && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)));
+            && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..)));
         if variant_into_text_variable {
             let ir::Expr::Load(src_place) = value.clone() else {
                 unreachable!()
@@ -1564,7 +1564,7 @@ impl Lowerer<'_> {
             && matches!(target_ty, Ty::Text(_) | Ty::Code(_))
             && matches!(op_kind, Some(SyntaxKind::Assign) | None)
             && matches!(self.ty_ref(&kids[1]), Ty::Variant)
-            && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)))
+            && matches!(&value, ir::Expr::Load(p) if matches!(p, ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..)))
         {
             let ir::Expr::Load(src_place) = value.clone() else {
                 unreachable!()
@@ -2007,6 +2007,11 @@ impl Lowerer<'_> {
                     let name = name.clone();
                     let (slot, _, _) = self.base_var(&name)?;
                     Ok(ir::Place::BaseGlobal(slot))
+                }
+                Some(Res::ExtGlobal { ext, name }) => {
+                    let (ext, name) = (*ext, name.clone());
+                    let slot = self.ext_var(ext, &name)?;
+                    Ok(ir::Place::ExtGlobal(ext, slot))
                 }
                 Some(Res::Field { table, id }) => {
                     let (table, id) = (*table, *id);

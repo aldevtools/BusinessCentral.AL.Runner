@@ -433,6 +433,8 @@ impl<'a> Checker<'a> {
     pub(crate) fn global_res(sc: &Scope, key: String) -> Res {
         if sc.base_vars.contains(&key) {
             Res::BaseGlobal(key)
+        } else if let Some(&ext) = sc.ext_vars.get(&key) {
+            Res::ExtGlobal { ext, name: key }
         } else {
             Res::Global(key)
         }

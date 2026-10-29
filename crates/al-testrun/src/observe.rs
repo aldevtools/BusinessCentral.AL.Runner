@@ -545,6 +545,7 @@ impl Walk<'_> {
             Place::Field(inner, _) if matches!(**inner, Place::Local(_)) => Ok(()),
             Place::Field(..) => Err("reads or writes a record field".into()),
             Place::BaseGlobal(_) => Err("uses a variable of a base page or report".into()),
+            Place::ExtGlobal(..) => Err("uses a variable of another extension of a page".into()),
         }
     }
 

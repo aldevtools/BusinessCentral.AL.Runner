@@ -163,6 +163,51 @@ registry! {
         tests: "Item Tracking Lines (InsertRecord inserts into the page's temporary source, ValidateAndInsert answers false); Tests-Manufacturing PostProductionJournalUsingLotItemTracking and the item tracking tests that set a lot and a quantity.",
         probe: "A page with OnInsertRecord { Rec.Insert(); exit(false) } and OnModifyRecord { Rec.Modify(); exit(false) }: OpenNew, set the key, set a second field, OK; read the row and count the trigger calls. Asked in corpus #641.",
     },
+    PageExtRecordTriggerAnswers => {
+        id: "pageext-record-trigger-answers",
+        assumed: "OnInsertRecord and OnModifyRecord of a page and of its page extensions all run, the page's first and then the extensions' in the order they apply, and one false answer of an extension vetoes the insert or the modify; after a vetoed insert on a list the page goes on as if the row were stored, so the save of the next edit fails with DB:RecordNotFound.",
+        tests: "No Microsoft test: al-runner issue 6149 (a partner suite whose page extensions declare these triggers; the reporter's real-BC run). Observed on real BC by corpus writer UE.",
+        probe: "Corpus pageext/lt-ue-pageext-leads/UeTriggerTests.al (corpus PR 796).",
+        awaiting: Awaiting {
+            issues: &[6149],
+            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UeTriggerTests.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtRecordTriggerPageFalse => {
+        id: "pageext-record-trigger-page-false",
+        assumed: "When page extensions declare OnInsertRecord or OnModifyRecord and answer true, the page's own false answer still vetoes the insert or the modify, as it does on a page without extensions (handlers/TestPageRecordTriggers.al:76).",
+        tests: "No Microsoft test: the rule generalizes the corpus writer's pins of page extension triggers (an extension's false answer) to the page's own false answer next to extensions.",
+        probe: "UeTriggerTests.al with the base page's OnInsertRecord and OnModifyRecord answering false and both extensions true: the stored row and the trigger log.",
+    },
+    PageExtImplicitPromoted => {
+        id: "pageext-implicit-promoted",
+        assumed: "A page extension may add actionrefs with addfirst or addlast into area(Promoted) of a page that declares none (also with no actions section) and into the promoted groups Category_New, Category_Process and Category_Report the page does not declare; the actionrefs are on the page and run their actions.",
+        tests: "No Microsoft test: al-runner issues 6150 and 6158 (partner suites on real BC). Observed on real BC by corpus writer UE.",
+        probe: "Corpus pageext/lt-ue-pageext-leads/UePromotedTests.al (corpus PR 796).",
+        awaiting: Awaiting {
+            issues: &[6150, 6158],
+            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UePromotedTests.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtSiblingProtectedVar => {
+        id: "pageext-sibling-protected-var",
+        assumed: "A page extension can read and assign a protected variable that another page extension of the same page declares; both name one variable, on the declaring extension's instance.",
+        tests: "No Microsoft test: al-runner issue 6159 (a partner suite on real BC). Observed on real BC by corpus writer UE.",
+        probe: "Corpus pageext/lt-ue-pageext-leads/UeProtectedVarTests.al (corpus PR 796).",
+        awaiting: Awaiting {
+            issues: &[6159],
+            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UeProtectedVarTests.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtSiblingProtectedVarCrossApp => {
+        id: "pageext-sibling-protected-var-cross-app",
+        assumed: "The same holds when the declaring page extension is in another app that the using extension's app depends on (directly or through other apps), and that extension's OnOpenPage runs first.",
+        tests: "No Microsoft test: a partner suite of three apps on real BC (base page, an extension that declares the variable, an extension that uses it). Corpus writer UE observed it on real BC (the cross-app form compiled and shared the variable) but left it out of the corpus: a dependency app change forces a full CI run.",
+        probe: "UeProtectedVarTests.al with the declaring extension in a dependency app of the corpus (an xapp fixture app) and the using one in the main app: the trace and both Visible values.",
+    },
     XmlportExportsFlowfieldCalculated => {
         id: "xmlport-exports-flowfield-calculated",
         assumed: "An XmlPort field element or attribute bound to a FlowField exports the calculated value, as if CalcFields had run on the row. (An Xml import skips a Lookup, Sum or Count FlowField element: pinned by xmlport/lt-ay-xmlport/AyXmlPortLookupFlowField.al and XmlPortFlowFieldSumCount.al.)",

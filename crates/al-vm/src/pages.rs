@@ -355,14 +355,21 @@ impl Session {
                 }
             }
         }
+        self.pages.ext_answers.clear();
         if result.is_ok() {
             for (n, e, r) in &page.ext_triggers {
                 if n == name {
                     let inst = self.owner_instance(st, Some(*e));
-                    if let Err(err) = self.call(*e, *r, inst, args.clone()) {
-                        self.pages.failed_trigger = None;
-                        result = Err(err);
-                        break;
+                    match self.call(*e, *r, inst, args.clone()) {
+                        Ok((Value::Boolean(b), _)) if has_value_exit(&engine.program.objects[*e].routines[*r].body) => {
+                            self.pages.ext_answers.push(b)
+                        }
+                        Ok(_) => {}
+                        Err(err) => {
+                            self.pages.failed_trigger = None;
+                            result = Err(err);
+                            break;
+                        }
                     }
                 }
             }
@@ -606,12 +613,30 @@ impl Session {
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, r)| *r);
+        self.pages.ext_vetoed = false;
         let states_answer = routine.is_some_and(|r| has_value_exit(&engine.program.objects[object].routines[r].body));
         let v = self.page_trigger(st, name, args)?;
-        Ok(match v {
+        let own = match v {
             Some(Value::Boolean(b)) if states_answer => Some(b),
             _ => None,
-        })
+        };
+        // OnInsertRecord and OnModifyRecord of the page extensions: all of them run, the page's first, whatever the others
+        // answered, and one false answer of an extension vetoes the insert or the modify (pageext/lt-ue-pageext-leads/
+        // UeTriggerTests.al NewRow_FirstExtensionAnswersFalse, ModifyRow_SecondExtensionAnswersFalse; awaiting the corpus pin).
+        let exts = std::mem::take(&mut self.pages.ext_answers);
+        if exts.is_empty() {
+            return Ok(own);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtRecordTriggerAnswers);
+        if exts.contains(&false) {
+            self.pages.ext_vetoed = true;
+            return Ok(Some(false));
+        }
+        // The page's own false with every extension answering true is not pinned with extensions present.
+        if own == Some(false) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtRecordTriggerPageFalse);
+        }
+        Ok(Some(own.unwrap_or(true)))
     }
 
     /// `OnQueryClosePage` of a page and of the extensions that declare it: all of them run, the page's first
