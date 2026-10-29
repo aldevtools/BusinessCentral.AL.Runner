@@ -437,6 +437,7 @@ fn cached_local_outcomes() -> Vec<(String, Outcome)> {
         resources: vec![],
         include_source: false,
         target: String::new(),
+        logo: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,

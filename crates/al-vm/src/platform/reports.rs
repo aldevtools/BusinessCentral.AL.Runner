@@ -132,6 +132,14 @@ fn layout_row(
         .position(|f| f.eq_ignore_ascii_case(&ident(format)))
         .ok_or_else(|| format!("{}: Type `{format}` is not pinned", what()))?;
     r[pos(t, 7)] = option(t, 7, format as i32);
+    // "User Defined" (14): No for an RDLC and a Word layout declared in AL (corpus branch al-runtime-rs-staging-ug eff7eb2a,
+    // platform/lt-ug-report-layout-list/UgReportLayoutList.al ReportLayoutList_AllColumns_RdlcLayout and _WordLayout;
+    // assumption report-layout-list-built-in-not-user-defined until the bump). An Excel or Custom layout is not pinned.
+    r[pos(t, 14)] = if format <= 1 {
+        Value::Boolean(false)
+    } else {
+        unknown(t, 14, &format!("{}, an {} layout", what(), FORMATS[format]))
+    };
     // Caption is the Caption literal, else the layout's name; Description the Summary literal, else the layout's name.
     let literal = |name: &str| -> Result<Option<String>, String> {
         lprop(l, name)

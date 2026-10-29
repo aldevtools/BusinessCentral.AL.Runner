@@ -172,6 +172,9 @@ pub struct AppInfo {
     /// manifest was read.
     #[serde(default)]
     pub target: Option<String>,
+    /// Whether the manifest declares a `logo` (a blank one is none); `None` when no manifest was read (a package).
+    #[serde(default)]
+    pub logo: Option<bool>,
     /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
     #[serde(default)]
     pub layout_files: Vec<(String, Vec<u8>)>,

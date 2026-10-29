@@ -111,7 +111,15 @@ impl Session {
             }
             setup.global_rename = mask & MASK_RENAME != 0;
         }
-        if self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
+        // With no company open (the per-database part of an install), BC does not ask for the database trigger setup: a
+        // write there raises no database event (corpus branch al-runtime-rs-staging-ug eff7eb2a,
+        // install/lt-ug-install-trigger-setup/UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart;
+        // assumption install-trigger-setup-per-company-only until the bump).
+        let no_company = self.cx.company.is_empty();
+        if no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallTriggerSetupPerCompanyOnly);
+        }
+        if !no_company && self.engine.events.is_subscribed(key, "getdatabasetabletriggersetup") {
             let mut args = [
                 Value::Integer(id),
                 Value::Boolean(false),

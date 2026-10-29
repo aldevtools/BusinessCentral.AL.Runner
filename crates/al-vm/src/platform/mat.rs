@@ -77,7 +77,7 @@ impl Entry {
 }
 
 /// Whether a filter keeps exactly one value: `SetRange(F, A)`, `SetRange(F, A, A)` or `SetFilter(F, 'A')`.
-fn single_value(e: &al_builtins::filter::FilterExpr) -> bool {
+pub(crate) fn single_value(e: &al_builtins::filter::FilterExpr) -> bool {
     use al_builtins::filter::FilterExpr;
     match e {
         FilterExpr::Eq(_) => true,
