@@ -50,6 +50,7 @@ mod part_keeps_row_after_update;
 mod part_update_propagation;
 mod parts;
 mod procedure_bound_action;
+mod property_view_quoted_filter;
 mod qh_new_host_part_access;
 mod qi_host_save_parts;
 mod qi_row_page_var;

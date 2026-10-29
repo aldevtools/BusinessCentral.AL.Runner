@@ -373,6 +373,7 @@ impl Session {
                     Some(RUN_VIEW_GROUP),
                     false,
                     false,
+                    false,
                 )?;
             }
         }
