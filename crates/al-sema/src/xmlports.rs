@@ -660,7 +660,9 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
     let leaf = !layout.has_children(i);
     let root = raw.parent.is_none();
     let (min_ok, max_ok): (&[&str], &[&str]) = match raw.kind {
-        K::Text if root => (&[], &["once"]),
+        // An explicit MinOccurs = Once on the root is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
+        // QrXpContainerOccurs.al TS_RootOnce_*; `build` registers `xmlport-root-min-occurs-once`).
+        K::Text if root => (&["once"], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
         // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent that
@@ -1043,9 +1045,20 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 
 /// The unprobed assumptions the layout rests on: `xmlport-min-occurs-once-table` when a table element that is not below another
 /// one says `MinOccurs = Once` (`occurs_refusal`); `xmlport-udn-text-attribute` when a port in BC's own namespace
-/// (UseDefaultNamespace without DefaultNamespace) has a text attribute.
+/// (UseDefaultNamespace without DefaultNamespace) has a text attribute; `xmlport-root-min-occurs-once` when the root text
+/// element says `MinOccurs = Once`.
 fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
     let mut out = min_once_assumed(layout);
+    let root_once = (0..layout.nodes.len()).any(|i| {
+        layout.nodes[i].parent.is_none()
+            && layout.nodes[i].kind == ir::XmlNodeKind::Text
+            && layout
+                .property(i, "MinOccurs")
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("once"))
+    });
+    if root_once {
+        out.push(al_builtins::assumptions::Assumption::XmlportRootMinOccursOnce);
+    }
     if layout
         .default_ns
         .as_deref()
@@ -1148,6 +1161,24 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(min_once_assumed(&plain).is_empty());
+    }
+
+    #[test]
+    fn an_explicit_min_occurs_once_on_the_root_runs_as_an_assumption() {
+        // Writer TS's branch al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_RootOnce_* (xmlport 90085): the default,
+        // written out.
+        let l = layout_of(
+            "xmlport 1 X { schema { textelement(R) { MinOccurs = Once; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(
+            layout_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportRootMinOccursOnce]
+        );
+        let zero = layout_of(
+            "xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(!zero.run_reasons.is_empty());
     }
 
     #[test]

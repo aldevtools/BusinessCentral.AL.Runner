@@ -837,6 +837,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportRootMinOccursOnce => {
+        id: "xmlport-root-min-occurs-once",
+        assumed: "An explicit MinOccurs = Once on the root text element is the default: export runs as without it; import accepts an empty root element, fails the schema check on another root element and fails with 'Root element is missing.' on an empty document, as without it. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a ticket change request).",
+        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_RootOnce_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Import",
+            ],
+            since: "2026-10-29",
+        },
+    },
     TenantMediaDelete => {
         id: "tenant-media-delete",
         assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
