@@ -815,6 +815,23 @@ registry! {
             since: "2026-10-28",
         },
     },
+    TenantMediaDelete => {
+        id: "tenant-media-delete",
+        assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's tests (a cleanup that deletes the Tenant Media row of a picture).",
+        probe: "Done on writer TQ's branch al-runtime-rs-staging-pub-tq (corpus PR 783, includes TP): media/TestMediaPngImport.al TP_TenantMedia_Delete and TQ_TenantMedia_DeleteTrue_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/media/TestMediaPngImport.al::TP_TenantMedia_Delete",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Statement",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Used",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_SharedMedia",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Missing_Statement",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportNestedTextInTable => {
         id: "xmlport-nested-text-in-table",
         assumed: "A text element right below a table element whose nodes are field and text attributes and one text element of only text attributes: export runs the outer element's OnBeforePassVariable, writes its attributes, then the inner element as `<admission option_value=\"1\">A1</admission>` (its OnBeforePassVariable before its attribute's, an empty text gives `<admission option_value=\"2\" />`, an empty Required attribute `option_value=\"\"`); import reads the outer attributes (a text attribute without Occurrence is required), then the inner attributes and text with its OnAfterAssignVariable, then the outer element's own text; a missing inner element or Required attribute fails the schema check. Pinned only by corpus writer TP's run on real BC.",
