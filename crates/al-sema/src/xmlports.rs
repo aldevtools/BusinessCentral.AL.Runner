@@ -196,6 +196,10 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 "fixedtext" => out.format = ir::XmlFormat::FixedText,
                 other => out.reasons.push(format!("Format = {other} is not supported")),
             },
+            // An XmlPort marked obsolete with Pending still exports as before; the reason and the tag are compile-time notes
+            // (misc/lt-u-obsolete-pending/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140). Another state is not pinned.
+            "obsoletestate" if value.trim().eq_ignore_ascii_case("pending") => {}
+            "obsoletereason" | "obsoletetag" => {}
             // UseRequestPage only matters for Run, which is not implemented: Export and Import
             // never open the request page.
             "userequestpage" => {}
