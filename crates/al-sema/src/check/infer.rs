@@ -1138,12 +1138,16 @@ impl<'a> Checker<'a> {
             ScopeExpr => {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
                 let base = if kids[0].kind() == NameRef {
-                    match self.lookup_name(sc, &kids[0]) {
-                        Some(e) => e,
-                        None => {
-                            // `"Some Enum"::Value` where the enum is outside the workspace.
-                            self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
-                            return E::Val(Ty::Unknown);
+                    if let Some(e) = self.enum_type_before_rec_field(sc, &kids[0], &rhs) {
+                        e
+                    } else {
+                        match self.lookup_name(sc, &kids[0]) {
+                            Some(e) => e,
+                            None => {
+                                // `"Some Enum"::Value` where the enum is outside the workspace.
+                                self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
+                                return E::Val(Ty::Unknown);
+                            }
                         }
                     }
                 } else if let Some(e) = self.namespaced_enum(sc, &kids[0]) {
@@ -1218,6 +1222,46 @@ impl<'a> Checker<'a> {
             }
             _ => E::Val(Ty::Unknown),
         }
+    }
+
+    /// `X::Value` where `X` is a field of the implicit Rec, named bare, and also an enum type that is not the field's
+    /// type: the enum type, when it has the value (al-runner issue 6129: NP Retail's `"Sales Document Type"::"Credit
+    /// Memo"` next to a Rec field "Sales Document Type" of an enum without that value compiles on real BC, so alc
+    /// reads `X` as the type). No corpus test pins the precedence yet: the name records
+    /// [`Res::EnumTypeBeforeRecField`] and lowering marks the assumption. A `with` record, a local and a global
+    /// variable named `X` still come first (unchanged); an enum type without the value leaves `X` the field.
+    fn enum_type_before_rec_field(&mut self, sc: &mut Scope, name: &SyntaxNode, rhs: &str) -> Option<E> {
+        if !sc.rec_unqualified || !sc.withs.is_empty() {
+            return None;
+        }
+        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
+        let n = name_of(name);
+        let key = n.to_lowercase();
+        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
+            return None;
+        }
+        let ei = self.resolve_quiet(sc.file, ObjKind::Enum, &n)?;
+        if !self.members[ei]
+            .enum_values
+            .iter()
+            .any(|(_, v)| v.eq_ignore_ascii_case(rhs))
+        {
+            return None;
+        }
+        let Some(E::Val(field_ty)) = self.member(sc, &rec, &n) else {
+            return None;
+        };
+        if self.field_res(sc, &rec, &n).is_none() {
+            return None;
+        }
+        let enum_name = self.ws.objects[ei].name.as_str();
+        if matches!(&field_ty, Ty::Enum(f) if self.resolve_quiet(sc.file, ObjKind::Enum, f) == Some(ei)) {
+            return None;
+        }
+        let ty = Ty::Enum(enum_name.into());
+        self.touch(ei);
+        self.record(sc, name, Res::EnumTypeBeforeRecField(ei));
+        Some(E::TypeName(ty))
     }
 
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.

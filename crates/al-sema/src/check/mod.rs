@@ -138,6 +138,9 @@ pub enum Res {
     DotNetMember(String),
     /// `--tdd` (ADR-051): a call of a procedure the target object does not declare, in a test app. It runs as a stub.
     TddStub(Box<tdd::TddSite>),
+    /// `X` before `::` read as enum type `object` although the implicit Rec has a field `X` of another type
+    /// (al-runner issue 6129, assumption `EnumTypeBeforeRecField`; `infer.rs` `enum_type_before_rec_field`).
+    EnumTypeBeforeRecField(usize),
     /// A bare name that the record of a `with` statement supplied (corpus events/lt-with-statement-scopes/
     /// WithStatementAmbiguous.al, WithStatementNested.al): `with` is the offset of the `WithStmt` node in its
     /// file, `inner` what the name resolved to as a member of that record. Lowering reads `inner` through

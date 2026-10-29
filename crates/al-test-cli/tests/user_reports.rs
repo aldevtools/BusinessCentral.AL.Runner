@@ -395,3 +395,73 @@ codeunit 50301 T {{ Subtype = Test;
         }
     }
 }
+
+/// Issue 6129: in a codeunit with `TableNo`, `X::Value` where the Rec has a field `X` and an enum type `X` exists.
+/// NP Retail's "NPR POS Post Sales Doc.Entry" writes `"Sales Document Type"::"Credit Memo"` next to a Rec field
+/// "Sales Document Type" of its own enum, which has no value "Credit Memo"; the app compiles on real BC, so alc reads
+/// `X` as the enum type there. No corpus test pins the precedence yet (assumption EnumTypeBeforeRecField).
+const ISSUE_6129_BASE: &str = "enum 50400 \"Sales Document Type\" { Extensible = true;
+    value(0; Quote) { } value(1; Order) { } value(3; \"Credit Memo\") { } }";
+
+fn issue_6129_objects(body: &str) -> String {
+    format!(
+        "enum 50500 \"My Doc Type\" {{ Extensible = true; value(0; QUOTE) {{ }} value(7; ORDER) {{ }} value(9; CREDIT_MEMO) {{ }} }}
+table 50501 \"My Link\" {{ fields {{ field(1; \"Entry No.\"; Integer) {{ }} field(2; \"Sales Document Type\"; Enum \"My Doc Type\") {{ }} }}
+    keys {{ key(PK; \"Entry No.\") {{ Clustered = true; }} }} }}
+codeunit 50502 \"My Post\" {{ TableNo = \"My Link\";
+    trigger OnRun() begin end;
+    procedure Probe(): Integer begin {body} end; }}
+codeunit 50503 T {{ Subtype = Test;
+    [Test] procedure Run() var P: Codeunit \"My Post\"; begin if P.Probe() <> 1 then Error('got %1', P.Probe()); end; }}"
+    )
+}
+
+/// Issue 6129, the reporter's shape: the value exists only in the enum type, so `X` is the enum type.
+#[test]
+fn issue_6129_a_value_only_the_enum_type_has_compiles() {
+    let body = "case \"Sales Document Type\"::\"Credit Memo\" of \"Sales Document Type\"::\"Credit Memo\": exit(1); end; exit(0);";
+    all_pass(run_with_deps(&[ISSUE_6129_BASE], &issue_6129_objects(body)));
+}
+
+/// Issue 6129: a value both enums have (`Order`, NP Retail's line before the reporter's) is the enum type's too
+/// (ordinal 1, not the field enum's 7).
+#[test]
+fn issue_6129_a_value_both_enums_have_is_the_enum_types() {
+    let body = "exit(\"Sales Document Type\"::Order.AsInteger());";
+    all_pass(run_with_deps(&[ISSUE_6129_BASE], &issue_6129_objects(body)));
+}
+
+/// Issue 6129: the compile marks the assumption where it reads `X` as the enum type, and only there: a value only the
+/// field's enum has (`CREDIT_MEMO`) keeps `X` the field, as before, and a local variable `X` still comes first.
+#[test]
+fn issue_6129_only_the_enum_type_reading_is_flagged() {
+    let marked = |body: &str| {
+        let sources = vec![
+            AppSource {
+                id: "base".into(),
+                name: "base".into(),
+                dependencies: vec![],
+                files: vec![("base.al".into(), ISSUE_6129_BASE.into())],
+            },
+            AppSource {
+                id: "app".into(),
+                name: "app".into(),
+                dependencies: vec!["base".into()],
+                files: vec![("app.al".into(), issue_6129_objects(body))],
+            },
+        ];
+        let (ws, l) = al_sema::lower::compile_apps(
+            sources,
+            vec![AppKind::Dependency, AppKind::Workspace],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let o = l.program.objects.iter().find(|o| o.name == "My Post").unwrap();
+        format!("{o:?}").contains("EnumTypeBeforeRecField")
+    };
+    assert!(marked("exit(\"Sales Document Type\"::\"Credit Memo\".AsInteger());"));
+    assert!(!marked("exit(\"Sales Document Type\"::CREDIT_MEMO.AsInteger());"));
+    assert!(!marked(
+        "exit(1); end; procedure Other(): Integer var \"Sales Document Type\": Enum \"My Doc Type\"; begin exit(\"Sales Document Type\"::ORDER.AsInteger());"
+    ));
+}

@@ -780,7 +780,12 @@ impl Lowerer<'_> {
                         args: Vec::new(),
                     })
                 }
-                Some(Res::EnumValue { object, value }) => Ok(ir::Expr::Const(ir::Const::Enum(object as u32, value))),
+                Some(Res::EnumValue { object, value }) => {
+                    if matches!(self.res(&kids[0]), Some(Res::EnumTypeBeforeRecField(_))) {
+                        self.assume(al_builtins::assumptions::Assumption::EnumTypeBeforeRecField);
+                    }
+                    Ok(ir::Expr::Const(ir::Const::Enum(object as u32, value)))
+                }
                 Some(Res::OptionValue(i)) => match self.ty_of(n) {
                     Ty::Option(m) => Ok(ir::Expr::Const(ir::Const::Option(i, m))),
                     Ty::Builtin(b) if al_builtins::sysenum::members(&b).is_some() => Ok(ir::Expr::Const(

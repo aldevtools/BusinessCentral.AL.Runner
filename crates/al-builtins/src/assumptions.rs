@@ -232,6 +232,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    EnumTypeBeforeRecField => {
+        id: "enum-type-before-rec-field",
+        assumed: "In an object whose implicit Rec fields can be named bare (a codeunit with TableNo, a table, a page), `X::Value` where the Rec has a field `X` and an enum type `X` exists that is not the field's type names the enum type `X`, as long as that enum has the value; a local or global variable `X` still comes first. Only when the enum type lacks the value is `X` the field.",
+        tests: "No Microsoft test: al-runner issue 6129, the reporter's run on real BC (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value, and compiles).",
+        probe: "A TableNo codeunit whose table has a field X of enum A, next to an enum type X: `X::V` for a V only X has, only A has, and both have (with different ordinals), read with AsInteger; the same with a local and a global variable X. Corpus writer: not yet assigned.",
+        awaiting: Awaiting {
+            issues: &[6129],
+            files: &["tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al"],
+            since: "2026-10-29",
+        },
+    },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",
