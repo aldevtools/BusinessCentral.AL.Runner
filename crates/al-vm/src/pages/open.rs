@@ -1953,6 +1953,44 @@ impl Session {
     /// testpageclose/TestPageClosingActions.al:25-30: a card or a list offers OK and no Cancel; a
     /// StandardDialog both; a NavigatePage only OK; a PromptDialog Cancel, and OK unless it declares
     /// systemaction(OK); a ConfirmationDialog neither).
+    /// A list with a source table and no Editable property whose view shows no row of a table that has rows
+    /// (errors/lt-ms-refusals-129/P129PageMisc.al:675-818 on corpus master, writer TV: SetTableView to no row).
+    pub(super) fn plain_list_with_rows(&mut self, st: &St) -> bool {
+        if !self.has_source(st) || !self.is_list_page(st) {
+            return false;
+        }
+        let declares_editable = {
+            let engine = self.engine();
+            let object = st.borrow().object as usize;
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("Editable"))
+        };
+        // The view (the filters of SetTableView) shows no row; a typed handler's page whose view has rows is another case
+        // (pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:214-270, not pinned here).
+        if declares_editable || self.page_view_has_rows(st) {
+            return false;
+        }
+        let probe = Rc::new(RefCell::new(self.page_rec(st).borrow().clone()));
+        self.ret_used = true;
+        if self.record_op(RecordOp::Reset, &probe, &mut []).is_err() {
+            return false;
+        }
+        self.ret_used = true;
+        matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut []),
+            Ok(Value::Boolean(true))
+        )
+    }
+
+    /// In lookup mode such a list on no row offers no OK: the handler's `OK()` raises TestActionNotFound (P129PageMisc.al:
+    /// TV_GetRecord_AfterLookupOk_FilteredToNoRow, _AfterSetRecordAndLookupOk_FilteredToNoRow, `tv first=No;ok error=The built-in
+    /// action = OK is not found on the page.|TestActionNotFound;`).
+    pub(super) fn lookup_list_on_no_row(&mut self, st: &St) -> bool {
+        st.borrow().modal && st.borrow().lookup && st.borrow().cursor == Cursor::None && self.plain_list_with_rows(st)
+    }
+
     pub(super) fn builtin_offered(&self, st: &St, which: &str) -> bool {
         if self.is_request_page(st) {
             return self.request_builtin_offered(st, which);

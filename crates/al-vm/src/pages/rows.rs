@@ -3219,7 +3219,7 @@ impl Session {
     /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
     /// selection reads it). Pinned by pages/lt-page-runmodal-rec/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
     /// Whether the view of the page's source has a row (a probe on a copy of Rec, which keeps its filters).
-    fn page_view_has_rows(&mut self, st: &St) -> bool {
+    pub(super) fn page_view_has_rows(&mut self, st: &St) -> bool {
         let rec = self.page_rec(st);
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
@@ -3275,6 +3275,8 @@ impl Session {
         modal: bool,
         field: bool,
     ) -> Result<Value, Signal> {
+        // A new run forgets what an earlier Page-typed handler set (`handler_set_record`).
+        st.borrow_mut().handler_set_record = false;
         let handed = record.clone();
         let object = st.borrow().object;
         if let Some(refused) = self.install_page_run(object as usize, modal) {
@@ -3433,6 +3435,7 @@ impl Session {
             // P128ModalOnInit.al:191 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
             let mut s = st.borrow_mut();
             s.typed_handler = true;
+            s.handler_set_record = false;
             s.cursor = Cursor::Row;
         }
         let (hobject, hroutine, hinst) = handler;
