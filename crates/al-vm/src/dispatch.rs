@@ -487,10 +487,9 @@ impl Session {
                 .map_or_else(|| format!("app {a}"), |x| x.name.clone())
         };
         // Kept, not pinned: two dependency apps (Microsoft's) that do not depend on each other keep the order the
-        // runtime had before the cross-app probe, ascending codeunit id across them. An app under test in such a pair
-        // is refused unless it is the one app outside the others' dependencies (below).
+        // runtime had before the cross-app probe, ascending codeunit id across them (one block below).
         let mut kept = false;
-        let mut unrelated: Vec<(usize, usize)> = Vec::new();
+        let mut unrelated = false;
         for (i, &first) in order.iter().enumerate() {
             for &later in &order[i + 1..] {
                 if depends(later, first) {
@@ -498,92 +497,76 @@ impl Session {
                 }
                 if dependency_app(first) && dependency_app(later) {
                     kept = true;
-                    continue;
+                } else {
+                    unrelated = true;
                 }
-                unrelated.push((first, later));
             }
         }
-        if !unrelated.is_empty() {
-            let refuse = |why: String| {
-                let (first, later) = unrelated[0];
-                unsupported(format!(
-                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event \
-                     (the corpus pins app by app in dependency order where each app depends on the apps before it, \
-                     and one app outside every other app's dependencies after them{why})",
-                    name(first),
-                    name(later)
-                ))
-            };
-            // One app outside: corpus app D depends on A only, no app depends on it, it is published right after A
-            // and before B, C and the main app, and its subscriber runs last, after the main app
-            // (BwSubscriberOrderTests.al, last test, SubscriberOrder_AppsThatDoNotDependOnEachOther_FiveApps:
-            // `A;B1;B2;C;M;D;` on BC 27.5, 28.5 and 29.0). That one shape does not tell "outside apps last" from a
-            // dependency order that breaks ties by the higher app id (as text), the later app name or the app
-            // published last: each of them must put the app last too, else the raise is refused.
-            let outside = order
-                .iter()
-                .copied()
-                .find(|&x| unrelated.iter().all(|&(f, l)| f == x || l == x));
-            let Some(x) = outside else {
-                return refuse(String::new());
-            };
-            let info = |a: usize| program.apps.get(a);
-            if kept || dependency_app(x) || order.iter().any(|&a| dependency_app(a)) {
-                return refuse(": here a dependency app takes part".into());
-            }
-            if (0..program.apps.len()).any(|a| a != x && depends(a, x)) {
-                return refuse(format!(": another app depends on {}", name(x)));
-            }
-            if !order.iter().any(|&a| a != x && depends(x, a)) {
-                return refuse(format!(": {} depends on none of the other apps", name(x)));
-            }
-            for &(f, l) in &unrelated {
-                let y = if f == x { l } else { f };
-                let (Some(xi), Some(yi)) = (info(x), info(y)) else {
-                    return refuse(String::new());
-                };
-                if xi.id.to_ascii_lowercase() <= yi.id.to_ascii_lowercase() {
-                    return refuse(format!(": {} has a lower app id than {}", name(x), name(y)));
-                }
-                if xi.name.to_lowercase() <= yi.name.to_lowercase() {
-                    return refuse(format!(": {} has a name before {}", name(x), name(y)));
-                }
-                // Apps are numbered in publish order (the corpus runner loads them as corpus CI publishes them).
-                if x > y {
-                    return refuse(format!(": {} is published after {}", name(x), name(y)));
-                }
-            }
-            order.retain(|&a| a != x);
-            order.push(x);
-        }
-        // One block per app in that order; with a kept pair, each run of dependency apps none of which depends on
+        // One block per app in `order`; with a kept pair, each run of dependency apps none of which depends on
         // another is one block in codeunit id order.
-        let mut blocks: Vec<(usize, usize)> = Vec::new();
-        for (i, &app) in order.iter().enumerate() {
-            let merge = kept
-                && i > 0
-                && dependency_app(app)
-                && blocks.last().is_some_and(|&(_, b)| {
-                    blocks
-                        .iter()
-                        .filter(|&&(_, ob)| ob == b)
-                        .all(|&(o, _)| dependency_app(o) && !depends(app, o))
-                });
-            let block = match blocks.last() {
-                Some(&(_, b)) if merge => b,
-                Some(&(_, b)) => b + 1,
-                None => 0,
+        let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>| {
+            let mut blocks: Vec<(usize, usize)> = Vec::new();
+            for (i, &app) in order.iter().enumerate() {
+                let merge = kept
+                    && i > 0
+                    && dependency_app(app)
+                    && blocks.last().is_some_and(|&(_, b)| {
+                        blocks
+                            .iter()
+                            .filter(|&&(_, ob)| ob == b)
+                            .all(|&(o, _)| dependency_app(o) && !depends(app, o))
+                    });
+                let block = match blocks.last() {
+                    Some(&(_, b)) if merge => b,
+                    Some(&(_, b)) => b + 1,
+                    None => 0,
+                };
+                blocks.push((app, block));
+            }
+            let rank = |s: &crate::events::Subscriber| {
+                blocks
+                    .iter()
+                    .find(|&&(a, _)| a == app_of(s))
+                    .map_or(usize::MAX, |&(_, b)| b)
             };
-            blocks.push((app, block));
-        }
-        let rank = |s: &crate::events::Subscriber| {
-            blocks
-                .iter()
-                .find(|&&(a, _)| a == app_of(s))
-                .map_or(usize::MAX, |&(_, b)| b)
+            targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
+            targets
         };
-        targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
-        Ok(targets)
+        if !unrelated {
+            return Ok(sorted(&order, targets));
+        }
+        // Apps under test that do not depend on each other (corpus branch al-runtime-rs-staging-ua, bump PR 794:
+        // events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps
+        // and :SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, `A1;A2;F1;F2;B1;B2;C1;C2;M1;M2;D1;D2;`
+        // on the three supported majors, inside a test and inside an install routine). BC visits the apps in
+        // ascending app id and places each app's dependencies before it (depth first, post-order): A runs before F
+        // (lower app id; F has the earlier name, the lower subscriber ids and was published first), and D (depends on
+        // A only, nothing depends on it) runs last although its app id is lower than F's. The probe does not tell
+        // which of an app's dependencies BC visits first, nor whether it sorts by publisher before app id: every
+        // reading the probe allows (`visit_orders`) must give the same order, else the raise is refused.
+        let models = visit_orders(&program.apps);
+        let mut results = models.iter().map(|(what, full)| {
+            let order: Vec<usize> = full.iter().copied().filter(|a| order.contains(a)).collect();
+            (*what, sorted(&order, targets.clone()))
+        });
+        let (_, first) = results.next().expect("at least one reading");
+        for (what, other) in results {
+            let at = first
+                .iter()
+                .zip(&other)
+                .position(|(x, y)| x.0.object != y.0.object || x.0.routine != y.0.routine);
+            if let Some(at) = at {
+                let (x, y) = (app_of(&first[at].0), app_of(&other[at].0));
+                return unsupported(format!(
+                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event (the \
+                     corpus pins apps in ascending app id, each app's dependencies before it; not pinned: {what})",
+                    name(x),
+                    name(y)
+                ));
+            }
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CrossAppSubscriberOrderByAppId);
+        Ok(first)
     }
 
     /// Whether raising `event` of `object` now would reach any subscriber.
@@ -696,4 +679,95 @@ impl Session {
             Ok(Value::Null)
         }
     }
+}
+
+/// The orders in which BC may visit the apps of `apps` for an event's subscribers, one per reading that the corpus
+/// probe allows (see `event_targets`), each with what it assumes that the probe does not pin. Every reading visits
+/// apps in ascending app id and places each app's dependencies before it, depth first (post-order); they differ in
+/// the order an app's dependencies are visited and in whether apps are sorted by publisher first. The six-app probe
+/// (A before F, D last) rules out the others it was checked against: dependencies in the declared order after a
+/// sort by publisher (F before A), and dependencies in descending app id after a sort by publisher (F before A).
+pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<usize>)> {
+    let key = |a: usize| apps[a].id.to_ascii_lowercase();
+    let deps_of = |a: usize| -> Vec<usize> {
+        let mut out: Vec<usize> = Vec::new();
+        for d in &apps[a].dependencies {
+            if let Some(j) = apps.iter().position(|b| b.id.eq_ignore_ascii_case(d)) {
+                if j != a && !out.contains(&j) {
+                    out.push(j);
+                }
+            }
+        }
+        out
+    };
+    #[derive(Clone, Copy)]
+    enum Deps {
+        Ascending,
+        Declared,
+        Descending,
+    }
+    let visit = |by_publisher: bool, deps: Deps| -> Vec<usize> {
+        let mut roots: Vec<usize> = (0..apps.len()).collect();
+        if by_publisher {
+            roots.sort_by_key(|&a| (apps[a].publisher.to_lowercase(), key(a)));
+        } else {
+            roots.sort_by_key(|&a| key(a));
+        }
+        let mut placed = vec![false; apps.len()];
+        let mut entered = vec![false; apps.len()];
+        let mut out = Vec::with_capacity(apps.len());
+        // Depth first with an explicit stack: (app, its dependencies still to visit).
+        for root in roots {
+            if entered[root] {
+                continue;
+            }
+            let mut stack: Vec<(usize, Vec<usize>)> = Vec::new();
+            let children = |a: usize| {
+                let mut d = deps_of(a);
+                match deps {
+                    Deps::Ascending => d.sort_by_key(|&x| key(x)),
+                    Deps::Descending => d.sort_by_key(|&x| std::cmp::Reverse(key(x))),
+                    Deps::Declared => {}
+                }
+                d.reverse(); // popped from the end
+                d
+            };
+            entered[root] = true;
+            stack.push((root, children(root)));
+            while let Some((a, rest)) = stack.last_mut() {
+                match rest.pop() {
+                    Some(d) if !entered[d] => {
+                        entered[d] = true;
+                        let c = children(d);
+                        stack.push((d, c));
+                    }
+                    Some(_) => {}
+                    None => {
+                        let a = *a;
+                        stack.pop();
+                        if !placed[a] {
+                            placed[a] = true;
+                            out.push(a);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    };
+    vec![
+        ("", visit(false, Deps::Ascending)),
+        (
+            "which of an app's dependencies BC visits first",
+            visit(false, Deps::Declared),
+        ),
+        (
+            "which of an app's dependencies BC visits first",
+            visit(false, Deps::Descending),
+        ),
+        (
+            "whether BC sorts apps by publisher before app id",
+            visit(true, Deps::Ascending),
+        ),
+    ]
 }
