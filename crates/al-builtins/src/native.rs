@@ -1016,21 +1016,33 @@ fn derived() -> &'static std::collections::HashMap<String, NativeFn> {
 
 /// The implementations by name: the registry lists in order (the first entry for an id wins), then the
 /// implementations chosen per catalog signature, then the platform's. Built once.
-fn by_name() -> &'static std::collections::HashMap<String, NativeFn> {
-    static TABLE: std::sync::OnceLock<std::collections::HashMap<String, NativeFn>> = std::sync::OnceLock::new();
+fn by_name() -> &'static std::collections::HashMap<String, (Source, NativeFn)> {
+    static TABLE: std::sync::OnceLock<std::collections::HashMap<String, (Source, NativeFn)>> =
+        std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
         let mut t = std::collections::HashMap::new();
-        for (i, f) in all() {
-            t.entry((*i).to_string()).or_insert(*f);
+        for (n, (i, f)) in all().enumerate() {
+            t.entry((*i).to_string()).or_insert((Source::Registry(n), *f));
         }
         for (i, f) in derived() {
-            t.entry(i.clone()).or_insert(*f);
+            t.entry(i.clone()).or_insert((Source::Derived, *f));
         }
-        for (i, f) in crate::platform_native::entries() {
-            t.entry(i.to_string()).or_insert(f);
+        for (n, (i, f)) in crate::platform_native::entries().enumerate() {
+            t.entry(i.to_string()).or_insert((Source::Platform(n), f));
         }
         t
     })
+}
+
+/// Where a registered native comes from: its position in [`all`], the catalog-derived family table (one entry per id),
+/// or its position in the platform-native table. The test compares the table with the scan by this, not by function
+/// address: a release build may give one function several addresses (a local copy per codegen unit) or fold two
+/// identical functions into one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    Registry(usize),
+    Derived,
+    Platform(usize),
 }
 
 /// Ids the lowering writes that are no catalog overload and have no native of their own (the VM runs them).
@@ -1061,17 +1073,18 @@ pub fn all_builtin_names() -> Vec<String> {
 /// The implementation of builtin `id`, if any: one array index into a table built once (the VM's own
 /// builtins have no entry).
 pub fn by_id(id: crate::builtin_id::BuiltinId) -> Option<NativeFn> {
-    static TABLE: std::sync::OnceLock<Vec<Option<NativeFn>>> = std::sync::OnceLock::new();
-    TABLE
-        .get_or_init(|| {
-            let names = by_name();
-            crate::builtin_id::BuiltinId::all()
-                .map(|i| names.get(i.name()).copied())
-                .collect()
-        })
-        .get(id.index())
-        .copied()
-        .flatten()
+    table().get(id.index()).copied().flatten().map(|(_, f)| f)
+}
+
+/// The table [`by_id`] reads: one slot per [`BuiltinId`], with where its native comes from.
+fn table() -> &'static [Option<(Source, NativeFn)>] {
+    static TABLE: std::sync::OnceLock<Vec<Option<(Source, NativeFn)>>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let names = by_name();
+        crate::builtin_id::BuiltinId::all()
+            .map(|i| names.get(i.name()).copied())
+            .collect()
+    })
 }
 
 /// The implementation registered for overload `id`, if any.
@@ -1079,14 +1092,26 @@ pub fn lookup(id: &str) -> Option<NativeFn> {
     crate::builtin_id::BuiltinId::of(id).and_then(by_id)
 }
 
-/// [`lookup`] the way it was before the table: scans in the same order. The test compares the two.
+/// Where [`lookup`] finds the native of `id`, read from the table.
 #[cfg(test)]
-fn lookup_by_scan(id: &str) -> Option<NativeFn> {
+fn source_in_table(id: &str) -> Option<Source> {
+    crate::builtin_id::BuiltinId::of(id)
+        .and_then(|i| table().get(i.index()).copied().flatten())
+        .map(|(s, _)| s)
+}
+
+/// Where [`lookup`] found the native of `id` before the table: a scan in the same order. The test compares the two.
+#[cfg(test)]
+fn source_by_scan(id: &str) -> Option<Source> {
     all()
-        .find(|(i, _)| *i == id)
-        .map(|(_, f)| *f)
-        .or_else(|| derived().get(id).copied())
-        .or_else(|| crate::platform_native::lookup_by_scan(id))
+        .position(|(i, _)| *i == id)
+        .map(Source::Registry)
+        .or_else(|| derived().contains_key(id).then_some(Source::Derived))
+        .or_else(|| {
+            crate::platform_native::entries()
+                .position(|(i, _)| i == id)
+                .map(Source::Platform)
+        })
 }
 
 /// Every registered id, for the conformance test.
@@ -2834,12 +2859,12 @@ pub(crate) mod tests {
         ids.extend(crate::platform_native::entries().map(|(i, _)| i));
         assert!(ids.len() > 500, "{}", ids.len());
         for id in ids {
-            let (a, b) = (lookup(id), lookup_by_scan(id));
-            assert!(a.is_some() && b.is_some(), "{id}");
-            assert_eq!(a.map(|f| f as usize), b.map(|f| f as usize), "{id}");
+            let (a, b) = (source_in_table(id), source_by_scan(id));
+            assert!(a.is_some() && b.is_some() && lookup(id).is_some(), "{id}");
+            assert_eq!(a, b, "{id}");
         }
         for id in ["", "Nope.Nothing#9", "System.StrLen", "system.strlen#1"] {
-            assert!(lookup(id).is_none() && lookup_by_scan(id).is_none(), "{id}");
+            assert!(lookup(id).is_none() && source_by_scan(id).is_none(), "{id}");
         }
     }
 
