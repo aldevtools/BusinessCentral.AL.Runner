@@ -132,11 +132,15 @@ impl Lowerer<'_> {
         if crate::base_access::visible_procs(&self.ws.object_ast(base), &name).any(|b| same_signature(&b)) {
             // A local procedure of an extension of another app's page or report next to a public or protected base
             // procedure with the same parameter types compiles (al-runner issue 6043), and a bare call in the
-            // extension's code runs the extension's own procedure (what alc binds it to; the corpus pin is awaited). In
-            // the base's app the same call does not compile (alc: AL0196, the call is ambiguous): refused below.
+            // extension's code runs the extension's own procedure; the base's own calls and a call on a page variable run
+            // the base's (pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al:48-72). Pinned for a page extension
+            // only: a report extension stays assumed. In the base's app the same call does not compile (alc: AL0196,
+            // the call is ambiguous): refused below.
             let local = mine.as_ref().is_some_and(|m| m.is_local());
             if local && self.ws.objects[object].app != self.ws.objects[base].app {
-                self.assume(al_builtins::assumptions::Assumption::ExtLocalProcNamedLikeBase);
+                if self.ws.objects[object].kind != ObjKind::PageExtension {
+                    self.assume(al_builtins::assumptions::Assumption::ExtLocalProcNamedLikeBase);
+                }
                 return Ok(());
             }
             if local {

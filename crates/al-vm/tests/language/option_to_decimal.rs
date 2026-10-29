@@ -1,8 +1,7 @@
 //! An Option into a Decimal is its ordinal, a Decimal into an Option a whole number (al-runner issue 6060). Pinned by
-//! writer TL's branch al-runtime-rs-staging-pub-tl, types/lt-implicit-conversions/P79OptionDecimal.al (assumption
-//! option-decimal-conversion until the pin lands).
+//! types/lt-implicit-conversions/P79OptionDecimal.al.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -113,21 +112,18 @@ fn run(routine: &str) -> Result<Value, Signal> {
     al_testkit::run_in(SRC, "C", routine)
 }
 
-fn flagged(routine: &str) -> String {
+fn clean(routine: &str) -> String {
     take_hits();
     let r = al_testkit::text(run(routine));
-    assert!(
-        take_hits().contains(&Assumption::OptionDecimalConversion),
-        "{routine} is not flagged"
-    );
+    assert!(take_hits().is_empty(), "{routine} is flagged");
     r
 }
 
 #[test]
 fn an_option_field_or_variable_into_a_decimal_is_its_ordinal() {
     // P79OptionDecimal.al:40-59 OptionField_ToDecimalField, :62-77 OptionVariable_ToDecimalVariable.
-    assert_eq!(flagged("FieldToField"), "2/1");
-    assert_eq!(flagged("VarToVar"), "2");
+    assert_eq!(clean("FieldToField"), "2/1");
+    assert_eq!(clean("VarToVar"), "2");
 }
 
 #[test]
@@ -136,7 +132,7 @@ fn a_decimal_into_an_option_takes_whole_numbers_and_raises_on_a_fraction() {
     let call = |d: &str| {
         take_hits();
         let r = al_testkit::run_with(SRC, "C", "DecimalToOption", vec![Value::Decimal(d.parse().unwrap())]);
-        assert!(take_hits().contains(&Assumption::OptionDecimalConversion));
+        assert!(take_hits().is_empty());
         r.map(|(v, _)| v)
     };
     assert_eq!(al_testkit::text(call("2")), "C/2");
@@ -167,11 +163,11 @@ fn arithmetic_with_an_option_uses_its_ordinal() {
 #[test]
 fn an_option_as_a_decimal_argument_and_in_validate() {
     // P79OptionDecimal.al:139-156 Argument_AndValidate.
-    assert_eq!(flagged("ArgumentAndValidate"), "2|1|2");
+    assert_eq!(clean("ArgumentAndValidate"), "2|1|2");
 }
 
 #[test]
 fn format_and_evaluate_of_the_ordinal() {
     // P79OptionDecimal.al:159-179 FormatAndEvaluate_Ordinal.
-    assert_eq!(flagged("FormatAndEvaluate"), "2|Age|Yes/2|No");
+    assert_eq!(clean("FormatAndEvaluate"), "2|Age|Yes/2|No");
 }

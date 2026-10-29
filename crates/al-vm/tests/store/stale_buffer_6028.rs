@@ -298,21 +298,21 @@ codeunit 50160 C
 fn a_lock_on_another_table_two_commits_later_raises_record_changed() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "LockTwo")), "DB:RecordChanged");
-    assert!(take_hits().contains(&Assumption::StaleOwnInsertLockOtherOrOtherRowWrite));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
 fn a_modify_of_another_row_three_commits_later_writes_the_whole_buffer() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "ModifyThree")), "start|5");
-    assert!(take_hits().contains(&Assumption::StaleOwnInsertLockOtherOrOtherRowWrite));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
 fn a_delete_of_another_row_three_commits_later_lets_the_stale_delete_delete() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "DeleteThree")), "No");
-    assert!(take_hits().contains(&Assumption::StaleOwnInsertLockOtherOrOtherRowWrite));
+    assert!(take_hits().is_empty());
 }
 
 #[test]

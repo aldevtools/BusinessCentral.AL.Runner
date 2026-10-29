@@ -174,9 +174,10 @@ fn unpinned_label_pairs_are_refused() {
     }
 }
 
-/// The new pairs run on the registered assumption; a Label against a literal stays clean (pinned on master, :464-466).
+/// The pinned pairs run clean (Code[20] and Text[10] against a Label, a literal against a Label: TestTernaryContracts.al
+/// TI_Ternary_*, :464-466); another length of the sized branch marks the assumption.
 #[test]
-fn the_label_pairs_mark_their_assumption() {
+fn only_unpinned_lengths_mark_the_assumption() {
     use al_builtins::assumptions::{Assumption, take_hits};
     let marked = |decls, yes, no| {
         let src = source(&[(decls, yes, no)]);
@@ -184,9 +185,10 @@ fn the_label_pairs_mark_their_assumption() {
         text(run_in(&src, "TL", "P0"));
         take_hits().contains(&Assumption::TernaryLabelBranch)
     };
-    assert!(marked(L7, "C20", "Lbl"));
-    assert!(marked(L7, "Lbl", "T10"));
-    assert!(marked(L7, "'xyz'", "Lbl"));
+    assert!(!marked(L7, "C20", "Lbl"));
+    assert!(!marked(L7, "Lbl", "T10"));
+    assert!(!marked(L7, "'xyz'", "Lbl"));
     assert!(!marked(L7, "Lbl", "'xyz'"));
     assert!(!marked(L7, "''", "Lbl"));
+    assert!(marked("Lbl: Label 'abc def'; C30: Code[30];", "C30", "Lbl"));
 }
