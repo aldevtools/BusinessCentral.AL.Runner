@@ -6571,6 +6571,7 @@
 69780 MovedFromMovedTo_Tables_AreUsable
 69799 Pending_CodeunitInterfaceEnum_StillRun
 69799 Pending_PageAndControls_StillOpen
+69799 Pending_QueryReportXmlPort_StillRun
 69800 CodeAssign_UpperAndTrim
 69800 ErrorText_SetsCodeDialog
 69800 Evaluate_BooleanFailureError

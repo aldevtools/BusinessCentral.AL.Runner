@@ -4178,6 +4178,7 @@
 67306 Rename_ParentRow_KeepsSystemIdAndCreatedPair
 67306 Rename_Propagation_ChildInKey_Stamp
 67306 Rename_Propagation_ChildNotInKey_Stamp
+67306 UserNameSystemFields_NormalAndTemporaryRecord
 67310 Field_And_Key_Rows_OfANumberWithNoTable
 67310 Field_And_Key_Rows_OfATableNothingReaches
 67310 Field_Type_ComparedWithMembers
@@ -6571,6 +6572,7 @@
 69780 MovedFromMovedTo_Tables_AreUsable
 69799 Pending_CodeunitInterfaceEnum_StillRun
 69799 Pending_PageAndControls_StillOpen
+69799 Pending_QueryReportXmlPort_StillRun
 69800 CodeAssign_UpperAndTrim
 69800 ErrorText_SetsCodeDialog
 69800 Evaluate_BooleanFailureError
