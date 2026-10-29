@@ -1,8 +1,7 @@
 //! A report that sets ShowPrintStatus runs as one without it (al-runner issue 6056: a partner app refused 4,245 tests with
 //! "report property showprintstatus is not supported yet"). Corpus writer TK pinned Run, RunModal and Execute of a
 //! processing-only report with ShowPrintStatus true, false and unset: the same triggers in the same order, no handler
-//! (report/lt-tk-showprintstatus/LtTkShowPrintStatus.al, branch al-runtime-rs-staging-tk); until that file is in the pinned
-//! corpus the run marks the assumption `show-print-status-inert`.
+//! (report/lt-tk-showprintstatus/LtTkShowPrintStatus.al).
 
 use al_testkit::text;
 
@@ -45,7 +44,5 @@ fn a_report_with_show_print_status_runs_as_one_without_it() {
         text(al_testkit::run_in(SRC, "C", "F")),
         "PreReport;pre;row 1;row 2;post;PostReport;"
     );
-    assert!(al_builtins::assumptions::hit(
-        al_builtins::assumptions::Assumption::ShowPrintStatusInert
-    ));
+    assert!(al_builtins::assumptions::take_hits().is_empty());
 }

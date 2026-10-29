@@ -1456,7 +1456,6 @@ impl Session {
                 "a part's CurrPage.Update in a control's OnValidate on a row other than its first of a view longer than a window (not pinned)",
             );
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartKeepsRowAfterUpdateInValidate);
         self.read_part_rows_around(st, &rows, at)?;
         Ok(true)
     }

@@ -1264,6 +1264,16 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if matches!(a[0], Value::Text(_) | Value::Code(_)) {
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
+            // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/lt-dd-stream-leads/
+            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count Read returns over a mark is not pinned.
+            if s.pos == 0 && s.enc == Encoding::Utf8 && s.with_data(|d| d.starts_with(&[0xEF, 0xBB, 0xBF])) {
+                if used {
+                    return unsupported(
+                        "the result of InStream.Read into a Text over a UTF-8 byte order mark (not pinned)",
+                    );
+                }
+                s.pos = 3;
+            }
             let unit = s.enc.unit();
             let rest = s.rest();
             // At the end of the stream the Text is emptied, no error. The result is 0 on a stream of the default encoding
@@ -1288,8 +1298,8 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let counted = consumed + usize::from(utf8_unterminated);
             let body = &rest[..body_len];
             // Non-ASCII characters read as their characters on a UTF-8 stream, with and without a zero byte after them, the
-            // count in bytes as for ASCII (misc/lt-probes-needed-5/PnE04Streams.al:118 ReadText_Utf8_NonAscii `7|wörld`; corpus
-            // branch al-runtime-rs-staging-pub-to, same file TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
+            // count in bytes as for ASCII (misc/lt-probes-needed-5/PnE04Streams.al:118 ReadText_Utf8_NonAscii `7|wörld`; the
+            // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). On a UTF-16 stream the pin reads only the characters before the first non-ASCII one, which
             // is not modelled.
             if !s.enc.decode_pinned(body)
@@ -1299,9 +1309,6 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
                 return unsupported(
                     "InStream.Read into a Text of non-ASCII characters on a UTF-16 stream (not pinned)",
                 );
-            }
-            if utf8_unterminated && !body.is_ascii() {
-                crate::assumptions::assume(crate::assumptions::Assumption::Utf8ReadNonAsciiUnterminated);
             }
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))

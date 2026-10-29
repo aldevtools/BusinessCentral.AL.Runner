@@ -194,6 +194,30 @@ pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Opt
     builds.iter().rev().find_map(|(_, p)| service_of(p))
 }
 
+/// The probe folders as the sidecar takes them. A service-tier folder is followed by its `Add-ins` folder, searched
+/// recursively, when there is one (ADR-014 section 3, step 1): BC's own add-ins, such as the QR code provider in
+/// `Add-ins/ElectronicInvoice`, load from there. The top level comes first, so it wins for a name in both.
+fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for d in dirs {
+        let abs = |p: &Path| {
+            std::path::absolute(p)
+                .unwrap_or_else(|_| p.to_path_buf())
+                .to_string_lossy()
+                .into_owned()
+        };
+        out.push(json!({"path": abs(d), "recursive": false}));
+        for name in ["Add-ins", "Add-Ins"] {
+            let add_ins = d.join(name);
+            if add_ins.is_dir() {
+                out.push(json!({"path": abs(&add_ins), "recursive": true}));
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// The probe folders of a run: the user's `--dotnet-assembly-dir` folders first, then the default
 /// service-tier folder (see [`default_probe_dir`]) unless it is already listed.
 pub fn probe_dirs(user: &[PathBuf], sandbox: Option<&Path>, build: Option<&str>, major: u32) -> Vec<PathBuf> {
@@ -906,13 +930,7 @@ impl SidecarSession {
         }
         // Where assemblies other than the standard library come from (ADR-014 section 3).
         if !self.shared.cfg.assembly_dirs.is_empty() {
-            let dirs: Vec<Value> = self
-                .shared
-                .cfg
-                .assembly_dirs
-                .iter()
-                .map(|d| json!({"path": std::path::absolute(d).unwrap_or_else(|_| d.clone()).to_string_lossy(), "recursive": false}))
-                .collect();
+            let dirs = wire_probe_dirs(&self.shared.cfg.assembly_dirs);
             self.raw_request(json!({"op":"probe","dirs":dirs}))
                 .map_err(|f| f.to_string())?;
         }
@@ -1323,6 +1341,34 @@ mod tests {
         } else {
             assert!(refused && registered);
         }
+    }
+
+    /// NP Retail's QR code report needs Microsoft.Dynamics.Nav.MX, which sits in Service/Add-ins/ElectronicInvoice.
+    #[test]
+    fn a_service_folder_is_followed_by_its_add_ins_folder_searched_recursively() {
+        let t = tempfile::tempdir().unwrap();
+        let svc = t.path().join("Service");
+        std::fs::create_dir_all(svc.join("Add-ins/ElectronicInvoice")).unwrap();
+        let plain = t.path().join("Plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        let wire = wire_probe_dirs(&[svc.clone(), plain.clone()]);
+        let rec: Vec<(String, bool)> = wire
+            .iter()
+            .map(|d| {
+                (
+                    d["path"].as_str().unwrap().to_string(),
+                    d["recursive"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rec,
+            vec![
+                (svc.to_string_lossy().into_owned(), false),
+                (svc.join("Add-ins").to_string_lossy().into_owned(), true),
+                (plain.to_string_lossy().into_owned(), false),
+            ]
+        );
     }
 
     #[test]
