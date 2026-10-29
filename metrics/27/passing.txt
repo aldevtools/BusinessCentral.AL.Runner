@@ -4394,6 +4394,7 @@
 67514 TenantWebService_Rows_46_To_60
 67514 TenantWebService_Rows_61_To_64
 67515 MinimumActiveRowVersion_AfterCommit
+67515 MinimumActiveRowVersion_InsideOpenWriteTransaction
 67515 MinimumActiveRowVersion_NoWrite_Committed
 67515 MinimumActiveRowVersion_PrefixedCallEqualsBareCall
 67518 NavAppSetting_GetOrInsert
@@ -13050,6 +13051,7 @@
 74208 IsInWriteTransaction_AfterErrorRollback
 74208 IsInWriteTransaction_AfterInsert
 74208 IsInWriteTransaction_BeforeAndAfterWrite
+74208 LastUsedRowVersion_Relations
 74208 MinimumActiveRowVersion_Relations
 74208 SelectLatestVersion_NoArgument
 74208 SelectLatestVersion_TableNo
