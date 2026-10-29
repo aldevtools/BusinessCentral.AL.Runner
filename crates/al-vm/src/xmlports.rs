@@ -3085,6 +3085,24 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // `attrs_over_unlinked`: always written, its text attributes (an empty Required one as `attr=""`) and then the inner
+                // text element, which holds the rows of the inner table, or that table once with the record as it stands when it
+                // has none (QrXpContainerOccurs.al TT_Change_Export_TwoRows, _OneRow, _TokenNoRows, _Error on corpus writer TT's
+                // branch al-runtime-rs-staging-tt: `<Ticket ChangeRequestToken="" Kind="K"><Admissions><Admission Code="">...`).
+                // Its own text is not pinned.
+                ir::XmlNodeKind::Text if attrs_over_unlinked(schema, child, node) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAttrsOverUnlinked);
+                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
+                        return unsupported(
+                            "XmlPort export of a text element with text attributes over a text element that holds a table element, with its own text (not pinned)",
+                        );
+                    }
+                    let e = self.xp_export_container(inst, schema, child)?;
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
@@ -3905,6 +3923,41 @@ fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && t.min_zero
         && t.max_unbounded == Some(false)
         && !schema.children(inner).is_empty()
+}
+
+/// For export only: a text element without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`, right below a temporary table
+/// element with `MaxOccurs = Once`, holding one or more text attributes and then one text element without triggers, with
+/// `MinOccurs = Zero` and `MaxOccurs = Once`, that holds only one temporary table element without LinkTable with `MinOccurs = Once`
+/// and `MaxOccurs = Unbounded` (assumption `xmlport-attrs-over-unlinked`; corpus writer TT's branch al-runtime-rs-staging-tt,
+/// QrXpContainerOccurs.al TT_Change_Export_*, xmlport 90104 in TtXpObjects.al: `Ticket` > `Admissions` > `Admission`).
+fn attrs_over_unlinked(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let tn = schema.node(table);
+    let kids = schema.children(c);
+    let Some((&inner, attrs)) = kids.split_last() else {
+        return false;
+    };
+    let optional_once = |k: &ir::XmlNode| k.triggers.is_empty() && k.min_zero && k.max_unbounded == Some(false);
+    let i = schema.node(inner);
+    let [t] = schema.children(inner)[..] else {
+        return false;
+    };
+    let t = schema.node(t);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && tn.kind == ir::XmlNodeKind::Table
+        && tn.use_temporary
+        && tn.max_unbounded == Some(false)
+        && optional_once(n)
+        && !attrs.is_empty()
+        && attrs.iter().all(|&a| schema.node(a).kind == ir::XmlNodeKind::TextAttr)
+        && i.kind == ir::XmlNodeKind::Text
+        && optional_once(i)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && !t.min_zero
+        && t.max_unbounded == Some(true)
 }
 
 /// What the import of `text` into a Guid field with `FormatEvaluate = Xml` gives.
