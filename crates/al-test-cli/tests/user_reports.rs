@@ -1425,3 +1425,316 @@ codeunit 69673 T {
 }";
     all_pass(run_with_deps(&[], objects));
 }
+
+/// al-runner issue 6211: inside a table procedure, `this.<Field>` is the field of the current record, the same as the
+/// unqualified name: it can be read, assigned and have a method called on it. The reporter's alc compiles every form
+/// below without a diagnostic. At run time each form does what the bare name does, so no assumption is registered; a
+/// corpus writer pins the shapes on real BC.
+const ISSUE_6211_OBJECTS: &str = "
+table 50100 \"TF Entry\"
+{
+    fields
+    {
+        field(1; \"No.\"; Code[20]) { }
+        field(2; ETag; Text[50]) { }
+        field(3; \"Set Codes\"; Text[250]) { }
+    }
+    keys { key(PK; \"No.\") { Clustered = true; } }
+
+    var
+        Counter: Integer;
+
+    procedure SetETag(NewETag: Text[50])
+    begin
+        if this.ETag = NewETag then
+            exit;
+        this.ETag := NewETag;
+    end;
+
+    procedure GetSetCodeList(): List of [Text]
+    begin
+        exit(this.\"Set Codes\".Split('|'));
+    end;
+
+    procedure Bump(): Integer
+    begin
+        this.Counter += 1;
+        exit(this.Counter);
+    end;
+
+    procedure BumpTwice(): Integer
+    begin
+        this.Bump();
+        exit(this.Bump());
+    end;
+
+    procedure ValidateThroughThis(NewETag: Text[50])
+    begin
+        this.Validate(ETag, NewETag);
+        this.TestField(ETag);
+    end;
+}
+
+tableextension 50102 \"TF Entry Ext\" extends \"TF Entry\"
+{
+    fields
+    {
+        field(50100; Extra; Text[30]) { }
+    }
+
+    procedure SetExtraFromETag()
+    begin
+        this.Extra := this.ETag;
+        this.SetETag(this.Extra + '!');
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure AssignFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.SetETag('abc');
+        if Entry.ETag <> 'abc' then
+            Error('ETag is %1', Entry.ETag);
+    end;
+
+    [Test]
+    procedure CallMethodOnFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.\"Set Codes\" := 'A|B';
+        if Entry.GetSetCodeList().Count() <> 2 then
+            Error('expected 2 codes');
+    end;
+
+    [Test]
+    procedure GlobalAndProcedureThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        if Entry.BumpTwice() <> 2 then
+            Error('expected 2');
+    end;
+
+    [Test]
+    procedure ValidateAndTestFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.ValidateThroughThis('v');
+        if Entry.ETag <> 'v' then
+            Error('ETag is %1', Entry.ETag);
+    end;
+
+    [Test]
+    procedure TableExtensionThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.ETag := 'x';
+        Entry.SetExtraFromETag();
+        if (Entry.Extra <> 'x') or (Entry.ETag <> 'x!') then
+            Error('Extra %1 ETag %2', Entry.Extra, Entry.ETag);
+    end;
+}";
+
+#[test]
+fn issue_6211_table_field_through_this_reads_assigns_and_calls_as_the_unqualified_name() {
+    all_pass(run_with_deps(&[], ISSUE_6211_OBJECTS));
+}
+
+/// A bare `this` in a table, passed on by value, hands over the current record (misc/lt-probes-needed-6/
+/// PnF18ThisInTable.al:64-67). Passed to a `var` parameter it is refused: no corpus test pins it.
+#[test]
+fn issue_6211_bare_this_in_a_table_by_value_runs_and_by_var_is_refused() {
+    let objects = "
+table 50110 \"TB Row\"
+{
+    fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+
+    procedure PassThis(var Other: Record \"TB Row\")
+    begin
+        Other.CopyFrom(this);
+    end;
+
+    procedure CopyFrom(Source: Record \"TB Row\")
+    begin
+        Rec := Source;
+    end;
+
+    procedure PassThisByVar(var Other: Record \"TB Row\")
+    begin
+        Other.Take(this);
+    end;
+
+    procedure Take(var Source: Record \"TB Row\")
+    begin
+        Rec := Source;
+    end;
+}
+
+codeunit 50111 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ByValue()
+    var
+        Row: Record \"TB Row\";
+        Other: Record \"TB Row\";
+    begin
+        Row.Id := 9;
+        Row.Name := 'nine';
+        Row.PassThis(Other);
+        if (Other.Id <> 9) or (Other.Name <> 'nine') then
+            Error('got %1 %2', Other.Id, Other.Name);
+    end;
+
+    [Test]
+    procedure ByVar()
+    var
+        Row: Record \"TB Row\";
+        Other: Record \"TB Row\";
+    begin
+        Row.PassThisByVar(Other);
+    end;
+}";
+    let results = run_with_deps(&[], objects);
+    let get = |n: &str| results.iter().find(|(t, _)| t == n).map(|(_, o)| o.clone()).unwrap();
+    assert_eq!(get("ByValue"), Outcome::Pass);
+    assert!(
+        matches!(get("ByVar"), Outcome::NotRun(ref why) if why.contains("passed to a `var` parameter (not pinned)")),
+        "{:?}",
+        get("ByVar")
+    );
+}
+
+/// Runs the test codeunit `T` of a workspace app with id `main_id` (its app.json declares a logo as `logo` says, `None`
+/// when no manifest was read) over the platform's System app and an optional dependency app `dep` (id `DEP_ID`).
+fn run_over_system(main_id: &str, logo: Option<bool>, dep: Option<&str>, main: &str) -> Vec<(String, Outcome)> {
+    use al_deps::package::read_package;
+    let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
+    let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
+        .expect("System.app reads")
+        .1;
+    let app = |id: &str, deps: Vec<String>, files: Vec<(String, String)>| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps,
+        files,
+    };
+    let mut sources = vec![
+        app(
+            main_id,
+            dep.map(|_| vec![DEP_ID.to_string()]).unwrap_or_default(),
+            vec![("main.al".into(), main.into())],
+        ),
+        app(al_sema::workspace::PLATFORM_APP_ID, Vec::new(), system),
+    ];
+    let mut kinds = vec![AppKind::Workspace, AppKind::Dependency];
+    if let Some(dep) = dep {
+        sources.push(app(DEP_ID, Vec::new(), vec![("dep.al".into(), dep.into())]));
+        kinds.push(AppKind::Dependency);
+    }
+    let symbols = ["BC27PLUS".to_string()].into();
+    let (_, l) = al_sema::lower::compile_apps_with(sources, kinds, &symbols, None, Default::default());
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let mut program = (*l.program).clone();
+    for a in program.apps.iter_mut() {
+        a.version = "1.0.0.0".into();
+        if a.id == main_id {
+            a.logo = logo;
+        }
+    }
+    let engine = Engine::new(std::sync::Arc::new(program), blocked);
+    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
+    run_codeunit(&engine, &l, oi)
+}
+
+const DEP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+const MAIN_ID: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
+
+/// al-runner issue 6148, cause 3: install code asks AllObj for the TableData row of a Base Application table (Contact)
+/// before it seeds setup rows. The row exists with the Table row's name and package ids; a table that does not exist
+/// has none. Pin: metadata/lt-all-obj-namespace/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and
+/// UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption
+/// `allobj-tabledata-row-of-dependency-table` until the bump).
+#[test]
+fn issue_6148_allobj_table_data_row_of_a_dependency_table() {
+    let dep = r#"table 5050 Contact { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }"#;
+    let main = r#"
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure ContactExists() var A: Record AllObj; Tbl: Record AllObj; begin
+    if not A.Get(A."Object Type"::TableData, Database::Contact) then Error('no TableData row');
+    if A."Object Name" <> 'Contact' then Error('name %1', A."Object Name");
+    Tbl.Get(Tbl."Object Type"::Table, 5050);
+    if A."App Package ID" <> Tbl."App Package ID" then Error('package');
+    if A."App Runtime Package ID" <> Tbl."App Runtime Package ID" then Error('runtime package');
+    A.Reset(); A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 5050);
+    if A.IsEmpty() then Error('empty');
+    if A.Count() <> 1 then Error('count %1', A.Count()); end;
+  [Test] procedure MissingTable() var A: Record AllObj; begin
+    if A.Get(A."Object Type"::TableData, 73199) then Error('row');
+    A.SetRange("Object Type", A."Object Type"::TableData); A.SetRange("Object ID", 73199);
+    if not A.IsEmpty() then Error('not empty'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, Some(false), Some(dep), main));
+}
+
+/// al-runner issue 6148, cause 2: Company-Initialize reaches Guided Experience Impl.GetExtensionLogo for an app that
+/// registers assisted setup: the Published Application row's Logo, then the Media row by its MediaId. An app whose
+/// app.json declares no logo has a blank Logo and no Media row; an app whose manifest was not read stays refused.
+/// Pin: onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
+/// (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption `published-application-logo-blank-without-manifest-logo`).
+#[test]
+fn issue_6148_extension_logo_of_an_app_without_a_logo() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure GetExtensionLogo() var App: Record "Published Application"; Media: Record Media; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if App.Logo.HasValue() then Error('logo');
+    if not IsNullGuid(App.Logo.MediaId()) then Error('media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if Media.FindFirst() then Error('media row'); end; }}"#
+    );
+    all_pass(run_over_system(MAIN_ID, Some(false), None, &main));
+    let o = run_over_system(MAIN_ID, None, None, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
+/// report while an app installs. A built-in RDLC or Word layout is not user defined; a report without layouts has no
+/// rows. Pin: platform/lt-ug-report-layout-list/UgReportLayoutList.al (corpus branch al-runtime-rs-staging-ug eff7eb2a;
+/// assumption `report-layout-list-built-in-not-user-defined` until the bump).
+#[test]
+fn issue_6191_built_in_layout_is_not_user_defined() {
+    let main = r#"
+report 50100 "UR Layouts" { DefaultRenderingLayout = Rdlc;
+  dataset { dataitem(I; Integer) { column(N; Number) { } } }
+  rendering { layout(Rdlc) { Type = RDLC; LayoutFile = 'a.rdl'; } layout(Word) { Type = Word; LayoutFile = 'a.docx'; } } }
+report 50101 "UR No Layout" { dataset { dataitem(I; Integer) { column(N; Number) { } } } }
+codeunit 50000 T { Subtype = Test;
+  [Test] procedure GetBuiltInLayout() var L: Record "Report Layout List"; begin
+    L.SetRange("Report ID", Report::"UR Layouts");
+    L.SetRange("User Defined", false);
+    if L.Count() <> 2 then Error('count %1', L.Count());
+    L.FindFirst();
+    if L."User Defined" then Error('user defined'); end;
+  [Test] procedure NoLayout() var L: Record "Report Layout List"; begin
+    L.SetRange("Report ID", Report::"UR No Layout");
+    if not L.IsEmpty() then Error('rows'); end; }"#;
+    all_pass(run_over_system(MAIN_ID, Some(false), None, main));
+}

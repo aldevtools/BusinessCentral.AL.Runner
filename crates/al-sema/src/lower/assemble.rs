@@ -853,6 +853,7 @@ pub(crate) fn lower_core(
                 dependency: ws.kinds[i] == crate::workspace::AppKind::Dependency,
                 include_source: false,
                 target: None,
+                logo: None,
                 layout_files: Vec::new(),
                 translations: false,
                 translation_files: Vec::new(),

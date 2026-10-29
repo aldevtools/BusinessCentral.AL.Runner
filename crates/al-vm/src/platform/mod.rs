@@ -553,7 +553,7 @@ impl Providers {
     /// The rows a provider fills for the table of `kind`.
     fn provided_rows(&self, t: &TableDef, kind: Virtual) -> Vec<mat::Entry> {
         match kind {
-            Virtual::ApiWebhookEntity | Virtual::TenantMedia | Virtual::Unprovided => {
+            Virtual::ApiWebhookEntity | Virtual::TenantMedia | Virtual::Media | Virtual::Unprovided => {
                 unreachable!("refused or listed before")
             }
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
@@ -617,6 +617,7 @@ pub(crate) fn mark_unpinned(t: &TableDef, rows: &mut [mat::Entry]) {
         if f.id >= al_builtins::platform::SYSTEM_OBJECT_BASE
             || !f.stored
             || pinned.contains(&f.id)
+            || al_builtins::platform::assumption_of_column(id, f.id).is_some()
             || t.keys[0].contains(&pos)
         {
             continue;
@@ -768,6 +769,7 @@ impl VirtualTables for Providers {
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.get(t, pk),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
+            Virtual::Media => media_null_id(t, pk.first()).map(|_| None),
             k => self.listed(t, k)?.get(t, pk),
         }
     }
@@ -840,6 +842,7 @@ impl VirtualTables for Providers {
                 }
                 Ok(found)
             }
+            Virtual::Media => media_filtered_to_null_id(t, scan.filters).map(|_| None),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -877,9 +880,37 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
+            Virtual::Media => media_filtered_to_null_id(t, filters).map(|_| 0),
             k => self.listed(t, k)?.count(t, filters),
         }
     }
+}
+
+/// Media (2000000181): no row has the null ID. Guided Experience Impl looks up the Logo of an app whose app.json declares
+/// none by its null MediaId and finds nothing (corpus branch al-runtime-rs-staging-ug eff7eb2a, onprem
+/// session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`).
+/// The other rows (Microsoft's logos, media AL imports) are not pinned: any other read is refused.
+fn media_null_id(t: &TableDef, id: Option<&Value>) -> Result<(), StoreError> {
+    if matches!(id, Some(Value::Guid(g)) if *g == [0; 16]) {
+        return Ok(());
+    }
+    Err(refused(format!(
+        "{}: only a read of the null ID is pinned (it finds nothing); the rows of other media are not",
+        t.name
+    )))
+}
+
+/// [`media_null_id`] for a scan: one of its filters keeps only the null ID.
+fn media_filtered_to_null_id(t: &TableDef, filters: &[FieldFilter]) -> Result<(), StoreError> {
+    let id = pos_of(t, 1);
+    let null = Value::Guid([0; 16]);
+    if filters
+        .iter()
+        .any(|f| f.field == id && mat::single_value(&f.expr) && f.expr.matches(&null))
+    {
+        return Ok(());
+    }
+    media_null_id(t, None)
 }
 
 /// A key of the Field table with what a `Get` of it answers from the full listing and from the rows of that key alone.
