@@ -17,7 +17,8 @@ impl Session {
     fn temp_refill_shape_any_current(&mut self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        if engine.object_facts[object].page_type != Some(al_ir::PageType::Worksheet)
+        if (engine.object_facts[object].page_type != Some(al_ir::PageType::Worksheet)
+            && !self.temp_list_without_writes(st))
             || !self.has_source(st)
             || !self.is_list(st)
             || st.borrow().host.is_some()
@@ -175,7 +176,18 @@ impl Session {
     /// Rec on another row of the view, and more rows than a window, are refused.
     /// Returns whether it handled the action.
     pub(super) fn reread_after_refill_to_fewer_rows(&mut self, st: &St) -> Result<bool, Signal> {
-        if !self.temp_refill_shape_any_current(st) || !self.held_row_gone(st)? {
+        if !self.temp_refill_shape_any_current(st) {
+            return Ok(false);
+        }
+        // On the List shape a held row the action replaced under the same key counts as gone (UjTempList.al
+        // UJ_Temp_List_OneRowRebuilt `same key`: `invoke;R:1;R:1;R:1;R:1;C:1;`).
+        let list = self.temp_list_without_writes(st);
+        let gone = if list {
+            self.held_rows_changed(st)?
+        } else {
+            self.held_row_gone(st)?
+        };
+        if !gone {
             return Ok(false);
         }
         let rec = self.page_rec(st);
@@ -183,8 +195,21 @@ impl Session {
         if rows.is_empty() {
             return Ok(false);
         }
+        if list {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListActionRebuildsRows);
+        }
         let table = self.table(&rec)?;
         let now = self.row_key(&rec)?;
+        // On the List shape Rec left on a later row of a view the window holds whole: the client reads the row, the rows from it
+        // on, the rows before it, then the row twice and OnAfterGetCurrRecord, and shows it (UjTempList.al UJ_Temp_List_ThreeNewRows
+        // `no find` `invoke;R:1;R:23;R:23;R:22;R:21;R:23;R:23;C:23;`, cur 23).
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), &now));
+        if list && rows.len() <= Self::WINDOW && self.declares(st, "onaftergetcurrrecord") {
+            if let Some(at) = at.filter(|a| *a > 0) {
+                self.read_refilled_rows(st, &rows, at)?;
+                return Ok(true);
+            }
+        }
         if !Self::same_key(&table.primary_key(&rows[0]), &now) {
             return unsupported(
                 "an action on a temporary Worksheet that refilled it, a row the client held being gone, and left Rec on a row other than the first of its view (not pinned)",
@@ -236,6 +261,21 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         Ok(true)
+    }
+
+    /// A List with InsertAllowed, ModifyAllowed and DeleteAllowed false: an action that rebuilds its temporary rows is read as on a
+    /// temporary Worksheet (pages/lt-uj-outside-leads/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
+    /// branch al-runtime-rs-staging-uj 1dc037a8; assumption `list-action-rebuilds-rows` until the bump).
+    fn temp_list_without_writes(&mut self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"].iter().all(|p| {
+                engine.program.objects[object]
+                    .properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
+            })
     }
 
     /// Whether a row the client holds is no longer in the table.

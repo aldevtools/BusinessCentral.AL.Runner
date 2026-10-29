@@ -535,15 +535,20 @@ impl Session {
         if !unrelated {
             return Ok(sorted(&order, targets));
         }
-        // Apps under test that do not depend on each other (corpus branch al-runtime-rs-staging-ua, bump PR 794:
-        // events/lt-bw-subscriber-order/BwSubscriberOrderTests.al:SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps
-        // and :SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, `A1;A2;F1;F2;B1;B2;C1;C2;M1;M2;D1;D2;`
-        // on the three supported majors, inside a test and inside an install routine). BC visits the apps in
-        // ascending app id and places each app's dependencies before it (depth first, post-order): A runs before F
-        // (lower app id; F has the earlier name, the lower subscriber ids and was published first), and D (depends on
-        // A only, nothing depends on it) runs last although its app id is lower than F's. The probe does not tell
-        // which of an app's dependencies BC visits first, nor whether it sorts by publisher before app id: every
-        // reading the probe allows (`visit_orders`) must give the same order, else the raise is refused.
+        // Apps under test that do not depend on each other. BC visits the apps in ascending app id and places each
+        // app's dependencies before it (depth first, post-order), the dependencies themselves in ascending app id:
+        // - corpus branch al-runtime-rs-staging-ua (bump PR 794), events/lt-bw-subscriber-order/BwSubscriberOrderTests.al
+        //   SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps and
+        //   SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp: A runs before F (lower app id; F has the
+        //   earlier name, the lower subscriber ids and was published first);
+        // - corpus branch al-runtime-rs-staging-ui (bump PR 801), the same file,
+        //   SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder and
+        //   SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall,
+        //   `A1;A2;F1;F2;B1;B2;D1;D2;C1;C2;M1;M2;`: B declares F before A and A still runs first (declared order has no
+        //   effect); B (Zulu) runs before D (Mike) by app id (the publisher does not order dependencies).
+        // Still not pinned, so still refused where it changes the order (`visit_orders`): whether BC walks from every
+        // app or only from the apps no other app depends on, and whether it sorts those apps by publisher first. Both
+        // probes give the same order under each of these readings.
         let models = visit_orders(&program.apps);
         let mut results = models.iter().map(|(what, full)| {
             let order: Vec<usize> = full.iter().copied().filter(|a| order.contains(a)).collect();
@@ -682,11 +687,11 @@ impl Session {
 }
 
 /// The orders in which BC may visit the apps of `apps` for an event's subscribers, one per reading that the corpus
-/// probe allows (see `event_targets`), each with what it assumes that the probe does not pin. Every reading visits
-/// apps in ascending app id and places each app's dependencies before it, depth first (post-order); they differ in
-/// the order an app's dependencies are visited and in whether apps are sorted by publisher first. The six-app probe
-/// (A before F, D last) rules out the others it was checked against: dependencies in the declared order after a
-/// sort by publisher (F before A), and dependencies in descending app id after a sort by publisher (F before A).
+/// probes allow (see `event_targets`), each with what it assumes that the probes do not pin. The first is the pinned
+/// rule: every app in ascending app id, each app's dependencies placed before it, depth first (post-order), the
+/// dependencies themselves in ascending app id (writer UI: not in declared order, and not by publisher). The others
+/// start the walk only from the apps no other app depends on, in ascending app id or sorted by publisher first: both
+/// probes give the same order under these readings, so they do not tell them apart.
 pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<usize>)> {
     let key = |a: usize| apps[a].id.to_ascii_lowercase();
     let deps_of = |a: usize| -> Vec<usize> {
@@ -698,48 +703,33 @@ pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<us
                 }
             }
         }
+        out.sort_by_key(|&x| key(x));
         out
     };
-    #[derive(Clone, Copy)]
-    enum Deps {
-        Ascending,
-        Declared,
-        Descending,
-    }
-    let visit = |by_publisher: bool, deps: Deps| -> Vec<usize> {
-        let mut roots: Vec<usize> = (0..apps.len()).collect();
-        if by_publisher {
-            roots.sort_by_key(|&a| (apps[a].publisher.to_lowercase(), key(a)));
-        } else {
-            roots.sort_by_key(|&a| key(a));
-        }
+    let depended_on: Vec<bool> = (0..apps.len())
+        .map(|a| (0..apps.len()).any(|o| o != a && deps_of(o).contains(&a)))
+        .collect();
+    let visit = |roots: Vec<usize>| -> Vec<usize> {
         let mut placed = vec![false; apps.len()];
         let mut entered = vec![false; apps.len()];
         let mut out = Vec::with_capacity(apps.len());
+        let children = |a: usize| {
+            let mut d = deps_of(a);
+            d.reverse(); // popped from the end
+            d
+        };
         // Depth first with an explicit stack: (app, its dependencies still to visit).
         for root in roots {
             if entered[root] {
                 continue;
             }
-            let mut stack: Vec<(usize, Vec<usize>)> = Vec::new();
-            let children = |a: usize| {
-                let mut d = deps_of(a);
-                match deps {
-                    Deps::Ascending => d.sort_by_key(|&x| key(x)),
-                    Deps::Descending => d.sort_by_key(|&x| std::cmp::Reverse(key(x))),
-                    Deps::Declared => {}
-                }
-                d.reverse(); // popped from the end
-                d
-            };
             entered[root] = true;
-            stack.push((root, children(root)));
+            let mut stack: Vec<(usize, Vec<usize>)> = vec![(root, children(root))];
             while let Some((a, rest)) = stack.last_mut() {
                 match rest.pop() {
                     Some(d) if !entered[d] => {
                         entered[d] = true;
-                        let c = children(d);
-                        stack.push((d, c));
+                        stack.push((d, children(d)));
                     }
                     Some(_) => {}
                     None => {
@@ -755,19 +745,22 @@ pub(crate) fn visit_orders(apps: &[al_ir::AppInfo]) -> Vec<(&'static str, Vec<us
         }
         out
     };
+    let mut all: Vec<usize> = (0..apps.len()).collect();
+    all.sort_by_key(|&a| key(a));
+    let mut tops: Vec<usize> = all.iter().copied().filter(|&a| !depended_on[a]).collect();
+    let by_id = visit(all);
+    let tops_by_id = visit(tops.clone());
+    tops.sort_by_key(|&a| (apps[a].publisher.to_lowercase(), key(a)));
+    let tops_by_publisher = visit(tops);
     vec![
-        ("", visit(false, Deps::Ascending)),
+        ("", by_id),
         (
-            "which of an app's dependencies BC visits first",
-            visit(false, Deps::Declared),
+            "whether BC walks from every app in ascending app id or only from the apps no other app depends on",
+            tops_by_id,
         ),
         (
-            "which of an app's dependencies BC visits first",
-            visit(false, Deps::Descending),
-        ),
-        (
-            "whether BC sorts apps by publisher before app id",
-            visit(true, Deps::Ascending),
+            "whether BC sorts the apps no other app depends on by publisher before app id",
+            tops_by_publisher,
         ),
     ]
 }

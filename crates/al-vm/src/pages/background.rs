@@ -207,9 +207,16 @@ impl Session {
         }
     }
 
-    /// Runs the page's `OnPageBackgroundTaskCompleted(TaskId, Results)`, if it has one.
+    /// Runs the page's `OnPageBackgroundTaskCompleted(TaskId, Results)`, if it has one, then the same trigger of each page
+    /// extension that declares it, for every task the page or an extension enqueued (pages/lt-uj-outside-leads/UjPageExtBgTask.al
+    /// UJ_PageExt_BgTask_Completed, corpus branch al-runtime-rs-staging-uj 1dc037a8).
     fn bg_completed(&mut self, st: &St, id: i32, results: &V) -> Result<(), Signal> {
-        if self.declares(st, "onpagebackgroundtaskcompleted") {
+        if self.bg_ext_declares(st, "onpagebackgroundtaskcompleted") {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers);
+        }
+        if self.declares(st, "onpagebackgroundtaskcompleted")
+            || self.bg_ext_declares(st, "onpagebackgroundtaskcompleted")
+        {
             self.page_trigger(
                 st,
                 "onpagebackgroundtaskcompleted",
@@ -254,6 +261,23 @@ impl Session {
                 }
                 Err(e) => {
                     let handled = self.bg_error(st, id, &e)?;
+                    // A task a card enqueued while OpenView reads its first row (from OnAfterGetCurrRecord) whose error nobody handles: OpenView
+                    // raises the worker's own text, its code with `:TargetInvocation` added (pages/lt-uj-outside-leads/
+                    // UjPageExtBgTask.al UJ_PageExt_BgTask_Error_Unhandled_Base and _Ext, corpus branch al-runtime-rs-staging-uj
+                    // 1dc037a8: `worker failed for base-fail`, `Dialog:TargetInvocation`).
+                    let opening_view_card = {
+                        let s = st.borrow();
+                        s.open_read && s.mode == PageMode::View
+                    } && self.is_card(st);
+                    if !handled && opening_view_card {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers,
+                        );
+                        st.borrow_mut().bg_tasks.clear();
+                        let mut e = e;
+                        e.code = format!("{}:TargetInvocation", e.code);
+                        return Err(Signal::Error(Box::new(e)));
+                    }
                     if !handled {
                         st.borrow_mut().bg_tasks.clear();
                         self.mark_closed(st);
@@ -264,31 +288,56 @@ impl Session {
         }
     }
 
-    /// Runs `OnPageBackgroundTaskError(TaskId, ErrorCode, ErrorText, ErrorCallStack, var IsHandled)`
-    /// and answers what it left in `IsHandled`.
+    /// Whether a page extension of the page declares trigger `name` (lower case).
+    fn bg_ext_declares(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).ext_triggers.iter().any(|(n, _, _)| n == name)
+    }
+
+    /// Runs `OnPageBackgroundTaskError(TaskId, ErrorCode, ErrorText, ErrorCallStack, var IsHandled)` of the page, then of each
+    /// page extension that declares it, each one getting the IsHandled the one before left (pages/lt-uj-outside-leads/
+    /// UjPageExtBgTask.al UJ_PageExt_BgTask_Error_Handled: `ext error ... handled=Yes` after the page marked it handled), and
+    /// answers what the last one left in `IsHandled`.
     fn bg_error(&mut self, st: &St, id: i32, e: &AlError) -> Result<bool, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let Some(routine) = page_of(&engine, st)
+        let page = page_of(&engine, st);
+        let own = page
             .triggers
             .iter()
             .find(|(n, _)| n == "onpagebackgroundtaskerror")
-            .map(|(_, r)| *r)
-        else {
+            .map(|(_, r)| (object, *r, None));
+        let exts = page
+            .ext_triggers
+            .iter()
+            .filter(|(n, _, _)| n == "onpagebackgroundtaskerror")
+            .map(|(_, ext, r)| (*ext, *r, Some(*ext)));
+        let routines: Vec<(usize, usize, Option<usize>)> = own.into_iter().chain(exts).collect();
+        if routines.is_empty() {
             return Ok(false);
-        };
+        }
+        if routines.iter().any(|(_, _, ext)| ext.is_some()) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers);
+        }
         al_builtins::native::refuse_unpinned(e, "OnPageBackgroundTaskError")?;
-        let inst = st.borrow().instance.clone().expect("open page");
-        let args = vec![
-            Value::Integer(id),
-            Value::Text(e.code.clone().into()),
-            Value::Text(e.message.clone().into()),
-            Value::Text(e.call_stack.clone().into()),
-            Value::Boolean(false),
-        ];
-        let (_, finals) = self.call(object, routine, inst, args)?;
-        self.end_page_call(st);
-        Ok(matches!(finals.get(4), Some(Value::Boolean(true))))
+        let mut handled = false;
+        for (obj, routine, ext) in routines {
+            let inst = match ext {
+                None => st.borrow().instance.clone().expect("open page"),
+                Some(_) => self.owner_instance(st, ext),
+            };
+            let args = vec![
+                Value::Integer(id),
+                Value::Text(e.code.clone().into()),
+                Value::Text(e.message.clone().into()),
+                Value::Text(e.call_stack.clone().into()),
+                Value::Boolean(handled),
+            ];
+            let (_, finals) = self.call(obj, routine, inst, args)?;
+            self.end_page_call(st);
+            handled = matches!(finals.get(4), Some(Value::Boolean(true)));
+        }
+        Ok(handled)
     }
 
     /// The error a write by a background task worker raises: the session is read-only. Only the

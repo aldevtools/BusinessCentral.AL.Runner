@@ -2,7 +2,7 @@
   "corpus_commit": "7319e1c8382edba4e97fbf251c3731d1c664b495",
   "language": {
     "bc": "27-29",
-    "implemented": 1599,
+    "implemented": 1600,
     "methods": [
       {
         "bc": [
@@ -1723,7 +1723,7 @@
         "scope": "",
         "sig": "([Boolean])",
         "site": "errorinfo/lt-errnotif/EnTDialogSession.al:97",
-        "state": "refused",
+        "state": "implemented",
         "type": "Dialog"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 123,
+    "refused": 122,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

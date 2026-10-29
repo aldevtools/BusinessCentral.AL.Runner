@@ -617,6 +617,7 @@ const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dialog.Open#1", dialog_open),
     ("Dialog.Update#1", dialog_update),
     ("Dialog.Close#1", dialog_close),
+    ("Dialog.HideSubsequentDialogs#1", dialog_hide_subsequent),
     // Reading the latest committed data is what this runtime always does (session/TestBCDatabaseContracts.al:170-187).
     // Telemetry goes to the server's log, which AL cannot read (ADR-009).
     ("Session.LogMessage#1", |_, _, _| Ok(Value::Null)),
@@ -1835,6 +1836,24 @@ fn dialog_update(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Res
         }
     }
     Ok(Value::Null)
+}
+
+/// `Dialog.HideSubsequentDialogs(Hide)`: a headless session shows no dialog, so it changes nothing that AL sees: Open, Update and
+/// Close and their errors behave the same after `true` and after `false`, also on a dialog opened before and on another Dialog
+/// variable (errorinfo/lt-errnotif/EnTDialogSession.al UJ_Dialog_HideSubsequent_OpenUpdateClose, UJ_Dialog_HideSubsequent_OpenedBefore,
+/// corpus branch al-runtime-rs-staging-uj 1dc037a8). Microsoft's code calls it as a statement (System Application, Apply Retention
+/// Policy Impl.). The value it returns is pinned only after `true` (Yes); any other use of the result is an assumption.
+fn dialog_hide_subsequent(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    crate::assumptions::assume(crate::assumptions::Assumption::DialogHideSubsequentDialogsNoHeadlessEffect);
+    let hide = match a.first() {
+        Some(Value::Boolean(b)) => Some(*b),
+        None => None,
+        Some(_) => return unsupported("Dialog.HideSubsequentDialogs with an argument that is not a Boolean"),
+    };
+    if c.ret_used() && hide != Some(true) {
+        return unsupported("the result of Dialog.HideSubsequentDialogs without the argument true (not pinned)");
+    }
+    Ok(Value::Boolean(true))
 }
 
 /// `Dialog.Close()`: closing a dialog that is not open raises.

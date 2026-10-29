@@ -847,6 +847,11 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     // lt-ue-pageext-leads/UeTriggerTests.al, al-runner issue 6149; assumption pageext-record-trigger-answers until the pin lands).
     "oninsertrecord",
     "onmodifyrecord",
+    // The page's trigger runs first, then the extension's, for every task, whoever enqueued it; the error trigger hands its
+    // IsHandled on to the next one (pages/lt-uj-outside-leads/UjPageExtBgTask.al, corpus branch al-runtime-rs-staging-uj
+    // 1dc037a8, al-runner issue 6182; assumption pageext-background-task-triggers until the pin lands).
+    "onpagebackgroundtaskcompleted",
+    "onpagebackgroundtaskerror",
 ];
 
 /// The triggers a `modify` block can add to a control, which the client runs.
