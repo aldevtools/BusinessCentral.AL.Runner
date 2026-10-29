@@ -179,7 +179,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         run_reasons: Vec::new(),
         export_reasons: Vec::new(),
     };
-    let (mut default_namespace, mut use_default_namespace) = (false, Some(false));
+    let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;
     for p in obj.properties() {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
@@ -302,7 +302,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             },
             // Checked after the loop, with DefaultNamespace.
             "usedefaultnamespace" => use_default_namespace = bool_prop(&value),
-            "defaultnamespace" => default_namespace = true,
+            "defaultnamespace" => default_namespace = Some(value.trim().trim_matches('\'').to_string()),
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             other => out
                 .run_reasons
@@ -335,12 +335,21 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .push("xmlport property preservewhitespace = true of a text format is not pinned".into());
         }
     }
-    if default_namespace {
+    // With UseDefaultNamespace = true every element is in DefaultNamespace: the export writes `xmlns="<namespace>"` on the root
+    // and an import finds a root in that namespace only (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370
+    // BdDefaultNamespace_PortWithDefaultNamespace, xmlport 81085: a text root, a table element and field elements). The other
+    // properties are pinned with it as for BC's own namespace below; a namespace text with a quote is not.
+    let mut own_namespace = None;
+    if let Some(ns) = default_namespace {
         match use_default_namespace {
             Some(false) => out.export_reasons.push(
                 "xmlport property defaultnamespace without UseDefaultNamespace (what an export writes is not pinned)"
                     .into(),
             ),
+            Some(true) if !ns.is_empty() && !ns.contains(['\'', '"']) => {
+                own_namespace = Some(ns);
+                bc_namespace = true;
+            }
             _ => out
                 .run_reasons
                 .push("xmlport property defaultnamespace with UseDefaultNamespace is not supported yet".into()),
@@ -407,9 +416,11 @@ pub fn layout(obj: &ast::Object) -> Layout {
             None
         };
         match (unpinned, obj.id()) {
+            (None, _) if own_namespace.is_some() => out.default_ns = own_namespace,
             (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
             (Some(what), _) => out.run_reasons.push(format!(
-                "xmlport property usedefaultnamespace = true without DefaultNamespace, with {what} (not pinned)"
+                "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
+                if own_namespace.is_some() { " with DefaultNamespace" } else { " without DefaultNamespace" }
             )),
             (None, None) => out
                 .run_reasons
@@ -1249,6 +1260,20 @@ mod tests {
         assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
         assert_eq!(l.default_ns.as_deref(), Some("urn:microsoft-dynamics-nav/xmlports/x7"));
         assert!(layout_assumed(&l).is_empty());
+    }
+
+    #[test]
+    fn default_namespace_with_use_default_namespace_names_the_namespace() {
+        // xmlport/lt-bd-xmlport/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace (xmlport 81085).
+        let l = layout_of(
+            "xmlport 7 X { DefaultNamespace = 'urn:bd-default'; UseDefaultNamespace = true; schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(l.default_ns.as_deref(), Some("urn:bd-default"));
+        let lax = layout_of(
+            "xmlport 7 X { DefaultNamespace = 'urn:bd-default'; UseDefaultNamespace = true; UseLax = true; schema { textelement(R) { } } }",
+        );
+        assert!(!lax.run_reasons.is_empty());
     }
 
     #[test]
