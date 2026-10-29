@@ -2613,6 +2613,9 @@ mod tests {
         assert!(matches!(text("tRue"), Err(Signal::Unsupported(_))));
         assert_eq!(b(as_boolean(&Scalar::Val(Value::Integer(0)))), Some(false));
         assert_eq!(b(as_boolean(&Scalar::Val(Value::Integer(1)))), Some(true));
-        assert!(matches!(as_boolean(&Scalar::Val(Value::Integer(2))), Err(Signal::Unsupported(_))));
+        assert!(matches!(
+            as_boolean(&Scalar::Val(Value::Integer(2))),
+            Err(Signal::Unsupported(_))
+        ));
     }
 }

@@ -377,7 +377,11 @@ fn datetime_filter_day(t: &str) -> Option<i32> {
     if !shape {
         return None;
     }
-    let text = if t.contains('-') { format!("{}/{}/{}", p[1], p[2], &p[0][2..]) } else { t.to_string() };
+    let text = if t.contains('-') {
+        format!("{}/{}/{}", p[1], p[2], &p[0][2..])
+    } else {
+        t.to_string()
+    };
     if t.contains('-') && !p[0].starts_with("20") {
         return None;
     }
@@ -389,7 +393,10 @@ fn datetime_filter_day(t: &str) -> Option<i32> {
 
 /// `DD.MM.YY` alone or with ` HH:MM`, in an English session.
 fn dotted_datetime_text(t: &str) -> bool {
-    if DATE_CONTEXT.with(std::cell::Cell::get).is_none_or(|c| c.language != 1033) {
+    if DATE_CONTEXT
+        .with(std::cell::Cell::get)
+        .is_none_or(|c| c.language != 1033)
+    {
         return false;
     }
     let (date, clock) = match t.split_once(' ') {
@@ -934,7 +941,10 @@ impl Parser<'_> {
     /// A range end on a DateTime field: a date alone is the start of its day as the low end, its end as the high end.
     /// A date alone next to a value with a clock is not pinned.
     fn datetime_range(&self, lo: Option<Tok>, hi: Option<Tok>) -> Result<Option<FilterExpr>, String> {
-        let (dl, dh) = (lo.as_ref().and_then(|t| self.day_alone(t)), hi.as_ref().and_then(|t| self.day_alone(t)));
+        let (dl, dh) = (
+            lo.as_ref().and_then(|t| self.day_alone(t)),
+            hi.as_ref().and_then(|t| self.day_alone(t)),
+        );
         if dl.is_none() && dh.is_none() {
             return Ok(None);
         }

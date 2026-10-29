@@ -420,7 +420,11 @@ pub fn layout(obj: &ast::Object) -> Layout {
             (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
             (Some(what), _) => out.run_reasons.push(format!(
                 "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
-                if own_namespace.is_some() { " with DefaultNamespace" } else { " without DefaultNamespace" }
+                if own_namespace.is_some() {
+                    " with DefaultNamespace"
+                } else {
+                    " without DefaultNamespace"
+                }
             )),
             (None, None) => out
                 .run_reasons

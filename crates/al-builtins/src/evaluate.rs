@@ -1323,7 +1323,9 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 fn letters_date_text(text: &str, number: i64) -> bool {
     matches!(number, 0 | 9)
         && text.bytes().any(|b| b.is_ascii_alphabetic())
-        && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/'))
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/'))
 }
 
 pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
@@ -2239,7 +2241,9 @@ mod tests {
     /// more and longer fractions are refused (rounding not pinned).
     #[test]
     fn a_time_with_four_digits_of_a_second_keeps_the_milliseconds() {
-        assert!(matches!(value(time("13:45:06.1234", 9)), Some(Value::Time(t)) if t == ((13 * 60 + 45) * 60 + 6) * 1000 + 123 + 1));
+        assert!(
+            matches!(value(time("13:45:06.1234", 9)), Some(Value::Time(t)) if t == ((13 * 60 + 45) * 60 + 6) * 1000 + 123 + 1)
+        );
         assert!(matches!(time("13:45:06.1235", 9), Err(Signal::Unsupported(_))));
         assert!(matches!(time("13:45:06.12345", 9), Err(Signal::Unsupported(_))));
     }
