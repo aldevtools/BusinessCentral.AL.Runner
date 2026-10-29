@@ -313,7 +313,8 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
         None if h == 12 => 12,
         None => return None,
     };
-    (m < 60 && s < 60).then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1))
+    (m < 60 && s < 60)
+        .then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1))
 }
 
 /// What the text of a Date filter needs from the session: today, the work date and the language of the messages.
@@ -1196,7 +1197,14 @@ mod tests {
                 let f = parse_filter(text, &[], &T::DateTime).unwrap_or_else(|e| panic!("{text}: {e}"));
                 assert!(f.matches(&v), "{text}");
             }
-            for text in ["01/15/24", "11/07/26 1:00 PM", "11/07/26 13:00:00", "11/07/26 12:00:00.0331 PM", "2026-11-07 12:00", "11/07/26 12:60 PM"] {
+            for text in [
+                "01/15/24",
+                "11/07/26 1:00 PM",
+                "11/07/26 13:00:00",
+                "11/07/26 12:00:00.0331 PM",
+                "2026-11-07 12:00",
+                "11/07/26 12:60 PM",
+            ] {
                 let e = parse_filter(text, &[], &T::DateTime).expect_err(text);
                 assert!(!e.starts_with(NOT_EVALUATED), "{text} stays refused: {e}");
             }
