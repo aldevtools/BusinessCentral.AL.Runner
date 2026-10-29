@@ -337,13 +337,21 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class
 /// FlowField (system-fields/W6SystemFieldStamps.al:239-246; their order after SystemModifiedBy: metadata/W6FieldKeyRows.al:
 /// 267-268). The runtime's schema does not hold them (it keeps SystemRowVersion at 2000000005, where BC 27 and 28 have it;
-/// where BC 29 keeps it is not pinned); RecordRef refuses them (refs.rs).
+/// where BC 29 keeps it is not pinned); RecordRef.Field reaches them through `LibraryValue::UserNameFieldRef` (refs.rs).
 pub(crate) const USER_NAME_SYSTEM_FIELDS: [(u32, &str, i32); 4] = [
     (2_000_000_005, "SystemCreatedByUserName", 50),
     (2_000_000_006, "SystemCreatedByFullName", 80),
     (2_000_000_007, "SystemModifiedByUserName", 50),
     (2_000_000_008, "SystemModifiedByFullName", 80),
 ];
+
+/// Name and length of the user-name system field `no`, if `no` is one of [`USER_NAME_SYSTEM_FIELDS`].
+pub(crate) fn user_name_system_field(no: u32) -> Option<(&'static str, i32)> {
+    USER_NAME_SYSTEM_FIELDS
+        .iter()
+        .find(|f| f.0 == no)
+        .map(|&(_, name, len)| (name, len))
+}
 
 /// The columns of a [`USER_NAME_SYSTEM_FIELDS`] row that are set: TableNo, No., FieldName, Type, Len, Class (pinned above),
 /// RelationTableNo 0 (handlers 69519 FieldTable_RelationTableNo_OfConditionalRelations on BC 29: a `<>0` filter lists

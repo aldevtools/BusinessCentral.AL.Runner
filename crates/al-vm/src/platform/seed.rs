@@ -166,6 +166,11 @@ const TENANT_WEB_SERVICES: &[(i32, &str, i32)] = &[
     (9, "VendorLedgerEntries", 263),
 ];
 
+/// The Full Name of the session user's User row. The corpus pins only that it is not blank and is not the user name
+/// (system-fields/W6SystemFieldStamps.al:240, `is_user_id=No` and `blank=No` for SystemCreatedByFullName, which holds it);
+/// the text itself is AL Runner's (docs/probes-needed.md, Identity).
+pub(crate) const SESSION_USER_FULL_NAME: &str = "Test User";
+
 /// A text value for the field `id`, as a Code or a Text by the field's type.
 fn text(t: &TableDef, id: u32, s: &str) -> Value {
     match t.fields.iter().find(|f| f.id == id).map(|f| &f.ty) {
@@ -252,7 +257,7 @@ impl Session {
                     let mut r = super::blank(t);
                     r[pos(t, 1)] = Value::Guid(i.user_sid);
                     r[pos(t, 2)] = text(t, 2, &i.user_id);
-                    r[pos(t, 3)] = text(t, 3, &i.user_id);
+                    r[pos(t, 3)] = text(t, 3, SESSION_USER_FULL_NAME);
                     r
                 }
                 // Every User has a User Property row (onprem access-control/TestUserPropertySessionUser.al:312-330).

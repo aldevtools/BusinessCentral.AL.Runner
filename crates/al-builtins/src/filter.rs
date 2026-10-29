@@ -259,6 +259,64 @@ fn time_filter_text(t: &str) -> Option<Value> {
     (h < 24 && m < 60 && s < 60).then_some(Value::Time(((h * 60 + m) * 60 + s) * 1000 + 1))
 }
 
+/// The DateTime a filter text names in an English session, for the forms the corpus pins (errors/lt-ms-refusals-136/P136Filter.al:
+/// 326-380 on corpus master, TV_SetView_DateTime_GetViewRoundTrip and TV_SetView_DateTime_LiteralTexts): `MM/DD/YY` and a clock of
+/// `HH:MM`, `HH:MM:SS` or `HH:MM:SS.f` with one to three digits as tenths, hundredths or milliseconds (`.8`, `.08`, `.033`), then
+/// ` PM` or ` AM` with the hour 12 (`12:00 AM` is midnight, from GetView of a range), or no suffix with the hour 12
+/// (`12:00:00.033` is noon). The value is the clock of that day as the session reads it (Evaluate also reads `m/d/y h:mm` as
+/// UTC). `None` for any other text: a date alone (`01/15/24` keeps the row at noon of that day, so it is no point at midnight; how
+/// BC reads it is not pinned), another hour with AM or PM, another date spelling, another language.
+fn datetime_filter_text(t: &str) -> Option<Value> {
+    let ctx = DATE_CONTEXT.with(std::cell::Cell::get)?;
+    if ctx.language != 1033 {
+        return None;
+    }
+    let num = |p: &str, len: usize| -> Option<i64> {
+        (p.len() == len && p.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| p.parse().ok())
+            .flatten()
+    };
+    let parts: Vec<&str> = t.split(' ').collect();
+    let (date, clock, suffix) = match parts[..] {
+        [d, c] => (d, c, None),
+        [d, c, s @ ("AM" | "PM")] => (d, c, Some(s)),
+        _ => return None,
+    };
+    if !digit_groups(date, '/', 3) || date.split('/').any(|p| p.len() != 2) {
+        return None;
+    }
+    let Some(Value::Date(day, false)) = crate::evaluate::read_text(&crate::value::RtType::Date, date) else {
+        return None;
+    };
+    if day <= 0 {
+        return None;
+    }
+    let (hms, frac) = match clock.split_once('.') {
+        Some((c, f)) if (1..=3).contains(&f.len()) => (c, Some(f)),
+        Some(_) => return None,
+        None => (clock, None),
+    };
+    let (h, m, s) = match hms.split(':').collect::<Vec<_>>()[..] {
+        [h, m] if frac.is_none() => (num(h, 2)?, num(m, 2)?, 0),
+        [h, m, s] => (num(h, 2)?, num(m, 2)?, num(s, 2)?),
+        _ => return None,
+    };
+    let ms = match frac {
+        Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
+        None => 0,
+    };
+    let h = match suffix {
+        Some("PM") if h == 12 => 12,
+        Some("AM") if h == 12 => 0,
+        Some(_) => return None,
+        // Only the hour 12 is pinned without a suffix; other hours of a 24-hour clock are not.
+        None if h == 12 => 12,
+        None => return None,
+    };
+    (m < 60 && s < 60)
+        .then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1))
+}
+
 /// What the text of a Date filter needs from the session: today, the work date and the language of the messages.
 #[derive(Debug, Clone, Copy)]
 pub struct DateFilterContext {
@@ -556,6 +614,9 @@ impl Parser<'_> {
             // A quoted empty text is the blank date (corpus record/lt-loadfields-pagesource-validate/P81DateFilters.al:193-194,
             // :308). The unquoted empty text stays refused.
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Date) => return Ok(Value::Date(0, false)),
+            // A quoted empty text on a DateTime field is the blank DateTime (errors/lt-ms-refusals-136/P136Filter.al:361, corpus
+            // master, TV_SetView_DateTime_LiteralTexts `empty` keeps only the row with no DateTime).
+            Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::DateTime) => return Ok(Value::DateTime(0)),
             // On a Media field a quoted empty text, alone or after `<>`, raises the Guid format error
             // (media/lt-so-media-filter/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
             Tok::Quoted(s)
@@ -606,6 +667,9 @@ impl Parser<'_> {
                 time_filter_text(text.trim()).unwrap_or(Value::Time(0))
             }
             T::DateTime if letters_only(text.trim()) => return Err(not_evaluated("DateTime", text.trim())),
+            T::DateTime if datetime_filter_text(text.trim()).is_some() => {
+                datetime_filter_text(text.trim()).unwrap_or(Value::DateTime(0))
+            }
             // Format(false) = 'No' is used as a filter value in the corpus. The words BC accepts,
             // in any case, are Yes, True, 1 and No, False, 0
             // (record/TestFilterTextBooleanFindContracts.al:103, SetFilter_BooleanField_AcceptedWords).
@@ -1097,6 +1161,56 @@ mod tests {
     }
 
     /// events/lt-bd-filter-events/BdFilterEvents.al: the Time texts an English session reads, the Integer and Decimal texts with a
+    /// errors/lt-ms-refusals-136/P136Filter.al:354-380 (corpus master, TV_SetView_DateTime_LiteralTexts): a DateTime filter text in
+    /// an English session reads `MM/DD/YY HH:MM[:SS[.f]] [AM|PM]`, `''` is the blank DateTime; a date alone stays refused.
+    #[test]
+    fn datetime_filter_texts() {
+        use crate::value::RtType as T;
+        let day = |d: &str| match crate::evaluate::read_text(&T::Date, d) {
+            Some(Value::Date(n, _)) => i64::from(n),
+            other => panic!("{d}: {other:?}"),
+        };
+        let at = |d: &str, h: i64, m: i64, s: i64, ms: i64| {
+            Value::DateTime((day(d) - 1) * 86_400_000 + ((h * 60 + m) * 60 + s) * 1000 + ms + 1)
+        };
+        assert!(
+            parse_filter("11/07/26 12:00 PM", &[], &T::DateTime).is_err(),
+            "no session language: refused"
+        );
+        let ctx = DateFilterContext {
+            today: 1,
+            work_date: 1,
+            language: 1033,
+        };
+        with_date_context(ctx, || {
+            for (text, v) in [
+                ("11/07/26 12:00:00.033 PM", at("11/07/26", 12, 0, 0, 33)),
+                ("11/03/26 12:00:00.08 PM", at("11/03/26", 12, 0, 0, 80)),
+                ("11/03/26 12:00:00.8 PM", at("11/03/26", 12, 0, 0, 800)),
+                ("01/15/24 12:00:00 PM", at("01/15/24", 12, 0, 0, 0)),
+                ("01/15/24 12:00 PM", at("01/15/24", 12, 0, 0, 0)),
+                ("11/03/26 12:00 AM", at("11/03/26", 0, 0, 0, 0)),
+                ("11/03/26 12:00:11.767 PM", at("11/03/26", 12, 0, 11, 767)),
+                ("11/07/26 12:00:00.033", at("11/07/26", 12, 0, 0, 33)),
+                ("''", Value::DateTime(0)),
+            ] {
+                let f = parse_filter(text, &[], &T::DateTime).unwrap_or_else(|e| panic!("{text}: {e}"));
+                assert!(f.matches(&v), "{text}");
+            }
+            for text in [
+                "01/15/24",
+                "11/07/26 1:00 PM",
+                "11/07/26 13:00:00",
+                "11/07/26 12:00:00.0331 PM",
+                "2026-11-07 12:00",
+                "11/07/26 12:60 PM",
+            ] {
+                let e = parse_filter(text, &[], &T::DateTime).expect_err(text);
+                assert!(!e.starts_with(NOT_EVALUATED), "{text} stays refused: {e}");
+            }
+        });
+    }
+
     /// blank that raise the evaluate error, `1,234.5`, and `5..5` on an Integer showing both ends.
     #[test]
     fn bd_filter_texts_for_time_integer_and_decimal() {

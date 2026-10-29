@@ -80,15 +80,40 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
 
 /// `DMY2Date(Day, Month, Year)` with all three parts, which is every form the corpus calls
 /// (fieldref/TestFieldRefValue.al:122, record/TestDateVirtualTableFlowField.al:65,83).
-/// A part outside the calendar raises in BC with a text no corpus test pins: refused.
+/// One part outside the calendar raises the range error that names it (types/lt-datetime/DateFuncs.al:243-302,
+/// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
+/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 itself is no error in BC, but the date it
+/// gives is not pinned, and neither is which part BC names when two are out of range: both refused.
 fn dmy2date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (Some(d), Some(m), Some(y)) = (int_of(a.first()), int_of(a.get(1)), int_of(a.get(2))) else {
         return unsupported("DMY2Date without all of Day, Month and Year (not pinned by the corpus)");
     };
-    if !(1..=9999).contains(&y) || !(1..=12).contains(&m) || d < 1 || d as u32 > days_in_month(y, m as u32) {
-        return unsupported(format!(
-            "DMY2Date({d}, {m}, {y}) is not a calendar date (error text not pinned)"
-        ));
+    let range = |n: u8, v: i32, hi: u32| {
+        raise(
+            format!(
+                "The value of DMY2Date parameter {n} is outside of the permitted range. The current value is: {v}. The permitted range is: from 1 to {hi}."
+            ),
+            "OutsidePermittedRange",
+        )
+    };
+    let year_ok = (1..=9999).contains(&y);
+    let month_ok = (1..=12).contains(&m);
+    // A day that every month has (1 to 28) is in range whatever the month and year are.
+    let day_any_month = (1..=28).contains(&d);
+    match (year_ok, month_ok) {
+        (true, true) if d < 1 || d as u32 > days_in_month(y, m as u32) => {
+            return range(1, d, days_in_month(y, m as u32));
+        }
+        (true, true) => {}
+        (true, false) if day_any_month => return range(2, m, 12),
+        (false, false) if y == 0 && day_any_month => return range(2, m, 12),
+        // The shortest length of the month: a day in range in every year.
+        (false, true) if y != 0 && d >= 1 && d as u32 <= days_in_month(2023, m as u32) => return range(3, y, 9999),
+        _ => {
+            return unsupported(format!(
+                "DMY2Date({d}, {m}, {y}): year 0, or more than one part out of range (not pinned)"
+            ));
+        }
     }
     // DMY2Date(1, 1, 1) is the undefined date, not the 00010101D literal (types/lt-datetime/DateFuncs.al:213, :227: Format(.., 0, 9)
     // is ''; errors/lt-ms-refusals-130/P130DateFilters.al:261-262).
@@ -1111,14 +1136,14 @@ mod tests {
             (12, 31),
         ] {
             is_date(d(days, month, 2023), 2023, month as u32, days as u32);
-            refused(d(days + 1, month, 2023));
+            raises(d(days + 1, month, 2023), "OutsidePermittedRange");
         }
         // Leap years: divisible by 4, not by 100 unless by 400.
         is_date(d(29, 2, 2024), 2024, 2, 29);
         is_date(d(29, 2, 2000), 2000, 2, 29);
-        refused(d(29, 2, 1900));
-        refused(d(29, 2, 2023));
-        refused(d(30, 2, 2024));
+        raises(d(29, 2, 1900), "OutsidePermittedRange");
+        raises(d(29, 2, 2023), "OutsidePermittedRange");
+        raises(d(30, 2, 2024), "OutsidePermittedRange");
     }
 
     #[test]
@@ -1144,12 +1169,52 @@ mod tests {
     #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        refused(d(vec![30, 2, 2024]));
-        refused(d(vec![1, 13, 2024]));
+        // Year 0 is no error in BC (DateFuncs.al:270-271), but the date it gives is not pinned.
         refused(d(vec![1, 1, 0]));
-        refused(d(vec![1, 1, 10000]));
+        // Two parts out of range, other than a month out of range in year 0, are not pinned.
+        refused(d(vec![0, 0, 2024]));
+        refused(d(vec![32, 1, 0]));
+        refused(d(vec![1, 13, 10000]));
         refused(d(vec![1]));
         refused(d(vec![1, 1]));
+    }
+
+    /// types/lt-datetime/DateFuncs.al:243-302 DMY2Date_Invalid: the one part out of range is named with its number, its value and
+    /// its range; the day's range is the length of its month; a month out of range in year 0 is the month's error.
+    #[test]
+    fn dmy2date_names_the_part_out_of_range() {
+        let d = |a: i32, b: i32, c: i32| {
+            call(
+                "System.DMY2Date#1",
+                vec![Value::Integer(a), Value::Integer(b), Value::Integer(c)],
+            )
+        };
+        let text = |r: Result<Value, Signal>| match r {
+            Err(Signal::Error(e)) if e.code == "OutsidePermittedRange" => e.message,
+            other => panic!("{other:?}"),
+        };
+        let want = |n: i32, v: i32, hi: i32| {
+            format!(
+                "The value of DMY2Date parameter {n} is outside of the permitted range. The current value is: {v}. The permitted range is: from 1 to {hi}."
+            )
+        };
+        for ((a, b, c), (n, v, hi)) in [
+            ((30, 2, 2024), (1, 30, 29)),
+            ((29, 2, 2023), (1, 29, 28)),
+            ((32, 1, 2024), (1, 32, 31)),
+            ((31, 4, 2024), (1, 31, 30)),
+            ((1, 13, 2024), (2, 13, 12)),
+            ((1, 0, 2024), (2, 0, 12)),
+            ((0, 1, 2024), (1, 0, 31)),
+            ((-1, 1, 2024), (1, -1, 31)),
+            ((1, -1, 2024), (2, -1, 12)),
+            ((1, 1, -1), (3, -1, 9999)),
+            ((1, 1, 10000), (3, 10000, 9999)),
+            ((0, 5, 2024), (1, 0, 31)),
+            ((1, 0, 0), (2, 0, 12)),
+        ] {
+            assert_eq!(text(d(a, b, c)), want(n, v, hi), "DMY2Date({a}, {b}, {c})");
+        }
     }
 
     #[test]

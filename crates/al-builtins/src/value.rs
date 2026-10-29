@@ -1696,6 +1696,14 @@ pub enum LibraryValue {
     KeyFieldRef(Rc<RefCell<RecordState>>, usize),
     /// A `KeyRef`: the record buffer and the key's index in the table's keys.
     KeyRef(Rc<RefCell<RecordState>>, usize),
+    /// A `FieldRef` to one of the user-name system FlowFields (SystemCreatedByUserName 2000000005 to
+    /// SystemModifiedByFullName 2000000008), which the record buffer does not hold: the record buffer, the field
+    /// number, and the value `CalcField` calculated (`None` before it ran). See al-vm `refs.rs`.
+    UserNameFieldRef {
+        rec: Rc<RefCell<RecordState>>,
+        no: u32,
+        value: Option<String>,
+    },
     /// A `RecordRef` opened on a system table the workspace has no schema for:
     /// only its number is known (corpus recordref/TestRecordRefOpenCompilationTarget.al).
     SystemTable(i64),
