@@ -1031,6 +1031,14 @@ impl Lowerer<'_> {
                     let base = self.base_object().map_or(self.oi, |(b, ..)| b);
                     self.label_read(text, true, base)
                 }
+                // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/lt-up-page-ext/UpPageExt.al:74
+                // with :143-152, corpus PR 808 at branch commit 910da83e; al-runner issue 6219). Runs on the assumption
+                // `pageext-currpage-protected-var` until PR 808 is in the pinned corpus.
+                Some(Res::BaseGlobal(name)) if n.kind() == MemberExpr => {
+                    let (slot, _, _) = self.base_var(&name)?;
+                    self.assume(al_builtins::assumptions::Assumption::PageExtCurrPageProtectedVar);
+                    Ok(ir::Expr::Load(ir::Place::BaseGlobal(slot)))
+                }
                 // `CurrXmlPort` in an xmlport is the running instance (P94Fixtures.al:317 `currXMLport.Filename()`).
                 Some(Res::Global(name))
                     if name == "currxmlport"

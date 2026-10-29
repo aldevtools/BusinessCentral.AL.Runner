@@ -28,6 +28,31 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0122 for a conditional expression with a codeunit true branch and an interface false branch: the interface does not
+    /// convert to the codeunit (must-not-compile 2291, corpus PR 808 at branch commit 910da83e; al-runner issue 6215). Other
+    /// pairs of object types are not judged. Reported for the workspace only.
+    pub(crate) fn al_ternary_interface_into_codeunit(&mut self, sc: &Scope, no: &SyntaxNode, t: &Ty, f: &Ty) {
+        let (Ty::Object(ObjKind::Codeunit, c), Ty::Object(ObjKind::Interface, i)) = (t, f) else {
+            return;
+        };
+        if self.ws.is_dependency(sc.oi) {
+            return;
+        }
+        let (Some(ci), Some(ii)) = (
+            self.resolve(sc, ObjKind::Codeunit, c),
+            self.resolve(sc, ObjKind::Interface, i),
+        ) else {
+            return;
+        };
+        let (cn, iname) = (self.ws.objects[ci].name.clone(), self.ws.objects[ii].name.clone());
+        self.diag(
+            sc,
+            no,
+            "AL0122",
+            format!("Cannot implicitly convert type 'Interface \"{iname}\"' to 'Codeunit \"{cn}\"'"),
+        );
+    }
+
     /// AL0122 for the two shapes the must-not-compile corpus pins: an Integer variable assigned to a
     /// Text (case 0069, `T := I`) and a text literal of more than one character assigned to an Integer
     /// (case 0070, `I := 'text'`; a one-character literal is a Char, which an Integer takes). Other
@@ -875,7 +900,8 @@ impl<'a> Checker<'a> {
                 }
                 let t = kids.get(1).map(|k| self.ty(sc, k)).unwrap_or(Ty::Unknown);
                 if let Some(e) = kids.get(2) {
-                    self.ty(sc, e);
+                    let f = self.ty(sc, e);
+                    self.al_ternary_interface_into_codeunit(sc, e, &t, &f);
                 }
                 E::Val(t)
             }
@@ -1056,6 +1082,23 @@ impl<'a> Checker<'a> {
                 {
                     if let Some(e) = kids.get(1).and_then(|m| self.this_member(sc, node, m)) {
                         return e;
+                    }
+                }
+                // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
+                // is (pages/lt-up-page-ext/UpPageExt.al:74 with :143-152, a read; corpus PR 808 at branch commit 910da83e;
+                // al-runner issue 6219). Lowering refuses it as an assignment target (not pinned).
+                if self.ws.objects[sc.oi].kind == ObjKind::PageExtension
+                    && kids[0].kind() == NameRef
+                    && name_of(&kids[0]).eq_ignore_ascii_case("currpage")
+                    && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+                {
+                    let key = kids.get(1).map(name_of).unwrap_or_default().to_lowercase();
+                    if sc.base_vars.contains(&key) {
+                        if let Some(t) = sc.globals.get(&key).cloned() {
+                            self.infer(sc, &kids[0]);
+                            self.record(sc, node, Res::BaseGlobal(key));
+                            return E::Val(t);
+                        }
                     }
                 }
                 let base = self.infer(sc, &kids[0]);
