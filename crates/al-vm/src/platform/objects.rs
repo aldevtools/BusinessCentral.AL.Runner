@@ -496,6 +496,22 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             let mut k = blank.row();
             k[pos(t, 1)] = option(t, 1, 0);
             k[pos(t, 3)] = Value::Integer(id as i32);
+            // The TableData row of a dependency app's table (Base Application's Contact and Customer) has the Table
+            // row's name, namespace, package id and runtime package id (corpus branch al-runtime-rs-staging-ug eff7eb2a,
+            // metadata/lt-all-obj-namespace/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns; assumption
+            // allobj-tabledata-row-of-dependency-table until the bump). The app under test's tables and the platform's
+            // are not pinned. A table declared Moved has no Table row, and so none here.
+            let dependency = c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
+            if dependency && !is_platform(o) && !moved(o) {
+                k[pos(t, 4)] = Value::Text(o.name.clone().into());
+                k[pos(t, 60)] = Value::Guid(package_of(&c, o));
+                k[pos(t, 61)] = Value::Guid(runtime_package_id(&c, o));
+                k[pos(t, 62)] = Value::Text(namespace(o).into());
+                out.push(
+                    Entry::ok(k).assuming(al_builtins::assumptions::Assumption::AllObjTableDataRowOfDependencyTable),
+                );
+                continue;
+            }
             out.push(Entry::poisoned(
                 k,
                 format!(

@@ -1066,7 +1066,9 @@ impl<'a> Checker<'a> {
                 // `this.Member` in a codeunit, report, page, xmlport or query: the object's own procedure or global
                 // variable (Microsoft Learn "this keyword": a self-reference in every object type; no corpus test
                 // outside a codeunit, docs/probes-needed.md). It
-                // resolves like the bare name does, without the implicit record's members.
+                // resolves like the bare name does, without the implicit record's members. In a table or table
+                // extension `this` is the current record: `this.Field` and `this.Validate(..)` resolve as the bare
+                // name does, the record's members included (al-runner issue 6211: alc compiles them).
                 if is_this_keyword(&kids[0])
                     && matches!(
                         self.ws.objects[sc.oi].kind,
@@ -1077,6 +1079,8 @@ impl<'a> Checker<'a> {
                             | ObjKind::Query
                             | ObjKind::ReportExtension
                             | ObjKind::PageExtension
+                            | ObjKind::Table
+                            | ObjKind::TableExtension
                     )
                     && !sc_has_var(sc, "this")
                 {

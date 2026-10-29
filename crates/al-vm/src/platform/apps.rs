@@ -65,6 +65,21 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             // Description holds the manifest's description (onprem session/PZPublishedApplicationColumns.al:55, :59);
             // the program does not keep it (`AppInfo`), so the column is unknown rather than a blank Blob.
             r[pos(t, 15)] = super::unknown(t, 15, "an app: the runtime does not keep the manifest's description");
+            // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (corpus branch
+            // al-runtime-rs-staging-ug eff7eb2a, onprem session/PZPublishedApplicationColumns.al
+            // Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps; assumption
+            // published-application-logo-blank-without-manifest-logo until the bump). Microsoft's apps have a logo whose
+            // content the corpus pins only as present, and an app that declares one is not pinned: unknown.
+            if a.logo != Some(false) {
+                let whose = match a.logo {
+                    Some(_) => format!("app '{}', whose app.json declares a logo (its content is not pinned)", a.name),
+                    None => format!(
+                        "app '{}': its manifest was not read, and an app with a logo (Microsoft's apps) has content the corpus does not pin",
+                        a.name
+                    ),
+                };
+                r[pos(t, 20)] = super::unknown(t, 20, &whose);
+            }
             Some(Entry::ok(r))
         })
         .collect()

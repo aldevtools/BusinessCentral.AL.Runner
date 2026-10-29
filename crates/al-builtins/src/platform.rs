@@ -50,6 +50,9 @@ pub enum Virtual {
     IntelligentCloud,
     /// Media live in the session's media store (ADR-017); the table is not a view of it yet.
     TenantMedia,
+    /// Media (OnPrem): a read keyed to the null ID finds nothing (the Logo of an app without one, onprem
+    /// session/PZPublishedApplicationColumns.al Logo_*, corpus branch al-runtime-rs-staging-ug); any other read is refused.
+    Media,
     MetadataPermissionSet,
     PermissionSet,
     /// The assignable rows of Permission Set (the table is walked through this one); not a table.
@@ -240,6 +243,7 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
     (2_000_000_288, "Code Coverage Test Lookup", Provider::Stored),
     (2_000_000_289, "Code Coverage Tests Run", Provider::Stored),
     (2_000_000_184, "Tenant Media", Provider::Virtual(Virtual::TenantMedia)),
+    (2_000_000_181, "Media", Provider::Virtual(Virtual::Media)),
     // An ordinary table: rows inserted, read by code (also lower case), duplicate Insert false, Count and DeleteAll
     // (platform/lt-platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob). The rows a tenant
     // holds before any AL runs (:269) and the Tenant Media row of its media (:352) are refused elsewhere.
@@ -564,9 +568,36 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
     ),
 ];
 
+/// Columns pinned on a corpus writer branch whose bump into the pinned corpus is pending (a runtime fix for a user issue
+/// before its pin lands, docs/agents/brief.md): they read as pinned ones, and a read lowered from AL code marks the
+/// assumption (`assumption_of_column`). When the bump lands, each moves to `PINNED_ELSEWHERE` (or the generated list) and
+/// its assumption is deleted. As (table id, field id, assumption).
+pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
+    // Published Application Logo: blank for an app whose manifest declares none, unknown for any other app (al-vm apps.rs).
+    (
+        2_000_000_206,
+        20,
+        crate::assumptions::Assumption::PublishedApplicationLogoBlankWithoutManifestLogo,
+    ),
+    // Report Layout List "User Defined": No for an RDLC or Word layout declared in AL, unknown otherwise (al-vm reports.rs).
+    (
+        2_000_000_234,
+        14,
+        crate::assumptions::Assumption::ReportLayoutListBuiltInNotUserDefined,
+    ),
+];
+
+/// The assumption a read of column `field` of platform table `table` rests on (`AWAITING_COLUMNS`).
+pub fn assumption_of_column(table: u32, field: u32) -> Option<crate::assumptions::Assumption> {
+    AWAITING_COLUMNS
+        .iter()
+        .find(|(t, f, _)| *t == table && *f == field)
+        .map(|(_, _, a)| *a)
+}
+
 /// Why column `field` of platform table `table` cannot be read, if it cannot.
 pub fn unpinned_column(table: u32, field: u32) -> Option<String> {
-    if field >= SYSTEM_OBJECT_BASE {
+    if field >= SYSTEM_OBJECT_BASE || assumption_of_column(table, field).is_some() {
         return None;
     }
     let (_, pinned) = PINNED_COLUMNS.iter().find(|(t, _)| *t == table)?;

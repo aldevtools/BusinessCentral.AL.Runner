@@ -349,6 +349,7 @@ pub fn load_project_with(
             include_source: false,
             // Not read from the package.
             target: String::new(),
+            logo: None,
             layout_files: Vec::new(),
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),

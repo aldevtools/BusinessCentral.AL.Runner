@@ -1190,6 +1190,9 @@ impl Lowerer<'_> {
     }
 
     pub(crate) fn assign(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<ir::Stmt> {
+        if self.bare_this_of_record(&kids[0]) {
+            return Err("assignment to `this` of a table (not pinned)".into());
+        }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
         // (handlers/TestPageCurrFieldNo_Tests.al); the assignment is not pinned (docs/probes-needed.md).
@@ -1842,6 +1845,9 @@ impl Lowerer<'_> {
         {
             return Ok(ir::Arg::Value(self.expr(a)?));
         }
+        if self.bare_this_of_record(a) {
+            return Err("`this` of a table passed to a `var` parameter (not pinned)".into());
+        }
         match self.place(a) {
             Ok(p) => Ok(ir::Arg::Ref(p)),
             Err(_)
@@ -2037,6 +2043,9 @@ impl Lowerer<'_> {
                     }
                     let field = self.field_ref(table, id);
                     let base = match n.kind() {
+                        // `this.Field` in a table or table extension is the field of the current record, as the bare
+                        // name is (misc/lt-probes-needed-6/PnF18ThisInTable.al:48-51; al-runner issue 6211).
+                        SyntaxKind::MemberExpr if self.this_is_current_record(n) => self.implicit_rec(n)?,
                         SyntaxKind::MemberExpr => self.place(&n.children().next().ok_or("member base")?)?,
                         _ => self.implicit_rec(n)?,
                     };

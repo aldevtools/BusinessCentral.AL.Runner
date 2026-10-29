@@ -50,6 +50,22 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    /// Whether `n` is `this.<member>` in a table or table extension, where `this` is the current record and the member
+    /// resolves as the bare name does (al-runner issue 6211).
+    pub(crate) fn this_is_current_record(&self, n: &SyntaxNode) -> bool {
+        n.kind() == SyntaxKind::MemberExpr
+            && matches!(self.ws.objects[self.oi].kind, ObjKind::Table | ObjKind::TableExtension)
+            && !self.globals.contains_key("this")
+            && n.children().next().is_some_and(|b| crate::check::is_this_keyword(&b))
+    }
+
+    /// Whether `n` is a bare `this` in a table or table extension (the current record, resolved as `Rec`).
+    pub(crate) fn bare_this_of_record(&self, n: &SyntaxNode) -> bool {
+        crate::check::is_this_keyword(n)
+            && matches!(self.ws.objects[self.oi].kind, ObjKind::Table | ObjKind::TableExtension)
+            && !self.globals.contains_key("this")
+    }
+
     /// Whether a `with` statement supplied the name `n`.
     pub(crate) fn supplied_by_with(&self, n: &SyntaxNode) -> bool {
         self.checked
