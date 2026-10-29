@@ -1077,6 +1077,9 @@ pub struct PartLink {
     /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
     #[serde(default)]
     pub consts: Vec<usize>,
+    /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
+    #[serde(default)]
+    pub enum_values: Vec<usize>,
 }
 
 /// One `PartField = field(HostField)` / `const(..)` / `filter(..)` entry of a `SubPageLink`.

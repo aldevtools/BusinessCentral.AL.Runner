@@ -1333,6 +1333,33 @@ pub enum LinkRhs {
     Filter(String),
     /// `const(Database::"Name")`: the id of the named table.
     TableId(String),
+    /// `const("Enum Name"::Member)`: a value of the named enum (pages/lt-uj-outside-leads/UjSubPageLink.al, corpus branch
+    /// al-runtime-rs-staging-uj 1dc037a8). The names are unquoted.
+    EnumValue(String, String),
+}
+
+/// `"Enum Name"::Member` or `Enum::"Member"`: the enum and member names, unquoted; `None` for any other text.
+fn qualified_enum_value(inner: &str) -> Option<(String, String)> {
+    let mut quote = false;
+    let at = inner.char_indices().find_map(|(i, c)| match c {
+        '"' => {
+            quote = !quote;
+            None
+        }
+        ':' if !quote && inner[i..].starts_with("::") => Some(i),
+        _ => None,
+    })?;
+    let (e, m) = (inner[..at].trim(), inner[at + 2..].trim());
+    let plain = |t: &str| {
+        if t.len() > 1 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"') {
+            Some(t[1..t.len() - 1].to_string())
+        } else if !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            Some(t.to_string())
+        } else {
+            None
+        }
+    };
+    Some((plain(e)?, plain(m)?))
 }
 
 /// `'H1'|'H3'` → `H1|H3`: the AL string literals of a `filter(...)` or `const(...)` value
@@ -1451,6 +1478,8 @@ fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> 
                     .or_else(|| inner.strip_prefix("database::"))
                 {
                     LinkRhs::TableId(crate::scan::unquote_double(t))
+                } else if let Some((e, m)) = (kind == "const").then(|| qualified_enum_value(inner)).flatten() {
+                    LinkRhs::EnumValue(e, m)
                 } else if inner.len() > 1
                     && inner.starts_with('"')
                     && inner.ends_with('"')
