@@ -19,6 +19,16 @@
 # shows it works with no session. Base64UrlHelper is the one the spike ran (ADR-014 section 12).
 server-prefix Microsoft.Dynamics.Nav. | server class
 pure Microsoft.Dynamics.Nav.Types.Base64UrlHelper | spike: runs with no session (ADR-014 section 12)
+# A trailing dot classifies a whole namespace. The OpenXml spreadsheet classes work on a stream or a document held in
+# memory; only the file name forms of Create and Open touch the disk (owner decision 2026-10-29: NP Retail's Excel Buffer).
+pure Microsoft.Dynamics.Nav.OpenXml.Spreadsheet. | owner 2026-10-29: in-memory spreadsheet classes
+deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter.Create | creates a file; the stream form is pure
+deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter.Open | reads a file; the stream form is pure
+deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader.Open | reads a file; the stream form is pure
+# The QR code provider encodes text into a stream. GetBarcode(text) writes a temporary file.
+pure Microsoft.Dynamics.Nav.MX.BarcodeProviders.QRCodeProvider | owner 2026-10-29: encodes text into a stream
+pure Microsoft.Dynamics.QRCode.ErrorCorrectionLevel | owner 2026-10-29: the enum of the QR code provider's error correction argument
+deny-member Microsoft.Dynamics.Nav.MX.BarcodeProviders.QRCodeProvider.GetBarcode | writes a temp file
 
 # Item 3: add-in assemblies that reach outside the process. They need the network, which
 # belongs to the host network capability (ADR-006).
