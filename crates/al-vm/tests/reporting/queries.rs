@@ -1996,7 +1996,7 @@ fn top_number_of_rows_on_an_open_query_applies_to_the_next_open() {
     assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
 }
 
-// Writer TH (al-runner issue 6039): the same on a query read to its end, under an assumption until the pin lands.
+// Writer TH (al-runner issue 6039): the same on a query read to its end (PnAQueryOpenRead.al TH_*).
 #[test]
 fn top_number_of_rows_on_a_query_read_to_the_end_applies_to_the_next_open() {
     al_builtins::assumptions::clear_hits();
@@ -2004,8 +2004,5 @@ fn top_number_of_rows_on_a_query_read_to_the_end_applies_to_the_next_open() {
     assert_eq!(text(r), "Yes No Yes 1 Yes Yes 1,");
     let r = al_testkit::run_in(TOP_WHILE_OPEN, "C", "AfterFullRead");
     assert_eq!(text(r), "1,2,3,4,5, Yes 2 Yes Yes 1,2,|No Query Yes 1,2,3,");
-    assert_eq!(
-        al_builtins::assumptions::take_hits(),
-        vec![al_builtins::assumptions::Assumption::QueryTopWhileOpenAfterLastRow]
-    );
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
 }

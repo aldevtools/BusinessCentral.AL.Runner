@@ -708,9 +708,8 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
         // (SG_OnceTemp_*: below the root and below a container text element, temporary, MinOccurs = Zero; SG_OnceReal_*: a real
         // table with the default MinOccurs), export and import.
         // An explicit MinOccurs = Once on such a table element is the default: export writes the record as it stands when there
-        // are no rows, import of none fails the schema (corpus writer TF's branch al-runtime-rs-staging-pub-tf,
-        // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*; awaiting the bump,
-        // so `build` registers `xmlport-min-occurs-once-table`).
+        // are no rows, import of none fails the schema
+        // (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*).
         K::Table => (&["zero", "once"], &["unbounded", "once"]),
         // MinOccurs of a field element was already read before these pins (any value).
         K::Field => (&["zero", "once"], &["once"]),
@@ -866,12 +865,12 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // No corpus test pins a trigger on a container text element (one with child
                 // elements; Base App's xmlport 1 has OnAfterAssignVariable on one), so running
                 // the port is refused, not declaring it.
-                // Pinned (assumption xmlport-text-in-table, corpus branch al-runtime-rs-staging-pub-to,
+                // Pinned (
                 // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
                 // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
                 // with field and text attributes and one text element of only text attributes below it, and for that inner
-                // element (assumption xmlport-nested-text-in-table, branch al-runtime-rs-staging-pub-tp, TP_Nested_*).
+                // element (QrXpContainerOccurs.al TP_Nested_*).
                 if kind == ir::XmlNodeKind::Text
                     && layout.has_children(i)
                     && !node.triggers.is_empty()
@@ -1068,12 +1067,10 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     }
 }
 
-/// The unprobed assumptions the layout rests on: `xmlport-min-occurs-once-table` when a table element that is not below another
-/// one says `MinOccurs = Once` (`occurs_refusal`); `xmlport-udn-text-attribute` when a port in BC's own namespace
-/// (UseDefaultNamespace without DefaultNamespace) has a text attribute; `xmlport-linked-max-unbounded` when a linked table element
+/// The unprobed assumptions the layout rests on: `xmlport-linked-max-unbounded` when a linked table element
 /// below another one says `MaxOccurs = Unbounded`; `xmlport-root-min-occurs-once` when the root text element says `MinOccurs = Once`.
 fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
-    let mut out = min_once_assumed(layout);
+    let mut out = Vec::new();
     let linked_unbounded = (0..layout.nodes.len()).any(|i| {
         let raw = &layout.nodes[i];
         raw.kind == ir::XmlNodeKind::Table
@@ -1098,33 +1095,7 @@ fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> 
     if root_once {
         out.push(al_builtins::assumptions::Assumption::XmlportRootMinOccursOnce);
     }
-    if layout
-        .default_ns
-        .as_deref()
-        .is_some_and(|d| d.starts_with("urn:microsoft-dynamics-nav/xmlports/x"))
-        && layout.nodes.iter().any(|n| n.kind == ir::XmlNodeKind::TextAttr)
-    {
-        out.push(al_builtins::assumptions::Assumption::XmlportUdnTextAttribute);
-    }
     out
-}
-
-fn min_once_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
-    let explicit_once = (0..layout.nodes.len()).any(|i| {
-        let raw = &layout.nodes[i];
-        raw.kind == ir::XmlNodeKind::Table
-            && !raw
-                .parent
-                .is_some_and(|p| layout.nodes[p].kind == ir::XmlNodeKind::Table)
-            && layout
-                .property(i, "MinOccurs")
-                .is_some_and(|v| v.trim().eq_ignore_ascii_case("once"))
-    });
-    if explicit_once {
-        vec![al_builtins::assumptions::Assumption::XmlportMinOccursOnceTable]
-    } else {
-        Vec::new()
-    }
 }
 
 #[cfg(test)]
@@ -1186,20 +1157,13 @@ mod tests {
     // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
     // a nested table element's MinOccurs below an AutoUpdate parent and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
-    fn an_explicit_min_occurs_once_on_a_table_element_runs_as_an_assumption() {
-        // Writer TF's branch, SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*: the default, written out.
+    fn an_explicit_min_occurs_once_on_a_table_element_runs() {
+        // SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*: the default, written out.
         let l = layout_of(
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; H.X) { } } } } }",
         );
         assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
-        assert_eq!(
-            min_once_assumed(&l),
-            vec![al_builtins::assumptions::Assumption::XmlportMinOccursOnceTable]
-        );
-        let plain = layout_of(
-            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
-        );
-        assert!(min_once_assumed(&plain).is_empty());
+        assert!(layout_assumed(&l).is_empty());
     }
 
     #[test]
@@ -1273,17 +1237,14 @@ mod tests {
     }
 
     #[test]
-    fn a_text_attribute_in_bc_s_own_namespace_runs_as_an_assumption() {
-        // Writer TF's branch, SgXmlPortOccurs.al TF_NsAttr_*: UseDefaultNamespace without DefaultNamespace and text attributes.
+    fn a_text_attribute_in_bc_s_own_namespace_runs() {
+        // SgXmlPortOccurs.al TF_NsAttr_*: UseDefaultNamespace without DefaultNamespace and text attributes.
         let l = layout_of(
             "xmlport 7 X { UseDefaultNamespace = true; schema { textelement(R) { textattribute(V) { } tableelement(H; Cust) { MinOccurs = Zero; fieldattribute(N; H.X) { } } } } }",
         );
         assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
         assert_eq!(l.default_ns.as_deref(), Some("urn:microsoft-dynamics-nav/xmlports/x7"));
-        assert_eq!(
-            layout_assumed(&l),
-            vec![al_builtins::assumptions::Assumption::XmlportUdnTextAttribute]
-        );
+        assert!(layout_assumed(&l).is_empty());
     }
 
     #[test]

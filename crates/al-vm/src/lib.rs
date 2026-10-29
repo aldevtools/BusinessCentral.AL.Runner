@@ -33,6 +33,7 @@ pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
 #[doc(hidden)]
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
+pub use profile::flush as profile_flush;
 mod callstack;
 mod companies;
 mod dataset;
@@ -750,6 +751,12 @@ pub struct Session {
     /// The test codeunit runs under Disabled isolation: from the hub (`isolation_from_hub` set) or from a test runner's
     /// TestIsolation = Disabled.
     pub hub_disabled: bool,
+    /// `MinimumActiveRowVersion` while the test codeunit runs under TestIsolation = Codeunit: the isolation keeps one
+    /// transaction open across `Commit()`, so the value stays at what it was when the codeunit's tests began
+    /// (`freeze_min_active_row_version`).
+    pub(crate) iso_min_row_version: Option<i64>,
+    /// A background session committed rows after `iso_min_row_version` was taken: what the value is then is not pinned.
+    pub(crate) iso_min_unpinned: bool,
     /// The test runner's step that assigns the permission sets of a test method runs (codeunit 130302 "Set State Test
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
@@ -787,8 +794,9 @@ pub struct Session {
     /// The `[ErrorBehavior(Collect)]` scopes on the call stack and the errors they hold
     /// (see `errorcollect.rs`).
     pub(crate) error_scopes: errorcollect::Scopes,
+    /// The field values of a fresh record, by table: see `Session::initial_fields`.
+    pub(crate) initial_cache: std::collections::HashMap<usize, records::InitialFields>,
     /// Tables with an ad-hoc key appended, by (table object, key fields): see `Session::table`.
-    pub(crate) initial_cache: std::collections::HashMap<usize, Option<Vec<Value>>>,
     pub(crate) adhoc_tables: RefCell<AdhocTables>,
     /// Imported media objects and media sets (the platform tables behind Media fields).
     pub(crate) media: al_builtins::media::MediaStore,
@@ -1011,6 +1019,8 @@ impl Session {
             tx_model: TxModel::default(),
             in_test_codeunit: false,
             isolation_from_hub: false,
+            iso_min_row_version: None,
+            iso_min_unpinned: false,
             hub_disabled: false,
             runner_permission_step: false,
             test_object: None,
@@ -1143,6 +1153,7 @@ impl Session {
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
         self.tx.rows_touched.clear();
+        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
@@ -1239,6 +1250,7 @@ impl Session {
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
         self.tx.rows_touched.clear();
+        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
@@ -1517,6 +1529,27 @@ impl Session {
 
     /// Install code has ended: every row whose SystemRowVersion is at or below the current one was written by it, or
     /// before it (ADR-046 amendment 1, A2 item d).
+    /// How many row versions the session has handed out so far.
+    pub fn row_versions_handed_out(&self) -> i64 {
+        self.next_row_version
+    }
+
+    /// The test runner starts the tests of a codeunit under TestIsolation = Codeunit: `MinimumActiveRowVersion` keeps the
+    /// value it has now (LastUsedRowVersion() + 1) until the codeunit ends, through Insert, Modify and Commit (corpus
+    /// platform/lt-platform-members/PlTRowVersionValue.al:157-226, TV_MinimumActiveRowVersion_AcrossInsertModifyCommit,
+    /// and 228-264, _ReadOnlyAfterCommittedWrite: `min = start` after each step, the rows written not below it). Nothing
+    /// is frozen while the session holds rows it has not committed, nor over test data: the rows of a restored backup
+    /// keep the row versions they had there, above the session's counter, which they do not move.
+    pub fn freeze_min_active_row_version(&mut self) {
+        self.iso_min_unpinned = false;
+        // With no row version handed out yet LastUsedRowVersion() reports 1 while the first row gets 1: nothing is frozen.
+        self.iso_min_row_version = (self.engine.test_data.is_none()
+            && self.tx.committed_row_version > 0
+            && self.tx.tx_phase != crate::transactions::TX_WRITE
+            && self.tx.committed_row_version == self.next_row_version)
+            .then(|| self.tx.committed_row_version.max(1) + 1);
+    }
+
     pub fn mark_install_end(&mut self) {
         self.install_row_version = self.next_row_version;
     }
@@ -1650,6 +1683,24 @@ impl Session {
             exts: Vec::new(),
             xp_text: Vec::new(),
         }))
+    }
+
+    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table. The
+    /// assumption a fresh buffer of the table relies on is still marked, as [`Session::initial_fields`] marks it.
+    fn record_without_state(&self, t: &RtType) -> bool {
+        let RtType::Record(table, false) = t else { return false };
+        if self.engine.object_facts[*table as usize].temporary() {
+            return false;
+        }
+        if self
+            .engine
+            .table_facts
+            .get(*table as usize)
+            .is_some_and(|f| f.ordinal_init)
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
+        }
+        true
     }
 
     /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
@@ -1881,6 +1932,9 @@ impl Session {
             // The default of a parameter that is passed in is never seen: the argument replaces it. One with state of
             // its own (a record takes the number of a temporary table) is still made, as the values are made in order.
             if i < passed && (plain_default(&s.ty) || matches!(&s.ty, RtType::Array(_, el) if plain_default(el))) {
+                locals.push(Value::Null);
+            } else if i < passed && self.record_without_state(&s.ty) {
+                // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
                 locals.push(self.default_value(&s.ty));

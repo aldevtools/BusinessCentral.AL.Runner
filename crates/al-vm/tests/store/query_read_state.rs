@@ -1,8 +1,8 @@
 //! A query with `ReadState = ReadShared` or `ReadCommitted` reads the session's own uncommitted row and the committed
-//! one, as `ReadUncommitted` does (al-runner issue 6050). Pinned by writer TJ's branch al-runtime-rs-staging-pub-tj,
-//! query/TestQueryReadStateContracts.al:42-70 and :135-163 (assumption query-read-state-shared-committed until the pin lands).
+//! one, as `ReadUncommitted` does (al-runner issue 6050). Pinned by
+//! query/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 
 fn src(state: &str) -> String {
     format!(
@@ -59,7 +59,7 @@ codeunit 50100 C
 }
 
 #[test]
-fn read_shared_and_read_committed_read_the_rows_as_assumed() {
+fn read_shared_and_read_committed_read_the_rows_as_pinned() {
     for state in ["ReadShared", "ReadCommitted"] {
         take_hits();
         assert_eq!(
@@ -67,10 +67,7 @@ fn read_shared_and_read_committed_read_the_rows_as_assumed() {
             "1/1",
             "{state}"
         );
-        assert!(
-            take_hits().contains(&Assumption::QueryReadStateSharedCommitted),
-            "{state} is not flagged"
-        );
+        assert!(take_hits().is_empty(), "{state} is flagged");
     }
 }
 
@@ -82,5 +79,5 @@ fn read_uncommitted_is_pinned_and_not_flagged() {
         al_testkit::text(al_testkit::run_in(&src("ReadUncommitted"), "C", "F")),
         "1/1"
     );
-    assert!(!take_hits().contains(&Assumption::QueryReadStateSharedCommitted));
+    assert!(take_hits().is_empty());
 }

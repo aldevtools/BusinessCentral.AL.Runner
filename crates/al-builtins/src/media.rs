@@ -330,12 +330,8 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             crate::stream::write_bytes(blob, &obj.bytes)
         }
         // UTF-8 text imported with the two argument ImportStream (no MIME type) comes back as the same bytes (streams/StTMedia.al
-        // TR_MediaImportStream_TextContent_ExportStream, writer TR's branch al-runtime-rs-staging-tr, real BC 29): a registered
-        // assumption until the bump.
-        LibraryValue::OutStream(blob, _) if plain_text(&obj) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::MediaTextContentExported);
-            crate::stream::write_bytes(blob, &obj.bytes)
-        }
+        // TR_MediaImportStream_TextContent_ExportStream).
+        LibraryValue::OutStream(blob, _) if plain_text(&obj) => crate::stream::write_bytes(blob, &obj.bytes),
         LibraryValue::OutStream(blob, _) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself

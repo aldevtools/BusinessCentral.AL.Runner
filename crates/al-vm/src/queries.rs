@@ -364,14 +364,9 @@ impl Session {
                     // On an open query the call raises nothing, the next Read raises the metadata-changed error, and Open
                     // again reads with the new top (misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290,
                     // PX_TopNumberOfRows_AroundOpen: after Open, and after a Read that did not reach the end). After the
-                    // last row the same is the reporter's real-BC run of al-runner issue 6039 (assumption
-                    // query-top-while-open-after-last-row; writer TH, PnAQueryOpenRead.al TH_*).
+                    // last row the same (PnAQueryOpenRead.al TH_TopAfterEmptyOpen_ThenReopen, TH_TopAfterFullRead_ThenReopen,
+                    // TH_TopTwiceWhileOpen_LastValueCounts).
                     if qs.borrow().run.is_some() {
-                        if Self::query_read_to_the_end(&qs) {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::QueryTopWhileOpenAfterLastRow,
-                            );
-                        }
                         if let Some(run) = qs.borrow_mut().run.as_mut() {
                             run.filters_changed = true;
                         }

@@ -3,7 +3,7 @@
 //! document that does not parse: writer TJ's branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:330-389
 //! (assumption xml-readfrom-stream-options).
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -55,11 +55,11 @@ fn preserve_whitespace_true_reads_as_the_stream_form_does() {
         text(read("<a>~ <b/></a>", true, false)),
         "Yes|2|<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n<a>\r\n <b /></a>"
     );
-    assert!(!take_hits().contains(&Assumption::XmlReadFromStreamOptions));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
-fn preserve_whitespace_false_keeps_the_whitespace_nodes_as_assumed() {
+fn preserve_whitespace_false_keeps_the_whitespace_nodes() {
     // Writer TJ's branch, xml/XmlDocReadWrite.al:331-370 ReadFrom_InStream_Options_WhitespaceNodes: true and false
     // both give three children and the same text.
     for preserve in [true, false] {
@@ -68,11 +68,7 @@ fn preserve_whitespace_false_keeps_the_whitespace_nodes_as_assumed() {
             text(read("<a>~  <b/>~</a>", preserve, false)),
             "Yes|3|<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n<a>\r\n  <b />\r\n</a>"
         );
-        assert_eq!(
-            take_hits().contains(&Assumption::XmlReadFromStreamOptions),
-            !preserve,
-            "preserve {preserve}"
-        );
+        assert!(take_hits().is_empty(), "preserve {preserve}");
     }
 }
 
@@ -85,7 +81,7 @@ fn invalid_document_answers_false_with_the_error_text() {
         "No|The following exception was encountered when processing XML data: 'The 'b' start tag on line 1 \
          position 5 does not match the end tag of 'a'. Line 1, position 9.' at line 1 and position 9."
     );
-    assert!(take_hits().contains(&Assumption::XmlReadFromStreamOptions));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
