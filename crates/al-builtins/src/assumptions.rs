@@ -815,6 +815,39 @@ registry! {
             since: "2026-10-28",
         },
     },
+    TenantMediaDelete => {
+        id: "tenant-media-delete",
+        assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's tests (a cleanup that deletes the Tenant Media row of a picture).",
+        probe: "Done on writer TQ's branch al-runtime-rs-staging-pub-tq (corpus PR 783, includes TP): media/TestMediaPngImport.al TP_TenantMedia_Delete and TQ_TenantMedia_DeleteTrue_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/media/TestMediaPngImport.al::TP_TenantMedia_Delete",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Statement",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Used",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_SharedMedia",
+                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Missing_Statement",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    FormatPrecisionFirstCode => {
+        id: "format-precision-first-code",
+        assumed: "Format of a Decimal with `<Precision,A:B>` as the first code and no `<Standard Format,N>`: the value is rounded half away from zero to B decimals before `<Sign>`, `<Integer>`, `<Integer Thousand>` and `<Decimals>`, and `<Decimals>` shows at least A decimals (`-1234.57`, `12.00`, `1,234,50` with `<Comma,,>`). Also `<Precision,2:26>` before `<Standard Format,N>` acts as the other precisions (`1234.50 ` under format 4). Pinned only by corpus writers TP and TQ on real BC, not yet on corpus master: first without a standard format for 2:2 (TP) and 0:0, 1:3, 3:3 (TQ, with `<Comma,x>`), other A:B refused where they would show; 2:26 under formats 0, 2, 4 and 9.",
+        tests: "No Microsoft test: a partner app's receipt printing (amounts formatted with `<Precision,2:2>` and a decimal comma).",
+        probe: "Done on writer TQ's branch al-runtime-rs-staging-pub-tq (corpus PR 783, includes TP): types/lt-format-comma-format-string/FormatCommaFormatString.al TP_Format_PrecisionStrings(_Small), TQ_Format_PrecisionStd_*, TQ_Format_PrecisionComma; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings",
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings_Small",
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TQ_Format_PrecisionStd_Long",
+                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TQ_Format_PrecisionComma",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportNestedTextInTable => {
         id: "xmlport-nested-text-in-table",
         assumed: "A text element right below a table element whose nodes are field and text attributes and one text element of only text attributes: export runs the outer element's OnBeforePassVariable, writes its attributes, then the inner element as `<admission option_value=\"1\">A1</admission>` (its OnBeforePassVariable before its attribute's, an empty text gives `<admission option_value=\"2\" />`, an empty Required attribute `option_value=\"\"`); import reads the outer attributes (a text attribute without Occurrence is required), then the inner attributes and text with its OnAfterAssignVariable, then the outer element's own text; a missing inner element or Required attribute fails the schema check. Pinned only by corpus writer TP's run on real BC.",
