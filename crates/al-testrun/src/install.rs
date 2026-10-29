@@ -11,8 +11,8 @@
 //! `company open calls`); SingleInstance state starts again in
 //! each company and in the per-database part, and carries between the routines of one company (`counter`); the
 //! per-database part runs last, with `CompanyName()` empty (`:138-140`). Inside one app and part the routines run in
-//! ascending object id (amendment 3, [`order_pinned`]); where two ids lie in different blocks of 65536 ids that order is
-//! not pinned, and every test that can see it is refused (A2).
+//! ascending codeunit id, across the 65536 id boundary (amendment 3, [`order_of`]); only the order of two subscribers of
+//! one codeunit is not pinned, and every test that can see it is refused (A2).
 
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
@@ -121,8 +121,7 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
         };
         routines.push((*so, *sr, part));
     }
-    // Amendment 3: ascending object id (`order_pinned`); across blocks of 65536 ids the order is not pinned and every test
-    // that could see it is refused ([`facts_of`]).
+    // Amendment 3: ascending codeunit id across the 65536 boundary ([`order_of`]).
     routines.sort_by_key(|&(o, r, _)| (object_id(lowered, o), o, r));
     for (o, r, part) in routines {
         let app = objs[o].app as usize;
@@ -185,24 +184,36 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
     }
 }
 
-/// The assumption a test hits when it reads what install routines of one app wrote whose run order is pinned only by the
-/// corpus branch of writer UM (ascending object id within one block of 65536 ids, amendment 3).
-const ORDER_ASSUMPTION: al_builtins::assumptions::Assumption =
-    al_builtins::assumptions::Assumption::InstallOrderAscendingId;
-
 /// The object id of object `o` (0 for an object without one).
 fn object_id(lowered: &Lowered, o: usize) -> u32 {
     lowered.program.objects.heads()[o].id.unwrap_or(0)
 }
 
-/// Whether BC's order of the install routines `a` and `b` of one app and part is pinned (ADR-046 amendment 3): ascending
-/// object id when both ids lie in one block of 65536 ids (install/lt-um-install-order/UmInstallOrder.al:120-125, five
-/// install codeunits 90431-90435, corpus branch al-runtime-rs-staging-pub-um e3b2eedf; with subscribers between them,
-/// install/lt-bf-install-probes/BfInstallTests.al:239, 69851, 81253, 81254, 81255). Not across blocks: there 60445,
-/// 60618 and 60894 run after 81255 (the same line), which no rule pinned yet explains. Two subscribers of one codeunit
-/// are not pinned either.
-fn order_pinned(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> bool {
-    a.0 != b.0 && object_id(lowered, a.0) >> 16 == object_id(lowered, b.0) >> 16
+/// The highest codeunit id the order probes could publish: the sandbox refused 120000 (corpus PR 810, writer UR,
+/// install/lt-ur-block-order/UrBlockOrderTests.al:9-11).
+const HIGHEST_PROBED_ID: u32 = 99_999;
+
+/// What is known of BC's order of the install routines `a` and `b` of one app and part (ADR-046 amendment 3).
+///
+/// Install codeunit triggers and Extension Triggers subscribers of one app run as one sequence in ascending codeunit id,
+/// in each company and in the per-database part, across the 65536 id boundary (install/lt-ur-block-order/
+/// UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515, corpus PR 810, writer UR, branch
+/// al-runtime-rs-staging-ur 1ac158e1; inside one block install/lt-um-install-order/UmInstallOrder.al:120-125, corpus PR
+/// 807). Both are awaited, so the order is an assumption until they are in the pinned corpus. Ids above 99999 could not
+/// be published there: the same integer comparison is a second assumption. Two subscribers of one codeunit are not
+/// pinned (every pin has one routine per codeunit and event). The earlier contradiction,
+/// install/lt-bf-install-probes/BfInstallTests.al:239, is SystemRowVersion of buffered plain Inserts (UrBlockOrderTests.al:99-115),
+/// not the run order.
+fn order_of(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> Option<al_builtins::assumptions::Assumption> {
+    use al_builtins::assumptions::Assumption;
+    if a.0 == b.0 {
+        return None;
+    }
+    if object_id(lowered, a.0).max(object_id(lowered, b.0)) > HIGHEST_PROBED_ID {
+        Some(Assumption::InstallOrderIdsAboveProbedRange)
+    } else {
+        Some(Assumption::InstallOrderAscendingId)
+    }
 }
 
 /// The tables whose install rows a test may not read (ADR-046 decision 4c and amendment 1, A2 items a to d), from the
@@ -292,33 +303,29 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 if routines.len() < 2 {
                     continue;
                 }
-                // Amendment 3: the order of two routines is pinned when their object ids lie in one block of 65536 ids
-                // (ascending id); across blocks it is not (fact 5). A table the order shows is refused only through a
-                // pair whose order is not pinned; through a pinned pair it is a flagged pass until the UM file is in
-                // the pinned corpus.
-                let unpinned_pair = (0..routines.len())
-                    .any(|i| (0..routines.len()).any(|j| i != j && !order_pinned(lowered, routines[i], routines[j])));
+                // Amendment 3: the routines run in ascending codeunit id ([`order_of`]); only two subscribers of one
+                // codeunit have no known order. A table the order shows is refused only through such a pair; through
+                // any other pair it is a flagged pass.
                 let order = |i: usize, j: usize| {
                     format!(
-                        "{} and {} of {name} are install routines of the {} part whose object ids lie in different blocks of 65536 ids, and the order BC runs them in is not pinned there (ADR-046 amendment 3)",
+                        "{} and {} of {name} are install subscribers of one codeunit in the {} part, and the order BC runs them in is not pinned (ADR-046 amendment 3)",
                         label(lowered, routines[i].0, routines[i].1),
                         label(lowered, routines[j].0, routines[j].1),
                         part.label()
                     )
                 };
+                // A2 d, kept by amendment 3: BC gives a row a plain Insert wrote its SystemRowVersion only when it writes
+                // its insert buffer, later than rows of routines that ran after it
+                // (install/lt-ur-block-order/UrBlockOrderTests.al:99-115, the cause of BfInstallTests.al:239); this
+                // runtime stamps at the Insert. So the row versions of install rows do not follow the run order.
                 let rows = format!(
-                    "{name} has {} install routines in the {} part, some with object ids in different blocks of 65536 ids, and the order BC runs those in is not pinned (ADR-046 amendment 3)",
+                    "{name} has {} install routines in the {} part, and BC gives a row a plain Insert wrote its SystemRowVersion only when it writes its insert buffer, which this runtime does not model, so the row versions of their rows are not pinned (ADR-046 amendment 3)",
                     routines.len(),
                     part.label()
                 );
-                // A2 d: the row versions of what any of them wrote order the routines.
                 for c in &closures {
                     for &t in &c.written {
-                        if unpinned_pair {
-                            add(&mut out.row_order, t, rows.clone());
-                        } else {
-                            out.assumed.entry(t as usize).or_insert((app.app, ORDER_ASSUMPTION));
-                        }
+                        add(&mut out.row_order, t, rows.clone());
                     }
                 }
                 for (i, c) in closures.iter().enumerate() {
@@ -326,11 +333,24 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         if i == j {
                             continue;
                         }
-                        let pinned = order_pinned(lowered, routines[i], routines[j]);
-                        let hit = |map: &mut InstallFacts, t: u32, why: String| {
-                            if pinned {
-                                map.assumed.entry(t as usize).or_insert((app.app, ORDER_ASSUMPTION));
-                            } else {
+                        use al_builtins::assumptions::Assumption;
+                        let known = order_of(lowered, routines[i], routines[j]);
+                        let hit = |map: &mut InstallFacts, t: u32, why: String| match known {
+                            // One assumption per table: the unprobed id range replaces the awaited order, since it
+                            // also relies on that order.
+                            Some(Assumption::InstallOrderIdsAboveProbedRange) => {
+                                let e = map
+                                    .assumed
+                                    .entry(t as usize)
+                                    .or_insert((app.app, Assumption::InstallOrderIdsAboveProbedRange));
+                                if e.1 == Assumption::InstallOrderAscendingId {
+                                    *e = (app.app, Assumption::InstallOrderIdsAboveProbedRange);
+                                }
+                            }
+                            Some(assumption) => {
+                                map.assumed.entry(t as usize).or_insert((app.app, assumption));
+                            }
+                            None => {
                                 map.unknown.entry(t as usize).or_insert(why);
                             }
                         };
