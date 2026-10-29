@@ -317,14 +317,14 @@ impl Session {
             self.table(&rec)
                 .is_ok_and(|t| !Self::same_key(&t.primary_key(shown), &t.primary_key(&rec.borrow().fields)))
         });
-        let in_its_key = !with_parts
-            && self.still_reads_once_more(st)
-            && st.borrow().cursor == Cursor::Row
-            && shown_before.is_some();
+        let in_its_key = self.still_reads_once_more(st) && st.borrow().cursor == Cursor::Row && shown_before.is_some();
         // In the primary key, when the drilldown left Rec on another row, the page still shows its row there too (SuRefillKey.al:379
         // Id_DrillDown_GoToRecord `drilldown` `1:`, Rec left on row 5) and a GoToRecord refills around Rec's row first
         // (`go_to_record_after_marked_refill`); any other call puts Rec back where the drilldown left it and moves as below.
-        let in_pk = !with_parts && rec_moved && !in_its_key && st.borrow().cursor == Cursor::Row;
+        // With a part (al-runner issue 6115; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-qr-onopenpage-moves-rec/
+        // SuRefillKey.al:518 TW_NameKeyWithPart_*, :562 TW_IdKeyWithPart_*) the drilldown reads nothing and the page keeps its row
+        // in either key, as without one; `go_to_record_after_marked_refill` answers the GoToRecord of Rec's row only.
+        let in_pk = rec_moved && !in_its_key && st.borrow().cursor == Cursor::Row;
         if !with_parts && rec_moved && !in_its_key && !in_pk {
             st.borrow_mut().marked_only_read_unbuilt = true;
         }
@@ -332,6 +332,9 @@ impl Session {
         let pk_shown = if in_pk { shown_before.clone() } else { None };
         if pk_shown.is_some() {
             st.borrow_mut().refresh = false;
+        }
+        if with_parts && (in_its_key || in_pk) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillWithPart);
         }
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);

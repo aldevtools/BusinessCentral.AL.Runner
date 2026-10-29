@@ -700,6 +700,41 @@ impl Session {
     }
 
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
+        // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
+        // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
+        if st.borrow().landing_first && self.tree_expand_all_with_row_triggers(st) {
+            let rec = self.page_rec(st);
+            let cut: Vec<_> = rec
+                .borrow()
+                .filters
+                .iter()
+                .filter(|f| f.group == super::open::TREE_GROUP)
+                .cloned()
+                .collect();
+            if !cut.is_empty() {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeExpandRunsNoRowTrigger);
+                rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
+                let r = self.populate_window_in_view(st);
+                rec.borrow_mut().filters.extend(cut);
+                r?;
+                // The rows below level 0 were read but do not show: the client's rows are the level-0 ones (the cut at open).
+                let Some(level) = self.tree_level_field(st)? else {
+                    return unsupported("a tree whose IndentationColumn is not an Integer field (not pinned)");
+                };
+                let mut s = st.borrow_mut();
+                let (shown, hidden): (Vec<_>, Vec<_>) = std::mem::take(&mut s.window)
+                    .into_iter()
+                    .partition(|w| matches!(w.stored.get(level), Some(Value::Integer(0))));
+                s.window = shown;
+                s.tree_hidden = hidden;
+                return Ok(());
+            }
+        }
+        self.populate_window_in_view(st)
+    }
+
+    fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
+        st.borrow_mut().tree_hidden.clear();
         st.borrow_mut().window_from_start = false;
         st.borrow_mut().window_eof = false;
         st.borrow_mut().window_whole = false;
@@ -2768,13 +2803,42 @@ impl Session {
             if let Some((true, last)) = &block {
                 if Self::same_key(&self.row_key(&rec)?, last) {
                     if self.nav_next(st, 1)? {
-                        self.nav_next(st, -1)?;
-                        return unsupported(
-                            "GoToKey onto the last row of a full block of rows read, with more rows after it (not pinned)",
+                        // Where more rows follow, the read goes on with the next block as a GoToKey past the rows read does: the
+                        // last two rows again, then up to 20 new rows (al-runner issue 6117; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-testpage-list-rows/TwBlockEdge.al:125, :142; the reporter's run on real BC: 45 rows,
+                        // GoToKey(40) reads `R19..R40;R39;R40;R41..R45`, then Next reads nothing; 80 rows `...;R39;R40;R41..R60`,
+                        // and GoToKey(62) then `R59..R80`). Measured on a list with OnAfterGetRecord alone; other row triggers
+                        // are not pinned.
+                        if ["onaftergetcurrrecord", "onfindrecord", "onnextrecord"]
+                            .iter()
+                            .any(|t| self.declares(st, t))
+                        {
+                            self.nav_next(st, -1)?;
+                            return unsupported(
+                                "GoToKey onto the last row of a full block of rows read, with more rows after it, on a page with OnAfterGetCurrRecord, OnFindRecord or OnNextRecord (not pinned)",
+                            );
+                        }
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::GoToKeyLastRowOfBlockReadsNextBlock,
                         );
+                        let r = self.read_window_block(st);
+                        self.torn_down_on_error(st, r)?;
+                        // Back on the row the GoToKey found, as the page shows it.
+                        self.nav_next(st, -1)?;
+                        let key = self.row_key(&rec)?;
+                        let row = st
+                            .borrow()
+                            .window
+                            .iter()
+                            .find(|w| Self::same_key(&w.key, &key))
+                            .cloned();
+                        if let Some(w) = row {
+                            rec.borrow_mut().fields = w.shown;
+                            self.set_xrec_fields(st, w.stored);
+                        }
+                    } else {
+                        let r = self.reread_last_rows(st);
+                        self.torn_down_on_error(st, r)?;
                     }
-                    let r = self.reread_last_rows(st);
-                    self.torn_down_on_error(st, r)?;
                 }
             }
         }
@@ -2841,7 +2905,13 @@ impl Session {
         rec.borrow_mut().fields = left;
         let left_key = self.row_key(&rec)?;
         let of_recs_row = Self::same_key(want, &left_key);
-        if of_recs_row != in_key {
+        // With a part only the GoToRecord of Rec's row is built, in either key (SuRefillKey.al:518, :562 on corpus writer TW's
+        // branch); the walk of another row (:541, :585) is not.
+        if !st.borrow().parts.is_empty() {
+            if !of_recs_row {
+                return refuse("with a part on the page, of a row other than the row Rec was left on");
+            }
+        } else if of_recs_row != in_key {
             return refuse(if in_key {
                 "in a key other than the primary key, of a row other than the row Rec was left on"
             } else {
