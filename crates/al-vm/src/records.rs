@@ -778,14 +778,12 @@ impl Session {
         Ok(())
     }
 
-    /// `Delete()` and `Delete(true)` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete on corpus branch
-    /// al-runtime-rs-staging-pub-tp; TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement on branch
-    /// al-runtime-rs-staging-pub-tq; assumption tenant-media-delete until the bump): the media leaves Tenant Media and Delete
+    /// `Delete()` and `Delete(true)` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete,
+    /// TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement): the media leaves Tenant Media and Delete
     /// returns true (the statement form raises no error); every row that holds it, also two rows, keeps the MediaId with
     /// HasValue false and ExportStream false. A missing id returns false, or in the statement form fails with
     /// DB:RecordNotFound. With event subscribers or global triggers, and for a media a MediaSet holds, it is not pinned.
     fn delete_tenant_media(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantMediaDelete);
         if (run && self.table_trigger(t, "OnDelete").is_some())
             || self.listened(t, "onbeforedeleteevent", None)?
             || self.listened(t, "onafterdeleteevent", None)?
@@ -1399,7 +1397,7 @@ impl Session {
     /// with the table in the new transaction (another write, another lock, a rollback), an Insert buffer older than one
     /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
     /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
-    /// decided under the assumption stale-own-insert-lock-other-or-other-row-write.
+    /// pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*.
     fn stale_verdict(
         &mut self,
         t: &TableDef,
@@ -1501,15 +1499,12 @@ impl Session {
                 Ok(StaleVerdict::Refused)
             }
             // Two or three Commits after the buffer's own write, in the three shapes of the reporter's real-BC repro of al-runner
-            // issue 6028 (assumption `stale-own-insert-lock-other-or-other-row-write`, awaiting writer TE's pins in
-            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al). The neighbours writers TE and TH measured are decided above
+            // issue 6028 (pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al
+            // TE_2C_*, TE_3C_*). The neighbours writers TE and TH measured are decided above
             // (`stale_neighbour_shape`); every other mix is refused below.
             Some(o)
                 if o.own_write && !touched && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_some() =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertLockOtherOrOtherRowWrite,
-                );
                 Ok(self
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
@@ -4216,23 +4211,41 @@ impl Session {
                             })));
                         }
                         // The search strings the corpus pins on an empty table: none or `=` (the key alone), `>`, `<` and `=><`
-                        // (FindEmptyTable.al:Find_EmptyTable `unused_default` .. `unused_all_directions`). A table with rows
-                        // that lacks the key, and the other combinations, are not pinned.
-                        if filters.is_empty()
+                        // (FindEmptyTable.al:Find_EmptyTable `unused_default` .. `unused_all_directions`). On a table that has rows
+                        // where no row meets the search, on an empty table with a key value other than the default, and `=>` and
+                        // `=<`, the same texts with the record's key (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b,
+                        // FindEmptyTable.al TV_Find_TableWithRows_NoMatch, TV_Find_EmptyTable_KeyNotDefault). The other
+                        // combinations are not pinned.
+                        let empty_table = filters.is_empty()
                             && method == RecordOp::Find
-                            && matches!(which.as_str(), "=" | ">" | "<" | "=><")
                             && self
                                 .store_for(rec)
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::Unsupported(format!("{e}")))?
-                                == 0
+                                == 0;
+                        if filters.is_empty()
+                            && method == RecordOp::Find
+                            && matches!(which.as_str(), "=" | ">" | "<" | "=><" | "=>" | "=<")
                         {
                             let fields = rec.borrow().fields.clone();
                             let pk = t.primary_key(&fields);
-                            if !pk.iter().all(|v| crate::recmeta::is_blank(v).unwrap_or(false)) {
-                                return unsupported(
-                                    "Find on an empty table with a key value other than the default: only default keys are pinned (FindEmptyTable.al)",
-                                );
+                            let default_key = pk.iter().all(|v| crate::recmeta::is_blank(v).unwrap_or(false));
+                            if !empty_table || !default_key || matches!(which.as_str(), "=>" | "=<") {
+                                // Pinned from codeunit code only: in a page's code (a trigger such as OnNewRecord of a page a
+                                // TestPage opens) what BC does with the error is not pinned for these shapes.
+                                let engine = self.engine.clone();
+                                if self.frames.iter().any(|&o| {
+                                    matches!(
+                                        engine.program.objects[o].kind,
+                                        al_ir::ObjKind::Page | al_ir::ObjKind::PageExtension
+                                    )
+                                }) {
+                                    return unsupported(format!(
+                                        "Find on table '{}' in page code, no row meeting the search, without using the result: not pinned",
+                                        t.name
+                                    ));
+                                }
+                                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FindMissKeyText);
                             }
                             let id = self.identification(&t, &fields)?;
                             let message = if which == "=" {
@@ -4249,6 +4262,8 @@ impl Session {
                             // The flag hides the key of `Find('=')`, from BC 28 (FindEmptyTableExcludeFlag.al:123; guarded with
                             // BC28PLUS). The other search strings are not pinned.
                             let origin = if which == "="
+                                && empty_table
+                                && default_key
                                 && !rec.borrow().temporary
                                 && self.has(al_version::Gate::EmptyTableFindExcludeFlagFrom28)
                             {

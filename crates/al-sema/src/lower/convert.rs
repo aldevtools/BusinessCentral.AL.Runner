@@ -338,9 +338,9 @@ impl<'a> Lowerer<'a> {
     /// branch a Code (upper case, StringLengthExceeded past N), a Text[N] true branch limits it to N, and a Label true branch
     /// is a Text that takes a Code[N] or Text[N] false branch as it is.
     /// Pinned on corpus master: a Label true branch against a text literal, MaxLength label included (types/TestTernaryContracts.al:
-    /// 464, :504-516), and an empty literal true branch against a Label (:466). Writer TI's pins (corpus branch
-    /// al-runtime-rs-staging-ti, the same file, TI_Ternary_*) cover Code[20] and Text[10] against a Label either way and a
-    /// literal true branch against a Label; until they reach the pinned corpus they run on the assumption `ternary-label-branch`.
+    /// 464, :504-516), and an empty literal true branch against a Label (:466). The same file's TI_Ternary_*
+    /// tests pin Code[20] and Text[10] against a Label either way and a literal true branch against a Label; another length
+    /// N of the Code or Text branch runs on the assumption `ternary-label-branch`.
     /// A TextConst branch (BC does not publish the app, :518-521), a MaxLength label in any other pair and every other pair are
     /// refused.
     pub(crate) fn ternary_label_pair(
@@ -380,11 +380,12 @@ impl<'a> Lowerer<'a> {
             // Pinned on master (:466): an empty literal true branch takes a Label false branch as it is.
             (Ty::Text(_), Ty::Label) if !maxlength && literal(yes.1).is_some_and(|s| s.is_empty()) => {}
             _ if maxlength => return unpinned(),
-            (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {
-                self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
-            }
+            (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {}
             (Ty::Code(Some(_)) | Ty::Text(Some(_)), Ty::Label) | (Ty::Label, Ty::Code(Some(_)) | Ty::Text(Some(_))) => {
-                self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
+                let sized = if matches!(t, Ty::Label) { f } else { t };
+                if !matches!(sized, Ty::Code(Some(20)) | Ty::Text(Some(10))) {
+                    self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
+                }
             }
             _ => return unpinned(),
         }
