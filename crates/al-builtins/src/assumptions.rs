@@ -573,6 +573,12 @@ registry! {
         tests: "Every Microsoft report test that reads its dataset through Library - Report Dataset (LoadDataSetFile: SaveAsXml into FileManagement.ServerTempFileName, then LoadXMLDocumentFromFile checks the file with DotNet File.Exists); they pass in Microsoft's CI.",
         probe: "Write a file under TemporaryPath() with AL's File type, then DotNet System.IO.File.Exists of the same path; the same after Report.SaveAsXml into FileManagement.ServerTempFileName('xml').",
     },
+    Utf8ReadSkipsByteOrderMark => {
+        id: "utf-eight-read-skips-byte-order-mark",
+        assumed: "InStream.Read(Text) at the start of a stream created with TextEncoding::UTF8 skips a UTF-8 byte order mark (EF BB BF), as ReadText does (handlers/TestReportSaveAsDatasetContracts.al:DatasetLines). The count Read returns over a mark stays refused.",
+        tests: "Every Microsoft report test that reads its dataset through Library - Report Dataset: File Management.GetFileContents reads the SaveAsXml file (which starts with EF BB BF, al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText) with InStream.Read(Text) and the library parses the text as XML; they pass in Microsoft's CI.",
+        probe: "Write EF BB BF + '<a/>' into a Blob, CreateInStream with TextEncoding::UTF8, Read(Text): the text, its length and the count Read returns; the same with the default encoding.",
+    },
     OptionInitValueOrdinal => {
         id: "option-init-value-ordinal",
         assumed: "An Option field whose InitValue is a number that names no member (`InitValue = 1`) starts at the member of that ordinal: on a fresh variable, after Init and after Insert. Measured on Windows BC of the newest major (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_OptionInitValueOrdinal: Sunday..Saturday with InitValue = 1 gives Monday/1 three times). A number that is also the name of a member at another ordinal stays refused.",

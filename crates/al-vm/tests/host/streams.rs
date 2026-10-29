@@ -615,3 +615,22 @@ fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
          N := I.Read(T); exit('');"
     ));
 }
+
+// File Management.GetFileContents reads the file a report's SaveAsXml wrote (it starts with EF BB BF:
+// al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:FileText) with InStream.Read(Text) on a UTF-8 stream;
+// Library - Report Dataset parses the text as XML, which a leading U+FEFF would break. The mark is skipped, as ReadText
+// skips it (handlers/TestReportSaveAsDatasetContracts.al:DatasetLines); the assumption marks it.
+#[test]
+fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark_and_marks_the_assumption() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let vars = base!("C: Char;");
+    let body = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); I.Read(T); exit(T);";
+    take_hits();
+    assert_eq!(text(vars, body), "<a/>");
+    assert!(take_hits().contains(&Assumption::Utf8ReadSkipsByteOrderMark));
+    // The count it returns over a mark is not pinned.
+    let used = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
+    assert!(refused(vars, used));
+}
