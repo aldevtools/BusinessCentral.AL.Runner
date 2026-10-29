@@ -10,6 +10,16 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-vm/src/xmlports.rs",
+        r#"format!("{:?}", r.filters)"#,
+        "the filters of a table element record at the end of an XmlPort pass, compared for equality with the next pass's, never shown",
+    ),
+    (
+        "al-vm/src/xmlports.rs",
+        r#"first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),"#,
+        "the key of a table element record at the first XmlPort pass, compared for equality with later passes', never shown",
+    ),
+    (
         "al-testrun/src/dotnet.rs",
         r#""dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
