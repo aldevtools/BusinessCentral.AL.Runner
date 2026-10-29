@@ -3576,7 +3576,19 @@ fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     // A text given as a string joins the text node it follows; an XmlText node is its own node
     // (xml/TestProbeXmlContracts.al:AdjacentTextNodes_NotMerged).
-    for arg in a.iter() {
+    let last = a.len().saturating_sub(1);
+    for (i, arg) in a.iter().enumerate() {
+        // An XmlWriteOptions after a node, given to Add of a document or an element, is accepted and adds nothing
+        // (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/lt-de-xml-leads/DeXmlWriteLeads.al
+        // TV_XmlWriteOptions_AsContent_DocumentAdd and _ElementAdd: one child, written as before).
+        if i == last
+            && i > 0
+            && matches!(arg, Value::Library(name, _) if name.as_str() == "XmlWriteOptions")
+            && matches!(kind(&h), "XmlDocument" | "XmlElement")
+        {
+            crate::assumptions::assume(crate::assumptions::Assumption::XmlWriteToOutstreamBuilt);
+            continue;
+        }
         if doc_blank_text(&h, arg)? {
             continue;
         }
@@ -4431,7 +4443,7 @@ fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     let is_doc = with(&h, |d| matches!(d, XData::Document { .. }));
     let mut utf16 = false;
     let text = if is_doc && !text.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"") {
-        match outstream_declaration(&h, options.is_some()) {
+        match outstream_declaration(&h, options) {
             Some(OutDecl::AddUtf8) => text.replacen(
                 "<?xml version=\"1.0\" encoding=\"utf-16\"?>",
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
@@ -4487,18 +4499,45 @@ enum OutDecl {
     Utf16,
 }
 
-/// The pinned shapes (xml/lt-xml-attr-doc-http-members/P97DocWrite.al:334 QZ_WriteTo_OutStream_ReadFromText): a document read
-/// by `ReadFrom` from text, one root element and nothing else, written without XmlWriteOptions, with no declaration, a
-/// `version="1.0"` declaration without encoding, `encoding="utf-16"` or `encoding="UTF-8"`. Anything else is not pinned.
-fn outstream_declaration(h: &Handle, with_options: bool) -> Option<OutDecl> {
+/// The pinned shapes, all of a document with one root element and nothing else:
+/// - read by `ReadFrom` from text and written without XmlWriteOptions, with no declaration, a `version="1.0"` declaration
+///   without encoding, `encoding="utf-16"` or `encoding="UTF-8"` (xml/lt-xml-attr-doc-http-members/P97DocWrite.al:334
+///   QZ_WriteTo_OutStream_ReadFromText);
+/// - without a declaration, also with XmlWriteOptions that `PreserveWhitespace(true)` set: the declaration says `utf-8`
+///   (xml/XmlDocReadWrite.al:442-459 WriteTo_OutStream_Options);
+/// - built in code (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b, xml/lt-de-xml-leads/DeXmlWriteLeads.al
+///   TV_WriteToOutStream_*): with a declaration of `XmlDeclaration.Create('1.0', ..)`, `UTF-8` with standalone `yes` or
+///   `no` is kept as written (`yes` also with those options), and `utf-16` with standalone empty or `yes`, and an empty
+///   encoding with standalone empty, are written in UTF-16 LE with its byte order mark, the declaration as written.
+///
+/// Anything else is not pinned.
+fn outstream_declaration(h: &Handle, options: Option<&Value>) -> Option<OutDecl> {
+    use crate::assumptions::{Assumption, assume};
     let kids = children_of(h);
-    if with_options || kids.len() != 1 || !with(&kids[0], |d| matches!(d, XData::Element { .. })) {
+    if kids.len() != 1 || !with(&kids[0], |d| matches!(d, XData::Element { .. })) {
         return None;
     }
+    // Options: none, or a value that `PreserveWhitespace(true)` set (it writes unindented).
+    let preserve = match options {
+        None => false,
+        Some(Value::Library(_, cell))
+            if matches!(
+                &*cell.borrow(),
+                LibraryValue::XmlWriteOptions {
+                    preserve_whitespace: true,
+                    unindented: true
+                }
+            ) =>
+        {
+            true
+        }
+        Some(_) => return None,
+    };
     let decl = with(h, |d| match d {
         XData::Document { decl, .. } => decl.clone(),
         _ => None,
     });
+    // No declaration, also with those options: xml/XmlDocReadWrite.al:442-459 WriteTo_OutStream_Options (read from text).
     let Some(decl) = decl else {
         return Some(OutDecl::AddUtf8);
     };
@@ -4508,10 +4547,26 @@ fn outstream_declaration(h: &Handle, with_options: bool) -> Option<OutDecl> {
             encoding,
             standalone,
             explicit: false,
-        } if version == "1.0" && standalone.is_empty() => match encoding.as_str() {
+        } if version == "1.0" && standalone.is_empty() && !preserve => match encoding.as_str() {
             "" => Some(OutDecl::AddUtf8),
             "UTF-8" => Some(OutDecl::Keep),
             "utf-16" => Some(OutDecl::Utf16),
+            _ => None,
+        },
+        XData::Declaration {
+            version,
+            encoding,
+            standalone,
+            explicit: true,
+        } if version == "1.0" => match (encoding.as_str(), standalone.as_str(), preserve) {
+            ("UTF-8", "yes", _) | ("UTF-8", "no", false) => {
+                assume(Assumption::XmlWriteToOutstreamBuilt);
+                Some(OutDecl::Keep)
+            }
+            ("utf-16", "" | "yes", false) | ("", "", false) => {
+                assume(Assumption::XmlWriteToOutstreamBuilt);
+                Some(OutDecl::Utf16)
+            }
             _ => None,
         },
         _ => None,
