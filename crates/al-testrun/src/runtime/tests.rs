@@ -1305,7 +1305,8 @@ fn page_report_and_other_handlers_are_refused_with_their_kind() {
         "{o:?}"
     );
     assert!(
-        matches!(&o[2].1, Outcome::NotRun(r) if r.contains("FilterPageHandler")),
+        // A [FilterPageHandler] takes `var RecordRef` (filterpage/W3FilterPageBuilder.al:160); another shape is refused.
+        matches!(&o[2].1, Outcome::NotRun(r) if r.contains("not shaped like a FilterPage handler")),
         "{o:?}"
     );
 }

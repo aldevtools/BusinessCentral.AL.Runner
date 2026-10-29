@@ -1,7 +1,7 @@
 //! `FilterPageBuilder`: an ordered, keyed set of filter controls, each holding a record buffer.
 //! Everything up to `RunModal` is an object-graph operation (corpus
-//! filterpage/TestFilterPageBuilder.al); `RunModal` needs a client the corpus never provides and
-//! is refused.
+//! filterpage/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
+//! (`Session::ui_filter_page`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -229,9 +229,19 @@ impl Session {
                         Value::Boolean(false),
                     );
                 };
-                let pos = match args.get(1) {
+                // `Rec."Field"` comes as the record and the field's position (the lowering of AddField); a FieldRef as itself.
+                let (pos, filter_at) = match args.get(1) {
+                    Some(Value::Record(r)) => {
+                        let Some(Value::Integer(pos)) = args.get(2) else {
+                            return unsupported(format!("FilterPageBuilder.AddField with {}", args.get(2).describe()));
+                        };
+                        if r.borrow().table != control.table {
+                            return unsupported("FilterPageBuilder.AddField with a field of another table");
+                        }
+                        (*pos as usize, 3)
+                    }
                     Some(Value::Library(_, l)) => match &*l.borrow() {
-                        LibraryValue::FieldRef(r, pos) if r.borrow().table == control.table => *pos,
+                        LibraryValue::FieldRef(r, pos) if r.borrow().table == control.table => (*pos, 2),
                         LibraryValue::FieldRef(..) => {
                             return unsupported("FilterPageBuilder.AddField with a field of another table");
                         }
@@ -239,7 +249,7 @@ impl Session {
                     },
                     other => return unsupported(format!("FilterPageBuilder.AddField with {}", other.describe())),
                 };
-                if let Some(filter) = args.get(2) {
+                if let Some(filter) = args.get(filter_at) {
                     let filter = text(std::slice::from_ref(filter), 0)?;
                     self.add_filter_page_field_filter(&control, pos, &filter)?;
                 }
@@ -287,7 +297,15 @@ impl Session {
                 Ok(Value::Boolean(true))
             }
             ids::FILTERPAGEBUILDER_RUNMODAL_1 => {
-                unsupported("FilterPageBuilder.RunModal opens a filter page; no corpus test pins how a test answers it")
+                let controls = state_of(&cell)?.controls.clone();
+                // Every pin runs a builder of one table (see `ui_filter_page`); what a handler gets for several is not pinned.
+                let [control] = controls.as_slice() else {
+                    return unsupported(format!(
+                        "FilterPageBuilder.RunModal of a builder with {} filter controls (only one is pinned)",
+                        controls.len()
+                    ));
+                };
+                self.ui_filter_page(&control.record).map(Value::Boolean)
             }
             _ => unsupported(format!("FilterPageBuilder.{}", id.method())),
         }
