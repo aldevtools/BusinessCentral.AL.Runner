@@ -279,6 +279,32 @@ impl Session {
             // line 77, but the first read in each test follows a DeleteAll): refused. platform/lt-platform-members/PlTDatabase.al:250-264
             // pins the bounds 0 <= value <= LastUsedRowVersion() + 1 only.
             ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
+                // Under TestIsolation = Codeunit the value taken when the codeunit's tests began (`freeze_min_active_row_version`).
+                if let Some(min) = self.iso_min_row_version {
+                    // LastUsedRowVersion() above counts committed rows only. After an Insert and a read of its table it grows
+                    // on BC (PlTRowVersionValue.al:157-172, `insert open last > start last`), and after a Modify too
+                    // (PlTDatabase.al:220-245, `after_modify_greater`): tests compare the two, so the value is refused while
+                    // the open transaction holds such a write, or a Delete, Rename or bulk write whose effect is not pinned.
+                    if self.next_row_version != self.tx.committed_row_version
+                        && (self.tx.read_after_write
+                            || !self.writes_all_noted()
+                            || self
+                                .tx
+                                .writes
+                                .iter()
+                                .any(|w| w.kind != crate::state::TxWriteKind::Insert))
+                    {
+                        return unsupported(
+                            "Database.MinimumActiveRowVersion after a Modify, Delete or bulk write, or a read of a table the open transaction inserted into (LastUsedRowVersion is not pinned there)",
+                        );
+                    }
+                    if self.iso_min_unpinned {
+                        return unsupported(
+                            "Database.MinimumActiveRowVersion after a background session committed rows (not pinned)",
+                        );
+                    }
+                    return Ok(Value::BigInteger(min));
+                }
                 if self.tx.tx_phase == crate::transactions::TX_WRITE
                     || self.tx.last_commit_wrote
                     || self.tx.lock_tx
