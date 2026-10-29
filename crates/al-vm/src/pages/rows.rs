@@ -2905,11 +2905,16 @@ impl Session {
         rec.borrow_mut().fields = left;
         let left_key = self.row_key(&rec)?;
         let of_recs_row = Self::same_key(want, &left_key);
-        // With a part only the GoToRecord of Rec's row is built, in either key (SuRefillKey.al:518, :562 on corpus writer TW's
-        // branch); the walk of another row (:541, :585) is not.
-        if !st.borrow().parts.is_empty() {
+        // With a part the GoToRecord of Rec's row refills as without one, in either key (corpus SuRefillKey.al:518, :562
+        // TW_*WithPart_GoToRecordOfRecsRow). A GoToRecord of another row walks the marked rows after the refill: in a key other
+        // than the primary key all of them, ending on Rec's row (:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
+        // `No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1;`, al-runner issue 6141); in the primary key only a move onto the
+        // first marked row, where the page stays (:585 TW_IdKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
+        // `No/1:R3;R1;R3;R3;C3;R1;R1;C1;`). Both are pinned with two marked rows, Rec's row the last.
+        let with_parts = !st.borrow().parts.is_empty();
+        if with_parts {
             if !of_recs_row {
-                return refuse("with a part on the page, of a row other than the row Rec was left on");
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedWalkWithPart);
             }
         } else if of_recs_row != in_key {
             return refuse(if in_key {
@@ -2987,10 +2992,20 @@ impl Session {
         }
         // The walk over the marked rows from the first one, a move onto each (SuRefillKey.al:379 `goto 3`: `R2;R2;C2;R3;R3;C3;
         // R5;R5;C5;` after the refill); it ends on Rec's row, the last, so there is no move back.
-        let last = st.borrow().window.len() - 1;
+        let last = if with_parts && !in_key {
+            0
+        } else {
+            st.borrow().window.len() - 1
+        };
         for idx in 0..=last {
             let r = self.arrive_held(st, idx);
             self.torn_down_on_error(st, r)?;
+        }
+        // A false GoToRecord moves no part (`page_method`); here the page did move, and the part follows to the row it ends on
+        // (corpus writer UD, branch al-runtime-rs-staging-ud, SuRefillKey.al:630, :722 `goto 2 again` `No/1`, `part` `D1`). What
+        // the part reads on the way is not pinned.
+        if with_parts {
+            self.sync_parts(st)?;
         }
         Ok(Value::Boolean(false))
     }

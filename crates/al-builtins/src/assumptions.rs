@@ -993,6 +993,38 @@ registry! {
             since: "2026-10-29",
         },
     },
+    DrilldownMarkedWalkWithPart => {
+        id: "drilldown-marked-walk-with-part",
+        assumed: "On a list with a ListPart, after an OnDrillDown or an action marked rows, turned MarkedOnly on and called CurrPage.Update(false), a GoToRecord of a row other than the row Rec was left on refills the rows around Rec's row and answers false: in a key other than the primary key after a move onto each marked row, ending on Rec's row; in the primary key after a move onto the first marked row, where the page stays. Pinned with two marked rows and Rec on the last of them (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541, :585 on corpus master); any other count of marked rows, and Rec on another of them, is assumed to follow the same rule. Measured in the reporter's runs on real BC (al-runner issues 6139, 6141).",
+        tests: "No Microsoft test: al-runner issues 6139 and 6141, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
+        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_*WithPart_*; wanted: the same pages with three marked rows and Rec left on the middle one.",
+        awaiting: Awaiting {
+            issues: &[6139, 6141],
+            files: &[
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_NameKeyWithPart_GoToRecordOfUnmarkedRow",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_IdKeyWithPart_GoToRecordOfUnmarkedRow",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    MarkedAgainWithPart => {
+        id: "marked-again-with-part",
+        assumed: "On a list with a ListPart and OnAfterGetRecord or OnAfterGetCurrRecord, an OnDrillDown or an action that runs while MarkedOnly is already on and calls CurrPage.Update(false) refreshes as the first marking did: the OnDrillDown keeps the page's row and the next GoToRecord refills around the row Rec was left on; the action reads the marked rows from Rec's row and holds them. Measured in the reporter's run on real BC (al-runner issue 6139), in the primary key, with a second marking after a row lost its flag.",
+        tests: "No Microsoft test: al-runner issue 6139, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
+        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_NameKeyWithPart_* and UD_IdKeyWithPart_*.",
+        awaiting: Awaiting {
+            issues: &[6139],
+            files: &[
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_ActionAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
+            ],
+            since: "2026-10-29",
+        },
+    },
     GoToKeyLastRowOfBlockReadsNextBlock => {
         id: "gotokey-last-row-of-block-reads-next-block",
         assumed: "TestPage GoToKey or GoToRecord that lands on the last row of a full block of rows read, with more rows after it, on a list without OnAfterGetCurrRecord, OnFindRecord or OnNextRecord: the read goes on with the next block (the last two rows again, then up to 20 new rows) and the page stands on the row found. At the end of the view the last two rows are read again (handlers/TestPageRuntimeContracts.al:331). Measured in the reporter's run on real BC.",

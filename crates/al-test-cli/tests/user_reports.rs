@@ -395,3 +395,35 @@ codeunit 50301 T {{ Subtype = Test;
         }
     }
 }
+
+/// Outcomes of the test codeunit `codeunit` of a reporter's repro in fixtures/outside-fb, with the stand-in Library Assert.
+fn repro_outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
+    let src = format!("{}\n{}", file, include_str!("fixtures/outside-fb/LibraryAssert.al"));
+    let o = al_testkit::outcomes_in(&src, codeunit);
+    assert!(!o.is_empty());
+    o
+}
+
+/// Issue 6139: on a worksheet in its primary key with a ListPart and the row triggers, a second marking (from the OnDrillDown
+/// or from an action, both with CurrPage.Update(false)) after row 2 lost its flag: GoToRecord of row 2 answers false and the
+/// page shows row 1, the row the marking left Rec on. Measured by the reporter on BC 29; pinned by corpus writer UD
+/// (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:722, :753, :784 on branch al-runtime-rs-staging-ud).
+#[test]
+fn issue_6139_second_marking_after_the_row_lost_its_flag() {
+    all_pass(repro_outcomes(
+        include_str!("fixtures/outside-fb/Issue6139.al"),
+        "Reapply Probe Tests",
+    ));
+}
+
+/// Issue 6141: on a worksheet in the key ByName with a ListPart and the row triggers, GoToRecord of an unmarked row after a
+/// marking OnDrillDown answers false and the page stays on row 1, the row the drilldown left Rec on, after a walk over the
+/// marked rows (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow on
+/// corpus master). The control, GoToRecord of Rec's row, answers true.
+#[test]
+fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
+    all_pass(repro_outcomes(
+        include_str!("fixtures/outside-fb/Issue6141.al"),
+        "GoTo Other Row Tests",
+    ));
+}
