@@ -15694,6 +15694,15 @@
           "site": "bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:215"
         },
         {
+          "corpus_uses": 6,
+          "group": "procedure",
+          "ms_uses": 0,
+          "name": "FilterPageHandler",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "events/lt-platform-triggers/PtObserve.al:610"
+        },
+        {
           "corpus_uses": 13,
           "group": "procedure",
           "ms_uses": 0,
@@ -15836,15 +15845,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "codeunit/EBEPublisher.Codeunit.al:38"
-        },
-        {
-          "corpus_uses": 6,
-          "group": "procedure",
-          "ms_uses": 0,
-          "name": "FilterPageHandler",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "events/lt-platform-triggers/PtObserve.al:610"
         },
         {
           "corpus_uses": 1533,
@@ -16684,7 +16684,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 277,
+        "line": 292,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16693,7 +16693,16 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 478,
+        "line": 365,
+        "pinned": true,
+        "site": "handlers/lt-az-handlers/AzHandlerTests.al:271",
+        "template": "Unhandled UI: FilterPage 9598"
+      },
+      {
+        "code": "MissingUIHandler",
+        "file": "crates/al-vm/src/ui.rs",
+        "generic": false,
+        "line": 548,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16702,7 +16711,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 506,
+        "line": 576,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16735,8 +16744,8 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 93,
-    "sites": 96
+    "pinned": 94,
+    "sites": 97
   },
   "language": {
     "bc": "27-29",
@@ -30152,7 +30161,7 @@
         "pinned": true,
         "scope": "",
         "site": "events/lt-platform-triggers/PtObserve.al:610",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "attributes",
