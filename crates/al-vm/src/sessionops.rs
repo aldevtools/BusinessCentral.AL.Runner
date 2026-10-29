@@ -280,7 +280,7 @@ impl Session {
             ids::DATABASE_LASTUSEDROWVERSION_1 => {
                 return match self.last_used_row_version() {
                     Ok(v) => Ok(Value::BigInteger(v)),
-                    Err(why) => unsupported(&format!("Database.LastUsedRowVersion after {why} (not pinned)")),
+                    Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
                 };
             }
             // After a Commit that ended a transaction without writes, and with no write since, it is LastUsedRowVersion() + 1
@@ -299,7 +299,7 @@ impl Session {
                     // It stays at the start value through Insert, Insert + Get, Modify + Get and Commit (PlTRowVersionValue.al:
                     // 157-226): where LastUsedRowVersion() is not pinned, tests that compare the two are not either.
                     if let Err(why) = self.last_used_row_version() {
-                        return unsupported(&format!(
+                        return unsupported(format!(
                             "Database.MinimumActiveRowVersion after {why} (LastUsedRowVersion is not pinned there)"
                         ));
                     }

@@ -1369,7 +1369,11 @@ impl Session {
             TxWriteKind::Insert if new_versions => {
                 rv.accounted = rv.handed_out;
                 let last = rv.last;
-                match rv.pending_inserts.iter_mut().find(|(o, c, _)| *o == table && c == company) {
+                match rv
+                    .pending_inserts
+                    .iter_mut()
+                    .find(|(o, c, _)| *o == table && c == company)
+                {
                     Some(p) => p.2 = last,
                     None => rv.pending_inserts.push((table, company.clone(), last)),
                 }
@@ -1393,7 +1397,9 @@ impl Session {
             // (`last_used_row_version` refuses those).
             TxWriteKind::Delete | TxWriteKind::Rename | TxWriteKind::Other => {
                 if !rv.pending_inserts.is_empty() {
-                    rv.unpinned = Some("a Delete, Rename, DeleteAll, ModifyAll or Truncate after an Insert in the open transaction");
+                    rv.unpinned = Some(
+                        "a Delete, Rename, DeleteAll, ModifyAll or Truncate after an Insert in the open transaction",
+                    );
                 }
             }
         }
@@ -1412,7 +1418,10 @@ impl Session {
                 rv.sent = rv.sent.max(*v);
                 rv.pending_inserts.clear();
             }
-            _ => rv.unpinned = Some("a read other than a Get of the one table that holds rows the open transaction inserted"),
+            _ => {
+                rv.unpinned =
+                    Some("a read other than a Get of the one table that holds rows the open transaction inserted")
+            }
         }
     }
 
