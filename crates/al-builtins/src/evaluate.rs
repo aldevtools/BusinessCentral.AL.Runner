@@ -1003,6 +1003,17 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         let parts: Vec<&str> = clock.split(':').collect();
         let strict = parts.len() == 3 && parts.iter().all(|p| p.len() == 2);
         let f = match frac {
+            // Four digits keep the milliseconds: `13:45:06.1234` is 13:45:06.123 (types/lt-datetime/Evaluate.al:209,233
+            // Time_Format9 `hms ms 4 digits`). Whether a fourth digit of 5 or more rounds up, and more digits, are not pinned.
+            Some(f) if f.len() >= 4 && f.bytes().all(|b| b.is_ascii_digit()) => {
+                if f.len() == 4 && f.as_bytes()[3] < b'5' {
+                    fraction(&f[..3])
+                } else {
+                    return unsupported(format!(
+                        "Evaluate of the Time `{t}` with format 9: more than three digits of a second (rounding not pinned)"
+                    ));
+                }
+            }
             Some(f) => fraction(f),
             None => Some(0),
         };
@@ -1305,9 +1316,10 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 }
 
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
-/// Date raises the Date-format error (errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget
-/// on writer UN's corpus branch, commit d3bcc580: `not-a-date` with 9, 0 and the default; assumption
-/// `evaluate-date-letters-statement`). Other texts and numbers are not pinned.
+/// Date raises the Date-format error (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
+/// errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
+/// commit d3bcc580: `not-a-date` with 9, 0 and the default, assumption `evaluate-date-letters-statement`). Other texts and
+/// numbers are not pinned.
 fn letters_date_text(text: &str, number: i64) -> bool {
     matches!(number, 0 | 9)
         && text.bytes().any(|b| b.is_ascii_alphabetic())
@@ -2175,7 +2187,13 @@ fn evaluate_with_max(
                         .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'/'))
                     || letters_date_text(&text, number)) =>
         {
-            if !any_date_text && letters_date_text(&text, number) {
+            // Letters alone with no number are pinned on master (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc`,
+            // errors/lt-last-error-and-events/P70_02LastErrFlag.al:286 `notadate`); number 9 and letters with `-./` wait for the
+            // branch pin.
+            if !any_date_text
+                && letters_date_text(&text, number)
+                && (number == 9 || !text.bytes().all(|b| b.is_ascii_alphabetic()))
+            {
                 crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateLettersStatement);
             }
             // In German (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031). Another
@@ -2216,6 +2234,15 @@ fn evaluate_with_max(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// types/lt-datetime/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
+    /// more and longer fractions are refused (rounding not pinned).
+    #[test]
+    fn a_time_with_four_digits_of_a_second_keeps_the_milliseconds() {
+        assert!(matches!(value(time("13:45:06.1234", 9)), Some(Value::Time(t)) if t == ((13 * 60 + 45) * 60 + 6) * 1000 + 123 + 1));
+        assert!(matches!(time("13:45:06.1235", 9), Err(Signal::Unsupported(_))));
+        assert!(matches!(time("13:45:06.12345", 9), Err(Signal::Unsupported(_))));
+    }
 
     fn value(p: Result<Parsed, Signal>) -> Option<Value> {
         match p {
