@@ -239,6 +239,10 @@ pub enum Gate {
     /// The end of [`Gate::ThreeLineLeavesKeyOnceFrom28`]: from BC 29 the triggers run twice again, as on BC 27
     /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:662). Consumed with it.
     ThreeLineLeavesKeyTwiceAgainFrom29,
+    /// The platform table "Report Layout List" lists the column "Layout Status" from BC 28, and "Layout Subtype",
+    /// "HeaderFooterPart" and "ThemePart" from BC 29 (platform/lt-ug-report-layout-list/UgReportLayoutList.al:116-123,
+    /// 150-157, corpus master 21a41286). Not consumed yet: ReportLayoutList_AllColumns_* are refused on every major.
+    ReportLayoutListColumnsFrom28,
 }
 
 impl Gate {
@@ -260,6 +264,7 @@ impl Gate {
         Gate::RecordRefIsDirtyFrom28,
         Gate::EmptyTableFindExcludeFlagFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
+        Gate::ReportLayoutListColumnsFrom28,
         Gate::ThreeLineLeavesKeyTwiceAgainFrom29,
         Gate::ReportLayoutSelectionPartNamesFrom29,
         Gate::ReportPartNamePropertiesFrom29,
@@ -365,7 +370,8 @@ impl Gate {
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
-            | Gate::TestRunnerHubRequiredIsolationFrom28 => 28,
+            | Gate::TestRunnerHubRequiredIsolationFrom28
+            | Gate::ReportLayoutListColumnsFrom28 => 28,
         }
     }
 
@@ -512,6 +518,10 @@ impl Gate {
             Gate::EmptyTableFindExcludeFlagFrom28 => &[Evidence {
                 file: "error-handling/lt-last-error-text-forms/FindEmptyTableExcludeFlag.al",
                 lines: "76",
+            }],
+            Gate::ReportLayoutListColumnsFrom28 => &[Evidence {
+                file: "platform/lt-ug-report-layout-list/UgReportLayoutList.al",
+                lines: "116,119,150,153",
             }],
             Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[Evidence {
                 file: "pages/lt-outside-worksheet-2/RtFilteredGoneRow.al",

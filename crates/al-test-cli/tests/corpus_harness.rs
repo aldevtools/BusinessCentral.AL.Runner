@@ -583,7 +583,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // ControlAddInNotInstantiatedErrorFrom28) and refuses on BC 27, so 77540 AC_ControlAddIn_ProcedureCallFromFieldTrigger,
     // 79590 AddinProcedureFromAction, 67122 Addin_PageOpened_OnOpenPageCallsProcedure and Addin_PageVariableNeverOpened_Calls
     // pass on BC 28 and 29 only.
-    assert!(out.contains("runtime: 19 case(s) differ between versions"), "{out}");
+    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 77540 (control add-in calls from page triggers and
+    // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
+    assert!(out.contains("runtime: 27 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

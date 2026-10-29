@@ -731,13 +731,14 @@ table 50002 \"MNC UB Rec\" { fields { field(1; Id; Integer) { } field(2; \"MNC U
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// Issue 6129: only the reading the corpus branch pins but the pinned corpus does not yet hold (a procedure of a
-/// TableNo codeunit) marks the assumption; the field readings are the existing behavior and stay unflagged.
+/// Issue 6129: corpus master now pins the reading in a procedure of a TableNo codeunit
+/// (types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149), so the assumption is retired and no
+/// reading marks it any more; the field readings stay unflagged as before.
 #[test]
-fn issue_6129_only_the_tableno_procedure_reading_is_flagged() {
+fn issue_6129_no_reading_is_flagged_once_pinned() {
     let (diags, marked) = issue_6129_compile(&issue_6129_objects(""), "LT UB Table No");
     assert!(diags.is_empty(), "{diags:?}");
-    assert!(marked);
+    assert!(!marked);
     for obj in ["LT UB Rec", "LT UB Page", "LT UB Global Var"] {
         assert!(!issue_6129_compile(&issue_6129_objects(""), obj).1, "{obj}");
     }
