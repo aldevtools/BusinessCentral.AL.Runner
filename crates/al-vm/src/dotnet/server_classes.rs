@@ -16,8 +16,8 @@
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{
-    AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO, TENANT_SETTINGS_HELPER,
-    TEST_EXECUTION, USER_ACCOUNT_HELPER,
+    AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
+    TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
 };
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
@@ -386,6 +386,87 @@ fn copilot_platform_authorization(_: &mut Session, _: Option<&Rc<DotNetObject>>,
     }
 }
 
+const AKV_PIN: &str = "onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al:84-104 (construct, initialize), :108-120 (TryGetAzureKeyVaultSecret \
+    raises \"Not initialized.\" before and after a failed initialize); registered assumption akv-provider-no-key-vault";
+
+/// `new AzureKeyVaultAppSecretProvider()`: an object (TyAkvProvider.al:84-104, 'construct' gives isnull=No).
+fn akv_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    no_args(args, "AzureKeyVaultAppSecretProvider constructor")?;
+    Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
+        type_name: AKV_PROVIDER.into(),
+        state: RefCell::new(Vec::new()),
+    }))))
+}
+
+/// `InitializeFromCallingAppExceptSystemApplication()`: no app has a key vault here, so it raises
+/// `No key vaults specified for extension '<name> by <publisher> <version>'.` (TyAkvProvider.al:84-104; code
+/// AzureKeyVaultAppSecretProvider). The app is the first one on the call stack that is not the System Application.
+fn akv_initialize(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    no_args(
+        args,
+        "AzureKeyVaultAppSecretProvider.InitializeFromCallingAppExceptSystemApplication",
+    )?;
+    if this.is_none() {
+        return Err(Signal::Unsupported(
+            "DotNet AzureKeyVaultAppSecretProvider.InitializeFromCallingAppExceptSystemApplication on a variable never constructed (not pinned; only TryGetAzureKeyVaultSecret is)"
+                .into(),
+        ));
+    }
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AkvProviderNoKeyVault);
+    let program = &s.engine.program;
+    let app = s
+        .frames
+        .iter()
+        .rev()
+        .filter_map(|o| program.apps.get(program.objects[*o].app as usize))
+        .find(|a| !a.name.eq_ignore_ascii_case("System Application"));
+    let Some(app) = app else {
+        return Err(Signal::Unsupported(
+            "DotNet AzureKeyVaultAppSecretProvider.InitializeFromCallingAppExceptSystemApplication: no app other than the System Application on the call stack"
+                .into(),
+        ));
+    };
+    al_builtins::native::raise(
+        format!(
+            "No key vaults specified for extension '{} by {} {}'.",
+            app.name, app.publisher, app.version
+        ),
+        "AzureKeyVaultAppSecretProvider",
+    )
+}
+
+/// `TryGetAzureKeyVaultSecret(name, var value)`: the provider never initializes, so it raises `Not initialized.`
+/// and leaves the out value as it was (TyAkvProvider.al:108-120).
+fn akv_try_get(s: &mut Session, this: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AkvProviderNoKeyVault);
+    if this.is_none() {
+        // A variable never constructed (TyAkvProvider.al:140-152, TY_Akv_TryGetSecret_NotConstructed): the error names the
+        // routine of the codeunit that made the call.
+        let Some((&object, &frame)) = s.frames.last().zip(s.call_stack.last()) else {
+            return Err(Signal::Unsupported(
+                "DotNet AzureKeyVaultAppSecretProvider.TryGetAzureKeyVaultSecret on a variable never constructed, outside a routine"
+                    .into(),
+            ));
+        };
+        let o = &s.engine.program.objects[object];
+        if o.kind != al_ir::ObjKind::Codeunit || o.uncompiled {
+            return Err(Signal::Unsupported(
+                "DotNet AzureKeyVaultAppSecretProvider.TryGetAzureKeyVaultSecret on a variable never constructed, outside a codeunit (the object kind's spelling in the error is not pinned)"
+                    .into(),
+            ));
+        }
+        let routine = o.routines.get(frame.routine).map_or("", |r| r.name.as_str());
+        return al_builtins::native::raise(
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call {AKV_PROVIDER}.TryGetAzureKeyVaultSecret in CodeUnit {}: {routine}",
+                o.name
+            ),
+            "DotNetVariableNotCreated",
+        );
+    }
+    al_builtins::native::raise("Not initialized.", "AzureKeyVaultAppSecretProvider")
+}
+
 const ENV_PROBE: &str = "probe tests/al-language/session/TestEnvironmentUserTenantContracts.al";
 
 fn member(name: &str, pin: Pin, f: MemberFn) -> RegistryMember {
@@ -722,6 +803,21 @@ fn own_types() -> Vec<RegistryType> {
                 ),
                 copilot_platform_authorization,
             )],
+        },
+        RegistryType {
+            clr_name: AKV_PROVIDER.into(),
+            members: vec![
+                RegistryMember {
+                    kind: MemberKind::Construct,
+                    ..member("AzureKeyVaultAppSecretProvider", Pin::Corpus(AKV_PIN.into()), akv_new)
+                },
+                member(
+                    "InitializeFromCallingAppExceptSystemApplication",
+                    Pin::Corpus(AKV_PIN.into()),
+                    akv_initialize,
+                ),
+                member("TryGetAzureKeyVaultSecret", Pin::Corpus(AKV_PIN.into()), akv_try_get),
+            ],
         },
         RegistryType {
             clr_name: TEST_EXECUTION.into(),

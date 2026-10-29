@@ -2556,6 +2556,15 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
         // an object is refused: whether BC calls Dispose on it, and so whether a stream the object
         // wraps is flushed, is not pinned (docs/probes-needed.md, "Clear of a DotNet variable").
         Value::Null => return Ok(Value::Null),
+        // The App Key Vault provider holds nothing and wraps no stream, so a Dispose would show nothing: Clear of a
+        // constructed one gives an unassigned variable (onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al:95, :114, :134,
+        // `Clear(Provider)` at the start of each test, after the one before assigned it).
+        Value::DotNet(o)
+            if matches!(&o.kind, crate::value::DotNetKind::Internal { type_name, .. }
+                if type_name == crate::dotnet_sigs::AKV_PROVIDER) =>
+        {
+            Value::Null
+        }
         Value::DotNet(o) => {
             let ty = match &o.kind {
                 crate::value::DotNetKind::Host { clr_type, .. } => clr_type.as_str(),

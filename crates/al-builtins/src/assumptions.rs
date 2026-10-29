@@ -784,6 +784,31 @@ registry! {
             since: "2026-10-28",
         },
     },
+    AkvProviderNoKeyVault => {
+        id: "akv-provider-no-key-vault",
+        assumed: "The platform class AzureKeyVaultAppSecretProvider, in an app whose app.json names no key vault, on a server with no Azure Key Vault settings: the constructor gives an object; InitializeFromCallingAppExceptSystemApplication raises `No key vaults specified for extension '<name> by <publisher> <version>'.` (code AzureKeyVaultAppSecretProvider) naming the first calling app that is not the System Application; TryGetAzureKeyVaultSecret raises `Not initialized.` (same code), also after the failed initialization, and leaves the out value untouched. Pinned only for a call straight from the app; the walk past the System Application's own codeunits, and any other app's name, follow the member's name.",
+        tests: "No Microsoft test: a partner app's health check reads a secret through the System Application's App Key Vault Secret Provider.",
+        probe: "Done on writer TY's branch (corpus PR 790): TyAkvProvider.al TY_Akv_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al::TY_Akv_Construct_Initialize",
+                "tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al::TY_Akv_TryGetSecret_NoInitialize",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    RunOnClientStaticCreate => {
+        id: "run-on-client-create",
+        assumed: "`Create()` on a variable declared [RunOnClient] (a client feature such as the camera provider) raises DotNetFromAlNotSupported like the constructor and a static call do: `The operation cannot complete because it uses a feature that is not supported (.NET Framework Interoperability.)`. Pinned only by corpus writer TY's run on real BC, in a local variable behind a GuiAllowed() guard.",
+        tests: "No Microsoft test: a partner app's camera and barcode scanning code behind GuiAllowed().",
+        probe: "Done on writer TY's branch (corpus PR 790): BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al::TY_RunOnClient_GuiAllowedGuard_CameraCreate"],
+            since: "2026-10-29",
+        },
+    },
     IsolatedStorageOverwriteTx => {
         id: "isolated-storage-overwrite-tx",
         assumed: "IsolatedStorage.Set or SetEncrypted over a key that already exists, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a Set of a new key does; the same value, encrypted over plain and plain over encrypted alike. Pinned only by corpus writer TO's run on real BC (right after a Commit).",
