@@ -671,8 +671,20 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             // QrXpContainerOccurs.al TS_Linked_Unbounded_*: same XML, trigger order, import rows and schema errors; `build`
             // registers `xmlport-linked-max-unbounded`).
             let linked = layout.property(i, "LinkTable").is_some();
+            // Without LinkTable, MinOccurs = Once with MaxOccurs = Unbounded, and MinOccurs = Zero with MaxOccurs = Once, run on
+            // export (writer TU's branch al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_NestedTemp_*, TU_NestedReal_*,
+            // xmlports 90128/90129; the VM registers `xmlport-nested-unlinked` and refuses their import).
+            let occurs = |name: &str| layout.property(i, name).map(|v| v.trim().to_ascii_lowercase());
+            let unlinked_pair = match (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()) {
+                (Some("once"), Some("unbounded")) => Some((&["once"][..], &["unbounded"][..])),
+                (Some("zero"), Some("once")) => Some((&["zero"][..], &["once"][..])),
+                _ => None,
+            };
             if layout.direction == ir::XmlDirection::Export || saves {
-                (&["zero"], if linked { &["unbounded"] } else { &[] })
+                match unlinked_pair {
+                    Some(pair) if !linked => pair,
+                    _ => (&["zero"], if linked { &["unbounded"] } else { &[] }),
+                }
             } else {
                 (&[], &[])
             }
@@ -1173,6 +1185,23 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(min_once_assumed(&plain).is_empty());
+    }
+
+    #[test]
+    fn min_once_unbounded_and_min_zero_once_run_on_an_unlinked_nested_table_element() {
+        // Writer TU's branch al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_NestedTemp_* (xmlport 90129).
+        for ok in [
+            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
+            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
+        ] {
+            assert!(layout_of(ok).run_reasons.is_empty(), "{ok}");
+        }
+        for refused in [
+            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
+            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; fieldelement(N; L.X) { } } } } } }",
+        ] {
+            assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");
+        }
     }
 
     #[test]

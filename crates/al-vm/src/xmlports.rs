@@ -1918,6 +1918,11 @@ impl Session {
         keep_key: bool,
     ) -> Result<(), Signal> {
         let n = schema.node(node);
+        if n.max_unbounded == Some(false) && unlinked_below_table(schema, node) {
+            return unsupported(
+                "XmlPort import of a table element with MaxOccurs = Once and no LinkTable below another table element (not pinned)",
+            );
+        }
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
         let mut fresh = self.initial_fields(table);
@@ -2659,7 +2664,10 @@ impl Session {
 
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         inst.borrow_mut().xp_text.push((6, String::new()));
+        let addr = Rc::as_ptr(inst) as usize;
+        self.xp_unlinked_passes.retain(|(a, _, _)| *a != addr);
         let result = self.xp_export_inner(inst, schema, guarded);
+        self.xp_unlinked_passes.retain(|(a, _, _)| *a != addr);
         inst.borrow_mut()
             .xp_text
             .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
@@ -3310,6 +3318,82 @@ impl Session {
     /// order by default), after the table view and the link to the record above
     /// (xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute).
     fn xp_export_table(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Vec<Elem>, Signal> {
+        let unlinked = unlinked_below_table(schema, node);
+        if unlinked {
+            self.xp_unlinked_pass_start(inst, schema, node)?;
+        }
+        let out = self.xp_export_table_pass(inst, schema, node);
+        if unlinked && out.is_ok() {
+            self.xp_unlinked_pass_end(inst, schema, node)?;
+        }
+        out
+    }
+
+    /// The start of a pass of table element `node` without LinkTable right below another table element (writer TU's branch
+    /// al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass `pre item f= at=12` at the second
+    /// line after the first pass set a filter, TU_NestedTemp_TwoTwoTwoFiltered; assumption `xmlport-nested-unlinked`): a later
+    /// pass starts without the filters an earlier pass left, and the record keeps its row. Pinned only when nothing changed
+    /// the record's filters or key between the passes and the key is the one of the first pass; filters of a SourceTableView,
+    /// a filter group or marks, and filters of the code's own at the first pass, are not pinned.
+    fn xp_unlinked_pass_start(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<(), Signal> {
+        let n = schema.node(node);
+        let rec = self.xp_record(inst, n)?;
+        let addr = Rc::as_ptr(inst) as usize;
+        let refuse = |what: &str| {
+            unsupported(format!(
+                "XmlPort export of table element {} (no LinkTable, below another table element): {what} at the start of a pass (not pinned)",
+                n.name
+            ))
+        };
+        let now = UnlinkedPass::of(&rec.borrow());
+        if rec.borrow().marked_only || now.filter_group != 0 {
+            return refuse("marks or a filter group");
+        }
+        match self
+            .xp_unlinked_passes
+            .iter()
+            .find(|(a, i, _)| *a == addr && *i == node)
+        {
+            None => {
+                if !now.filters.is_empty() {
+                    return refuse("filters");
+                }
+                self.xp_unlinked_passes.push((addr, node, now));
+            }
+            Some((_, _, last)) => {
+                if last.filters != now.filters {
+                    return refuse("filters set between two passes");
+                }
+                if last.first_key != now.first_key {
+                    return refuse("a key or direction other than at the first pass");
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportNestedUnlinked);
+                if n.source_view.is_some() || rec.borrow().filters.iter().any(|f| f.group == XP_VIEW_GROUP) {
+                    return refuse("a SourceTableView");
+                }
+                rec.borrow_mut().filters.clear();
+            }
+        }
+        Ok(())
+    }
+
+    /// The end of a pass of table element `node` (`xp_unlinked_pass_start`).
+    fn xp_unlinked_pass_end(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<(), Signal> {
+        let rec = self.xp_record(inst, schema.node(node))?;
+        let addr = Rc::as_ptr(inst) as usize;
+        let now = UnlinkedPass::of(&rec.borrow());
+        if let Some((_, _, last)) = self
+            .xp_unlinked_passes
+            .iter_mut()
+            .find(|(a, i, _)| *a == addr && *i == node)
+        {
+            last.filters = now.filters;
+            last.filter_group = now.filter_group;
+        }
+        Ok(())
+    }
+
+    fn xp_export_table_pass(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Vec<Elem>, Signal> {
         let n = schema.node(node);
         let mut out = Vec::new();
         let mut rows = Vec::new();
@@ -3336,7 +3420,13 @@ impl Session {
         let mut ends_unpinned = false;
         if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
-                if rows.len() > 2 {
+                if rows.len() > 2 && unlinked_below_table(schema, node) {
+                    // Below another table element without LinkTable the record holds the second row afterwards, also of six
+                    // (QrXpContainerOccurs.al TU_NestedReal_SlotNoFilter on writer TU's branch: `get slot 101;get item 12;pre slot
+                    // f= at=102`).
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportNestedUnlinked);
+                    ends_on = Some(rows[1].clone());
+                } else if rows.len() > 2 {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
                     ends_unpinned = true;
                 } else {
@@ -3459,6 +3549,37 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// The filters of a table element record at the end of its last pass and its key at the start of the first
+/// (`Session::xp_unlinked_pass_start`).
+pub(crate) struct UnlinkedPass {
+    filters: String,
+    filter_group: i32,
+    /// The key and direction at the start of the first pass.
+    first_key: String,
+}
+
+impl UnlinkedPass {
+    fn of(r: &al_builtins::value::RecordState) -> UnlinkedPass {
+        UnlinkedPass {
+            filters: if r.filters.is_empty() {
+                String::new()
+            } else {
+                format!("{:?}", r.filters)
+            },
+            filter_group: r.filter_group,
+            first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),
+        }
+    }
+}
+
+/// Whether node `node` is a table element without LinkTable right below another table element.
+fn unlinked_below_table(schema: &Schema, node: usize) -> bool {
+    let n = schema.node(node);
+    n.kind == ir::XmlNodeKind::Table
+        && n.link_node.is_none()
+        && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.
