@@ -951,15 +951,17 @@ registry! {
     },
     XmlportLinkPassReset => {
         id: "xmlport-link-pass-reset",
-        assumed: "XmlPort export of a table element with LinkTable and no LinkFields right below another table element: LinkTable adds no filter, and every pass (each row of the element above) starts from the filters and key the record had at its first pass, with its SourceTableView: filters and a Reset that OnPreXmlItem set at an earlier pass do not carry over. The SourceTableView filters do not show in GetFilters, Count obeys them. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        assumed: "XmlPort export of a table element with LinkTable and no LinkFields right below another table element: LinkTable adds no filter, and every pass (each row of the element above) starts from the filters the record had at its first pass, with its SourceTableView, and from the SourceTableView's sorting (or the primary key without a sorting in the view), ascending: filters, a key, a direction and a Reset that OnPreXmlItem set at an earlier pass do not carry over. The SourceTableView filters do not show in GetFilters, Count obeys them. A key, direction, filter or mark of the code's own on the record at the first pass, and a view with ORDER, are refused. Pinned only by corpus writer TT's and TU's runs on real BC, not yet on corpus master.",
         tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation: tickets below a reply row, reservation detail below an admission row).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_*; wanted: the bump that puts them on corpus master. Open: the key at a later pass after OnPreXmlItem changed it and the next OnPreXmlItem does not set it again (every pinned pass Resets or keeps the view).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt (QrXpContainerOccurs.al TT_Confirm_Export_*) and writer TU's branch al-runtime-rs-staging-tu (QrXpContainerOccurs.al TU_LinkedKey_*, the key per pass); wanted: the bump that puts them on corpus master.",
         awaiting: Awaiting {
             issues: &[],
             files: &[
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_TwoReplies",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_KeyAtFirstPass",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_DescendingAtFirstPass",
             ],
             since: "2026-10-29",
         },

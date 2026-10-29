@@ -2734,7 +2734,8 @@ impl Session {
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
         }
-        self.xp_apply_source_views(inst, schema)?;
+        let view_keys = self.xp_apply_source_views(inst, schema)?;
+        self.xp_pass_key_snapshots(inst, schema, &view_keys)?;
         let bytes = if xp.format == ir::XmlFormat::Xml {
             if xp.utf8 {
                 return unsupported("XmlPort export with TextEncoding = UTF8 (not pinned)");
@@ -2800,8 +2801,9 @@ impl Session {
     /// also descending, exports in the view's order) and its filters are added to the record's (:654 `SetTableView filter
     /// only`; on a linked element to the link, :793 `where on the link field`: Def B has no line of Def A). A view without
     /// sorting keeps the record's key and direction. Pinned for Format = Xml without InlineSchema; the rest is refused.
-    fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
+    fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<Vec<(usize, ViewKey)>, Signal> {
         let xp = schema.xp();
+        let mut keys = Vec::new();
         let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
         for (i, n) in xp.nodes.iter().enumerate() {
             let Some(raw) = n.source_view.as_deref() else { continue };
@@ -2849,6 +2851,9 @@ impl Session {
             };
             self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
             let mut r = rec.borrow_mut();
+            if lower.contains("sorting") {
+                keys.push((i, (r.key, r.adhoc.clone())));
+            }
             if again || !lower.contains("sorting") {
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
             } else if !lower.contains("order") {
@@ -2861,7 +2866,7 @@ impl Session {
             filters.extend(r.filters.iter().filter(|f| f.group == XP_VIEW_GROUP).cloned());
             r.filters = filters;
         }
-        Ok(())
+        Ok(keys)
     }
 
     /// The export of a port with `InlineSchema = true`: the root, an XSD with a complex type for the table element and one
@@ -3475,12 +3480,66 @@ impl Session {
         Ok(out)
     }
 
+    /// The key each table element with LinkTable and no LinkFields below another table element has once the SourceTableViews are
+    /// applied, before the first row of the export is read (`xp_pass_start`). Only the view's sorting (ascending; a later export on
+    /// the same instance keeps the record's key, pinned only while it is the view's) or the primary key ascending without a
+    /// sorting in the view is pinned (writer TU's branch
+    /// al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_LinkedKey_NoChange `pre c1 [VERSION(1) SORTING(Field2)]` with
+    /// `sorting(A)`, `pre d1 [VERSION(1) SORTING(Field1)]` without a view).
+    fn xp_pass_key_snapshots(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        view_keys: &[(usize, ViewKey)],
+    ) -> Result<(), Signal> {
+        let addr = Rc::as_ptr(inst) as usize;
+        for node in 0..schema.xp().nodes.len() {
+            let n = schema.node(node);
+            if !nested_table(schema, node) || n.link_node.is_none() || !n.link_fields.is_empty() {
+                continue;
+            }
+            let view = n
+                .source_view
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .replace(' ', "");
+            let rec = self.xp_record(inst, n)?;
+            let r = rec.borrow();
+            // A later export on the same instance keeps the record's key (`xp_apply_source_views`): pinned only while it is still the
+            // view's own.
+            let ascending = r.ascending && r.field_descending == 0;
+            let by_view = view.contains("sorting(")
+                && ascending
+                && view_keys
+                    .iter()
+                    .any(|(i, (k, a))| *i == node && *k == r.key && *a == r.adhoc);
+            let primary = !view.contains("sorting(") && r.key == 0 && r.adhoc.is_none() && ascending;
+            let v = PassView {
+                filters: Vec::new(),
+                filter_group: r.filter_group,
+                key: r.key,
+                adhoc: r.adhoc.clone(),
+                ascending: r.ascending,
+                field_descending: r.field_descending,
+                pinned_key: !view.contains("order(") && (by_view || primary),
+                started: false,
+            };
+            drop(r);
+            self.xp_pass_views.push((addr, node, v));
+        }
+        Ok(())
+    }
+
     /// The start of a pass of table element `node` with LinkTable and no LinkFields below another table element: LinkTable adds no
-    /// filter, and every pass after the first starts from the filters and key the record had at the first, its SourceTableView
-    /// included, whatever OnPreXmlItem of an earlier pass set or reset (writer TT's branch al-runtime-rs-staging-tt,
-    /// QrXpContainerOccurs.al TT_Confirm_Export_NpFilters `pre detail a2 filters= count=5` after a1's Reset and filters,
-    /// TT_Confirm_Export_TwoReplies `pre ticket filters=` at reply 2; assumption `xmlport-link-pass-reset`). Filters of the code's
-    /// own on the record at the first pass are not pinned.
+    /// filter, and every pass after the first starts from the filters the record had at the first, its SourceTableView included,
+    /// whatever OnPreXmlItem of an earlier pass set or reset (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
+    /// TT_Confirm_Export_NpFilters `pre detail a2 filters= count=5` after a1's Reset and filters, TT_Confirm_Export_TwoReplies
+    /// `pre ticket filters=` at reply 2; assumption `xmlport-link-pass-reset`), and from the SourceTableView's key, or the primary
+    /// key without a sorting in the view, ascending, whatever key or direction OnPreXmlItem of an earlier pass set (writer TU's
+    /// branch al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_LinkedKey_KeyAtFirstPass, _KeyDescendingAtFirstPass,
+    /// _DescendingAtFirstPass, _ResetAtFirstPass, _KeyAtSecondPass, _KeyAtEveryPass). Filters, marks, a key or a direction of the
+    /// code's own on the record at the first pass are not pinned.
     fn xp_pass_start(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<(), Signal> {
         let n = schema.node(node);
         if !nested_table(schema, node) || n.link_node.is_none() || !n.link_fields.is_empty() {
@@ -3488,8 +3547,14 @@ impl Session {
         }
         let rec = self.xp_record(inst, n)?;
         let addr = Rc::as_ptr(inst) as usize;
-        if let Some((_, _, v)) = self.xp_pass_views.iter().find(|(a, i, _)| *a == addr && *i == node) {
-            let v = v.clone();
+        let Some(pos) = self.xp_pass_views.iter().position(|(a, i, _)| *a == addr && *i == node) else {
+            return unsupported(format!(
+                "XmlPort export of table element {} (LinkTable without LinkFields below another table element) outside an XML export (not pinned)",
+                n.name
+            ));
+        };
+        let v = self.xp_pass_views[pos].2.clone();
+        if v.started {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkPassReset);
             let mut r = rec.borrow_mut();
             r.filters = v.filters;
@@ -3501,24 +3566,31 @@ impl Session {
             r.marked_only = false;
             return Ok(());
         }
-        let v = {
-            let r = rec.borrow();
-            if r.marked_only || r.filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
-                return unsupported(format!(
-                    "XmlPort export of table element {} (LinkTable without LinkFields below another table element) whose record has filters or marks of the code's own (not pinned)",
-                    n.name
-                ));
-            }
-            PassView {
-                filters: r.filters.clone(),
-                filter_group: r.filter_group,
-                key: r.key,
-                adhoc: r.adhoc.clone(),
-                ascending: r.ascending,
-                field_descending: r.field_descending,
-            }
-        };
-        self.xp_pass_views.push((addr, node, v));
+        let r = rec.borrow();
+        if !v.pinned_key
+            || r.key != v.key
+            || r.adhoc != v.adhoc
+            || r.ascending != v.ascending
+            || r.field_descending != v.field_descending
+        {
+            return unsupported(format!(
+                "XmlPort export of table element {} (LinkTable without LinkFields below another table element) whose record has a key or direction other than its SourceTableView's sorting or the primary key ascending at the first pass (not pinned)",
+                n.name
+            ));
+        }
+        if r.marked_only || r.filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
+            return unsupported(format!(
+                "XmlPort export of table element {} (LinkTable without LinkFields below another table element) whose record has filters or marks of the code's own (not pinned)",
+                n.name
+            ));
+        }
+        let filters = r.filters.clone();
+        let filter_group = r.filter_group;
+        drop(r);
+        let e = &mut self.xp_pass_views[pos].2;
+        e.filters = filters;
+        e.filter_group = filter_group;
+        e.started = true;
         Ok(())
     }
 
@@ -3556,6 +3628,9 @@ impl Session {
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.
+/// The key and ad hoc key a SourceTableView's sorting gives a table element record.
+type ViewKey = (usize, Option<(usize, Vec<usize>)>);
+
 /// The view of a table element record at its first pass of an export (`Session::xp_pass_start`).
 #[derive(Clone)]
 pub(crate) struct PassView {
@@ -3565,6 +3640,10 @@ pub(crate) struct PassView {
     adhoc: Option<(usize, Vec<usize>)>,
     ascending: bool,
     field_descending: u32,
+    /// Whether the key at the export's start is one TU pinned (the view's sorting or the primary key, ascending).
+    pinned_key: bool,
+    /// Whether the first pass ran (its filters are recorded).
+    started: bool,
 }
 
 /// Whether node `node` is a table element right below another table element.
