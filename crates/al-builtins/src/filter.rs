@@ -421,7 +421,11 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
                 '=' => Some("="),
                 '(' => Some("("),
                 ')' => Some(")"),
-                '@' => Some("@"),
+                // `@` makes the value case-insensitive only where a value starts; after the first character of a value it is a
+                // normal character (filters/W4Filters.al UN_SetView_AtSignInValue_Text, _Text_2, _TextMore_2, _TextMore_3 on
+                // writer UN's corpus branch, commit d3bcc580: `a@b.dk`, `@a@b.dk`, `*@b*`, `ab@`, Code `AT1@`; assumption
+                // `filter-at-sign-in-value`).
+                '@' if raw.trim().is_empty() => Some("@"),
                 _ => None,
             });
         if let Some(op) = op {
@@ -525,6 +529,9 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
             out.push(Tok::Typed(arg));
             i += 2;
         } else {
+            if c[i] == '@' {
+                crate::assumptions::assume(crate::assumptions::Assumption::FilterAtSignInValue);
+            }
             raw.push(c[i]);
             i += 1;
         }
@@ -1099,6 +1106,28 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// filters/W4Filters.al UN_SetView_AtSignInValue_* (writer UN's corpus branch, commit d3bcc580): an `@` after the first
+    /// character of a value is a normal character; `@` where a value starts still ignores case.
+    #[test]
+    fn an_at_sign_inside_a_value_is_a_character() {
+        use crate::value::RtType as T;
+        let txt = T::Text(Some(30));
+        let p = |t: &str, ty: &T| parse_filter(t, &[], ty).unwrap_or_else(|e| panic!("{t}: {e}"));
+        let m = |e: &FilterExpr, v: &str| e.matches(&Value::Text(v.to_string().into()));
+        let e = p("a@b.dk", &txt);
+        assert!(m(&e, "a@b.dk") && !m(&e, "A@B.DK"));
+        let e = p("@a@b.dk", &txt);
+        assert!(m(&e, "a@b.dk") && m(&e, "A@B.DK") && !m(&e, "b@a.dk"));
+        let e = p("*@b*", &txt);
+        assert!(m(&e, "a@b.dk") && !m(&e, "A@B.DK") && !m(&e, "b@a.dk"));
+        let e = p("ab@", &txt);
+        assert!(m(&e, "ab@") && !m(&e, "ab"));
+        let e = p("@abc|@xabc", &txt);
+        assert!(m(&e, "ABC") && m(&e, "xAbc") && !m(&e, "@abc"));
+        let e = p("AT1@", &T::Code(Some(20)));
+        assert!(m(&e, "AT1@") && !m(&e, "AT1"));
+    }
 
     /// record/lt-record-read/RcAFilters.al:SetFilter_Integer_Invalid and events/lt-platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal,
     /// Bad_Time: the value that fails is named with its type; texts the corpus does not pin stay refused.
