@@ -615,3 +615,17 @@ fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
          N := I.Read(T); exit('');"
     ));
 }
+
+// streams/lt-dd-stream-leads/DdStreamLeads.al:502 (Item68_Utf8Bom `read utf8`): Read(Text) of a UTF-8 stream skips the mark.
+// File Management.GetFileContents reads a report's SaveAsXml file (EF BB BF first) this way for Library - Report Dataset.
+#[test]
+fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark() {
+    let vars = base!("C: Char;");
+    let body = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); I.Read(T); exit(T);";
+    assert_eq!(text(vars, body), "<a/>");
+    // The count it returns over a mark is not pinned.
+    let used = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
+    assert!(refused(vars, used));
+}

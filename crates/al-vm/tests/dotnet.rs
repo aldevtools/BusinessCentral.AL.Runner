@@ -129,6 +129,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
     type(\"Microsoft.Dynamics.Nav.Runtime.PermissionTestHelper\"; \"PermissionTestHelper\") { }
@@ -140,6 +141,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
   }
   assembly(\"mscorlib\") {
     type(\"System.IO.Stream\"; \"Stream\") { }
+    type(\"System.IO.StreamReader\"; \"StreamReader\") { }
     type(\"System.Object\"; \"ClrObject\") { }
     type(\"System.Byte[]\"; \"ClrBytes\") { }
     type(\"System.IO.MemoryStream\"; \"MsMemoryStream\") { }
@@ -615,10 +617,10 @@ fn a_dotnet_variable_can_hold_a_primitive_and_a_member_of_it_is_called_on_the_bo
 #[test]
 fn policy_refusals_name_the_rule_and_never_reach_the_host() {
     let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
-    let r = run(&host, "F: DotNet File;", "F.Delete('x');", "");
+    let r = run(&host, "F: DotNet FileInfo;", "F := F.FileInfo('x');", "");
     let why = unsupported(&r);
     assert!(
-        why.contains("System.IO.File") && why.contains("refused by policy"),
+        why.contains("System.IO.FileInfo") && why.contains("refused by policy"),
         "{why}"
     );
     let r = run(&host, "E: DotNet ExchangeService;", "E.Foo();", "");
@@ -659,6 +661,30 @@ fn a_server_class_on_the_pure_list_reaches_the_host() {
         ": Text",
     );
     assert_eq!(text(r), "aGk");
+}
+
+/// Owner decision 2026-10-29: the OpenXml spreadsheet classes are pure; the file name form of Create writes a file.
+#[test]
+fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, _)
+            if t.name == "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter" && m == "Create" =>
+        {
+            reply(DotNetValue::Int32(1))
+        }
+        other => panic!("unexpected {other:?}"),
+    });
+    let r = run(&host, "W: DotNet WorkbookWriter;", "W.Create('x.xlsx');", "");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("WorkbookWriter.Create") && why.contains("text argument"),
+        "{why}"
+    );
+    assert_eq!(host.log(), vec![]);
+    // A call with no text argument reaches the host.
+    let r = run(&host, "W: DotNet WorkbookWriter; N: Integer;", "N := W.Create(1);", "");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(!host.log().is_empty());
 }
 
 // ---- lifetime ----------------------------------------------------------------------------
@@ -2062,8 +2088,6 @@ fn static_directory_and_file_calls_on_the_temporary_folder_are_served_by_the_com
     let vars = "Directory: DotNet Directory; File: DotNet File; F: File; R: Text;";
     let r = run_temp(&host, vars, TEMP_OPS, Some(TempFolder::default()));
     assert_eq!(text(r), "NoYesYesNoNo");
-    let r = run_temp(&host, vars, TEMP_OPS, None);
-    assert!(unsupported(&r).contains("System.IO.Directory"), "{}", unsupported(&r));
     assert!(host.calls().is_empty(), "{:?}", host.calls());
 }
 
@@ -2105,6 +2129,216 @@ fn xml_document_save_to_a_file_of_the_temporary_folder_saves_into_a_stream_and_w
     let vars = "X: DotNet XmlDocument; F: File; I: InStream; T: Text;";
     let r = run_temp(&host, vars, body, Some(TempFolder::default()));
     assert_eq!(text(r), "<a />");
+}
+
+// ---- ADR-056: the session's in-memory file system serves .NET's file calls ---------------------------------------
+
+/// A file system that is neither in memory nor the company build's (as `--files-dir`): .NET file calls stay refused.
+struct OnDisk;
+
+impl al_host::FileSystem for OnDisk {
+    fn read(&self, _: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn write(&mut self, _: &str, _: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+    fn exists(&self, _: &str) -> bool {
+        false
+    }
+    fn remove(&mut self, _: &str) -> bool {
+        false
+    }
+}
+
+fn run_mem(host: &Fake, vars: &str, body: &str) -> Ran {
+    run_temp(host, vars, body, None)
+}
+
+// The same calls as the company build's (QxDotNetDemoShapes.al:279-302, :306-357), on the default in-memory file system of
+// every session (ADR-056), never through the .NET host.
+#[test]
+fn static_directory_and_file_calls_are_served_by_the_in_memory_file_system() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let vars = "Directory: DotNet Directory; File: DotNet File; F: File; R: Text;";
+    let r = run_mem(&host, vars, TEMP_OPS);
+    assert_eq!(text(r), "NoYesYesNoNo");
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
+}
+
+// RD_DirectoryExists_Static, QxDotNetDemoShapes.al:279-302: missing No, created Yes, with a closing separator Yes, a file
+// No, '' No, TemporaryPath Yes, deleted No.
+#[test]
+fn directory_exists_answers_as_the_corpus_pins_it_on_the_in_memory_file_system() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let body = "P := TemporaryPath() + 'ltrd1';
+        R := Format(Directory.Exists(P));
+        Directory.CreateDirectory(P);
+        R += Format(Directory.Exists(P)) + Format(Directory.Exists(P + '/'));
+        F.TextMode(true); F.Create(P + '/f.txt'); F.Write('x'); F.Close();
+        R += Format(Directory.Exists(P + '/f.txt')) + Format(Directory.Exists('')) + Format(Directory.Exists(TemporaryPath()));
+        Directory.Delete(P, true);
+        R += Format(Directory.Exists(P)) + Format(File.Exists(P + '/f.txt'));
+        exit(R);";
+    let vars = "Directory: DotNet Directory; File: DotNet File; F: File; P: Text; R: Text;";
+    assert_eq!(text(run_mem(&host, vars, body)), "NoYesYesNoNoYesNoNo");
+}
+
+// Library - Report Dataset.LoadXMLDocumentFromFile checks the file a report's SaveAsXml wrote with DotNet File.Exists.
+#[test]
+fn file_exists_sees_what_al_wrote_and_marks_the_assumption() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let body = "F.TextMode(true); F.Create('temp/1.xml'); F.Write('x'); F.Close();
+        exit(Format(File.Exists('temp/1.xml')) + Format(File.Exists('temp/2.xml')) + Format(File.Exists('C:\\x.txt')));";
+    let vars = "File: DotNet File; F: File;";
+    al_builtins::assumptions::take_hits();
+    let r = run_mem(&host, vars, body);
+    let hits = al_builtins::assumptions::take_hits();
+    assert_eq!(text(r), "YesNoNo");
+    assert!(
+        hits.contains(&al_builtins::assumptions::Assumption::DotNetFileExistsSeesRunFiles),
+        "{hits:?}"
+    );
+}
+
+// Windows matches paths without case and takes `/` for `\`; whether a path that differs only so names the file is not
+// pinned: refused, never answered No.
+#[test]
+fn a_path_that_names_a_written_file_only_ignoring_case_or_separators_is_refused() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let vars = "File: DotNet File; Directory: DotNet Directory; F: File;";
+    for probe in [
+        "File.Exists('TEMP/1.XML')",
+        "File.Exists('temp\\1.xml')",
+        "Directory.Exists('\\TEMP\\D')",
+    ] {
+        let body = format!(
+            "Directory.CreateDirectory('\\TEMP\\d'); F.TextMode(true); F.Create('temp/1.xml'); F.Write('x'); F.Close(); exit(Format({probe}));"
+        );
+        let r = run_mem(&host, vars, &body);
+        assert!(
+            unsupported(&r).contains("ignoring case"),
+            "{probe}: {}",
+            unsupported(&r)
+        );
+    }
+}
+
+#[test]
+fn file_and_directory_members_outside_the_adr_are_refused_without_reaching_the_host() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    for body in [
+        "exit(File.ReadAllText('temp/1.xml'));",
+        "File.WriteAllText('temp/1.xml', 'x'); exit('ran');",
+        "File.Copy('temp/1.xml', 'temp/2.xml'); exit('ran');",
+        "File.Delete('temp/missing.xml'); exit('ran');",
+        "Directory.Delete('\\TEMP\\missing', true); exit('ran');",
+    ] {
+        let r = run_mem(&host, "File: DotNet File; Directory: DotNet Directory;", body);
+        assert!(unsupported(&r).contains("System.IO."), "{body}: {}", unsupported(&r));
+    }
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
+}
+
+#[test]
+fn with_a_files_directory_dotnet_file_calls_stay_refused() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let (program, blocked, oi, ri) = compile(
+        "File: DotNet File;",
+        "exit(Format(File.Exists('temp/1.xml')));",
+        ": Text",
+    );
+    let engine = Engine::with_dotnet(program, blocked, cfg(&host));
+    let mut s = Session::with_host(engine, al_host::Host::default().with_files(OnDisk));
+    let inst = s.instance(oi);
+    let r = Ran {
+        result: s.call(oi, ri, inst, vec![]).map(|(v, _)| v),
+        session: None,
+    };
+    assert!(
+        unsupported(&r).contains("touches the file system"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+// XmlDocument.Save of a file: .NET saves into an AL stream and the bytes become the file of the in-memory file system,
+// as in the company build (QxDotNetDemoShapes.al:370-377).
+#[test]
+fn xml_document_save_to_a_file_writes_the_in_memory_file_system() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        Req::Invoke(DotNetTarget::Instance(4), m, a) if m == "Save" => {
+            assert_eq!(a[0].value, DotNetValue::OutStream);
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    bridges: vec![(0, 9)],
+                    written: vec![(9, b"<a />".to_vec())],
+                    ..Default::default()
+                },
+            })
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    let body = "X := X.XmlDocument(); X.Save('temp/1.xml');
+        F.Open('temp/1.xml'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
+    let vars = "X: DotNet XmlDocument; F: File; I: InStream; T: Text;";
+    assert_eq!(text(run_mem(&host, vars, body)), "<a />");
+}
+
+#[test]
+fn xml_document_save_into_a_folder_that_does_not_exist_is_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let r = run_mem(
+        &host,
+        "X: DotNet XmlDocument;",
+        "X := X.XmlDocument(); X.Save('\\TEMP\\nofolder\\1.xml'); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("does not exist"), "{}", unsupported(&r));
+}
+
+// XmlDocument.Load of a file: .NET reads the file's bytes as a stream (Library - XPath XML Reader, Library - Report Dataset).
+#[test]
+fn xml_document_load_of_a_file_reads_it_from_the_in_memory_file_system() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        Req::Invoke(DotNetTarget::Instance(4), m, a) if m == "Load" => {
+            assert_eq!(a[0].value, DotNetValue::InStream(b"<a />\r\n".to_vec()));
+            reply(DotNetValue::Null)
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    let body = "F.TextMode(true); F.Create('temp/1.xml'); F.Write('<a />'); F.Close();
+        X := X.XmlDocument(); X.Load('temp/1.xml'); exit('ran');";
+    assert_eq!(text(run_mem(&host, "X: DotNet XmlDocument; F: File;", body)), "ran");
+    let host = Fake::new(|r| match r {
+        Req::Construct(t, _) if t == "System.Xml.XmlDocument" => reply(handle(4, "System.Xml.XmlDocument")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let r = run_mem(
+        &host,
+        "X: DotNet XmlDocument;",
+        "X := X.XmlDocument(); X.Load('temp/none.xml'); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("does not exist"), "{}", unsupported(&r));
+}
+
+// Any other .NET member that opens a file by its path would reach the real disk through the helper: refused (ADR-056).
+#[test]
+fn a_dotnet_constructor_that_opens_a_file_by_path_is_refused_before_the_host() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run_mem(
+        &host,
+        "R: DotNet StreamReader;",
+        "R := R.StreamReader('temp/1.xml'); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("file by its path"), "{}", unsupported(&r));
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
 }
 
 // ---- An AL stream held by a DotNet System.IO.Stream (SgDotNetStreams.al) ------------------

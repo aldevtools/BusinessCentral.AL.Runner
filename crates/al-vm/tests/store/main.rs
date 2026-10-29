@@ -12,6 +12,7 @@ mod find_other_key;
 mod fix_records;
 mod flowfield_write;
 mod flowfields;
+mod fresh_record_template;
 mod general_journal;
 mod get_recordid_other_table;
 mod global_filter_group;

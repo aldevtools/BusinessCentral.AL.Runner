@@ -1321,8 +1321,8 @@ impl Session {
 
     /// A leaf text element (no attributes or elements in the schema) read from `ce`: `<x />` runs its OnAfterAssignVariable
     /// twice, `<x></x>`, `<x> </x>` and `<x>v</x>` once, below the root, below a table element and inside a text element below a
-    /// table element (QrXpContainerOccurs.al TR_EmptyLeaf_Import on writer TR's branch al-runtime-rs-staging-tr, real BC 29; a
-    /// registered assumption until the bump). The variable is set to the empty text again before the second run (the corpus
+    /// table element (QrXpContainerOccurs.al TR_EmptyLeaf_Import; deeper text elements run on the assumption
+    /// `xmlport-self-closed-leaf-assign-twice`). The variable is set to the empty text again before the second run (the corpus
     /// triggers only read it). A Break or Quit in the first run ends the import before the second run would come: not pinned.
     fn xp_assign_leaf_text(&mut self, inst: &Inst, schema: &Schema, node: usize, ce: &Elem) -> Result<(), Signal> {
         // `<x> </x>` gives the empty text (TR_EmptyLeaf_Import `space`: `top=[];`).
@@ -2094,13 +2094,6 @@ impl Session {
                     }
                 }
                 ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() => {
-                    if text_in_table(schema, child) == Some(TextInTable::Nested) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::XmlportNestedTextInTable,
-                        );
-                    } else {
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTextInTable);
-                    }
                     self.xp_import_text_in_table(inst, schema, child, ce, &mut assigned)?;
                 }
                 // A text element holding only attributes, of the row's fields or its own (xmlport/lt-sg-xmlport-occurs/
@@ -2118,7 +2111,6 @@ impl Session {
                 // they stay in the temporary table across outer rows (QrXpContainerOccurs.al TP_Unlinked_Import,
                 // TP_Unlinked_Import_Shapes on branch al-runtime-rs-staging-pub-tp).
                 ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
                     let mut seq = Sequence::new(schema, child);
                     let mut seen = false;
                     for ie in ce.elements() {
@@ -3075,15 +3067,6 @@ impl Session {
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() || nested_inner(schema, child) => {
-                    let nested =
-                        text_in_table(schema, child) == Some(TextInTable::Nested) || nested_inner(schema, child);
-                    if nested {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::XmlportNestedTextInTable,
-                        );
-                    } else {
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTextInTable);
-                    }
                     let text = got!(self.xp_pass_variable(inst, schema, child));
                     if !text.is_empty()
                         && matches!(
@@ -3146,12 +3129,6 @@ impl Session {
                         al_builtins::assumptions::assume(
                             al_builtins::assumptions::Assumption::XmlportDefaultContainerUnlinked,
                         );
-                    } else if unlinked_container(schema, child, node) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText,
-                        );
-                    } else {
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
                     }
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
@@ -3486,7 +3463,6 @@ impl Session {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
                     ends_unpinned = true;
                 } else {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
                     ends_on = rows.pop();
                 }
             }
@@ -4112,7 +4088,7 @@ fn export_triggers_below(schema: &Schema, node: usize) -> bool {
 }
 
 /// The two shapes of a text element right below a table element that the corpus pins with its triggers and text
-/// (assumption `xmlport-text-in-table`; corpus branch al-runtime-rs-staging-pub-to,
+/// (
 /// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*, objects
 /// ToXpTextInTableObjects.al xmlports 90001-90003; the same test as al-sema xmlports.rs `text_in_table_shape`).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4121,8 +4097,8 @@ enum TextInTable {
     Attrs,
     /// Text attributes and leaf text and field elements, at least one element (xmlport 90003).
     Content,
-    /// Field and text attributes and exactly one text element whose nodes are only text attributes (assumption
-    /// `xmlport-nested-text-in-table`; corpus branch al-runtime-rs-staging-pub-tp, QrXpContainerOccurs.al TP_Nested_*, xmlport
+    /// Field and text attributes and exactly one text element whose nodes are only text attributes (
+    /// QrXpContainerOccurs.al TP_Nested_*, xmlport
     /// 90022 in TpXpNestedObjects.al): `<entry no="R1" status="open"><admission option_value="1">A1</admission></entry>`.
     Nested,
 }
@@ -4185,7 +4161,7 @@ fn attr_container(schema: &Schema, c: usize) -> bool {
 
 /// A text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`,
 /// holding only one temporary table element without LinkTable and with `MinOccurs = Zero` whose nodes are only field
-/// attributes (assumption `xmlport-unlinked-temp-in-text`; corpus branch al-runtime-rs-staging-pub-tp,
+/// attributes (
 /// xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TP_Unlinked_*, xmlport 90023 in TpXpNestedObjects.al).
 fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
@@ -4215,7 +4191,7 @@ fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
 /// For export only: a text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and
 /// `MaxOccurs = Once`, holding only one temporary table element without LinkTable that is optional (`MinOccurs = Zero`) or
 /// required and repeating (`MinOccurs = Once`, `MaxOccurs = Unbounded`), with any nodes the export supports below it
-/// (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr, QrXpContainerOccurs.al TR_Booking_*, xmlport
+/// (QrXpContainerOccurs.al TR_Booking_*, xmlport
 /// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`). Leaf field elements of the
 /// outer table without triggers may come before the inner table (TR_Member_*, xmlport 90065: `member` > `membernumber`,
 /// `email`, `card`).

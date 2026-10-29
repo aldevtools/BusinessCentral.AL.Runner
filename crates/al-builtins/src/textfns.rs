@@ -82,22 +82,18 @@ pub(crate) fn int_or_decimal(a: &[Value], i: usize) -> Result<i64, Signal> {
 }
 
 /// A Decimal where one of these text functions takes an Integer: a whole value is that Integer, a fraction raises
-/// ConversionCast with the value as written (corpus branch al-runtime-rs-staging-pub-tg, text/lt-text-functions/
-/// PadStr.Codeunit.al:122-235, CopyStr, DelStr, InsStr and SelectStr `*Decimal*` tests; awaiting the bump, so marked).
+/// ConversionCast with the value as written (text/lt-text-functions/
+/// PadStr.Codeunit.al:122-235, CopyStr, DelStr, InsStr and SelectStr `*Decimal*` tests).
 /// A whole value beyond the Integer range is not pinned.
 pub(crate) fn decimal_as_int(d: &rust_decimal::Decimal) -> Result<i64, Signal> {
     if !d.fract().is_zero() {
-        crate::assumptions::assume(crate::assumptions::Assumption::TextFnDecimalArgument);
         return raise(
             format!("Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value {d} to System.Int32."),
             "ConversionCast",
         );
     }
     match i32::try_from(d.trunc().mantissa() / 10i128.pow(d.trunc().scale())) {
-        Ok(n) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::TextFnDecimalArgument);
-            Ok(i64::from(n))
-        }
+        Ok(n) => Ok(i64::from(n)),
         Err(_) => unsupported(format!(
             "a whole Decimal {d} beyond the Integer range as a text function argument (not pinned)"
         )),

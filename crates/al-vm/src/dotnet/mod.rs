@@ -339,6 +339,20 @@ impl Session {
             );
         }
 
+        // ADR-056: outside the company build, .NET reads and writes files only in the session's in-memory file system.
+        // XmlDocument.Save and Load of a file there go through an AL stream; any other member that opens a file by its
+        // path would reach the real disk through the helper and is refused.
+        if !self.company_build
+            && save_to.is_none()
+            && let [Value::Text(p) | Value::Code(p), ..] = values.as_slice()
+            && opens_file_by_path(&clr_type, &member, kind)
+        {
+            let p = p.to_string();
+            if let Err(why) = self.in_memory_file_argument(&clr_type, &member, &p, &mut values, &mut save_to) {
+                return unsupported(format!("DotNet {shown}: {why} (ADR-056)"));
+            }
+        }
+
         // 2. The host provider, after the policy (ADR-014 section 8).
         let assembly = match &target {
             Target::Static(d) => Some(d.assembly.as_str()),
@@ -346,6 +360,8 @@ impl Session {
         };
         let access = if kind == MemberKind::Construct {
             Access::Construct(values.len())
+        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
+            Access::MemberWithText(&member)
         } else {
             Access::Member(&member)
         };
@@ -428,6 +444,23 @@ impl Session {
                         );
                     }
                 }
+                // System.Enum.Parse(type, name) of a name that is not a member (also one in another case): writer TV, corpus
+                // branch al-runtime-rs-staging-tv 8ae7ac0b, lt-bb-dotnet/BbGetDotNetType.al
+                // TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (assumption dotnet-type-unassigned-enum).
+                if kind == MemberKind::Call
+                    && matches!(target, Target::Static(_))
+                    && clr_type.eq_ignore_ascii_case("System.Enum")
+                    && member.eq_ignore_ascii_case("Parse")
+                    && values.len() == 2
+                    && e.clr_type == "System.ArgumentException"
+                    && e.message.starts_with("Requested value '")
+                {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                    return al_builtins::native::raise(
+                        format!("A call to System.Enum.Parse failed with this message: {}", e.message),
+                        "DotNetInvoke:Argument",
+                    );
+                }
                 // Encoding.GetEncoding: the sidecar registers the code-page provider, as BC's server answers code pages
                 // (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
                 // Pinned failures: a code page out of range (ArgumentOutOfRange, :168 and :244, 99999) and an unknown
@@ -474,11 +507,14 @@ impl Session {
             Some(Value::Text(p) | Value::Code(p)) => p.to_string(),
             _ => return None,
         };
-        if !self.host.files.serves_path(&path) {
-            return None;
-        }
         let ty = ty.to_ascii_lowercase();
         let member = member.to_ascii_lowercase();
+        if !self.host.files.serves_path(&path) {
+            if self.host.files.in_memory() && matches!(ty.as_str(), "system.io.file" | "system.io.directory") {
+                return Some(self.in_memory_call(&ty, &member, &path, &values[1..], shown));
+            }
+            return None;
+        }
         let fs = &mut self.host.files;
         let refused = |why: String| Some(unsupported(format!("DotNet {shown}: {why}")));
         match (ty.as_str(), member.as_str(), &values[1..]) {
@@ -509,6 +545,114 @@ impl Session {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// ADR-056: `XmlDocument.Save(path)` saves into an AL stream whose bytes become the file (`save_to`), `XmlDocument.Load(path)`
+    /// reads the file's bytes as a stream, both in the in-memory file system; anything else that opens a file by its path is
+    /// refused. The folder of a saved file must exist, and a loaded file must exist: the .NET exceptions are not pinned.
+    fn in_memory_file_argument(
+        &mut self,
+        clr_type: &str,
+        member: &str,
+        path: &str,
+        values: &mut [Value],
+        save_to: &mut Option<(String, al_builtins::stream::BlobRef)>,
+    ) -> Result<(), String> {
+        let xml = clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") && values.len() == 1;
+        let save = xml && member.eq_ignore_ascii_case("Save");
+        let load = xml && member.eq_ignore_ascii_case("Load");
+        if !self.host.files.in_memory() || !(save || load) {
+            return Err("a .NET member that opens a file by its path (it would reach the real disk)".into());
+        }
+        if let Some(other) = self.host.files.near_match(path) {
+            return Err(format!(
+                "the path names '{other}' only ignoring case or `/` against `\\`; whether BC finds it is not pinned"
+            ));
+        }
+        let lib = |v: LibraryValue, k| Value::Library(k, std::rc::Rc::new(std::cell::RefCell::new(v)));
+        if save {
+            let folder = path.rfind(['/', '\\']).map(|i| &path[..i]);
+            if !folder.is_some_and(|d| self.host.files.dir_exists(d)) {
+                return Err("the folder of the file does not exist in the in-memory file system".into());
+            }
+            let blob = al_builtins::stream::new_blob();
+            *save_to = Some((path.to_string(), blob.clone()));
+            values[0] = lib(
+                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default()),
+                al_builtins::library_kind::LibraryKind::OutStream,
+            );
+            return Ok(());
+        }
+        let bytes = match al_builtins::native::Ctx::fs_read(self, path) {
+            Ok(Some(b)) => b,
+            Ok(None) => return Err("the file does not exist in the in-memory file system".into()),
+            Err(Signal::Unsupported(why)) => return Err(why),
+            Err(_) => return Err("the file cannot be read".into()),
+        };
+        values[0] = lib(
+            LibraryValue::InStream(al_builtins::stream::InState::snapshot(
+                bytes,
+                al_builtins::stream::Encoding::default(),
+            )),
+            al_builtins::library_kind::LibraryKind::InStream,
+        );
+        Ok(())
+    }
+
+    /// ADR-056: a static System.IO.File or System.IO.Directory call (`ty` and `member` in lower case) answered by the
+    /// session's in-memory file system. Only the members the corpus pins on real BC (QxDotNetDemoShapes.al:279-357) are
+    /// served; every other member is refused and never reaches .NET, which would touch the real disk.
+    fn in_memory_call(
+        &mut self,
+        ty: &str,
+        member: &str,
+        path: &str,
+        rest: &[Value],
+        shown: &str,
+    ) -> Result<Value, Signal> {
+        let refused = |why: &str| unsupported(format!("DotNet {shown}: {why} (ADR-056)"));
+        if let Some(other) = self.host.files.near_match(path) {
+            return refused(&format!(
+                "the path names '{other}' only ignoring case or `/` against `\\`; whether BC finds it is not pinned"
+            ));
+        }
+        match (ty, member, rest) {
+            // A path never written does not exist (owner decision 2026-10-29); after a delete No (QxDotNetDemoShapes.al:328,
+            // :334). Yes for a file the run wrote is the assumption.
+            ("system.io.file", "exists", []) => {
+                let found = al_builtins::native::Ctx::fs_exists(self, path)?;
+                if found {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::DotNetFileExistsSeesRunFiles,
+                    );
+                }
+                Ok(Value::Boolean(found))
+            }
+            // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
+            // is not there is not pinned.
+            ("system.io.file", "delete", []) => {
+                self.refuse_pending_file(path)?;
+                if self.host.files.remove(path) {
+                    Ok(Value::Null)
+                } else {
+                    refused("the file does not exist (what .NET does then is not pinned)")
+                }
+            }
+            ("system.io.directory", "exists", []) => Ok(Value::Boolean(self.host.files.dir_exists(path))),
+            // The DirectoryInfo it returns is not served: a use of it is refused where it is read (a null value).
+            ("system.io.directory", "createdirectory", []) => match self.host.files.create_dir(path) {
+                Ok(()) => Ok(Value::Null),
+                Err(why) => refused(&why),
+            },
+            ("system.io.directory", "delete", [] | [Value::Boolean(_)]) => {
+                let recursive = matches!(rest, [Value::Boolean(true)]);
+                match self.host.files.remove_dir(path, recursive) {
+                    Ok(()) => Ok(Value::Null),
+                    Err(why) => refused(&why),
+                }
+            }
+            _ => refused("a member the in-memory file system does not serve"),
         }
     }
 
@@ -1320,4 +1464,33 @@ fn holds_carried_text(bytes: &[u8]) -> bool {
     let unit = al_builtins::native::CARRIED_TEXT_MARK as u32 as u16;
     let (le, be) = (unit.to_le_bytes(), unit.to_be_bytes());
     bytes.windows(3).any(|w| w == utf8.as_slice()) || bytes.windows(2).any(|w| w == le || w == be)
+}
+
+/// Whether this .NET member opens a file by a path given as its first argument (ADR-056): XmlDocument.Load and Save, the
+/// path constructors of the stream and XML reader and writer classes, the static XmlReader/XmlWriter.Create, XDocument and
+/// XElement Load and Save, and XslCompiledTransform.Load and Transform. System.IO.File, Directory, FileInfo,
+/// DirectoryInfo and FileStream are refused by the policy as a whole.
+fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
+    let t = clr_type.to_ascii_lowercase();
+    let m = member.to_ascii_lowercase();
+    match kind {
+        MemberKind::Construct => matches!(
+            t.as_str(),
+            "system.io.streamreader"
+                | "system.io.streamwriter"
+                | "system.xml.xmltextreader"
+                | "system.xml.xmltextwriter"
+        ),
+        MemberKind::Call => matches!(
+            (t.as_str(), m.as_str()),
+            ("system.xml.xmldocument", "load" | "save")
+                | ("system.xml.xmlreader" | "system.xml.xmlwriter", "create")
+                | (
+                    "system.xml.linq.xdocument" | "system.xml.linq.xelement",
+                    "load" | "save"
+                )
+                | ("system.xml.xsl.xslcompiledtransform", "load" | "transform")
+        ),
+        _ => false,
+    }
 }

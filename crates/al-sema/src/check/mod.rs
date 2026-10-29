@@ -378,6 +378,7 @@ pub fn check_with(ws: &Workspace, members: &MemberTable<'_>, catalog: &Catalog, 
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
             c.reach_install_events(roots.baseline, install_code);
             c.reach_test_runner();
+            c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();
             }

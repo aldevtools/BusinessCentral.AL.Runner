@@ -1,0 +1,40 @@
+# Outside contributors sign the contributor assignment agreement (docs/contributor-agreement/) by a comment on their
+# pull request. Signatures are kept on the branch `contributor-agreement-signatures`. This workflow never checks out
+# or runs pull request code.
+name: Contributor agreement
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+jobs:
+  agreement:
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'pull_request_target') ||
+      (github.event.issue.pull_request &&
+        (github.event.comment.body == 'recheck' ||
+         github.event.comment.body == 'I have read the AL Runner Contributor Assignment Agreement and I hereby sign it.'))
+    steps:
+      - uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: signatures/v1/signatures.json
+          path-to-document: https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/contributor-agreement/INDIVIDUAL.md
+          branch: contributor-agreement-signatures
+          allowlist: StefanMaron,dependabot[bot],github-actions[bot]
+          custom-pr-sign-comment: I have read the AL Runner Contributor Assignment Agreement and I hereby sign it.
+          custom-notsigned-prcomment: >-
+            Thank you for your pull request. Before it can be merged, please sign the
+            [AL Runner Contributor Assignment Agreement](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/contributor-agreement/INDIVIDUAL.md):
+            it transfers the rights in your contribution to the project owner. If you contribute as part of your job,
+            your employer signs the [Entity version](https://github.com/aldevtools/BusinessCentral.AL.Runner/blob/main/docs/contributor-agreement/ENTITY.md)
+            by email first. To sign as an individual, comment exactly the sentence below.
+          custom-allsigned-prcomment: All contributors have signed the contributor agreement.
+          lock-pullrequest-aftermerge: false

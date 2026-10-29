@@ -513,8 +513,11 @@ impl Session {
                 }
                 // A variable whose RunModal ran to its end cannot RunModal again: the error, and nothing runs
                 // (report/lt-report-requestpage-query-members/P105TotArray.al:97-105). A Run after it is not pinned.
+                // The refused RunModal resets the instance: its globals and data item filters read as fresh
+                // (report/lt-tn-savevalues-body-filters/TnSaveValuesBodyFilters.al:251-272, `ran=No parent=[] child=[]`).
                 if self.report_run_modal_done_on(&inst) {
                     if id == ids::REPORT_RUNMODAL_1 {
+                        self.report_clear(&inst);
                         return Err(crate::transactions::al_error_code(
                             "The object has been run. Use the function CLEAR(Report).",
                             "ObjectHasAlreadyBeenRun",
@@ -1746,16 +1749,9 @@ impl Session {
 
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
-        // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`). `false` with Report.Run is pinned
-        // (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45); the rest was measured by corpus writer TK and
-        // is not yet in the pinned corpus (al-runner issue 6056).
-        if self.engine.program.objects[schema.object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("ShowPrintStatus") && !v.trim().eq_ignore_ascii_case("false"))
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ShowPrintStatusInert);
-        }
+        // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`): `false` with Report.Run
+        // (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45), and true, false and unset with Run, RunModal,
+        // Execute and SaveAs (report/lt-tk-showprintstatus/LtTkShowPrintStatus.al).
         let report = schema.report();
         // A reportextension that changes the run gets an instance of its own for this run, whose
         // names for the base items point at the report's own records.
