@@ -934,6 +934,38 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportLinkedOnce => {
+        id: "xmlport-linked-once",
+        assumed: "XmlPort export of a table element with LinkTable and no LinkFields, MinOccurs = Zero and MaxOccurs = Once, right below another table element: each pass (each row of the element above) writes the first row of the record's view only, with one OnAfterGetRecord, and nothing without rows; the row the record holds after a pass of two or more rows is not pinned (its reads refuse). Import of such an element is refused. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation with its reservation detail).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoPreFilter",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportLinkPassReset => {
+        id: "xmlport-link-pass-reset",
+        assumed: "XmlPort export of a table element with LinkTable and no LinkFields right below another table element: LinkTable adds no filter, and every pass (each row of the element above) starts from the filters the record had at its first pass, with its SourceTableView, and from the SourceTableView's sorting (or the primary key without a sorting in the view), ascending: filters, a key, a direction and a Reset that OnPreXmlItem set at an earlier pass do not carry over. The SourceTableView filters do not show in GetFilters, Count obeys them. A key, direction, filter or mark of the code's own on the record at the first pass, and a view with ORDER, are refused. Pinned only by corpus writer TT's and TU's runs on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation: tickets below a reply row, reservation detail below an admission row).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt (QrXpContainerOccurs.al TT_Confirm_Export_*) and writer TU's branch al-runtime-rs-staging-tu (QrXpContainerOccurs.al TU_LinkedKey_*, the key per pass); wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_TwoReplies",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_KeyAtFirstPass",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_DescendingAtFirstPass",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportRootMinOccursOnce => {
         id: "xmlport-root-min-occurs-once",
         assumed: "An explicit MinOccurs = Once on the root text element is the default: export runs as without it; import accepts an empty root element, fails the schema check on another root element and fails with 'Root element is missing.' on an empty document, as without it. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
