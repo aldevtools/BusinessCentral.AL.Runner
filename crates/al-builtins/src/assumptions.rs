@@ -993,6 +993,38 @@ registry! {
             since: "2026-10-29",
         },
     },
+    DrilldownMarkedWalkWithPart => {
+        id: "drilldown-marked-walk-with-part",
+        assumed: "On a list with a ListPart, after an OnDrillDown or an action marked rows, turned MarkedOnly on and called CurrPage.Update(false), a GoToRecord of a row other than the row Rec was left on refills the rows around Rec's row and answers false: in a key other than the primary key after a move onto each marked row, ending on Rec's row; in the primary key after a move onto the first marked row, where the page stays. Pinned with two marked rows and Rec on the last of them (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541, :585 on corpus master); any other count of marked rows, and Rec on another of them, is assumed to follow the same rule. Measured in the reporter's runs on real BC (al-runner issues 6139, 6141).",
+        tests: "No Microsoft test: al-runner issues 6139 and 6141, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
+        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_*WithPart_*; wanted: the same pages with three marked rows and Rec left on the middle one.",
+        awaiting: Awaiting {
+            issues: &[6139, 6141],
+            files: &[
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_NameKeyWithPart_GoToRecordOfUnmarkedRow",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_IdKeyWithPart_GoToRecordOfUnmarkedRow",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    MarkedAgainWithPart => {
+        id: "marked-again-with-part",
+        assumed: "On a list with a ListPart and OnAfterGetRecord or OnAfterGetCurrRecord, an OnDrillDown or an action that runs while MarkedOnly is already on and calls CurrPage.Update(false) refreshes as the first marking did: the OnDrillDown keeps the page's row and the next GoToRecord refills around the row Rec was left on; the action reads the marked rows from Rec's row and holds them. Measured in the reporter's run on real BC (al-runner issue 6139), in the primary key, with a second marking after a row lost its flag.",
+        tests: "No Microsoft test: al-runner issue 6139, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
+        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_NameKeyWithPart_* and UD_IdKeyWithPart_*.",
+        awaiting: Awaiting {
+            issues: &[6139],
+            files: &[
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_ActionAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
+            ],
+            since: "2026-10-29",
+        },
+    },
     GoToKeyLastRowOfBlockReadsNextBlock => {
         id: "gotokey-last-row-of-block-reads-next-block",
         assumed: "TestPage GoToKey or GoToRecord that lands on the last row of a full block of rows read, with more rows after it, on a list without OnAfterGetCurrRecord, OnFindRecord or OnNextRecord: the read goes on with the next block (the last two rows again, then up to 20 new rows) and the page stands on the row found. At the end of the view the last two rows are read again (handlers/TestPageRuntimeContracts.al:331). Measured in the reporter's run on real BC.",
@@ -1058,6 +1090,18 @@ registry! {
             ],
             since: "2026-10-29",
         },
+    },
+    SqlReadCostUnmeasuredShape => {
+        id: "sql-read-cost-unmeasured-shape",
+        assumed: "The SQL statements and rows read of one record method with nothing buffered (Get 1/1, FindSet 1/0 or 1/1 and each Next 0/1, Modify right after the Get of its row 1/1, FindFirst that finds nothing 1/0, FindLast that finds a row 1/1, IsEmpty 1/0 or 1/1, Count 1/1) are the same on any table, filter and FindSet row count as on the ones measured (session/lt-bl-sql-counters/SkSqlBudget.al, writer TX: a table of Code[20], Integer, Text[50], Integer filtered on its key fields, FindSet loops of 0, 1, 3 and 10 rows; SqlCounters.al: 1, 2, 5, 10, 20 rows).",
+        tests: "No Microsoft test: an outside reporter's partner-app SQL budget tests (corpus writer TW pins their shapes, SkSqlBudget.al TW_*); the FindFirst of TW_FindFirstOrInsert_Counts is on a table of another shape.",
+        probe: "The TX measurements (one record method between two counter reads, committed table) on tables of other shapes: one Integer key, a Code key with a secondary key, a table with a FlowField and a Blob field; filters on a non-key field; FindSet loops of 4 and 50 rows.",
+    },
+    SqlAutoincrementInsertCost => {
+        id: "sql-autoincrement-insert-cost",
+        assumed: "An Insert(true) that runs no AL code, into a table with an AutoIncrement field, with nothing buffered, is sent at once: one statement that reads one row, plus the one statement of the session's first write to the table when its Global Triggers setup enables nothing; it leaves nothing buffered. Only the sum of the reporter's loop is pinned: five FindFirst that find nothing, each followed by such an Insert, 11/5 (session/lt-bl-sql-counters/SkSqlBudget.al:600 TW_FindFirstOrInsert_Counts, with FindFirst 1/0 from :786 and the first write from SZ_FirstInsert_*).",
+        tests: "No Microsoft test: an outside reporter's partner-app SQL budget test (SkSqlBudget.al TW_FindFirstOrInsert_Counts).",
+        probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
     },
 }
 

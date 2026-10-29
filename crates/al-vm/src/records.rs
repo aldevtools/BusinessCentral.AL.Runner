@@ -1442,6 +1442,12 @@ impl Session {
         self.note_write(rec, t, crate::state::TxWriteKind::Other, &[], now);
     }
 
+    /// Whether every Insert since the last Commit or rollback went through `SqlCounters::pre_insert`: every write to the
+    /// database store since then is a Record write in `tx.writes` (sqlcount.rs).
+    pub(crate) fn sql_pre_known(&self) -> bool {
+        self.writes_all_noted()
+    }
+
     /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.writes`: the
     /// counters chain from the Commit's to the store's current one.
     pub(crate) fn writes_all_noted(&self) -> bool {
@@ -2664,7 +2670,24 @@ impl Session {
         if self.sql.active {
             return self.record_op_counted(method, rec, args);
         }
-        self.record_op_tracked(method, rec, args)
+        let r = self.record_op_tracked(method, rec, args);
+        if matches!(r, Ok(Value::Boolean(false)))
+            && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)
+        {
+            self.sql_found_nothing(method, rec);
+        }
+        r
+    }
+
+    /// A find on `rec` found no row while the SQL counters are inactive (sqlcount.rs, `SqlCounters::found_nothing`).
+    #[cold]
+    #[inline(never)]
+    fn sql_found_nothing(&mut self, method: RecordOp, rec: &Rec) {
+        let read = self.sql_read_shape(rec);
+        if read.readable {
+            let table = rec.borrow().table;
+            self.sql.note_found_nothing(method, table, read.filters);
+        }
     }
 
     /// `record_op` while the SQL counters log record methods (`sqlcount.rs`).
@@ -2675,6 +2698,7 @@ impl Session {
         let rows_before = self.sql_sized_rows(rec);
         let copy = self.sql_copy_shape(rec);
         let buffer_shape = self.sql_buffer_shape(rec, copy);
+        let read = self.sql_read_shape(rec);
         let setup_key = self.table(rec).ok().map(|t| t.object as usize);
         let asked_before = setup_key.is_none_or(|k| self.events.global_setups.contains_key(&k));
         let r = self.record_op_tracked(method, rec, args);
@@ -2694,6 +2718,7 @@ impl Session {
             buffer_shape,
             first_write,
             dependency_code,
+            read,
         };
         let (temp, table) = {
             let s = rec.borrow();
@@ -2721,6 +2746,62 @@ impl Session {
             info,
         );
         r
+    }
+
+    /// What the cost of one record method on `rec` depends on (`sqlcount::ReadShape`): a database record with no state set but
+    /// filters in filter group 0 and load fields (the records of session/lt-bl-sql-counters/SkSqlBudget.al, writers TW and TX).
+    fn sql_read_shape(&mut self, rec: &Rec) -> crate::sqlcount::ReadShape {
+        let mut shape = crate::sqlcount::ReadShape::default();
+        let filters = {
+            let s = rec.borrow();
+            let plain = !s.temporary
+                && !s.crm
+                && s.company.is_none()
+                && !s.marked_only
+                && s.read_isolation == 0
+                && s.security_filtering == 0
+                && s.key == 0
+                && s.adhoc.is_none()
+                && s.ascending
+                && s.field_descending == 0
+                && s.auto_calc.is_empty()
+                && s.run_page_link.is_none()
+                && s.unpinned_buffer.is_none()
+                && s.filters.iter().all(|f| f.group == 0 && f.field < 64);
+            if !plain {
+                return shape;
+            }
+            s.filters.iter().fold(0u64, |m, f| m | (1 << f.field))
+        };
+        let Ok(t) = self.table(rec) else {
+            return shape;
+        };
+        let Ok(auto) = self.auto_increment_field(&t) else {
+            return shape;
+        };
+        let user: Vec<&al_data::FieldDef> = t.fields.iter().filter(|f| f.id < 2_000_000_000).collect();
+        let plain_keys = t
+            .keys
+            .iter()
+            .skip(1)
+            .all(|k| k.iter().all(|&i| t.fields[i].id >= 2_000_000_000));
+        // The table of SkSqlBudget.al:969-985 (TX: Code[20], Integer, Text[50], Integer keyed on the first two), filtered on its
+        // key fields only (:987-1095).
+        let tx_table = matches!(
+            &user[..],
+            [a, b, c, d] if [a, b, c, d].iter().all(|f| f.stored)
+                && a.ty == RtType::Code(Some(20))
+                && b.ty == RtType::Integer
+                && c.ty == RtType::Text(Some(50))
+                && d.ty == RtType::Integer
+        ) && t.keys.first().is_some_and(|k| k[..] == [0, 1])
+            && plain_keys
+            && filters & !0b11 == 0;
+        shape.readable = true;
+        shape.measured = tx_table && auto.is_none();
+        shape.auto_increment = auto.is_some();
+        shape.filters = filters;
+        shape
     }
 
     /// Whether `rec` is of a shape whose buffered Inserts and Count the corpus measured: the shape of
@@ -3544,12 +3625,19 @@ impl Session {
                 }
                 Self::mark_blobs_inserted(rec, &stored, true);
                 let before = self.store.change_counter();
+                // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
+                let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
                 match self
                     .store_for(rec)
                     .insert(&cx, &t, stored.clone())
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
+                        if let Some(ops) = pre_ops {
+                            let plain = !run && auto.is_none() && rec.borrow().company.is_none();
+                            self.sql.pre_insert(t.object, plain, ops);
+                            self.sql.pre_inserted(al_data::memory::store_ops());
+                        }
                         let pk = Self::sql_key(rec, &t, &rec.borrow().fields.clone());
                         self.note_write(rec, &t, crate::state::TxWriteKind::Insert, &pk, before);
                         Self::clear_blob_written(rec);

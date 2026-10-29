@@ -272,8 +272,12 @@ impl Session {
                 !s.parts.is_empty(),
             )
         };
+        // A second marking OnDrillDown, with MarkedOnly already on, refills as the first on a page with a part (corpus writer UD,
+        // branch al-runtime-rs-staging-ud, pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630 UD_NameKeyWithPart_*, :722
+        // UD_IdKeyWithPart_*; al-runner issue 6139); without a part it is not pinned and stays as it was.
+        let again_with_part = marked_only_before && with_parts && self.has_source(st);
         if !shape
-            || marked_only_before
+            || (marked_only_before && !again_with_part)
             || !self.has_source(st)
             || !self.page_rec(st).borrow().marked_only
             || !self.is_list(st)
@@ -335,6 +339,9 @@ impl Session {
         }
         if with_parts && (in_its_key || in_pk) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillWithPart);
+        }
+        if again_with_part {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MarkedAgainWithPart);
         }
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);
@@ -858,9 +865,14 @@ impl Session {
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
+        // A second marking action, with MarkedOnly already on, on a list with a part: the refresh holds the marked rows it read
+        // as after the first (corpus writer UD, branch al-runtime-rs-staging-ud, pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:661
+        // UD_NameKeyWithPart_ActionAfterRowLostFlag, :753 UD_IdKeyWithPart_ActionAfterRowLostFlag `second marking` `1`,
+        // `goto 2 again` `No/1`; al-runner issue 6139). Without a part it is not pinned and stays as it was.
+        let again_with_part = marked_only_before && self.has_source(st) && !st.borrow().parts.is_empty();
         {
             let mut s = st.borrow_mut();
-            s.marking_action = !marked_only_before;
+            s.marking_action = !marked_only_before || again_with_part;
             s.marked_rows_held = false;
         }
         let r = self.action_invoke_body(st, idx);
@@ -869,6 +881,9 @@ impl Session {
             s.marking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
+        if held && again_with_part {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MarkedAgainWithPart);
+        }
         // An action that turned MarkedOnly on for a list with row triggers: the moves after it walk only the marked rows
         // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`). With
         // CurrPage.Update(false) the refresh holds the marked rows it read (`read_list_again_from_row_as`); in any other shape the
