@@ -181,10 +181,11 @@ pub fn report(ws: &Workspace, lowered: &Lowered) -> String {
             }
         }
     }
-    // A page action's OnAction is refused when the action runs, not before (`blocked_site`, al-runner issue 6014).
+    // A page action's OnAction, a report trigger and a TryFunction are refused when they run, not before (`blocked_site`,
+    // al-runner issues 6014, 6112).
     let actions: Vec<bool> =
         g.at.iter()
-            .map(|&(o, r)| crate::runtime::is_action_trigger(lowered, o, r))
+            .map(|&(o, r)| crate::runtime::refused_when_run(lowered, o, r))
             .collect();
     let blocked = |root: usize| -> bool { closure(&g, &[root], &actions, true).iter().any(|&i| g.refused[i]) };
     let (mut runnable, mut stopped) = (Vec::new(), 0usize);
