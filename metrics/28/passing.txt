@@ -14604,6 +14604,10 @@
 80002 AT_SystemId_OnInsert_InsertTrue
 80002 AT_SystemId_OnInsert_Preset_InsertTrue
 80002 AT_SystemId_OnInsert_Preset_InsertTrueTrue
+80003 AT_CodeIndex_Minus_Literal
+80003 AT_TextIndex_Chains
+80003 AT_TextIndex_Minus_Literal
+80003 AT_TextIndex_Plus_Literal
 80004 AT_Precision22_StandardFormat2
 80004 QS_AutoFormatFields_DeDe
 80004 QS_AutoFormatFields_EnUs
