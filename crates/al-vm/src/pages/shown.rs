@@ -391,7 +391,19 @@ impl Session {
     fn lookup_refresh_pinned(&self, root: &St, tree: &[St], notes: &[ShownNote]) -> bool {
         let with_parts = tree.len() > 1;
         let root_ptr = Rc::as_ptr(root);
+        // `Update(false)` of a part of the tree, run by a procedure of the part that OnValidate called, is pinned with parts too
+        // (al-runner issue 6118; corpus writer TW, branch al-runtime-rs-staging-tw, ScLookupGlobalRecordField.al:644
+        // TW_LookupOnValidateUpdatesThePart `shows=[R2]`), as an assumption until that pin is in the corpus.
+        let part_update = |x: *const std::cell::RefCell<PageState>| {
+            with_parts && tree.iter().any(|q| !Rc::ptr_eq(q, root) && Rc::as_ptr(q) == x)
+        };
         let notes_ok = notes.iter().all(|n| match n {
+            ShownNote::UpdateFalse(x) if *x != root_ptr && part_update(*x) => {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::LookupPartUpdateFalseShowsPicked,
+                );
+                true
+            }
             ShownNote::UpdateFalse(x) => *x == root_ptr,
             ShownNote::UpdateTrue(x) => with_parts && *x == root_ptr,
             ShownNote::Other => false,

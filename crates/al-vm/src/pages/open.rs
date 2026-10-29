@@ -946,6 +946,34 @@ impl Session {
             // An action's RunPageView opens on the first row of its view instead (handlers/TestPageActionRunPageView.al:296
             // RunPageView_OrderDescending_ReversesTheOpenedPage `cur=4`); `lenient_bind` marks that open (run_object_page).
             if !self.declares(st, "onfindrecord") && !self.pages.lenient_bind {
+                // A List run with Page.Run (not modal) on a record that is still blank, whose view is descending, enters on the first
+                // row of the view, not where `=><` lands (al-runner issue 6114; corpus writer TW, branch al-runtime-rs-staging-tw,
+                // pages/lt-page-sourceview-current-row/TwPageRunDescView.al:161 DescViewAscRecPageRun, :188 DescViewDescRecPageRun
+                // `entry=E3S30`, against :120 DescViewAscRec, RunModal, `entry=E2S10`).
+                if self.is_list(st)
+                    && st.borrow().last_run_modal == Some(false)
+                    && st.borrow().set_record.is_none()
+                    && st.borrow().host.is_none()
+                    && !st.borrow().lookup
+                    && !self.page_rec(st).borrow().ascending
+                    && self.engine.program.objects[st.borrow().object as usize]
+                        .properties
+                        .iter()
+                        .any(|(k, v)| {
+                            k.eq_ignore_ascii_case("SourceTableView")
+                                && v.to_ascii_lowercase().replace(' ', "").contains("order(descending)")
+                        })
+                {
+                    let rec = self.page_rec(st);
+                    let table = rec.borrow().table as usize;
+                    let initial = self.initial_fields(table);
+                    if Self::same_values(&rec.borrow().fields, &initial) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::PageRunBlankRecordDescendingViewFirstRow,
+                        );
+                        return self.page_first_row(st);
+                    }
+                }
                 return self.page_first_row_from(st, "=><", true);
             }
         } else if st.borrow().host.is_none()
@@ -1936,6 +1964,21 @@ impl Session {
             })
     }
 
+    /// A tree page (ShowAsTree) whose repeater says TreeInitialState = ExpandAll and whose page declares OnAfterGetRecord or
+    /// OnAfterGetCurrRecord. When it opens it reads the rows below the level-0 rows too, though it shows only the level-0 rows
+    /// (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-page-runtime/TwTreeExpandTriggers.al:123; the reporter's run on real BC: rows 1, 2, 3 (a child of 2) and 4 with Rec on 4 read `R4;R3;R2;R1;R4;
+    /// R4;C4`; which rows show is pages/lt-page-controls-aa/AaPartsLists.al:272 AA_Repeater_TreeExpandedRows).
+    pub(super) fn tree_expand_all_with_row_triggers(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let expand_all = page_of(&engine, st).controls.iter().any(|c| {
+            c.kind == ir::ControlKind::Repeater
+                && matches!(c.prop("showastree"), Some(ir::PropVal::Lit(v)) if unquote(v).eq_ignore_ascii_case("true"))
+                && matches!(c.prop("treeinitialstate"), Some(ir::PropVal::Lit(v)) if unquote(v).eq_ignore_ascii_case("expandall"))
+        });
+        drop(engine);
+        expand_all && (self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord"))
+    }
+
     /// The position of the Integer field a tree indents by, when the page is a tree over one.
     pub(super) fn tree_level_field(&self, st: &St) -> Result<Option<usize>, Signal> {
         let Some(expr) = self.tree_indentation(st) else {
@@ -1961,17 +2004,25 @@ impl Session {
     /// level. Pinned only for a page without row triggers, a primary key of one field, expanding a row with children and collapsing
     /// an expanded one; anything else is refused.
     pub(super) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
-        for t in [
-            "onfindrecord",
-            "onnextrecord",
-            "onaftergetrecord",
-            "onaftergetcurrrecord",
-        ] {
+        for t in ["onfindrecord", "onnextrecord"] {
             if self.declares(st, t) {
                 return unsupported(
                     "Expand on a tree page with row triggers (which rows are read again is not pinned)",
                 );
             }
+        }
+        // With OnAfterGetRecord or OnAfterGetCurrRecord, Expand(true) and Expand(false) run no row trigger and the row and the values
+        // its OnAfterGetRecord computed stay; the next move reads the row it lands on as any move does (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-page-runtime/TwTreeExpandTriggers.al:123; the
+        // reporter's run on real BC: `expand=2/PARENT/L2:` then `next=T/3/CHILD/L3:R3;R3;C3`, and after Expand(false) `next=4/ROOT2/L4:
+        // R4;R4;C4`). Measured on a tree whose TreeInitialState is ExpandAll; another initial state is not pinned.
+        let row_triggers = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
+        if row_triggers {
+            if !self.tree_expand_all_with_row_triggers(st) {
+                return unsupported(
+                    "Expand on a tree page with row triggers whose TreeInitialState is not ExpandAll (which rows are read is not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeExpandRunsNoRowTrigger);
         }
         if st.borrow().cursor != Cursor::Row || st.borrow().draft {
             return unsupported("Expand on a tree page that stands on no stored row (not pinned)");
@@ -2027,6 +2078,7 @@ impl Session {
         let expanded = st.borrow().expanded.clone();
         let mut stack: Vec<(i32, bool)> = Vec::new();
         let mut shown: Vec<al_builtins::filter::FilterExpr> = Vec::new();
+        let mut shown_keys: Vec<Vec<Value>> = Vec::new();
         for (key, lvl) in &rows {
             while stack.last().is_some_and(|(l, _)| *l >= *lvl) {
                 stack.pop();
@@ -2039,6 +2091,7 @@ impl Session {
             stack.push((*lvl, open));
             if visible {
                 shown.push(al_builtins::filter::FilterExpr::Eq(key[0].clone()));
+                shown_keys.push(key.clone());
             }
         }
         {
@@ -2061,6 +2114,32 @@ impl Session {
                     group: TREE_GROUP,
                 });
             }
+        }
+        // The rows the open read stay as they are (see above): the record finds its row again under the new cut, and holds the
+        // values the page shows.
+        if row_triggers {
+            // The client's rows become the rows that show now, in the view's order, from the rows it read; the others wait.
+            {
+                let mut s = st.borrow_mut();
+                let mut read: Vec<_> = std::mem::take(&mut s.window);
+                read.append(&mut s.tree_hidden);
+                for (key, _) in &rows {
+                    if let Some(i) = read.iter().position(|w| Self::same_key(&w.key, key)) {
+                        let w = read.remove(i);
+                        if shown_keys.iter().any(|k| Self::same_key(k, key)) {
+                            s.window.push(w);
+                        } else {
+                            s.tree_hidden.push(w);
+                        }
+                    }
+                }
+                // A row the view no longer holds is dropped.
+            }
+            let shown = rec.borrow().fields.clone();
+            self.ret_used = true;
+            self.record_op(RecordOp::Get, &rec, &mut current.clone())?;
+            rec.borrow_mut().fields = shown;
+            return Ok(());
         }
         // The client reads the rows again from the row it stands on.
         st.borrow_mut().window = Vec::new();
