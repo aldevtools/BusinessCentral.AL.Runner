@@ -490,10 +490,94 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// AL0132 and AL0383 for a `SubPageLink` `const(...)` on an Enum field of the part's table that names a value the enum lacks:
+    /// qualified, `const("Enum"::Nope)`, is AL0132 (corpus must-not-compile 2276), bare, `const(Nope)`, is AL0383 (2277); both on
+    /// corpus branch al-runtime-rs-staging-uj 1dc037a8. Only an enum of the workspace that no extension adds to is judged, and only
+    /// a bare name that is no number.
+    fn al_sub_page_link_enum_values(&mut self, oi: usize, obj: &ast::Object) {
+        if self.ws.objects[oi].kind != ObjKind::Page || self.ws.is_dependency(oi) {
+            return;
+        }
+        let file = self.ws.objects[oi].file;
+        for sec in crate::pages::control_sections(obj) {
+            if !sec.name().eq_ignore_ascii_case("part") {
+                continue;
+            }
+            let Some(text) = sec
+                .properties()
+                .find(|p| p.name().eq_ignore_ascii_case("SubPageLink"))
+                .map(|p| p.value_text())
+            else {
+                continue;
+            };
+            let Some(part) = sec
+                .args()
+                .get(1)
+                .and_then(|n| self.resolve_quiet(file, ObjKind::Page, n))
+            else {
+                continue;
+            };
+            let Some(ti) = self
+                .source_table(part)
+                .and_then(|t| self.resolve_quiet(self.ws.objects[part].file, ObjKind::Table, &t))
+            else {
+                continue;
+            };
+            let Ok(entries) = crate::pages::parse_run_page_link_kinds(&text) else {
+                continue;
+            };
+            for (left, rhs, is_const) in entries {
+                let Some(field) = self.members[ti].field(&left) else {
+                    continue;
+                };
+                let Ty::Enum(field_enum) = &field.ty else { continue };
+                let field_name = field.name.clone();
+                let (enum_name, member, code) = match rhs {
+                    crate::pages::LinkRhs::EnumValue(e, m) => (e, m, "AL0132"),
+                    crate::pages::LinkRhs::Filter(m)
+                        if is_const
+                            && !m.is_empty()
+                            && m.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            && !m.chars().all(|c| c.is_ascii_digit()) =>
+                    {
+                        (field_enum.to_string(), m, "AL0383")
+                    }
+                    _ => continue,
+                };
+                let Some(ei) = self.resolve_quiet(file, ObjKind::Enum, &enum_name) else {
+                    continue;
+                };
+                if self.ws.is_dependency(ei)
+                    || !self.ws.extensions_of(ei).is_empty()
+                    || self.members[ei]
+                        .enum_values
+                        .iter()
+                        .any(|(_, n)| n.eq_ignore_ascii_case(&member))
+                {
+                    continue;
+                }
+                let message = if code == "AL0132" {
+                    let shown = crate::alcodes::quoted_if_needed(&self.ws.objects[ei].name);
+                    format!("'{shown}' does not contain a definition for '{member}'")
+                } else {
+                    format!("The option value '{member}' is not defined on field '{field_name}'.")
+                };
+                self.diags.push(Diagnostic {
+                    file: self.ws.files[file].path.clone(),
+                    app: self.ws.files[file].app,
+                    offset: usize::from(sec.syntax().text_range().start()),
+                    code,
+                    message,
+                });
+            }
+        }
+    }
+
     pub(crate) fn check_object(&mut self, oi: usize) {
         let ctx = self.object_ctx(oi);
         let obj = self.ws.object_ast(oi);
         self.al_page_field_sources(oi, &obj);
+        self.al_sub_page_link_enum_values(oi, &obj);
         for r in ast::routines_in(obj.syntax()) {
             let offset = usize::from(r.syntax().text_range().start());
             if !self.all_routines && self.ws.routine_unreached(oi, offset) {

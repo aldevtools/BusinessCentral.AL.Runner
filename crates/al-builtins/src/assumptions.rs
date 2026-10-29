@@ -107,6 +107,59 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 }
 
 registry! {
+    ListActionRebuildsRows => {
+        id: "list-action-rebuilds-rows",
+        assumed: "A List without the new-row line (InsertAllowed, ModifyAllowed and DeleteAllowed false) whose action deletes its rows and inserts others shows the rows the action left: opened for view an emptied list shows nothing, and the TestPage then stands where the action left Rec, with First, Next and Last moving over the new rows.",
+        tests: "No Microsoft test: an outside ISV app's history list over a temporary table whose actions load another period; it passes on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjTempList.al (an action that empties the list, adds three rows, one row with another key or the same key; OpenEdit, OpenView and modal with a filter).",
+        awaiting: Awaiting {
+            issues: &[6180],
+            files: &["tests/al-language/pages/lt-uj-outside-leads/UjTempList.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtBackgroundTaskTriggers => {
+        id: "pageext-background-task-triggers",
+        assumed: "A page extension's OnPageBackgroundTaskCompleted and OnPageBackgroundTaskError run after the page's own, for every task the page or an extension enqueued; the error trigger gets the IsHandled the one before it left.",
+        tests: "Microsoft's page extension User Card Perf. Factboxes (every TestPage of User Card); an outside ISV app's user rename test that passes on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjPageExtBgTask.al (completed and error triggers of a page and its extension, handled and unhandled).",
+        awaiting: Awaiting {
+            issues: &[6182],
+            files: &["tests/al-language/pages/lt-uj-outside-leads/UjPageExtBgTask.al"],
+            since: "2026-10-29",
+        },
+    },
+    SubPageLinkConstQualifiedEnumValue => {
+        id: "subpagelink-const-qualified-enum-value",
+        assumed: "A SubPageLink `const(\"Enum\"::Member)` filters the part's field on that member, as `const(Member)` does, also when the field has the enum's name.",
+        tests: "No Microsoft test: an outside ISV app's card page with a part linked this way; it compiles and filters on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows and UJ_SubPageLink_ConstEnum_NewRow; must-not-compile 2276.",
+        awaiting: Awaiting {
+            issues: &[6181],
+            files: &["tests/al-language/pages/lt-uj-outside-leads/UjSubPageLink.al"],
+            since: "2026-10-29",
+        },
+    },
+    DialogHideSubsequentDialogsNoHeadlessEffect => {
+        id: "dialog-hide-subsequent-dialogs-no-headless-effect",
+        assumed: "Dialog.HideSubsequentDialogs changes nothing AL sees in a test session: Open, Update and Close and their errors behave the same after it, and it returns true after the argument true.",
+        tests: "System Application Apply Retention Policy Impl. (called by every test that applies a retention policy); an outside ISV app's retention policy test that passes on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), EnTDialogSession.al UJ_Dialog_HideSubsequent_OpenUpdateClose and UJ_Dialog_HideSubsequent_OpenedBefore.",
+        awaiting: Awaiting {
+            issues: &[6178],
+            files: &[
+                "tests/al-language/errorinfo/lt-errnotif/EnTDialogSession.al::UJ_Dialog_HideSubsequent_OpenUpdateClose",
+                "tests/al-language/errorinfo/lt-errnotif/EnTDialogSession.al::UJ_Dialog_HideSubsequent_OpenedBefore",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    JsonOtherTextAsBooleanConversionError => {
+        id: "json-other-text-as-boolean-conversion-error",
+        assumed: "JsonValue.AsBoolean (and the other Boolean getters) of a JSON string that is not a spelling of true or false and is not made of letters only (blanks, digits or punctuation, as 'not a boolean') raises the same conversion error as a text of letters (json/JsonValueGetters.al:172 `text_asboolean` 'hello').",
+        tests: "No Microsoft test: an outside ISV app test that feeds a JSON property of the wrong type to a TryFunction around AsBoolean; it passes on the reporter's real-BC run.",
+        probe: "JsonValue.AsBoolean of the strings 'not a boolean', '1', '', ' true', 'True', 'false': the result or the error text and code.",
+    },
     CrossAppSubscriberOrderByAppId => {
         id: "cross-app-subscriber-order-by-app-id",
         assumed: "Subscribers of one event in apps that do not depend on each other run app by app in this order: the apps visited in ascending app id, each app's dependencies placed before it (depth first, post-order); inside an app in ascending codeunit id. Used only where every reading the probe allows (dependencies visited in ascending id, declared order or descending id; apps sorted by publisher first or not) gives the same order; otherwise the raise is refused.",

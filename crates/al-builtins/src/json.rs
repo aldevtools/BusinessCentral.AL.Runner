@@ -805,6 +805,23 @@ fn as_i64(s: &Scalar) -> Result<i64, Signal> {
 fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
     match s {
         Scalar::Val(Value::Boolean(b)) => Ok(Value::Boolean(*b)),
+        // json/JsonValueGetters.al:202 `truetext_asboolean`: the text "true" reads Yes.
+        Scalar::Val(Value::Text(t) | Value::Code(t)) if &**t == "true" => Ok(Value::Boolean(true)),
+        // Other spellings of true and false ("True", " false", "FALSE") are not pinned.
+        Scalar::Val(Value::Text(t) | Value::Code(t))
+            if t.trim().eq_ignore_ascii_case("true") || t.trim().eq_ignore_ascii_case("false") =>
+        {
+            unsupported(format!("reading Text '{t}' as Boolean (conversion not pinned yet)"))
+        }
+        // json/JsonValueGetters.al:172 `text_asboolean`: a text of letters ("hello") raises the conversion error.
+        Scalar::Val(Value::Text(t) | Value::Code(t)) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphabetic()) => {
+            Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
+        }
+        // Any other text that is no spelling of true or false (blanks, digits, punctuation, empty) raises the same error.
+        Scalar::Val(Value::Text(_) | Value::Code(_)) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::JsonOtherTextAsBooleanConversionError);
+            Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
+        }
         other => unsupported(format!(
             "reading {} as Boolean (conversion not pinned yet)",
             other.describe()
@@ -1019,8 +1036,9 @@ fn as_char(s: &Scalar) -> Result<Value, Signal> {
             match u.as_slice() {
                 [c] => Ok(Value::Char(*c)),
                 // A text of three or four characters does not convert (json/lt-json-typed-overloads/P101PathValues.al:164
-                // `text_as_char` 'xyz', :203 'text').
-                _ if matches!(u.len(), 3 | 4) => Err(conversion(NAV_JSON_VALUE, "System.Char")),
+                // `text_as_char` 'xyz', :203 'text'), and neither do an empty text and texts of 5 and 36 characters
+                // (json/JsonValueGetters.al:169 `text_aschar` 'hello', NumericTextGetters `empty_aschar`, `long_aschar`).
+                _ if matches!(u.len(), 0 | 3 | 4 | 5 | 36) => Err(conversion(NAV_JSON_VALUE, "System.Char")),
                 _ => unsupported(format!("reading text of length {} as Char", u.len())),
             }
         }

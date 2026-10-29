@@ -638,6 +638,39 @@ impl Lowerer<'_> {
                 // RelationWhereEmptyTerm.al); Production BOM's `"Version Code" = const('')` (Tests-SCM-Manufacturing).
                 LinkRhs::Filter(t) if t.is_empty() => ir::LinkEntry::Filter(pf, "''".to_string()),
                 LinkRhs::Filter(t) => ir::LinkEntry::Filter(pf, t),
+                // A qualified enum value is the member of the field's enum (pages/lt-uj-outside-leads/UjSubPageLink.al
+                // UJ_SubPageLink_ConstEnum_Rows, corpus branch al-runtime-rs-staging-uj 1dc037a8: the field may share the enum's
+                // name). The checker rejects a member the enum lacks (AL0132, must-not-compile 2276); an enum other than the
+                // field's is not pinned.
+                LinkRhs::EnumValue(enum_name, member) => {
+                    if what != "SubPageLink" {
+                        return Err(format!(
+                            "{what} with a qualified enum value `{enum_name}::{member}` (not pinned)"
+                        ));
+                    }
+                    let field = &self.members[target_table].fields[pf];
+                    let Ty::Enum(field_enum) = &field.ty else {
+                        return Err(format!(
+                            "{what}: a qualified enum value on field `{}`, which is no Enum (not pinned)",
+                            field.name
+                        ));
+                    };
+                    let e = self.resolve_obj_in(file, ObjKind::Enum, &enum_name)?;
+                    if self.resolve_obj_in(file, ObjKind::Enum, field_enum).ok() != Some(e) {
+                        return Err(format!(
+                            "{what}: the enum value `{enum_name}::{member}` on field `{}` of another enum (not pinned)",
+                            field.name
+                        ));
+                    }
+                    let Some((_, name)) = self.members[e]
+                        .enum_values
+                        .iter()
+                        .find(|(_, n)| n.eq_ignore_ascii_case(&member))
+                    else {
+                        return Err(format!("{what}: `{enum_name}` has no value `{member}`"));
+                    };
+                    ir::LinkEntry::Filter(pf, name.clone())
+                }
                 LinkRhs::TableId(name) => {
                     let t = self.resolve_obj_in(file, ObjKind::Table, &name)?;
                     let id = self.ws.objects[t].id.ok_or("table without an id")?;
@@ -693,6 +726,15 @@ impl Lowerer<'_> {
         };
         let part_table = self.table_of[part_page].ok_or("the part page has no source table to link")?;
         link.entries = self.link_entries("SubPageLink", &text, file, host_table, part_table)?;
+        link.enum_values = crate::pages::parse_sub_page_link(&text)
+            .map(|k| {
+                k.iter()
+                    .enumerate()
+                    .filter(|(_, e)| matches!(e.1, crate::pages::LinkRhs::EnumValue(..)))
+                    .map(|(i, _)| i)
+                    .collect()
+            })
+            .unwrap_or_default();
         Ok(link)
     }
 }
