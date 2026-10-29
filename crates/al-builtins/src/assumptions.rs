@@ -815,6 +815,21 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportAttrsOverUnlinked => {
+        id: "xmlport-attrs-over-unlinked",
+        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element with MaxOccurs = Once, holding text attributes and then one text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) over one temporary table element without LinkTable (MinOccurs = Once, MaxOccurs = Unbounded): both text elements are always written, the attributes first (an empty Required one as attr=\"\"), then the rows of the inner table, or that table once with the record as it stands when it has none (no OnAfterGetRecord). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change reply with its admissions).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Change_Export_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TwoRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TokenNoRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_Error",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportUnlinkedReply => {
         id: "xmlport-unlinked-reply",
         assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable, optional or with MinOccurs = Once and MaxOccurs = Unbounded, with any supported nodes below it, after leaf field elements of the outer table without triggers: the inner table writes the rows it holds when it is reached (an outer row's OnAfterGetRecord that empties and refills it gives each outer row its own rows, in SourceTableView order); an optional inner table without rows leaves the text element empty; a MinOccurs = Once inner table without rows writes one element from its record as it is, without OnAfterGetRecord. A table element with MaxOccurs = Once, export triggers and two rows writes the first with one OnAfterGetRecord, and its record holds the second row afterwards. Pinned only by corpus writer TR's run on real BC (a SaaS sandbox) and by writer TS on every supported version, not yet on corpus master.",
