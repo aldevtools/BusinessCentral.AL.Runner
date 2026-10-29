@@ -1,6 +1,7 @@
 # ADR-046: The install code of the app under test runs in the install baseline; several companies only as an opt-in
 
 - Status: Accepted; amendment 1 Accepted (owner, 2026-10-19); amendment 2 (step B as built, 2026-10-29) decided without owner review
+- Amendment 3 (2026-10-29): probe Q1 landed. Accepted under this ADR's own rule (A2, "a later amendment replaces the refusals a to d with that order"), for the part the probe pins
 - Date: 2026-10-19 (accepted by the owner, 2026-10-19, with the `--companies` flag); amendment 1 2026-10-19
 - Amends: ADR-013 decision 5 (items 1 and 2) and its section "Install baseline and Global Triggers as built"
 - Amendment 1 (Accepted by the owner 2026-10-19, section "Amendment 1" below) replaces the object-order rule of decision 3 and decision 8 with
@@ -769,3 +770,87 @@ about 1,070 refusals of decision 4c ("per-company install code of NP Retail writ
 are gone, and 2,817 refusals of decision 6 take their place: every per-company install routine of NP Retail stops in
 "My Company" at the same read of CDS Connection Setup (Base Application's `Global Triggers` `GetDatabaseTableTriggerSetup`
 subscriber calls `CRMIntegrationManagement.GetDatabaseTableTriggerSetup`, which reads that per-company table).
+
+## Amendment 3 (2026-10-29): probe Q1 landed
+
+Accepted under A2's own rule: "When probe Q1 pins a rule, a later amendment replaces the refusals a to d with that
+order." The rule is replaced only where the pins reach. Branch `install-order`.
+
+### What the probe pins
+
+Corpus PR 807 (writer UM, branch `al-runtime-rs-staging-pub-um`, commit `e3b2eedf`, not yet in the submodule pin),
+`tests/al-language/install/lt-um-install-order/UmInstallOrder.al`. Five install codeunits of the main app, 90431 to
+90435, named so that name order and id order differ, in five files of four folders. Each appends its name to one shared
+SingleInstance codeunit and logs a row. The result, the same on the three supported majors (`:120-125`):
+
+- In each company and in the per-database part they run in ascending object id: `Mu;b;Cu;Ay;Zz;`. Not name order, not
+  file order.
+- The SingleInstance codeunit's state carries from one install codeunit to the next, and starts again in each company
+  and in the per-database part (`state as each row saw it`). This agrees with A1 fact 8.
+- All rows carry one session id (A4 item 1).
+
+### The pins disagree with "ascending object id" across 65536
+
+A1 fact 5 (`install/lt-bf-install-probes/BfInstallTests.al:239`, on master) has install codeunits of the same app run
+in this order: 81254, then 60445, 60618, 60894. That is not ascending id. So "install codeunits of one app run in
+ascending object id" holds for the UM codeunits but not for the app as a whole.
+
+Both data sets fit one finding: inside one block of 65536 ids (`id / 65536` equal), routines run in ascending id,
+install codeunits and Extension Triggers subscribers in one sequence (fact 5: 69851, 81253, 81254, 81255 in block 1;
+60445, 60618, 60894 in block 0; UM: 90431 to 90435 in block 1). Across blocks, block 1 ran before block 0. Two rules
+explain that, and they disagree for other ids:
+
+| Rule | Fact 5 | UM | NP Retail's 13 per-company install codeunits (blocks 91 to 95) |
+|---|---|---|---|
+| Ascending id | No | Yes | Ascending id |
+| Ascending `id mod 65536` | Yes | Yes | 6248195, 6184801, 6185124, 6059909, 6059987, 6014438 to 6014599, 6151434 to 6151514 |
+| Descending block, ascending id inside a block | Yes | Yes | 6248195, 6184801, 6185124, 6151434 to 6151514, 6059909, 6059987, 6014438 to 6014599 |
+
+The main corpus app's id ranges end at 99999, so it only has blocks 0 and 1. There the two rules that fit always agree.
+A probe that tells them apart needs ids above 99999 in block 1, or another app.
+
+### Decision
+
+1. The runtime runs the install routines of one app and part in ascending object id (`install.rs` `plan`). That order
+   is the runtime's own wherever it is not pinned.
+2. **The order of two routines is pinned when their object ids lie in one block of 65536 ids** and they are not two
+   subscribers of one codeunit (`install.rs` `order_pinned`). Refusals a, b and c of A2 no longer apply to such a pair.
+   SingleInstance state carries between them within one company or part and starts again for each (A4 item 2, as
+   built).
+3. Refusals a, b and c stay for a pair whose ids lie in different blocks, or two subscribers of one codeunit. The reason
+   now names the two routines.
+4. **Refusal d stays** for a part that has such an unpinned pair: `SystemRowVersion` orders rows across tables, and the
+   order across blocks is not known. In a part whose routines are all pairwise pinned, d no longer applies: the pins
+   cover the run order, and the runtime's row versions follow the run order (BfTests:8-9).
+5. Until `UmInstallOrder.al` is in the pinned corpus, a test that reads a table a pinned pair makes order-dependent (the
+   tables a to c and d would have refused) is a flagged pass, assumption `install-order-ascending-id` (awaiting that
+   file). When the bump lands, the entry goes and the code cites the file.
+
+### Decided without owner review (2026-10-29)
+
+- The orchestrator's task said "ascending object id" for the whole app. Fact 5 contradicts that across 65536, so it is
+  applied only inside one block. Applying it across blocks would put 60445 before 81254, which BfTests:239 pins the
+  other way.
+
+### Effect
+
+- Corpus: no change on 27, 28 and 29 (0 newly pass, 0 lost). No corpus app has a pair that a to c refused inside one
+  block.
+- NP Retail, owner form `al-runner test Application Test`: no change (1,592 pass, 13 fail, 3,771 not run, 0 outcome
+  differences). Every pair that a to c flag in NP Retail crosses a block: "NPR Job Queue Install" (6014438, block 91)
+  with "NPR TM Calendar Upgrade" (6059909, block 92), "NPR Feature Management Install" (6151434, block 93) and "NPR
+  Feature Flags Install" (6151514, block 93); "NPR Webservice Install" (6014471) with "NPR Spfy App Install" (6184801).
+  The shared SingleInstance codeunit in all 20 c refusals is System Application's "Environment Information".
+
+### Still not pinned (probes wanted)
+
+- **Q1b. The order across blocks of 65536 ids.** One app with three install codeunits in two blocks, for example
+  60100, 70000 and 130000 (`id mod 65536`: 60100, 4464, 64464), sharing a log table and a SingleInstance codeunit as in
+  UM. Ascending id gives 60100, 70000, 130000; ascending `id mod 65536` gives 70000, 60100, 130000; descending block
+  gives 70000, 130000, 60100. Needs an id range above 99999 in a corpus app. This unblocks NP Retail.
+- **Q1c. Ordinary events across blocks.** Fact 5 interleaves install codeunits with Extension Triggers subscribers in
+  one sequence, so BC may order ordinary event subscribers the same way. Every pin of ordinary event order has its
+  subscribers in one block (for example `handlers/ProbeEventSubscriberOrder.al`, 69461 to 69467). The runtime sorts
+  subscribers by plain codeunit id (`al-vm/src/events.rs`). Probe: one event of the main app with subscribers 60100 and
+  70000.
+

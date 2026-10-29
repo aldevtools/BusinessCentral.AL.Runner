@@ -10,8 +10,9 @@
 //! OnCompanyOpenCompleted (to every installed app's subscribers, see [`company_open`]), then runs the routines (`:125-140`,
 //! `company open calls`); SingleInstance state starts again in
 //! each company and in the per-database part, and carries between the routines of one company (`counter`); the
-//! per-database part runs last, with `CompanyName()` empty (`:138-140`). The order of the routines inside one app and part
-//! is not known (A2): the runtime runs them in program order and refuses every test that can see that order.
+//! per-database part runs last, with `CompanyName()` empty (`:138-140`). Inside one app and part the routines run in
+//! ascending object id (amendment 3, [`order_pinned`]); where two ids lie in different blocks of 65536 ids that order is
+//! not pinned, and every test that can see it is refused (A2).
 
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
@@ -46,7 +47,7 @@ impl Part {
     }
 }
 
-/// The install routines of one app, per part, in program order (the runtime's own order, A2).
+/// The install routines of one app, per part, in ascending object id (ADR-046 amendment 3).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AppInstall {
     /// The app's index in `Program::apps` (dependency order).
@@ -120,7 +121,9 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
         };
         routines.push((*so, *sr, part));
     }
-    routines.sort_by_key(|&(o, r, _)| (o, r));
+    // Amendment 3: ascending object id (`order_pinned`); across blocks of 65536 ids the order is not pinned and every test
+    // that could see it is refused ([`facts_of`]).
+    routines.sort_by_key(|&(o, r, _)| (object_id(lowered, o), o, r));
     for (o, r, part) in routines {
         let app = objs[o].app as usize;
         let e = by_app.entry(app).or_insert_with(|| AppInstall {
@@ -180,6 +183,26 @@ fn closure(lowered: &Lowered, object: usize, routine: usize) -> Closure {
         read,
         singles,
     }
+}
+
+/// The assumption a test hits when it reads what install routines of one app wrote whose run order is pinned only by the
+/// corpus branch of writer UM (ascending object id within one block of 65536 ids, amendment 3).
+const ORDER_ASSUMPTION: al_builtins::assumptions::Assumption =
+    al_builtins::assumptions::Assumption::InstallOrderAscendingId;
+
+/// The object id of object `o` (0 for an object without one).
+fn object_id(lowered: &Lowered, o: usize) -> u32 {
+    lowered.program.objects.heads()[o].id.unwrap_or(0)
+}
+
+/// Whether BC's order of the install routines `a` and `b` of one app and part is pinned (ADR-046 amendment 3): ascending
+/// object id when both ids lie in one block of 65536 ids (install/lt-um-install-order/UmInstallOrder.al:120-125, five
+/// install codeunits 90431-90435, corpus branch al-runtime-rs-staging-pub-um e3b2eedf; with subscribers between them,
+/// install/lt-bf-install-probes/BfInstallTests.al:239, 69851, 81253, 81254, 81255). Not across blocks: there 60445,
+/// 60618 and 60894 run after 81255 (the same line), which no rule pinned yet explains. Two subscribers of one codeunit
+/// are not pinned either.
+fn order_pinned(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> bool {
+    a.0 != b.0 && object_id(lowered, a.0) >> 16 == object_id(lowered, b.0) >> 16
 }
 
 /// The tables whose install rows a test may not read (ADR-046 decision 4c and amendment 1, A2 items a to d), from the
@@ -269,15 +292,33 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 if routines.len() < 2 {
                     continue;
                 }
-                let order = format!(
-                    "{name} has {} install routines in the {} part, and the order BC runs them in is not pinned (ADR-046 amendment 1, A2)",
+                // Amendment 3: the order of two routines is pinned when their object ids lie in one block of 65536 ids
+                // (ascending id); across blocks it is not (fact 5). A table the order shows is refused only through a
+                // pair whose order is not pinned; through a pinned pair it is a flagged pass until the UM file is in
+                // the pinned corpus.
+                let unpinned_pair = (0..routines.len())
+                    .any(|i| (0..routines.len()).any(|j| i != j && !order_pinned(lowered, routines[i], routines[j])));
+                let order = |i: usize, j: usize| {
+                    format!(
+                        "{} and {} of {name} are install routines of the {} part whose object ids lie in different blocks of 65536 ids, and the order BC runs them in is not pinned there (ADR-046 amendment 3)",
+                        label(lowered, routines[i].0, routines[i].1),
+                        label(lowered, routines[j].0, routines[j].1),
+                        part.label()
+                    )
+                };
+                let rows = format!(
+                    "{name} has {} install routines in the {} part, some with object ids in different blocks of 65536 ids, and the order BC runs those in is not pinned (ADR-046 amendment 3)",
                     routines.len(),
                     part.label()
                 );
                 // A2 d: the row versions of what any of them wrote order the routines.
                 for c in &closures {
                     for &t in &c.written {
-                        add(&mut out.row_order, t, order.clone());
+                        if unpinned_pair {
+                            add(&mut out.row_order, t, rows.clone());
+                        } else {
+                            out.assumed.entry(t as usize).or_insert((app.app, ORDER_ASSUMPTION));
+                        }
                     }
                 }
                 for (i, c) in closures.iter().enumerate() {
@@ -285,32 +326,43 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         if i == j {
                             continue;
                         }
+                        let pinned = order_pinned(lowered, routines[i], routines[j]);
+                        let hit = |map: &mut InstallFacts, t: u32, why: String| {
+                            if pinned {
+                                map.assumed.entry(t as usize).or_insert((app.app, ORDER_ASSUMPTION));
+                            } else {
+                                map.unknown.entry(t as usize).or_insert(why);
+                            }
+                        };
                         // A2 a: two routines write one table.
                         for t in c.written.intersection(&d.written) {
-                            add(
-                                &mut out.unknown,
+                            hit(
+                                &mut out,
                                 *t,
-                                format!("two of its install routines write this table: {order}"),
+                                format!("two of its install routines write this table: {}", order(i, j)),
                             );
                         }
                         // A2 b: one reads what another writes; what the reader writes depends on the order.
                         if c.read.intersection(&d.written).next().is_some() {
-                            let reader = label(lowered, routines[i].0, routines[i].1);
                             for &t in &c.written {
-                                add(
-                                    &mut out.unknown,
+                                hit(
+                                    &mut out,
                                     t,
-                                    format!("{reader} reads a table another install routine writes: {order}"),
+                                    format!("it reads a table another install routine writes: {}", order(i, j)),
                                 );
                             }
                         }
                         // A2 c: a SingleInstance codeunit carries state from one routine to the next.
-                        if c.singles.intersection(&d.singles).next().is_some() {
+                        if let Some(&shared) = c.singles.intersection(&d.singles).next() {
                             for &t in c.written.iter().chain(&d.written) {
-                                add(
-                                    &mut out.unknown,
+                                hit(
+                                    &mut out,
                                     t,
-                                    format!("two of its install routines share a SingleInstance codeunit: {order}"),
+                                    format!(
+                                        "two of its install routines share the SingleInstance codeunit \"{}\": {}",
+                                        objs[shared].name,
+                                        order(i, j)
+                                    ),
                                 );
                             }
                         }
