@@ -16441,7 +16441,7 @@
         "code": "NotSupportedOperation",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1227,
+        "line": 1232,
         "pinned": true,
         "site": "collections/lt-cs-odd-leads/CsCollections.al:220",
         "template": "The requested operation is not supported."
@@ -16450,7 +16450,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1512,
+        "line": 1517,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16459,7 +16459,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1589,
+        "line": 1594,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16468,7 +16468,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/interp.rs",
         "generic": false,
-        "line": 1599,
+        "line": 1604,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16558,7 +16558,7 @@
         "code": "DB:Ok",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 141,
+        "line": 147,
         "pinned": true,
         "site": "record/TestPlatformTablesWritableContracts.al:107",
         "template": "It is not possible to % any record in the Tenant License State table."
@@ -16567,7 +16567,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 4846,
+        "line": 4874,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -16720,7 +16720,7 @@
         "code": "",
         "file": "crates/al-vm/src/xmlports.rs",
         "generic": false,
-        "line": 1489,
+        "line": 1499,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."

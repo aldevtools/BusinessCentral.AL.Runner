@@ -496,13 +496,7 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // on import when the port runs (not pinned). An export reads the rows in the view's order and through its
                 // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
                 // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
-                // is not pinned on export.
-                let linked = s.properties().any(|q| q.name().eq_ignore_ascii_case("linktable"));
-                if !linked && p.value_text().to_ascii_lowercase().contains("where") {
-                    out.export_reasons.push(format!(
-                        "sourcetableview with a filter on the {section_name} {name}, which is not linked, is not pinned on export"
-                    ));
-                }
+                // runs under assumption `xmlport-view-filter-unlinked` (al-vm xmlports.rs `xp_apply_source_views`).
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
                 // Refused when the port runs, not when it is declared: Base App's xmlport 1 sets
                 // MinOccurs, MaxOccurs, Occurrence and SourceTableView, and tests reach it only
@@ -660,7 +654,9 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
     let leaf = !layout.has_children(i);
     let root = raw.parent.is_none();
     let (min_ok, max_ok): (&[&str], &[&str]) = match raw.kind {
-        K::Text if root => (&[], &["once"]),
+        // An explicit MinOccurs = Once on the root is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
+        // QrXpContainerOccurs.al TS_RootOnce_*; `build` registers `xmlport-root-min-occurs-once`).
+        K::Text if root => (&["once"], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
         // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent that
@@ -671,8 +667,12 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             let p = raw.parent.expect("checked above");
             let flag = |name: &str| layout.property(p, name).and_then(|v| bool_prop(&v));
             let saves = flag("AutoSave") != Some(false) && flag("AutoUpdate") != Some(true);
+            // An explicit MaxOccurs = Unbounded on a linked one is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
+            // QrXpContainerOccurs.al TS_Linked_Unbounded_*: same XML, trigger order, import rows and schema errors; `build`
+            // registers `xmlport-linked-max-unbounded`).
+            let linked = layout.property(i, "LinkTable").is_some();
             if layout.direction == ir::XmlDirection::Export || saves {
-                (&["zero"], &[])
+                (&["zero"], if linked { &["unbounded"] } else { &[] })
             } else {
                 (&[], &[])
             }
@@ -1043,9 +1043,34 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 
 /// The unprobed assumptions the layout rests on: `xmlport-min-occurs-once-table` when a table element that is not below another
 /// one says `MinOccurs = Once` (`occurs_refusal`); `xmlport-udn-text-attribute` when a port in BC's own namespace
-/// (UseDefaultNamespace without DefaultNamespace) has a text attribute.
+/// (UseDefaultNamespace without DefaultNamespace) has a text attribute; `xmlport-linked-max-unbounded` when a linked table element
+/// below another one says `MaxOccurs = Unbounded`; `xmlport-root-min-occurs-once` when the root text element says `MinOccurs = Once`.
 fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
     let mut out = min_once_assumed(layout);
+    let linked_unbounded = (0..layout.nodes.len()).any(|i| {
+        let raw = &layout.nodes[i];
+        raw.kind == ir::XmlNodeKind::Table
+            && raw
+                .parent
+                .is_some_and(|p| layout.nodes[p].kind == ir::XmlNodeKind::Table)
+            && layout.property(i, "LinkTable").is_some()
+            && layout
+                .property(i, "MaxOccurs")
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("unbounded"))
+    });
+    if linked_unbounded {
+        out.push(al_builtins::assumptions::Assumption::XmlportLinkedMaxUnbounded);
+    }
+    let root_once = (0..layout.nodes.len()).any(|i| {
+        layout.nodes[i].parent.is_none()
+            && layout.nodes[i].kind == ir::XmlNodeKind::Text
+            && layout
+                .property(i, "MinOccurs")
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("once"))
+    });
+    if root_once {
+        out.push(al_builtins::assumptions::Assumption::XmlportRootMinOccursOnce);
+    }
     if layout
         .default_ns
         .as_deref()
@@ -1148,6 +1173,43 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(min_once_assumed(&plain).is_empty());
+    }
+
+    #[test]
+    fn an_explicit_max_occurs_unbounded_on_a_linked_nested_table_element_runs_as_an_assumption() {
+        // Writer TS's branch al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_Linked_Unbounded_* (xmlport 90082): the
+        // default, written out.
+        let l = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; LinkFields = A = field(B); MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(
+            layout_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportLinkedMaxUnbounded]
+        );
+        // Without LinkTable it stays refused.
+        let unlinked = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
+        );
+        assert!(!unlinked.run_reasons.is_empty());
+    }
+
+    #[test]
+    fn an_explicit_min_occurs_once_on_the_root_runs_as_an_assumption() {
+        // Writer TS's branch al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_RootOnce_* (xmlport 90085): the default,
+        // written out.
+        let l = layout_of(
+            "xmlport 1 X { schema { textelement(R) { MinOccurs = Once; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(
+            layout_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportRootMinOccursOnce]
+        );
+        let zero = layout_of(
+            "xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
+        );
+        assert!(!zero.run_reasons.is_empty());
     }
 
     #[test]

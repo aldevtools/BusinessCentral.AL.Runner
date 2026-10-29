@@ -698,6 +698,16 @@ impl Session {
             Some(t) => t,
             None => self.xp_read_source(inst, xp)?,
         };
+        // A second Import on the same instance whose source an earlier Import read to its end: what BC does is not pinned.
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED);
+        if text.is_empty() && again {
+            return unsupported(
+                "a second Import on the same XmlPort instance whose source an earlier Import read to its end (not pinned)",
+            );
+        }
+        if !again {
+            inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
+        }
         // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
@@ -1839,6 +1849,20 @@ impl Session {
                 "false" | "0" => Ok(Value::Boolean(false)),
                 _ => Err(evaluate_error(text, "Boolean")),
             },
+            // QrXpContainerOccurs.al TS_Guid_Import_* on branch al-runtime-rs-staging-pub-ts (assumption `xmlport-guid-xml`).
+            RtType::Guid => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                match xml_guid(text) {
+                    XmlGuid::Value(g) => Ok(Value::Guid(g)),
+                    XmlGuid::Invalid => Err(xerr(
+                        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                        "InvalidGuidFormat",
+                    )),
+                    XmlGuid::Unpinned => unsupported(format!(
+                        "XmlPort import of `{text}` into a Guid field with FormatEvaluate = Xml (this form is not pinned)"
+                    )),
+                }
+            }
             other => unsupported(format!(
                 "XmlPort import into a field of type {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
@@ -2603,13 +2627,18 @@ impl Session {
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         inst.borrow_mut().xp_text.push((6, String::new()));
         let result = self.xp_export_inner(inst, schema, guarded);
-        inst.borrow_mut().xp_text.retain(|(k, _)| *k != 6 && *k != 7);
-        // What a table element record's key, order, filters and position are after an export under SourceTableView is not
-        // pinned: every later read of them refuses (records.rs `XP_VIEW_AFTER_EXPORT`).
+        inst.borrow_mut()
+            .xp_text
+            .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
+        inst.borrow_mut().xp_text.push((XP_EXPORTED, String::new()));
+        // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
+        // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, assumption `xmlport-export-again`).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
-                    rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+                    if rec.borrow().unpinned_buffer != Some(crate::records::XP_ROW_AFTER_ONCE) {
+                        rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+                    }
                 }
             }
         }
@@ -2711,6 +2740,7 @@ impl Session {
     /// sorting keeps the record's key and direction. Pinned for Format = Xml without InlineSchema; the rest is refused.
     fn xp_apply_source_views(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
         let xp = schema.xp();
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
         for (i, n) in xp.nodes.iter().enumerate() {
             let Some(raw) = n.source_view.as_deref() else { continue };
             if xp.format != ir::XmlFormat::Xml || xp.inline_schema {
@@ -2720,17 +2750,44 @@ impl Session {
                 ));
             }
             let view = crate::views::property_view(raw);
+            let lower = view.to_ascii_lowercase();
+            // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
+            // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
+            if n.link_node.is_none() && lower.contains("where") {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportViewFilterUnlinked);
+            }
             let rec = self.xp_record(inst, schema.node(i))?;
             let t = self.table(&rec)?;
+            if again {
+                // A later export on the same instance (QrXpContainerOccurs.al TS_View_SecondExport, TS_Again_KeyBetween on
+                // branch al-runtime-rs-staging-pub-ts): the key is not set again (a key set in between, or the primary key
+                // after Reset, decides the order), the view's filters are applied again, the code's filters stay. After
+                // SetView, or with an ORDER in the view, it is not pinned.
+                if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                    return unsupported(
+                        "XmlPort export after SetView on a table element record an earlier export on the same instance left (not pinned)",
+                    );
+                }
+                if lower.contains("order") {
+                    return unsupported(
+                        "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                let mut r = rec.borrow_mut();
+                if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                    r.unpinned_buffer = None;
+                }
+                r.filters.retain(|f| f.group != XP_VIEW_GROUP);
+            }
             let kept = rec.borrow().filters.clone();
             let kept_order = {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
-            let lower = view.to_ascii_lowercase();
             self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false)?;
             let mut r = rec.borrow_mut();
-            if !lower.contains("sorting") {
+            if again || !lower.contains("sorting") {
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
             } else if !lower.contains("order") {
                 // A sorting without order is ascending, also after a SetTableView with Ascending(false) (:654 `SetTableView
@@ -3002,8 +3059,26 @@ impl Session {
                 }
                 // `unlinked_container`: every outer row writes ALL the inner records, `<attributes />` when there are none
                 // (QrXpContainerOccurs.al TP_Unlinked_Export, TP_Unlinked_Export_NoAttrs on branch al-runtime-rs-staging-pub-tp).
-                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
+                // `unlinked_reply_container`: the inner table writes the rows it holds when it is reached, so an outer row's
+                // OnAfterGetRecord that empties and refills it gives each outer row its own rows; an optional inner table without rows
+                // leaves the text element empty (`<details />`) (QrXpContainerOccurs.al TR_Booking_Reply_* on branch
+                // al-runtime-rs-staging-tr).
+                ir::XmlNodeKind::Text
+                    if unlinked_container(schema, child, node)
+                        || unlinked_reply_container(schema, child, node)
+                        || default_unlinked_container(schema, child, node) =>
+                {
+                    if default_unlinked_container(schema, child, node) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportDefaultContainerUnlinked,
+                        );
+                    } else if unlinked_container(schema, child, node) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText,
+                        );
+                    } else {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                    }
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
@@ -3168,6 +3243,11 @@ impl Session {
             Value::Duration(d) => Ok(iso_duration(*d)),
             Value::Option(i, _) => Ok(i.to_string()),
             Value::Enum(_, o) => Ok(o.to_string()),
+            // `{UPPER-CASE}`, the null Guid too (QrXpContainerOccurs.al TS_Guid_Export on branch al-runtime-rs-staging-pub-ts).
+            Value::Guid(g) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                Ok(al_builtins::format::format_guid(g))
+            }
             other => unsupported(format!(
                 "XmlPort export of {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
@@ -3197,15 +3277,31 @@ impl Session {
         self.xp_rows(inst, schema, node, &mut rows)?;
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
+        // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
+        // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. With three rows only the
+        // first is written, with one OnAfterGetRecord (TS_Again_TrMember on branch al-runtime-rs-staging-pub-ts); the row the
+        // record holds afterwards is not pinned, so its buffer is marked ([`crate::records::XP_ROW_AFTER_ONCE`]).
+        let mut ends_on = None;
+        let mut ends_unpinned = false;
         if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
-                return unsupported(
-                    "XmlPort export of a table element with MaxOccurs = Once, several rows and export triggers (not pinned)",
-                );
+                if rows.len() > 2 {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                    ends_unpinned = true;
+                } else {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                    ends_on = rows.pop();
+                }
             }
             rows.truncate(1);
         }
         let rec = self.xp_record(inst, n)?;
+        if rows.is_empty() && !n.min_zero && rec.borrow().unpinned_buffer == Some(crate::records::XP_ROW_AFTER_ONCE) {
+            return unsupported(format!(
+                "XmlPort export of a table element without rows that writes its record as it is: {}",
+                crate::records::XP_ROW_AFTER_ONCE
+            ));
+        }
         // A table element without rows still passes its fields once, without a row: OnBeforePassField runs and no
         // OnAfterGetRecord (P94XpPathFlow.al:Export_PathsNoRows). Unless it is optional, the element is written once with the
         // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
@@ -3250,9 +3346,17 @@ impl Session {
         }
         for row in rows {
             self.load(&rec, row)?;
+            if rec.borrow().unpinned_buffer == Some(crate::records::XP_ROW_AFTER_ONCE) {
+                rec.borrow_mut().unpinned_buffer = None;
+            }
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
+                Ok(Some(Flow::Break | Flow::Skip)) if ends_on.is_some() => {
+                    return unsupported(
+                        "XmlPort export of a table element with MaxOccurs = Once and two rows whose first OnAfterGetRecord skips or breaks (not pinned)",
+                    );
+                }
                 Ok(Some(Flow::Break)) => break,
                 Ok(Some(Flow::Skip)) => continue,
                 Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
@@ -3269,6 +3373,12 @@ impl Session {
             if Self::xp_quit(inst) {
                 return Ok(out);
             }
+        }
+        if let Some(row) = ends_on {
+            self.load(&rec, row)?;
+        }
+        if ends_unpinned {
+            rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_ROW_AFTER_ONCE);
         }
         Ok(out)
     }
@@ -3616,6 +3726,11 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
 
+/// The `Instance::xp_text` kind that says an export ran on the instance (its SourceTableView keys are not set again).
+const XP_EXPORTED: u8 = 14;
+/// The `Instance::xp_text` kind that says an Import read the source of the instance.
+const XP_IMPORTED: u8 = 15;
+
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {
     let n = schema.node(node);
@@ -3727,6 +3842,113 @@ fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && fields
             .iter()
             .all(|&f| schema.node(f).kind == ir::XmlNodeKind::FieldAttr)
+}
+
+/// For export only: a text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and
+/// `MaxOccurs = Once`, holding only one temporary table element without LinkTable that is optional (`MinOccurs = Zero`) or
+/// required and repeating (`MinOccurs = Once`, `MaxOccurs = Unbounded`), with any nodes the export supports below it
+/// (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr, QrXpContainerOccurs.al TR_Booking_*, xmlport
+/// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`). Leaf field elements of the
+/// outer table without triggers may come before the inner table (TR_Member_*, xmlport 90065: `member` > `membernumber`,
+/// `email`, `card`).
+fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    let Some((&inner, fields)) = kids.split_last() else {
+        return false;
+    };
+    let plain_field = |f: usize| {
+        let k = schema.node(f);
+        k.kind == ir::XmlNodeKind::Field
+            && k.table_node == Some(table)
+            && k.triggers.is_empty()
+            && schema.children(f).is_empty()
+    };
+    if !fields.iter().all(|&f| plain_field(f)) {
+        return false;
+    }
+    let t = schema.node(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && n.min_zero
+        && n.max_unbounded == Some(false)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && (t.min_zero || t.max_unbounded == Some(true))
+        && !schema.children(inner).is_empty()
+}
+
+/// For export only: a text element with the default MinOccurs and MaxOccurs, without triggers, right below a temporary table
+/// element, holding only one temporary table element without LinkTable with `MaxOccurs = Once` and `MinOccurs = Zero`: written
+/// empty without rows, with the first row only otherwise (assumption `xmlport-default-container-unlinked`; corpus branch
+/// al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export, xmlport 90084 in TsXpObjects.al).
+fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let [inner] = schema.children(c)[..] else {
+        return false;
+    };
+    let t = schema.node(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && !n.min_zero
+        && n.max_unbounded.is_none()
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && t.min_zero
+        && t.max_unbounded == Some(false)
+        && !schema.children(inner).is_empty()
+}
+
+/// What the import of `text` into a Guid field with `FormatEvaluate = Xml` gives.
+enum XmlGuid {
+    Value([u8; 16]),
+    Invalid,
+    Unpinned,
+}
+
+/// The XML forms of a Guid an import takes (QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute on branch
+/// al-runtime-rs-staging-pub-ts): the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with
+/// spaces around; empty is the null Guid. A text with a character that is no hex digit, dash, bracket or space (`not-a-guid`),
+/// or the 8-4-4-4-12 form one digit short, is invalid. Other forms (mismatched brackets, digits in brackets, other lengths) are
+/// not pinned.
+fn xml_guid(text: &str) -> XmlGuid {
+    if text.is_empty() {
+        return XmlGuid::Value([0; 16]);
+    }
+    let t = text.trim_matches(' ');
+    if t.chars()
+        .any(|c| !(c.is_ascii_hexdigit() || matches!(c, '-' | '{' | '}' | '(' | ')')))
+    {
+        return XmlGuid::Invalid;
+    }
+    let inner = match (t.chars().next(), t.chars().last()) {
+        (Some('{'), Some('}')) | (Some('('), Some(')')) => &t[1..t.len() - 1],
+        _ => t,
+    };
+    if inner.contains(['{', '}', '(', ')']) {
+        return XmlGuid::Unpinned;
+    }
+    let groups: Vec<&str> = inner.split('-').collect();
+    let lens: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+    let digits: String = match lens.as_slice() {
+        [8, 4, 4, 4, 12] => groups.concat(),
+        [32] if inner.len() == t.len() => inner.to_string(),
+        [8, 4, 4, 4, 11] => return XmlGuid::Invalid,
+        _ => return XmlGuid::Unpinned,
+    };
+    let mut g = [0u8; 16];
+    for (i, b) in g.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).expect("hex digits checked above");
+    }
+    XmlGuid::Value(g)
 }
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {

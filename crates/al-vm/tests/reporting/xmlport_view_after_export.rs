@@ -1,6 +1,7 @@
 //! The table element record after an export under `SourceTableView`. The export order is pinned
-//! (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474); what the record's key, order, filters and position are
-//! afterwards is not, so every read of them refuses until the code sets a view of its own (Reset, SetView).
+//! (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474); its buffer afterwards (the last row read) is pinned by corpus
+//! writer TS (assumption `xmlport-export-again`), the other reads of its key, filters and position refuse until the code sets
+//! a view of its own (Reset, SetView).
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -125,7 +126,9 @@ fn reads_of_the_view_after_the_export_refuse() {
     refused("Key");
     refused("Filters");
     refused("First");
-    refused("CurrentId");
+    // The buffer is the last row the export read (assumption `xmlport-export-again`, QrXpContainerOccurs.al TS_Again_SameData
+    // on branch al-runtime-rs-staging-pub-ts).
+    assert!(matches!(run("CurrentId"), Ok(al_builtins::value::Value::Integer(1))));
     refused("Post");
     refused("CopyKey");
     refused("AssignId");
@@ -136,6 +139,6 @@ fn reset_or_setview_gives_the_record_a_view_again() {
     assert_eq!(text(run("ResetKey")), "Id");
     assert_eq!(text(run("ViewKey")), "B");
     assert!(matches!(run("ResetFirst"), Ok(al_builtins::value::Value::Integer(1))));
-    // The buffer still holds what the export left there.
-    refused("ResetId");
+    // The buffer still holds the last row the export read (TS_View_SecondExport, TS_Again_SameData).
+    assert!(matches!(run("ResetId"), Ok(al_builtins::value::Value::Integer(1))));
 }
