@@ -3743,13 +3743,25 @@ fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
 /// `MaxOccurs = Once`, holding only one temporary table element without LinkTable that is optional (`MinOccurs = Zero`) or
 /// required and repeating (`MinOccurs = Once`, `MaxOccurs = Unbounded`), with any nodes the export supports below it
 /// (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr, QrXpContainerOccurs.al TR_Booking_*, xmlport
-/// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`).
+/// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`). Leaf field elements of the
+/// outer table without triggers may come before the inner table (TR_Member_*, xmlport 90065: `member` > `membernumber`,
+/// `email`, `card`).
 fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
     let kids = schema.children(c);
-    let [inner] = kids[..] else {
+    let Some((&inner, fields)) = kids.split_last() else {
         return false;
     };
+    let plain_field = |f: usize| {
+        let k = schema.node(f);
+        k.kind == ir::XmlNodeKind::Field
+            && k.table_node == Some(table)
+            && k.triggers.is_empty()
+            && schema.children(f).is_empty()
+    };
+    if !fields.iter().all(|&f| plain_field(f)) {
+        return false;
+    }
     let t = schema.node(inner);
     n.kind == ir::XmlNodeKind::Text
         && n.parent == Some(table)

@@ -817,9 +817,9 @@ registry! {
     },
     XmlportUnlinkedReply => {
         id: "xmlport-unlinked-reply",
-        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable, optional or with MinOccurs = Once and MaxOccurs = Unbounded, with any supported nodes below it: the inner table writes the rows it holds when it is reached (an outer row's OnAfterGetRecord that empties and refills it gives each outer row its own rows, in SourceTableView order); an optional inner table without rows leaves the text element empty; a MinOccurs = Once inner table without rows writes one element from its record as it is, without OnAfterGetRecord. A table element with MaxOccurs = Once, export triggers and two rows writes the first with one OnAfterGetRecord, and its record holds the second row afterwards. A later export on the same instance applies each SourceTableView again, so the record's view is the element's own while it runs (its buffer stays unpinned until a row is loaded or the record is assigned). Pinned only by corpus writer TR's run on real BC 29 (SaaS sandbox), not yet on corpus master.",
+        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable, optional or with MinOccurs = Once and MaxOccurs = Unbounded, with any supported nodes below it, after leaf field elements of the outer table without triggers: the inner table writes the rows it holds when it is reached (an outer row's OnAfterGetRecord that empties and refills it gives each outer row its own rows, in SourceTableView order); an optional inner table without rows leaves the text element empty; a MinOccurs = Once inner table without rows writes one element from its record as it is, without OnAfterGetRecord. A table element with MaxOccurs = Once, export triggers and two rows writes the first with one OnAfterGetRecord, and its record holds the second row afterwards. A later export on the same instance applies each SourceTableView again, so the record's view is the element's own while it runs (its buffer stays unpinned until a row is loaded or the record is assigned). Pinned only by corpus writer TR's run on real BC 29 (SaaS sandbox), not yet on corpus master.",
         tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a reply row over lines over parts, each line refilling its parts).",
-        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_Booking_*; wanted: the bump that puts them on corpus master. Not covered: a MaxOccurs = Once table element with three or more rows and triggers, or whose first OnAfterGetRecord skips or breaks.",
+        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_Booking_* and TR_Member_*; wanted: the bump that puts them on corpus master. Not covered: a MaxOccurs = Once table element with three or more rows and triggers, or whose first OnAfterGetRecord skips or breaks.",
         awaiting: Awaiting {
             issues: &[],
             files: &[
@@ -829,6 +829,9 @@ registry! {
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_Reply_LinesWithoutParts",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_TwoReplyRows",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_ImportThenExport",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_ImportThenExport",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_Reply_Cards",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_ErrorReply",
             ],
             since: "2026-10-29",
         },
