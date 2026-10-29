@@ -612,9 +612,11 @@ impl Session {
 
     fn xp_import(&mut self, inst: &Inst, schema: &Schema, guarded: bool, static_form: bool) -> Result<Value, Signal> {
         // An import ignores the SourceTableView of an element that is not linked (platform/lt-ag-contoso/AgXmlPortImport.al:62-80);
-        // a filter on a linked one is not pinned on import.
+        // a filter on a linked one is not pinned on import. An XML import refuses it when it reaches an element of that table element
+        // (`xp_import_record`): an import never touches the record of a table element the document has no element of.
         if let Some(n) = schema.xp().nodes.iter().find(|n| {
-            n.link_node.is_some()
+            schema.xp().format != ir::XmlFormat::Xml
+                && n.link_node.is_some()
                 && n.source_view
                     .as_deref()
                     .is_some_and(|v| v.to_ascii_lowercase().contains("where"))
@@ -1885,6 +1887,21 @@ impl Session {
         keep_key: bool,
     ) -> Result<(), Signal> {
         let n = schema.node(node);
+        if n.max_unbounded == Some(false) && nested_table(schema, node) {
+            return unsupported(
+                "XmlPort import of a table element with MaxOccurs = Once below another table element (not pinned)",
+            );
+        }
+        if n.link_node.is_some()
+            && n.source_view
+                .as_deref()
+                .is_some_and(|v| v.to_ascii_lowercase().contains("where"))
+        {
+            return unsupported(format!(
+                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
+                n.name
+            ));
+        }
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
         let mut fresh = self.initial_fields(table);
@@ -2626,7 +2643,19 @@ impl Session {
 
     fn xp_export(&mut self, inst: &Inst, schema: &Schema, guarded: bool) -> Result<Value, Signal> {
         inst.borrow_mut().xp_text.push((6, String::new()));
+        let addr = Rc::as_ptr(inst) as usize;
+        self.xp_pass_views.retain(|(a, _, _)| *a != addr);
         let result = self.xp_export_inner(inst, schema, guarded);
+        self.xp_pass_views.retain(|(a, _, _)| *a != addr);
+        // After the export the row a linked MaxOccurs = Once element was left on is as unpinned as its view.
+        for n in schema.xp().nodes.iter().filter(|n| n.kind == ir::XmlNodeKind::Table) {
+            if let Ok(rec) = self.xp_record(inst, n) {
+                let mut r = rec.borrow_mut();
+                if r.unpinned_buffer == Some(crate::records::XP_NESTED_ROW_AFTER_ONCE) {
+                    r.unpinned_buffer = Some(crate::records::XP_ROW_AFTER_ONCE);
+                }
+            }
+        }
         inst.borrow_mut()
             .xp_text
             .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
@@ -3262,6 +3291,7 @@ impl Session {
         let n = schema.node(node);
         let mut out = Vec::new();
         let mut rows = Vec::new();
+        self.xp_pass_start(inst, schema, node)?;
         // A linked element is filtered to its parent's row before OnPreXmlItem: it counts the parent's rows only
         // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:325 `Chi.PreXmlItem count=2`, then `count=1`).
         self.xp_link_filter(inst, schema, node)?;
@@ -3283,7 +3313,18 @@ impl Session {
         // record holds afterwards is not pinned, so its buffer is marked ([`crate::records::XP_ROW_AFTER_ONCE`]).
         let mut ends_on = None;
         let mut ends_unpinned = false;
-        if n.max_unbounded == Some(false) && rows.len() > 1 {
+        let mut nested_after = false;
+        let nested_once = n.max_unbounded == Some(false) && nested_table(schema, node);
+        if nested_once {
+            // A linked one below another table element (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
+            // TT_Confirm_Export_NoPreFilter: five rows, `get detail 1` only): the first row of each pass, one OnAfterGetRecord; the row
+            // the record holds afterwards is not pinned.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedOnce);
+            if rows.len() > 1 {
+                rows.truncate(1);
+                nested_after = true;
+            }
+        } else if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
                 if rows.len() > 2 {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
@@ -3346,13 +3387,16 @@ impl Session {
         }
         for row in rows {
             self.load(&rec, row)?;
-            if rec.borrow().unpinned_buffer == Some(crate::records::XP_ROW_AFTER_ONCE) {
+            if matches!(
+                rec.borrow().unpinned_buffer,
+                Some(crate::records::XP_ROW_AFTER_ONCE | crate::records::XP_NESTED_ROW_AFTER_ONCE)
+            ) {
                 rec.borrow_mut().unpinned_buffer = None;
             }
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
-                Ok(Some(Flow::Break | Flow::Skip)) if ends_on.is_some() => {
+                Ok(Some(Flow::Break | Flow::Skip)) if ends_on.is_some() || nested_after => {
                     return unsupported(
                         "XmlPort export of a table element with MaxOccurs = Once and two rows whose first OnAfterGetRecord skips or breaks (not pinned)",
                     );
@@ -3380,7 +3424,57 @@ impl Session {
         if ends_unpinned {
             rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_ROW_AFTER_ONCE);
         }
+        if nested_after {
+            rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_NESTED_ROW_AFTER_ONCE);
+        }
         Ok(out)
+    }
+
+    /// The start of a pass of table element `node` with LinkTable and no LinkFields below another table element: LinkTable adds no
+    /// filter, and every pass after the first starts from the filters and key the record had at the first, its SourceTableView
+    /// included, whatever OnPreXmlItem of an earlier pass set or reset (writer TT's branch al-runtime-rs-staging-tt,
+    /// QrXpContainerOccurs.al TT_Confirm_Export_NpFilters `pre detail a2 filters= count=5` after a1's Reset and filters,
+    /// TT_Confirm_Export_TwoReplies `pre ticket filters=` at reply 2; assumption `xmlport-link-pass-reset`). Filters of the code's
+    /// own on the record at the first pass are not pinned.
+    fn xp_pass_start(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<(), Signal> {
+        let n = schema.node(node);
+        if !nested_table(schema, node) || n.link_node.is_none() || !n.link_fields.is_empty() {
+            return Ok(());
+        }
+        let rec = self.xp_record(inst, n)?;
+        let addr = Rc::as_ptr(inst) as usize;
+        if let Some((_, _, v)) = self.xp_pass_views.iter().find(|(a, i, _)| *a == addr && *i == node) {
+            let v = v.clone();
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkPassReset);
+            let mut r = rec.borrow_mut();
+            r.filters = v.filters;
+            r.filter_group = v.filter_group;
+            r.key = v.key;
+            r.adhoc = v.adhoc;
+            r.ascending = v.ascending;
+            r.field_descending = v.field_descending;
+            r.marked_only = false;
+            return Ok(());
+        }
+        let v = {
+            let r = rec.borrow();
+            if r.marked_only || r.filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
+                return unsupported(format!(
+                    "XmlPort export of table element {} (LinkTable without LinkFields below another table element) whose record has filters or marks of the code's own (not pinned)",
+                    n.name
+                ));
+            }
+            PassView {
+                filters: r.filters.clone(),
+                filter_group: r.filter_group,
+                key: r.key,
+                adhoc: r.adhoc.clone(),
+                ascending: r.ascending,
+                field_descending: r.field_descending,
+            }
+        };
+        self.xp_pass_views.push((addr, node, v));
+        Ok(())
     }
 
     /// Filters linked table element `node` to the row its LinkTable holds.
@@ -3417,6 +3511,23 @@ impl Session {
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.
+/// The view of a table element record at its first pass of an export (`Session::xp_pass_start`).
+#[derive(Clone)]
+pub(crate) struct PassView {
+    filters: Vec<al_builtins::filter::FieldFilter>,
+    filter_group: i32,
+    key: usize,
+    adhoc: Option<(usize, Vec<usize>)>,
+    ascending: bool,
+    field_descending: u32,
+}
+
+/// Whether node `node` is a table element right below another table element.
+fn nested_table(schema: &Schema, node: usize) -> bool {
+    let n = schema.node(node);
+    n.kind == ir::XmlNodeKind::Table && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
+}
+
 /// What the field of a text export gives.
 enum FieldPass {
     Value(String),
