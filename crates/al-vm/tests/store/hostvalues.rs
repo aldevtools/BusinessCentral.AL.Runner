@@ -961,7 +961,7 @@ fn geturl_of_another_client_type_or_an_unpinned_character_is_refused() {
         "exit(GetUrl(ClientType::Tablet, 'C', ObjectType::Page, 0));",
         "exit(GetUrl(ClientType::Desktop, 'A&B'));",
         "exit(GetUrl(ClientType::Background, 'C', ObjectType::Page, 21));",
-        "exit(GetUrl(ClientType::SOAP));",
+        "exit(GetUrl(ClientType::SOAP, 'C', ObjectType::Table, 18));",
         "exit(GetUrl(ClientType::Web, 'A`B'));",
     ] {
         let r = get_url(body, None);
@@ -1108,5 +1108,67 @@ fn geturl_web_encodes_every_other_printable_character() {
         let want = format!("http://localhost:8080/BC/?company={want}");
         let r = get_url(&body, None);
         assert!(matches!(&r, Ok(Value::Text(t)) if **t == *want), "{body}: {r:?}");
+    }
+}
+
+// platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi):
+// the service client types answer the host's address (host and instance masked there) with their path, a company in it, and
+// the empty text for an object. Api with a company (an id the pins mask) and the forms no pin shows are refused.
+#[test]
+fn geturl_of_the_service_client_types_builds_the_pinned_addresses() {
+    for (body, want) in [
+        (
+            "exit(GetUrl(ClientType::SOAP));",
+            "http://localhost:8080/BC/WS/Services",
+        ),
+        (
+            "exit(GetUrl(ClientType::SOAP, 'My Company'));",
+            "http://localhost:8080/BC/WS/My%20Company/Services",
+        ),
+        (
+            "exit(GetUrl(ClientType::SOAP, ''));",
+            "http://localhost:8080/BC/WS/Services",
+        ),
+        ("exit(GetUrl(ClientType::OData));", "http://localhost:8080/BC/ODataV4"),
+        (
+            "exit(GetUrl(ClientType::ODataV4, 'My Company'));",
+            "http://localhost:8080/BC/ODataV4/Company('My%20Company')",
+        ),
+        (
+            "exit(GetUrl(ClientType::ODataV4, ''));",
+            "http://localhost:8080/BC/ODataV4",
+        ),
+        ("exit(GetUrl(ClientType::Api));", "http://localhost:8080/BC/api/"),
+        ("exit(GetUrl(ClientType::Api, ''));", "http://localhost:8080/BC/api/"),
+        ("exit(GetUrl(ClientType::SOAP, '', ObjectType::Page, 21));", ""),
+        (
+            "exit(GetUrl(ClientType::OData, 'My Company', ObjectType::Report, 69367));",
+            "",
+        ),
+        (
+            "exit(GetUrl(ClientType::SOAP, 'My Company', ObjectType::Codeunit, 69366));",
+            "",
+        ),
+        (
+            "exit(GetUrl(ClientType::ODataV4, 'My Company', ObjectType::Query, 69376));",
+            "",
+        ),
+        (
+            "exit(GetUrl(ClientType::ODataV4, 'CRONUS International Ltd.', ObjectType::Page, 21));",
+            "",
+        ),
+    ] {
+        let r = get_url(body, None);
+        assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
+    }
+    for body in [
+        "exit(GetUrl(ClientType::Api, 'My Company'));",
+        "exit(GetUrl(ClientType::SOAP, 'A&B'));",
+        "exit(GetUrl(ClientType::SOAP, 'CRONUS International Ltd.'));",
+        "exit(GetUrl(ClientType::OData, 'My Company', ObjectType::Codeunit, 69366));",
+        "exit(GetUrl(ClientType::Api, '', ObjectType::Query, 69376));",
+    ] {
+        let r = get_url(body, None);
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
     }
 }
