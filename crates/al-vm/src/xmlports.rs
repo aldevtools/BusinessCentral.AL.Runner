@@ -698,6 +698,16 @@ impl Session {
             Some(t) => t,
             None => self.xp_read_source(inst, xp)?,
         };
+        // A second Import on the same instance whose source an earlier Import read to its end: what BC does is not pinned.
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED);
+        if text.is_empty() && again {
+            return unsupported(
+                "a second Import on the same XmlPort instance whose source an earlier Import read to its end (not pinned)",
+            );
+        }
+        if !again {
+            inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
+        }
         // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
@@ -1839,6 +1849,20 @@ impl Session {
                 "false" | "0" => Ok(Value::Boolean(false)),
                 _ => Err(evaluate_error(text, "Boolean")),
             },
+            // QrXpContainerOccurs.al TS_Guid_Import_* on branch al-runtime-rs-staging-pub-ts (assumption `xmlport-guid-xml`).
+            RtType::Guid => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                match xml_guid(text) {
+                    XmlGuid::Value(g) => Ok(Value::Guid(g)),
+                    XmlGuid::Invalid => Err(xerr(
+                        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                        "InvalidGuidFormat",
+                    )),
+                    XmlGuid::Unpinned => unsupported(format!(
+                        "XmlPort import of `{text}` into a Guid field with FormatEvaluate = Xml (this form is not pinned)"
+                    )),
+                }
+            }
             other => unsupported(format!(
                 "XmlPort import into a field of type {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
@@ -3219,6 +3243,11 @@ impl Session {
             Value::Duration(d) => Ok(iso_duration(*d)),
             Value::Option(i, _) => Ok(i.to_string()),
             Value::Enum(_, o) => Ok(o.to_string()),
+            // `{UPPER-CASE}`, the null Guid too (QrXpContainerOccurs.al TS_Guid_Export on branch al-runtime-rs-staging-pub-ts).
+            Value::Guid(g) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                Ok(al_builtins::format::format_guid(g))
+            }
             other => unsupported(format!(
                 "XmlPort export of {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
@@ -3699,6 +3728,8 @@ const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
 
 /// The `Instance::xp_text` kind that says an export ran on the instance (its SourceTableView keys are not set again).
 const XP_EXPORTED: u8 = 14;
+/// The `Instance::xp_text` kind that says an Import read the source of the instance.
+const XP_IMPORTED: u8 = 15;
 
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {
@@ -3874,6 +3905,50 @@ fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && t.min_zero
         && t.max_unbounded == Some(false)
         && !schema.children(inner).is_empty()
+}
+
+/// What the import of `text` into a Guid field with `FormatEvaluate = Xml` gives.
+enum XmlGuid {
+    Value([u8; 16]),
+    Invalid,
+    Unpinned,
+}
+
+/// The XML forms of a Guid an import takes (QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute on branch
+/// al-runtime-rs-staging-pub-ts): the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with
+/// spaces around; empty is the null Guid. A text with a character that is no hex digit, dash, bracket or space (`not-a-guid`),
+/// or the 8-4-4-4-12 form one digit short, is invalid. Other forms (mismatched brackets, digits in brackets, other lengths) are
+/// not pinned.
+fn xml_guid(text: &str) -> XmlGuid {
+    if text.is_empty() {
+        return XmlGuid::Value([0; 16]);
+    }
+    let t = text.trim_matches(' ');
+    if t.chars()
+        .any(|c| !(c.is_ascii_hexdigit() || matches!(c, '-' | '{' | '}' | '(' | ')')))
+    {
+        return XmlGuid::Invalid;
+    }
+    let inner = match (t.chars().next(), t.chars().last()) {
+        (Some('{'), Some('}')) | (Some('('), Some(')')) => &t[1..t.len() - 1],
+        _ => t,
+    };
+    if inner.contains(['{', '}', '(', ')']) {
+        return XmlGuid::Unpinned;
+    }
+    let groups: Vec<&str> = inner.split('-').collect();
+    let lens: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+    let digits: String = match lens.as_slice() {
+        [8, 4, 4, 4, 12] => groups.concat(),
+        [32] if inner.len() == t.len() => inner.to_string(),
+        [8, 4, 4, 4, 11] => return XmlGuid::Invalid,
+        _ => return XmlGuid::Unpinned,
+    };
+    let mut g = [0u8; 16];
+    for (i, b) in g.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).expect("hex digits checked above");
+    }
+    XmlGuid::Value(g)
 }
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {
