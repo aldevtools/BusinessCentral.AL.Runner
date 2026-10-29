@@ -330,7 +330,7 @@ codeunit 69985 M
         exit(s + Format(TenantMedia.Delete()));
     end;
 
-    // Delete(true) of a Tenant Media row that exists, the return value unused (assumption tenant-media-delete).
+    // Delete(true) of a Tenant Media row that exists, the return value unused (TestMediaPngImport.al TQ_TenantMedia_DeleteTrue_*).
     procedure DeleteTenantMediaRunTrigger(): Text
     var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; Id: Guid;
     begin

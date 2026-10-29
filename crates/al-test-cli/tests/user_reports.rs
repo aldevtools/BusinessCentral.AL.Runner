@@ -208,7 +208,7 @@ codeunit 50301 T { Subtype = Test; [Test] procedure Compiles() begin end; }";
 /// base page's code the base page's protected one; a call from outside on a page variable runs the base page's public
 /// procedure, as the extension's local one is not visible there. alc binds the calls that way (a probe with alc: the extension's
 /// local `F(): Text` next to the base's protected `F(): Integer` makes `I := F()` in the extension a Text-to-Integer
-/// error); the corpus pin is awaited (assumption ExtLocalProcNamedLikeBase).
+/// error); corpus pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al:48-72 pins it on real BC.
 #[test]
 fn issue_6043_a_bare_call_runs_the_procedure_of_the_calling_object() {
     let base = "table 50200 \"Repro Rec\" { fields { field(1; \"No.\"; Code[10]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }

@@ -575,13 +575,12 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
             || rounded.is_sign_negative() != n.value.is_sign_negative()
             || (decimals && (rounded != n.value || min > n.value.fract().normalize().scale()));
         if seen {
-            // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma (corpus branch al-runtime-rs-staging-pub-tq), 2:2 by TP.
+            // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma, 2:2 by TP_Format_PrecisionStrings (FormatCommaFormatString.al).
             if !matches!((min, max), (0, 0) | (1, 3) | (2, 2) | (3, 3)) {
                 return Err(format!(
                     "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
                 ));
             }
-            crate::assumptions::assume(crate::assumptions::Assumption::FormatPrecisionFirstCode);
         }
         n.value = rounded;
         n.min_decimals = n.min_decimals.max(min);
@@ -721,12 +720,9 @@ fn precision_standard(
     if (5..=8).contains(&std) {
         return format_value(v, 0, std, ctx).map_err(fail);
     }
-    // `<Precision,2:26>` (more than 18 decimals) is pinned only by TP_Format_PrecisionStrings on corpus branch
-    // al-runtime-rs-staging-pub-tp, with standard formats 2 and 4 (`1234.50 `, `-1234.567`), and TQ_Format_PrecisionStd_* on
-    // branch al-runtime-rs-staging-pub-tq with standard formats 0, 2 and 9.
-    if max > 18 {
-        crate::assumptions::assume(crate::assumptions::Assumption::FormatPrecisionFirstCode);
-    }
+    // `<Precision,2:26>` (more than 18 decimals) is pinned by TP_Format_PrecisionStrings with standard formats 2 and 4
+    // (`1234.50 `, `-1234.567`) and TQ_Format_PrecisionStd_* with standard formats 0, 2 and 9
+    // (types/lt-format-comma-format-string/FormatCommaFormatString.al).
     let rounded = n
         .value
         .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);

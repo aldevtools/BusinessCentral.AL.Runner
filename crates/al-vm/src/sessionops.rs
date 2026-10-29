@@ -684,11 +684,16 @@ impl Session {
                 }
                 // Set opens the write transaction in every scope (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:
                 // 238-263); a SetEncrypted is undone by a rollback (misc/lt-cu-odd-leads/CuTryTests.al:220-230), so it is
-                // a write of the transaction too. A Set or SetEncrypted over an existing key right after a Commit opens it as
-                // well, also with the same value and plain over encrypted and back (assumption isolated-storage-overwrite-tx:
-                // session/lt-cn-session-leads/CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction on corpus branch
-                // al-runtime-rs-staging-pub-to); inside a write transaction the phase cannot change.
-                if self.isolated_storage.contains_key(&slot) && self.tx.tx_phase != crate::transactions::TX_WRITE {
+                // a write of the transaction too. A plain Set over an existing plain key right after a Commit opens it as
+                // well, also with the same value (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:293-317
+                // TO_IsoOverwrite_OutsideWriteTransaction); SetEncrypted over an existing key, and a Set over an encrypted one,
+                // are assumed alike (assumption isolated-storage-overwrite-tx). Inside a write transaction the phase cannot change.
+                if self.tx.tx_phase != crate::transactions::TX_WRITE
+                    && self
+                        .isolated_storage
+                        .get(&slot)
+                        .is_some_and(|(_, enc, _)| *enc || method == "SetEncrypted")
+                {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::IsolatedStorageOverwriteTx);
                 }
                 self.tx.tx_phase = crate::transactions::TX_WRITE;

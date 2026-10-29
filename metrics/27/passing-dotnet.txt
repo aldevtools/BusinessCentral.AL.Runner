@@ -79,7 +79,6 @@
 99050 AF_MailAddress_Valid
 99050 AF_MailAddress_WithDisplayName
 99101 ALUserAccountHelper_Delegated
-99131 ALClient_NoHandler
 99220 GetDotNetType_AlEnum
 99220 GetDotNetType_DateFormula
 99220 GetDotNetType_UnassignedByte
