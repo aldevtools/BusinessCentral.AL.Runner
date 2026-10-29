@@ -56,7 +56,7 @@ pub struct LoginRecord {
     /// The globals of LogInManagement the run may have changed (global index), and their Date values after it.
     pub globals: Vec<(usize, i32, bool)>,
     /// The assumption marks the run made.
-    pub hits: u128,
+    pub hits: al_builtins::assumptions::HitBits,
 }
 
 impl BaselineRun {

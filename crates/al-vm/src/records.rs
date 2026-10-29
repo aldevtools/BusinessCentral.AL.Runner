@@ -46,6 +46,14 @@ pub(crate) const XP_BUFFER_AFTER_EXPORT: &str = "the table element record's buff
 /// [`Session::unpinned_buffer_op`]).
 pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table element record holds after an export of three or more rows with export triggers is not pinned";
 
+/// The `RecordState::unpinned_buffer` reason, while an export runs, of a table element record with LinkTable, no LinkFields and
+/// MaxOccurs = Once below another table element after a pass that found two or more rows: only the first row is written
+/// (QrXpContainerOccurs.al TT_Confirm_Export_NoPreFilter on corpus writer TT's branch al-runtime-rs-staging-tt), the row the record
+/// holds afterwards is not pinned. Its view is the export's own again at the next pass, so the view reads of [`XP_BUFFER_AFTER_EXPORT`]
+/// run; after the export it becomes [`XP_ROW_AFTER_ONCE`].
+pub(crate) const XP_NESTED_ROW_AFTER_ONCE: &str =
+    "the row a linked MaxOccurs = Once table element record holds after a pass of two or more rows is not pinned";
+
 /// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
 pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
@@ -2339,7 +2347,7 @@ impl Session {
         );
         // After Reset or SetView the view of a table element record is the code's own again; only its buffer is unpinned
         // ([`XP_BUFFER_AFTER_EXPORT`]).
-        let own_view = why == XP_BUFFER_AFTER_EXPORT
+        let own_view = (why == XP_BUFFER_AFTER_EXPORT || why == XP_NESTED_ROW_AFTER_ONCE)
             && matches!(
                 method,
                 RecordOp::CurrentKey

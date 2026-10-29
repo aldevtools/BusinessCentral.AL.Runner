@@ -893,7 +893,7 @@ struct MemoRun {
     /// The globals of LogInManagement the run may have changed, and their Date values after it.
     globals: Vec<(usize, i32, bool)>,
     /// The assumption marks the run made.
-    hits: u128,
+    hits: al_builtins::assumptions::HitBits,
 }
 
 /// The key of the session's state, whose LogInManagement instance is new; `None` when a run may be neither recorded
