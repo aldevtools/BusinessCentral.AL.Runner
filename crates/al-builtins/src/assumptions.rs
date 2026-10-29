@@ -933,6 +933,17 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportOptionalNoRows => {
+        id: "xmlport-optional-no-rows",
+        assumed: "XmlPort export of an optional table element (MinOccurs = Zero) without LinkTable that is not below another table element, without rows: only its OnPreXmlItem runs; no OnBeforePassField or OnBeforePassVariable of its nodes runs and nothing is written. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts.",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows; wanted: the bump that puts it on corpus master. Open: the same below another table element.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Optional_Unlinked_NoRows"],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
