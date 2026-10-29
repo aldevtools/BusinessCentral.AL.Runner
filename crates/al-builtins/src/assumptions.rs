@@ -1207,7 +1207,7 @@ registry! {
         id: "enum-operand-arithmetic",
         assumed: "An Enum operand of + - * / div mod is its ordinal, an Integer, next to a number or another Enum; the result assigned to an Enum is the member of that ordinal; unary minus on an Enum variable does not compile (AL0172).",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6156).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. ",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
         awaiting: Awaiting {
             issues: &[6156],
             files: &[
@@ -1221,7 +1221,7 @@ registry! {
         id: "ternary-guid-branch",
         assumed: "A conditional expression with a Guid branch and a Label, Text, Code or text literal branch has the true branch's type: a Guid true branch converts the other branch to a Guid (InvalidGuidFormat when that branch is taken and holds no GUID), a Text, Code or Label true branch takes the Guid as its text in braces.",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6160).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. ",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
         awaiting: Awaiting {
             issues: &[6160],
             files: &[
@@ -1234,7 +1234,7 @@ registry! {
         id: "failed-insert-null-system-id",
         assumed: "A guarded Insert (result used, not temporary, not InsertWithSystemId) that fails on an existing key leaves the variable's SystemId null, the id it was given and one the code set both dropped; a Modify of a variable whose SystemId is null gives it the stored row's SystemId and leaves the row's.",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6153).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. ",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
         awaiting: Awaiting {
             issues: &[6153],
             files: &[
@@ -1247,7 +1247,7 @@ registry! {
         id: "clear-http-messages",
         assumed: "Clear of an HttpRequestMessage, HttpContent or HttpResponseMessage gives a new one (GET with no URI, headers or content; an empty content with only its Content-Type; 200 OK with an empty body), and a value assigned from it before keeps what it held.",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issues 6170, 6171).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. ",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
         awaiting: Awaiting {
             issues: &[6170, 6171],
             files: &[
@@ -1260,7 +1260,7 @@ registry! {
         id: "evaluate-rfc-date-time",
         assumed: "Evaluate into a DateTime with number 0 (or none) reads `Ddd, dd Mon yyyy hh:mm:ss GMT` and `+0000` as UTC; a weekday that is not the date's answers false with no error; without the weekday it answers false and leaves `The date is not valid.` (DateInvalid) as the last error.",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6172).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. Another zone or offset and a one-digit day are refused.",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. Another zone or offset and a one-digit day are refused.",
         awaiting: Awaiting {
             issues: &[6172],
             files: &[
@@ -1273,7 +1273,7 @@ registry! {
         id: "evaluate-json-array",
         assumed: "Evaluate into a JsonArray reads the text as ReadFrom does; a text that is no array leaves the array as it was and answers false with ReadFrom's statement error (InvalidJsonType naming the token type, InvalidJsonData) as the last error.",
         tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6175).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on 27.5, 28.5 and 29.0); wanted: the bump that puts it on corpus master. ",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
         awaiting: Awaiting {
             issues: &[6175],
             files: &[
