@@ -130,6 +130,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader\"; \"WorkbookReader\") { }
     type(\"Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider\"; \"AkvProvider\") { }
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
@@ -664,9 +665,10 @@ fn a_server_class_on_the_pure_list_reaches_the_host() {
     assert_eq!(text(r), "aGk");
 }
 
-/// Owner decision 2026-10-29: the OpenXml spreadsheet classes are pure; the file name form of Create writes a file.
+/// Owner decision 2026-10-29: the OpenXml spreadsheet classes are pure; the file name form of Create writes a file, in the
+/// in-memory file system only (ADR-056): a name with no folder is refused before the host.
 #[test]
-fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
+fn a_workbook_is_created_in_memory_but_never_from_a_file_name_outside_a_folder() {
     let host = Fake::new(|r| match r {
         Req::Invoke(DotNetTarget::Static(t), m, _)
             if t.name == "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter" && m == "Create" =>
@@ -678,7 +680,7 @@ fn a_workbook_is_created_in_memory_but_never_from_a_file_name() {
     let r = run(&host, "W: DotNet WorkbookWriter;", "W.Create('x.xlsx');", "");
     let why = unsupported(&r);
     assert!(
-        why.contains("WorkbookWriter.Create") && why.contains("text argument"),
+        why.contains("WorkbookWriter.Create") && why.contains("folder of the file does not exist"),
         "{why}"
     );
     assert_eq!(host.log(), vec![]);
@@ -2626,4 +2628,104 @@ fn an_enum_member_named_through_a_property_of_an_unassigned_variable_is_refused(
     );
     let why = unsupported(&r);
     assert!(why.contains("NodeType") && why.contains("unassigned"), "{why}");
+}
+
+// ADR-056: WorkbookWriter.Create(fileName) of Excel Buffer (CreateBook into File Management.ServerTempFileName) writes into an
+// AL stream, the stream form of the same class; the bytes become the file when the writer is closed. Excel Buffer reads the
+// file back with AL's File (SaveToStream through File Management.BLOBImportFromServerFile).
+const WBW: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
+const WBR: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+
+fn workbook_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == WBW && m == "Create" => {
+            assert_eq!(a.len(), 1);
+            assert_eq!(a[0].value, DotNetValue::OutStream);
+            Ok(DotNetReply {
+                value: handle(5, WBW),
+                by_ref: vec![],
+                streams: StreamEffects {
+                    bridges: vec![(0, 9)],
+                    ..Default::default()
+                },
+            })
+        }
+        Req::Invoke(DotNetTarget::Instance(5), m, _) if m == "Close" => Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams: StreamEffects {
+                written: vec![(9, b"PK-book".to_vec())],
+                ..Default::default()
+            },
+        }),
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+#[test]
+fn workbook_writer_create_of_a_file_writes_the_in_memory_file_system_when_it_is_closed() {
+    let host = workbook_host();
+    let body = "W := W.Create('temp/1.xlsx'); W.Close();
+        F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
+    let vars = "W: DotNet WorkbookWriter; F: File; I: InStream; T: Text;";
+    assert_eq!(text(run_mem(&host, vars, body)), "PK-book");
+}
+
+// What the file holds while the writer is open is not pinned (.NET has created it; its bytes before Close are the package's
+// business): a look at it is refused.
+#[test]
+fn a_workbook_file_read_before_its_writer_is_closed_is_refused() {
+    let host = workbook_host();
+    let body = "W := W.Create('temp/1.xlsx');
+        F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
+    let vars = "W: DotNet WorkbookWriter; F: File; I: InStream; T: Text;";
+    let r = run_mem(&host, vars, body);
+    assert!(unsupported(&r).contains("WorkbookWriter"), "{}", unsupported(&r));
+}
+
+#[test]
+fn workbook_writer_create_into_a_folder_that_does_not_exist_is_refused_before_the_host() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run_mem(
+        &host,
+        "W: DotNet WorkbookWriter;",
+        "W := W.Create('\\TEMP\\nofolder\\1.xlsx'); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("does not exist"), "{}", unsupported(&r));
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
+}
+
+// WorkbookReader.Open(fileName) (Excel Buffer.OpenBook) reads the file's bytes as a stream, the stream form of the class.
+#[test]
+fn workbook_reader_open_of_a_file_reads_it_from_the_in_memory_file_system() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == WBR && m == "Open" => {
+            assert_eq!(a.len(), 1);
+            assert_eq!(a[0].value, DotNetValue::InStream(b"PK-book".to_vec()));
+            reply(handle(6, WBR))
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    let body = "F.Create('temp/1.xlsx'); F.CreateOutStream(O); O.WriteText('PK-book'); F.Close();
+        R := R.Open('temp/1.xlsx'); exit('ran');";
+    let vars = "R: DotNet WorkbookReader; F: File; O: OutStream;";
+    assert_eq!(text(run_mem(&host, vars, body)), "ran");
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run_mem(
+        &host,
+        "R: DotNet WorkbookReader;",
+        "R := R.Open('temp/none.xlsx'); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("does not exist"), "{}", unsupported(&r));
+}
+
+// WorkbookWriter.Open(fileName) edits an existing workbook: it reads and writes the file. Not served (refused, never sent to
+// .NET).
+#[test]
+fn workbook_writer_open_of_a_file_is_refused_before_the_host() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let body = "F.Create('temp/1.xlsx'); F.CreateOutStream(O); O.WriteText('PK-book'); F.Close();
+        W := W.Open('temp/1.xlsx'); exit('ran');";
+    let r = run_mem(&host, "W: DotNet WorkbookWriter; F: File; O: OutStream;", body);
+    assert!(unsupported(&r).contains("file by its path"), "{}", unsupported(&r));
 }

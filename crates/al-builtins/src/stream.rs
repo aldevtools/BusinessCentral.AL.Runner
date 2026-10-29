@@ -123,6 +123,10 @@ pub fn is_carried_mark(what: &str) -> bool {
     what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
 }
 
+/// The mark of a file a .NET `WorkbookWriter.Create(fileName)` made while the writer is open (ADR-056): the bytes become the
+/// file at `Close`; what it holds before is not pinned.
+pub const WORKBOOK_OPEN: &str = "a workbook file whose WorkbookWriter is open";
+
 /// The mark of a file .NET saved (XmlDocument.Save) with content carried unread in it, and of what is made from it (a GZip
 /// package): the RapidStart package the DemoTool exports.
 pub const PACKAGE_CARRIED: &str = "a file holding content carried unread";
@@ -197,6 +201,13 @@ pub fn render_pending_error(report: &str) -> Signal {
         return Signal::Unsupported(
             "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
              does not pin the bytes)"
+                .into(),
+        );
+    }
+    if report == WORKBOOK_OPEN {
+        return Signal::Unsupported(
+            "a file a DotNet WorkbookWriter created by its name, before the writer is closed (what the file holds then is not \
+             pinned)"
                 .into(),
         );
     }
