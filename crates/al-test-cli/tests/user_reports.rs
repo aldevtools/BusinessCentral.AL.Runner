@@ -1175,6 +1175,257 @@ fn issue_6177_user_name_system_flow_fields_through_record_ref() {
     all_pass(run_with_deps(&[], ISSUE_6177_OBJECTS));
 }
 
+/// Issue 6220: a bound `[HyperlinkHandler]` receives the URL `Hyperlink` opens; without one the call raises
+/// `Unhandled UI: Hyperlink <url>`. Pins: handlers/W3Hyperlink.al:24-38 (Hyperlink_WithHandler), :40-63 (empty and mailto
+/// URLs), :65-83 (Hyperlink_WithoutHandler).
+#[test]
+fn issue_6220_hyperlink_handler_gets_the_url() {
+    let objects = "
+codeunit 69660 \"UR HL Opener\" {
+    procedure OpenHelp(Topic: Text)
+    begin
+        Hyperlink('https://example.invalid/help/' + Topic);
+    end;
+}
+codeunit 69661 T {
+    Subtype = Test;
+    var
+        LastUrl: Text;
+        Calls: Integer;
+
+    [Test]
+    [HandlerFunctions('HyperlinkHandler')]
+    procedure OpenHelp_CallsHyperlinkWithTopicUrl()
+    var
+        Opener: Codeunit \"UR HL Opener\";
+    begin
+        Opener.OpenHelp('setup');
+        if LastUrl <> 'https://example.invalid/help/setup' then
+            Error('got %1', LastUrl);
+        Hyperlink('');
+        if (LastUrl <> '') or (Calls <> 2) then
+            Error('empty: got %1 after %2 calls', LastUrl, Calls);
+    end;
+
+    [Test]
+    procedure WithoutHandler()
+    begin
+        asserterror Hyperlink('https://example.invalid/x');
+        if GetLastErrorText() <> 'Unhandled UI: Hyperlink https://example.invalid/x' then
+            Error('text %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'MissingUIHandler' then
+            Error('code %1', GetLastErrorCode());
+    end;
+
+    [HyperlinkHandler]
+    procedure HyperlinkHandler(Message: Text[1024])
+    begin
+        LastUrl := Message;
+        Calls += 1;
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
+/// Issue 6216: a page extension's `OnBeforeAction` in `modify(<action>)` runs before the action's `OnAction`, its
+/// `OnAfterAction` after; an error in `OnBeforeAction` runs neither and reaches `Invoke` as `TestWrapped:Dialog`; opening
+/// the page runs none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
+/// pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al UQ_OpenWithoutInvoke_NoBeforeOrAfter,
+/// UQ_BeforeAndAfterInOneModify_Order, UQ_BeforeActionRaises_OnActionAndAfterSkipped.
+#[test]
+fn issue_6216_pageext_on_before_action_runs_before_on_action() {
+    let objects = "
+table 69662 \"UR BA Entry\" { fields { field(1; \"No.\"; Code[20]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+codeunit 69663 \"UR BA Trace\" {
+    SingleInstance = true;
+    var
+        Trace: Text;
+    procedure Add(Step: Text)
+    begin
+        Trace += Step + ';';
+    end;
+    procedure Get(): Text
+    begin
+        exit(Trace);
+    end;
+    procedure Reset()
+    begin
+        Trace := '';
+    end;
+}
+page 69664 \"UR BA List\" {
+    PageType = List;
+    SourceTable = \"UR BA Entry\";
+    layout { area(Content) { repeater(Lines) { field(\"No.\"; Rec.\"No.\") { } } } }
+    actions {
+        area(Processing) {
+            action(DoIt) {
+                trigger OnAction()
+                var
+                    BATrace: Codeunit \"UR BA Trace\";
+                begin
+                    BATrace.Add('action');
+                end;
+            }
+            action(Fails) {
+                trigger OnAction()
+                var
+                    BATrace: Codeunit \"UR BA Trace\";
+                begin
+                    BATrace.Add('fails action');
+                end;
+            }
+        }
+    }
+}
+pageextension 69665 \"UR BA List Ext\" extends \"UR BA List\" {
+    actions {
+        modify(DoIt) {
+            trigger OnBeforeAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('before');
+            end;
+            trigger OnAfterAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('after');
+            end;
+        }
+        modify(Fails) {
+            trigger OnBeforeAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('fails before');
+                Error('UR before failure');
+            end;
+            trigger OnAfterAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('fails after');
+            end;
+        }
+    }
+}
+codeunit 69666 T {
+    Subtype = Test;
+
+    [Test]
+    procedure ModifiedActionRunsOnBeforeAction()
+    var
+        BATrace: Codeunit \"UR BA Trace\";
+        BAList: TestPage \"UR BA List\";
+    begin
+        BATrace.Reset();
+        BAList.OpenView();
+        if BATrace.Get() <> '' then
+            Error('open %1', BATrace.Get());
+        BAList.DoIt.Invoke();
+        BAList.Close();
+        if BATrace.Get() <> 'before;action;after;' then
+            Error('trace %1', BATrace.Get());
+    end;
+
+    [Test]
+    procedure ErrorInOnBeforeActionSkipsTheRest()
+    var
+        BATrace: Codeunit \"UR BA Trace\";
+        BAList: TestPage \"UR BA List\";
+    begin
+        BATrace.Reset();
+        BAList.OpenView();
+        asserterror BAList.Fails.Invoke();
+        if GetLastErrorText() <> 'UR before failure' then
+            Error('text %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'TestWrapped:Dialog' then
+            Error('code %1', GetLastErrorCode());
+        BAList.Close();
+        if BATrace.Get() <> 'fails before;' then
+            Error('trace %1', BATrace.Get());
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
+/// Issue 6221: a SaveValues page that a page extension extends with a control bound to the extension's own variable opens;
+/// nothing is stored before the first close, and the next open restores the extension's variable as it does the page's.
+/// Pin: misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205 (SaveValues_Ext_OkThenReopen: first open all blank, after OK
+/// `second_A` and `second_B`, `second_E` restored) and :207-234 (a Cancel stores nothing).
+#[test]
+fn issue_6221_savevalues_page_with_extension_variable() {
+    let objects = "
+table 69670 \"UR SV Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+page 69671 \"UR SV Card\" {
+    PageType = Card;
+    SourceTable = \"UR SV Row\";
+    SaveValues = true;
+    layout { area(Content) { field(A; Var1) { } } }
+    var
+        Var1: Text[30];
+}
+pageextension 69672 \"UR SV Ext\" extends \"UR SV Card\" {
+    layout { addlast(Content) { field(B; ExtVar) { } } }
+    var
+        ExtVar: Boolean;
+}
+codeunit 69673 T {
+    Subtype = Test;
+    var
+        Mode: Text;
+        SeenA: Text;
+        SeenB: Text;
+
+    [ModalPageHandler]
+    procedure CardHandler(var P: TestPage \"UR SV Card\")
+    begin
+        case Mode of
+            'set':
+                begin
+                    P.A.SetValue('a1');
+                    P.B.SetValue(true);
+                    P.OK().Invoke();
+                end;
+            'read':
+                begin
+                    SeenA := P.A.Value();
+                    SeenB := P.B.Value();
+                    P.OK().Invoke();
+                end;
+        end;
+    end;
+
+    local procedure Open(NewMode: Text)
+    var
+        Row: Record \"UR SV Row\";
+    begin
+        Mode := NewMode;
+        if not Row.Get(1) then begin
+            Row.Id := 1;
+            Row.Insert();
+        end;
+        Page.RunModal(Page::\"UR SV Card\", Row);
+    end;
+
+    [Test]
+    [HandlerFunctions('CardHandler')]
+    procedure FirstOpenThenReopen()
+    begin
+        Open('read');
+        if (SeenA <> '') or (SeenB <> 'No') then
+            Error('first %1 %2', SeenA, SeenB);
+        Open('set');
+        Open('read');
+        if (SeenA <> 'a1') or (SeenB <> 'Yes') then
+            Error('second %1 %2', SeenA, SeenB);
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
 /// al-runner issue 6211: inside a table procedure, `this.<Field>` is the field of the current record, the same as the
 /// unqualified name: it can be read, assigned and have a method called on it. The reporter's alc compiles every form
 /// below without a diagnostic. At run time each form does what the bare name does, so no assumption is registered; a
@@ -1486,4 +1737,364 @@ codeunit 50000 T { Subtype = Test;
     L.SetRange("Report ID", Report::"UR No Layout");
     if not L.IsEmpty() then Error('rows'); end; }"#;
     all_pass(run_over_system(MAIN_ID, Some(false), None, main));
+}
+
+/// Issue 6213: a conditional expression with a Text[N] true branch and an unbounded Text false branch (a Text variable or a
+/// StrSubstNo result). A false value that fits is returned unchanged; a longer one raises StringLengthExceeded with the value
+/// in the message cut to its first 200 characters plus `...`. Pins: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch
+/// commit 910da83e) UP_Ternary_Text250TrueUnboundedTextFalse and _Length; types/TestTernaryContracts.al PYC_Ternary_MoreBranchPairs
+/// (Text[10] against a 12-character Text).
+const ISSUE_6213_OBJECTS: &str = "
+codeunit 50100 \"TT Url Builder\"
+{
+    var
+        BaseUrl: Text[250];
+        AccountName: Text;
+        Short: Text[30];
+
+    procedure SetAccountName(NewAccountName: Text)
+    begin
+        AccountName := NewAccountName;
+    end;
+
+    procedure SetBaseUrl(NewBaseUrl: Text[250])
+    begin
+        BaseUrl := NewBaseUrl;
+    end;
+
+    procedure GetBaseUrl(): Text[250]
+    begin
+        exit(BaseUrl);
+    end;
+
+    procedure GetUrl(): Text
+    var
+        BaseUrlTok: Label 'https://%1.blob.core.windows.net', Locked = true;
+    begin
+        exit(BaseUrl <> '' ? GetBaseUrl() : StrSubstNo(BaseUrlTok, AccountName));
+    end;
+
+    procedure GetUrlFromText(): Text
+    var
+        Fallback: Text;
+    begin
+        Fallback := 'https://' + AccountName;
+        exit(BaseUrl <> '' ? BaseUrl : Fallback);
+    end;
+
+    procedure GetIntoText(): Text
+    var
+        Result: Text;
+    begin
+        Result := BaseUrl <> '' ? BaseUrl : AccountName;
+        exit(Result);
+    end;
+
+    procedure GetShort(): Text
+    begin
+        exit(Short <> '' ? Short : AccountName);
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FalseValueThatFits()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName('acct');
+        if Builder.GetUrl() <> 'https://acct.blob.core.windows.net' then
+            Error('got %1', Builder.GetUrl());
+        if Builder.GetUrlFromText() <> 'https://acct' then
+            Error('got %1', Builder.GetUrlFromText());
+        if Builder.GetIntoText() <> 'acct' then
+            Error('got %1', Builder.GetIntoText());
+        Builder.SetBaseUrl('https://custom.example');
+        if Builder.GetUrl() <> 'https://custom.example' then
+            Error('got %1', Builder.GetUrl());
+    end;
+
+    [Test]
+    procedure FalseValueTooLong()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName(PadStr('', 300, 'a'));
+        asserterror Builder.GetIntoText();
+        if GetLastErrorCode() <> 'StringLengthExceeded' then
+            Error('code %1', GetLastErrorCode());
+        if GetLastErrorText() <> 'The length of the string is 300, but it must be less than or equal to 250 characters. Value: ' + PadStr('', 200, 'a') + '...' then
+            Error('text %1', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure OtherLength()
+    var
+        Builder: Codeunit \"TT Url Builder\";
+    begin
+        Builder.SetAccountName('acct');
+        if Builder.GetShort() <> 'acct' then
+            Error('got %1', Builder.GetShort());
+    end;
+}";
+
+#[test]
+fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
+    // Another length than the pinned 10 and 250 (here Text[30]) is not pinned: refused.
+    for (name, outcome) in run_with_deps(&[], ISSUE_6213_OBJECTS) {
+        if name.ends_with("OtherLength") {
+            assert!(
+                matches!(&outcome, Outcome::NotRun(why) if why.contains("Text[30] and Text") && why.contains("not pinned")),
+                "{outcome:?}"
+            );
+        } else {
+            assert_eq!(outcome, Outcome::Pass, "{name}");
+        }
+    }
+}
+
+/// Issue 6215: an interface true branch and a codeunit false branch that implements it compiles and the false branch calls
+/// the codeunit's implementation. Pin: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch commit 910da83e)
+/// UP_Ternary_InterfaceTrueCodeunitFalse.
+const ISSUE_6215_OBJECTS: &str = "
+interface \"TI Preview\" { procedure GetPreview(): Text; }
+interface \"TI Selector\" { procedure GetName(): Text; }
+codeunit 50100 \"TI Special\" implements \"TI Preview\", \"TI Selector\"
+{
+    procedure GetPreview(): Text begin exit('special'); end;
+    procedure GetName(): Text begin exit('special'); end;
+}
+codeunit 50101 \"TI Default\" implements \"TI Preview\"
+{
+    procedure GetPreview(): Text begin exit('default'); end;
+}
+codeunit 50102 \"TI Factory\"
+{
+    procedure GetSelector(): Interface \"TI Selector\"
+    var
+        Special: Codeunit \"TI Special\";
+    begin
+        exit(Special);
+    end;
+
+    procedure ViaCast(UseSpecial: Boolean): Interface \"TI Preview\"
+    var
+        Default: Codeunit \"TI Default\";
+    begin
+        exit(UseSpecial ? (GetSelector() as \"TI Preview\") : Default);
+    end;
+
+    procedure Assigned(UseSpecial: Boolean): Text
+    var
+        Default: Codeunit \"TI Default\";
+        Special: Codeunit \"TI Special\";
+        Preview: Interface \"TI Preview\";
+        Chosen: Interface \"TI Preview\";
+    begin
+        Preview := Special;
+        Chosen := UseSpecial ? Preview : Default;
+        exit(Chosen.GetPreview());
+    end;
+}
+codeunit 50103 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InterfaceTrueCodeunitFalse()
+    var
+        Factory: Codeunit \"TI Factory\";
+    begin
+        if Factory.ViaCast(false).GetPreview() <> 'default' then
+            Error('cast false %1', Factory.ViaCast(false).GetPreview());
+        if Factory.ViaCast(true).GetPreview() <> 'special' then
+            Error('cast true %1', Factory.ViaCast(true).GetPreview());
+        if Factory.Assigned(false) <> 'default' then
+            Error('assigned false');
+        if Factory.Assigned(true) <> 'special' then
+            Error('assigned true');
+    end;
+}";
+
+#[test]
+fn issue_6215_interface_true_branch_and_implementing_codeunit_false_branch() {
+    all_pass(run_with_deps(&[], ISSUE_6215_OBJECTS));
+}
+
+/// Issue 6217: addafter/addlast of a promoted category group the page does not declare (Category_Category7,
+/// Category_Category12, Category_New) compiles and the extension's action and actionref run from a TestPage. Pin:
+/// pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808, branch commit 910da83e).
+fn issue_6217_objects(anchor: &str) -> String {
+    format!(
+        "
+table 50100 \"MA Entry\" {{ fields {{ field(1; \"No.\"; Code[20]) {{ }} }} keys {{ key(PK; \"No.\") {{ Clustered = true; }} }} }}
+codeunit 50104 \"MA Log\" {{ SingleInstance = true; var L: Text; procedure Add(E: Text) begin L += E; end; procedure Take(): Text begin exit(L); end; }}
+page 50101 \"MA List\"
+{{
+    PageType = List;
+    SourceTable = \"MA Entry\";
+    layout {{ area(Content) {{ repeater(Lines) {{ field(\"No.\"; Rec.\"No.\") {{ }} }} }} }}
+    actions
+    {{
+        area(Processing)
+        {{
+            action(Post) {{ Caption = 'Post'; trigger OnAction() begin end; }}
+        }}
+        area(Promoted)
+        {{
+            group(Category_Process) {{ Caption = 'Process'; actionref(Post_Promoted; Post) {{ }} }}
+            group(Category_Category4) {{ Caption = 'Page'; }}
+        }}
+    }}
+}}
+pageextension 50102 \"MA List Ext\" extends \"MA List\"
+{{
+    actions
+    {{
+        addlast(Processing)
+        {{
+            action(OpenSomething)
+            {{
+                Caption = 'Open Something';
+                ApplicationArea = All;
+                trigger OnAction() var Log: Codeunit \"MA Log\"; begin Log.Add('x'); end;
+            }}
+        }}
+        {anchor}
+        {{
+            group(MyCategory)
+            {{
+                Caption = 'My Category';
+                actionref(OpenSomething_Promoted; OpenSomething) {{ }}
+            }}
+        }}
+    }}
+}}
+codeunit 50103 T
+{{
+    Subtype = Test;
+
+    [Test]
+    procedure P()
+    var
+        MAList: TestPage \"MA List\";
+        Log: Codeunit \"MA Log\";
+        R: Record \"MA Entry\";
+    begin
+        R.\"No.\" := 'A';
+        R.Insert();
+        MAList.OpenView();
+        MAList.OpenSomething.Invoke();
+        MAList.OpenSomething_Promoted.Invoke();
+        MAList.Close();
+        if Log.Take() <> 'xx' then
+            Error('log %1', Log.Take());
+    end;
+}}"
+    )
+}
+
+#[test]
+fn issue_6217_extension_adds_after_an_undeclared_promoted_category() {
+    for anchor in [
+        "addafter(Category_Category7)",
+        "addlast(Category_Category7)",
+        "addafter(Category_Category12)",
+        "addafter(Category_New)",
+        "addlast(Category_New)",
+    ] {
+        let results = run_with_deps(&[], &issue_6217_objects(anchor));
+        assert!(!results.is_empty(), "{anchor}");
+        for (name, outcome) in results {
+            assert_eq!(outcome, Outcome::Pass, "{anchor}: {name}");
+        }
+    }
+}
+
+/// Issue 6217: the forms corpus PR 808 does not pin (another category, addbefore/addfirst) stay refused as not pinned.
+#[test]
+fn issue_6217_unpinned_promoted_category_forms_stay_refused() {
+    for anchor in [
+        "addbefore(Category_Category7)",
+        "addfirst(Category_Category7)",
+        "addafter(Category_Category5)",
+    ] {
+        let results = run_with_deps(&[], &issue_6217_objects(anchor));
+        assert!(
+            matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("not pinned")),
+            "{anchor}: {results:?}"
+        );
+    }
+}
+
+/// Issue 6219: a page extension reads its base page's protected var through `CurrPage.` and assigns the plain name. Pin:
+/// pages/lt-up-page-ext/UpPageExt.al (corpus PR 808, branch commit 910da83e) UP_PageExt_ReadsProtectedVarThroughCurrPage.
+/// Assigning through `CurrPage.<var>` is not pinned (real BC failed to open the page in the writer's probe) and stays refused.
+fn issue_6219_objects(trigger_body: &str) -> String {
+    format!(
+        "
+table 50100 \"CP Entry\" {{ fields {{ field(1; \"No.\"; Code[20]) {{ }} }} keys {{ key(PK; \"No.\") {{ Clustered = true; }} }} }}
+page 50101 \"CP List\"
+{{
+    PageType = List;
+    SourceTable = \"CP Entry\";
+    layout {{ area(Content) {{ repeater(Lines) {{ field(\"No.\"; Rec.\"No.\") {{ }} }} }} }}
+    actions
+    {{
+        area(Processing)
+        {{
+            action(Apply) {{ Caption = 'Apply'; Enabled = ApplyEnabled; trigger OnAction() begin end; }}
+        }}
+    }}
+    trigger OnOpenPage()
+    begin
+        ApplyEnabled := false;
+    end;
+
+    protected var
+        ApplyEnabled: Boolean;
+}}
+pageextension 50102 \"CP List Ext\" extends \"CP List\"
+{{
+    trigger OnOpenPage()
+    begin
+        {trigger_body}
+    end;
+}}
+codeunit 50103 T
+{{
+    Subtype = Test;
+
+    [Test]
+    procedure P()
+    var
+        CPList: TestPage \"CP List\";
+    begin
+        CPList.OpenView();
+        if not CPList.Apply.Enabled() then
+            Error('not enabled');
+        CPList.Close();
+    end;
+}}"
+    )
+}
+
+#[test]
+fn issue_6219_extension_reads_protected_var_through_currpage() {
+    all_pass(run_with_deps(
+        &[],
+        &issue_6219_objects("ApplyEnabled := not CurrPage.ApplyEnabled;"),
+    ));
+}
+
+#[test]
+fn issue_6219_assigning_through_currpage_stays_refused() {
+    let results = run_with_deps(&[], &issue_6219_objects("CurrPage.ApplyEnabled := true;"));
+    assert!(
+        matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("CurrPage.ApplyEnabled") && why.contains("not pinned")),
+        "{results:?}"
+    );
 }

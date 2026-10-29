@@ -2009,6 +2009,12 @@ impl Lowerer<'_> {
                     .or_else(|| self.globals.get(name))
                     .map(|i| ir::Place::Global(*i))
                     .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet")),
+                // `CurrPage.<protected var> := ...` (or passed by var) in a page extension: alc compiles it, but in corpus writer UP's
+                // probe real BC failed to open the page (al-runner issue 6219; not pinned, a check on Windows is queued).
+                Some(Res::BaseGlobal(_)) if n.kind() == SyntaxKind::MemberExpr => Err(format!(
+                    "`{}` written in a page extension (an assignment or a var argument through CurrPage): real BC's behavior is not pinned; assign the variable by its plain name",
+                    n.text().to_string().trim()
+                )),
                 Some(Res::BaseGlobal(name)) => {
                     let name = name.clone();
                     let (slot, _, _) = self.base_var(&name)?;

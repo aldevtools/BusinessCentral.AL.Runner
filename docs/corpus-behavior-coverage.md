@@ -10,11 +10,11 @@ The catalog of each area is what the AL language server offers in probe files (`
 
 | Area | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| attributes | 42 | 33 | 78.6% | 30 | 71.4% | 0 | 12 | 1 |
+| attributes | 42 | 33 | 78.6% | 31 | 73.8% | 0 | 11 | 1 |
 | events | 23 | 16 | 69.6% | 23 | 100.0% | 0 | 0 | 0 |
 | properties | 720 | 671 | 93.2% | 608 | 84.4% | 7 | 105 | 2 |
 | syntax | 16 | 16 | 100.0% | 16 | 100.0% | 0 | 0 | 0 |
-| triggers | 128 | 128 | 100.0% | 117 | 91.4% | 2 | 9 | 0 |
+| triggers | 128 | 128 | 100.0% | 118 | 92.2% | 1 | 9 | 0 |
 
 Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, ...), 1 statement keywords without an item of their own (else). Not measured yet: datatypes (113).
 
@@ -22,7 +22,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 
 | Owner | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| (code) | 42 | 33 | 78.6% | 30 | 71.4% | 0 | 12 | 1 |
+| (code) | 42 | 33 | 78.6% | 31 | 73.8% | 0 | 11 | 1 |
 
 #### attributes: unpinned items by owner
 
@@ -137,7 +137,7 @@ Left out: 293 presentation-only properties (Caption, ToolTip, ApplicationArea, .
 | Owner | Items | Pinned | Pinned % | Implemented | Implemented % | Refused | Unknown | MS-used unpinned |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Action | 1 | 1 | 100.0% | 1 | 100.0% | 0 | 0 | 0 |
-| ActionExtension | 2 | 2 | 100.0% | 1 | 50.0% | 1 | 0 | 0 |
+| ActionExtension | 2 | 2 | 100.0% | 2 | 100.0% | 0 | 0 | 0 |
 | Codeunit | 11 | 11 | 100.0% | 3 | 27.3% | 0 | 8 | 0 |
 | Control | 6 | 6 | 100.0% | 5 | 83.3% | 0 | 1 | 0 |
 | ControlExtension | 6 | 6 | 100.0% | 5 | 83.3% | 1 | 0 | 0 |

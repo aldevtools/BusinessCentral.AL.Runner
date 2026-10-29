@@ -1094,6 +1094,7 @@ impl Session {
                 shown_frames: Vec::new(),
                 shown_controls: std::collections::HashMap::new(),
                 saved_values: std::collections::HashMap::new(),
+                saved_values_committed: std::collections::HashMap::new(),
                 traps: Vec::new(),
                 scope_unpinned: Vec::new(),
                 bg_worker: None,
@@ -1202,6 +1203,7 @@ impl Session {
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
+        self.pages.saved_values_committed = self.pages.saved_values.clone();
         self.tasks.commit();
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
@@ -1297,6 +1299,13 @@ impl Session {
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
+        // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
+        // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored
+        // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:207-234, SaveValues_Ext_CancelThenReopen after SaveValues_Ext_OkThenReopen),
+        // while without one the next test reads it (session/lt-save-values-across-codeunits/SaveValuesAcrossCodeunits.al
+        // Dialog_NextTestOfSameCodeunit_Reads, report/W3ReportRequestPageState.al
+        // SaveValues_2_RunLaterTest_ReadsWhatTheFirstTestConfirmed).
+        self.pages.saved_values = self.pages.saved_values_committed.clone();
         self.tasks.rollback();
         // The Tenant Media rows a Modify or Delete of this transaction removed come back with the rows.
         let removed = std::mem::take(&mut self.media_removed.0);

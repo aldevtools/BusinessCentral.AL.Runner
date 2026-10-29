@@ -2423,6 +2423,30 @@ mod tests {
         assert!(messages(same).is_empty());
     }
 
+    // must-not-compile 2291 (corpus PR 808 at branch commit 910da83e; al-runner issue 6215): a codeunit true branch and an
+    // interface false branch is AL0122; the other order compiles (types/lt-up-ternary/UpTernary.al:60, :70, :81).
+    #[test]
+    fn al0122_ternary_codeunit_true_branch_interface_false_branch() {
+        let src = |ternary: &str| {
+            format!(
+                "interface \"MNC UP Preview\" {{ procedure GetPreview(): Text; }}
+                 codeunit 50001 \"MNC UP Default\" implements \"MNC UP Preview\" {{ procedure GetPreview(): Text begin exit('d'); end; }}
+                 codeunit 50002 \"MNC UP Factory\" {{
+                     procedure Get(UseDefault: Boolean; Other: Interface \"MNC UP Preview\"): Interface \"MNC UP Preview\"
+                     var Default: Codeunit \"MNC UP Default\";
+                     begin exit({ternary}); end; }}"
+            )
+        };
+        assert_eq!(
+            messages(&src("UseDefault ? Default : Other")),
+            vec![
+                "AL0122 Cannot implicitly convert type 'Interface \"MNC UP Preview\"' to 'Codeunit \"MNC UP Default\"'"
+                    .to_string()
+            ]
+        );
+        assert!(messages(&src("UseDefault ? Other : Default")).is_empty());
+    }
+
     // must-not-compile 0069 (`T := I`, an Integer variable into a Text variable) and 0070 (`I := 'text'`, a
     // text literal into an Integer variable): AL0122. A one-character literal is a Char, which an Integer takes;
     // the other shapes (a Text variable into an Integer, an Integer into a Code) are not judged.

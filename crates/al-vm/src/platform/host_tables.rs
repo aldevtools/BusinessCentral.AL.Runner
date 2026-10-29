@@ -851,11 +851,50 @@ fn license_row(t: &TableDef, object_type: i32, number: i32, permission: i32) -> 
     r
 }
 
+/// The rows of an app's own objects read by key, pinned on the corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809,
+/// not yet in the pinned corpus): platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges reads
+/// Codeunit 50000, 50123, 99999, 70000123 and 2000000000, Table 50000 and 70000123, TableData 70000123, Page 50100 and Report
+/// 70000001, each with every permission `Yes`, and Codeunit 0 with every permission blank.
+const LICENSE_ROWS_UQ: &[(i32, i32, i32)] = &[
+    (5, 50000, 1),
+    (5, 50123, 1),
+    (5, 99999, 1),
+    (5, 70_000_123, 1),
+    (5, 2_000_000_000, 1),
+    (1, 50000, 1),
+    (1, 70_000_123, 1),
+    (0, 70_000_123, 1),
+    (8, 50100, 1),
+    (3, 70_000_001, 1),
+    (5, 0, 0),
+];
+
+/// The object types whose other numbers are assumed to be rows: Report, Codeunit and Page. For TableData, Table, XMLport,
+/// Query and System only the rows above are served; another number of those types is refused (not pinned).
+const LICENSE_TYPES: &[i64] = &[3, 5, 8];
+
 fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
-    LICENSE_ROWS
+    if let Some(&(ot, n, p)) = LICENSE_ROWS
         .iter()
         .find(|(ot, n, _)| i64::from(*ot) == object_type && i64::from(*n) == number)
-        .map(|&(ot, n, p)| license_row(t, ot, n, p))
+    {
+        return Some(license_row(t, ot, n, p));
+    }
+    let uq = LICENSE_ROWS_UQ
+        .iter()
+        .find(|(ot, n, _)| i64::from(*ot) == object_type && i64::from(*n) == number);
+    // Every other Report, Codeunit or Page numbered 1 to 2000000000 is assumed to be a row with every permission `Yes`, as
+    // each pinned row of such a number is (al-runner issue 6214). Other numbers of TableData, Table, XMLport, Query and
+    // System, number 0 of another type than TableData and Codeunit, and a negative number are not pinned and stay refused.
+    let (ot, n, p) = match uq {
+        Some(&row) => row,
+        None if LICENSE_TYPES.contains(&object_type) && (1..=2_000_000_000).contains(&number) => {
+            (object_type as i32, number as i32, 1)
+        }
+        None => return None,
+    };
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LicensePermissionAnyObject);
+    Some(license_row(t, ot, n, p))
 }
 
 fn license_num(v: &Value) -> Option<i64> {
@@ -868,7 +907,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, and numbers from 1 to 2000000000 are assumed)"
     ))
 }
 
@@ -932,6 +971,64 @@ pub(crate) fn time_zone_get_refusal(no: &Value) -> Option<&'static str> {
     matches!(no, Value::Integer(n) if (2..=144).contains(n)).then_some(
         "Get of a Time Zone row by a number from 2 to 144: BC lists 144 Windows time zones in Windows order, the runtime only a few host zones (not pinned which zone a number names)",
     )
+}
+
+/// A read of the Time Zone table filtered to one Windows time zone id that is not among the host rows: one row with that
+/// ID, whose `No.` and `Display Name` are unknown (refused when read). BC on Windows lists every Windows zone, the runtime
+/// a few host zones; Pacific, UTC, Arabian, GMT, Eastern and Tokyo each find one row and an unknown id none (corpus branch
+/// al-runtime-rs-staging-uq at d651ec93, bump PR 809: record/lt-at-partner-gaps/AtTimeZoneNumbering.al
+/// UQ_TimeZone_LookupById). That every other Windows id of CLDR's list is a row is assumed (`time-zone-windows-id-is-a-row`,
+/// al-runner issue 6218). `None` leaves the read to the host rows: no such filter, an id among the host rows, or one that
+/// is no Windows id (absent, as an unknown id is). An id that differs from a Windows id only in case is refused: whether
+/// the filter is case-sensitive depends on the host (not pinned).
+pub(crate) fn time_zone_by_id(t: &TableDef, i: &Ident, filters: &[FieldFilter]) -> Result<Option<Mat>, StoreError> {
+    let id_col = pos(t, 1);
+    let text = |v: &Value| match v {
+        Value::Text(s) | Value::Code(s) => Some(s.to_string()),
+        _ => None,
+    };
+    let mut id: Option<String> = None;
+    for f in filters.iter().filter(|f| f.field == id_col) {
+        let one = match &f.expr {
+            FilterExpr::Eq(v) | FilterExpr::RangeSame(v) => text(v),
+            FilterExpr::Range(Some(a), Some(b)) if text(a).is_some() && text(a) == text(b) => text(a),
+            _ => None,
+        };
+        match (one, &id) {
+            (Some(v), None) if f.group != al_builtins::filter::OR_GROUP => id = Some(v),
+            (Some(v), Some(seen)) if &v == seen => {}
+            _ => return Ok(None),
+        }
+    }
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    if i.time_zones.iter().any(|z| z.id == id) {
+        return Ok(None);
+    }
+    let zones = al_host::windows_zones::WINDOWS_ZONES;
+    if !zones.iter().any(|(w, _)| *w == id) {
+        if zones.iter().any(|(w, _)| w.eq_ignore_ascii_case(&id)) {
+            return Err(refused(format!(
+                "Time Zone: a filter on ID '{id}' that differs from a Windows time zone id only in case (whether the filter is case-sensitive is not pinned)"
+            )));
+        }
+        return Ok(None);
+    }
+    if filters.iter().any(|f| f.field != id_col) {
+        return Err(refused(format!(
+            "Time Zone: a read filtered to Windows time zone '{id}', which the runtime does not list, and to another field (its No. and Display Name are not pinned)"
+        )));
+    }
+    let whose = format!("Windows time zone '{id}' (the runtime does not list it; BC on Windows does)");
+    let mut r = blank(t);
+    r[pos(t, 1)] = Value::Text(id.clone().into());
+    r[pos(t, 2)] = super::unknown(t, 2, &whose);
+    r[pos(t, 3)] = super::unknown(t, 3, &whose);
+    Ok(Some(Mat::new(
+        t,
+        vec![Entry::ok(r).assuming(al_builtins::assumptions::Assumption::TimeZoneWindowsIdIsARow)],
+    )))
 }
 
 /// The culture name of Windows language `id` (`nl-BE` for 2067) from the Windows Language table, for the translation file
