@@ -736,7 +736,9 @@ impl<'a> Compiler<'a> {
     /// uses the place has run; the place that comes back reads them as locals.
     fn rplace(&mut self, p: &'a ir::Place) -> R<ir::Place> {
         Ok(match p {
-            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) => p.clone(),
+            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..) => {
+                p.clone()
+            }
             ir::Place::Field(base, pos) => ir::Place::Field(Box::new(self.rplace(base)?), *pos),
             ir::Place::Index(base, idx) => {
                 let base = self.rplace(base)?;

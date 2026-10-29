@@ -934,6 +934,32 @@ impl Session {
             })
     }
 
+    /// The instance of page extension `ext` on the page whose extension runs frame `f`: reached through the page's instance and
+    /// its `CurrPage` (the open page holds every extension's instance).
+    pub(crate) fn sibling_instance(&self, f: &Frame, ext: usize) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let base = self.base_instance(f)?;
+        let object = base.borrow().object as usize;
+        let page = self.engine.program.objects[object].page.as_ref();
+        let st = page.and_then(|p| match base.borrow().globals.get(p.curr_page_slot) {
+            Some(Value::TestPage(st)) => Some(st.clone()),
+            _ => None,
+        });
+        st.and_then(|st| {
+            st.borrow()
+                .ext_instances
+                .iter()
+                .find(|(o, _)| *o == ext)
+                .map(|(_, i)| i.clone())
+        })
+        .ok_or_else(|| {
+            Signal::Unsupported(
+                "internal error: extension code named a variable of another extension of its page, but the page has no live \
+                 instance of that extension"
+                    .into(),
+            )
+        })
+    }
+
     /// The declared type of a local, a global, or an element of an array of those, by reference.
     pub(crate) fn place_ty<'a>(&'a self, p: &ir::Place, f: &Frame) -> Option<&'a RtType> {
         match p {
@@ -1016,6 +1042,7 @@ impl Session {
                 }
                 Err(_) => RtType::Variant,
             },
+            ir::Place::ExtGlobal(e, i) => self.engine.program.objects[*e].globals[*i].ty.clone(),
             ir::Place::Index(base, _) => match self.place_type(base, f) {
                 RtType::Array(_, el) => *el,
                 other => other,
@@ -1085,6 +1112,11 @@ impl Session {
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let v = base.borrow().globals.get(*i).cloned();
+                v.ok_or_else(|| base_slot_missing(*i))
+            }
+            ir::Place::ExtGlobal(e, i) => {
+                let ext = self.sibling_instance(f, *e)?;
+                let v = ext.borrow().globals.get(*i).cloned();
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
@@ -1355,6 +1387,14 @@ impl Session {
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let mut b = base.borrow_mut();
+                match b.globals.get_mut(*i) {
+                    Some(slot) => *slot = v,
+                    None => return Err(base_slot_missing(*i)),
+                }
+            }
+            ir::Place::ExtGlobal(e, i) => {
+                let ext = self.sibling_instance(f, *e)?;
+                let mut b = ext.borrow_mut();
                 match b.globals.get_mut(*i) {
                     Some(slot) => *slot = v,
                     None => return Err(base_slot_missing(*i)),

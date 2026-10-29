@@ -17,7 +17,46 @@ impl Session {
             && !ctl
                 .ext_triggers
                 .iter()
-                .any(|(n, _, _)| n.eq_ignore_ascii_case("onaction"))
+                .any(|(n, _, _)| n.eq_ignore_ascii_case("onaction") || n.eq_ignore_ascii_case("onafteraction"))
+    }
+
+    /// The `OnAfterAction` triggers that `modify(action)` blocks of page extensions add to action `idx`, in the order the
+    /// extensions apply: (extension object, routine).
+    fn ext_after_action(&self, st: &St, idx: usize) -> Vec<(usize, usize)> {
+        let engine = self.engine();
+        page_of(&engine, st).controls[idx]
+            .ext_triggers
+            .iter()
+            .filter(|(n, _, _)| n == "onafteraction")
+            .map(|(_, e, r)| (*e, *r))
+            .collect()
+    }
+
+    /// Runs the extensions' `OnAfterAction` triggers of action `idx` after its own trigger ran without an error: each in turn, in
+    /// the order the extensions apply; an error in the action runs none (pages/lt-pageext-action-after/
+    /// PageExtensionActionOnAfterAction.al:149 P195_ActionWithOnAction_RunsBaseThenExtensions, :176
+    /// P195_ActionWithoutBaseOnAction_RunsOnAfterAction, :199 P195_BaseOnActionRaises_OnAfterActionSkipped, :227 _InvokedTwice).
+    fn run_ext_after_action(&mut self, st: &St, after: &[(usize, usize)]) -> Result<(), Signal> {
+        for &(e, r) in after {
+            self.owner_routine(st, Some(e), r)?;
+        }
+        Ok(())
+    }
+
+    /// Whether a subscriber listens to the page event `ev` of action `element` (any element, or this one).
+    fn listens_to_action(&self, st: &St, ev: &str, element: &str) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        engine.events.is_subscribed(object, ev)
+            && engine
+                .events
+                .subscribers
+                .get(&(object, ev.to_string()))
+                .is_some_and(|v| {
+                    v.iter()
+                        .any(|s| s.element.is_empty() || s.element.eq_ignore_ascii_case(element))
+                })
+            || engine.events.missing_for(object, ev, Some(element)).is_some()
     }
 
     pub(super) fn control_eliminated(&self, st: &St, idx: usize) -> bool {
@@ -1039,6 +1078,40 @@ impl Session {
                 self.populate_current(st)?;
             }
         }
+        // OnAfterAction of a page extension: pinned on a page without a source table, after an action's own OnAction and on an
+        // action without one, with no subscriber to the action's events (see `run_ext_after_action`). Where it runs against
+        // OnAfterActionEvent, after a RunObject, and what an action without OnAction does to the row of a page with a source
+        // table, are not pinned.
+        let after = self.ext_after_action(st, idx);
+        let element = page_of(&engine, st).controls[idx].name.clone();
+        if !after.is_empty() {
+            if page_of(&engine, st).controls[idx].run_object.is_some() {
+                return unsupported(format!(
+                    "page extension trigger OnAfterAction of the RunObject action {element} (not pinned)"
+                ));
+            }
+            if self.listens_to_action(st, "onafteractionevent", &element)
+                || self.listens_to_action(st, "onbeforeactionevent", &element)
+            {
+                return unsupported(format!(
+                    "page extension trigger OnAfterAction of action {element} with a subscriber to the action's events (the order is not pinned)"
+                ));
+            }
+            if page_of(&engine, st).controls[idx].trigger("onaction").is_none() {
+                if self.has_source(st) {
+                    return unsupported(format!(
+                        "page extension trigger OnAfterAction of action {element} that has no OnAction, on a page with a source table (not pinned)"
+                    ));
+                }
+                return match self.run_ext_after_action(st, &after) {
+                    Err(Signal::Error(mut e)) => {
+                        e.code = action_error_code(&e.code, &e.message);
+                        Err(Signal::Error(e))
+                    }
+                    other => other.map(|()| Value::Null),
+                };
+            }
+        }
         // RunObject wins over OnAction when an action declares both (handlers/TestPageRunObjectContracts.al:371-390).
         if let Some(ro) = page_of(&engine, st).controls[idx].run_object.clone() {
             // RunObject = Page raises neither event; RunObject = Codeunit raises only OnAfterActionEvent, after the codeunit ran,
@@ -1125,6 +1198,10 @@ impl Session {
             let r = match self.page_action_event(st, "onbeforeactionevent", &element) {
                 Ok(()) => self.control_routine(st, idx, r),
                 err => err.map(|()| Value::Null),
+            };
+            let r = match r {
+                Ok(v) => self.run_ext_after_action(st, &after).map(|()| v),
+                err => err,
             };
             st.borrow_mut().action_shown_row = shown_outer;
             let r = match r {

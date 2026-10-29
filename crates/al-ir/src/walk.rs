@@ -403,7 +403,7 @@ fn walk_set_elem<V: RefVisitor>(e: &mut SetElem, v: &mut V) {
 
 fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
         Place::Index(base, idx) => {
             walk_place(base, v);
             for e in idx {

@@ -1065,6 +1065,8 @@ impl Session {
                 curr_field_no: Vec::new(),
                 lenient_bind: false,
                 failed_trigger: None,
+                ext_answers: Vec::new(),
+                ext_vetoed: false,
                 test_open: false,
                 run_page_link_open_moved: false,
                 test_close: false,

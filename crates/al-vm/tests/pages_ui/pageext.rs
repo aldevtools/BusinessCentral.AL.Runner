@@ -216,7 +216,7 @@ page 52025 "PX Closing"
     SourceTable = "PX Row";
     layout { area(Content) { field(NoCtl; Rec."No.") { } } }
 }
-pageextension 52026 "PX Closing Ext" extends "PX Closing" { trigger OnInsertRecord(BelowxRec: Boolean): Boolean begin exit(true); end; }
+pageextension 52026 "PX Closing Ext" extends "PX Closing" { trigger OnFindRecord(Which: Text): Boolean begin exit(true); end; }
 page 52030 "PX Curr"
 {
     PageType = Card;
@@ -617,12 +617,12 @@ fn two_extensions_declaring_the_same_page_trigger_both_run_in_application_order(
     assert_eq!(text(r), "twice-a;twice-b;");
 }
 
-// A trigger that answers a Boolean cannot be combined with the page's own answer: not pinned, so refused. (OnQueryClosePage is
-// pinned: handlers/TestPageCloseTriggersSelectionCardPageContracts.al; OnInsertRecord is not.)
+// OnFindRecord is page-only in BC: an extension that declares it is not called for it, so it is refused. (OnQueryClosePage is
+// pinned: handlers/TestPageCloseTriggersSelectionCardPageContracts.al; OnInsertRecord and OnModifyRecord: pageext_leads.rs.)
 #[test]
-fn an_extension_trigger_that_answers_a_boolean_is_refused() {
+fn an_extension_trigger_the_page_alone_runs_is_refused() {
     let why = refusal("procedure F() var P: TestPage \"PX Closing\"; begin P.OpenView(); end;");
-    assert!(why.contains("OnInsertRecord") && why.contains("not supported"), "{why}");
+    assert!(why.contains("OnFindRecord") && why.contains("not supported"), "{why}");
 }
 
 #[test]

@@ -1496,6 +1496,9 @@ pub enum Place {
     /// (ADR-023). The lowering emits it nowhere else. The slot is the variable's position in the
     /// base object's globals.
     BaseGlobal(usize),
+    /// Global slot `.1` of the instance of page extension `.0` (an object index) on the same open page, in a routine of
+    /// another extension of that page: a `protected var` one extension declares and another one names (al-runner issue 6159).
+    ExtGlobal(usize, usize),
     /// Element of an array place.
     Index(Box<Place>, Vec<Expr>),
     /// Field at position `.1` of the record in place `.0`.

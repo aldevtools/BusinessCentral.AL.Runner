@@ -116,6 +116,12 @@ pub enum Res {
     /// A `protected var` variable of the page or report that the page or report extension extends
     /// (ADR-023), by lower-case name.
     BaseGlobal(String),
+    /// A `protected var` variable that another page extension of the same page declares (`ext`, an object index), by
+    /// lower-case name (al-runner issue 6159).
+    ExtGlobal {
+        ext: usize,
+        name: String,
+    },
     /// `this.<protected variable of the base>` in an extension, by lower-case name: BC compiles it and raises when it
     /// runs (types/PYThisExtensions.al:ReportExtension_ThisBaseVariable_ReadInATrigger).
     ThisBaseGlobal(String),
@@ -843,6 +849,9 @@ pub(crate) struct Scope {
     /// The names of the base object's variables that this extension sees (they are also in
     /// `globals`).
     base_vars: std::rc::Rc<std::collections::HashSet<String>>,
+    /// The protected variables of other extensions of the same page this page extension sees, by lower-case name, with
+    /// the extension that declares each (they are also in `globals`).
+    ext_vars: std::rc::Rc<HashMap<String, usize>>,
     /// The `with` statements around the code being checked, the innermost last: the record's type and the
     /// start offset of the statement.
     withs: Vec<(Ty, usize)>,
@@ -911,6 +920,9 @@ pub(crate) struct ObjCtx {
     base_items: HashMap<String, String>,
     base_obj: Option<usize>,
     base_vars: std::rc::Rc<std::collections::HashSet<String>>,
+    /// The protected variables of other extensions of the same page this page extension sees, by lower-case name, with
+    /// the extension that declares each (they are also in `globals`).
+    ext_vars: std::rc::Rc<HashMap<String, usize>>,
 }
 
 /// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword").

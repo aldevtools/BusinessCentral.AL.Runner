@@ -363,7 +363,7 @@ pub(crate) fn remainder_reach_facts(
                 Place::Index(b, _) | Place::Field(b, _) => p = b,
                 Place::Local(i) => return Some((false, *i)),
                 Place::Global(i) => return Some((true, *i)),
-                Place::BaseGlobal(_) => return None,
+                Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
             }
         }
     }
@@ -979,7 +979,7 @@ impl Rec<'_> {
                     return (objs[o].kind == ObjKind::Codeunit).then_some((o, *g));
                 }
                 // A global of the base page or report: it lives with the page or report instance.
-                Place::BaseGlobal(_) | Place::Local(_) => return None,
+                Place::BaseGlobal(_) | Place::ExtGlobal(..) | Place::Local(_) => return None,
             }
         }
     }
