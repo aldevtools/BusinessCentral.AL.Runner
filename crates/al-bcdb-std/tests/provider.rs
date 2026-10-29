@@ -269,3 +269,35 @@ fn a_bacpac_has_no_page_map_to_keep() {
     BackupProvider::open_with_index_dir(&fixture("typeprobe.bacpac"), Some("TP"), Some(dir.path())).unwrap();
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
+
+/// A `.bak` knows the database's last row version (the boot page's database timestamp): at or above the `timestamp`
+/// (rowversion) of every row it holds, so a restored session can hand out row versions after it. A `.bacpac` does not hold it.
+#[test]
+fn a_bak_knows_the_last_row_version_of_its_database_and_a_bacpac_does_not() {
+    use al_bcdb::value::Value;
+    let bak = BackupProvider::open(&fixture("typeprobe.bak"), Some("TP")).unwrap();
+    let last = bak.last_row_version().expect("a .bak holds the database timestamp");
+    let src = al_bcdb::open(Box::new(
+        al_bcdb_std::FileSource::open(fixture("typeprobe.bak")).unwrap(),
+    ))
+    .unwrap();
+    let (mut max, mut stamped) = (0u64, 0usize);
+    for t in src.tables().unwrap() {
+        let ts: Vec<_> = src.columns(t).unwrap().into_iter().filter(|c| c.xtype == 189).collect();
+        if ts.is_empty() {
+            continue;
+        }
+        src.read_rows(t, &ts, &mut |r| {
+            if let Value::RowVersion(v) = &r[0] {
+                max = max.max(*v);
+                stamped += 1;
+            }
+            Ok(true)
+        })
+        .unwrap();
+    }
+    assert!(stamped > 0, "the fixture holds rows with a timestamp");
+    assert!(last >= max, "last row version {last} below a row's timestamp {max}");
+    let bacpac = BackupProvider::open(&fixture("typeprobe.bacpac"), Some("TP")).unwrap();
+    assert_eq!(bacpac.last_row_version(), None);
+}

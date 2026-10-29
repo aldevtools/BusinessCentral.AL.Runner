@@ -39,6 +39,8 @@ pub struct BackupProvider {
     /// The company's sequences, read from the catalog when first asked: every session asks (al-runner issue 5856), and
     /// the backup does not change while it is open.
     sequences: std::sync::OnceLock<Vec<TestSequence>>,
+    /// `TableProvider::last_row_version`, read once.
+    last_row_version: std::sync::OnceLock<Option<u64>>,
 }
 
 #[derive(Default)]
@@ -222,6 +224,7 @@ impl BackupProvider {
             identity: None,
             cost: Cost::default(),
             sequences: std::sync::OnceLock::new(),
+            last_row_version: std::sync::OnceLock::new(),
         })
     }
 
@@ -391,6 +394,12 @@ impl TableProvider for BackupProvider {
             c.rows.load(Ordering::Relaxed),
             ms(c.read_nanos.load(Ordering::Relaxed))
         ))
+    }
+
+    fn last_row_version(&self) -> Option<u64> {
+        *self
+            .last_row_version
+            .get_or_init(|| self.src.last_row_version().ok().flatten())
     }
 
     fn sequences(&self) -> Vec<TestSequence> {
