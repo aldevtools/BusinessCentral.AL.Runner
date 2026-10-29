@@ -51,27 +51,13 @@ fn issue_6118_lookup_onvalidate_updates_the_part() {
 /// Issue 6115: with a ListPart on the page, GoToRecord of Rec's row after a marking OnDrillDown, in a secondary key (the
 /// reporter's test) and in the primary key, with the part's row read after it as corpus writer TW pins it
 /// (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:518 TW_NameKeyWithPart_GoToRecordOfRecsRow `part` `D1`, :562
-/// TW_IdKeyWithPart_GoToRecordOfRecsRow `goto 3` `Yes/3:R3;R1;R3;R3;C3;`, `part` `D3`). A GoToRecord of another row stays refused
-/// with a part, in either key (the walk TW's :541 and :585 pin is not built).
+/// TW_IdKeyWithPart_GoToRecordOfRecsRow `goto 3` `Yes/3:R3;R1;R3;R3;C3;`, `part` `D3`). A GoToRecord of another row walks the
+/// marked rows and answers false, in either key (TW's :541 and :585; al-runner issue 6141).
 #[test]
 fn issue_6115_marked_refill_with_a_part() {
     let file = include_str!("fixtures/outside-fb/Issue6115.al");
-    let o = outcomes(file, "Refill Probe Key Tests");
-    for (n, r) in &o {
-        if n.ends_with("RecsRow") {
-            assert_eq!(r, &Outcome::Pass, "{n}");
-        } else {
-            assert!(matches!(r, Outcome::NotRun(_)), "{n}: {r:?}");
-        }
-    }
-    let o = outcomes(file, "Refill Probe Id Tests");
-    for (n, r) in &o {
-        if n.ends_with("RecsRow") {
-            assert_eq!(r, &Outcome::Pass, "{n}");
-        } else {
-            assert!(matches!(r, Outcome::NotRun(_)), "{n}: {r:?}");
-        }
-    }
+    all_pass(file, "Refill Probe Key Tests");
+    all_pass(file, "Refill Probe Id Tests");
     let part_reads = format!("{file}\n{PART_READS}");
     all_pass(&part_reads, "Refill Probe Part Reads");
 }
