@@ -1463,6 +1463,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    FilterAtSignInValue => {
+        id: "filter-at-sign-in-value",
+        assumed: "In a filter text an `@` after the first character of a value is a normal character (`a@b.dk` matches that text, `@a@b.dk` matches it in any case, `*@b*` is a pattern); only an `@` where a value starts makes it case-insensitive. The same for SetFilter, SetView and the other filter texts.",
+        tests: "No Microsoft test: a partner app's tests (SetView with an e-mail address as the filter value).",
+        probe: "Done for SetView on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master, and the same values through SetFilter.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text",
+                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text_2",
+            ],
+            since: "2026-10-30",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
