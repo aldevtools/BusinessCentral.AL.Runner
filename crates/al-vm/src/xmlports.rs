@@ -3276,20 +3276,31 @@ impl Session {
                 .map(|t| t.replace(',', ""))
                 .or_else(|why| unsupported(format!("XmlPort export of {why} (the text form is not pinned)"))),
             Value::Boolean(b) => Ok(if *b { "true" } else { "false" }.to_string()),
-            Value::Date(..) | Value::DateTime(_) => al_builtins::format::try_format(v, 0, 9, self)
-                .or_else(|why| unsupported(format!("XmlPort export of a value: {why}"))),
+            // A Time or DateTime with milliseconds writes them without trailing zeros, the DateTime with `Z` (writer TU's branch
+            // al-runtime-rs-staging-tu, xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds: `12:34:56.789`,
+            // `12:34:56.5`, `12:34:56.007`, `2024-03-05T12:34:56.789Z`; assumption `xmlport-time-ms-xml`).
+            Value::Date(..) | Value::DateTime(_) => {
+                if matches!(v, Value::DateTime(t) if *t > 0 && (t - 1) % 1000 != 0) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
+                }
+                al_builtins::format::try_format(v, 0, 9, self)
+                    .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
+            }
             // corpus xmlport/PWXmlPortFormatEvaluate.al:Export_Xml_TimeDurationOptionEnum: `12:34:56`,
             // `P1DT1H1M1.001S`, and the ordinal of an Option or Enum.
-            Value::Time(0) | Value::Duration(0) => Ok(String::new()),
+            Value::Time(0) => Ok(String::new()),
+            // A zero Duration is `P0DT0H0M0.0S` (writer TU's branch al-runtime-rs-staging-tu, PWXmlPortFormatEvaluate.al
+            // TU_Export_TimeMilliseconds `<Dur>P0DT0H0M0.0S</Dur>`; assumption `xmlport-time-ms-xml`).
+            Value::Duration(0) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
+                Ok("P0DT0H0M0.0S".to_string())
+            }
             Value::Time(t) => {
-                let ms = t - 1;
-                if ms % 1000 != 0 {
-                    return unsupported(
-                        "XmlPort export of a Time with milliseconds with FormatEvaluate = Xml (not pinned)",
-                    );
+                if (t - 1) % 1000 != 0 {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
                 }
-                let s = ms / 1000;
-                Ok(format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60))
+                al_builtins::format::try_format(v, 0, 9, self)
+                    .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
             }
             Value::Duration(d) => Ok(iso_duration(*d)),
             Value::Option(i, _) => Ok(i.to_string()),

@@ -50,6 +50,7 @@ mod xmlport_source_table_view;
 mod xmlport_text_content_optional;
 mod xmlport_text_encoding;
 mod xmlport_text_in_table;
+mod xmlport_time_ms_xml;
 mod xmlport_unlinked_member;
 mod xmlport_unlinked_reply;
 mod xmlport_unlinked_temp_in_text;
