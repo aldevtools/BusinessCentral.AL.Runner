@@ -3368,9 +3368,16 @@ impl Session {
         } else if rows.is_empty() && n.link_node.is_some() {
             // An optional linked element without rows passes no field (XmlPortTriggerFlow.al:353 Export_TriggerOrder_EmptyTables:
             // `Chi.PreXmlItem count=0` and no `Chi.Id.BeforePassField`).
+        } else if rows.is_empty() && !n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table) {
+            // An optional element that is not linked and not below another table element runs no trigger of its nodes without rows:
+            // only its OnPreXmlItem ran (corpus writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
+            // TT_Optional_Unlinked_NoRows: `pre opt;` and no `pass opt no;`; assumption `xmlport-optional-no-rows`).
+            if export_triggers_below(schema, node) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportOptionalNoRows);
+            }
         } else if rows.is_empty() {
             // P94XpPathFlow.al:Export_PathsNoRows pins the empty pass for an element that is not optional only; for an optional
-            // element that is not linked, whether its fields are passed is not pinned.
+            // element below another table element that is not linked, whether its fields are passed is not pinned.
             let passes = schema.children(node).into_iter().any(|c| {
                 let k = schema.node(c);
                 matches!(k.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
@@ -3380,19 +3387,6 @@ impl Session {
                 return unsupported(
                     "XmlPort export of an optional table element without rows whose fields have OnBeforePassField (not pinned)",
                 );
-            }
-            for child in schema.children(node) {
-                if matches!(
-                    schema.node(child).kind,
-                    ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr
-                ) {
-                    match self.xp_site(inst, schema, child, "onbeforepassfield") {
-                        Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
-                        other => {
-                            other?;
-                        }
-                    }
-                }
             }
         }
         for row in rows {
