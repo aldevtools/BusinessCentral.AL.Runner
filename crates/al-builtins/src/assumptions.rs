@@ -933,6 +933,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    PageExtValidateTableOnValidate => {
+        id: "page-ext-validate-table-onvalidate",
+        assumed: "A SetValue on a page control with OnBeforeValidate or OnAfterValidate in a page extension's modify block, whose field has a table OnValidate: the table's validation (its OnBeforeValidateEvent, OnValidate, OnAfterValidateEvent) runs first, then the page's OnBeforeValidateEvent, the modify OnBeforeValidate, the control's OnValidate, the modify OnAfterValidate and the page's OnAfterValidateEvent. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's page extension tests (a variety matrix on a transfer order).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order",
+                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order_WithEvents",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
