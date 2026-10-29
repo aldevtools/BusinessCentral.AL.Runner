@@ -184,6 +184,9 @@ pub enum Gate {
     HttpBlankHeaderNameIsFormatFrom29,
     /// The header name rules of `HttpHeaders.Add` are probed from BC 28: the test is `#if BC28PLUS` (network/lt-http/HttpHeaders.al:282).
     HttpHeaderNameRulesProbedFrom28,
+    /// A query with `ReadState = ReadCommitted` needs app runtime 18.0, so it compiles from BC 29 only; `ReadShared` compiles on
+    /// 27.5, 28.5 and 29.0 (query/TestQueryReadStateContracts.al:10, the BC29PLUS guards). Not consumed yet.
+    QueryReadCommittedFrom29,
     /// `DataTransfer.AddDestinationFilter` needs app runtime 17: the corpus tests are compiled from BC 28 on and BC 27 refuses the
     /// method at compile time (record/lt-as-records/AsDataTransferDestFilter.al, AsDtInstallRead.al, AsDtInstaller.al; must-not-compile
     /// case 0365; corpus bump 28). Not consumed yet.
@@ -293,6 +296,7 @@ impl Gate {
         Gate::FileDownloadWithoutClientFrom28,
         Gate::HttpBlankHeaderNameIsFormatFrom29,
         Gate::HttpHeaderNameRulesProbedFrom28,
+        Gate::QueryReadCommittedFrom29,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::DocxMediaRezippedFrom29,
         Gate::OtherRecordOptionCaptionFrom29,
@@ -317,6 +321,7 @@ impl Gate {
             | Gate::PlatformMetadataColumnsFrom29
             | Gate::InterfaceListCodeunitFrom29
             | Gate::DefaultInterfaceMethodsFrom29
+            | Gate::QueryReadCommittedFrom29
             | Gate::ProbedValuesDifferFrom29
             | Gate::WindowsLanguageRowsFrom29
             | Gate::LanguageSelectionRowsFrom29
@@ -960,6 +965,10 @@ impl Gate {
                     lines: "357,419,493,578,600,625",
                 },
             ],
+            Gate::QueryReadCommittedFrom29 => &[Evidence {
+                file: "query/TestQueryReadStateContracts.al",
+                lines: "56,120,146,151,155,159",
+            }],
             Gate::HttpHeaderNameRulesProbedFrom28 => &[Evidence {
                 file: "network/lt-http/HttpHeaders.al",
                 lines: "282",

@@ -26,6 +26,8 @@ fn main() -> ExitCode {
         .spawn(run)
         .expect("spawn runner thread");
     let result = worker.join().expect("runner thread panicked");
+    // `AL_PROFILE`: a run shorter than the profiler's periodic write writes its file too (issue 6133).
+    al_vm::profile_flush();
     if std::env::var_os("AL_EXEC_REPORT").is_some() {
         eprintln!("{}", al_vm::exec_report());
     }

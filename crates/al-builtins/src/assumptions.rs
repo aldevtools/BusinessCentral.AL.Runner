@@ -223,14 +223,9 @@ registry! {
     },
     ExtLocalProcNamedLikeBase => {
         id: "ext-local-proc-named-like-base",
-        assumed: "A page or report extension of another app's object may declare a local procedure with the name and parameter types of a public or protected procedure of its base. A bare call in the extension's code runs the extension's local procedure; the base's own calls and calls on a variable of the object from outside run the base's procedure. alc compiles it and binds the calls this way (probed with alc: a local F(): Text next to a protected F(): Integer makes `I := F()` in the extension a Text-to-Integer error).",
-        tests: "No Microsoft test: al-runner issue 6043, the reporter's run on real BC (Continia's extension of Customer Card declares local ActivateFields next to the page's protected one).",
-        probe: "Two apps: a page with protected ActivateFields() and public Shared() that log, and a page extension of another app with local ActivateFields() and local Shared() that log; a call of each from the base, from the extension, and P.Shared() from a test codeunit. Corpus writer: not yet assigned.",
-        awaiting: Awaiting {
-            issues: &[6043],
-            files: &["tests/al-language/pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al"],
-            since: "2026-10-28",
-        },
+        assumed: "A report extension of another app's report may declare a local procedure with the name and parameter types of a public or protected procedure of its base. A bare call in the extension's code runs the extension's local procedure; the base's own calls and calls on a report variable from outside run the base's procedure. Pinned for a page extension (pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al); assumed alike for a report extension.",
+        tests: "No Microsoft test and no user report for a report extension: the reported page extension shape is pinned (ExtLocalSameNameTests.al), and the lowering treats both extension kinds alike.",
+        probe: "The page extension test of ExtLocalSameNameTests.al repeated with a report extension of another app's report: bare calls from the extension, the base's own calls, and a call on a report variable from a test codeunit.",
     },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
@@ -528,20 +523,9 @@ registry! {
     },
     TernaryLabelBranch => {
         id: "ternary-label-branch",
-        assumed: "A conditional expression with a Label branch against a Code[N] or Text[N] branch, or a non-empty text literal true branch against a Label false branch: the true branch decides the result type. A Code[N] true branch makes the Label false branch a Code (upper case; StringLengthExceeded past N, with the label's own text in the message, even when the result goes into an unbounded Text); a Text[N] true branch limits the Label to N; a Label or literal true branch is a Text that takes the false branch as it is. A TextConst or MaxLength label in these pairs is refused. Pinned only by corpus writer TI's run on real BC (Code[20] and Text[10] against Labels of 7, 10, 15, 20 and 30 characters, each way).",
-        tests: "No Microsoft test: al-runner issue 6047 (a partner suite's `Validate(Field, Cond ? Rec.\"Code\" : DefaultCodeTok)`, a Code[20] true branch and a Locked Label false branch, 38 tests).",
-        probe: "Done on writer TI's branch: the TI_Ternary_* tests of types/TestTernaryContracts.al; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[6047],
-            files: &[
-                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_CodeTrueLabelFalse_1",
-                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_LabelTrueCodeFalse_1",
-                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_TextNLabel_1",
-                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_LabelLabelAndConst_1",
-                "tests/al-language/types/TestTernaryContracts.al::TI_Ternary_CodeLabelOverflowTexts",
-            ],
-            since: "2026-10-28",
-        },
+        assumed: "A conditional expression with a Label branch against a Code[N] or Text[N] branch: the true branch decides the result type. A Code[N] true branch makes the Label false branch a Code (upper case; StringLengthExceeded past N, with the label's own text in the message); a Text[N] true branch limits the Label to N; a Label true branch is a Text that takes the false branch as it is. Pinned for Code[20] and Text[10] against Labels of 7, 10, 15, 20 and 30 characters, each way (types/TestTernaryContracts.al TI_Ternary_*); assumed alike for every other length N.",
+        tests: "No Microsoft test and no user report: the reported shape (a Code[20] true branch and a Locked Label false branch) is pinned; other lengths take the same lowering.",
+        probe: "The TI_Ternary_* tests of TestTernaryContracts.al with Code[10], Code[50] and Text[30] branches, and an unbounded Text branch against a Label either way.",
     },
     ResourceFileNameCase => {
         id: "resource-file-name-case",
@@ -572,6 +556,12 @@ registry! {
         assumed: "In the company build (`--company-data demotool`), DotNet System.IO.Directory.GetFiles (File Management.GetServerDirectoryFilesList) of a folder AL code created in the temporary folder lists the files written directly in it, in name order without case (pinned on every major since corpus bump 62: onprem media/MediaFiles.al RJ_GetServerDirectoryFilesList_ListingOrder), each joined to the folder with `/`. Real BC joins with a backslash (MediaFiles.al RJ_MediaSet_ExportFile_ConfigPackageShape `<media>\\<set1>-1`, also for a folder named with '/'); the runtime keeps `/` because the runtime's .NET System.IO.Path runs on Linux, where a backslash is no separator, and File Management takes the file name apart with it. An empty folder stays refused.",
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step reads the Media folder back (Config. XML Exchange.UpdateConfigPackageMediaSet, ConfigXMLExchange.Codeunit.al:1505-1522), and they pass in Microsoft's CI.",
         probe: "None for the order (pinned). The separator needs no probe but a runtime change: System.IO.Path members that split a path must treat a backslash as a separator, as Windows .NET does; then the listing can join with a backslash.",
+    },
+    DotNetFileExistsSeesRunFiles => {
+        id: "dotnet-file-exists-sees-run-files",
+        assumed: "DotNet System.IO.File.Exists answers Yes for a file the run wrote into its in-memory file system (ADR-056): with AL's File type, a report's SaveAsXml, or XmlDocument.Save. The corpus pins No after a delete and for a path never written (onprem-dotnet lt-qx-dotnet/QxDotNetDemoShapes.al:328, :334), and AL's own File.Exists Yes for a written file (:323), but not .NET's Yes.",
+        tests: "Every Microsoft report test that reads its dataset through Library - Report Dataset (LoadDataSetFile: SaveAsXml into FileManagement.ServerTempFileName, then LoadXMLDocumentFromFile checks the file with DotNet File.Exists); they pass in Microsoft's CI.",
+        probe: "Write a file under TemporaryPath() with AL's File type, then DotNet System.IO.File.Exists of the same path; the same after Report.SaveAsXml into FileManagement.ServerTempFileName('xml').",
     },
     OptionInitValueOrdinal => {
         id: "option-init-value-ordinal",
@@ -647,62 +637,11 @@ registry! {
         tests: "No Microsoft test: a partner app's tests (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order).",
         probe: "The SH_OwnModify_ tests of SbStaleOwnModify.al with an own Insert only, with a Modify of another row beside the Insert, and with three Commits.",
     },
-    StaleOwnInsertLockOtherOrOtherRowWrite => {
-        id: "stale-own-insert-lock-other-or-other-row-write",
-        assumed: "A stale buffer from the variable's own Insert, or its own Modify after it: (1) two Commits later, when the new transaction ran LockTable on other tables only, inserted only into those tables and read the buffer's table by FindSet, a Modify raises DB:RecordChanged; (2) three Commits later, when the new transaction's only writes were Modifies of other rows of the table, a Modify writes the whole buffer; (3) three Commits later, when its only writes were Deletes of other rows of the table, a Delete deletes the row. Each needs no rollback, no other lock and no write of the row itself. Pinned only by the reporter's run of al-runner issue 6028 on real BC; the other counts and forms writers TE and TH measured follow stale-own-write-neighbour-any-commits.",
-        tests: "No Microsoft test: al-runner issue 6028, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
-        probe: "The TE_ tests of SbStaleOwnModify.al: 1, 2 and 3 Commits, crossed with LockTable on another table with an Insert and a read, LockTable only, LockTable on the same table, Modify, Delete, Insert or Rename of another row, for a stale Modify and a stale Delete. Corpus writer TE (branch al-runtime-rs-staging-te).",
-        awaiting: Awaiting {
-            issues: &[6028],
-            files: &[
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_2C_LockOtherInsertRead_StaleModify",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_ModifyOtherRow_StaleModify",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_3C_DeleteOtherRow_StaleDelete",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    QueryTopWhileOpenAfterLastRow => {
-        id: "query-top-while-open-after-last-row",
-        assumed: "Query.TopNumberOfRows(N) on a query that is open and was read to its end (a Read returned false: an empty result or the last row read) raises nothing, the getter returns N, the next Read raises the metadata-changed error until Open, and Open again (without Close) reads at most N rows; the last value set before the Open counts. The same on a query not yet read to its end is pinned (misc/lt-probes-needed-1/PnAQueryOpenRead.al:247-290, PX_TopNumberOfRows_AroundOpen). Pinned only by the reporter's run of al-runner issue 6039 on real BC.",
-        tests: "No Microsoft test: al-runner issue 6039, the reporter's run on a real BC container (2/2 tests; Base App table 7346 \"Internal Movement Header\" GetFirstLocationCodeFromLocationsofWhseEmployee calls TopNumberOfRows(1) and Open twice on one query variable).",
-        probe: "The TH_ tests of PnAQueryOpenRead.al: TopNumberOfRows after an empty Open and Read, after a full read, twice while open, then Open and the rows read. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
-        awaiting: Awaiting {
-            issues: &[6039],
-            files: &[
-                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterEmptyOpen_ThenReopen",
-                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopAfterFullRead_ThenReopen",
-                "tests/al-language/misc/lt-probes-needed-1/PnAQueryOpenRead.al::TH_TopTwiceWhileOpen_LastValueCounts",
-            ],
-            since: "2026-10-28",
-        },
-    },
     StaleOwnWriteNeighbourAnyCommits => {
         id: "stale-own-write-neighbour-any-commits",
-        assumed: "A stale buffer from the variable's own Insert (or its own Modify after it), any number of Commits later, when the new transaction did not write that row: (1) LockTable on other tables only with no write, or Inserts into other tables only (locked or not) and a FindSet of the buffer's table: a Modify or Delete through the buffer raises DB:RecordChanged; (2) LockTable on the buffer's table only with no write: a Modify writes the whole buffer and a Delete deletes the row; (3) only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, with no lock: a Modify writes the whole buffer and a Delete deletes the row. With nothing in between it stays refused as pinned. Pinned only by writer TE's and TH's runs on real BC (1, 2, 3, 4, 5, 7, 8 and 10 Commits, not every form at every count) and the reporter's run of al-runner issue 6040; every other count is assumed to behave the same. A ModifyAll or DeleteAll, a Rename whose triggers or related fields write, a mix of write kinds, a write beside a lock, a rollback and a ReadIsolation lock stay refused.",
-        tests: "No Microsoft test: al-runner issue 6040, the reporter's run on a real BC container (3/3 tests; a partner app's Prod. Order Component, Item and ledger-entry tests).",
-        probe: "The TE_ and TH_ tests of SbStaleOwnModify.al (1 to 10 Commits crossed with each neighbour). Corpus writers TE and TH (branch al-runtime-rs-staging-pub-th).",
-        awaiting: Awaiting {
-            issues: &[6040],
-            files: &[
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_4C_LockOtherInsertRead_StaleModify",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_8C_ChangeAfter6_LockOtherInsertRead_StaleModify",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TH_7C_LockFindSetModifyMiddle_DeleteOtherRow_StaleDelete",
-                "tests/al-language/record/lt-sb-stale-own-modify/SbStaleOwnModify.al::TE_1C_LockSameTable_StaleModify",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    PartKeepsRowAfterUpdateInValidate => {
-        id: "part-keeps-row-after-update-in-validate",
-        assumed: "A ListPart (without OnFindRecord or OnNextRecord) of a Document page, standing on a stored row other than the first of its view, whose control's OnValidate runs CurrPage.Update() or CurrPage.Update(false) while the host's row stays as the host read it, stays on that row: it reads from the row to the end of the view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord. Pinned only by the reporter's run of al-runner issue 6038 on real BC (a view of three rows, in the primary key and with a SubPageView sorting); a view longer than a window is refused.",
-        tests: "No Microsoft test: al-runner issue 6038, the reporter's run on a real BC container (2/2 tests; page 5771 \"Whse. Put-away Subform\" calls CurrPage.Update() in the OnValidate of Bin Code, page 7376 \"Invt. Put-away Subform\" CurrPage.Update(true) in that of Qty. to Handle).",
-        probe: "The TH_ tests of ThPartUpdateCursor.al: SetValue on line 2 and 3 of 3 with Update(true), Update(false), SaveRecord and no trigger, the trigger log and the walk First/SetValue/Next, also with a SubPageView sorting. Corpus writer TH (branch al-runtime-rs-staging-pub-th).",
-        awaiting: Awaiting {
-            issues: &[6038],
-            files: &["tests/al-language/pages/lt-th-part-update-cursor/ThPartUpdateCursor.al"],
-            since: "2026-10-28",
-        },
+        assumed: "A stale buffer from the variable's own Insert (or its own Modify after it), any number of Commits later, when the new transaction did not write that row: (1) LockTable on other tables only with no write, or Inserts into other tables only (locked or not) and a FindSet of the buffer's table: a Modify or Delete through the buffer raises DB:RecordChanged; (2) LockTable on the buffer's table only with no write: a Modify writes the whole buffer and a Delete deletes the row; (3) only Modifies, only Deletes, only Inserts or only Renames of other rows of the table, with no lock: a Modify writes the whole buffer and a Delete deletes the row. With nothing in between it stays refused as pinned. Pinned for 1, 2, 3, 4, 5, 7, 8 and 10 Commits, not every form at every count (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_* and TH_*); every other count and form is assumed to behave the same. A ModifyAll or DeleteAll, a Rename whose triggers or related fields write, a mix of write kinds, a write beside a lock, a rollback and a ReadIsolation lock stay refused.",
+        tests: "No Microsoft test and no user report: the reported counts and forms are pinned (SbStaleOwnModify.al); the other counts take the same rule.",
+        probe: "The forms of SbStaleOwnModify.al that are not pinned at every count (Inserts and Renames of other rows, LockTable on other tables only) at 4, 5 and 10 Commits, and one count above 10.",
     },
     ViewBlankDateFilter => {
         id: "view-blank-date-filter",
@@ -734,56 +673,6 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
-    XmlReadFromStreamOptions => {
-        id: "xml-readfrom-stream-options",
-        assumed: "XmlDocument.ReadFrom(InStream, XmlReadOptions, var XmlDocument) reads as the stream form without options does when PreserveWhitespace is false (whitespace-only text nodes are kept), and a document that does not parse answers false with the error text of the stream form in GetLastErrorText. PreserveWhitespace true is pinned (xml/XmlDocReadWrite.al:290-307); the statement form of a document that does not parse stays refused.",
-        tests: "No Microsoft test: al-runner issue 6049, the reporter's run on real BC (a shared XML helper reads every document through this overload; 1,299 tests of a partner suite). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:331-389.",
-        probe: "Writer TJ's ReadFrom_InStream_Options_WhitespaceNodes and ReadFrom_InStream_Options_Invalid (corpus PR 774).",
-        awaiting: Awaiting {
-            issues: &[6049],
-            files: &[
-                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_WhitespaceNodes",
-                "tests/al-language/xml/XmlDocReadWrite.al::ReadFrom_InStream_Options_Invalid"
-            ],
-            since: "2026-10-28",
-        },
-    },
-    TextFnDecimalArgument => {
-        id: "text-fn-decimal-argument",
-        assumed: "A Decimal where PadStr, CopyStr, DelStr, InsStr or SelectStr takes an Integer: a whole value within the Integer range works as that Integer; a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value X to System.Int32.`, the arguments converted left to right. Pinned only by corpus writer TG's run on real BC (whole values 2 and 3, fractions 0.5 to 3.6 and -1.5). A whole value beyond the Integer range is refused.",
-        tests: "No Microsoft test: a partner app's receipt printing (PadStr with a Decimal width that was rounded down to a whole number).",
-        probe: "Done on writer TG's branch (corpus PR 771): the Decimal tests of text/lt-text-functions; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLen1",
-                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalFill1",
-                "tests/al-language/text/lt-text-functions/PadStr.Codeunit.al::PadStrDecimalLiteral",
-                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPos1",
-                "tests/al-language/text/lt-text-functions/CopyStr.Codeunit.al::CopyStrDecimalPosLen1",
-                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPos1",
-                "tests/al-language/text/lt-text-functions/DelStr.Codeunit.al::DelStrDecimalPosLen1",
-                "tests/al-language/text/lt-text-functions/InsStr.Codeunit.al::InsStrDecimalPos1",
-                "tests/al-language/text/lt-text-functions/SelectStr.Codeunit.al::SelectStrDecimalNum1",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    XmlportUdnTextAttribute => {
-        id: "xmlport-udn-text-attribute",
-        assumed: "An XmlPort with UseDefaultNamespace = true and no DefaultNamespace that has text attributes: export writes the root's attributes before its `xmlns` declaration of BC's namespace, and every attribute in no namespace; import reads attributes in no namespace, raises the schema error for a missing required text or field attribute, and fails the schema check for a root attribute prefixed into the port's namespace (`The '<ns>:<name>' attribute is not declared.`). Pinned only by corpus writer TF's run on real BC.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (UseDefaultNamespace with text attributes).",
-        probe: "Done on writer TF's branch: the TF_NsAttr_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Export",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_NsAttr_Import_Qualified",
-            ],
-            since: "2026-10-28",
-        },
-    },
     AkvProviderNoKeyVault => {
         id: "akv-provider-no-key-vault",
         assumed: "The platform class AzureKeyVaultAppSecretProvider, in an app whose app.json names no key vault, on a server with no Azure Key Vault settings: the constructor gives an object; InitializeFromCallingAppExceptSystemApplication raises `No key vaults specified for extension '<name> by <publisher> <version>'.` (code AzureKeyVaultAppSecretProvider) naming the first calling app that is not the System Application; TryGetAzureKeyVaultSecret raises `Not initialized.` (same code), also after the failed initialization, and leaves the out value untouched. Pinned only for a call straight from the app; the walk past the System Application's own codeunits, and any other app's name, follow the member's name.",
@@ -811,40 +700,9 @@ registry! {
     },
     IsolatedStorageOverwriteTx => {
         id: "isolated-storage-overwrite-tx",
-        assumed: "IsolatedStorage.Set or SetEncrypted over a key that already exists, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a Set of a new key does; the same value, encrypted over plain and plain over encrypted alike. Pinned only by corpus writer TO's run on real BC (right after a Commit).",
+        assumed: "IsolatedStorage.SetEncrypted over a key that already exists, or Set over a key stored encrypted, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a plain Set over a plain key does (pinned: session/lt-cn-session-leads/CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction).",
         tests: "No Microsoft test: a partner app's EFT tests overwrite a stored key with SetEncrypted after a Commit.",
-        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/session/lt-cn-session-leads/CnIsolatedStorageLeads.al::TO_IsoOverwrite_OutsideWriteTransaction"],
-            since: "2026-10-28",
-        },
-    },
-    XmlportTextInTable => {
-        id: "xmlport-text-in-table",
-        assumed: "A text element right below a table element whose nodes are only text attributes, or text attributes and leaf text and field elements: export runs its OnBeforePassVariable before its attributes' and writes its text after its attributes (`<item option_value=\"1\">REQUIRED</item>`, empty text gives `<item option_value=\"2\" />`); import reads the attributes (a text attribute without Occurrence is required), then the elements below, then the element's own text with its OnAfterAssignVariable; a child element in a text-only element fails the schema check. Pinned only by corpus writer TO's run on real BC.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a text element with an option_value attribute, and request elements with content, below a table element).",
-        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): the TO_AttrItem_* and TO_TextContent_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_AttrItem_Trigger_Export",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_AttrItem_Plain_Import",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TO_TextContent_Import_Shapes",
-            ],
-            since: "2026-10-28",
-        },
-    },
-    Utf8ReadNonAsciiUnterminated => {
-        id: "utf-eight-read-non-ascii-unterminated",
-        assumed: "InStream.Read into a Text on a UTF-8 stream of non-ASCII characters with no zero byte after them reads them to the end and counts their bytes plus one, as for ASCII (`wörld` gives 7). Pinned only by corpus writer TO's run on real BC.",
-        tests: "No Microsoft test: a partner app's report tests read a UTF-8 stream of non-ASCII text.",
-        probe: "Done on writer TO's branch al-runtime-rs-staging-pub-to (corpus PR 780): PnE04Streams.al TO_ReadText_NonAscii_NoTerminator; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/misc/lt-probes-needed-5/PnE04Streams.al::TO_ReadText_NonAscii_NoTerminator"],
-            since: "2026-10-28",
-        },
+        probe: "The SetEncrypted forms of TO_IsoOverwrite_OutsideWriteTransaction (left out of the corpus: the Linux CI containers have no encryption key), run on a Windows BC.",
     },
     XmlportAttrsOverUnlinked => {
         id: "xmlport-attrs-over-unlinked",
@@ -857,27 +715,6 @@ registry! {
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TwoRows",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TokenNoRows",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_Error",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportUnlinkedReply => {
-        id: "xmlport-unlinked-reply",
-        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable, optional or with MinOccurs = Once and MaxOccurs = Unbounded, with any supported nodes below it, after leaf field elements of the outer table without triggers: the inner table writes the rows it holds when it is reached (an outer row's OnAfterGetRecord that empties and refills it gives each outer row its own rows, in SourceTableView order); an optional inner table without rows leaves the text element empty; a MinOccurs = Once inner table without rows writes one element from its record as it is, without OnAfterGetRecord. A table element with MaxOccurs = Once, export triggers and two rows writes the first with one OnAfterGetRecord, and its record holds the second row afterwards. Pinned only by corpus writer TR's run on real BC (a SaaS sandbox) and by writer TS on every supported version, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a reply row over lines over parts, each line refilling its parts).",
-        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_Booking_* and TR_Member_*; wanted: the bump that puts them on corpus master. Not covered: a MaxOccurs = Once table element with three or more rows and triggers, or whose first OnAfterGetRecord skips or breaks.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_Reply_NoLines",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_Reply_OneLineOnePart",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_Reply_TwoLinesTwoParts",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_Reply_LinesWithoutParts",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_TwoReplyRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Booking_ImportThenExport",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_ImportThenExport",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_Reply_Cards",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_Member_ErrorReply",
             ],
             since: "2026-10-29",
         },
@@ -917,27 +754,11 @@ registry! {
             since: "2026-10-29",
         },
     },
-    MediaTextContentExported => {
-        id: "media-text-content-exported",
-        assumed: "UTF-8 text (no picture, no MIME type given) imported into a Media field with the two argument ImportStream exports with Media.ExportStream as the same bytes, answering true, on every major; ReadText of the export gives the text back. Pinned only by corpus writer TR's run on real BC (the newest major, SaaS sandbox), not yet on corpus master; the older majors come from the corpus CI majors check.",
-        tests: "No Microsoft test: a partner app's fiscal tests store receipt text in a Media field and read it back.",
-        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream; wanted: the bump that puts it on corpus master. Not covered: text imported with a MIME type, text with control characters, and bytes that are no UTF-8.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/streams/StTMedia.al::TR_MediaImportStream_TextContent_ExportStream"],
-            since: "2026-10-29",
-        },
-    },
     XmlportSelfClosedLeafAssignTwice => {
         id: "xmlport-self-closed-leaf-assign-twice",
-        assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element by corpus writer TR's run on real BC (the newest major, SaaS sandbox), not yet on corpus master; assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
+        assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import); assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
         tests: "No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count.",
-        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import; wanted: the bump that puts it on corpus master, and a trigger that changes its own variable on the first run.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_EmptyLeaf_Import"],
-            since: "2026-10-29",
-        },
+        probe: "TR_EmptyLeaf_Import with the leaf two text elements deep, and a trigger that changes its own variable on the first run.",
     },
     XmlportDefaultContainerUnlinked => {
         id: "xmlport-default-container-unlinked",
@@ -1130,118 +951,6 @@ registry! {
             since: "2026-10-29",
         },
     },
-    TenantMediaDelete => {
-        id: "tenant-media-delete",
-        assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's tests (a cleanup that deletes the Tenant Media row of a picture).",
-        probe: "Done on writer TQ's branch al-runtime-rs-staging-pub-tq (corpus PR 783, includes TP): media/TestMediaPngImport.al TP_TenantMedia_Delete and TQ_TenantMedia_DeleteTrue_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/media/TestMediaPngImport.al::TP_TenantMedia_Delete",
-                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Statement",
-                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Used",
-                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_SharedMedia",
-                "tests/al-language/media/TestMediaPngImport.al::TQ_TenantMedia_DeleteTrue_Missing_Statement",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    FormatPrecisionFirstCode => {
-        id: "format-precision-first-code",
-        assumed: "Format of a Decimal with `<Precision,A:B>` as the first code and no `<Standard Format,N>`: the value is rounded half away from zero to B decimals before `<Sign>`, `<Integer>`, `<Integer Thousand>` and `<Decimals>`, and `<Decimals>` shows at least A decimals (`-1234.57`, `12.00`, `1,234,50` with `<Comma,,>`). Also `<Precision,2:26>` before `<Standard Format,N>` acts as the other precisions (`1234.50 ` under format 4). Pinned only by corpus writers TP and TQ on real BC, not yet on corpus master: first without a standard format for 2:2 (TP) and 0:0, 1:3, 3:3 (TQ, with `<Comma,x>`), other A:B refused where they would show; 2:26 under formats 0, 2, 4 and 9.",
-        tests: "No Microsoft test: a partner app's receipt printing (amounts formatted with `<Precision,2:2>` and a decimal comma).",
-        probe: "Done on writer TQ's branch al-runtime-rs-staging-pub-tq (corpus PR 783, includes TP): types/lt-format-comma-format-string/FormatCommaFormatString.al TP_Format_PrecisionStrings(_Small), TQ_Format_PrecisionStd_*, TQ_Format_PrecisionComma; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings",
-                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TP_Format_PrecisionStrings_Small",
-                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TQ_Format_PrecisionStd_Long",
-                "tests/al-language/types/lt-format-comma-format-string/FormatCommaFormatString.al::TQ_Format_PrecisionComma",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportNestedTextInTable => {
-        id: "xmlport-nested-text-in-table",
-        assumed: "A text element right below a table element whose nodes are field and text attributes and one text element of only text attributes: export runs the outer element's OnBeforePassVariable, writes its attributes, then the inner element as `<admission option_value=\"1\">A1</admission>` (its OnBeforePassVariable before its attribute's, an empty text gives `<admission option_value=\"2\" />`, an empty Required attribute `option_value=\"\"`); import reads the outer attributes (a text attribute without Occurrence is required), then the inner attributes and text with its OnAfterAssignVariable, then the outer element's own text; a missing inner element or Required attribute fails the schema check. Pinned only by corpus writer TP's run on real BC.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a schedule entry element with an option_value element inside it, below a table element).",
-        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Nested_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Export",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Nested_Import_Shapes",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportUnlinkedTempInText => {
-        id: "xmlport-unlinked-temp-in-text",
-        assumed: "A text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element that holds one temporary table element without LinkTable (MinOccurs = Zero, only field attributes): export writes all the inner records under every outer row, `<attributes />` when there are none; import stores each inner row (its OnBeforeInsertRecord sees the outer row's attributes) before the outer row's OnBeforeInsertRecord, and the inner rows stay across outer rows; a second container or one after a later element fails the schema check. Pinned only by corpus writer TP's run on real BC.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (an `attributes` element of attribute rows inside a request row).",
-        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): the TP_Unlinked_* tests of xmlport/lt-qr-xmlport-container-occurs; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Export",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TP_Unlinked_Import_Shapes",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlNodeListClear => {
-        id: "xml-node-list-clear",
-        assumed: "Clear of an XmlNodeList leaves it empty (Count 0, Get false, foreach runs no time), a copy taken before keeps its nodes, and SelectNodes fills it again. Pinned only by corpus writer TP's run on real BC.",
-        tests: "No Microsoft test: a partner app's tests (a report that clears a node list it reuses).",
-        probe: "Done on writer TP's branch al-runtime-rs-staging-pub-tp (corpus PR 782): xml/XmlNodes.al TP_NodeList_Clear; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/xml/XmlNodes.al::TP_NodeList_Clear"],
-            since: "2026-10-29",
-        },
-    },
-    QueryReadStateSharedCommitted => {
-        id: "query-read-state-shared-committed",
-        assumed: "A query with ReadState = ReadShared or ReadState = ReadCommitted returns the rows ReadUncommitted returns: the session's own uncommitted row and the same row after a Commit (query/TestQueryReadStateContracts.al pins ReadUncommitted).",
-        tests: "No Microsoft test: al-runner issue 6050, the reporter's run on real BC (47 tests of a partner suite reach a query with ReadState = ReadShared). Writer TJ's run on real BC: branch al-runtime-rs-staging-pub-tj, query/TestQueryReadStateContracts.al:135-163.",
-        probe: "Writer TJ's ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne (corpus PR 774).",
-        awaiting: Awaiting {
-            issues: &[6050],
-            files: &["tests/al-language/query/TestQueryReadStateContracts.al::ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne"],
-            since: "2026-10-28",
-        },
-    },
-    OptionDecimalConversion => {
-        id: "option-decimal-conversion",
-        assumed: "An Option (field, variable or member) converts to a Decimal as its ordinal: assignment, a Decimal parameter, Validate of a Decimal field, and arithmetic with a Decimal or Integer. A Decimal converts to an Option when it is a whole number within Integer (an ordinal the Option lacks is kept, Format shows the number); a fraction raises ConversionCast `Overflow under conversion of Microsoft.Dynamics.Nav.Runtime.Decimal18 value <d> to System.Int32.`. A Decimal beyond Integer is refused.",
-        tests: "No Microsoft test: al-runner issue 6060, the reporter's run on real BC (a payroll suite assigns an Option field to a Decimal field). Writer TL's run on real BC: branch al-runtime-rs-staging-pub-tl, types/lt-implicit-conversions/P79OptionDecimal.al.",
-        probe: "Writer TL's P79OptionDecimal.al (corpus PR 778); a Decimal beyond Integer into an Option is still open.",
-        awaiting: Awaiting {
-            issues: &[6060],
-            files: &["tests/al-language/types/lt-implicit-conversions/P79OptionDecimal.al"],
-            since: "2026-10-28",
-        },
-    },
-    XmlportMinOccursOnceTable => {
-        id: "xmlport-min-occurs-once-table",
-        assumed: "An explicit MinOccurs = Once on an XmlPort table element that is not below another table element (temporary or real, with or without MaxOccurs = Once) behaves as the default: an export with no rows writes the record as it stands, an import without the element fails the schema check. Pinned only by corpus writer TF's run on real BC.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (MinOccurs = Once on their table elements).",
-        probe: "Done on writer TF's branch: the TF_MinOnce_*, TF_MinMaxOnce_* and TF_MinMaxOnceReal_* tests of xmlport/lt-sg-xmlport-occurs; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Export",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinOnce_Import",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Export",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnce_Import",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Export",
-                "tests/al-language/xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al::TF_MinMaxOnceReal_Import",
-            ],
-            since: "2026-10-28",
-        },
-    },
     InstallCompanyTriggersAllApps => {
         id: "install-company-triggers-all-apps",
         assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",
@@ -1304,17 +1013,6 @@ registry! {
             issues: &[6119],
             files: &["tests/al-language/pages/lt-page-runtime/TwTreeExpandTriggers.al"],
             since: "2026-10-29",
-        },
-    },
-    ShowPrintStatusInert => {
-        id: "show-print-status-inert",
-        assumed: "A report that sets ShowPrintStatus = true runs as one without it: Run, RunModal, Execute and SaveAs give the same triggers, order, results and handler needs. Measured by corpus writer TK on real BC, not yet in the pinned corpus; `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).",
-        tests: "No Microsoft test: al-runner issue 6056, a partner app whose install routine reaches a report with ShowPrintStatus (4,245 tests refused).",
-        probe: "Run, RunModal, Execute and SaveAs of processing-only reports with and without a request page and of an RDLC layout report, each with ShowPrintStatus true, false and unset: trigger log, handler needs, result. Corpus writer TK (branch al-runtime-rs-staging-tk, corpus PR 777).",
-        awaiting: Awaiting {
-            issues: &[6056],
-            files: &["tests/al-language/report/lt-tk-showprintstatus/LtTkShowPrintStatus.al"],
-            since: "2026-10-28",
         },
     },
     DotnetTypeUnassignedEnum => {
