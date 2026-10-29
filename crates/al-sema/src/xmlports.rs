@@ -671,8 +671,12 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             let p = raw.parent.expect("checked above");
             let flag = |name: &str| layout.property(p, name).and_then(|v| bool_prop(&v));
             let saves = flag("AutoSave") != Some(false) && flag("AutoUpdate") != Some(true);
+            // An explicit MaxOccurs = Unbounded on a linked one is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
+            // QrXpContainerOccurs.al TS_Linked_Unbounded_*: same XML, trigger order, import rows and schema errors; `build`
+            // registers `xmlport-linked-max-unbounded`).
+            let linked = layout.property(i, "LinkTable").is_some();
             if layout.direction == ir::XmlDirection::Export || saves {
-                (&["zero"], &[])
+                (&["zero"], if linked { &["unbounded"] } else { &[] })
             } else {
                 (&[], &[])
             }
@@ -1043,9 +1047,24 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 
 /// The unprobed assumptions the layout rests on: `xmlport-min-occurs-once-table` when a table element that is not below another
 /// one says `MinOccurs = Once` (`occurs_refusal`); `xmlport-udn-text-attribute` when a port in BC's own namespace
-/// (UseDefaultNamespace without DefaultNamespace) has a text attribute.
+/// (UseDefaultNamespace without DefaultNamespace) has a text attribute; `xmlport-linked-max-unbounded` when a linked table element
+/// below another one says `MaxOccurs = Unbounded`.
 fn layout_assumed(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
     let mut out = min_once_assumed(layout);
+    let linked_unbounded = (0..layout.nodes.len()).any(|i| {
+        let raw = &layout.nodes[i];
+        raw.kind == ir::XmlNodeKind::Table
+            && raw
+                .parent
+                .is_some_and(|p| layout.nodes[p].kind == ir::XmlNodeKind::Table)
+            && layout.property(i, "LinkTable").is_some()
+            && layout
+                .property(i, "MaxOccurs")
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("unbounded"))
+    });
+    if linked_unbounded {
+        out.push(al_builtins::assumptions::Assumption::XmlportLinkedMaxUnbounded);
+    }
     if layout
         .default_ns
         .as_deref()
@@ -1148,6 +1167,25 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(min_once_assumed(&plain).is_empty());
+    }
+
+    #[test]
+    fn an_explicit_max_occurs_unbounded_on_a_linked_nested_table_element_runs_as_an_assumption() {
+        // Writer TS's branch al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_Linked_Unbounded_* (xmlport 90082): the
+        // default, written out.
+        let l = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; LinkFields = A = field(B); MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
+        );
+        assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        assert_eq!(
+            layout_assumed(&l),
+            vec![al_builtins::assumptions::Assumption::XmlportLinkedMaxUnbounded]
+        );
+        // Without LinkTable it stays refused.
+        let unlinked = layout_of(
+            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
+        );
+        assert!(!unlinked.run_reasons.is_empty());
     }
 
     #[test]
