@@ -4197,23 +4197,41 @@ impl Session {
                             })));
                         }
                         // The search strings the corpus pins on an empty table: none or `=` (the key alone), `>`, `<` and `=><`
-                        // (FindEmptyTable.al:Find_EmptyTable `unused_default` .. `unused_all_directions`). A table with rows
-                        // that lacks the key, and the other combinations, are not pinned.
-                        if filters.is_empty()
+                        // (FindEmptyTable.al:Find_EmptyTable `unused_default` .. `unused_all_directions`). On a table that has rows
+                        // where no row meets the search, on an empty table with a key value other than the default, and `=>` and
+                        // `=<`, the same texts with the record's key (writer TV, corpus branch al-runtime-rs-staging-tv 8ae7ac0b,
+                        // FindEmptyTable.al TV_Find_TableWithRows_NoMatch, TV_Find_EmptyTable_KeyNotDefault). The other
+                        // combinations are not pinned.
+                        let empty_table = filters.is_empty()
                             && method == RecordOp::Find
-                            && matches!(which.as_str(), "=" | ">" | "<" | "=><")
                             && self
                                 .store_for(rec)
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::Unsupported(format!("{e}")))?
-                                == 0
+                                == 0;
+                        if filters.is_empty()
+                            && method == RecordOp::Find
+                            && matches!(which.as_str(), "=" | ">" | "<" | "=><" | "=>" | "=<")
                         {
                             let fields = rec.borrow().fields.clone();
                             let pk = t.primary_key(&fields);
-                            if !pk.iter().all(|v| crate::recmeta::is_blank(v).unwrap_or(false)) {
-                                return unsupported(
-                                    "Find on an empty table with a key value other than the default: only default keys are pinned (FindEmptyTable.al)",
-                                );
+                            let default_key = pk.iter().all(|v| crate::recmeta::is_blank(v).unwrap_or(false));
+                            if !empty_table || !default_key || matches!(which.as_str(), "=>" | "=<") {
+                                // Pinned from codeunit code only: in a page's code (a trigger such as OnNewRecord of a page a
+                                // TestPage opens) what BC does with the error is not pinned for these shapes.
+                                let engine = self.engine.clone();
+                                if self.frames.iter().any(|&o| {
+                                    matches!(
+                                        engine.program.objects[o].kind,
+                                        al_ir::ObjKind::Page | al_ir::ObjKind::PageExtension
+                                    )
+                                }) {
+                                    return unsupported(format!(
+                                        "Find on table '{}' in page code, no row meeting the search, without using the result: not pinned",
+                                        t.name
+                                    ));
+                                }
+                                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FindMissKeyText);
                             }
                             let id = self.identification(&t, &fields)?;
                             let message = if which == "=" {
@@ -4230,6 +4248,8 @@ impl Session {
                             // The flag hides the key of `Find('=')`, from BC 28 (FindEmptyTableExcludeFlag.al:123; guarded with
                             // BC28PLUS). The other search strings are not pinned.
                             let origin = if which == "="
+                                && empty_table
+                                && default_key
                                 && !rec.borrow().temporary
                                 && self.has(al_version::Gate::EmptyTableFindExcludeFlagFrom28)
                             {

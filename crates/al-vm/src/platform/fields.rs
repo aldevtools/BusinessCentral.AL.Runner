@@ -269,24 +269,50 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 /// one without (types/lt-aj-probes/AjMisc.al:466-521, helper QtFieldTableAnswers :414-429, QtRowVersionRows :400-412;
 /// FieldTable_Customer_RowVersionField :336-348). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter
 /// on another name and a TableNo-only scan do not see it (same helper; RaFieldScan :613-641;
-/// metadata/W6FieldKeyRows.al:263-270). The other columns are not pinned: reading one refuses. Pinned on normal tables
+/// metadata/W6FieldKeyRows.al:263-270). TableName, Type Name, Field Caption, RelationTableNo, RelationFieldNo,
+/// SQLDataType, OptionString, ObsoleteState, ObsoleteReason, DataClassification and IsPartOfPrimaryKey on a Base
+/// Application table and an own one: types/lt-aj-probes/AjMisc.al:667-686 SG_FieldTable_RowVersion_AllColumns. The
+/// other columns are not pinned: reading one refuses. Pinned on normal tables
 /// of the workspace and the Base Application only: for another kind of table the row refuses where it could be found.
 fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32) -> Option<Entry> {
     schema.fields.iter().find(|f| f.id == 2_000_000_005)?;
     static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
     let why = WHY
         .get_or_init(|| {
-            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only TableNo, No., FieldName, Type, Len, Class and Enabled are pinned (types/lt-aj-probes/AjMisc.al:409)"
+            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only the columns of types/lt-aj-probes/AjMisc.al:656-657 are pinned"
                 .into()
         })
         .clone();
     let mut r = blank.row();
     for (i, f) in t.fields.iter().enumerate() {
-        if ![1, 2, 4, 5, 6, 7, 8].contains(&f.id) {
+        if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27].contains(&f.id)
+            && f.name != "IsPartOfPrimaryKey"
+        {
             r[i] = Value::Unknown(why.clone());
         }
     }
     r[pos(t, 1)] = Value::Integer(tid as i32);
+    r[pos(t, 3)] = Value::Text(o.name.chars().take(30).collect());
+    r[pos(t, 9)] = Value::Text("BigInteger".into());
+    r[pos(t, 20)] = Value::Text("timestamp".into());
+    r[pos(t, 21)] = Value::Integer(0);
+    r[pos(t, 22)] = Value::Integer(0);
+    if let Some(col) = t.fields.iter().position(|x| x.id == 23) {
+        r[col] = match &blank.row[col] {
+            Value::Option(_, m) => match m.iter().position(|x| x.eq_ignore_ascii_case("Varchar")) {
+                Some(n) => Value::Option(n as i32, m.clone()),
+                None => Value::Unknown(why.clone()),
+            },
+            _ => Value::Unknown(why.clone()),
+        };
+    }
+    r[pos(t, 24)] = Value::Text("".into());
+    r[pos(t, 25)] = blank.option(t, 25, 0);
+    r[pos(t, 26)] = Value::Text("".into());
+    r[pos(t, 27)] = blank.option(t, 27, 1);
+    if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
+        r[col] = Value::Boolean(false);
+    }
     r[pos(t, 2)] = Value::Integer(0);
     let name = pos(t, 4);
     r[name] = Value::Text("timestamp".into());
