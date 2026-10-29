@@ -149,7 +149,7 @@ impl Lowerer<'_> {
         }
         let slot = crate::base_access::slot_of(&ast, None, name)
             .ok_or_else(|| format!("`{name}` has no slot in the page extension that declares it"))?;
-        self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVar);
+        // Pinned by pageext/lt-ue-pageext-leads/UeProtectedVarTests.al (was assumption `pageext-sibling-protected-var`).
         if self.ws.objects[ext].app != self.ws.objects[self.oi].app {
             self.assume(al_builtins::assumptions::Assumption::PageExtSiblingProtectedVarCrossApp);
         }
@@ -914,9 +914,7 @@ impl Lowerer<'_> {
                     })
                 }
                 Some(Res::EnumValue { object, value }) => {
-                    if matches!(self.res(&kids[0]), Some(Res::EnumTypeBeforeRecField(_))) {
-                        self.assume(al_builtins::assumptions::Assumption::EnumTypeBeforeRecField);
-                    }
+                    // Pinned by types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (was assumption `enum-type-before-rec-field`).
                     Ok(ir::Expr::Const(ir::Const::Enum(object as u32, value)))
                 }
                 Some(Res::OptionValue(i)) => match self.ty_of(n) {
@@ -1036,7 +1034,7 @@ impl Lowerer<'_> {
                 // `pageext-currpage-protected-var` until PR 808 is in the pinned corpus.
                 Some(Res::BaseGlobal(name)) if n.kind() == MemberExpr => {
                     let (slot, _, _) = self.base_var(&name)?;
-                    self.assume(al_builtins::assumptions::Assumption::PageExtCurrPageProtectedVar);
+                    // Pinned by pages/lt-up-page-ext/UpPageExt.al (was assumption `pageext-currpage-protected-var`).
                     Ok(ir::Expr::Load(ir::Place::BaseGlobal(slot)))
                 }
                 // `CurrXmlPort` in an xmlport is the running instance (P94Fixtures.al:317 `currXMLport.Filename()`).

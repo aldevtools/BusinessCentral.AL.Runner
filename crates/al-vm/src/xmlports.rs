@@ -630,7 +630,7 @@ impl Session {
         // again, also after SetSource on the same or a new stream, with or without Codeunit.Run (xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74 Instance_ImportTwiceSameSource:
         // nothing stored again; QrXpContainerOccurs.al
         // TT_ImportTwice_SameSource, _SameStreamAgain, _NewSourceOtherRows, _NewSourceSameRows, _Direct on corpus writer TT's
-        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-again`). Pinned for an unguarded XML import after one that
+        // branch al-runtime-rs-staging-tt; former assumption `xmlport-import-again` (pinned on corpus master since bump 1030)). Pinned for an unguarded XML import after one that
         // succeeded; the rest is refused.
         if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
             if guarded || schema.xp().format != ir::XmlFormat::Xml {
@@ -643,7 +643,7 @@ impl Session {
                     "a second Import on the same XmlPort instance after an Import that failed (not pinned)",
                 );
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportAgain);
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_SameSource, TT_ImportTwice_SameStreamAgain, TT_ImportTwice_NewSourceOtherRows, TT_ImportTwice_NewSourceSameRows, TT_ImportTwice_Direct (was assumption `xmlport-import-again`).
             return Ok(Value::Null);
         }
         if guarded {
@@ -950,16 +950,14 @@ impl Session {
         };
         // An XML import reads the whole stream, also one read to its end before SetSource, and leaves its read position where it
         // was (QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource `source at end` No, on corpus writer TT's
-        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-whole-source`). From a position inside the stream it is not
+        // branch al-runtime-rs-staging-tt; former assumption `xmlport-import-whole-source` (pinned on corpus master since bump 1030)). From a position inside the stream it is not
         // pinned. A text-format import takes the bytes from the read position on (as before those pins).
         let bytes = if xp.format == ir::XmlFormat::Xml {
             let (pos, len) = (st.pos, st.len());
             if pos != 0 && pos < len {
                 return unsupported("XmlPort import of a source stream read partly before (not pinned)");
             }
-            if pos != 0 {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportWholeSource);
-            }
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource (was assumption `xmlport-import-whole-source`).
             st.pos = 0;
             let all = st.rest();
             st.pos = pos;
@@ -1884,9 +1882,9 @@ impl Session {
                 "false" | "0" => Ok(Value::Boolean(false)),
                 _ => Err(evaluate_error(text, "Boolean")),
             },
-            // QrXpContainerOccurs.al TS_Guid_Import_* on branch al-runtime-rs-staging-pub-ts (assumption `xmlport-guid-xml`).
+            // QrXpContainerOccurs.al TS_Guid_Import_* on branch al-runtime-rs-staging-pub-ts (former assumption `xmlport-guid-xml` (pinned on corpus master since bump 1030)).
             RtType::Guid => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 match xml_guid(text) {
                     XmlGuid::Value(g) => Ok(Value::Guid(g)),
                     XmlGuid::Invalid => Err(xerr(
@@ -2693,7 +2691,7 @@ impl Session {
             .retain(|(k, _)| *k != 6 && *k != 7 && *k != XP_EXPORTED);
         inst.borrow_mut().xp_text.push((XP_EXPORTED, String::new()));
         // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
-        // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, assumption `xmlport-export-again`).
+        // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
@@ -2816,9 +2814,7 @@ impl Session {
             let lower = view.to_ascii_lowercase();
             // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
             // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
-            if n.link_node.is_none() && lower.contains("where") {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportViewFilterUnlinked);
-            }
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_View_FirstExport, TS_View_SecondExport (was assumption `xmlport-view-filter-unlinked`).
             let rec = self.xp_record(inst, schema.node(i))?;
             let t = self.table(&rec)?;
             if again {
@@ -2836,7 +2832,7 @@ impl Session {
                         "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
                     );
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                 let mut r = rec.borrow_mut();
                 if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
                     r.unpinned_buffer = None;
@@ -3125,11 +3121,7 @@ impl Session {
                         || unlinked_reply_container(schema, child, node)
                         || default_unlinked_container(schema, child, node) =>
                 {
-                    if default_unlinked_container(schema, child, node) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::XmlportDefaultContainerUnlinked,
-                        );
-                    }
+                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export (was assumption `xmlport-default-container-unlinked`).
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
@@ -3142,7 +3134,7 @@ impl Session {
                 // branch al-runtime-rs-staging-tt: `<Ticket ChangeRequestToken="" Kind="K"><Admissions><Admission Code="">...`).
                 // Its own text is not pinned.
                 ir::XmlNodeKind::Text if attrs_over_unlinked(schema, child, node) => {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAttrsOverUnlinked);
+                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Change_Export_TwoRows, TT_Change_Export_TokenNoRows, TT_Change_Export_Error (was assumption `xmlport-attrs-over-unlinked`).
                     if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
                         return unsupported(
                             "XmlPort export of a text element with text attributes over a text element that holds a table element, with its own text (not pinned)",
@@ -3296,11 +3288,9 @@ impl Session {
             Value::Boolean(b) => Ok(if *b { "true" } else { "false" }.to_string()),
             // A Time or DateTime with milliseconds writes them without trailing zeros, the DateTime with `Z` (writer TU's branch
             // al-runtime-rs-staging-tu, xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds: `12:34:56.789`,
-            // `12:34:56.5`, `12:34:56.007`, `2024-03-05T12:34:56.789Z`; assumption `xmlport-time-ms-xml`).
+            // `12:34:56.5`, `12:34:56.007`, `2024-03-05T12:34:56.789Z`; former assumption `xmlport-time-ms-xml` (pinned on corpus master since bump 1030)).
             Value::Date(..) | Value::DateTime(_) => {
-                if matches!(v, Value::DateTime(t) if *t > 0 && (t - 1) % 1000 != 0) {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
-                }
+                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 al_builtins::format::try_format(v, 0, 9, self)
                     .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
             }
@@ -3308,15 +3298,13 @@ impl Session {
             // `P1DT1H1M1.001S`, and the ordinal of an Option or Enum.
             Value::Time(0) => Ok(String::new()),
             // A zero Duration is `P0DT0H0M0.0S` (writer TU's branch al-runtime-rs-staging-tu, PWXmlPortFormatEvaluate.al
-            // TU_Export_TimeMilliseconds `<Dur>P0DT0H0M0.0S</Dur>`; assumption `xmlport-time-ms-xml`).
+            // TU_Export_TimeMilliseconds `<Dur>P0DT0H0M0.0S</Dur>`; former assumption `xmlport-time-ms-xml` (pinned on corpus master since bump 1030)).
             Value::Duration(0) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
+                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 Ok("P0DT0H0M0.0S".to_string())
             }
-            Value::Time(t) => {
-                if (t - 1) % 1000 != 0 {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportTimeMsXml);
-                }
+            Value::Time(_) => {
+                // Pinned by xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds (was assumption `xmlport-time-ms-xml`).
                 al_builtins::format::try_format(v, 0, 9, self)
                     .or_else(|why| unsupported(format!("XmlPort export of a value: {why}")))
             }
@@ -3325,7 +3313,7 @@ impl Session {
             Value::Enum(_, o) => Ok(o.to_string()),
             // `{UPPER-CASE}`, the null Guid too (QrXpContainerOccurs.al TS_Guid_Export on branch al-runtime-rs-staging-pub-ts).
             Value::Guid(g) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidXml);
+                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 Ok(al_builtins::format::format_guid(g))
             }
             other => unsupported(format!(
@@ -3352,7 +3340,7 @@ impl Session {
 
     /// The start of a pass of table element `node` without LinkTable right below another table element (writer TU's branch
     /// al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass `pre item f= at=12` at the second
-    /// line after the first pass set a filter, TU_NestedTemp_TwoTwoTwoFiltered; assumption `xmlport-nested-unlinked`): a later
+    /// line after the first pass set a filter, TU_NestedTemp_TwoTwoTwoFiltered; former assumption `xmlport-nested-unlinked` (pinned on corpus master since bump 1030)): a later
     /// pass starts without the filters an earlier pass left, and the record keeps its row. Pinned only when nothing changed
     /// the record's filters or key between the passes and the key is the one of the first pass; filters of a SourceTableView,
     /// a filter group or marks, and filters of the code's own at the first pass, are not pinned.
@@ -3388,7 +3376,7 @@ impl Session {
                 if last.first_key != now.first_key {
                     return refuse("a key or direction other than at the first pass");
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportNestedUnlinked);
+                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
                 if n.source_view.is_some() || rec.borrow().filters.iter().any(|f| f.group == XP_VIEW_GROUP) {
                     return refuse("a SourceTableView");
                 }
@@ -3446,7 +3434,7 @@ impl Session {
             // A linked one below another table element (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
             // TT_Confirm_Export_NoPreFilter: five rows, `get detail 1` only): the first row of each pass, one OnAfterGetRecord; the row
             // the record holds afterwards is not pinned.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedOnce);
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_NoPreFilter (was assumption `xmlport-linked-once`).
             if rows.len() > 1 {
                 rows.truncate(1);
                 nested_after = true;
@@ -3457,10 +3445,10 @@ impl Session {
                     // Below another table element without LinkTable the record holds the second row afterwards, also of six
                     // (QrXpContainerOccurs.al TU_NestedReal_SlotNoFilter on writer TU's branch: `get slot 101;get item 12;pre slot
                     // f= at=102`).
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportNestedUnlinked);
+                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
                     ends_on = Some(rows[1].clone());
                 } else if rows.len() > 2 {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                     ends_unpinned = true;
                 } else {
                     ends_on = rows.pop();
@@ -3493,10 +3481,8 @@ impl Session {
         } else if rows.is_empty() && !n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table) {
             // An optional element that is not linked and not below another table element runs no trigger of its nodes without rows:
             // only its OnPreXmlItem ran (corpus writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
-            // TT_Optional_Unlinked_NoRows: `pre opt;` and no `pass opt no;`; assumption `xmlport-optional-no-rows`).
-            if export_triggers_below(schema, node) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportOptionalNoRows);
-            }
+            // TT_Optional_Unlinked_NoRows: `pre opt;` and no `pass opt no;`; former assumption `xmlport-optional-no-rows` (pinned on corpus master since bump 1030)).
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows (was assumption `xmlport-optional-no-rows`).
         } else if rows.is_empty() {
             // P94XpPathFlow.al:Export_PathsNoRows pins the empty pass for an element that is not optional only; for an optional
             // element below another table element that is not linked, whether its fields are passed is not pinned.
@@ -3611,7 +3597,7 @@ impl Session {
     /// filter, and every pass after the first starts from the filters the record had at the first, its SourceTableView included,
     /// whatever OnPreXmlItem of an earlier pass set or reset (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
     /// TT_Confirm_Export_NpFilters `pre detail a2 filters= count=5` after a1's Reset and filters, TT_Confirm_Export_TwoReplies
-    /// `pre ticket filters=` at reply 2; assumption `xmlport-link-pass-reset`), and from the SourceTableView's key, or the primary
+    /// `pre ticket filters=` at reply 2; former assumption `xmlport-link-pass-reset` (pinned on corpus master since bump 1030)), and from the SourceTableView's key, or the primary
     /// key without a sorting in the view, ascending, whatever key or direction OnPreXmlItem of an earlier pass set (writer TU's
     /// branch al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_LinkedKey_KeyAtFirstPass, _KeyDescendingAtFirstPass,
     /// _DescendingAtFirstPass, _ResetAtFirstPass, _KeyAtSecondPass, _KeyAtEveryPass). Filters, marks, a key or a direction of the
@@ -3631,7 +3617,7 @@ impl Session {
         };
         let v = self.xp_pass_views[pos].2.clone();
         if v.started {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkPassReset);
+            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_TwoReplies, TU_LinkedKey_KeyAtFirstPass, TU_LinkedKey_DescendingAtFirstPass (was assumption `xmlport-link-pass-reset`).
             let mut r = rec.borrow_mut();
             r.filters = v.filters;
             r.filter_group = v.filter_group;
@@ -4228,7 +4214,7 @@ fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
 
 /// For export only: a text element with the default MinOccurs and MaxOccurs, without triggers, right below a temporary table
 /// element, holding only one temporary table element without LinkTable with `MaxOccurs = Once` and `MinOccurs = Zero`: written
-/// empty without rows, with the first row only otherwise (assumption `xmlport-default-container-unlinked`; corpus branch
+/// empty without rows, with the first row only otherwise (former assumption `xmlport-default-container-unlinked` (pinned on corpus master since bump 1030); corpus branch
 /// al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export, xmlport 90084 in TsXpObjects.al).
 fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);
@@ -4254,7 +4240,7 @@ fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
 /// For export only: a text element without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`, right below a temporary table
 /// element with `MaxOccurs = Once`, holding one or more text attributes and then one text element without triggers, with
 /// `MinOccurs = Zero` and `MaxOccurs = Once`, that holds only one temporary table element without LinkTable with `MinOccurs = Once`
-/// and `MaxOccurs = Unbounded` (assumption `xmlport-attrs-over-unlinked`; corpus writer TT's branch al-runtime-rs-staging-tt,
+/// and `MaxOccurs = Unbounded` (former assumption `xmlport-attrs-over-unlinked` (pinned on corpus master since bump 1030); corpus writer TT's branch al-runtime-rs-staging-tt,
 /// QrXpContainerOccurs.al TT_Change_Export_*, xmlport 90104 in TtXpObjects.al: `Ticket` > `Admissions` > `Admission`).
 fn attrs_over_unlinked(schema: &Schema, c: usize, table: usize) -> bool {
     let n = schema.node(c);

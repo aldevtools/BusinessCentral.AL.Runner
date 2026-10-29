@@ -1025,10 +1025,7 @@ pub(crate) fn time_zone_by_id(t: &TableDef, i: &Ident, filters: &[FieldFilter]) 
     r[pos(t, 1)] = Value::Text(id.clone().into());
     r[pos(t, 2)] = super::unknown(t, 2, &whose);
     r[pos(t, 3)] = super::unknown(t, 3, &whose);
-    Ok(Some(Mat::new(
-        t,
-        vec![Entry::ok(r).assuming(al_builtins::assumptions::Assumption::TimeZoneWindowsIdIsARow)],
-    )))
+    Ok(Some(Mat::new(t, vec![Entry::ok(r)])))
 }
 
 /// The culture name of Windows language `id` (`nl-BE` for 2067) from the Windows Language table, for the translation file

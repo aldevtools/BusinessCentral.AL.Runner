@@ -712,7 +712,7 @@ impl Session {
                 .cloned()
                 .collect();
             if !cut.is_empty() {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeExpandRunsNoRowTrigger);
+                // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
                 rec.borrow_mut().filters.retain(|f| f.group != super::open::TREE_GROUP);
                 let r = self.populate_window_in_view(st);
                 rec.borrow_mut().filters.extend(cut);
@@ -2817,9 +2817,7 @@ impl Session {
                                 "GoToKey onto the last row of a full block of rows read, with more rows after it, on a page with OnAfterGetCurrRecord, OnFindRecord or OnNextRecord (not pinned)",
                             );
                         }
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::GoToKeyLastRowOfBlockReadsNextBlock,
-                        );
+                        // Pinned by pages/lt-testpage-list-rows/TwBlockEdge.al (was assumption `gotokey-last-row-of-block-reads-next-block`).
                         let r = self.read_window_block(st);
                         self.torn_down_on_error(st, r)?;
                         // Back on the row the GoToKey found, as the page shows it.
@@ -2913,9 +2911,7 @@ impl Session {
         // `No/1:R3;R1;R3;R3;C3;R1;R1;C1;`). Both are pinned with two marked rows, Rec's row the last.
         let with_parts = !st.borrow().parts.is_empty();
         if with_parts {
-            if !of_recs_row {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedWalkWithPart);
-            }
+            // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfUnmarkedRow, TW_IdKeyWithPart_GoToRecordOfUnmarkedRow, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `drilldown-marked-walk-with-part`).
         } else if of_recs_row != in_key {
             return refuse(if in_key {
                 "in a key other than the primary key, of a row other than the row Rec was left on"
@@ -3219,7 +3215,7 @@ impl Session {
     /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
     /// selection reads it). Pinned by pages/lt-page-runmodal-rec/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
     /// Whether the view of the page's source has a row (a probe on a copy of Rec, which keeps its filters).
-    fn page_view_has_rows(&mut self, st: &St) -> bool {
+    pub(super) fn page_view_has_rows(&mut self, st: &St) -> bool {
         let rec = self.page_rec(st);
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;

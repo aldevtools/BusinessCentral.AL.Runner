@@ -80,3 +80,27 @@ fn filter_reads_of_rec_after_lookup_ok_on_a_page_without_a_row_are_refused() {
         );
     }
 }
+
+// errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow and :772
+// TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow: a list page variable with LookupMode(true) whose view shows no row has
+// no OK action (TestActionNotFound); Cancel closes it with LookupCancel.
+#[test]
+fn ok_of_a_lookup_mode_list_variable_that_shows_no_row_is_not_found() {
+    let o = outcomes(
+        "[Test] [HandlerFunctions('TryOkHandler')] procedure NoRow() var R: Record \"LNR Row\"; Pg: Page \"LNR List\"; begin
+             R.DeleteAll();
+             R.\"No.\" := 'A'; R.Grp := 'X'; R.Insert();
+             R.SetRange(Grp, 'NONE');
+             Pg.SetTableView(R);
+             Pg.LookupMode(true);
+             if Pg.RunModal() <> Action::LookupCancel then Error('answer');
+         end;
+         [ModalPageHandler] procedure TryOkHandler(var P: TestPage \"LNR List\") begin
+             asserterror P.OK().Invoke();
+             if GetLastErrorText() <> 'The built-in action = OK is not found on the page.' then Error('text %1', GetLastErrorText());
+             if GetLastErrorCode() <> 'TestActionNotFound' then Error('code %1', GetLastErrorCode());
+             P.Cancel().Invoke();
+         end;",
+    );
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0]);
+}

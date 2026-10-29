@@ -731,13 +731,14 @@ table 50002 \"MNC UB Rec\" { fields { field(1; Id; Integer) { } field(2; \"MNC U
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// Issue 6129: only the reading the corpus branch pins but the pinned corpus does not yet hold (a procedure of a
-/// TableNo codeunit) marks the assumption; the field readings are the existing behavior and stay unflagged.
+/// Issue 6129: corpus master now pins the reading in a procedure of a TableNo codeunit
+/// (types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149), so the assumption is retired and no
+/// reading marks it any more; the field readings stay unflagged as before.
 #[test]
-fn issue_6129_only_the_tableno_procedure_reading_is_flagged() {
+fn issue_6129_no_reading_is_flagged_once_pinned() {
     let (diags, marked) = issue_6129_compile(&issue_6129_objects(""), "LT UB Table No");
     assert!(diags.is_empty(), "{diags:?}");
-    assert!(marked);
+    assert!(!marked);
     for obj in ["LT UB Rec", "LT UB Page", "LT UB Global Var"] {
         assert!(!issue_6129_compile(&issue_6129_objects(""), obj).1, "{obj}");
     }
@@ -863,7 +864,7 @@ codeunit 69543 T { Subtype = Test;
 
 /// al-runner issue 6181: a part's `SubPageLink` with `const("Enum"::Value)` compiles and filters the part on that value.
 /// Pin: pages/lt-uj-outside-leads/UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows (corpus branch al-runtime-rs-staging-uj
-/// 1dc037a8; assumption `subpagelink-const-qualified-enum-value` until the bump).
+/// 1dc037a8; former assumption `subpagelink-const-qualified-enum-value` (pinned on corpus master since bump 1030) until the bump).
 #[test]
 fn issue_6181_subpagelink_const_with_a_qualified_enum_value() {
     let main = "
@@ -892,7 +893,7 @@ codeunit 69549 T { Subtype = Test;
 
 /// al-runner issue 6182: a page extension declares OnPageBackgroundTaskCompleted (Microsoft's User Card Perf. Factboxes); the
 /// TestPage opens and the page's trigger runs before the extension's. Pin: pages/lt-uj-outside-leads/UjPageExtBgTask.al
-/// UJ_PageExt_BgTask_Completed (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption `pageext-background-task-triggers`).
+/// UJ_PageExt_BgTask_Completed (corpus branch al-runtime-rs-staging-uj 1dc037a8; former assumption `pageext-background-task-triggers` (pinned on corpus master since bump 1030)).
 #[test]
 fn issue_6182_page_extension_background_task_completed() {
     let main = "
@@ -919,7 +920,7 @@ codeunit 69555 T { Subtype = Test;
 
 /// al-runner issue 6180: a history list over a temporary table without the new-row line, run modally; its action rebuilds the rows,
 /// then the handler filters, goes to the first row and reads it. Pin: pages/lt-uj-outside-leads/UjTempList.al
-/// UJ_Temp_List_Modal_FilterAfterRebuild (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption `list-action-rebuilds-rows`).
+/// UJ_Temp_List_Modal_FilterAfterRebuild (corpus branch al-runtime-rs-staging-uj 1dc037a8; former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030)).
 #[test]
 fn issue_6180_history_list_action_rebuilds_temporary_rows() {
     let main = "

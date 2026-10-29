@@ -39,20 +39,29 @@ impl FilterExpr {
             let x = blank_if_spaces(x);
             crate::ops::hyphen_filter_order(v, &x).or_else(|| compare(v, &x).ok())
         };
+        // A Text field's value against a bound of a range or a comparison: the collation order of the keys, letters without
+        // regard to case first (filters/lt-uc-quoted-values/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids`,
+        // PageAndQuery_FilterGreaterB `page_txt_ids`: `>B` keeps neither a>b nor a>). Equality stays exact.
+        let ord = |x: &Value| match (v, x) {
+            (Value::Text(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
+                Some(crate::ops::text_key_order(a, b))
+            }
+            _ => cmp(x),
+        };
         match self {
             FilterExpr::Range(lo, hi) => {
                 lo.as_ref()
-                    .is_none_or(|l| matches!(cmp(l), Some(Ordering::Equal | Ordering::Greater)))
+                    .is_none_or(|l| matches!(ord(l), Some(Ordering::Equal | Ordering::Greater)))
                     && hi
                         .as_ref()
-                        .is_none_or(|h| matches!(cmp(h), Some(Ordering::Equal | Ordering::Less)))
+                        .is_none_or(|h| matches!(ord(h), Some(Ordering::Equal | Ordering::Less)))
             }
             FilterExpr::Eq(x) | FilterExpr::RangeSame(x) => cmp(x) == Some(Ordering::Equal),
             FilterExpr::Ne(x) => matches!(cmp(x), Some(Ordering::Less | Ordering::Greater)),
-            FilterExpr::Lt(x) => cmp(x) == Some(Ordering::Less),
-            FilterExpr::Le(x) => matches!(cmp(x), Some(Ordering::Less | Ordering::Equal)),
-            FilterExpr::Gt(x) => cmp(x) == Some(Ordering::Greater),
-            FilterExpr::Ge(x) => matches!(cmp(x), Some(Ordering::Greater | Ordering::Equal)),
+            FilterExpr::Lt(x) => ord(x) == Some(Ordering::Less),
+            FilterExpr::Le(x) => matches!(ord(x), Some(Ordering::Less | Ordering::Equal)),
+            FilterExpr::Gt(x) => ord(x) == Some(Ordering::Greater),
+            FilterExpr::Ge(x) => matches!(ord(x), Some(Ordering::Greater | Ordering::Equal)),
             FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci)),
             FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
@@ -628,9 +637,7 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
             out.push(Tok::Typed(arg));
             i += 2;
         } else {
-            if c[i] == '@' {
-                crate::assumptions::assume(crate::assumptions::Assumption::FilterAtSignInValue);
-            }
+            // Pinned by filters/W4Filters.al UN_SetView_AtSignInValue_Text, UN_SetView_AtSignInValue_Text_2 (was assumption `filter-at-sign-in-value`).
             raw.push(c[i]);
             i += 1;
         }
@@ -1544,6 +1551,31 @@ mod tests {
             .matches(&Value::Integer(9))
         );
         assert!(!FilterExpr::Ne(Value::Text("a".into())).matches(&Value::Text("a".into())));
+    }
+
+    // filters/lt-uc-quoted-values/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids` and PageAndQuery_FilterGreaterB
+    // `page_txt_ids`: `>B` on a Text field keeps C, zzz and Diana's (Meals), not a>b or a> (the collation order, letters
+    // without regard to case first).
+    #[test]
+    fn a_text_comparison_filter_uses_the_collation_order() {
+        let gt = FilterExpr::Gt(Value::Text("B".into()));
+        for (v, want) in [
+            ("a>b", false),
+            ("a>", false),
+            ("C", true),
+            ("zzz", true),
+            ("Diana's (Meals)", true),
+            (">b", false),
+            ("B", false),
+        ] {
+            assert_eq!(gt.matches(&Value::Text(v.into())), want, "{v}");
+        }
+        assert!(
+            FilterExpr::Range(Some(Value::Text("a".into())), Some(Value::Text("B".into())))
+                .matches(&Value::Text("b".into()))
+        );
+        // Equality stays exact.
+        assert!(!FilterExpr::Eq(Value::Text("b".into())).matches(&Value::Text("B".into())));
     }
 
     #[test]

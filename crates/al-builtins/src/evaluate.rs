@@ -1273,7 +1273,7 @@ fn rfc1123(t: &str) -> Option<Parsed> {
         return None;
     }
     if weekday.is_none() {
-        crate::assumptions::assume(crate::assumptions::Assumption::EvaluateRfc1123DateTime);
+        // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
         return Some(Parsed::RejectedLastError(
             "The date is not valid.".into(),
             "DateInvalid",
@@ -1285,7 +1285,7 @@ fn rfc1123(t: &str) -> Option<Parsed> {
     let weekday = DAYS.iter().position(|x| Some(*x) == weekday)? as i32 + 1;
     let v = crate::iso::parse_datetime(&format!("{y}-{month:02}-{d}T{clock}Z"))?;
     let day = crate::iso::parse_date(&format!("{y}-{month:02}-{d}"))?;
-    crate::assumptions::assume(crate::assumptions::Assumption::EvaluateRfc1123DateTime);
+    // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al DateTime_Rfc1123 (was assumption `evaluate-rfc-date-time`).
     if crate::datefns::weekday(day) != weekday {
         return Some(Parsed::Rejected);
     }
@@ -1318,7 +1318,7 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
 /// Date raises the Date-format error (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
 /// errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
-/// commit d3bcc580: `not-a-date` with 9, 0 and the default, assumption `evaluate-date-letters-statement`). Other texts and
+/// commit d3bcc580: `not-a-date` with 9, 0 and the default, former assumption `evaluate-date-letters-statement` (pinned on corpus master since bump 1030)). Other texts and
 /// numbers are not pinned.
 fn letters_date_text(text: &str, number: i64) -> bool {
     matches!(number, 0 | 9)
@@ -2192,12 +2192,8 @@ fn evaluate_with_max(
             // Letters alone with no number are pinned on master (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc`,
             // errors/lt-last-error-and-events/P70_02LastErrFlag.al:286 `notadate`); number 9 and letters with `-./` wait for the
             // branch pin.
-            if !any_date_text
-                && letters_date_text(&text, number)
-                && (number == 9 || !text.bytes().all(|b| b.is_ascii_alphabetic()))
-            {
-                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateLettersStatement);
-            }
+            // Number 9 and letters with `-./`: pinned by errors/lt-ms-refusals-130/P130EvaluateDate.al
+            // UN_Evaluate_Statement_NotADate_ByTarget (was assumption `evaluate-date-letters-statement`).
             // In German (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031). Another
             // language is not pinned. The flag hides the text in English (P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
             // `eval_date|true`); its German text is not pinned.

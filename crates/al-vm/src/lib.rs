@@ -732,6 +732,10 @@ pub struct Session {
     /// Validate, which nested Validates of the same record see as xRec (corpus
     /// record/TestXRecContracts.al:133).
     pub(crate) validating: Vec<(usize, Vec<Value>)>,
+    /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
+    /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
+    /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
+    pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1021,6 +1025,7 @@ impl Session {
             autoinc: Default::default(),
             truncate_undo: Default::default(),
             validating: Vec::new(),
+            plain_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),

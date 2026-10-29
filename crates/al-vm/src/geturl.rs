@@ -15,6 +15,17 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
 
+/// `http://host[:port]/path` with the port set to `port`.
+fn with_port(base: &str, port: u16) -> String {
+    let rest = &base["http://".len()..];
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let host = match authority.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => h,
+        _ => authority,
+    };
+    format!("http://{host}:{port}{path}")
+}
+
 /// The option member name of a system option value.
 fn member(v: Option<&Value>) -> Option<String> {
     match v {
@@ -249,7 +260,11 @@ impl Session {
         if !base.starts_with("http://") {
             return refuse("a server address other than http");
         }
-        let base = base.trim_end_matches('/');
+        // The service address is not the web address: TGetUrl.al:95-102 masks the web address first, and the service
+        // texts still show http://<host>/<instance>/... (TGetUrl.al:487, 504, 521, 538). Its host part comes from the web
+        // address with BC's default service port, 7047 for SOAP and 7048 for OData, ODataV4 and Api (assumption
+        // `geturl-web-base-address`).
+        let base = with_port(base.trim_end_matches('/'), if kind == "SOAP" { 7047 } else { 7048 });
         let company = company.replace(' ', "%20");
         let url = match (kind, company.is_empty()) {
             ("SOAP", true) => format!("{base}/WS/Services"),

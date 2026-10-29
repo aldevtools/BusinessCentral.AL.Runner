@@ -466,7 +466,7 @@ impl Session {
                     && e.clr_type == "System.ArgumentException"
                     && e.message.starts_with("Requested value '")
                 {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                    // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                     return al_builtins::native::raise(
                         format!("A call to System.Enum.Parse failed with this message: {}", e.message),
                         "DotNetInvoke:Argument",

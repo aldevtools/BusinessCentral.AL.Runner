@@ -2606,7 +2606,7 @@ impl Session {
     }
 
     /// A record method on a table element record after an export under `SourceTableView` ([`XP_VIEW_AFTER_EXPORT`]). What corpus
-    /// writer TS pinned runs (assumption `xmlport-export-again`; QrXpContainerOccurs.al TS_Again_* and TS_View_* on branch
+    /// writer TS pinned runs (former assumption `xmlport-export-again` (pinned on corpus master since bump 1030); QrXpContainerOccurs.al TS_Again_* and TS_View_* on branch
     /// al-runtime-rs-staging-pub-ts): `Count` and `GetView(false)` (the view's key, the code's filters; the view's own filters
     /// count but do not show), `SetCurrentKey`, `SetRange` and `SetFilter` in filter group 0 (kept by a later export), `Init`
     /// (primary key kept, SystemId null), `TransferFields(From, true)` from the same table (SystemId not copied), and `Reset`
@@ -2637,9 +2637,7 @@ impl Session {
         if !runs {
             return unsupported(format!("Record.{}(): {XP_VIEW_AFTER_EXPORT}", method.name()));
         }
-        if pinned {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
-        }
+        // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
         rec.borrow_mut().unpinned_buffer = match method {
@@ -3674,6 +3672,16 @@ impl Session {
                     self.tx.deferred_insert.get_or_insert((t.object as usize, e));
                     return Ok(Value::Boolean(true));
                 }
+                // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
+                // that holds content now is copied by the next CreateOutStream on the record (`BlobBuf::temp_inserted`).
+                if rec.borrow().temporary {
+                    for v in &stored {
+                        if let Value::Blob(b) = v {
+                            let mut b = b.borrow_mut();
+                            b.temp_inserted = !b.bytes.is_empty();
+                        }
+                    }
+                }
                 Self::mark_blobs_inserted(rec, &stored, true);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
@@ -3804,9 +3812,7 @@ impl Session {
                         // 52-60 `entry sysid null after failed insert` Yes, :124-132 Insert(true) and an explicit SystemId; al-runner
                         // issue 6153). A temporary record and InsertWithSystemId are not pinned and keep what they held.
                         if self.ret_used && !keep_id && !rec.borrow().temporary {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FailedInsertNullSystemId,
-                            );
+                            // Pinned by events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al (was assumption `failed-insert-null-system-id`).
                             if let Some(i) = id_slot {
                                 rec.borrow_mut().fields[i] = Value::Guid([0; 16]);
                             }
@@ -4015,9 +4021,7 @@ impl Session {
                             id_slot.is_some_and(|i| matches!(rec.borrow().fields[i], Value::Guid(g) if g == [0; 16]));
                         if let (Some(old), false, true, Some(i)) = (stored_row.as_deref(), temporary, null_id, id_slot)
                         {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::FailedInsertNullSystemId,
-                            );
+                            // Pinned by events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al (was assumption `failed-insert-null-system-id`).
                             rec.borrow_mut().fields[i] = old[i].clone();
                         }
                         if !rec.borrow().temporary {
@@ -4506,7 +4510,7 @@ impl Session {
                                         t.name
                                     ));
                                 }
-                                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FindMissKeyText);
+                                // Pinned by record/lt-find-empty-table/FindEmptyTable.al TV_Find_TableWithRows_NoMatch, TV_Find_EmptyTable_KeyNotDefault (was assumption `find-miss-key-text`).
                             }
                             let id = self.identification(&t, &fields)?;
                             let message = if which == "=" {
@@ -5081,7 +5085,21 @@ impl Session {
                     .iter()
                     .find(|(h, _)| *h == handle)
                     .map(|(_, b)| b.clone());
-                let before = outer.clone().unwrap_or_else(|| rec.borrow().fields.clone());
+                // In a table procedure that no operation of the record called (a plain call, whose xRec is a blank record:
+                // `enter_record`), a Validate of the procedure's own Rec passes that xRec, not the record as it is
+                // (types/lt-up-this-field/UpThisField.al:175 UP_This_ValidateTestFieldCompound: `this.Validate(Qty, 5)` after
+                // Qty := 3 sees old=0, and `this.Qty := 7; this.Validate(this.Qty)` sees old=0). Called from other code, the
+                // xRec is the record before the call (record/TestXRecContracts.al:190, record/TestTableEventSequenceContracts.al).
+                let depth = self.call_stack.len();
+                let proc_xrec = self
+                    .plain_proc_xrec
+                    .last()
+                    .filter(|(h, d, _)| *h == handle && *d == depth)
+                    .map(|(_, _, x)| x.borrow().fields.clone());
+                let before = match outer.clone() {
+                    Some(b) => b,
+                    None => proc_xrec.unwrap_or_else(|| rec.borrow().fields.clone()),
+                };
                 let old_value = rec.borrow().fields[pos].clone();
                 let snapshot = rec.borrow().fields.clone();
                 let new_value = match args.get(1) {

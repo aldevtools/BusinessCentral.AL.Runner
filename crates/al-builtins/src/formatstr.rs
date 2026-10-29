@@ -358,9 +358,7 @@ pub fn format_with_field_places(
             Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_) | Value::Date(..) | Value::Time(_)
         )
     {
-        if matches!(v, Value::Time(_)) {
-            crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
-        }
+        // Pinned by types/lt-datetime/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
         return Ok(out.chars().take(length as usize).collect());
     }
     Ok(crate::format::pad(out, length))
@@ -1017,7 +1015,7 @@ fn invalid_time_code(code: &str) -> bool {
 }
 
 /// The short and other names of the clock codes BC accepts on a Time (writer TU's branch al-runtime-rs-staging-tu,
-/// types/lt-datetime/Format.al TU_Time_Format_CodeNames; assumption `format-time-code-names`): `<Hours>`, `<Hour>`, `<Ho>` and `<H>`
+/// types/lt-datetime/Format.al TU_Time_Format_CodeNames; former assumption `format-time-code-names` (pinned on corpus master since bump 1030)): `<Hours>`, `<Hour>`, `<Ho>` and `<H>`
 /// are the 24-hour hour (9, 13), `<Minute>` and `<Min>` the minutes, `<Second>` and `<Sec>` the seconds, `<Thou>` the
 /// milliseconds, all without padding, in any case. `<Hours,N>` pads with blanks to N (` 9`, `  9`, ` 13`), `*` when the hour is
 /// longer (`<Hours,1>` of 13), N = 0 is no width; on a DateTime `<Hours,2>` pads with a zero (`09`). Other widths, the other names
@@ -1038,14 +1036,14 @@ fn time_code_alias(v: &Value, code: &str) -> Result<Option<String>, String> {
     let ms = match v {
         Value::DateTime(t) if *t > 0 => {
             if name == "Hours" && width == Some("2") {
-                crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+                // Pinned by types/lt-datetime/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
                 return Ok(Some(format!("{:02}", (t - 1).rem_euclid(86_400_000) / 3_600_000)));
             }
             return refuse();
         }
         Value::Time(0) => {
             if lname == "hours" && width == Some("2") {
-                crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+                // Pinned by types/lt-datetime/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
                 return Ok(Some(" 0".into()));
             }
             return refuse();
@@ -1066,7 +1064,7 @@ fn time_code_alias(v: &Value, code: &str) -> Result<Option<String>, String> {
         ("thou", None) => (ms % 1000).to_string(),
         _ => return refuse(),
     };
-    crate::assumptions::assume(crate::assumptions::Assumption::FormatTimeCodeNames);
+    // Pinned by types/lt-datetime/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
     Ok(Some(part))
 }
 

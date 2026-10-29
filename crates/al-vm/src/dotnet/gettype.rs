@@ -117,11 +117,11 @@ impl Session {
             | "System.Type"
             | "System.Exception" => self.type_named(declared),
             "System.DayOfWeek" => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named(declared)
             }
             "System.Security.Cryptography.X509Certificates.X509ContentType" => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                // Pinned by tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
             }
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),

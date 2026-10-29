@@ -1,4 +1,4 @@
-//! A Guid field with FormatEvaluate = Xml (assumption `xmlport-guid-xml`; corpus branch al-runtime-rs-staging-pub-ts,
+//! A Guid field with FormatEvaluate = Xml (former assumption `xmlport-guid-xml` (pinned on corpus master since bump 1030); corpus branch al-runtime-rs-staging-pub-ts,
 //! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_*, xmlport 90086 in TsXpObjects.al).
 
 use al_builtins::native::Signal;

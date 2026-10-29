@@ -617,6 +617,15 @@ impl Session {
                 if matches!(m, PageMethod::Preview | PageMethod::Print) {
                     self.request_preview_print_pinned(st, m.name())?;
                 }
+                if m == PageMethod::OK && self.lookup_ok_on_no_row(st)? {
+                    // A list page variable in lookup mode whose view shows no row has no OK action
+                    // (errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow, :772
+                    // TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow).
+                    return Err(error_code(
+                        "The built-in action = OK is not found on the page.".to_string(),
+                        "TestActionNotFound",
+                    ));
+                }
                 if !self.builtin_offered(st, m.name()) {
                     // Code TestActionNotFound (pages/lt-page-run-overloads-testpart/P106RunInstance.al:P106_Inst_RunModal_List `af100`).
                     return Err(error_code(

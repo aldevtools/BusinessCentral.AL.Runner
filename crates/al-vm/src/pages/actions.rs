@@ -381,12 +381,8 @@ impl Session {
         if pk_shown.is_some() {
             st.borrow_mut().refresh = false;
         }
-        if with_parts && (in_its_key || in_pk) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRefillWithPart);
-        }
-        if again_with_part {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MarkedAgainWithPart);
-        }
+        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfRecsRow, TW_IdKeyWithPart_GoToRecordOfRecsRow (was assumption `drilldown-marked-refill-with-part`).
+        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);
             let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
@@ -925,9 +921,7 @@ impl Session {
             s.marking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
-        if held && again_with_part {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MarkedAgainWithPart);
-        }
+        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
         // An action that turned MarkedOnly on for a list with row triggers: the moves after it walk only the marked rows
         // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`). With
         // CurrPage.Update(false) the refresh holds the marked rows it read (`read_list_again_from_row_as`); in any other shape the
@@ -1582,7 +1576,7 @@ impl Session {
             );
         }
         st.borrow_mut().add_in_reread = false;
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts);
+        // Pinned by lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
         self.populate_current(st)?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
@@ -3031,7 +3025,7 @@ impl Session {
         };
         // An editable List with InsertAllowed, ModifyAllowed and DeleteAllowed false does the same (pages/lt-uj-outside-leads/
         // UjTempList.al UJ_Temp_List_EmptyAll `view no update` and `view update`: `invoke;R:1;`, shown blank, First No; corpus
-        // branch al-runtime-rs-staging-uj 1dc037a8, assumption `list-action-rebuilds-rows` until the bump).
+        // branch al-runtime-rs-staging-uj 1dc037a8, former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
         let all_denied_editable = !read_only
             && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
                 .iter()
@@ -3042,7 +3036,7 @@ impl Session {
             && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
             && self.tree_indentation(st).is_none();
         if pinned && all_denied_editable {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListActionRebuildsRows);
+            // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
             st.borrow_mut().gone_view_list = true;
         } else if pinned {
             // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another

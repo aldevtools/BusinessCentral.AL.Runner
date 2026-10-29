@@ -807,7 +807,7 @@ impl Session {
         // `:TargetInvocation` added (corpus lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen,
         // TZ_CallInOnAfterGetCurrRecord_TestPageOpen, BC28PLUS). Out of OnFindRecord it is not pinned.
         if e.code == crate::control_add_in::NOT_CREATED {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts);
+            // Pinned by lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
             let mut e = e;
             match origin.as_deref() {
                 Some("onaftergetrecord") if self.is_card(st) && self.has_source(st) => return Err(Signal::Error(e)),
@@ -984,9 +984,7 @@ impl Session {
                     let table = rec.borrow().table as usize;
                     let initial = self.initial_fields(table);
                     if Self::same_values(&rec.borrow().fields, &initial) {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::PageRunBlankRecordDescendingViewFirstRow,
-                        );
+                        // Pinned by pages/lt-page-sourceview-current-row/TwPageRunDescView.al (was assumption `page-run-blank-record-descending-view-first-row`).
                         return self.page_first_row(st);
                     }
                 }
@@ -1612,11 +1610,7 @@ impl Session {
                 if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
-                if e.code == crate::control_add_in::NOT_CREATED {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts,
-                    );
-                }
+                // Pinned by lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
                 Err(error_code(
                     format!("One or more errors occurred while closing the page.\n\n{}", e.message),
                     "TestWrapped",
@@ -1953,6 +1947,46 @@ impl Session {
     /// testpageclose/TestPageClosingActions.al:25-30: a card or a list offers OK and no Cancel; a
     /// StandardDialog both; a NavigatePage only OK; a PromptDialog Cancel, and OK unless it declares
     /// systemaction(OK); a ConfirmationDialog neither).
+    /// Whether `OK` of a lookup-mode modal page that shows no row is missing. Pinned for a list page variable with
+    /// LookupMode(true) (errors/lt-ms-refusals-129/P129PageMisc.al:726 TV_GetRecord_AfterLookupOk_FilteredToNoRow, :772
+    /// TV_GetRecord_AfterSetRecordAndLookupOk_FilteredToNoRow): the action is not found. The lookup of `Page.RunModal(Id, Rec)`
+    /// and other page types are not pinned and are refused.
+    pub(super) fn lookup_ok_on_no_row(&mut self, st: &St) -> Result<bool, Signal> {
+        let (modal, lookup, static_lookup) = {
+            let s = st.borrow();
+            (s.modal, s.lookup, s.static_lookup)
+        };
+        if !modal || !lookup || self.is_request_page(st) || !self.has_source(st) {
+            return Ok(false);
+        }
+        let page_type = {
+            let engine = self.engine();
+            engine.object_facts[st.borrow().object as usize]
+                .page_type_lower()
+                .to_string()
+        };
+        if matches!(
+            page_type.as_str(),
+            "confirmationdialog" | "standarddialog" | "promptdialog" | "navigatepage"
+        ) {
+            return Ok(false);
+        }
+        if self.page_view_has_rows(st) {
+            return Ok(false);
+        }
+        if static_lookup {
+            return Err(Signal::Unsupported(
+                "OK of the lookup page of Page.RunModal(Id, Rec) that shows no row (only a page variable with LookupMode(true) is pinned)".into(),
+            ));
+        }
+        if !self.is_list_page(st) {
+            return Err(Signal::Unsupported(format!(
+                "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
+            )));
+        }
+        Ok(true)
+    }
+
     pub(super) fn builtin_offered(&self, st: &St, which: &str) -> bool {
         if self.is_request_page(st) {
             return self.request_builtin_offered(st, which);
@@ -2053,13 +2087,11 @@ impl Session {
         // reporter's run on real BC: `expand=2/PARENT/L2:` then `next=T/3/CHILD/L3:R3;R3;C3`, and after Expand(false) `next=4/ROOT2/L4:
         // R4;R4;C4`). Measured on a tree whose TreeInitialState is ExpandAll; another initial state is not pinned.
         let row_triggers = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
-        if row_triggers {
-            if !self.tree_expand_all_with_row_triggers(st) {
-                return unsupported(
-                    "Expand on a tree page with row triggers whose TreeInitialState is not ExpandAll (which rows are read is not pinned)",
-                );
-            }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TreeExpandRunsNoRowTrigger);
+        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        if row_triggers && !self.tree_expand_all_with_row_triggers(st) {
+            return unsupported(
+                "Expand on a tree page with row triggers whose TreeInitialState is not ExpandAll (which rows are read is not pinned)",
+            );
         }
         if st.borrow().cursor != Cursor::Row || st.borrow().draft {
             return unsupported("Expand on a tree page that stands on no stored row (not pinned)");

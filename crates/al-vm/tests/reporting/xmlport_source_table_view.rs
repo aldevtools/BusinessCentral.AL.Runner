@@ -74,7 +74,7 @@ fn an_import_ignores_the_source_table_view() {
 
 #[test]
 fn a_filter_on_a_linked_element_on_import_stays_refused() {
-    // A filter on an element that is not linked runs on export under assumption `xmlport-view-filter-unlinked` (writer TS);
+    // A filter on an element that is not linked runs on export under former assumption `xmlport-view-filter-unlinked` (pinned on corpus master since bump 1030) (writer TS);
     // the descending ORDER of FILTERED is pinned on the first export.
     let r = run(&src(FILTERED, true, false), "F");
     assert!(

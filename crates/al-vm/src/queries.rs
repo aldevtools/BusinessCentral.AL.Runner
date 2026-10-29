@@ -679,7 +679,7 @@ impl Session {
                     def.columns[column].name
                 ));
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::QueryFilterElementReadWithoutRow);
+            // Pinned by errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen, UH_Query_ReadFilter_OpenNoRead (was assumption `query-filter-element-read-without-row`).
         }
         match qs.run.as_ref().and_then(|r| r.current.as_ref()) {
             Some(row) => Ok(row[column].clone()),

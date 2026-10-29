@@ -1,5 +1,5 @@
 //! A second Export on the same xmlport instance, and the state a table element record keeps after an export under a
-//! SourceTableView (assumptions `xmlport-export-again` and `xmlport-view-filter-unlinked`; corpus branch
+//! SourceTableView (former assumptions `xmlport-export-again` and `xmlport-view-filter-unlinked`; corpus branch
 //! al-runtime-rs-staging-pub-ts, xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_* and TS_View_*,
 //! xmlports 90081 and 90088 in TsXpObjects.al).
 

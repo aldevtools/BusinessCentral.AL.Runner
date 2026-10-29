@@ -1506,11 +1506,13 @@ codeunit 60703 PhT
         if StrPos(GetLastErrorText(), 'The built-in action = Cancel is not found on the page') = 0 then Error('got %1', GetLastErrorText());
     end;
 
-    // handlers/TestPageRunModalLookupPageId_Tests.al: id 0 with a record resolves LookupPageId
+    // handlers/TestPageRunModalLookupPageId_Tests.al:47-55: id 0 with a record resolves LookupPageId (the pin has a
+    // row; OK of that lookup on no row is not pinned and is refused)
     [Test] [HandlerFunctions('OkModalLk')]
     procedure IdZeroUsesLookupPageId()
     var K: Record "PH Lk"; R: Record "PH Row"; Res: Action;
     begin
+        K."No." := 'L1'; K.Insert();
         Res := Page.RunModal(0, K);
         if Format(Res) <> 'LookupOK' then Error('got %1', Format(Res));
         asserterror Page.RunModal(0, R);

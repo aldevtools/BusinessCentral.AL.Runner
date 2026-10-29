@@ -211,9 +211,7 @@ impl Session {
     /// extension that declares it, for every task the page or an extension enqueued (pages/lt-uj-outside-leads/UjPageExtBgTask.al
     /// UJ_PageExt_BgTask_Completed, corpus branch al-runtime-rs-staging-uj 1dc037a8).
     fn bg_completed(&mut self, st: &St, id: i32, results: &V) -> Result<(), Signal> {
-        if self.bg_ext_declares(st, "onpagebackgroundtaskcompleted") {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers);
-        }
+        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
         if self.declares(st, "onpagebackgroundtaskcompleted")
             || self.bg_ext_declares(st, "onpagebackgroundtaskcompleted")
         {
@@ -270,9 +268,7 @@ impl Session {
                         s.open_read && s.mode == PageMode::View
                     } && self.is_card(st);
                     if !handled && opening_view_card {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers,
-                        );
+                        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
                         st.borrow_mut().bg_tasks.clear();
                         let mut e = e;
                         e.code = format!("{}:TargetInvocation", e.code);
@@ -316,9 +312,7 @@ impl Session {
         if routines.is_empty() {
             return Ok(false);
         }
-        if routines.iter().any(|(_, _, ext)| ext.is_some()) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtBackgroundTaskTriggers);
-        }
+        // Pinned by pages/lt-uj-outside-leads/UjPageExtBgTask.al (was assumption `pageext-background-task-triggers`).
         al_builtins::native::refuse_unpinned(e, "OnPageBackgroundTaskError")?;
         let mut handled = false;
         for (obj, routine, ext) in routines {

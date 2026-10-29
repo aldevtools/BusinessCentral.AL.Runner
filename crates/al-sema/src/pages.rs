@@ -777,7 +777,7 @@ const IMPLICIT_PROMOTED_CATEGORIES: &[&str] = &["Category_Process"];
 /// How a page extension may use a promoted category group the page does not declare, beyond the lists above, and what that
 /// rests on. `addafter` and `addlast` of `Category_Category7`, `Category_Category12` and `Category_New` compile and the
 /// extension's action and actionref run from a TestPage (pages/lt-up-page-ext/UpPromotedCategories.al:99, :176, :249, :326,
-/// :399, corpus PR 808 at branch commit 910da83e; al-runner issue 6217): the assumption `pageext-implicit-promoted-category`
+/// :399, corpus PR 808 at branch commit 910da83e; al-runner issue 6217): the former assumption `pageext-implicit-promoted-category` (pinned on corpus master since bump 1030)
 /// until PR 808 is in the pinned corpus. `addafter` of `Category_New` and `Category_Report` is pinned on master
 /// (pages/W1ActionAreasPromoted.al:82, :89). Every other group name and position is not pinned and stays refused (alc rejects
 /// an unknown name, AL0271, must-not-compile 2290 of the same commit).
@@ -789,9 +789,8 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
     }
     (["category_category7", "category_category12", "category_new"].contains(&lower.as_str())
         && ["addafter", "addlast"].contains(&kind))
-    .then_some(Some(
-        al_builtins::assumptions::Assumption::PageExtImplicitPromotedCategory,
-    ))
+    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`).
+    .then_some(None)
 }
 
 /// A standard promoted category name (`Category_New`, `Category_Process`, `Category_Report`, `Category_CategoryN`) whose
@@ -1188,10 +1187,7 @@ impl Tree {
                     .iter()
                     .any(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
             {
-                if target.eq_ignore_ascii_case("Promoted") {
-                    self.assumes
-                        .push(al_builtins::assumptions::Assumption::PageExtImplicitPromoted);
-                }
+                // `Promoted`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 self.areas.push(Area {
                     name: target,
                     in_actions: true,
@@ -1247,10 +1243,7 @@ impl Tree {
                 && (process_after || legacy || added_into || other.is_some())
                 && self.find_node(&target).is_none()
             {
-                if added_into {
-                    self.assumes
-                        .push(al_builtins::assumptions::Assumption::PageExtImplicitPromoted);
-                }
+                // `added_into`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 if let Some(Some(a)) = other {
                     self.assumes.push(a);
                 }
