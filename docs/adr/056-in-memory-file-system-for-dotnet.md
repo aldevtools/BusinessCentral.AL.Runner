@@ -88,6 +88,8 @@ rules):
 | `Directory.Delete(path[, recursive])` | removes a folder AL created; recursively its files and folders | :293-294, :317-327 |
 | `XmlDocument.Save(path)` | .NET saves into an AL stream; the bytes become the file | :370-377 (as in the company build) |
 | `XmlDocument.Load(path)` | .NET loads from a stream over the file's bytes | .NET reads the same bytes from a file stream |
+| `WorkbookWriter.Create(path)` (OpenXml) | the stream form of `Create` writes into an AL stream; the file exists from `Create`, a look at it is refused until the writer's `Close` or `Dispose`, which make the stream's bytes the file | Excel Buffer.CreateBook/CloseBook, then SaveToStream reads the file (added 2026-10-29, NP Retail lane) |
+| `WorkbookReader.Open(path)` (OpenXml) | the stream form of `Open` reads a stream over the file's bytes | Excel Buffer.OpenBook |
 
 A path that was never written does not exist (owner decision). That includes
 paths outside the temporary folders: `File.Exists('C:\Windows\win.ini')` is No.
@@ -100,8 +102,10 @@ paths outside the temporary folders: `File.Exists('C:\Windows\win.ini')` is No.
   temporary folder, or of a full folder without `recursive`,
   `Directory.CreateDirectory` over a file: .NET raises exceptions whose AL text no
   test pins.
-- `XmlDocument.Save` into a folder that does not exist in the store, or a path
-  with no folder; `XmlDocument.Load` of a file that does not exist.
+- `XmlDocument.Save` and `WorkbookWriter.Create` into a folder that does not
+  exist in the store, or a path with no folder; `XmlDocument.Load` and
+  `WorkbookReader.Open` of a file that does not exist. `WorkbookWriter.Open(path)`
+  (it reads and writes the file).
 - A file that holds report output that was never produced (ADR-040) refuses
   `File.Exists`, `File.Delete` and `XmlDocument.Load`, as AL's `File` does.
 - Every other member of `System.IO.File` and `System.IO.Directory`

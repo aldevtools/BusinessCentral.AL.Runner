@@ -51,6 +51,11 @@ pub trait BcSource: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// The database's last row version (a `.bak`'s boot page timestamp, `catalog::db_timestamp`); a `.bacpac` holds none.
+    fn last_row_version(&self) -> Result<Option<u64>> {
+        Ok(None)
+    }
+
     /// One line about what was opened, for the `tables` command's stderr note.
     fn banner(&self) -> Result<String>;
 }
