@@ -1350,10 +1350,7 @@ fn test_inner(
             sidecar_host.prewarm(al_testrun::dotnet::STANDBY_SIDECARS);
         }
     }
-    let dotnet = al_vm::dotnet::DotNetConfig {
-        host,
-        ..Default::default()
-    };
+    let dotnet = al_testrun::dotnet::sidecar_config(host);
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(

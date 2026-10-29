@@ -1,6 +1,6 @@
 # ADR-027: Scope: what AL Runner v3 runs, replaces, refuses and defers
 
-- Status: Accepted (owner decisions 2026-10-15; see the end)
+- Status: Accepted (owner decisions 2026-10-15; see the end). Amended (owner, 2026-10-29): rows 9, 14, 17 and 18 of section 3
 - Date: 2026-10-15
 - Needs: owner review of section 5 (open decisions) before it is accepted
 
@@ -96,16 +96,16 @@ Reason codes: **OOP** out of process. **NET** needs a network or an external ser
 | 6 | Cloud blob and file storage: Azure Blob, Azure Files, `File Management` against real disks | The Azure SDK is on the `DotNet` deny list (`dotnet/policy.txt:29-30`). Real disk paths through `File` are not reachable beyond the temp area | NET | Fake the storage interface | Throws. Same |
 | 7 | Printing and layout rendering: `Report.Print`, `SaveAsPdf`, `SaveAsExcel`, `SaveAsWord`, `SaveAsHtml` to a real file | `SaveAs` with a stream writes the XML dataset only. Other formats: `only the Xml dataset is produced (a rendered format needs a layout renderer ...)` (`al-vm/src/reports.rs:1240`). `Report.SaveAsPdf#2 is not implemented` (corpus case 61292). A run that reaches output is refused | OOP. Bytes would differ from BC's renderer, so a test would assert against the wrong thing | Assert on the dataset (`SaveAsXml`, `Library - Report Dataset`). Request page and data item logic run | Throws `out-of-scope: NavReport.SaveAs*`. v2 also serves layout selection rows |
 | 8 | Background jobs: job queue execution, `TaskScheduler` running tasks | See section 2. The task never runs | ND, SRV | Call the codeunit the task would run. Test the job queue entry's `OnRun` directly | Throws or skips. Same |
-| 9 | External crypto and key stores: Key Vault, certificate validation against a store | Key Vault and the Azure SDK are denied (`dotnet/policy.txt:29-30`). In-process hashing and `Encrypt`/`Decrypt` work (`sessionops.rs:542-575`); decrypting text another session made is refused | NET, LIC | Test with in-process keys. Fake the key provider behind an interface | Throws. Same |
+| 9 | External crypto and key stores: Key Vault, certificate validation against a store | Key Vault and the Azure SDK are denied (`dotnet/policy.txt:29-30`). In-process hashing and `Encrypt`/`Decrypt` work (`sessionops.rs:542-575`); decrypting text another session made is refused. **Amended 2026-10-29:** Key Vault will answer what BC answers in a test session with no vault configured. Refused until that probe lands (corpus writer TY) | NET, LIC | Test with in-process keys. Fake the key provider behind an interface | Throws. Same |
 | 10 | Licensing: license file checks, entitlements, `IsLicensed` denial paths | Not modelled. No license state is held. Tenant License State rows are refused (`docs/status.md`) | LIC | Do not assert on denial | Returns "all granted", throws on denial probes |
 | 11 | Parallel sessions: `StartSession` with its own state, `IsSessionActive`, cross-session timing | See section 2: install starts nothing, test run raises BC's error, anything else is refused | SRV, ND | Call the code the session would run | Runs inline for logic, not for contracts |
 | 12 | Multi-user locking and SQL error behavior: lock timeouts, deadlocks, `LockTable(false)` | `LockTable(false)` refused (`recmeta.rs:301`). Locks never conflict | SRV | Not testable here. Use a service tier | `Commit` no-op, no locks |
 | 13 | Debugger AL surface: `Debugger.Attach`, `Break`, step calls | No such builtins. The platform "Debugger *" tables exist as names only (`al-sema/src/alcodes.rs:148`) | SRV | The planned debug adapter (section 4) is a tool, not an AL API | Throws. v2 has a DAP server |
-| 14 | .NET Windows-only libraries (`System.Drawing`, imaging) | Not built. A .NET exception from the helper is `Unsupported` with its type and message | CLR, platform | Run on Windows with the helper, or fake the image step. v3 will not substitute an imaging library (bytes would differ from GDI+) | `dotnet-platform-unsupported` |
+| 14 | .NET Windows-only libraries (`System.Drawing`, imaging) | **Amended 2026-10-29:** on Windows, `System.Drawing` runs for real through the .NET sidecar (GDI+, the same bytes as BC). On Linux and macOS it stays refused with the reason in `dotnet/policy.txt` (`deny-type-off-windows System.Drawing.`). The front end that starts the sidecar picks the rules (`al-testrun/src/dotnet.rs`, `sidecar_config`). On Windows the ADR-044 registry (`dotnet/drawing.rs`) claims no System.Drawing type, so a Bitmap and a Graphics are always real .NET objects; elsewhere it still serves its eight members first. A .NET exception from the helper is `Unsupported` with its type and message | CLR, platform | Run on Windows, or fake the image step. v3 will not substitute an imaging library (bytes would differ from GDI+) | `dotnet-platform-unsupported` |
 | 15 | Live external table connections: `TableType = CRM` with a real connection, `ExternalSQL`, `Exchange`, `MicrosoftGraph` | `RegisterTableConnection` with any string except `@@test@@` is refused (`sessionops.rs:100`) | NET | Use the `@@test@@` connection, or abstract the data source | Refused by name on first access |
 | 16 | Compiled-only dependency apps without AL source (DP-10) | The dependency is not found; tests that reach it are not run and the message names the app (ADR-013, amendment 2026-10-15) | CLR. v3 cannot run compiled C# | Provide an `.app` with AL source (`ShowMyCode`), or fake the dependency's interface | v2 loads the compiled code. **A real difference**: v3 cannot do this |
-| 17 | Arbitrary `.NET` that reaches the environment: `System.IO.File`, `System.Net`, `Process`, `Environment`, `Reflection.Assembly.Load`, registry | Refused by the policy list, with the rule shown (`dotnet/policy.txt:39-58`) | OOP, ND | Use AL `File`, streams and interfaces | Runs inside the one process |
-| 18 | Page rendering and client add-ins: `controladdin`, `usercontrol`, profiles, role centers as pixels | Not built. A page's control tree is headless (ADR-012) | SRV | Test the page's logic through `TestPage` | Throws. Same |
+| 17 | Arbitrary `.NET` that reaches the environment: `System.IO.File`, `System.Net`, `Process`, `Environment`, `Reflection.Assembly.Load`, registry | **Amended 2026-10-29:** `System.IO` file access runs against an in-memory file system, one per run (its own ADR, on branch `np-fs`). The rest is refused by the policy list, with the rule shown (`dotnet/policy.txt:39-58`) | OOP, ND | Use AL `File`, streams and interfaces | Runs inside the one process |
+| 18 | Page rendering and client add-ins: `controladdin`, `usercontrol`, profiles, role centers as pixels | Not built. A page's control tree is headless (ADR-012). **Amended 2026-10-29:** pages with add-ins will work in `TestPage` tests: add-in calls and events behave as BC's test client does. Refused until that probe lands (corpus writer TZ). Nothing is rendered | SRV | Test the page's logic through `TestPage` | Throws. Same |
 | 19 | Telemetry and audit logs as readable data: `LogMessage`, `LogSecurityAudit` | Accepted, kept nowhere readable (`native.rs:257-260`, ADR-009) | Not observable from AL | Subscribe to your own event | Accepted |
 
 Rows 10, 12 and 19 are limits to know rather than per-call refusals: v3 answers, and the
@@ -189,3 +189,18 @@ PDF/Word/Excel rendering in the core, compiled-only dependency apps refused by n
 Windows-only .NET libraries as in v2, no network or file access from DotNet, stable reason
 tokens in refusal texts, no telemetry, `TestIsolation = Disabled` refused until probed,
 effective-permission queries for other users refused, `--now` fake clock flag yes.
+
+## Owner decisions (2026-10-29)
+
+Amendments to section 3. The table format stays; the changed cells start with "Amended 2026-10-29".
+
+1. **Row 9, Key Vault:** answer what BC answers in a test session with no vault configured. The corpus writer TY
+   probes it; until the probe lands, Key Vault stays refused.
+2. **Row 14, Windows-only .NET:** `System.Drawing` runs for real through the .NET sidecar on Windows (GDI+, the same
+   bytes as BC). On Linux it stays refused with the current reason. On Windows the ADR-044 registry for O365 Brand
+   Color.MakePicture claims no System.Drawing type, so every type and member goes to .NET; on Linux it is still asked
+   first (orchestrator, 2026-10-29). Decision 10 of section 5 is replaced by this row.
+3. **Row 17, `System.IO` file access:** runs against an in-memory file system, one per run, so tests repeat. It has
+   its own ADR (branch `np-fs`). The rest of row 17 is unchanged; decision 11 of section 5 is narrowed to it.
+4. **Row 18, control add-ins:** pages with add-ins work in `TestPage` tests; add-in calls and events behave as
+   BC's test client does. The corpus writer TZ probes it; until the probe lands, they stay refused. No rendering.

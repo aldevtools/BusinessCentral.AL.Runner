@@ -454,6 +454,12 @@ registry! {
         tests: "O365BrandColorTests.Codeunit.al:74 and :158 (Sample Picture.HasValue after MakePicture), and every Contoso Coffee Demo Dataset step that reaches Create Company Information.CreateSetupCompany (O365 Brand Color.CreateDefaultBrandColors).",
         probe: "On a Windows tier: new Bitmap(100, 100), FillEllipse, Save(InStream of a Temp Blob, ImageFormat.Png), Media.ImportStream: HasValue, then ExportStream length and its first 8 bytes (PNG signature 89 50 4E 47 0D 0A 1A 0A); the PNG header width and height (expect 100 by 100) and the pixel at the center versus a corner; Save with Jpeg and Bmp.",
     },
+    DotNetEnumMemberThroughProperty => {
+        id: "dotnet-enum-member-through-property",
+        assumed: "`X.P::M` on a DotNet variable X names the member M of the .NET enum that the property P holds. BC's compiler takes P's type from the assembly and reads the member statically. Here P is read first, for the type of its value, then M is read on that type. This differs only when reading P fails: an unassigned X is refused here (BC still answers the member), and an exception of P's getter would be raised.",
+        tests: "No corpus test. System Application, Image Impl..Resize (ImageImpl.Codeunit.al:97 and :129, `Graphics.SmoothingMode::AntiAlias`), which passes on real BC (the reporter's run of Image.Resize).",
+        probe: "An OnPrem test with X: DotNet XmlDocument: `X.NodeType::Element` formatted with X assigned and with X unassigned; and an enum member through a property whose getter throws.",
+    },
     ReportProcedureFilterUnderRequestPage => {
         id: "report-procedure-filter-under-request-page",
         assumed: "A filter a procedure of the report set on a data item before a run with a request page is not in that run: the page does not show it (pinned) and the filters of the page replace it when the page closes with OK (assumed).",
