@@ -893,6 +893,17 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportDefaultContainerUnlinked => {
+        id: "xmlport-default-container-unlinked",
+        assumed: "XmlPort export of a text element with the default MinOccurs and MaxOccurs, without triggers, right below a temporary table element, holding only one temporary table element without LinkTable (MaxOccurs = Once, MinOccurs = Zero): without rows the text element is written empty, with rows it holds the first row only, with one OnAfterGetRecord. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a member reply with its cards).",
+        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Cards_DefaultOccurs_Export"],
+            since: "2026-10-29",
+        },
+    },
     TenantMediaDelete => {
         id: "tenant-media-delete",
         assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",

@@ -3040,9 +3040,15 @@ impl Session {
                 // leaves the text element empty (`<details />`) (QrXpContainerOccurs.al TR_Booking_Reply_* on branch
                 // al-runtime-rs-staging-tr).
                 ir::XmlNodeKind::Text
-                    if unlinked_container(schema, child, node) || unlinked_reply_container(schema, child, node) =>
+                    if unlinked_container(schema, child, node)
+                        || unlinked_reply_container(schema, child, node)
+                        || default_unlinked_container(schema, child, node) =>
                 {
-                    if unlinked_container(schema, child, node) {
+                    if default_unlinked_container(schema, child, node) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportDefaultContainerUnlinked,
+                        );
+                    } else if unlinked_container(schema, child, node) {
                         al_builtins::assumptions::assume(
                             al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText,
                         );
@@ -3842,6 +3848,31 @@ fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
         && t.link_node.is_none()
         && t.use_temporary
         && (t.min_zero || t.max_unbounded == Some(true))
+        && !schema.children(inner).is_empty()
+}
+
+/// For export only: a text element with the default MinOccurs and MaxOccurs, without triggers, right below a temporary table
+/// element, holding only one temporary table element without LinkTable with `MaxOccurs = Once` and `MinOccurs = Zero`: written
+/// empty without rows, with the first row only otherwise (assumption `xmlport-default-container-unlinked`; corpus branch
+/// al-runtime-rs-staging-pub-ts, QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export, xmlport 90084 in TsXpObjects.al).
+fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let [inner] = schema.children(c)[..] else {
+        return false;
+    };
+    let t = schema.node(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && !n.min_zero
+        && n.max_unbounded.is_none()
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && t.min_zero
+        && t.max_unbounded == Some(false)
         && !schema.children(inner).is_empty()
 }
 
