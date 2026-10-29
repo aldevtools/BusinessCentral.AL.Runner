@@ -98,7 +98,7 @@ pub fn layout(ws: &Workspace, members: &MemberTable<'_>, oi: usize) -> QueryLayo
     }
     let mut order_by_text = None;
     let mut top = 0;
-    let mut assumes = Vec::new();
+    let assumes = Vec::new();
     for p in obj.properties() {
         let name = p.name().to_ascii_lowercase();
         match name.as_str() {
@@ -110,15 +110,12 @@ pub fn layout(ws: &Workspace, members: &MemberTable<'_>, oi: usize) -> QueryLayo
             // ReadUncommitted reads the session's own uncommitted rows and the committed ones, as every
             // read here does (query/TestQueryReadStateContracts.al); ReadCommitted needs runtime 18.
             "readstate" if p.value_text().trim().eq_ignore_ascii_case("ReadUncommitted") => {}
-            // ReadShared and ReadCommitted read the same rows (al-runner issue 6050; writer TJ's branch
-            // al-runtime-rs-staging-pub-tj, query/TestQueryReadStateContracts.al:42-70, :135-163).
+            // ReadShared and ReadCommitted read the same rows (al-runner issue 6050;
+            // query/TestQueryReadStateContracts.al ReadStateValues_SeeTheSessionsOwnUncommittedRow_AndTheCommittedOne).
             "readstate"
                 if ["ReadShared", "ReadCommitted"]
                     .iter()
-                    .any(|v| p.value_text().trim().eq_ignore_ascii_case(v)) =>
-            {
-                assumes.push(al_builtins::assumptions::Assumption::QueryReadStateSharedCommitted);
-            }
+                    .any(|v| p.value_text().trim().eq_ignore_ascii_case(v)) => {}
             n if HARMLESS_QUERY_PROPERTIES.contains(&n) => {}
             _ => b
                 .reasons

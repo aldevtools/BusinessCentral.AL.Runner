@@ -3,7 +3,7 @@
 //! and the usual First/SetValue/Next walk visits every line once. The objects are copied from the probe; the procedures return
 //! what the probe observes, and each Rust test compares it with the values the probe asserts on real BC.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 
 const SRC: &str = r#"
 table 89880 "LT TH Doc"
@@ -333,7 +333,7 @@ fn a_part_keeps_a_later_row_after_curr_page_update_in_on_validate() {
         run("OneLine(2, 30000)"),
         "30000;0.00;THIRD;D1;QS.V QS.V.end R3 R2 R1 R3 R3 C3 ;0|0||THIRD"
     );
-    assert!(take_hits().contains(&Assumption::PartKeepsRowAfterUpdateInValidate));
+    assert!(take_hits().is_empty());
 }
 
 // ThPartUpdateCursor.al:421 TH_Line1_UpdateTrue: on the first row the part reads as with its host (pinned before).

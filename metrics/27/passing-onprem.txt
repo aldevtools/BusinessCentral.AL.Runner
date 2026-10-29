@@ -60,6 +60,10 @@
 61243 SaveAsXml_ParametersFile_RawForm
 61243 SaveAsXml_ReportDataFile_IsADataSet
 61243 SaveAsXml_RunsTheReportOnce_AndClosesTheRequestPage
+61243 TO_SaveAsXml_Nested_Rows
+61243 TO_SaveAsXml_Nested_Schema
+61243 TO_SaveAsXml_Siblings_Rows
+61243 TO_SaveAsXml_Siblings_Schema
 61243 TemporaryPath_EndsWithTheTempFolderAndABackslash
 61251 P109_LogAuditMessage_Overload1
 61257 O_SecretText_Unwrap
