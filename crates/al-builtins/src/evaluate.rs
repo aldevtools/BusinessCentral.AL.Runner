@@ -1304,6 +1304,16 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     }
 }
 
+/// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
+/// Date raises the Date-format error (errors/lt-ms-refusals-130/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget
+/// on writer UN's corpus branch, commit d3bcc580: `not-a-date` with 9, 0 and the default; assumption
+/// `evaluate-date-letters-statement`). Other texts and numbers are not pinned.
+fn letters_date_text(text: &str, number: i64) -> bool {
+    matches!(number, 0 | 9)
+        && text.bytes().any(|b| b.is_ascii_alphabetic())
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'/'))
+}
+
 pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     evaluate_with(c, a, false)
 }
@@ -2162,8 +2172,12 @@ fn evaluate_with_max(
                 && (any_date_text
                     || text
                         .bytes()
-                        .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'/'))) =>
+                        .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'/'))
+                    || letters_date_text(&text, number)) =>
         {
+            if !any_date_text && letters_date_text(&text, number) {
+                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateLettersStatement);
+            }
             // In German (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031). Another
             // language is not pinned. The flag hides the text in English (P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
             // `eval_date|true`); its German text is not pinned.
