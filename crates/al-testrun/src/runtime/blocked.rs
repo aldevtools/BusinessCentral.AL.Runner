@@ -138,10 +138,10 @@ pub fn blocked_site(lowered: &Lowered, object: usize, routine: usize) -> Option<
         if lowered.program.objects[o].routines[r].name.starts_with("__sourceset_") {
             continue;
         }
-        // A page action's OnAction runs only when the action is invoked (al-runner issue 6014): what it reaches, on the page
-        // or on a part, is refused when it runs (`Session::call` checks `Engine::blocked` on every call), not before. A
-        // routine the root reaches another way is still found on that way. The root itself is checked.
-        if (o, r) != (object, routine) && is_action_trigger(lowered, o, r) {
+        // A page action's OnAction, a report's trigger and a TryFunction run only on a path the run may never take (al-runner
+        // issues 6014, 6112): what they reach is refused when it runs (`Session::call` checks `Engine::blocked` on every
+        // call), not before. A routine the root reaches another way is still found on that way. The root itself is checked.
+        if (o, r) != (object, routine) && refused_when_run(lowered, o, r) {
             continue;
         }
         if let Some(reason) = lowered.unsupported[o][r].first() {
@@ -186,6 +186,21 @@ pub fn is_action_trigger(lowered: &Lowered, o: usize, r: usize) -> bool {
         && rt.container.as_ref().is_some_and(|(k, _)| k == "action")
 }
 
+/// Whether the refusal before the run stops at routine `r` of object `o` (`blocked_site`, the reach report): what it
+/// reaches is refused when it runs, by `Engine::blocked`. A page action's OnAction (al-runner issue 6014); a trigger of a
+/// report or report extension, which runs only when the report runs (issue 6112: an install routine that holds a report
+/// whose OnInitReport reaches `Image.Resize`); and a TryFunction (issue 6112: `TryResizeImage`). An Unsupported raised
+/// inside a TryFunction is not caught by it: only `Signal::Error` is (`interp.rs`, the call of a used TryFunction).
+pub fn refused_when_run(lowered: &Lowered, o: usize, r: usize) -> bool {
+    let obj = &lowered.program.objects[o];
+    let Some(rt) = obj.routines.get(r) else {
+        return false;
+    };
+    is_action_trigger(lowered, o, r)
+        || (rt.is_trigger && (obj.is_kind(al_ir::ObjKind::Report) || obj.is_kind(al_ir::ObjKind::ReportExtension)))
+        || rt.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("TryFunction"))
+}
+
 /// What routine `r` of object `o` can set running, as the refusal before the run follows it (`blocked_site`, the reach
 /// report), appended to `out`: the routines its code calls, and what a page, report or xmlport variable it holds drives,
 /// except the procedures of a driven page. Opening a page runs its triggers, not its procedures: a procedure runs only
@@ -200,14 +215,19 @@ pub fn calls_before_run(lowered: &Lowered, o: usize, r: usize, out: &mut Vec<(us
     out.extend(driven.into_iter().filter(|&(q, ri)| !is_page_procedure(lowered, q, ri)));
 }
 
-/// Whether routine `r` of object `o` is a procedure of a page or page extension: not a trigger, and not a routine made for
-/// a control property (`pages::expand`, its name starts `__`), which the page runs itself.
+/// Whether routine `r` of object `o` is a procedure of a page, page extension, report or report extension: not a trigger,
+/// and not a routine made for a control property (`pages::expand`, its name starts `__`), which the page runs itself. A
+/// report variable drives the report's triggers; its procedures run only when a trigger or other code calls them (issue
+/// 6112: OnInitReport calls `ReportsForNavInit`).
 fn is_page_procedure(lowered: &Lowered, o: usize, r: usize) -> bool {
     let obj = &lowered.program.objects[o];
     let Some(rt) = obj.routines.get(r) else {
         return false;
     };
-    (obj.is_kind(al_ir::ObjKind::Page) || obj.is_kind(al_ir::ObjKind::PageExtension))
+    (obj.is_kind(al_ir::ObjKind::Page)
+        || obj.is_kind(al_ir::ObjKind::PageExtension)
+        || obj.is_kind(al_ir::ObjKind::Report)
+        || obj.is_kind(al_ir::ObjKind::ReportExtension))
         && !rt.is_trigger
         && !rt.name.starts_with("__")
 }
