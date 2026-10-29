@@ -49,6 +49,17 @@ pub(crate) fn init() {
     });
 }
 
+/// Writes the file now, if `AL_PROFILE` is set and the profiler ran: the ticker writes it every 5 s only, so a shorter
+/// run ends before its first write (issue 6133). The runner calls it when the run ends.
+pub fn flush() {
+    if !ON.load(Relaxed) {
+        return;
+    }
+    if let Ok(path) = std::env::var("AL_PROFILE") {
+        write(&path);
+    }
+}
+
 fn write(path: &str) {
     let Some(c) = COUNTS.get() else { return };
     let c = c.lock().unwrap();
