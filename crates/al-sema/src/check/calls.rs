@@ -481,6 +481,19 @@ impl<'a> Checker<'a> {
             self.record(sc, node, res);
             return Some(E::Val(t));
         }
+        // `this.Field`, `this.Validate(..)` or `this.Proc()` in a table or table extension: the current record's member, as
+        // the bare name is (misc/lt-probes-needed-6/PnF18ThisInTable.al:35-61, This_Table_Proc_Var_Field and
+        // This_Table_InsertTrigger; al-runner issue 6211: alc compiles `this.ETag := ..` and `this."Set Codes".Split('|')`).
+        if matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
+            && let Some(rec) = sc.rec.clone()
+            && matches!(rec, Ty::Record { .. })
+        {
+            let e = self.member(sc, &rec, &n)?;
+            if let Some(r) = self.field_res(sc, &rec, &n) {
+                self.record(sc, node, r);
+            }
+            return Some(e);
+        }
         // `this.Id` in a query's own code: the running query's column (corpus query/PRQueryOpenColumn.al `PeekThis`).
         if let Some(rec) = sc.rec.clone() {
             if matches!(rec, Ty::Object(ObjKind::Query, _)) && sc.self_obj == sc.oi {
@@ -588,6 +601,17 @@ impl<'a> Checker<'a> {
                 ObjKind::Codeunit,
                 self.ws.objects[sc.oi].name.as_str().into(),
             )));
+        }
+        // A bare `this` in a table or table extension is the current record, as `Rec` is: passed on by value it hands over
+        // the current values (misc/lt-probes-needed-6/PnF18ThisInTable.al:64-67, This_Table_PassedOn). The lowering refuses
+        // it as an assignment target or a `var` argument (not pinned).
+        if key == "this"
+            && matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
+            && let Some(t @ Ty::Record { .. }) = sc.globals.get("rec").cloned()
+        {
+            let res = Self::global_res(sc, "rec".into());
+            self.record(sc, node, res);
+            return Some(E::Val(t));
         }
         if sc.rec_unqualified {
             if let Some(rec) = sc.rec.clone() {
