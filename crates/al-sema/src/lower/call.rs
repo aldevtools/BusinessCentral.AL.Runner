@@ -477,6 +477,12 @@ impl Lowerer<'_> {
                 } else {
                     id.clone()
                 };
+                // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
+                // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
+                // `ok Yes`; the second pin is on corpus master from PR 790).
+                if id == "System.IsNull#1" && args.len() == 1 && self.run_on_client_var(&args[0]).is_some() {
+                    return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
+                }
                 let receiver = match &receiver_node {
                     // `CurrReport` is the report whose code is running: the VM takes the running
                     // instance when a report builtin has no receiver.

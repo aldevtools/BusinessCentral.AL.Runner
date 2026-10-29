@@ -153,7 +153,6 @@
 # corpus bump 28: new cases the front end does not decide yet (conversions in assignments and ternaries, duplicate
 # procedures and names, Cloud-scope File and Database members, test page and request page members, unknown members).
 27 1120-testrequestpage-dataitem-setrange
-27 1150-text-index-char-literal-to-text
 27 1170-commitbehavior-unknown-member
 27 1172-user-group-member-removed
 27 1190-boolean-to-text-assignment
@@ -176,7 +175,6 @@
 27 1406-ternary-datetime-and-date-into-variant
 27 1497-tableext-procedure-same-signature-as-table
 28 1120-testrequestpage-dataitem-setrange
-28 1150-text-index-char-literal-to-text
 28 1170-commitbehavior-unknown-member
 28 1172-user-group-member-removed
 28 1190-boolean-to-text-assignment
@@ -201,7 +199,6 @@
 28 1406-ternary-datetime-and-date-into-variant
 28 1497-tableext-procedure-same-signature-as-table
 29 1120-testrequestpage-dataitem-setrange
-29 1150-text-index-char-literal-to-text
 29 1170-commitbehavior-unknown-member
 29 1172-user-group-member-removed
 29 1190-boolean-to-text-assignment

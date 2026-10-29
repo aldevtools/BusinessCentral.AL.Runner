@@ -15694,15 +15694,6 @@
           "site": "bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:215"
         },
         {
-          "corpus_uses": 6,
-          "group": "procedure",
-          "ms_uses": 0,
-          "name": "FilterPageHandler",
-          "pinned": true,
-          "runtime_reads": true,
-          "site": "events/lt-platform-triggers/PtObserve.al:610"
-        },
-        {
           "corpus_uses": 13,
           "group": "procedure",
           "ms_uses": 0,
@@ -15845,6 +15836,15 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "codeunit/EBEPublisher.Codeunit.al:38"
+        },
+        {
+          "corpus_uses": 6,
+          "group": "procedure",
+          "ms_uses": 0,
+          "name": "FilterPageHandler",
+          "pinned": true,
+          "runtime_reads": false,
+          "site": "events/lt-platform-triggers/PtObserve.al:610"
         },
         {
           "corpus_uses": 1533,
@@ -16366,6 +16366,15 @@
         "template": "The type NavOutStream is unknown."
       },
       {
+        "code": "",
+        "file": "crates/al-vm/src/dotnet/server_classes.rs",
+        "generic": false,
+        "line": 467,
+        "pinned": false,
+        "site": null,
+        "template": "Not initialized."
+      },
+      {
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
@@ -16675,7 +16684,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 292,
+        "line": 277,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16684,16 +16693,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 365,
-        "pinned": true,
-        "site": "handlers/lt-az-handlers/AzHandlerTests.al:271",
-        "template": "Unhandled UI: FilterPage 9598"
-      },
-      {
-        "code": "MissingUIHandler",
-        "file": "crates/al-vm/src/ui.rs",
-        "generic": false,
-        "line": 548,
+        "line": 478,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16702,7 +16702,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 576,
+        "line": 506,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16735,7 +16735,7 @@
         "template": "The date is not valid."
       }
     ],
-    "pinned": 94,
+    "pinned": 93,
     "sites": 96
   },
   "language": {
@@ -30152,7 +30152,7 @@
         "pinned": true,
         "scope": "",
         "site": "events/lt-platform-triggers/PtObserve.al:610",
-        "state": "implemented"
+        "state": "unknown"
       },
       {
         "area": "attributes",
