@@ -511,13 +511,39 @@ pub trait FileSystem {
     fn remove_dir(&mut self, _path: &str, _recursive: bool) -> Result<(), String> {
         Err("this file system has no folders".into())
     }
+    /// Whether the whole file system lives in the session's memory, so .NET's static `System.IO.File` and
+    /// `System.IO.Directory` calls are answered from it (ADR-056). A file system on a real directory answers false: .NET
+    /// file calls there stay refused, and nothing reaches the disk through .NET.
+    fn in_memory(&self) -> bool {
+        false
+    }
+    /// A file or folder whose path equals `path` only when ASCII case and `/` against `\` are ignored, while `path`
+    /// itself names neither (ADR-056: Windows would find it, and whether BC does is not pinned).
+    fn near_match(&self, _path: &str) -> Option<String> {
+        None
+    }
 }
 
-/// Files kept in memory, by path. Matching is exact and case sensitive (the directory-backed
-/// system follows the host OS).
+/// The temporary folders of a run (`TemporaryPath()` is `\TEMP\`, `File.CreateTempFile` names files under `temp/`), as
+/// folder keys: they always exist.
+const MEM_TEMP_ROOTS: [&str; 2] = ["\\TEMP", "temp"];
+
+/// The key of a folder: `/` read as `\`, closing separators dropped.
+fn mem_dir_key(path: &str) -> String {
+    path.replace('/', "\\").trim_end_matches('\\').to_string()
+}
+
+fn mem_fold(path: &str) -> String {
+    mem_dir_key(path).to_ascii_lowercase()
+}
+
+/// Files kept in memory, by path, and the folders AL code created (ADR-056). Files match exactly and case sensitive (the
+/// directory-backed system follows the host OS); folders match with `/` read as `\` and closing separators dropped. The
+/// temporary folders always exist.
 #[derive(Debug, Clone, Default)]
 pub struct MemFileSystem {
     files: std::collections::BTreeMap<String, Vec<u8>>,
+    dirs: std::collections::BTreeSet<String>,
 }
 
 impl MemFileSystem {
@@ -540,6 +566,73 @@ impl FileSystem for MemFileSystem {
     }
     fn remove(&mut self, path: &str) -> bool {
         self.files.remove(path).is_some()
+    }
+    fn in_memory(&self) -> bool {
+        true
+    }
+    /// The temporary folders and a folder AL code created, until it is removed; the empty text names none
+    /// (QxDotNetDemoShapes.al:279-302: missing No, created Yes, with a closing separator Yes, a file No, '' No,
+    /// TemporaryPath Yes, deleted No).
+    fn dir_exists(&self, path: &str) -> bool {
+        let k = mem_dir_key(path);
+        !path.is_empty() && (MEM_TEMP_ROOTS.contains(&k.as_str()) || self.dirs.contains(&k))
+    }
+    /// The folder and the folders above it (a nested folder at once: QxDotNetDemoShapes.al:313-314). A file of that name
+    /// raises a .NET exception no test pins: refused.
+    fn create_dir(&mut self, path: &str) -> Result<(), String> {
+        let k = mem_dir_key(path);
+        if k.is_empty() || self.files.keys().any(|f| mem_dir_key(f) == k) {
+            return Err("a file of that name exists, or the path is empty (the .NET exception is not pinned)".into());
+        }
+        let mut at = k.as_str();
+        while !at.is_empty() && !MEM_TEMP_ROOTS.contains(&at) {
+            self.dirs.insert(at.to_string());
+            at = &at[..at.rfind('\\').unwrap_or(0)];
+        }
+        Ok(())
+    }
+    /// A folder AL code created, with what it holds when `recursive` (QxDotNetDemoShapes.al:317-327); a missing folder,
+    /// a temporary folder, and one that holds something without `recursive` raise .NET exceptions no test pins: refused.
+    fn remove_dir(&mut self, path: &str, recursive: bool) -> Result<(), String> {
+        let k = mem_dir_key(path);
+        if !self.dirs.contains(&k) {
+            return Err("the folder does not exist (the .NET exception is not pinned)".into());
+        }
+        let prefix = format!("{k}\\");
+        let files: Vec<String> = self
+            .files
+            .keys()
+            .filter(|f| mem_dir_key(f).starts_with(&prefix))
+            .cloned()
+            .collect();
+        let below: Vec<String> = self.dirs.iter().filter(|d| d.starts_with(&prefix)).cloned().collect();
+        if !recursive && !(files.is_empty() && below.is_empty()) {
+            return Err("the folder is not empty (the .NET exception is not pinned)".into());
+        }
+        for f in files {
+            self.files.remove(&f);
+        }
+        for d in below {
+            self.dirs.remove(&d);
+        }
+        self.dirs.remove(&k);
+        Ok(())
+    }
+    fn near_match(&self, path: &str) -> Option<String> {
+        if self.files.contains_key(path) || self.dir_exists(path) {
+            return None;
+        }
+        let want = mem_fold(path);
+        if want.is_empty() {
+            return None;
+        }
+        self.files
+            .keys()
+            .chain(self.dirs.iter())
+            .map(String::as_str)
+            .chain(MEM_TEMP_ROOTS)
+            .find(|p| mem_fold(p) == want)
+            .map(str::to_string)
     }
 }
 
@@ -695,6 +788,29 @@ mod tests {
         assert!(!fs.exists("A"));
         assert!(fs.remove("a") && !fs.remove("a"));
         assert!(fs.read("a").is_none());
+    }
+
+    #[test]
+    fn the_memory_file_system_keeps_folders_and_removes_them_with_their_files() {
+        let mut fs = MemFileSystem::default();
+        assert!(fs.in_memory());
+        assert!(fs.dir_exists("\\TEMP\\") && fs.dir_exists("temp/") && !fs.dir_exists(""));
+        assert!(!fs.dir_exists("\\TEMP\\a"));
+        fs.create_dir("\\TEMP\\a/b").unwrap();
+        assert!(fs.dir_exists("\\TEMP\\a") && fs.dir_exists("\\TEMP\\a\\b\\"));
+        fs.write("\\TEMP\\a/b/f.txt", b"x").unwrap();
+        assert!(!fs.dir_exists("\\TEMP\\a/b/f.txt"));
+        assert!(fs.create_dir("\\TEMP\\a\\b\\f.txt").is_err());
+        assert!(fs.remove_dir("\\TEMP\\a", false).is_err());
+        assert_eq!(fs.near_match("\\temp\\A"), Some("\\TEMP\\a".to_string()));
+        assert_eq!(
+            fs.near_match("\\TEMP\\A\\B\\F.TXT"),
+            Some("\\TEMP\\a/b/f.txt".to_string())
+        );
+        assert_eq!(fs.near_match("\\TEMP\\a"), None);
+        fs.remove_dir("\\TEMP\\a", true).unwrap();
+        assert!(!fs.dir_exists("\\TEMP\\a") && !fs.dir_exists("\\TEMP\\a\\b") && !fs.exists("\\TEMP\\a/b/f.txt"));
+        assert!(fs.remove_dir("\\TEMP", true).is_err());
     }
 
     #[test]

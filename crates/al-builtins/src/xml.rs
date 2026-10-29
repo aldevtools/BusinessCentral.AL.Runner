@@ -2943,26 +2943,18 @@ fn read_from_stream(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> 
 
 /// `XmlDocument.ReadFrom(InStream, XmlReadOptions, var XmlDocument)` (al-runner issue 6049): reads as the stream form
 /// without options does. PreserveWhitespace true is pinned (xml/XmlDocReadWrite.al:290-307 ReadFrom_InStream_Options);
-/// PreserveWhitespace false and a document that does not parse (false, the text in GetLastErrorText) are writer TJ's
-/// (branch al-runtime-rs-staging-pub-tj, xml/XmlDocReadWrite.al:331-389), assumption xml-readfrom-stream-options. The
+/// PreserveWhitespace false and a document that does not parse (false, the text in GetLastErrorText) are pinned by
+/// xml/XmlDocReadWrite.al ReadFrom_InStream_Options_WhitespaceNodes and ReadFrom_InStream_Options_Invalid. The
 /// statement form of a read that fails is not pinned and is refused.
 fn read_from_stream_options(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let preserve = match a.get(1) {
-        Some(Value::Library(_, cell)) => match &*cell.borrow() {
-            LibraryValue::XmlReadOptions { preserve_whitespace } => *preserve_whitespace,
-            _ => false,
-        },
+    // Both PreserveWhitespace values read as the stream form does.
+    match a.get(1) {
+        Some(Value::Library(..)) => {}
         other => return unsupported(format!("XmlDocument.ReadFrom with options of {}", other.describe())),
-    };
-    if !preserve {
-        crate::assumptions::assume(crate::assumptions::Assumption::XmlReadFromStreamOptions);
     }
     let mut args = [a[0].clone(), a[2].clone()];
     match read_from_stream(c, None, &mut args) {
         Ok(v) => {
-            if matches!(v, Value::Boolean(false)) {
-                crate::assumptions::assume(crate::assumptions::Assumption::XmlReadFromStreamOptions);
-            }
             a[2] = args[1].clone();
             Ok(v)
         }

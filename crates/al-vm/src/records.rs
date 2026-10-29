@@ -758,14 +758,12 @@ impl Session {
         Ok(())
     }
 
-    /// `Delete()` and `Delete(true)` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete on corpus branch
-    /// al-runtime-rs-staging-pub-tp; TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement on branch
-    /// al-runtime-rs-staging-pub-tq; assumption tenant-media-delete until the bump): the media leaves Tenant Media and Delete
+    /// `Delete()` and `Delete(true)` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete,
+    /// TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement): the media leaves Tenant Media and Delete
     /// returns true (the statement form raises no error); every row that holds it, also two rows, keeps the MediaId with
     /// HasValue false and ExportStream false. A missing id returns false, or in the statement form fails with
     /// DB:RecordNotFound. With event subscribers or global triggers, and for a media a MediaSet holds, it is not pinned.
     fn delete_tenant_media(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantMediaDelete);
         if (run && self.table_trigger(t, "OnDelete").is_some())
             || self.listened(t, "onbeforedeleteevent", None)?
             || self.listened(t, "onafterdeleteevent", None)?
@@ -1379,7 +1377,7 @@ impl Session {
     /// with the table in the new transaction (another write, another lock, a rollback), an Insert buffer older than one
     /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
     /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
-    /// decided under the assumption stale-own-insert-lock-other-or-other-row-write.
+    /// pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al TE_*.
     fn stale_verdict(
         &mut self,
         t: &TableDef,
@@ -1481,15 +1479,12 @@ impl Session {
                 Ok(StaleVerdict::Refused)
             }
             // Two or three Commits after the buffer's own write, in the three shapes of the reporter's real-BC repro of al-runner
-            // issue 6028 (assumption `stale-own-insert-lock-other-or-other-row-write`, awaiting writer TE's pins in
-            // record/lt-sb-stale-own-modify/SbStaleOwnModify.al). The neighbours writers TE and TH measured are decided above
+            // issue 6028 (pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al
+            // TE_2C_*, TE_3C_*). The neighbours writers TE and TH measured are decided above
             // (`stale_neighbour_shape`); every other mix is refused below.
             Some(o)
                 if o.own_write && !touched && self.stale_6028_shape(t, &company, pk, o.commits, deleting).is_some() =>
             {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::StaleOwnInsertLockOtherOrOtherRowWrite,
-                );
                 Ok(self
                     .stale_6028_shape(t, &company, pk, o.commits, deleting)
                     .expect("checked"))
