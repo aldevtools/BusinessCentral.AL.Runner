@@ -107,6 +107,11 @@ impl Session {
         self.last_error = parked.last_error;
         self.session_id_override = parked.session_id_override;
         self.ui_state.scope = parked.ui_scope;
+        // Rows the new session committed move the minimum active row version only while the isolation transaction has
+        // not written: not pinned.
+        if self.iso_min_row_version.is_some() && committed_row_version != parked.tx.committed_row_version {
+            self.iso_min_unpinned = true;
+        }
         self.tx = parked.tx;
         // The rows the new session committed are durable for the starting session too.
         self.tx.committed_row_version = committed_row_version;

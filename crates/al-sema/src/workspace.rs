@@ -985,6 +985,15 @@ impl Workspace {
         self.objects.push(o);
     }
 
+    /// Whether `app` is a dependency app that stands on a workspace app, directly or through other dependency apps
+    /// (al-runner issue 6044: a `--dep` app on a workspace app).
+    pub fn dependency_on_workspace(&self, app: usize) -> bool {
+        self.kinds.get(app) == Some(&AppKind::Dependency)
+            && self.visible[app]
+                .iter()
+                .any(|&a| self.kinds.get(a).is_some_and(|k| *k != AppKind::Dependency))
+    }
+
     /// How many apps `app` can see (itself and its transitive dependencies). A dependent sees
     /// more than anything it depends on, so this orders dependencies before their dependents.
     pub fn app_depth(&self, app: usize) -> usize {

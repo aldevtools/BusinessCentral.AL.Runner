@@ -287,6 +287,7 @@ pub(crate) fn run_codeunit_core(
         ));
     }
     let changes_from = session.store_mut().change_counter();
+    let row_versions_from = session.row_versions_handed_out();
     let carried_from = carries.then(|| session.capture_baseline());
     // Under runner 130450 what the OnRun trigger writes reaches the later codeunits (`Scratch::onrun_carry`).
     let onrun_from = (scratch.onrun_carry && !execute).then(|| session.capture_baseline());
@@ -433,6 +434,11 @@ pub(crate) fn run_codeunit_core(
     // Function isolation returns the database to its state after OnRun when each test ends
     // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
     let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(&mut session));
+    // TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion stays at its value now. When
+    // OnRun wrote rows, whether they belong to that transaction is not pinned, and nothing is frozen.
+    if isolation == TestIsolation::Codeunit && !execute && session.row_versions_handed_out() == row_versions_from {
+        session.freeze_min_active_row_version();
+    }
     if scratch.capture.any() {
         session.enable_capture(scratch.capture);
     }

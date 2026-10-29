@@ -515,6 +515,24 @@ impl Checker<'_> {
         }
     }
 
+    /// Every object of a dependency app that stands on a workspace app (al-runner issue 6044). Such an app is not
+    /// ordinary dependency code under the workspace: it extends and subscribes to workspace objects, implements their
+    /// interfaces and adds values to their enums, and the workspace's own code is never activated the way a dependency
+    /// object is, so those edges are not followed. The compile cache compiles such an app whole with the workspace
+    /// (eager); the demand-driven compile does the same, so the two compile the same objects.
+    pub(super) fn reach_dependencies_on_workspace(&self) {
+        if self.demand.borrow().is_none() {
+            return;
+        }
+        for i in 0..self.ws.objects.len() {
+            if self.ws.is_dependency(i) && self.ws.dependency_on_workspace(self.ws.objects[i].app) && self.ws.usable(i)
+            {
+                self.touch_full(i);
+                self.reach_all(i);
+            }
+        }
+    }
+
     /// [`LOGIN_WORK_DATE`] of a dependency's codeunit [`LOGIN_MANAGEMENT`]: the test session calls it when it opens the
     /// company, and nothing in the apps names that call.
     pub(super) fn reach_login_work_date(&self) {
