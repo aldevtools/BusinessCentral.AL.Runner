@@ -363,12 +363,15 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure OtherName() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetRange(FieldName, 'Txt'); F.FindFirst(); if F."No." <> 2 then Error('wrong'); end;
   [Test] procedure Pattern() var F: Record Field; begin F.SetRange(TableNo, 50003); F.SetFilter(FieldName, 'time*'); if F.Count() = 0 then; end;
   [Test] procedure ExtraFilter() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.SetRange(Class, F.Class::Normal); if F.Count() = 0 then; end;
-  [Test] procedure UnpinnedColumn() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); if F."Field Caption" = '' then; end; }"#,
+  [Test] procedure UnpinnedColumn() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); if IsNullGuid(F."App Package ID") then; end; }"#,
     );
-    for t in ["WithKey", "WithoutKey", "OtherName"] {
+    // A wildcard filter on the name does not see the row, and a Class filter next to the name keeps it
+    // (types/lt-aj-probes/AjMisc.al:702-703 and :712-713, expected at :723 and :725).
+    for t in ["WithKey", "WithoutKey", "OtherName", "Pattern", "ExtraFilter"] {
         passes(&o, t);
     }
-    for t in ["Pattern", "ExtraFilter", "UnpinnedColumn"] {
+    // Field Caption of the row is pinned (AjMisc.al:656-657, :683-684); App Package ID is not.
+    for t in ["UnpinnedColumn"] {
         let why = not_run(&o, t);
         assert!(why.contains("timestamp"), "{t}: {why}");
     }
