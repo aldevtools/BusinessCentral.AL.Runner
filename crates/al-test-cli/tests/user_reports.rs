@@ -1174,3 +1174,193 @@ codeunit 69651 T {
 fn issue_6177_user_name_system_flow_fields_through_record_ref() {
     all_pass(run_with_deps(&[], ISSUE_6177_OBJECTS));
 }
+
+/// al-runner issue 6211: inside a table procedure, `this.<Field>` is the field of the current record, the same as the
+/// unqualified name: it can be read, assigned and have a method called on it. The reporter's alc compiles every form
+/// below without a diagnostic. At run time each form does what the bare name does, so no assumption is registered; a
+/// corpus writer pins the shapes on real BC.
+const ISSUE_6211_OBJECTS: &str = "
+table 50100 \"TF Entry\"
+{
+    fields
+    {
+        field(1; \"No.\"; Code[20]) { }
+        field(2; ETag; Text[50]) { }
+        field(3; \"Set Codes\"; Text[250]) { }
+    }
+    keys { key(PK; \"No.\") { Clustered = true; } }
+
+    var
+        Counter: Integer;
+
+    procedure SetETag(NewETag: Text[50])
+    begin
+        if this.ETag = NewETag then
+            exit;
+        this.ETag := NewETag;
+    end;
+
+    procedure GetSetCodeList(): List of [Text]
+    begin
+        exit(this.\"Set Codes\".Split('|'));
+    end;
+
+    procedure Bump(): Integer
+    begin
+        this.Counter += 1;
+        exit(this.Counter);
+    end;
+
+    procedure BumpTwice(): Integer
+    begin
+        this.Bump();
+        exit(this.Bump());
+    end;
+
+    procedure ValidateThroughThis(NewETag: Text[50])
+    begin
+        this.Validate(ETag, NewETag);
+        this.TestField(ETag);
+    end;
+}
+
+tableextension 50102 \"TF Entry Ext\" extends \"TF Entry\"
+{
+    fields
+    {
+        field(50100; Extra; Text[30]) { }
+    }
+
+    procedure SetExtraFromETag()
+    begin
+        this.Extra := this.ETag;
+        this.SetETag(this.Extra + '!');
+    end;
+}
+
+codeunit 50101 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure AssignFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.SetETag('abc');
+        if Entry.ETag <> 'abc' then
+            Error('ETag is %1', Entry.ETag);
+    end;
+
+    [Test]
+    procedure CallMethodOnFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.\"Set Codes\" := 'A|B';
+        if Entry.GetSetCodeList().Count() <> 2 then
+            Error('expected 2 codes');
+    end;
+
+    [Test]
+    procedure GlobalAndProcedureThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        if Entry.BumpTwice() <> 2 then
+            Error('expected 2');
+    end;
+
+    [Test]
+    procedure ValidateAndTestFieldThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.ValidateThroughThis('v');
+        if Entry.ETag <> 'v' then
+            Error('ETag is %1', Entry.ETag);
+    end;
+
+    [Test]
+    procedure TableExtensionThroughThis()
+    var
+        Entry: Record \"TF Entry\";
+    begin
+        Entry.ETag := 'x';
+        Entry.SetExtraFromETag();
+        if (Entry.Extra <> 'x') or (Entry.ETag <> 'x!') then
+            Error('Extra %1 ETag %2', Entry.Extra, Entry.ETag);
+    end;
+}";
+
+#[test]
+fn issue_6211_table_field_through_this_reads_assigns_and_calls_as_the_unqualified_name() {
+    all_pass(run_with_deps(&[], ISSUE_6211_OBJECTS));
+}
+
+/// A bare `this` in a table, passed on by value, hands over the current record (misc/lt-probes-needed-6/
+/// PnF18ThisInTable.al:64-67). Passed to a `var` parameter it is refused: no corpus test pins it.
+#[test]
+fn issue_6211_bare_this_in_a_table_by_value_runs_and_by_var_is_refused() {
+    let objects = "
+table 50110 \"TB Row\"
+{
+    fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+
+    procedure PassThis(var Other: Record \"TB Row\")
+    begin
+        Other.CopyFrom(this);
+    end;
+
+    procedure CopyFrom(Source: Record \"TB Row\")
+    begin
+        Rec := Source;
+    end;
+
+    procedure PassThisByVar(var Other: Record \"TB Row\")
+    begin
+        Other.Take(this);
+    end;
+
+    procedure Take(var Source: Record \"TB Row\")
+    begin
+        Rec := Source;
+    end;
+}
+
+codeunit 50111 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ByValue()
+    var
+        Row: Record \"TB Row\";
+        Other: Record \"TB Row\";
+    begin
+        Row.Id := 9;
+        Row.Name := 'nine';
+        Row.PassThis(Other);
+        if (Other.Id <> 9) or (Other.Name <> 'nine') then
+            Error('got %1 %2', Other.Id, Other.Name);
+    end;
+
+    [Test]
+    procedure ByVar()
+    var
+        Row: Record \"TB Row\";
+        Other: Record \"TB Row\";
+    begin
+        Row.PassThisByVar(Other);
+    end;
+}";
+    let results = run_with_deps(&[], objects);
+    let get = |n: &str| results.iter().find(|(t, _)| t == n).map(|(_, o)| o.clone()).unwrap();
+    assert_eq!(get("ByValue"), Outcome::Pass);
+    assert!(
+        matches!(get("ByVar"), Outcome::NotRun(ref why) if why.contains("passed to a `var` parameter (not pinned)")),
+        "{:?}",
+        get("ByVar")
+    );
+}

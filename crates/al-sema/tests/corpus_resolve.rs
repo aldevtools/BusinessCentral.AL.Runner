@@ -112,10 +112,6 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not resolve a member of a part page's control (corpus bump 11)",
     ),
     (
-        "misc/lt-probes-needed-6/PnF18ThisInTable.al",
-        "the checker does not resolve `this` inside a table (corpus bump 11)",
-    ),
-    (
         "codeunit/lt-procedure-assignment/ProcedureAssignmentOneParameter.al",
         "the checker takes an assignment to a one-parameter procedure for a call without arguments (corpus bump 14)",
     ),
