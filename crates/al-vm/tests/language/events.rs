@@ -1911,39 +1911,34 @@ fn an_app_no_other_app_depends_on_runs_after_the_others() {
     assert_eq!(text(raise_order(apps)), "A;B1;B2;C;M;D;");
 }
 
-/// The pin does not tell "the outside app last" from a dependency order that breaks ties by app id, by app name or by
-/// the app published last: where any of them puts the outside app elsewhere, the raise is refused.
+/// An outside app takes its place by app id: BC visits the apps in ascending app id and places each app's dependencies
+/// before it (corpus branch al-runtime-rs-staging-ua, BwSubscriberOrderTests.al:SubscriberOrder_PlatformTableEvent_
+/// AppsThatDoNotDependOnEachOther_SixApps). Neither the app's name nor its publish order decides.
 #[test]
-fn an_outside_app_whose_place_the_pin_does_not_decide_is_refused() {
-    let refused = |apps: Vec<AppSource>, why: &str| {
-        let r = raise_order(apps);
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("onorder") && m.contains(why)),
-            "{why}: {r:?}"
-        );
-    };
-    // A lower app id than the main app's.
-    refused(
-        outside_app_shape(
-            "01000000-0000-0000-0000-000000000000",
+fn an_outside_app_takes_its_place_by_app_id() {
+    // A lower app id than every app but C's: visited right after C's dependencies' first root, A.
+    let apps = outside_app_shape(
+        "01000000-0000-0000-0000-000000000000",
+        "AL Language XApp D",
+        &[A_ID],
+        false,
+    );
+    assert_eq!(text(raise_order(apps)), "A;D;B1;B2;C;M;");
+    // A name before the main app's, or published after the main app: the same place as in the pin.
+    assert_eq!(
+        text(raise_order(outside_app_shape(D_ID, "AA Probe", &[A_ID], false))),
+        "A;B1;B2;C;M;D;"
+    );
+    assert_eq!(
+        text(raise_order(outside_app_shape(
+            D_ID,
             "AL Language XApp D",
             &[A_ID],
-            false,
-        ),
-        "app id",
+            true
+        ))),
+        "A;B1;B2;C;M;D;"
     );
-    // A name before the main app's.
-    refused(outside_app_shape(D_ID, "AA Probe", &[A_ID], false), "name");
-    // Published after the main app.
-    refused(
-        outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], true),
-        "published",
-    );
-    // Another app depends on it.
-    let mut apps = outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], false);
-    apps.push(order_app("e", &[D_ID], ""));
-    refused(apps, "another app depends on");
-    // Two apps outside.
+    // Two apps outside: ascending app id.
     let mut apps = outside_app_shape(D_ID, "AL Language XApp D", &[A_ID], false);
     apps.insert(
         2,
@@ -1952,21 +1947,114 @@ fn an_outside_app_whose_place_the_pin_does_not_decide_is_refused() {
             ..order_app("f92be076-de11-44ed-895e-17031341df29", &[A_ID], &order_sub(61170, "E"))
         },
     );
-    refused(apps, "does not pin");
+    assert_eq!(text(raise_order(apps)), "A;B1;B2;C;M;D;E;");
 }
 
-/// Two apps that do not depend on each other and nothing else: neither rule decides.
+/// The six-app pin (corpus branch al-runtime-rs-staging-ua, BwSubscriberOrderTests.al:202-210 and the install
+/// variant :217-225, `A1;A2;F1;F2;B1;B2;C1;C2;M1;M2;D1;D2;`): F and A depend on nothing, B on F and A, C on A and B, D
+/// on A, the test app M on F, A, B and C. A runs before F (lower app id) although F has the earlier name, the lower
+/// subscriber ids and is published first; D runs last although its app id is lower than F's. Ids, publishers and the
+/// declared dependency order as in the corpus; here every app also depends on the app that publishes the event.
 #[test]
-fn two_unrelated_apps_under_test_are_refused() {
+fn apps_that_do_not_depend_on_each_other_run_by_app_id_with_dependencies_first() {
+    let p = "00000000-0000-0000-0000-00000000000p";
+    let f = "f1e2d3c4-b5a6-7890-fedc-ba9876543210";
+    let b = "c87ced6d-11a6-4ad2-87c7-ac10083d0a2f";
+    let c = "0df0fadc-d339-4b0f-a1d5-51dc51f10900";
+    let m = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    let two = |x: u32, y: u32, tag: &str| {
+        format!(
+            "{}{}",
+            order_sub(x, &format!("{tag}1")),
+            order_sub(y, &format!("{tag}2"))
+        )
+    };
+    let apps = vec![
+        order_app(p, &[], ORDER_PUBLISHER),
+        order_app(f, &[p], &two(61095, 61096, "F")),
+        order_app(A_ID, &[p], &two(61107, 61136, "A")),
+        order_app(D_ID, &[p, A_ID], &two(61161, 61162, "D")),
+        order_app(b, &[p, f, A_ID], &two(61118, 61146, "B")),
+        order_app(c, &[p, A_ID, b], &two(61121, 61151, "C")),
+        order_app(m, &[p, f, A_ID, b, c], &two(90241, 90242, "M")),
+    ];
+    let publishers = [
+        (f, "AL Language"),
+        (A_ID, "AL Language"),
+        (b, "Zulu Probe Publisher"),
+        (c, "Bravo Probe Publisher"),
+        (D_ID, "Mike Probe Publisher"),
+        (m, "AL Language"),
+    ];
+    assert_eq!(
+        text(raise_order_published(apps, &publishers)),
+        "A1;A2;F1;F2;B1;B2;C1;C2;M1;M2;D1;D2;"
+    );
+}
+
+/// `raise_order` with the apps' publishers set (`(app id, publisher)`).
+fn raise_order_published(apps: Vec<AppSource>, publishers: &[(&str, &str)]) -> Result<Value, Signal> {
+    let mut l = al_testkit::compile_apps(apps);
+    for app in &mut std::sync::Arc::make_mut(&mut l.program).apps {
+        if let Some((_, p)) = publishers.iter().find(|(id, _)| app.id.eq_ignore_ascii_case(id)) {
+            app.publisher = p.to_string();
+        }
+    }
+    let mut b = al_testkit::Built::new(l);
+    b.run_in("Order Pub", "Raise")
+}
+
+/// Two apps that depend on the same app only: ascending app id, whatever the order the apps are listed in.
+#[test]
+fn two_unrelated_apps_under_test_run_in_ascending_app_id() {
     let x = order_sub(61115, "X");
     let y = order_sub(61125, "Y");
-    let a = ORDER_PUBLISHER.to_string();
     let r = raise_order(vec![
-        order_app("a", &[], &a),
-        order_app("x", &["a"], &x),
+        order_app("a", &[], ORDER_PUBLISHER),
         order_app("y", &["a"], &y),
+        order_app("x", &["a"], &x),
     ]);
-    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert_eq!(text(r), "X;Y;");
+    let r = raise_order(vec![
+        order_app("a", &[], ORDER_PUBLISHER),
+        order_app("x", &["a"], &x),
+        order_app("w", &["a"], &y),
+    ]);
+    assert_eq!(text(r), "Y;X;");
+}
+
+/// Not pinned, refused: which of an app's two unrelated dependencies BC visits first (T, the lowest app id, declares Y
+/// before X), and whether apps of different publishers are sorted by publisher before app id.
+#[test]
+fn an_order_the_probe_does_not_decide_is_refused() {
+    let refused = |r: Result<Value, Signal>, why: &str| {
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("onorder") && m.contains(why)),
+            "{why}: {r:?}"
+        );
+    };
+    let x = order_sub(61115, "X");
+    let y = order_sub(61125, "Y");
+    refused(
+        raise_order(vec![
+            order_app("a", &[], ORDER_PUBLISHER),
+            order_app("x", &["a"], &x),
+            order_app("y", &["a"], &y),
+            order_app("0t", &["a", "y", "x"], ""),
+        ]),
+        "which of an app's dependencies",
+    );
+    refused(
+        raise_order_published(
+            vec![
+                order_app("a", &[], ORDER_PUBLISHER),
+                order_app("x", &["a"], &x),
+                order_app("y", &["a"], &y),
+            ],
+            &[("x", "Zulu"), ("y", "Alpha")],
+        ),
+        "publisher",
+    );
 }
 
 /// Dependency apps (Microsoft's) that depend on each other run in dependency order too, whatever their lowest subscriber
