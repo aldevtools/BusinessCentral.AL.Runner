@@ -109,7 +109,7 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 registry! {
     LicensePermissionAnyObject => {
         id: "license-permission-any-object",
-        assumed: "License Permission read by object type and number answers, for an object of type TableData, Table, Report, Codeunit, XMLport, Page, Query or System numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
+        assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
         tests: "No Microsoft test: two outside ISV suites check their own objects this way from a per-company install routine; they pass on the reporter's real-BC run.",
         probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges pins Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001. Still wanted after it lands: whether every number of the range is a row (the table lists the license), and a negative number.",
         awaiting: Awaiting {

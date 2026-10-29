@@ -869,8 +869,9 @@ const LICENSE_ROWS_UQ: &[(i32, i32, i32)] = &[
     (5, 0, 0),
 ];
 
-/// The object types the pinned rows read by key: TableData, Table, Report, Codeunit, XMLport, Page, Query and System.
-const LICENSE_TYPES: &[i64] = &[0, 1, 3, 5, 6, 8, 9, 10];
+/// The object types whose other numbers are assumed to be rows: Report, Codeunit and Page. For TableData, Table, XMLport,
+/// Query and System only the rows above are served; another number of those types is refused (not pinned).
+const LICENSE_TYPES: &[i64] = &[3, 5, 8];
 
 fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
     if let Some(&(ot, n, p)) = LICENSE_ROWS
@@ -882,9 +883,9 @@ fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
     let uq = LICENSE_ROWS_UQ
         .iter()
         .find(|(ot, n, _)| i64::from(*ot) == object_type && i64::from(*n) == number);
-    // Every other object of a type the pinned rows read, numbered 1 to 2000000000, is assumed to be a row with every
-    // permission `Yes`, as each pinned row of such a number is (al-runner issue 6214). Number 0 of another type than
-    // TableData and Codeunit, a negative number and another type are not pinned and stay refused.
+    // Every other Report, Codeunit or Page numbered 1 to 2000000000 is assumed to be a row with every permission `Yes`, as
+    // each pinned row of such a number is (al-runner issue 6214). Other numbers of TableData, Table, XMLport, Query and
+    // System, number 0 of another type than TableData and Codeunit, and a negative number are not pinned and stay refused.
     let (ot, n, p) = match uq {
         Some(&row) => row,
         None if LICENSE_TYPES.contains(&object_type) && (1..=2_000_000_000).contains(&number) => {

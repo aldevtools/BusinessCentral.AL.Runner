@@ -2527,8 +2527,8 @@ codeunit 50000 "T" { Subtype = Test;
 /// Issue 6214: `License Permission.Get` of an object of the customer range, the ISV range or the range up to 2000000000
 /// finds a row with Read, Insert, Modify, Delete and Execute `Yes`; Codeunit 0 a row with every permission blank. Pins
 /// (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809): platform/lt-ag-contoso/AgLicensePermission.al
-/// LicensePermission_ByKey_CustomerAndIsvRanges. Numbers outside those rows are assumed (`license-permission-any-object`);
-/// a negative number is not pinned and stays refused.
+/// LicensePermission_ByKey_CustomerAndIsvRanges. Other Report, Codeunit and Page numbers are assumed
+/// (`license-permission-any-object`); another Table number and a negative number are not pinned and stay refused.
 const ISSUE_6214_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2565,6 +2565,14 @@ codeunit 50000 \"T\" {
     end;
 
     [Test]
+    procedure OtherTableNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Table, 70012345);
+    end;
+
+    [Test]
     procedure NegativeNumber()
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
@@ -2578,8 +2586,10 @@ fn issue_6214_license_permission_of_any_object_number() {
     let o = outcomes(ISSUE_6214_OBJECTS);
     passes(&o, "IsvAndCustomerRanges");
     passes(&o, "OtherNumberOfTheIsvRange");
-    let why = not_run(&o, "NegativeNumber");
-    assert!(why.contains("License Permission"), "{why}");
+    for t in ["NegativeNumber", "OtherTableNumber"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("License Permission"), "{t}: {why}");
+    }
 }
 
 /// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;
