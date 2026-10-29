@@ -532,36 +532,62 @@ impl Mat {
 
     /// Whether the row at `i`, which only a lookup by name finds ([`Entry::by_name_only`]), passes `filters` in a
     /// scan ordered by key `key`.
+    ///
+    /// An equality on the name finds the row, with or without a filter on the table number, and next to filters on
+    /// its other columns, which apply as on any row: ObsoleteState `No` and `<>Removed`, Type, Class, Enabled, a
+    /// TableNo range of one table and an alternative of two tables (types/lt-aj-probes/AjMisc.al:689-731
+    /// SG_FieldTable_RowVersion_NameWithOtherFilters, :733-748 _NameAlone; Data Type Management.FindFieldByName
+    /// :750-772). A case-insensitive (`@TIMESTAMP`), wildcard (`times*`) or alternative (`timestamp|No.`) filter on
+    /// the name does not see it (:712-717); another form of name filter, and a filter in the OR group, refuse.
     fn found_by_name(&self, t: &TableDef, i: usize, filters: &[FieldFilter], key: usize) -> Result<bool, StoreError> {
+        use al_builtins::filter::FilterExpr;
         let r = &self.rows[i];
         let Some((col, refuse)) = &self.name_only[i] else {
             return Ok(false);
         };
         let col = *col;
-        let lead = t.keys[0].first().copied();
         let or_group = filters.iter().any(|f| f.group == al_builtins::filter::OR_GROUP);
-        // No lookup by name, or one the name or the table number does not meet: the row is not seen.
-        if !filters.iter().any(|f| f.field == col)
-            || (!or_group
-                && filters
-                    .iter()
-                    .any(|f| (f.field == col || Some(f.field) == lead) && !f.expr.matches(&r[f.field])))
-        {
+        // No lookup by name: the row is not seen.
+        if !filters.iter().any(|f| f.field == col) {
             return Ok(false);
+        }
+        if !or_group {
+            for f in filters.iter().filter(|f| f.field == col) {
+                let unseen = match &f.expr {
+                    e if single_value(e) => !e.matches(&r[col]),
+                    FilterExpr::Like(..) => true,
+                    FilterExpr::Or(alts) => alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))),
+                    _ => {
+                        return Err(refusal(
+                            t,
+                            "a row only a lookup by name finds (the Field row of the rowversion, timestamp): only an equality, a case-insensitive, a wildcard and an alternative filter on the name are pinned (types/lt-aj-probes/AjMisc.al:689-731)",
+                        ));
+                    }
+                };
+                if unseen {
+                    return Ok(false);
+                }
+            }
+            // A table number the filters leave out: the row is not seen.
+            let lead = t.keys[0].first().copied();
+            if filters
+                .iter()
+                .any(|f| Some(f.field) == lead && r[f.field].unknown().is_none() && !f.expr.matches(&r[f.field]))
+            {
+                return Ok(false);
+            }
         }
         if let Some(why) = refuse {
             return Err(refusal(t, why));
         }
-        let pinned_shape = !or_group
-            && filters
-                .iter()
-                .all(|f| (f.field == col || Some(f.field) == lead) && single_value(&f.expr))
-            && filters.iter().any(|f| Some(f.field) == lead);
-        if !pinned_shape {
+        if or_group {
             return Err(refusal(
                 t,
-                "a row only a lookup by name finds (the Field row of the rowversion, timestamp): only an equality on the name next to an equality on the table number is pinned (types/lt-aj-probes/AjMisc.al:405-406)",
+                "a row only a lookup by name finds (the Field row of the rowversion, timestamp): a filter in the OR group is not pinned (types/lt-aj-probes/AjMisc.al:689-731)",
             ));
+        }
+        if let Some(why) = unknown_filtered(r, filters) {
+            return Err(StoreError::Refused(why.to_string()));
         }
         if let Some(why) = t.keys.get(key).and_then(|k| k.iter().find_map(|&c| r[c].unknown())) {
             return Err(StoreError::Refused(why.to_string()));
