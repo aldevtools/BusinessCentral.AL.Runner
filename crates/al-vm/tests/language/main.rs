@@ -52,6 +52,7 @@ mod format_auto_format_field;
 mod format_decimal_field_strings;
 mod format_empty_json_array;
 mod format_precision_standard;
+mod format_precision_strings;
 mod format_variant_number;
 mod guid_max_str_len;
 mod guid_text_compare;

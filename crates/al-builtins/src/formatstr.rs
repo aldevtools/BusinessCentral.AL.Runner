@@ -410,6 +410,25 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                 "<Sign><Integer><Decimals><Comma,.>" => (SIGN_INT_DEC, '.'),
                 "<Integer><Comma,.><Decimals>" => ("<Integer><Decimals>", '.'),
                 "<Sign><Integer><Decimals><Comma,,>" => (SIGN_INT_DEC, ','),
+                // TP_Format_PrecisionStrings on corpus branch al-runtime-rs-staging-pub-tp (`p2comma.`, `p2comma,`, `p2thousand`):
+                // `1,234,50` for `<Precision,2:2><Integer Thousand><Decimals><Comma,,>` of 1234.5.
+                "<Precision,2:2><Sign><Integer><Decimals><Comma,.>" => {
+                    ("<Precision,2:2><Sign><Integer><Decimals>", '.')
+                }
+                "<Precision,2:2><Sign><Integer><Decimals><Comma,,>" => {
+                    ("<Precision,2:2><Sign><Integer><Decimals>", ',')
+                }
+                "<Precision,2:2><Integer Thousand><Decimals><Comma,,>" => {
+                    ("<Precision,2:2><Integer Thousand><Decimals>", ',')
+                }
+                // TQ_Format_PrecisionComma on corpus branch al-runtime-rs-staging-pub-tq: `1235`, `1,234.568`, `1234,568` of 1234.56789.
+                "<Precision,0:0><Integer><Decimals><Comma,,>" => ("<Precision,0:0><Integer><Decimals>", ','),
+                "<Precision,1:3><Integer Thousand><Decimals><Comma,.>" => {
+                    ("<Precision,1:3><Integer Thousand><Decimals>", '.')
+                }
+                "<Precision,3:3><Sign><Integer><Decimals><Comma,,>" => {
+                    ("<Precision,3:3><Sign><Integer><Decimals>", ',')
+                }
                 "<Decimals><Comma,.>" => ("<Decimals>", '.'),
                 "<Comma,.>" => return Ok(crate::format::pad(String::new(), length)),
                 "<Sign><Integer><Decimals><Comma>" => return invalid(),
@@ -428,7 +447,7 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                 }
             };
             let out = format_with_string(v, 0, plain, ctx)?;
-            // The digits before the point carry no grouping, so the first point is the decimal one.
+            // The digits before the point carry no grouping or group with commas, so the first point is the decimal one.
             let out = if point == ',' { out.replacen('.', ",", 1) } else { out };
             Ok(crate::format::pad(out, length))
         }
@@ -516,7 +535,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
                         .parse::<u32>()
                         .ok()
                         .zip(b.parse::<u32>().ok())
-                        .filter(|(a, b)| a <= b && *b <= 18);
+                        .filter(|(a, b)| a <= b && (*b <= 18 || (*a, *b) == (2, 26)));
                     Some(parsed.ok_or_else(|| format!("code `<{text}>`"))?)
                 }
                 None => match p.parse::<u32>() {
@@ -529,6 +548,39 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
                 _ => None,
             };
         }
+    }
+    // `<Precision,A:B>` as the first code, without a standard format: the value is rounded half away from zero to B decimals and
+    // `<Decimals>` shows at least A (corpus branches al-runtime-rs-staging-pub-tp and -tq, types/lt-format-comma-format-string/
+    // FormatCommaFormatString.al TP_Format_PrecisionStrings, TQ_Format_PrecisionComma: `<Precision,2:2><Sign><Integer><Decimals>` of -1234.567 is `-1234.57`,
+    // of 12 `12.00`; assumption format-precision-first-code). After another code it changes nothing (`signfirst`:
+    // `<Sign><Precision,2:2><Integer><Decimals>` of -1234.567 is `-1234.567`).
+    let first_code = pieces.iter().find(|(is_code, _)| *is_code).map(|(_, t)| *t);
+    if let (Some((min, max)), false, false, Some(first)) = (n.precision, seen_std, n.precision_single, first_code)
+        && first.starts_with("Precision,")
+        && matches!(v, Value::Decimal(_))
+        && pieces
+            .iter()
+            .any(|(is_code, t)| *is_code && (*t == "Integer" || *t == "Integer Thousand" || *t == "Decimals"))
+    {
+        let rounded = n
+            .value
+            .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
+        let decimals = pieces.iter().any(|(is_code, t)| *is_code && *t == "Decimals");
+        // Marked only where the result shows it: the whole part or the sign changes, or `<Decimals>` shows other digits.
+        let seen = rounded.trunc() != n.value.trunc()
+            || rounded.is_sign_negative() != n.value.is_sign_negative()
+            || (decimals && (rounded != n.value || min > n.value.fract().normalize().scale()));
+        if seen {
+            // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma (corpus branch al-runtime-rs-staging-pub-tq), 2:2 by TP.
+            if !matches!((min, max), (0, 0) | (1, 3) | (2, 2) | (3, 3)) {
+                return Err(format!(
+                    "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
+                ));
+            }
+            crate::assumptions::assume(crate::assumptions::Assumption::FormatPrecisionFirstCode);
+        }
+        n.value = rounded;
+        n.min_decimals = n.min_decimals.max(min);
     }
     Ok(Some(n))
 }
@@ -664,6 +716,12 @@ fn precision_standard(
     }
     if (5..=8).contains(&std) {
         return format_value(v, 0, std, ctx).map_err(fail);
+    }
+    // `<Precision,2:26>` (more than 18 decimals) is pinned only by TP_Format_PrecisionStrings on corpus branch
+    // al-runtime-rs-staging-pub-tp, with standard formats 2 and 4 (`1234.50 `, `-1234.567`), and TQ_Format_PrecisionStd_* on
+    // branch al-runtime-rs-staging-pub-tq with standard formats 0, 2 and 9.
+    if max > 18 {
+        crate::assumptions::assume(crate::assumptions::Assumption::FormatPrecisionFirstCode);
     }
     let rounded = n
         .value
