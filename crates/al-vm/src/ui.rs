@@ -45,6 +45,8 @@ pub enum UiKind {
     /// `[FilterPageHandler]`: answers `FilterPageBuilder.RunModal` (filterpage/W3FilterPageBuilder.al:159-212,
     /// platform/lt-platform-members/PlTFilterPageBuilder.al:16-44,262-325).
     FilterPage,
+    /// `[HyperlinkHandler]`: answers `Hyperlink(Url)` with the URL (handlers/W3Hyperlink.al:24-63).
+    Hyperlink,
 }
 
 impl UiKind {
@@ -63,6 +65,7 @@ impl UiKind {
             "httpclienthandler" => Some(UiKind::HttpClient),
             "reporthandler" => Some(UiKind::Report),
             "filterpagehandler" => Some(UiKind::FilterPage),
+            "hyperlinkhandler" => Some(UiKind::Hyperlink),
             _ => None,
         }
     }
@@ -81,6 +84,7 @@ impl UiKind {
             UiKind::HttpClient => "HttpClient",
             UiKind::Report => "Report",
             UiKind::FilterPage => "FilterPage",
+            UiKind::Hyperlink => "Hyperlink",
         }
     }
 }
@@ -133,6 +137,8 @@ impl Session {
         let ty = |i: usize| r.locals.get(i).map(|s| &s.ty);
         let ok = match kind {
             UiKind::Message => r.params == 1 && r.by_var == [false],
+            // HyperlinkHandler(Link: Text[1024]) (handlers/W3Hyperlink.al:19-23).
+            UiKind::Hyperlink => r.params == 1 && r.by_var == [false],
             UiKind::Confirm => r.params == 2 && r.by_var == [false, true] && matches!(ty(1), Some(RtType::Boolean)),
             UiKind::StrMenu => {
                 r.params == 3 && r.by_var == [false, true, false] && matches!(ty(1), Some(RtType::Integer))
@@ -707,6 +713,21 @@ impl Session {
         }
         self.dispatch_ui(UiKind::Message, &text.clone(), vec![Value::Text(text.into())])
             .map(|_| ())
+    }
+
+    /// `Hyperlink(url)`: a bound `[HyperlinkHandler]` gets the URL (handlers/W3Hyperlink.al:24-63). False when no such
+    /// handler is bound, for the caller's `Unhandled UI` error.
+    pub(crate) fn ui_hyperlink(&mut self, url: String) -> Result<bool, Signal> {
+        let bound = self
+            .ui_state
+            .scope
+            .as_ref()
+            .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::Hyperlink));
+        if !bound {
+            return Ok(false);
+        }
+        self.dispatch_ui(UiKind::Hyperlink, &url.clone(), vec![Value::Text(url.into())])
+            .map(|_| true)
     }
 
     pub(crate) fn ui_confirm(&mut self, question: String, default: bool) -> Result<bool, Signal> {

@@ -481,6 +481,9 @@ impl al_builtins::native::Ctx for Session {
     fn ui_message(&mut self, text: String) -> Result<(), Signal> {
         Session::ui_message(self, text)
     }
+    fn ui_hyperlink(&mut self, url: String) -> Result<bool, Signal> {
+        Session::ui_hyperlink(self, url)
+    }
     fn ui_confirm(&mut self, question: String, default: bool) -> Result<bool, Signal> {
         Session::ui_confirm(self, question, default)
     }

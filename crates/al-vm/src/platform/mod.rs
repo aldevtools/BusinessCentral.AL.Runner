@@ -775,6 +775,11 @@ impl VirtualTables for Providers {
     }
 
     fn next(&self, store: &MemStore, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        if self.kind(t) == Virtual::TimeZone
+            && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, scan.filters)?
+        {
+            return m.next(t, scan);
+        }
         match self.kind(t) {
             Virtual::AggregatePermissionSet => self.aggregate(store, cx, t)?.next(t, scan),
             Virtual::MetadataPermission | Virtual::ExpandedPermission | Virtual::Permission => {
@@ -849,6 +854,11 @@ impl VirtualTables for Providers {
         t: &TableDef,
         filters: &[FieldFilter],
     ) -> Result<usize, StoreError> {
+        if self.kind(t) == Virtual::TimeZone
+            && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, filters)?
+        {
+            return m.count(t, filters);
+        }
         match self.kind(t) {
             Virtual::AggregatePermissionSet => self.aggregate(store, cx, t)?.count(t, filters),
             Virtual::MetadataPermission | Virtual::ExpandedPermission | Virtual::Permission => {

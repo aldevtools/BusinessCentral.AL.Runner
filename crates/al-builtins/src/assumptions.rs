@@ -107,6 +107,28 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 }
 
 registry! {
+    LicensePermissionAnyObject => {
+        id: "license-permission-any-object",
+        assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
+        tests: "No Microsoft test: two outside ISV suites check their own objects this way from a per-company install routine; they pass on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges pins Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001. Still wanted after it lands: whether every number of the range is a row (the table lists the license), and a negative number.",
+        awaiting: Awaiting {
+            issues: &[6214],
+            files: &["tests/al-language/platform/lt-ag-contoso/AgLicensePermission.al::LicensePermission_ByKey_CustomerAndIsvRanges"],
+            since: "2026-10-29",
+        },
+    },
+    TimeZoneWindowsIdIsARow => {
+        id: "time-zone-windows-id-is-a-row",
+        assumed: "A read of the Time Zone table filtered to one Windows time zone id (a Windows id of CLDR's windowsZones list) that is not among the runtime's host rows finds one row with that ID; its No. and Display Name are not known and refused when read.",
+        tests: "No Microsoft test: an outside ISV suite maps each ISO 3166-1 country code to a Windows time zone id and checks the id is in the table; it passes on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo present once; an unknown id absent). Still wanted: the full list of 144 rows with No. and Display Name, and whether the ID filter is case-sensitive on Windows.",
+        awaiting: Awaiting {
+            issues: &[6218],
+            files: &["tests/al-language/record/lt-at-partner-gaps/AtTimeZoneNumbering.al::UQ_TimeZone_LookupById"],
+            since: "2026-10-29",
+        },
+    },
     ListActionRebuildsRows => {
         id: "list-action-rebuilds-rows",
         assumed: "A List without the new-row line (InsertAllowed, ModifyAllowed and DeleteAllowed false) whose action deletes its rows and inserts others shows the rows the action left: opened for view an emptied list shows nothing, and the TestPage then stands where the action left Rec, with First, Next and Last moving over the new rows.",
@@ -510,12 +532,6 @@ registry! {
         assumed: "Database.SID answers S-1-5-21-a-b-c-rid with a fixed domain part and a stable hash of the name as the rid.",
         tests: "Library - Document Approvals.GetUser; 214 Tests-Dimension tests.",
         probe: "Nothing in AL can compare the numbers with BC's; the shape is pinned (PXDatabaseSid.al).",
-    },
-    SaveValuesWithExtensions => {
-        id: "savevalues-with-extensions",
-        assumed: "A page extension that adds only controls bound to Rec fields, labels, parts or actions changes nothing about what a SaveValues page stores.",
-        tests: "Pages with SaveValues and page extensions in the buckets.",
-        probe: "A SaveValues page extended by a control bound to a variable and by one bound to a field. Asked in corpus #646.",
     },
     TrappedPageLeftOpenIsReplaced => {
         id: "trapped-testpage-left-open-is-replaced",

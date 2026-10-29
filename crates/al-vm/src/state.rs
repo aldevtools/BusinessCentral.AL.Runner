@@ -165,8 +165,11 @@ pub(crate) struct UiState {
 pub(crate) struct PageClients {
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.
-    /// The variable-bound control values each SaveValues page stored when it closed.
-    pub(crate) saved_values: std::collections::HashMap<u32, Vec<(usize, Value)>>,
+    /// The variable-bound control values each SaveValues page stored when it closed: (owner, global slot, value), the owner
+    /// being the page extension whose variable it is, `None` for the page's own.
+    pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
+    /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
+    pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     pub(crate) traps: Vec<Rc<RefCell<al_builtins::value::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.

@@ -1175,6 +1175,257 @@ fn issue_6177_user_name_system_flow_fields_through_record_ref() {
     all_pass(run_with_deps(&[], ISSUE_6177_OBJECTS));
 }
 
+/// Issue 6220: a bound `[HyperlinkHandler]` receives the URL `Hyperlink` opens; without one the call raises
+/// `Unhandled UI: Hyperlink <url>`. Pins: handlers/W3Hyperlink.al:24-38 (Hyperlink_WithHandler), :40-63 (empty and mailto
+/// URLs), :65-83 (Hyperlink_WithoutHandler).
+#[test]
+fn issue_6220_hyperlink_handler_gets_the_url() {
+    let objects = "
+codeunit 69660 \"UR HL Opener\" {
+    procedure OpenHelp(Topic: Text)
+    begin
+        Hyperlink('https://example.invalid/help/' + Topic);
+    end;
+}
+codeunit 69661 T {
+    Subtype = Test;
+    var
+        LastUrl: Text;
+        Calls: Integer;
+
+    [Test]
+    [HandlerFunctions('HyperlinkHandler')]
+    procedure OpenHelp_CallsHyperlinkWithTopicUrl()
+    var
+        Opener: Codeunit \"UR HL Opener\";
+    begin
+        Opener.OpenHelp('setup');
+        if LastUrl <> 'https://example.invalid/help/setup' then
+            Error('got %1', LastUrl);
+        Hyperlink('');
+        if (LastUrl <> '') or (Calls <> 2) then
+            Error('empty: got %1 after %2 calls', LastUrl, Calls);
+    end;
+
+    [Test]
+    procedure WithoutHandler()
+    begin
+        asserterror Hyperlink('https://example.invalid/x');
+        if GetLastErrorText() <> 'Unhandled UI: Hyperlink https://example.invalid/x' then
+            Error('text %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'MissingUIHandler' then
+            Error('code %1', GetLastErrorCode());
+    end;
+
+    [HyperlinkHandler]
+    procedure HyperlinkHandler(Message: Text[1024])
+    begin
+        LastUrl := Message;
+        Calls += 1;
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
+/// Issue 6216: a page extension's `OnBeforeAction` in `modify(<action>)` runs before the action's `OnAction`, its
+/// `OnAfterAction` after; an error in `OnBeforeAction` runs neither and reaches `Invoke` as `TestWrapped:Dialog`; opening
+/// the page runs none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
+/// pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al UQ_OpenWithoutInvoke_NoBeforeOrAfter,
+/// UQ_BeforeAndAfterInOneModify_Order, UQ_BeforeActionRaises_OnActionAndAfterSkipped.
+#[test]
+fn issue_6216_pageext_on_before_action_runs_before_on_action() {
+    let objects = "
+table 69662 \"UR BA Entry\" { fields { field(1; \"No.\"; Code[20]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+codeunit 69663 \"UR BA Trace\" {
+    SingleInstance = true;
+    var
+        Trace: Text;
+    procedure Add(Step: Text)
+    begin
+        Trace += Step + ';';
+    end;
+    procedure Get(): Text
+    begin
+        exit(Trace);
+    end;
+    procedure Reset()
+    begin
+        Trace := '';
+    end;
+}
+page 69664 \"UR BA List\" {
+    PageType = List;
+    SourceTable = \"UR BA Entry\";
+    layout { area(Content) { repeater(Lines) { field(\"No.\"; Rec.\"No.\") { } } } }
+    actions {
+        area(Processing) {
+            action(DoIt) {
+                trigger OnAction()
+                var
+                    BATrace: Codeunit \"UR BA Trace\";
+                begin
+                    BATrace.Add('action');
+                end;
+            }
+            action(Fails) {
+                trigger OnAction()
+                var
+                    BATrace: Codeunit \"UR BA Trace\";
+                begin
+                    BATrace.Add('fails action');
+                end;
+            }
+        }
+    }
+}
+pageextension 69665 \"UR BA List Ext\" extends \"UR BA List\" {
+    actions {
+        modify(DoIt) {
+            trigger OnBeforeAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('before');
+            end;
+            trigger OnAfterAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('after');
+            end;
+        }
+        modify(Fails) {
+            trigger OnBeforeAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('fails before');
+                Error('UR before failure');
+            end;
+            trigger OnAfterAction()
+            var
+                BATrace: Codeunit \"UR BA Trace\";
+            begin
+                BATrace.Add('fails after');
+            end;
+        }
+    }
+}
+codeunit 69666 T {
+    Subtype = Test;
+
+    [Test]
+    procedure ModifiedActionRunsOnBeforeAction()
+    var
+        BATrace: Codeunit \"UR BA Trace\";
+        BAList: TestPage \"UR BA List\";
+    begin
+        BATrace.Reset();
+        BAList.OpenView();
+        if BATrace.Get() <> '' then
+            Error('open %1', BATrace.Get());
+        BAList.DoIt.Invoke();
+        BAList.Close();
+        if BATrace.Get() <> 'before;action;after;' then
+            Error('trace %1', BATrace.Get());
+    end;
+
+    [Test]
+    procedure ErrorInOnBeforeActionSkipsTheRest()
+    var
+        BATrace: Codeunit \"UR BA Trace\";
+        BAList: TestPage \"UR BA List\";
+    begin
+        BATrace.Reset();
+        BAList.OpenView();
+        asserterror BAList.Fails.Invoke();
+        if GetLastErrorText() <> 'UR before failure' then
+            Error('text %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'TestWrapped:Dialog' then
+            Error('code %1', GetLastErrorCode());
+        BAList.Close();
+        if BATrace.Get() <> 'fails before;' then
+            Error('trace %1', BATrace.Get());
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
+/// Issue 6221: a SaveValues page that a page extension extends with a control bound to the extension's own variable opens;
+/// nothing is stored before the first close, and the next open restores the extension's variable as it does the page's.
+/// Pin: misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205 (SaveValues_Ext_OkThenReopen: first open all blank, after OK
+/// `second_A` and `second_B`, `second_E` restored) and :207-234 (a Cancel stores nothing).
+#[test]
+fn issue_6221_savevalues_page_with_extension_variable() {
+    let objects = "
+table 69670 \"UR SV Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+page 69671 \"UR SV Card\" {
+    PageType = Card;
+    SourceTable = \"UR SV Row\";
+    SaveValues = true;
+    layout { area(Content) { field(A; Var1) { } } }
+    var
+        Var1: Text[30];
+}
+pageextension 69672 \"UR SV Ext\" extends \"UR SV Card\" {
+    layout { addlast(Content) { field(B; ExtVar) { } } }
+    var
+        ExtVar: Boolean;
+}
+codeunit 69673 T {
+    Subtype = Test;
+    var
+        Mode: Text;
+        SeenA: Text;
+        SeenB: Text;
+
+    [ModalPageHandler]
+    procedure CardHandler(var P: TestPage \"UR SV Card\")
+    begin
+        case Mode of
+            'set':
+                begin
+                    P.A.SetValue('a1');
+                    P.B.SetValue(true);
+                    P.OK().Invoke();
+                end;
+            'read':
+                begin
+                    SeenA := P.A.Value();
+                    SeenB := P.B.Value();
+                    P.OK().Invoke();
+                end;
+        end;
+    end;
+
+    local procedure Open(NewMode: Text)
+    var
+        Row: Record \"UR SV Row\";
+    begin
+        Mode := NewMode;
+        if not Row.Get(1) then begin
+            Row.Id := 1;
+            Row.Insert();
+        end;
+        Page.RunModal(Page::\"UR SV Card\", Row);
+    end;
+
+    [Test]
+    [HandlerFunctions('CardHandler')]
+    procedure FirstOpenThenReopen()
+    begin
+        Open('read');
+        if (SeenA <> '') or (SeenB <> 'No') then
+            Error('first %1 %2', SeenA, SeenB);
+        Open('set');
+        Open('read');
+        if (SeenA <> 'a1') or (SeenB <> 'Yes') then
+            Error('second %1 %2', SeenA, SeenB);
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}
+
 /// al-runner issue 6211: inside a table procedure, `this.<Field>` is the field of the current record, the same as the
 /// unqualified name: it can be read, assigned and have a method called on it. The reporter's alc compiles every form
 /// below without a diagnostic. At run time each form does what the bare name does, so no assumption is registered; a

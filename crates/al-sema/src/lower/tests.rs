@@ -1962,9 +1962,10 @@ fn save_values_with_an_extension_that_adds_only_record_fields_is_lowered() {
     assert!(pg.unsupported.is_empty(), "{:?}", pg.unsupported);
 }
 
-// What BC stores for a control an extension binds to its own variable is not pinned: refused.
+// A SaveValues page stores the variable an extension's control binds as well (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:
+// 157-234): the page is not refused.
 #[test]
-fn save_values_with_an_extension_variable_control_is_refused() {
+fn save_values_with_an_extension_variable_control_is_not_refused() {
     let src = format!(
         "{SAVE_VALUES_PAGE} pageextension 50012 \"SV X\" extends \"SV P\" {{ layout {{ addlast(Content) {{ field(V; ExtVar) {{ }} }} }} var ExtVar: Integer; }}"
     );
@@ -1978,13 +1979,7 @@ fn save_values_with_an_extension_variable_control_is_refused() {
         .page
         .clone()
         .unwrap();
-    assert!(
-        pg.unsupported
-            .iter()
-            .any(|w| w.contains("SaveValues") && w.contains("variable")),
-        "{:?}",
-        pg.unsupported
-    );
+    assert!(pg.unsupported.is_empty(), "{:?}", pg.unsupported);
 }
 
 #[test]
