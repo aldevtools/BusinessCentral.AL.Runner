@@ -1352,10 +1352,11 @@ impl Session {
     /// What a database write does to `Database.LastUsedRowVersion` (`last_used_row_version`). BC keeps the rows an Insert
     /// wrote until a read of their table or a Modify sends them: the value does not grow after an Insert alone
     /// (record/TestProbeRecordRefContracts.al:620-640 `grows_after_insert` No, platform/lt-platform-members/PlTDatabase.al:
-    /// 220-245 `after_insert_greater` No), it covers the inserted row after a read of its table (PlTRowVersionValue.al:157-172,
-    /// `insert open last > start last` and `row version <= last` Yes) and grows after a Modify (PlTDatabase.al:238
-    /// `after_modify_greater`, PlTRowVersionValue.al `modify open row version <= last`). A Delete, DeleteAll, Rename or
-    /// ModifyAll that meets rows an Insert left, or that hands out row versions, is not pinned.
+    /// 220-245 `after_insert_greater` No), it covers the inserted row after a Get of its table (corpus master
+    /// PlTRowVersionValue.al:157-172 TV_MinimumActiveRowVersion_AcrossInsertModifyCommit, `insert open last > start last` and
+    /// `row version <= last` Yes) and grows after a Modify (PlTDatabase.al:238 `after_modify_greater`, PlTRowVersionValue.al
+    /// `modify open row version <= last`). Not pinned, so refused: a Delete, Rename or bulk write after an Insert,
+    /// a Modify while another table holds unsent inserted rows, and row versions an Insert or a Modify does not account for.
     fn note_row_versions(&mut self, table: u32, company: &Option<String>, kind: crate::state::TxWriteKind) {
         use crate::state::TxWriteKind;
         let rv = &mut self.tx.row_versions;
@@ -1376,23 +1377,63 @@ impl Session {
             TxWriteKind::Modify if new_versions => {
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
-                self.send_pending_inserts(table, company);
+                rv.pending_inserts.retain(|(o, c, _)| !(*o == table && c == company));
+                if !rv.pending_inserts.is_empty() {
+                    rv.unpinned = Some("a Modify while another table holds rows the open transaction inserted");
+                }
             }
-            _ => {
-                if rv.pending_inserts.iter().any(|(o, c, _)| *o == table && c == company) {
-                    rv.unpinned = Some("a Delete, DeleteAll, Rename or ModifyAll of a table the open transaction inserted into");
+            TxWriteKind::Insert | TxWriteKind::Modify => {
+                if !rv.pending_inserts.is_empty() {
+                    rv.unpinned = Some("an Insert or Modify without a new row version after an Insert");
+                }
+            }
+            // A Delete or DeleteAll hands out no row version and leaves the value as it was (kept, not pinned: corpus
+            // session/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al and PnBRecordMisc.al:205-235 read it after a
+            // DeleteAll). A Rename or ModifyAll hands out row versions no Insert or Modify accounts for
+            // (`last_used_row_version` refuses those).
+            TxWriteKind::Delete | TxWriteKind::Rename | TxWriteKind::Other => {
+                if !rv.pending_inserts.is_empty() {
+                    rv.unpinned = Some("a Delete, Rename, DeleteAll, ModifyAll or Truncate after an Insert in the open transaction");
                 }
             }
         }
     }
 
-    /// A read of a table, or a Modify of it, sends the rows an Insert left (`note_row_versions`).
-    pub(crate) fn send_pending_inserts(&mut self, table: u32, company: &Option<String>) {
+    /// A read of a database table while the open transaction holds inserted rows nothing has sent yet
+    /// (`note_row_versions`): a Get of the one table that holds them sends them (PlTRowVersionValue.al:157-172 on corpus
+    /// master); any other read there is not pinned.
+    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, get: bool) {
         let rv = &mut self.tx.row_versions;
-        if let Some(i) = rv.pending_inserts.iter().position(|(o, c, _)| *o == table && c == company) {
-            let (_, _, v) = rv.pending_inserts.swap_remove(i);
-            rv.sent = rv.sent.max(v);
+        if rv.pending_inserts.is_empty() {
+            return;
         }
+        match rv.pending_inserts.as_slice() {
+            [(o, c, v)] if get && *o == table && c == company => {
+                rv.sent = rv.sent.max(*v);
+                rv.pending_inserts.clear();
+            }
+            _ => rv.unpinned = Some("a read other than a Get of the one table that holds rows the open transaction inserted"),
+        }
+    }
+
+    /// `Database.LastUsedRowVersion`: the committed value, raised by the rows the open transaction sent
+    /// (`note_row_versions`). `Err` names why the value is not pinned.
+    pub(crate) fn last_used_row_version(&self) -> Result<i64, &'static str> {
+        let rv = &self.tx.row_versions;
+        // No row version handed out since the transaction began: the committed value, whatever else was written.
+        if self.next_row_version == self.tx.committed_row_version {
+            return Ok(self.tx.committed_row_version.max(1));
+        }
+        if let Some(why) = rv.unpinned {
+            return Err(why);
+        }
+        if rv.handed_out != rv.accounted {
+            return Err("row versions handed out by a write other than an Insert or a Modify");
+        }
+        if !self.writes_all_noted() {
+            return Err("a write of the open transaction the runtime does not track");
+        }
+        Ok(self.tx.committed_row_version.max(rv.sent).max(1))
     }
 
     /// Records a ModifyAll, DeleteAll, Rename or Truncate of a database table: `stale_verdict` does not tell its writes apart.
@@ -3212,13 +3253,9 @@ impl Session {
                     | RecordOp::CalcSums
             )
         {
-            // A read of a table the open transaction inserted into: what LastUsedRowVersion reports from here on is not
-            // pinned (`sessionops.rs`).
-            if self.tx.tables_inserted.iter().any(|(table, _)| *table == t.object) {
-                self.tx.read_after_write = true;
-            }
+            // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
-            self.send_pending_inserts(t.object, &company);
+            self.note_read_for_row_versions(t.object, &company, method == RecordOp::Get);
             use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other

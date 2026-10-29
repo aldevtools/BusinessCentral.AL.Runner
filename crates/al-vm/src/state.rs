@@ -43,8 +43,6 @@ pub(crate) struct TxState {
     pub(crate) rolled_back: bool,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
-    /// A Record read ran after the open transaction wrote a row: `LastUsedRowVersion` is then not pinned.
-    pub(crate) read_after_write: bool,
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
     /// called: the table (object index) and the error come out at the next access to the table
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
@@ -136,7 +134,6 @@ impl TxState {
             writes: Vec::new(),
             find_set_tables: Vec::new(),
             isolation_lock: false,
-            read_after_write: false,
             rolled_back: false,
             last_commit_wrote: false,
             deferred_insert: None,

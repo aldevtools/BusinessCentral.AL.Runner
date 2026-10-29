@@ -1154,7 +1154,6 @@ impl Session {
         self.tx.committed_row_version = self.next_row_version;
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
-        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
@@ -1252,7 +1251,6 @@ impl Session {
         self.sql.rolled_back();
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
-        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();

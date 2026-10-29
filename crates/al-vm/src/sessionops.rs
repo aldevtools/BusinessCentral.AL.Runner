@@ -269,8 +269,8 @@ impl Session {
         match id {
             // The counter has handed out `next_row_version` so far; the database never reports
             // zero (session/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
-            // What the database holds committed: a row inserted in the open transaction does not count yet
-            // (record/TestProbeRecordRefContracts.al:LastUsedRowVersion_StartsAndGrows, `grows_after_insert` No).
+            // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
+            // transaction does not count until a Get of its table or a Modify (`Session::last_used_row_version`).
             ids::DATABASE_LASTUSEDROWVERSION_1 => {
                 return match self.last_used_row_version() {
                     Ok(v) => Ok(Value::BigInteger(v)),
