@@ -172,7 +172,7 @@ An item is **pinned** when it occurs in a corpus file in a routine that static r
 | Dimension | Catalog | Pinned | Used by Microsoft | Microsoft-used and unpinned | of those, runtime does not read |
 |---|---:|---:|---:|---:|---:|
 | Triggers per object kind | 188 | 187 | 128 | 0 | 0 |
-| Object properties per object kind | 1350 | 805 | 1074 | 545 | 512 |
+| Object properties per object kind | 1350 | 805 | 1074 | 545 | 511 |
 | Platform and system events | 123 | 37 | 17 | 0 | 0 |
 | Statements and expressions | 64 | 60 | 58 | 0 | 0 |
 | Method attributes | 34 | 33 | 13 | 1 | 1 |
@@ -274,6 +274,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/field | `Width` | 1 | yes | 0 |
 | report/labels | `Amount` | 1 | yes | 0 |
 | report/labels | `Capacity` | 1 | yes | 0 |
+| report/labels | `Load` | 1 | yes | 0 |
 | report/labels | `Name` | 1 | yes | 0 |
 | report/labels | `ReportName` | 1 | yes | 0 |
 | report/labels | `Warning` | 1 | yes | 0 |
@@ -439,7 +440,6 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 | report/labels | `ErrorTextCaption` | 1 | no | 0 |
 | report/labels | `ESCaption` | 1 | no | 0 |
 | report/labels | `EstoniaCaption` | 1 | no | 0 |
-| report/labels | `EU3PartyItemTradeAmtCaption` | 1 | no | 0 |
 
 295 more in `corpus-behavior-coverage.json`.
 
