@@ -1264,16 +1264,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if matches!(a[0], Value::Text(_) | Value::Code(_)) {
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
-            // A UTF-8 byte order mark at the start is skipped, as ReadText skips it (handlers/
-            // TestReportSaveAsDatasetContracts.al:DatasetLines): assumption utf-eight-read-skips-byte-order-mark (File
-            // Management.GetFileContents of a report's SaveAsXml file). The count over a mark is not pinned.
+            // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/lt-dd-stream-leads/
+            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count Read returns over a mark is not pinned.
             if s.pos == 0 && s.enc == Encoding::Utf8 && s.with_data(|d| d.starts_with(&[0xEF, 0xBB, 0xBF])) {
                 if used {
                     return unsupported(
                         "the result of InStream.Read into a Text over a UTF-8 byte order mark (not pinned)",
                     );
                 }
-                crate::assumptions::assume(crate::assumptions::Assumption::Utf8ReadSkipsByteOrderMark);
                 s.pos = 3;
             }
             let unit = s.enc.unit();
