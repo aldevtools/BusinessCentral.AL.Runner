@@ -1392,6 +1392,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    JsonBooleanTextSpellings => {
+        id: "json-boolean-text-spellings",
+        assumed: "JsonValue.AsBoolean of the JSON strings \"True\", \"TRUE\", \" true\" and \"true \" is Yes, of \"false\", \"False\" and \"FALSE\" is No; of the JSON numbers 0 and 1 it is No and Yes.",
+        tests: "No Microsoft test: a partner app's tests (AsBoolean of a JSON string \"false\").",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Mixed case and blanks around false are refused.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters",
+                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters_5",
+            ],
+            since: "2026-10-30",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
