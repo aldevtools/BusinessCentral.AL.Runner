@@ -16366,6 +16366,15 @@
         "template": "The type NavOutStream is unknown."
       },
       {
+        "code": "",
+        "file": "crates/al-vm/src/dotnet/server_classes.rs",
+        "generic": false,
+        "line": 467,
+        "pinned": false,
+        "site": null,
+        "template": "Not initialized."
+      },
+      {
         "code": "AssertError",
         "file": "crates/al-vm/src/exec/run.rs",
         "generic": false,
@@ -16727,7 +16736,7 @@
       }
     ],
     "pinned": 93,
-    "sites": 95
+    "sites": 96
   },
   "language": {
     "bc": "27-29",

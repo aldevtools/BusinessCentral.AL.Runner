@@ -685,12 +685,14 @@ impl Lowerer<'_> {
                 }
                 let r = self.operand(&kids[1], operand_use)?;
                 // A one-character literal next to a Char under `+` or `-` is a Char, so the two add or subtract as numbers
-                // (corpus types/lt-af-char-literal/AfCharLiteralArithmetic.al:22-43; check::one_char_literal).
+                // (corpus types/lt-af-char-literal/AfCharLiteralArithmetic.al:22-43, types/lt-at-partner-gaps/AtTextCharLiteral.al;
+                // check::char_and_one_char_literal).
                 let (l, r) = if crate::check::char_and_one_char_literal(
                     &op,
                     &kids,
                     self.ty_ref(&kids[0]),
                     self.ty_ref(&kids[1]),
+                    &|n| Some(self.ty_of(n)),
                 ) {
                     let text = Ty::Text(None);
                     if crate::check::one_char_literal(&kids[0]) {

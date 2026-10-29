@@ -987,14 +987,43 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
 }
 
 /// `Ch + 'X'`, `'X' - Ch` and the like: a Char variable and a one-character literal under `+` or `-` ([`one_char_literal`];
-/// AfCharLiteralArithmetic.al:22-43). Only a variable: a character of a text joins a literal as text
-/// (json/TestJsonXmlDeepContracts.al:71, `'a' + Format(10, 0, '<Integer>')[1] + 'b'`), and other Char expressions are not pinned.
-pub(crate) fn char_and_one_char_literal(op: &str, kids: &[SyntaxNode], l: &Ty, r: &Ty) -> bool {
-    let var = |n: &SyntaxNode| n.kind() == SyntaxKind::NameRef;
+/// AfCharLiteralArithmetic.al:22-43). A character taken by index from a Text or Code variable counts too (`S[1] - '0'`,
+/// `'A' + C[1]`: types/lt-at-partner-gaps/AtTextCharLiteral.al:15-112), and so does such a sum or difference followed by
+/// another one-character literal (`'a' + S[1] + 'b'` is 250, AtTextCharLiteral.al:67-80). A character of another text
+/// expression joins a literal as text (json/TestJsonXmlDeepContracts.al:71, `'line1' + Format(10, 0, '<Integer>')[1] +
+/// 'line2'`, a longer literal), and other Char expressions are not pinned.
+pub(crate) fn char_and_one_char_literal(
+    op: &str,
+    kids: &[SyntaxNode],
+    l: &Ty,
+    r: &Ty,
+    ty: &dyn Fn(&SyntaxNode) -> Option<Ty>,
+) -> bool {
+    let var = |n: &SyntaxNode| {
+        n.kind() == SyntaxKind::NameRef
+            || (n.kind() == SyntaxKind::IndexExpr
+                && n.children().count() == 2
+                && n.children().next().is_some_and(|b| {
+                    b.kind() == SyntaxKind::NameRef && matches!(ty(&b), Some(Ty::Text(_) | Ty::Code(_)))
+                }))
+    };
+    // An earlier `Char op literal` of the same kind: its result is an Integer.
+    let chained = |n: &SyntaxNode, t: &Ty| {
+        matches!(t, Ty::Integer) && n.kind() == SyntaxKind::BinExpr && {
+            let inner: Vec<SyntaxNode> = n.children().collect();
+            inner.len() == 2 && {
+                let char_side = |k: &SyntaxNode| k.kind() == SyntaxKind::IndexExpr && var(k);
+                matches!(op_token(n).as_str(), "+" | "-")
+                    && ((char_side(&inner[0]) && one_char_literal(&inner[1]))
+                        || (char_side(&inner[1]) && one_char_literal(&inner[0])))
+            }
+        }
+    };
     matches!(op, "+" | "-")
         && kids.len() == 2
         && ((matches!(l, Ty::Char) && var(&kids[0]) && one_char_literal(&kids[1]))
-            || (matches!(r, Ty::Char) && var(&kids[1]) && one_char_literal(&kids[0])))
+            || (matches!(r, Ty::Char) && var(&kids[1]) && one_char_literal(&kids[0]))
+            || (chained(&kids[0], l) && one_char_literal(&kids[1])))
 }
 
 fn op_token(node: &SyntaxNode) -> String {

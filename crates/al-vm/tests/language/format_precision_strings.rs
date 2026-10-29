@@ -92,3 +92,64 @@ fn an_unpinned_leading_precision_that_would_show_is_refused() {
     );
     assert!(r.contains("Unsupported"), "{r}");
 }
+
+/// TV_Format_Precision0To26_Values, _OtherValues and TV_Format_PrecisionAbove18_Forms (FormatCommaFormatString.al on corpus
+/// master): `0:26` before standard formats 0, 2 and 9 writes the value as the format does, alone it writes nothing; `0:19`,
+/// `0:28` and `26:26` before format 2; a precision does not change an Integer.
+#[test]
+fn precision_above_18_decimals_of_the_pinned_forms() {
+    let wide = |value: &str| {
+        let mut body = format!("procedure F(): Text var D: Decimal; R: Text; begin D := {value};");
+        for f in [
+            "<Precision,0:26><Standard Format,2>",
+            "<Precision,0:26><Standard Format,0>",
+            "<Precision,0:26><Standard Format,9>",
+            "<Precision,0:26>",
+            "<Precision,0:19><Standard Format,2>",
+            "<Precision,0:28><Standard Format,2>",
+        ] {
+            body.push_str(&format!(" R += Format(D, 0, '{f}') + '|';"));
+        }
+        body.push_str(" exit(R); end;");
+        run(&body)
+    };
+    assert_eq!(wide("1.5"), "1.5|1.5|1.5||1.5|1.5|");
+    assert_eq!(wide("-2.25"), "-2.25|-2.25|-2.25||-2.25|-2.25|");
+    assert_eq!(wide("0"), "0|0|0||0|0|");
+    assert_eq!(
+        wide("12345.6789"),
+        "12345.6789|12,345.6789|12345.6789||12345.6789|12345.6789|"
+    );
+    assert_eq!(
+        wide("1 / 3"),
+        "0.333333333333333333|0.333333333333333333|0.333333333333333333||0.333333333333333333|0.333333333333333333|"
+    );
+    assert_eq!(wide("Round(2.346, 0.01)"), "2.35|2.35|2.35||2.35|2.35|");
+    assert_eq!(
+        run("procedure F(): Text begin exit(Format(1.5, 0, '<Precision,26:26><Standard Format,2>')); end;"),
+        "1.50000000000000000000000000"
+    );
+    assert_eq!(
+        run("procedure F(): Text begin exit(Format(15, 0, '<Precision,0:26><Standard Format,2>')); end;"),
+        "15"
+    );
+}
+
+/// The same precisions before another standard format, or first before `<Integer>`, are not pinned.
+#[test]
+fn precision_above_18_decimals_of_other_forms_is_refused() {
+    for f in [
+        "<Precision,0:26><Standard Format,1>",
+        "<Precision,0:19><Standard Format,0>",
+        "<Precision,0:26><Integer><Decimals>",
+    ] {
+        let src = format!(
+            "codeunit 50100 C {{ procedure F(): Text var D: Decimal; begin D := 1.25; exit(Format(D, 0, '{f}')); end; }}"
+        );
+        let out = al_testkit::run_with(&src, "C", "F", vec![]);
+        assert!(
+            matches!(&out, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("not pinned")),
+            "{f}: {out:?}"
+        );
+    }
+}
