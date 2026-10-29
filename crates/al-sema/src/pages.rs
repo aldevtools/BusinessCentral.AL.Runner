@@ -754,7 +754,22 @@ struct Area {
 /// Areas of the `actions` section a page extension may add to although the page declares none. Navigation, Creation and
 /// Reporting: pages/W1ActionAreas.al:44-115 and :137-157 (ExtensionActions_InImplicitAreas_Run adds to all five on a page
 /// with no actions, and each added action runs). The order of the areas among themselves is not pinned.
-const IMPLICIT_ACTION_AREAS: &[&str] = &["Processing", "Prompting", "Navigation", "Creation", "Reporting"];
+/// Promoted: an extension's addfirst and addlast into area(Promoted) of a page that declares none, or no actions section at all
+/// (pageext/lt-ue-pageext-leads/UePromotedTests.al Promoted_BaseDeclaresNoPromotedArea, Promoted_BaseDeclaresNoActions; al-runner
+/// issues 6150 and 6158; assumption pageext-implicit-promoted until the pin lands).
+const IMPLICIT_ACTION_AREAS: &[&str] = &[
+    "Processing",
+    "Prompting",
+    "Navigation",
+    "Creation",
+    "Reporting",
+    "Promoted",
+];
+
+/// Promoted category groups an extension may add actionrefs into (addfirst, addlast) although the page declares none: the
+/// actionrefs are on the page and run their actions (pageext/lt-ue-pageext-leads/UePromotedTests.al
+/// CategoryNew_BaseDeclaresOnlyCategoryProcess, CategoryNew_BaseDeclaresNoActions; al-runner issue 6150).
+const IMPLICIT_PROMOTED_CATEGORIES_ADD: &[&str] = &["Category_New", "Category_Process", "Category_Report"];
 
 /// Promoted category groups of `actions` that a page extension may place actionrefs after although the page declares none.
 const IMPLICIT_PROMOTED_CATEGORIES: &[&str] = &["Category_Process"];
@@ -772,6 +787,8 @@ struct Tree {
     reasons: Vec<String>,
     /// The areas of `layout` an extension may add to although the page declares none (`implicit_layout_areas`).
     implicit_areas: &'static [&'static str],
+    /// The unprobed assumptions the merge rests on.
+    assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// Areas of `layout` a page extension may add to on a Card page that declares none: pageext/lt-bc-implicit-areas/BcImplicitAreas.al
@@ -826,6 +843,7 @@ fn layout_of(
         areas: Vec::new(),
         reasons: Vec::new(),
         implicit_areas,
+        assumes: Vec::new(),
     };
     for top in sections {
         let n = top.name().to_ascii_lowercase();
@@ -1139,6 +1157,10 @@ impl Tree {
                     .iter()
                     .any(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
             {
+                if target.eq_ignore_ascii_case("Promoted") {
+                    self.assumes
+                        .push(al_builtins::assumptions::Assumption::PageExtImplicitPromoted);
+                }
                 self.areas.push(Area {
                     name: target,
                     in_actions: true,
@@ -1177,14 +1199,23 @@ impl Tree {
                 .strip_prefix("Category_")
                 .or_else(|| target.strip_prefix("category_"))
                 .is_some_and(|cat| self.promotes_to(cat));
+            let added_into = ["addfirst", "addlast"].contains(&kind.as_str())
+                && IMPLICIT_PROMOTED_CATEGORIES_ADD
+                    .iter()
+                    .any(|c| c.eq_ignore_ascii_case(&target));
             if op.in_actions
                 && (["addafter", "addbefore"].contains(&kind.as_str())
                     && IMPLICIT_PROMOTED_CATEGORIES
                         .iter()
                         .any(|c| c.eq_ignore_ascii_case(&target))
-                    || legacy)
+                    || legacy
+                    || added_into)
                 && self.find_node(&target).is_none()
             {
+                if added_into {
+                    self.assumes
+                        .push(al_builtins::assumptions::Assumption::PageExtImplicitPromoted);
+                }
                 let idx = self.nodes.len();
                 self.nodes.push(Node {
                     name: target,
@@ -1237,8 +1268,13 @@ impl Tree {
     /// The tree in source order: areas in turn, each control before its children.
     fn flatten(self) -> Layout {
         let Tree {
-            nodes, areas, reasons, ..
+            nodes,
+            areas,
+            reasons,
+            mut assumes,
+            ..
         } = self;
+        assumes.dedup();
         let mut slots: Vec<Option<Node>> = nodes.into_iter().map(Some).collect();
         let mut controls = Vec::new();
         fn emit(slots: &mut [Option<Node>], idx: usize, parent: Option<usize>, out: &mut Vec<RawControl>) {
@@ -1283,7 +1319,7 @@ impl Tree {
             reasons,
             action_areas,
             // addlast/addfirst on the implicit group of a legacy promoted category: pages/lt-page-ext-promoted/PageExtPromotedCategoryRisky.al.
-            assumes: Vec::new(),
+            assumes,
         }
     }
 }

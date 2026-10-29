@@ -359,6 +359,7 @@ impl<'a> Checker<'a> {
         // (those the extension does not declare itself) and its procedures.
         let mut base_obj = None;
         let mut base_vars = std::collections::HashSet::default();
+        let mut ext_vars = HashMap::default();
         if crate::base_access::scope_enabled() {
             let base_kind = match o.kind {
                 ObjKind::PageExtension => Some(ObjKind::Page),
@@ -375,6 +376,25 @@ impl<'a> Checker<'a> {
                         let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
                         globals.insert(name.clone(), ty);
                         base_vars.insert(name);
+                    }
+                    // The protected variables of the other extensions of the page that this extension's app sees (its own
+                    // app or a dependency): one variable, shared by both (pageext/lt-ue-pageext-leads/UeProtectedVarTests.al
+                    // ProtectedVar_OfAnotherExtension_IsSharedAndAssignable, same app; al-runner issue 6159).
+                    if o.kind == ObjKind::PageExtension {
+                        for &s in self.ws.extensions_of(b) {
+                            let so = &self.ws.objects[s];
+                            if s == oi || so.kind != ObjKind::PageExtension || !self.ws.app_sees(o.app, so.app) {
+                                continue;
+                            }
+                            for (name, decl) in crate::base_access::visible_vars(&self.ws.object_ast(s)) {
+                                if globals.contains_key(&name) {
+                                    continue;
+                                }
+                                let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+                                globals.insert(name.clone(), ty);
+                                ext_vars.insert(name, s);
+                            }
+                        }
                     }
                 }
             }
@@ -412,6 +432,7 @@ impl<'a> Checker<'a> {
             base_items,
             base_obj,
             base_vars: std::rc::Rc::new(base_vars),
+            ext_vars: std::rc::Rc::new(ext_vars),
         }
     }
 
@@ -558,6 +579,7 @@ impl<'a> Checker<'a> {
             base_items,
             base_obj,
             base_vars,
+            ext_vars,
         } = ctx;
         let (oi, file, self_obj) = (*oi, *file, *self_obj);
         {
@@ -596,6 +618,7 @@ impl<'a> Checker<'a> {
                 self_obj,
                 base_obj: *base_obj,
                 base_vars: base_vars.clone(),
+                ext_vars: ext_vars.clone(),
                 withs: Vec::new(),
                 codeunit_on_run: self.ws.objects[oi].kind == ObjKind::Codeunit
                     && r.is_trigger()

@@ -994,6 +994,11 @@ impl Workspace {
                 .any(|&a| self.kinds.get(a).is_some_and(|k| *k != AppKind::Dependency))
     }
 
+    /// Whether `app` sees `other`: itself or one of its dependencies, directly or through others.
+    pub fn app_sees(&self, app: usize, other: usize) -> bool {
+        self.visible.get(app).is_some_and(|v| v.contains(&other))
+    }
+
     /// How many apps `app` can see (itself and its transitive dependencies). A dependent sees
     /// more than anything it depends on, so this orders dependencies before their dependents.
     pub fn app_depth(&self, app: usize) -> usize {

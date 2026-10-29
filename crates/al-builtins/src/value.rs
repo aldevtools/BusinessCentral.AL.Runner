@@ -627,6 +627,11 @@ pub struct PageState {
     pub caption_assigned_closed: bool,
     /// A row with the new record's starting key was already stored when the draft started.
     pub draft_stored: bool,
+    /// A page extension's OnInsertRecord answered false for the new row: the page goes on as if the row were stored, and the
+    /// save of its next edit fails as the modify of a row that is not there (pageext/lt-ue-pageext-leads/UeTriggerTests.al
+    /// NewRow_FirstExtensionAnswersFalse).
+    /// The primary key of that row.
+    pub insert_vetoed_by_ext: Option<Vec<Value>>,
     /// The new row of a card that its OnNewRecord inserted itself: the page still holds it as a new row
     /// (corpus pages/lt-cf-page-leads/CfPageLeads.al:241-289 Card_OnNewRecordInserts_OpenNewSetClose).
     pub new_row_inserted_by_trigger: bool,
@@ -904,6 +909,7 @@ impl PageState {
             settled_first_row: false,
             caption_assigned_closed: false,
             draft_stored: false,
+            insert_vetoed_by_ext: None,
             new_row_inserted_by_trigger: false,
             test_opened_new: false,
             typed_before_key: false,

@@ -168,7 +168,7 @@ fn root_local(p: &ir::Place) -> Option<usize> {
     match p {
         ir::Place::Local(i) => Some(*i),
         ir::Place::Index(b, _) | ir::Place::Field(b, _) => root_local(b),
-        ir::Place::Global(_) | ir::Place::BaseGlobal(_) => None,
+        ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..) => None,
     }
 }
 

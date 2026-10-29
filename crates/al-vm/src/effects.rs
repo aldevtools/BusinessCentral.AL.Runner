@@ -256,6 +256,10 @@ impl Walk<'_> {
                 "writes a variable of the page or report {} extends",
                 self.name(at.0)
             )),
+            Place::ExtGlobal(..) => Err(format!(
+                "writes a variable of another extension of the page {} extends",
+                self.name(at.0)
+            )),
             Place::Index(inner, ix) => {
                 for e in ix {
                     self.expr(e, at, inst)?;
@@ -276,7 +280,7 @@ impl Walk<'_> {
             match p {
                 Place::Local(_) => return Inst::Transient,
                 Place::Global(_) => return inst,
-                Place::BaseGlobal(_) => return Inst::Lasting,
+                Place::BaseGlobal(_) | Place::ExtGlobal(..) => return Inst::Lasting,
                 Place::Index(inner, _) | Place::Field(inner, _) => p = inner,
             }
         }

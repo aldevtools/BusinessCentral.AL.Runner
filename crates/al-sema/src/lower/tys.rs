@@ -37,7 +37,9 @@ fn of_ty(t: &Ty) -> ExprTy {
 fn arity_of(e: &ir::Expr) -> usize {
     match e {
         ir::Expr::Const(_)
-        | ir::Expr::Load(ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_))
+        | ir::Expr::Load(
+            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..),
+        )
         | ir::Expr::BaseInstance
         | ir::Expr::ThisInstance => 0,
         ir::Expr::Binary(..) => 2,
@@ -83,7 +85,9 @@ fn of_node(e: &ir::Expr, c: &[ExprTy], load: impl FnOnce() -> ExprTy) -> ExprTy 
     use ir::BinOp as B;
     match e {
         ir::Expr::Const(k) => of_const(k),
-        ir::Expr::Load(ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)) => load(),
+        ir::Expr::Load(
+            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..),
+        ) => load(),
         ir::Expr::Unary(ir::UnOp::Not, _) => ExprTy::Boolean,
         ir::Expr::Unary(ir::UnOp::Neg, _) if c[0] == ExprTy::Integer => ExprTy::Integer,
         ir::Expr::Binary(op, ..) => match op {
@@ -163,7 +167,9 @@ impl Lowerer<'_> {
     pub(crate) fn seal_expr(&mut self, mark: usize, n: &SyntaxNode, e: &ir::Expr) {
         // A node with no expression inside: no records to check.
         if let ir::Expr::Const(_)
-        | ir::Expr::Load(ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_)) = e
+        | ir::Expr::Load(
+            ir::Place::Local(_) | ir::Place::Global(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..),
+        ) = e
         {
             if self.tys.len() == mark {
                 let ty = of_node(e, &[], || {

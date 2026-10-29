@@ -221,7 +221,7 @@ fn set_elem_children(e: &SetElem, f: &mut dyn FnMut(&Expr)) {
 
 fn place_children(p: &Place, f: &mut dyn FnMut(&Expr)) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
         Place::Index(base, idx) => {
             place_children(base, f);
             for e in idx {

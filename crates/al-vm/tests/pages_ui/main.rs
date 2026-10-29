@@ -43,6 +43,7 @@ mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;
 mod page_inserts;
 mod pageext;
+mod pageext_leads;
 mod pages;
 mod part_host_move;
 mod part_keeps_row_after_update;
