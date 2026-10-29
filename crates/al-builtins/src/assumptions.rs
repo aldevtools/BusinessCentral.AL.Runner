@@ -1217,6 +1217,64 @@ registry! {
         tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
         probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
     },
+    PageRunBlankRecordDescendingViewFirstRow => {
+        id: "page-run-blank-record-descending-view-first-row",
+        assumed: "Page.Run (not modal) of a List page with a record that is still blank (filters only), on a view that runs descending, enters on the first row of the view; RunModal of the same enters where `=><` from the blank record lands, the last row (pinned: pages/lt-page-sourceview-current-row/PageSourceViewCurrentRow.al:140). Measured in the reporter's run on real BC.",
+        tests: "No Microsoft test: al-runner issue 6114, a partner app's list pages with SourceTableView order(descending) opened with Page.Run.",
+        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-page-sourceview-current-row/TwPageRunDescView.al:161 DescViewAscRecPageRun, :188 DescViewDescRecPageRun and the controls.",
+        awaiting: Awaiting {
+            issues: &[6114],
+            files: &["tests/al-language/pages/lt-page-sourceview-current-row/TwPageRunDescView.al"],
+            since: "2026-10-29",
+        },
+    },
+    LookupPartUpdateFalseShowsPicked => {
+        id: "lookup-part-update-false-shows-picked",
+        assumed: "A TestField.Lookup through OnLookup whose OnValidate calls a procedure of a ListPart of the page that runs CurrPage.Update(false) on the part shows the picked value, as the pinned Update(false) of the page itself does (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:469-589). Measured in the reporter's run on real BC.",
+        tests: "No Microsoft test: al-runner issue 6118, a partner app's planner page.",
+        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:644 TW_LookupOnValidateUpdatesThePart.",
+        awaiting: Awaiting {
+            issues: &[6118],
+            files: &["tests/al-language/pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al::TW_LookupOnValidateUpdatesThePart"],
+            since: "2026-10-29",
+        },
+    },
+    DrilldownMarkedRefillWithPart => {
+        id: "drilldown-marked-refill-with-part",
+        assumed: "On a list with a ListPart, after an OnDrillDown marked rows, turned MarkedOnly on and called CurrPage.Update(false), the page keeps its row and a GoToRecord of the row Rec was left on refills the rows as without a part (pinned without one: pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269, :379), in a secondary key and in the primary key, and the part follows to that row. Measured in the reporter's run on real BC.",
+        tests: "No Microsoft test: al-runner issue 6115, a partner app's worksheet with a marking tile and a ListPart.",
+        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:518 TW_NameKeyWithPart_GoToRecordOfRecsRow, :562 TW_IdKeyWithPart_GoToRecordOfRecsRow.",
+        awaiting: Awaiting {
+            issues: &[6115],
+            files: &[
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_NameKeyWithPart_GoToRecordOfRecsRow",
+                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_IdKeyWithPart_GoToRecordOfRecsRow",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    GoToKeyLastRowOfBlockReadsNextBlock => {
+        id: "gotokey-last-row-of-block-reads-next-block",
+        assumed: "TestPage GoToKey or GoToRecord that lands on the last row of a full block of rows read, with more rows after it, on a list without OnAfterGetCurrRecord, OnFindRecord or OnNextRecord: the read goes on with the next block (the last two rows again, then up to 20 new rows) and the page stands on the row found. At the end of the view the last two rows are read again (handlers/TestPageRuntimeContracts.al:331). Measured in the reporter's run on real BC.",
+        tests: "No Microsoft test: al-runner issue 6117, a partner app's lookup page run with Page.RunModal whose handler calls GoToRecord on row 40.",
+        probe: "The reporter's repro of al-runner issue 6117: GoToKey(40) on lists of 45 and 80 rows with OnAfterGetRecord logged, then Next and GoToKey(62); GoToRecord of row 40 in a ModalPageHandler, then OK. Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-testpage-list-rows/TwBlockEdge.al:125, :142, :162.",
+        awaiting: Awaiting {
+            issues: &[6117],
+            files: &["tests/al-language/pages/lt-testpage-list-rows/TwBlockEdge.al"],
+            since: "2026-10-29",
+        },
+    },
+    TreeExpandRunsNoRowTrigger => {
+        id: "tree-expand-runs-no-row-trigger",
+        assumed: "On a tree page (ShowAsTree, TreeInitialState = ExpandAll) with OnAfterGetRecord or OnAfterGetCurrRecord, the open reads the rows below the level-0 rows too (they stay hidden), and TestPage.Expand(true) and Expand(false) run no row trigger: the row and the values its OnAfterGetRecord computed stay, and the next move reads the row it lands on as any move does. Measured in the reporter's run on real BC.",
+        tests: "No Microsoft test: al-runner issue 6119, a partner app's tree list page.",
+        probe: "The reporter's repro of al-runner issue 6119: OpenView and Page.RunModal of a tree over a temporary table filled in OnOpenPage, First, Next, Expand(true), Next, Previous, Expand(false), Next, with the trigger log. Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-page-runtime/TwTreeExpandTriggers.al:123, :137, :166.",
+        awaiting: Awaiting {
+            issues: &[6119],
+            files: &["tests/al-language/pages/lt-page-runtime/TwTreeExpandTriggers.al"],
+            since: "2026-10-29",
+        },
+    },
     ShowPrintStatusInert => {
         id: "show-print-status-inert",
         assumed: "A report that sets ShowPrintStatus = true runs as one without it: Run, RunModal, Execute and SaveAs give the same triggers, order, results and handler needs. Measured by corpus writer TK on real BC, not yet in the pinned corpus; `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).",
