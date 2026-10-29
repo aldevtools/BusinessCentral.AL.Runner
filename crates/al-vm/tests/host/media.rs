@@ -177,7 +177,7 @@ fn a_look_at_the_exported_bytes_is_refused() {
     // pin, so reading what ExportStream wrote is refused (media/TestMediaPngImport.al:99-168 asserts only the signature and
     // the dimensions, which the runtime cannot produce without the encoder).
     let body = format!(
-        "Rec.Code := 'PNG2'; Rec.Insert(); {} Rec.Picture.ImportStream(ins, 'png'); Rec.Modify(); Rec.Get('PNG2');
+        "Rec.Code := 'PNG2'; Rec.Insert(); {} Rec.Picture.ImportStream(ins, 'png', 'image/png'); Rec.Modify(); Rec.Get('PNG2');
          Rec2.Src.CreateOutStream(outs); Rec.Picture.ExportStream(outs); Rec2.Src.CreateInStream(ins); ins.ReadText(a); exit(a);",
         feed("Rec", "PNG-signature-and-1x1")
     );
@@ -761,4 +761,17 @@ fn delete_of_a_row_removes_the_tenant_media_rows_of_the_items_still_in_its_media
          exit(Format(T.Get(i1)) + '|' + Format(T.Get(i2))); end;",
     );
     assert_eq!(r.unwrap(), "Yes|No");
+}
+
+// streams/StTMedia.al TR_MediaImportStream_TextContent_ExportStream (writer TR, corpus branch al-runtime-rs-staging-tr, real BC 29):
+// UTF-8 text imported with the two argument ImportStream exports as the same bytes, and ReadText gives the text back.
+#[test]
+fn text_imported_into_a_media_exports_the_same_bytes() {
+    let body = format!(
+        "Rec.Code := 'TXT'; Rec.Insert(); {} Rec.Picture.ImportStream(ins, 'receipt'); Rec.Modify(); Rec2.Get('TXT'); \
+         Tmp.Code := 'O'; Tmp.Src.CreateOutStream(outs); a := Format(Rec2.Picture.ExportStream(outs)); Tmp.Insert(); \
+         Tmp.CalcFields(Src); Tmp.Src.CreateInStream(ins); ins.ReadText(Rec.Description); exit(a + '|' + Rec.Description);",
+        feed("Rec", "Fiscal line 1: 12,50")
+    );
+    assert_eq!(text("", &body).unwrap(), "Yes|Fiscal line 1: 12,50");
 }
