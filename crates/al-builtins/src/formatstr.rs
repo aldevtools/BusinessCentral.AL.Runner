@@ -412,6 +412,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
         Value::Decimal(_) => {
             let (plain, point) = match template {
                 "<Sign><Integer><Decimals><Comma,.>" => (SIGN_INT_DEC, '.'),
+                // types/lt-format-comma-more/FormatCommaMore.al Format_SignIntegerDecimalsWidth3Comma_Lang1033/_Lang2055/_Lang1031
+                // (BC 27, 28, 29): width 3 includes the point; a longer fraction is `***`, not rounded. Only Length 0 is pinned.
+                "<Sign><Integer><Decimals,3><Comma,.>" if length == 0 => ("<Sign><Integer><Decimals,3>", '.'),
                 "<Integer><Comma,.><Decimals>" => ("<Integer><Decimals>", '.'),
                 "<Sign><Integer><Decimals><Comma,,>" => (SIGN_INT_DEC, ','),
                 // TP_Format_PrecisionStrings on corpus branch al-runtime-rs-staging-pub-tp (`p2comma.`, `p2comma,`, `p2thousand`):
@@ -1160,6 +1163,88 @@ mod tests {
 
     fn fmt(v: Value, template: &str) -> Result<Value, Signal> {
         call("System.Format#2", vec![v, Value::Integer(0), t(template)])
+    }
+
+    // types/lt-format-comma-more/FormatCommaMore.al Format_SignIntegerDecimalsWidth3Comma_Lang1033,
+    // _Lang2055 and _Lang1031 (BC 27, 28, 29): Format(Value, 0, '<Sign><Integer><Decimals,3><Comma,.>').
+    #[test]
+    fn decimal_sign_integer_decimals_width_three_comma_dot() {
+        struct Context(i32);
+        impl crate::format::FormatCtx for Context {
+            fn enum_name(&self, _: u32, _: i32) -> String {
+                unreachable!()
+            }
+            fn language(&self) -> i32 {
+                self.0
+            }
+        }
+        let cases = [
+            ("0", "0.00"),
+            ("-0", "0.00"),
+            ("1234", "1234.00"),
+            ("-1234", "-1234.00"),
+            ("0.5", "0.50"),
+            ("-0.5", "-0.50"),
+            ("1234.5", "1234.50"),
+            ("-1234.5", "-1234.50"),
+            ("0.005", "0***"),
+            ("-0.005", "-0***"),
+            ("1.234", "1***"),
+            ("-1.234", "-1***"),
+            ("1.235", "1***"),
+            ("1.995", "1***"),
+            ("99999", "99999.00"),
+            ("-99999", "-99999.00"),
+            ("1.2300", "1.23"),
+            ("999999999999999.99", "999999999999999.99"),
+        ];
+        for language in [1033, 2055, 1031] {
+            for (input, expected) in cases {
+                assert_eq!(
+                    super::format_with_string(
+                        &Value::Decimal(input.parse().unwrap()),
+                        0,
+                        "<Sign><Integer><Decimals,3><Comma,.>",
+                        &Context(language),
+                    ),
+                    Ok(expected.to_string()),
+                    "language {language}, Decimal {input}",
+                );
+            }
+        }
+        assert_eq!(
+            text(fmt(
+                Value::Decimal("1234.5".parse().unwrap()),
+                "<Sign><Integer><Decimals,3><Comma,.>"
+            )),
+            "1234.50"
+        );
+    }
+
+    // Only Length 0 is pinned (FormatCommaMore.al Format_SignIntegerDecimalsWidth3Comma_*); a nonzero Length is refused.
+    #[test]
+    fn decimal_sign_integer_decimals_width_three_comma_dot_with_length_is_refused() {
+        struct Context;
+        impl crate::format::FormatCtx for Context {
+            fn enum_name(&self, _: u32, _: i32) -> String {
+                unreachable!()
+            }
+            fn language(&self) -> i32 {
+                1033
+            }
+        }
+        for length in [3, 10, -10] {
+            let result = super::format_with_string(
+                &Value::Decimal("1234.5".parse().unwrap()),
+                length,
+                "<Sign><Integer><Decimals,3><Comma,.>",
+                &Context,
+            );
+            assert!(
+                result.as_ref().is_err_and(|e| e.contains("<Comma")),
+                "length {length}: {result:?}"
+            );
+        }
     }
 
     // Microsoft's Remittance Advice and Finance Charge Memo reports: Format(Amount, 0, AutoFormat.ResolveAutoFormat(.., 'GBP')) =
