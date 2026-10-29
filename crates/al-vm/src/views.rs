@@ -22,13 +22,13 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 }
 
 /// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
-/// TestSetFilterSpecialTextContracts.al, BC 27.5), and `..`.
+/// TestSetFilterSpecialTextContracts.al, filters/W4Filters.al:174-191), and `..`.
 fn needs_quotes(s: &str) -> bool {
-    s.contains(['|', '&', '<', '=', '(', ')']) || s.contains("..")
+    s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
 
 /// Characters in a value `GetFilter` cannot show yet: nothing pins them.
-const FILTER_UNPINNED: &[char] = &['>', '*', '?', '"'];
+const FILTER_UNPINNED: &[char] = &['*', '?', '"'];
 
 impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
@@ -74,10 +74,11 @@ impl Session {
                 return Ok("''".into());
             }
             if needs_quotes(s) {
-                if s.contains(FILTER_UNPINNED) || s.contains('\'') || s.starts_with('@') {
+                if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
                     return unsupported("a filter value that needs quoting and holds more filter characters");
                 }
-                return Ok(format!("'{s}'"));
+                // record/TestFilterQuotedLiterals.al:95-105: an apostrophe in a quoted value is doubled.
+                return Ok(format!("'{}'", s.replace('\'', "''")));
             }
             if s.contains(FILTER_UNPINNED) || s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
@@ -471,6 +472,13 @@ impl Session {
                             .trim()
                             .strip_prefix('\'')
                             .and_then(|v| v.strip_suffix('\''))
+                            // GetView quotes literal Text/Code operators; SetView must not reinterpret them.
+                            .filter(|_| {
+                                !matches!(
+                                    ty,
+                                    al_builtins::value::RtType::Text(_) | al_builtins::value::RtType::Code(_)
+                                )
+                            })
                             // Only a literal that starts with a comparison operator (`'>10'`, `'>=2'`) is read as a filter; a quoted name such as a
                             // member with parentheses keeps its quotes (record/TestCalcFormulaQuotedFilterTests.Codeunit.al:60308).
                             .filter(|v| !v.contains('\'') && !v.contains('"') && v.starts_with(['<', '>']))
