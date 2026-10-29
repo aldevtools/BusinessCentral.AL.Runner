@@ -1,11 +1,14 @@
 # Corpus cases the runtime passes. CI fails if any of these stops passing.
 # Regenerate with `al-test-cli --update-baseline`; never edit by hand to hide a regression.
+61400 ClrResults_ReadAsTheirAlKind
 61400 CopyStream_WithAMemoryStream
 61400 DateTimeOffset_LocalDateTimeAndOffset
 61400 EnumOperators
 61400 Foreach_Failures_HaveTheirTextsAndCodes
 61400 FormatOfDotNetObjects_IsToString
 61400 IntegerProperties_TakePartInIntegerExpressions_AndStringCompareIsCaseSensitive
+61400 NullStringResult_IsEmptyInExpressions
+61400 QA_StringResult_IntoSecretText
 61401 Equal_TextShapes
 61401 Plus_TextShapes
 61402 Compare_Order
