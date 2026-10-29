@@ -20,6 +20,7 @@ fn manifest(publisher: &str, resources: Vec<(String, Vec<u8>)>) -> Manifest {
         resources,
         include_source: false,
         target: String::new(),
+        logo: None,
         layout_files: Vec::new(),
         id_ranges: Vec::new(),
         translations: false,

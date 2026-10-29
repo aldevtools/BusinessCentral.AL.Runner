@@ -12718,6 +12718,9 @@
 73898 Record_FilterGroup_Setter_Comparison
 73902 PageMethod_CloseCall
 73902 PageMethod_UpdateAction
+73904 This_Table_InsertTrigger
+73904 This_Table_PassedOn
+73904 This_Table_Proc_Var_Field
 73918 Query_ColumnNamedOpen
 73918 Query_FilterNamedOpen
 73918 Query_FilterNamedOpen_NoFilter
@@ -14571,6 +14574,7 @@
 79650 Ap17_NotBlank_PageWithoutSourceTable
 79750 CalcFields_ExtensionDataItem_Values
 79750 CalcFields_NormalField_Run
+79750 Layout_NoSubtype_DefaultAndLayoutList
 79750 SystemId_TwoRuns_SameAsRow
 79750 WordMergeDataItem_SaveAsXml_SameDataSet
 79751 Actions_DisabledAndHidden_Invoke

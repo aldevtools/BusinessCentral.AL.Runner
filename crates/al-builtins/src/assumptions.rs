@@ -200,11 +200,52 @@ registry! {
         tests: "Sales-Calc. Discount Test LcyDiscountTest and ERM Sales Quotes SalesQuoteWithContact (a dimension set entry must carry a nonzero Dimension Value ID); Production & Assembly Costing AssemblyOrderWithDimensionShouldPostWithoutError.",
         probe: "Not measurable from the corpus (it depends on the import tool): import a RapidStart package into Dimension Value and read the field. Until then the rule rests on the field being AutoIncrement and absent from Microsoft's package.",
     },
-    DatabaseTriggerSetupPerCompany => {
-        id: "database-trigger-setup-per-company",
-        assumed: "The answer of the Global Triggers event GetDatabaseTableTriggerSetup is not reused after the session's company changes (the install baseline's per-database roots run with no company after the per-company roots).",
-        tests: "Microsoft's install roots Plan Installer, Upgrade Tag Install and No. Series Copilot Install must run to their end on real BC for Microsoft's tests to pass; their setup subscribers (Change Log Management.GetDatabaseTableTriggerSetup, CRM Integration Management.GetDatabaseTableTriggerSetup) exit when CompanyName() is empty.",
-        probe: "A GetDatabaseTableTriggerSetup subscriber that logs CompanyName(); write a table, ChangeCompany, write it again: is the setup asked again per company? Asked in corpus #651.",
+    InstallTriggerSetupPerCompanyOnly => {
+        id: "install-trigger-setup-per-company-only",
+        assumed: "While install code runs, the platform asks the Global Triggers subscribers for a table's database trigger setup once in each company of the per-company part (with that company open, so a subscriber can read a per-company table), and never in the per-database part, where no company is open: a write there raises no database event.",
+        tests: "No Microsoft test: al-runner issue 6148 (a 45-app AppSource suite whose OnInstallAppPerDatabase writes a table while a GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup subscriber reads a per-company table without a CompanyName() guard; it installs on the reporter's real-BC run). Microsoft's install roots Plan Installer, Upgrade Tag Install and No. Series Copilot Install run through the same path.",
+        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart.",
+        awaiting: Awaiting {
+            issues: &[6148],
+            files: &["tests/al-language/install/lt-ug-install-trigger-setup/UgInstallTests.al"],
+            since: "2026-10-29",
+        },
+    },
+    AllObjTableDataRowOfDependencyTable => {
+        id: "allobj-tabledata-row-of-dependency-table",
+        assumed: "AllObj has a TableData row for each table of a dependency app, with the Table row's name, namespace, package id and runtime package id; a table that does not exist has none. The rows of the app under test's tables and of platform tables stay refused.",
+        tests: "No Microsoft test: al-runner issue 6148 (install code that asks AllObj for the TableData row of Contact before it seeds setup rows; it installs on the reporter's real-BC run).",
+        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm.",
+        awaiting: Awaiting {
+            issues: &[6148],
+            files: &[
+                "tests/al-language/metadata/lt-all-obj-namespace/AllObjNamespace.al::UG_AllObj_TableDataRow_OfContact_AllColumns",
+                "tests/al-language/metadata/lt-all-obj-namespace/AllObjNamespace.al::UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    PublishedApplicationLogoBlankWithoutManifestLogo => {
+        id: "published-application-logo-blank-without-manifest-logo",
+        assumed: "The Logo (column 20) of the Published Application row of an app whose app.json declares no logo is blank (no value, null MediaId, no Media row). The Logo of any other app (Microsoft's apps, an app that declares a logo, an app whose manifest was not read) stays refused: its content is not pinned.",
+        tests: "No Microsoft test: al-runner issue 6148 (Company-Initialize reaches Guided Experience Impl.GetIconInStream for the apps that register assisted setup entries; it runs on the reporter's real-BC run).",
+        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), onprem PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps. Still wanted: an app with a logo in app.json, and whether the Media content is the logo file's bytes.",
+        awaiting: Awaiting {
+            issues: &[6148],
+            files: &["tests/al-language-onprem/session/PZPublishedApplicationColumns.al::Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps"],
+            since: "2026-10-29",
+        },
+    },
+    ReportLayoutListBuiltInNotUserDefined => {
+        id: "report-layout-list-built-in-not-user-defined",
+        assumed: "\"User Defined\" (column 14) of a Report Layout List row of an RDLC or Word layout declared in AL is No; a report without layouts has no rows. Excel and Custom layouts stay refused.",
+        tests: "No Microsoft test: al-runner issue 6191 (ForNAV Rep Lay Sel Core.GetBuiltInLayout, reached from an app's install code; it runs on the reporter's real-BC run).",
+        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), UgReportLayoutList.al. Still wanted: an Excel and a Custom layout.",
+        awaiting: Awaiting {
+            issues: &[6191],
+            files: &["tests/al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al"],
+            since: "2026-10-29",
+        },
     },
     GetUrlWebBaseAddress => {
         id: "geturl-web-base-address",
