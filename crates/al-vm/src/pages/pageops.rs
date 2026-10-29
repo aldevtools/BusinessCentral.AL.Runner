@@ -197,6 +197,7 @@ impl Session {
             }
             Some(Value::TestPage(st)) => {
                 let st = st.clone();
+                self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.marked_only_unshown_call(method, &st, |s| {
                     s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op(method, &st, args))
@@ -205,6 +206,7 @@ impl Session {
             Some(Value::TestControl(c)) => {
                 let c = c.clone();
                 let page = c.page.clone();
+                self.pending_add_in_reread(&page, method.method())?;
                 self.marked_only_unshown_call(method, &page, |s| {
                     s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
                         s.test_control_op(method, &c, args)

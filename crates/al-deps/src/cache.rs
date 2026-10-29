@@ -138,6 +138,26 @@ pub fn local_country_files(root: &Path, build: &BuildId, country: &str) -> Vec<(
     out
 }
 
+/// The compiled packages of an extracted country artifact: `<root>/<build>/<country>/Extensions/*.app`, as (entry
+/// name as the archive would spell it, path). Empty when the folder is not there.
+pub fn local_country_extensions(root: &Path, build: &BuildId, country: &str) -> Vec<(String, PathBuf)> {
+    let dir = root
+        .join(build.as_str())
+        .join(country.to_ascii_lowercase())
+        .join("Extensions");
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, PathBuf)> = rd
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file())
+        .filter_map(|p| Some((format!("Extensions/{}", p.file_name()?.to_string_lossy()), p)))
+        .filter(|(n, _)| n.to_ascii_lowercase().ends_with(".app"))
+        .collect();
+    out.sort();
+    out
+}
+
 pub struct Store {
     artifacts: PathBuf,
 }

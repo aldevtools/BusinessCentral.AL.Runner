@@ -1609,6 +1609,14 @@ pub enum Expr {
         message: String,
         code: String,
     },
+    /// A call of a procedure of a control add-in (`CurrPage.<usercontrol>.Method(..)`). Outside a client the add-in is never
+    /// created: from BC 28 the call raises 'The control add-in on control <control> on page <page> has not been instantiated.'
+    /// (code DotNetControlAddInNotCreated); before BC 28 it refuses when it runs (al-version
+    /// `Gate::ControlAddInNotInstantiatedErrorFrom28`). The arguments are not evaluated.
+    ControlAddInCall {
+        control: String,
+        page: String,
+    },
     /// `value is I` (`cast` false: a Boolean) or `value as I` (`cast` true: the same interface
     /// value) on an interface value. `objects` are the codeunits that implement `I`.
     InterfaceTest {

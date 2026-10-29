@@ -36,14 +36,8 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
                 ));
             };
             let Some(kind) = UiKind::from_attribute(kind_attr) else {
-                let why = match kind_attr.to_ascii_lowercase().as_str() {
-                    "filterpagehandler" => {
-                        "no corpus test pins how FilterPageBuilder.RunModal reaches a filter page handler"
-                    }
-                    _ => "this handler kind",
-                };
                 return Err(format!(
-                    "handler {} is a [{kind_attr}]: {why}, which is not implemented yet",
+                    "handler {} is a [{kind_attr}]: this handler kind, which is not implemented yet",
                     routine.name
                 ));
             };

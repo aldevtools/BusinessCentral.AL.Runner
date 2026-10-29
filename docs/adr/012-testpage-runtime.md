@@ -462,6 +462,8 @@ reportextensions that extend a request page merge in like page extensions
 7. **`RunRequestPage` commits the transaction world it entered, as `Run`
    does.** No corpus test reads the data afterwards.
 8. **FilterPageBuilder**: `RunModal` and `[FilterPageHandler]` are refused (no
-   corpus test calls them); the default `PageCaption` is `Filter`; `AddRecord`
+   corpus test calls them; superseded 2026-10-29: filterpage/W3FilterPageBuilder.al and
+   platform/lt-platform-members/PlTFilterPageBuilder.al pin a one-table builder, see
+   `Session::ui_filter_page`); the default `PageCaption` is `Filter`; `AddRecord`
    and `AddRecordRef` copy the record; error sentences other than the two the
    corpus pins in full are filled in around the control name.

@@ -107,6 +107,20 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 }
 
 registry! {
+    CrossAppSubscriberOrderByAppId => {
+        id: "cross-app-subscriber-order-by-app-id",
+        assumed: "Subscribers of one event in apps that do not depend on each other run app by app in this order: the apps visited in ascending app id, each app's dependencies placed before it (depth first, post-order); inside an app in ascending codeunit id. Used only where every reading the probe allows (dependencies visited in ascending id, declared order or descending id; apps sorted by publisher first or not) gives the same order; otherwise the raise is refused.",
+        tests: "No Microsoft test: NP Retail run with its test app (both apps under test), where Tests-TestLibraries and NP Retail subscribe to the same event. Pinned on the corpus branch al-runtime-rs-staging-ua (bump PR 794), not yet in the pinned corpus.",
+        probe: "Written: corpus branch al-runtime-rs-staging-ua, BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps and SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp. Still wanted: an app whose two unrelated dependencies are declared against app id order (which dependency BC visits first), and apps of different publishers whose publisher order differs from their app id order.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps",
+                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp",
+            ],
+            since: "2026-10-29",
+        },
+    },
     ReadUncommittedReadOpensNoWriteTransaction => {
         id: "readuncommitted-read-opens-no-write-transaction",
         assumed: "A read under ReadIsolation ReadUncommitted does not open a write transaction (IsInWriteTransaction No, a guarded Codeunit.Run allowed), as a ReadCommitted read does not (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `readcommitted_read` No).",
@@ -226,6 +240,17 @@ registry! {
         assumed: "A report extension of another app's report may declare a local procedure with the name and parameter types of a public or protected procedure of its base. A bare call in the extension's code runs the extension's local procedure; the base's own calls and calls on a report variable from outside run the base's procedure. Pinned for a page extension (pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al); assumed alike for a report extension.",
         tests: "No Microsoft test and no user report for a report extension: the reported page extension shape is pinned (ExtLocalSameNameTests.al), and the lowering treats both extension kinds alike.",
         probe: "The page extension test of ExtLocalSameNameTests.al repeated with a report extension of another app's report: bare calls from the extension, the base's own calls, and a call on a report variable from a test codeunit.",
+    },
+    EnumTypeBeforeRecField => {
+        id: "enum-type-before-rec-field",
+        assumed: "In a procedure (not the OnRun trigger) of a codeunit with TableNo, `X::Value` where the Rec has a field `X` and an enum type `X` exists names the enum type `X`, whatever values either enum has; a `with` record, a local or a global variable `X` still comes first. In the OnRun trigger, in a table and in a page, `X` stays the field.",
+        tests: "No Microsoft test: al-runner issue 6129 (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value). Pinned on the corpus branch al-runtime-rs-staging-ub (EnumTypeBeforeRecField.al and must-not-compile 2262 to 2267, bump PR 793), not yet in the pinned corpus.",
+        probe: "Written: corpus branch al-runtime-rs-staging-ub, tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (7 tests) and must-not-compile 2262 to 2267; lands with the bump of corpus PR 793.",
+        awaiting: Awaiting {
+            issues: &[6129],
+            files: &["tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al"],
+            since: "2026-10-29",
+        },
     },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
@@ -1102,6 +1127,22 @@ registry! {
         assumed: "An Insert(true) that runs no AL code, into a table with an AutoIncrement field, with nothing buffered, is sent at once: one statement that reads one row, plus the one statement of the session's first write to the table when its Global Triggers setup enables nothing; it leaves nothing buffered. Only the sum of the reporter's loop is pinned: five FindFirst that find nothing, each followed by such an Insert, 11/5 (session/lt-bl-sql-counters/SkSqlBudget.al:600 TW_FindFirstOrInsert_Counts, with FindFirst 1/0 from :786 and the first write from SZ_FirstInsert_*).",
         tests: "No Microsoft test: an outside reporter's partner-app SQL budget test (SkSqlBudget.al TW_FindFirstOrInsert_Counts).",
         probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
+    },
+    ControlAddInCallTriggerContexts => {
+        id: "control-add-in-call-trigger-contexts",
+        assumed: "A control add-in call (the add-in is never created in a test session) in a card's OnAfterGetRecord or OnAfterGetCurrRecord during TestPage.OpenEdit raises the add-in's error itself (code DotNetControlAddInNotCreated, with `:TargetInvocation` added out of OnAfterGetCurrRecord) instead of closing the page, and in OnClosePage it comes wrapped as an AL Error does (`One or more errors occurred while closing the page.`, TestWrapped). After an action of a card failed on such a call, the card reads its row again (OnAfterGetRecord, OnAfterGetCurrRecord) before the next call on the page: the TZ tests show the read after a failed Invoke in a TryFunction followed by another Invoke, and no read when the log is taken right after the failed Invoke, so when exactly it runs is assumed. Pinned by corpus writer TZ on corpus master (commit 01d7177f, PR 792), not yet in the pinned corpus.",
+        tests: "No Microsoft test: ADR-027 section 3 row 18 (control add-ins in test sessions).",
+        probe: "Done on corpus master (PR 792): lt-ac/ACControlAddIn.al TZ_*; wanted: the bump that puts them in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetRecord_TestPageOpen",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetCurrRecord_TestPageOpen",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnClosePage_TestPageClose",
+                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_TwoProceduresFromActions_PageStaysUsable",
+            ],
+            since: "2026-10-29",
+        },
     },
 }
 

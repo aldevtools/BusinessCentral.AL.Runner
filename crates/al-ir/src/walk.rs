@@ -572,7 +572,11 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
                 walk_expr(a, v);
             }
         }
-        Expr::BaseInstance | Expr::ThisInstance | Expr::Refused(_) | Expr::Fail { .. } => {}
+        Expr::BaseInstance
+        | Expr::ThisInstance
+        | Expr::Refused(_)
+        | Expr::Fail { .. }
+        | Expr::ControlAddInCall { .. } => {}
     }
 }
 

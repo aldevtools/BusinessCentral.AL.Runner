@@ -36,6 +36,7 @@ pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 mod callstack;
 mod companies;
+mod control_add_in;
 mod dataset;
 mod dispatch;
 pub mod dotnet;

@@ -313,6 +313,7 @@ impl Session {
                             call_stack: String::new(),
                             ..Default::default()
                         })),
+                        FaultKind::ControlAddIn { control, page } => self.control_add_in_call(control, page),
                     });
                 }
                 Op::DotNetClear => self.dotnet.clear_null_string(),
