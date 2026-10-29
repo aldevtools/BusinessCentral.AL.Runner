@@ -496,13 +496,7 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 // on import when the port runs (not pinned). An export reads the rows in the view's order and through its
                 // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
                 // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
-                // is not pinned on export.
-                let linked = s.properties().any(|q| q.name().eq_ignore_ascii_case("linktable"));
-                if !linked && p.value_text().to_ascii_lowercase().contains("where") {
-                    out.export_reasons.push(format!(
-                        "sourcetableview with a filter on the {section_name} {name}, which is not linked, is not pinned on export"
-                    ));
-                }
+                // runs under assumption `xmlport-view-filter-unlinked` (al-vm xmlports.rs `xp_apply_source_views`).
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
                 // Refused when the port runs, not when it is declared: Base App's xmlport 1 sets
                 // MinOccurs, MaxOccurs, Occurrence and SourceTableView, and tests reach it only
