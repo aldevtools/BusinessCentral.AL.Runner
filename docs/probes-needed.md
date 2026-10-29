@@ -238,6 +238,12 @@ wanted on real BC.
 | Test data | `SystemRowVersion` of a restored row is its `timestamp`. A session over a `.bak` hands out row versions after the database timestamp of the boot page (at or above every row's `timestamp`; SQL Server's counter is database wide), so new rows sort after restored rows and `MinimumActiveRowVersion` freezes under codeunit isolation as without test data. The exact start value (the persisted database timestamp, not the highest row's) is not pinned; no probe can pin it without a restored database. Over a `.bacpac` or a configuration package the start is not known: `LastUsedRowVersion` and `MinimumActiveRowVersion` are refused, and a restored row above the database timestamp refuses its table | none | `al-vm/src/lib.rs` `Session::with_host`, `al-bcdb/src/catalog.rs` `db_timestamp` |
 | Test data | The Company table is a platform table the runtime keeps itself, so `CompanyId` is the runtime's fixed id, not the `Id` of the restored company's row, and a second company of the backup (`My Company`) is not a company of the session | none | `al-vm/src/testdata.rs` |
 
+## Companies (ADR-046 amendment 4)
+
+| Area | What is assumed | Source today | Code |
+|---|---|---|---|
+| Companies | Nothing assumed. REFUSED under `--companies` without test data: CRM Connection Setup (Base Application) in "My Company", which Base Application's database trigger setup reads on every insert there. Probe wanted (corpus issue 811): `CRM Connection Setup` `IsEmpty`/`Count` after `ChangeCompany('My Company')`, next to `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany` (install/lt-bf-install-probes/BfInstallTests.al). Pinned, it lets the corpus take the `companies` key with no case lost (measured: 27, 28, 29 each +9, 0 lost). | Microsoft's demo database: 0 rows in both companies | `al-vm/src/companies.rs` |
+
 ## Probe batch 4 (from Microsoft buckets)
 
 Gaps found by running Microsoft's BaseApp test buckets under `alrunner test` (2026-10-14, branch

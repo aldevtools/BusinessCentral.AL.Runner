@@ -241,6 +241,11 @@ pub(crate) fn run_codeunit_core(
         // Already run once for the whole run, with the baseline.
         Some(skipped) => skipped,
         None => {
+            // As the baseline does (`baseline::run_traced`, ADR-046 amendment 4): the corpus CI database's session company
+            // is an evaluation company.
+            if session.engine.test_data.is_none() && session.companies().len() > 1 {
+                session.mark_evaluation_company();
+            }
             session.set_install_scope(true);
             let skipped = run_install_codeunits(lowered, &mut session);
             session.set_install_scope(false);
