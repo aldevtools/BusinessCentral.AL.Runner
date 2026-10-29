@@ -1230,6 +1230,15 @@
           "site": "pageext/lt-z-modify-controls/ZModifyControls.al:76"
         },
         {
+          "corpus_uses": 1,
+          "group": "pageextension/modify",
+          "ms_uses": 0,
+          "name": "OnBeforeAction",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "pages/lt-ab-action-addin/ABActionAddIn.al:122"
+        },
+        {
           "corpus_uses": 9,
           "group": "pageextension/modify",
           "ms_uses": 0,
@@ -1687,15 +1696,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "pages/lt-pages-xmlport-upload-members/P112PagesMod.al:63"
-        },
-        {
-          "corpus_uses": 1,
-          "group": "pageextension/modify",
-          "ms_uses": 0,
-          "name": "OnBeforeAction",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "pages/lt-ab-action-addin/ABActionAddIn.al:122"
         }
       ],
       "pinned": 187
@@ -15712,6 +15712,15 @@
           "site": "network/lt-ay-http-handler/AyHttpHandler.al:35"
         },
         {
+          "corpus_uses": 2,
+          "group": "procedure",
+          "ms_uses": 0,
+          "name": "HyperlinkHandler",
+          "pinned": true,
+          "runtime_reads": true,
+          "site": "handlers/W3Hyperlink.al:19"
+        },
+        {
           "corpus_uses": 34,
           "group": "procedure",
           "ms_uses": 0,
@@ -15854,15 +15863,6 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:160"
-        },
-        {
-          "corpus_uses": 2,
-          "group": "procedure",
-          "ms_uses": 0,
-          "name": "HyperlinkHandler",
-          "pinned": true,
-          "runtime_reads": false,
-          "site": "handlers/W3Hyperlink.al:19"
         }
       ],
       "pinned": 33
@@ -16090,7 +16090,7 @@
         "code": "InvalidOperation",
         "file": "crates/al-builtins/src/native.rs",
         "generic": false,
-        "line": 907,
+        "line": 912,
         "pinned": true,
         "site": "codeunit/TestInterfaceRuntimeContracts.al:85",
         "template": "Interface not initialized"
@@ -16495,7 +16495,7 @@
         "code": "StackOverflow",
         "file": "crates/al-vm/src/lib.rs",
         "generic": false,
-        "line": 1904,
+        "line": 1913,
         "pinned": true,
         "site": "codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:95",
         "template": "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator."
@@ -16513,7 +16513,7 @@
         "code": "FormCloseNotAllowed",
         "file": "crates/al-vm/src/pages/open.rs",
         "generic": false,
-        "line": 1631,
+        "line": 1646,
         "pinned": true,
         "site": "handlers/TestPageCloseVeto_Tests.al:259",
         "template": "The page cannot be closed at this time."
@@ -16693,7 +16693,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 292,
+        "line": 298,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16702,7 +16702,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 365,
+        "line": 371,
         "pinned": true,
         "site": "handlers/lt-az-handlers/AzHandlerTests.al:271",
         "template": "Unhandled UI: FilterPage 9598"
@@ -16711,7 +16711,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 548,
+        "line": 554,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16720,7 +16720,7 @@
         "code": "MissingUIHandler",
         "file": "crates/al-vm/src/ui.rs",
         "generic": false,
-        "line": 576,
+        "line": 582,
         "pinned": true,
         "site": "controls/W2PageVariableInit.al:289",
         "template": "Unhandled UI: % %"
@@ -16802,7 +16802,7 @@
         "pinned": true,
         "scope": "",
         "site": "pages/lt-ab-action-addin/ABActionAddIn.al:122",
-        "state": "refused"
+        "state": "implemented"
       },
       {
         "area": "triggers",
@@ -30215,7 +30215,7 @@
         "pinned": true,
         "scope": "",
         "site": "handlers/W3Hyperlink.al:19",
-        "state": "unknown"
+        "state": "implemented"
       },
       {
         "area": "attributes",
