@@ -40,6 +40,12 @@ pub(crate) const XP_VIEW_AFTER_EXPORT: &str = "the table element record's view a
 /// left there, which is not pinned either (generic unpinned buffer rules, [`Session::unpinned_buffer_op`]).
 pub(crate) const XP_BUFFER_AFTER_EXPORT: &str = "the table element record's buffer after an export under SourceTableView is not pinned (the row the export left there)";
 
+/// The `RecordState::unpinned_buffer` reason of a table element record with MaxOccurs = Once after an export that found three
+/// or more rows with export triggers: only the first row is written (QrXpContainerOccurs.al TS_Again_TrMember on branch
+/// al-runtime-rs-staging-pub-ts), the row the record holds afterwards is not pinned (generic rules,
+/// [`Session::unpinned_buffer_op`]).
+pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table element record holds after an export of three or more rows with export triggers is not pinned";
+
 /// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
 pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
     rec.borrow()

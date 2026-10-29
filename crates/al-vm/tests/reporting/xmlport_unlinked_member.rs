@@ -102,6 +102,11 @@ xmlport 83 "MB Reply"
     begin
         exit(Log);
     end;
+
+    procedure CardNo(): Text
+    begin
+        exit(card.CardNo);
+    end;
 }
 
 codeunit 84 C
@@ -146,6 +151,31 @@ codeunit 84 C
         P.AddCard(2, 'CARD-2');
         exit(Export(P));
     end;
+
+    procedure ThreeCards(): Text
+    var
+        P: XmlPort "MB Reply";
+        First: Text;
+    begin
+        P.AddResponse(5, 'M-100', 'ann@example.com');
+        P.AddCard(1, 'CARD-1');
+        P.AddCard(2, 'CARD-2');
+        First := Export(P);
+        P.AddCard(0, 'CARD-0');
+        exit(First + ' # ' + Export(P));
+    end;
+
+    procedure ThreeCardsThenRead(): Text
+    var
+        P: XmlPort "MB Reply";
+    begin
+        P.AddResponse(5, 'M-100', 'ann@example.com');
+        P.AddCard(1, 'CARD-1');
+        P.AddCard(2, 'CARD-2');
+        P.AddCard(3, 'CARD-3');
+        Export(P);
+        exit(P.CardNo());
+    end;
 }
 "#;
 
@@ -172,5 +202,34 @@ fn a_reply_with_two_cards_writes_the_first() {
         format!(
             "{HEAD}<card>|<cardnumber>CARD-1</cardnumber>|</card>|</member>|</reply>|</root>|get reply M-100;get card CARD-1;"
         )
+    );
+}
+
+// TS_Again_TrMember (branch al-runtime-rs-staging-pub-ts): a second export reads the cards again from the start; with three
+// cards, a card added in between that sorts first is the one written, with one OnAfterGetRecord.
+#[test]
+fn a_later_export_with_three_cards_writes_the_first() {
+    let card = |no: &str, log: &str| {
+        format!(
+            "{HEAD}<card>|<cardnumber>{no}</cardnumber>|</card>|</member>|</reply>|</root>|get reply M-100;get card {log};"
+        )
+    };
+    assert_eq!(
+        run("ThreeCards"),
+        format!(
+            "{} # {}",
+            card("CARD-1", "CARD-1"),
+            card("CARD-0", "CARD-1;get reply M-100;get card CARD-0")
+        )
+    );
+}
+
+// Which card the record holds after an export of three cards is not pinned: reading it refuses.
+#[test]
+fn the_card_after_an_export_of_three_cards_is_refused() {
+    let r = al_testkit::run_in(SRC, "C", "ThreeCardsThenRead");
+    assert!(
+        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("three or more rows")),
+        "{r:?}"
     );
 }

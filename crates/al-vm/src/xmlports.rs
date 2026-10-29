@@ -2612,7 +2612,9 @@ impl Session {
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
-                    rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+                    if rec.borrow().unpinned_buffer != Some(crate::records::XP_ROW_AFTER_ONCE) {
+                        rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
+                    }
                 }
             }
         }
@@ -3241,21 +3243,30 @@ impl Session {
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
         // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
-        // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. More rows are not pinned.
+        // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. With three rows only the
+        // first is written, with one OnAfterGetRecord (TS_Again_TrMember on branch al-runtime-rs-staging-pub-ts); the row the
+        // record holds afterwards is not pinned, so its buffer is marked ([`crate::records::XP_ROW_AFTER_ONCE`]).
         let mut ends_on = None;
+        let mut ends_unpinned = false;
         if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
                 if rows.len() > 2 {
-                    return unsupported(
-                        "XmlPort export of a table element with MaxOccurs = Once, more than two rows and export triggers (not pinned)",
-                    );
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
+                    ends_unpinned = true;
+                } else {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                    ends_on = rows.pop();
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
-                ends_on = rows.pop();
             }
             rows.truncate(1);
         }
         let rec = self.xp_record(inst, n)?;
+        if rows.is_empty() && !n.min_zero && rec.borrow().unpinned_buffer == Some(crate::records::XP_ROW_AFTER_ONCE) {
+            return unsupported(format!(
+                "XmlPort export of a table element without rows that writes its record as it is: {}",
+                crate::records::XP_ROW_AFTER_ONCE
+            ));
+        }
         // A table element without rows still passes its fields once, without a row: OnBeforePassField runs and no
         // OnAfterGetRecord (P94XpPathFlow.al:Export_PathsNoRows). Unless it is optional, the element is written once with the
         // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
@@ -3300,6 +3311,9 @@ impl Session {
         }
         for row in rows {
             self.load(&rec, row)?;
+            if rec.borrow().unpinned_buffer == Some(crate::records::XP_ROW_AFTER_ONCE) {
+                rec.borrow_mut().unpinned_buffer = None;
+            }
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
@@ -3327,6 +3341,9 @@ impl Session {
         }
         if let Some(row) = ends_on {
             self.load(&rec, row)?;
+        }
+        if ends_unpinned {
+            rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_ROW_AFTER_ONCE);
         }
         Ok(out)
     }

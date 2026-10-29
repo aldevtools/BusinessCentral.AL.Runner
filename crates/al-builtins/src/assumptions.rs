@@ -838,7 +838,7 @@ registry! {
     },
     XmlportExportAgain => {
         id: "xmlport-export-again",
-        assumed: "A table element record after an export under its SourceTableView holds the last row the export read (with its SystemId), the view's key, the filters the code set, and the view's filters in a filter group GetView does not show (Count counts through them). Field reads, Count, GetView(false), SetCurrentKey, SetRange and SetFilter in filter group 0, Init (primary key kept, SystemId null), TransferFields(From, true) from the same table (SystemId not copied) and an assignment to it (SystemId copied) run on it; Reset gives it the primary key and no filters. A later Export on the same instance reads every table element from the start, keeps each record's current key and applies the SourceTableView filters again; a required table element without rows writes its record as it is. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
+        assumed: "A table element record after an export under its SourceTableView holds the last row the export read (with its SystemId), the view's key, the filters the code set, and the view's filters in a filter group GetView does not show (Count counts through them). Field reads, Count, GetView(false), SetCurrentKey, SetRange and SetFilter in filter group 0, Init (primary key kept, SystemId null), TransferFields(From, true) from the same table (SystemId not copied) and an assignment to it (SystemId copied) run on it; Reset gives it the primary key and no filters. A later Export on the same instance reads every table element from the start, keeps each record's current key and applies the SourceTableView filters again; a required table element without rows writes its record as it is. A MaxOccurs = Once table element with export triggers and three or more rows writes the first with one OnAfterGetRecord (the row its record holds afterwards is refused). Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
         tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (one port instance exported twice).",
         probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_* and TS_View_SecondExport; wanted: the bump that puts them on corpus master. Not covered: SetView on such a record before a later export, a view with ORDER on a later export.",
         awaiting: Awaiting {
@@ -852,6 +852,7 @@ registry! {
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_LineFilter",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_View_SecondExport",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_TrBooking",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_TrMember",
             ],
             since: "2026-10-29",
         },
