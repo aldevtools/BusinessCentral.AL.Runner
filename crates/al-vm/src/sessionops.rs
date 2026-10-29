@@ -319,7 +319,12 @@ impl Session {
                         "Database.MinimumActiveRowVersion in a write transaction or after a Commit that made writes durable (the exact value is not pinned; probe wanted)",
                     );
                 }
-                return Ok(Value::BigInteger(self.tx.committed_row_version.max(1) + 1));
+                return match self.last_used_row_version() {
+                    Ok(last) => Ok(Value::BigInteger(last + 1)),
+                    Err(why) => unsupported(format!(
+                        "Database.MinimumActiveRowVersion after {why} (LastUsedRowVersion is not pinned there)"
+                    )),
+                };
             }
             // Set when given a value, read otherwise; the default is the documented one
             // (docs/probes-needed.md). session/TestSystemExtended.al:608-630 only calls it.

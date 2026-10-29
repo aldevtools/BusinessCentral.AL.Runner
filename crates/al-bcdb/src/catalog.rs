@@ -23,6 +23,25 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub const BOOT_PAGE_FIRST_SYSINDEXES_OFFSET: usize = 612;
+/// The database timestamp in the boot page (1:9): an 8-byte little-endian number at or above the `timestamp` of every
+/// row the database holds (SQL Server persists it ahead of the values it hands out). Observed on the BC 27.5 (W1, US),
+/// 28.5 and 29.0 demo backups: 366000 over a highest row timestamp of 358499, 186000 over 180976, 378000 over 370603
+/// and 373178.
+pub const BOOT_PAGE_DB_TIMESTAMP_OFFSET: usize = 412;
+
+/// The database timestamp of the boot page ([`BOOT_PAGE_DB_TIMESTAMP_OFFSET`]).
+pub fn db_timestamp(pf: &PageFile) -> Result<u64> {
+    let boot = pf.page(1, 9)?;
+    if header::page_type(&boot) != 13 {
+        return Err(Error::InvalidData("page (1:9) is not the boot page".into()));
+    }
+    let at = BOOT_PAGE_DB_TIMESTAMP_OFFSET;
+    let bytes: [u8; 8] = boot
+        .get(at..at + 8)
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| Error::InvalidData("the boot page is too short".into()))?;
+    Ok(u64::from_le_bytes(bytes))
+}
 /// Fixed partition id of sysrowsets itself.
 const SYSROWSETS_ROWSET_ID: i64 = 5 << 16;
 const SYSSCHOBJS_ID: i32 = 34;

@@ -20,6 +20,8 @@ struct Fake {
     sequences: Vec<TestSequence>,
     /// Behaves as a source of untyped values (a configuration package): `wants_fields`.
     untyped: bool,
+    /// The database's last row version: `last_row_version`.
+    last_row_version: Option<u64>,
 }
 
 impl Fake {
@@ -30,6 +32,7 @@ impl Fake {
             asked: Mutex::new(Vec::new()),
             sequences: Vec::new(),
             untyped: false,
+            last_row_version: None,
         }
     }
 
@@ -73,6 +76,9 @@ impl TableProvider for Fake {
     }
     fn wants_fields(&self) -> bool {
         self.untyped
+    }
+    fn last_row_version(&self) -> Option<u64> {
+        self.last_row_version
     }
     fn read(&self, t: &TableRequest) -> Result<Arc<TableRows>, TableError> {
         self.asked.lock().unwrap().push(t.name.clone());
@@ -593,4 +599,48 @@ fn number_sequences_of_the_backup_continue_where_it_left_them() {
     for t in ["Continues", "Unused", "Global", "Missing"] {
         assert_eq!(counted(&rt, 50001, t), Outcome::Pass, "{t}");
     }
+}
+
+/// A restored database hands out row versions after its own: the rows a test writes get versions above every restored
+/// row, and `MinimumActiveRowVersion` under TestIsolation = Codeunit stays at its codeunit-start value over the restored
+/// rows as it does without test data (PlTRowVersionValue.al:157-226 on corpus master). Without the database's last row
+/// version (a configuration package) nothing changes: the value stays refused.
+#[test]
+fn row_versions_continue_after_the_restored_database() {
+    const STAMPED: &str = r#"table 50108 "Stamped" { fields { field(1; K; Code[10]) { } field(2; V; Integer) { } } keys { key(PK; K) { } } }"#;
+    let main = r#"codeunit 50001 "T" { Subtype = Test;
+  var Start: BigInteger;
+  [Test] procedure Above() var S: Record "Stamped"; Restored: BigInteger; begin
+    Start := MinimumActiveRowVersion();
+    S.Get('A'); Restored := S.SystemRowVersion;
+    if LastUsedRowVersion() < Restored then Error('last %1 below restored %2', LastUsedRowVersion(), Restored);
+    if Start <= Restored then Error('min %1 not above restored %2', Start, Restored);
+    S.K := 'B'; S.Insert(); S.Get('B');
+    if S.SystemRowVersion <= Restored then Error('new row %1 not above restored %2', S.SystemRowVersion, Restored);
+    if MinimumActiveRowVersion() <> Start then Error('min moved');
+  end;
+  [Test] procedure Later() begin
+    Commit();
+    if MinimumActiveRowVersion() <> Start then Error('min moved in a later test');
+  end; }"#;
+    let dep = format!("{DEP}\n{STAMPED}");
+    let stamped = |last: Option<u64>| {
+        let mut f = customers().table(
+            "Stamped",
+            &["K", "V", "timestamp"],
+            vec![vec![text("A"), Cell::Int(1), Cell::RowVersion(4900)]],
+        );
+        f.last_row_version = last;
+        Arc::new(f)
+    };
+    let (rt, _) = run(main, &dep, Some(&stamped(Some(5000))));
+    for t in ["Above", "Later"] {
+        assert_eq!(counted(&rt, 50001, t), Outcome::Pass, "{t}");
+    }
+    let (rt, _) = run(main, &dep, Some(&stamped(None)));
+    assert!(
+        matches!(counted(&rt, 50001, "Above"), Outcome::NotRun(_)),
+        "{:?}",
+        counted(&rt, 50001, "Above")
+    );
 }

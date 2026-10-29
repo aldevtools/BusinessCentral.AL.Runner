@@ -438,10 +438,9 @@ impl Session {
         };
         let version = def.fields.iter().position(|f| f.id == 2_000_000_005)?;
         match fields.get(version) {
-            Some(Value::BigInteger(v)) if *v > 0 && *v <= self.install_row_version => Some(format!(
-                "{name} of a row of {} that install code wrote: {why}",
-                def.name
-            )),
+            Some(Value::BigInteger(v)) if *v > self.restored_row_version && *v <= self.install_row_version => Some(
+                format!("{name} of a row of {} that install code wrote: {why}", def.name),
+            ),
             _ => None,
         }
     }
@@ -1429,6 +1428,11 @@ impl Session {
     /// (`note_row_versions`). `Err` names why the value is not pinned.
     pub(crate) fn last_used_row_version(&self) -> Result<i64, &'static str> {
         let rv = &self.tx.row_versions;
+        // Test data whose last row version is not known (a configuration package, a `.bacpac`): its rows may hold row
+        // versions above the session's counter (`Session::with_host`).
+        if self.engine.test_data.is_some() && self.restored_row_version == 0 {
+            return Err("test data whose last row version is not known");
+        }
         // No row version handed out since the transaction began: the committed value, whatever else was written.
         if self.next_row_version == self.tx.committed_row_version {
             return Ok(self.tx.committed_row_version.max(1));
