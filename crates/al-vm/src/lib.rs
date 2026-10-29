@@ -620,6 +620,9 @@ pub struct Session {
     /// The objects of the routines on the call stack, innermost last (builtins scoped to an app,
     /// `NavApp.GetCallerModuleInfo`).
     pub(crate) frames: Vec<usize>,
+    /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
+    /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
+    pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
@@ -950,6 +953,7 @@ impl Session {
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
+            xp_unlinked_passes: Vec::new(),
             store,
             temps: Default::default(),
             next_temp: 0,

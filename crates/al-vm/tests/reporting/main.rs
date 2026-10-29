@@ -45,6 +45,7 @@ mod xmlport_namespace_root;
 mod xmlport_nested_flow;
 mod xmlport_nested_import;
 mod xmlport_nested_text_in_table;
+mod xmlport_nested_unlinked;
 mod xmlport_request_page_rec;
 mod xmlport_root_table;
 mod xmlport_source_table_view;

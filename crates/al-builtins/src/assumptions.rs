@@ -1069,6 +1069,21 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportNestedUnlinked => {
+        id: "xmlport-nested-unlinked",
+        assumed: "XmlPort export of a table element without LinkTable right below another table element: every pass after the first starts without the filters the pass before left (GetFilters is empty) and the record keeps its row; MinOccurs = Once with MaxOccurs = Unbounded without rows writes the element once from the record as it stands, without OnAfterGetRecord, and runs the elements below; MinOccurs = Zero with MaxOccurs = Once writes the first row and leaves the record on the second row, also of three or more rows. Filters, a key, a filter group or marks the code sets between passes, a key set at a pass, filters of the code's own at the first pass and a SourceTableView are refused, and so is import of MaxOccurs = Once. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change request reply: access entries below a ticket, reservation detail below an access entry).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_*, TU_NestedTemp_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_ItemFilterFirstPass",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_SlotNoFilter",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedTemp_TwoTwoNoneFiltered",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
