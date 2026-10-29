@@ -904,6 +904,21 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportLinkedMaxUnbounded => {
+        id: "xmlport-linked-max-unbounded",
+        assumed: "An explicit MaxOccurs = Unbounded on a table element with LinkTable right below another table element is the default: export and import run exactly as without it (same XML, trigger order, imported rows and schema errors). Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts (ticket rows linked to a request row).",
+        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Linked_Unbounded_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Export",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Export_NoRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Import",
+            ],
+            since: "2026-10-29",
+        },
+    },
     TenantMediaDelete => {
         id: "tenant-media-delete",
         assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
