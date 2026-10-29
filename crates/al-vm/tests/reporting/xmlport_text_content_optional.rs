@@ -170,12 +170,8 @@ fn a_leaf_text_element_with_a_value_in_an_optional_text_element_runs_its_trigger
 }
 
 // TQ_Response_Import_Shapes `optional leaves absent`: real BC runs the OnAfterAssignVariable of an empty `<tier />` twice
-// (`tier=;tier=;`). Whether `<tier></tier>` does the same is not pinned and the reader does not tell the two apart: refused.
+// (`tier=;tier=;`; TR_EmptyLeaf_Import: `<tier></tier>` once, xmlport_empty_leaf_import.rs).
 #[test]
-fn an_empty_leaf_text_element_with_an_assign_trigger_in_a_text_element_below_a_table_element_is_refused() {
-    let r = format!("{:?}", al_testkit::run_in(SRC, "C", "ImportEmptyLeaf"));
-    assert!(
-        r.contains("empty leaf text element with an OnAfterAssignVariable trigger"),
-        "{r}"
-    );
+fn an_empty_leaf_text_element_with_an_assign_trigger_in_a_text_element_below_a_table_element_runs_it_twice() {
+    assert_eq!(run("ImportEmptyLeaf"), "tier=;tier=;");
 }

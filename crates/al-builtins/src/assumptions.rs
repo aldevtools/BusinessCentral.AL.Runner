@@ -815,6 +815,17 @@ registry! {
             since: "2026-10-28",
         },
     },
+    XmlportSelfClosedLeafAssignTwice => {
+        id: "xmlport-self-closed-leaf-assign-twice",
+        assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element by corpus writer TR's run on real BC 29 (SaaS sandbox), not yet on corpus master; assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
+        tests: "No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count.",
+        probe: "Done on writer TR's branch al-runtime-rs-staging-tr: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import; wanted: the bump that puts it on corpus master, and a trigger that changes its own variable on the first run.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TR_EmptyLeaf_Import"],
+            since: "2026-10-29",
+        },
+    },
     TenantMediaDelete => {
         id: "tenant-media-delete",
         assumed: "Delete() and Delete(true) of a Tenant Media row: the media leaves Tenant Media and Delete returns true (the statement form raises no error), every row that holds it keeps the MediaId with HasValue false and ExportStream false; a missing id returns false, or in the statement form fails with `The Tenant Media does not exist. Identification fields and values: ID='{..}'` (DB:RecordNotFound). Pinned only by corpus writers TP and TQ on real BC (BC containers; a SaaS sandbox refuses every Tenant Media Delete for license reasons), not yet on corpus master.",
