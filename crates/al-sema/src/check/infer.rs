@@ -1263,9 +1263,8 @@ impl<'a> Checker<'a> {
         let Some(E::Val(field_ty)) = self.member(sc, &rec, &n) else {
             return None;
         };
-        if self.field_res(sc, &rec, &n).is_none() {
-            return None;
-        }
+        // Only a field (not a method of the record) gives way to the enum type.
+        self.field_res(sc, &rec, &n)?;
         let enum_name = self.ws.objects[ei].name.as_str();
         if matches!(&field_ty, Ty::Enum(f) if self.resolve_quiet(sc.file, ObjKind::Enum, f) == Some(ei)) {
             return None;
