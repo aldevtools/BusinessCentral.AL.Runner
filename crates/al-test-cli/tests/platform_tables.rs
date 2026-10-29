@@ -371,10 +371,8 @@ codeunit 50000 "T" { Subtype = Test;
         passes(&o, t);
     }
     // Field Caption of the row is pinned (AjMisc.al:656-657, :683-684); App Package ID is not.
-    for t in ["UnpinnedColumn"] {
-        let why = not_run(&o, t);
-        assert!(why.contains("timestamp"), "{t}: {why}");
-    }
+    let why = not_run(&o, "UnpinnedColumn");
+    assert!(why.contains("timestamp"), "UnpinnedColumn: {why}");
 }
 
 #[test]
