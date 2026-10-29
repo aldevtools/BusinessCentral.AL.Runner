@@ -1099,30 +1099,35 @@ fn find_on_an_empty_unfiltered_table_with_an_unused_result_raises_the_pinned_err
     );
 }
 
-// Find('=') of a missing key in a table that has rows is not pinned: refused.
+// Find of a missing key in a table that has rows, and on an empty table with a key value other than the default: the
+// record's key in the text (writer TV, corpus branch al-runtime-rs-staging-tv, FindEmptyTable.al TV_Find_TableWithRows_NoMatch,
+// TV_Find_EmptyTable_KeyNotDefault; assumption find-miss-key-text).
 #[test]
-fn find_equals_of_a_missing_key_in_a_table_with_rows_is_refused() {
+fn find_of_a_missing_key_in_a_table_with_rows_names_the_key() {
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; begin
-            R.DeleteAll(); R.\"No.\" := 'B'; R.Insert(); R.\"No.\" := 'A'; R.Find();
-            exit('x');
+            R.DeleteAll(); R.\"No.\" := 'B'; R.Insert(); R.\"No.\" := 'A'; asserterror R.Find();
+            exit(GetLastErrorText() + '|' + GetLastErrorCode());
         end;",
         "F",
     );
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert_eq!(
+        text(r),
+        "The The Table does not exist. Identification fields and values: No.='A'|DB:RecordNotFound"
+    );
 }
 
-// Only default key values are pinned (FindEmptyTable.al: Id=0): another key value on an empty table is refused.
 #[test]
-fn find_on_an_empty_table_with_a_non_default_key_is_refused() {
+fn find_on_an_empty_table_with_a_non_default_key_names_the_key() {
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; begin
-            R.DeleteAll(); R.\"No.\" := 'A'; asserterror R.Find(); exit('x');
+            R.DeleteAll(); R.\"No.\" := 'A'; asserterror R.Find('>');
+            exit(GetLastErrorText() + '|' + GetLastErrorCode());
         end;",
         "F",
     );
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("default")),
-        "{r:?}"
+    assert_eq!(
+        text(r),
+        "The The Table does not exist. >\\\\Identification fields and values:\\\\No.='A'|DB:RecordNotFound"
     );
 }

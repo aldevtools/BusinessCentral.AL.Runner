@@ -1228,6 +1228,20 @@ registry! {
             since: "2026-10-28",
         },
     },
+    FindMissKeyText => {
+        id: "find-miss-key-text",
+        assumed: "Find without a filter whose result is not used, when no row meets the search, on a table that has rows or on an empty table with a key value other than the default: `The <table> does not exist. Identification fields and values: <key>` for none and `=`, and `The <table> does not exist. <search>\\\\Identification fields and values:\\\\<key>` for `>`, `<`, `=>`, `=<` and `=><`, with the record's key (DB:RecordNotFound). Pinned only by corpus writer TV's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's tests (a Find on a record whose key no row has).",
+        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): record/lt-find-empty-table/FindEmptyTable.al TV_Find_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_TableWithRows_NoMatch",
+                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_EmptyTable_KeyNotDefault",
+            ],
+            since: "2026-10-29",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
