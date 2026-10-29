@@ -1116,6 +1116,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    QueryFilterElementReadWithoutRow => {
+        id: "query-filter-element-read-without-row",
+        assumed: "Reading a query filter() element (not a column) as `Q.<FilterElement>` before Open, or after Open without a Read, raises the error a column read without a row raises: `You have not yet retrieved a data row for this query. The value for column '<name>' can only be accessed after a row is retrieved with a call to the READ function.` (QueryNoDataSet). Pinned only by corpus writer UH's run on real BC (branch al-runtime-rs-staging-uh, commit ab6c6eb2, corpus PR 799), not yet in the pinned corpus. After Close or after the last row it stays refused, and after a Read too (BC returns another column's value or crashes).",
+        tests: "No Microsoft test: an outside reporter's ISV app (al-runner issue 6173).",
+        probe: "Done on writer UH's branch al-runtime-rs-staging-uh (corpus PR 799): errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_*; wanted: the bump that puts them in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[6173],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_BeforeOpen",
+                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_OpenNoRead",
+            ],
+            since: "2026-10-29",
+        },
+    },
     SqlReadCostUnmeasuredShape => {
         id: "sql-read-cost-unmeasured-shape",
         assumed: "The SQL statements and rows read of one record method with nothing buffered (Get 1/1, FindSet 1/0 or 1/1 and each Next 0/1, Modify right after the Get of its row 1/1, FindFirst that finds nothing 1/0, FindLast that finds a row 1/1, IsEmpty 1/0 or 1/1, Count 1/1) are the same on any table, filter and FindSet row count as on the ones measured (session/lt-bl-sql-counters/SkSqlBudget.al, writer TX: a table of Code[20], Integer, Text[50], Integer filtered on its key fields, FindSet loops of 0, 1, 3 and 10 rows; SqlCounters.al: 1, 2, 5, 10, 20 rows).",

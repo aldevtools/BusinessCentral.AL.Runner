@@ -918,16 +918,12 @@ impl Lowerer<'_> {
                         column: self.field_ref(query, column as u32),
                     })
                 }
-                Some(Res::QueryColumn { query, column }) if n.kind() == MemberExpr => {
-                    let layout = self.checked.queries[query].as_ref().ok_or("query layout")?;
-                    if layout.query.columns[column].filter_element {
-                        return Err("reading a filter element of a query (not pinned)".into());
-                    }
-                    Ok(ir::Expr::QueryColumn {
-                        query: Box::new(self.expr(&kids[0])?),
-                        column: self.field_ref(query, column as u32),
-                    })
-                }
+                // `Q.<FilterElement>` reads like a column: the VM raises without a row and refuses with one
+                // (al-runner issue 6173; `Session::query_column`).
+                Some(Res::QueryColumn { query, column }) if n.kind() == MemberExpr => Ok(ir::Expr::QueryColumn {
+                    query: Box::new(self.expr(&kids[0])?),
+                    column: self.field_ref(query, column as u32),
+                }),
                 // A bare column name in the query's own code reads the running query's current row
                 // (Base Application's "Summarized Stock By Item Trkg." does `X := Serial_No_;`; no corpus test
                 // does, docs/probes-needed.md).

@@ -247,6 +247,7 @@ impl Session {
                     r?;
                 }
                 // Open does not run the query; the first Read does.
+                qs.borrow_mut().closed = false;
                 qs.borrow_mut().run = Some(QueryRun {
                     started: false,
                     filters_changed: false,
@@ -261,7 +262,10 @@ impl Session {
             }
             "Read" => self.query_read(def, &qs),
             "Close" => {
-                qs.borrow_mut().run = None;
+                let mut q = qs.borrow_mut();
+                q.run = None;
+                q.closed = true;
+                drop(q);
                 Ok(Value::Null)
             }
             "SetRange" | "SetFilter" => {
@@ -655,15 +659,33 @@ impl Session {
             return unsupported(format!("a query column of {}", q.describe()));
         };
         let qs = qs.borrow();
+        let def = self.engine.program.objects[qs.object as usize]
+            .query
+            .as_ref()
+            .expect("a query object");
+        if def.columns[column].filter_element {
+            // A filter() element read before Open, or after Open without a Read, raises as a column read without a
+            // row does (corpus branch al-runtime-rs-staging-uh ab6c6eb2, PR 799: errors/lt-ms-refusals-131/
+            // P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen, UH_Query_ReadFilter_OpenNoRead; al-runner
+            // issue 6173). After a Read BC returns another column's value or crashes (UH's probe, not pinned);
+            // after Close or after the last row nothing is pinned.
+            let before_any_row = match &qs.run {
+                None => !qs.closed,
+                Some(run) => !run.started && run.current.is_none(),
+            };
+            if !before_any_row {
+                return unsupported(format!(
+                    "reading the filter element {} of a query after Close or after a Read (BC returns another column's value or crashes; not pinned)",
+                    def.columns[column].name
+                ));
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::QueryFilterElementReadWithoutRow);
+        }
         match qs.run.as_ref().and_then(|r| r.current.as_ref()) {
             Some(row) => Ok(row[column].clone()),
             None => {
                 // Before Open, after Open and before the first Read, and after the last row alike
                 // (query/TestQueryRuntimeContracts.al:Query_ColumnRead_WithoutARow_ThrowsQueryNoDataSet).
-                let def = self.engine.program.objects[qs.object as usize]
-                    .query
-                    .as_ref()
-                    .expect("a query object");
                 Err(Signal::Error(Box::new(AlError {
                     message: format!(
                         "You have not yet retrieved a data row for this query. The value for column '{}' can only be accessed after a row is retrieved with a call to the READ function.",
@@ -1027,6 +1049,11 @@ impl Session {
                         "a filter() element over a FlowField in a query with a join or a Method column (not pinned)",
                     );
                 }
+                // P130QueryOuterFlow.al filters only the parent: a filter on a FlowField column of an outer-joined
+                // dataitem, which a parent without a match would meet with 0, is not pinned.
+                if item.left_outer && item.parent.is_some() {
+                    return unsupported("a filter on a FlowField column of an outer-joined dataitem (not pinned)");
+                }
                 plan.post.push((ci, expr));
             }
         }
@@ -1182,6 +1209,11 @@ impl Session {
                     return unsupported(why.to_string());
                 }
                 row[field].clone()
+            } else if joined[c.item].is_empty() {
+                // A FlowField of a left-outer-joined dataitem with no matching row is the field's default (0 for the
+                // Sum and Count FlowFields the compile lets through: errors/lt-ms-refusals-130/P130QueryOuterFlow.al:179,225).
+                let t = engine.tables[item.table].clone().expect("table");
+                self.default_value(&t.fields[field].ty)
             } else {
                 // A FlowField is calculated per joined row, with the flow filters of its dataitem
                 // (corpus query/TestQueryFlowFieldColumn.al:37-200, query/TestQueryJoinFlowFieldGroupBy.al).
