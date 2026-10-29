@@ -50,6 +50,53 @@ impl Lowerer<'_> {
                 format!("DotNet '{alias}' has no dotnet {{ }} declaration in this app or its dependencies")
             })?)
         };
+        // A `[RunOnClient]` variable: BC runs its calls on the client and a test session has none, so the constructor, a
+        // client feature's `Create` and a static call raise DotNetFromAlNotSupported
+        // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150 for a constructor and Environment.MachineName,
+        // :186-209 and :226-236 for `Create` and a constructor in a local variable; lt-ac/AcDnAttributes.al:131-147 for a
+        // global one). Only these members are pinned; any other member of such a variable stays refused.
+        if let (Some(why), ir::DotNetOp::Call(_)) = (self.run_on_client_var(&recv), &op) {
+            let simple = ty
+                .map(|i| {
+                    self.ws.dotnet[i]
+                        .decl
+                        .type_name
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .unwrap_or_default();
+            let simple = simple.split('`').next().unwrap_or("").to_string();
+            // The client features' static IsAvailable() answers No in a test session
+            // (lt-bg-runonclient/BgRunOnClient.al:99-120, the seven types of the probe; measured on Windows).
+            if name.eq_ignore_ascii_case("IsAvailable")
+                && args.is_empty()
+                && ty.is_some_and(|i| {
+                    let t = self.ws.dotnet[i].decl.type_name.as_str();
+                    t.starts_with("Microsoft.Dynamics.Nav.Client.Capabilities.")
+                        || t == "Microsoft.Dynamics.Nav.Client.PageNotifier"
+                })
+            {
+                return Ok(ir::Expr::Const(ir::Const::Boolean(false)));
+            }
+            let ctor = ty.is_some_and(|i| self.ws.dotnet[i].decl.alias.eq_ignore_ascii_case(name))
+                || simple.eq_ignore_ascii_case(name);
+            if ctor || name.eq_ignore_ascii_case("Create") || name.eq_ignore_ascii_case("MachineName") {
+                if name.eq_ignore_ascii_case("Create") {
+                    self.assume(al_builtins::assumptions::Assumption::RunOnClientStaticCreate);
+                }
+                let key = format!("{why}: {name}");
+                self.run_failures.insert(
+                    key.clone(),
+                    (
+                        "The operation cannot complete because it uses a feature that is not supported (.NET Framework Interoperability.)".into(),
+                        "DotNetFromAlNotSupported:DotNetFromAlNotSupported".into(),
+                    ),
+                );
+                return Err(key);
+            }
+        }
         if let (Some(i), ir::DotNetOp::Call(_)) = (ty, &op) {
             // The constructor is named like the alias or like the CLR type: the probe app declares
             // alias `DnStringBuilder` for `System.Text.StringBuilder` and calls `Builder.StringBuilder()`
@@ -72,6 +119,16 @@ impl Lowerer<'_> {
             op,
             args,
         })
+    }
+
+    /// The reason text when `recv` is a variable declared `[RunOnClient]`.
+    pub(crate) fn run_on_client_var(&self, recv: &SyntaxNode) -> Option<String> {
+        let (name, local) = match self.res(recv)? {
+            Res::Local(n) => (n, true),
+            Res::Global(n) => (n, false),
+            _ => return None,
+        };
+        self.var_attr_refusal(name, local).filter(|w| w.contains("RunOnClient"))
     }
 
     /// `GetDotNetType(x)` (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetType*.al). The static type of the argument

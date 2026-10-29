@@ -89,6 +89,23 @@ impl<'a> Checker<'a> {
     fn char_literal_result(&self, sc: &Scope, bin: &SyntaxNode, target: &Ty) -> Option<String> {
         let kids: Vec<SyntaxNode> = bin.children().collect();
         let [left, right] = kids.as_slice() else { return None };
+        // A character taken by index from a Text variable, plus or minus a one-character literal, in either order, into a Text
+        // (must-not-compile 1150; a Text[N] target is not pinned and not judged).
+        if let Ty::Text(None) = target
+            && matches!(op_token(bin).as_str(), "+" | "-")
+            && (left.kind() == SyntaxKind::IndexExpr || right.kind() == SyntaxKind::IndexExpr)
+        {
+            let ty_at = |n: &SyntaxNode| {
+                let r = n.text_range();
+                self.types.get(&(sc.file, r.start().into(), r.end().into())).cloned()
+            };
+            let l = ty_at(left).unwrap_or(Ty::Unknown);
+            let r = ty_at(right).unwrap_or(Ty::Unknown);
+            if crate::check::char_and_one_char_literal(&op_token(bin), &kids, &l, &r, &ty_at) {
+                return Some("Cannot implicitly convert type 'Integer' to 'Text'".to_string());
+            }
+            return None;
+        }
         if left.kind() != SyntaxKind::NameRef || right.kind() != SyntaxKind::Literal {
             return None;
         }
@@ -815,7 +832,13 @@ impl<'a> Checker<'a> {
                 if let [a, b] = kids.as_slice() {
                     self.tdd_settle_operands(sc, &op, a, b, &l, &r);
                 }
-                if char_and_one_char_literal(&op, kids.as_slice(), &l, &r) {
+                let types = &self.types;
+                let file = sc.file;
+                let ty_at = |n: &SyntaxNode| {
+                    let r = n.text_range();
+                    types.get(&(file, r.start().into(), r.end().into())).cloned()
+                };
+                if char_and_one_char_literal(&op, kids.as_slice(), &l, &r, &ty_at) {
                     return E::Val(Ty::Integer);
                 }
                 E::Val(binary_ty(&op, &l, &r))

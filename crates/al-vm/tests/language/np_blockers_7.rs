@@ -31,6 +31,36 @@ fn a_char_plus_or_minus_a_one_character_literal_is_an_integer() {
     assert_eq!(r, "2");
 }
 
+// types/lt-at-partner-gaps/AtTextCharLiteral.al:15-112: a character taken by index from a Text or Code variable is a Char
+// next to a one-character literal too; a longer or empty literal still joins as text.
+#[test]
+fn a_character_of_a_text_variable_plus_or_minus_a_one_character_literal_is_an_integer() {
+    for (expr, want) in [
+        ("S[1] - '0'", "7"),
+        ("S[2] - 'A'", "1"),
+        ("'0' - S[1]", "-7"),
+        ("S[1] - '0' + 1", "8"),
+        ("S[1] - '0' = 7", "Yes"),
+        ("S[2] + 'A'", "131"),
+        ("'A' + S[1]", "120"),
+        ("'a' + S[1] + 'b'", "250"),
+        ("'ab' + S[1]", "ab7"),
+        ("S[1] + 'ab'", "7ab"),
+        ("S[1] + S[2]", "121"),
+        ("S[1] + ''", "7"),
+        ("'A' + C[1]", "153"),
+        ("C[2] - '0'", "9"),
+    ] {
+        let r = text(
+            "S: Text; C: Code[10];",
+            &format!("S := '7B'; C := 'x9'; exit(Format({expr}));"),
+        );
+        assert_eq!(r, want, "{expr}");
+    }
+    let r = text("S: Text; I: Integer;", "S := '7B'; I := S[1] - '0'; exit(Format(I));");
+    assert_eq!(r, "7");
+}
+
 fn table_text(vars: &str, body: &str) -> String {
     let src = format!(
         "table 50101 T {{ fields {{ field(1; Id; Integer) {{ }} field(2; Cd; Code[10]) {{ }} field(3; Dt; Date) {{ }} field(4; Dec; Decimal) {{ }} field(9; Dt2; DateTime) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}

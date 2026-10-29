@@ -9,6 +9,11 @@ use al_builtins::value::Value;
 fn refused(r: Result<Value, Signal>, needle: &str) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains(needle), "{why}"),
+        // The constructor of a [RunOnClient] variable raises the pinned error, not a refusal
+        // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150, lt-ac/AcDnAttributes.al:131-147).
+        Err(Signal::Error(e)) if needle == "RunOnClient" => {
+            assert!(e.code.contains("DotNetFromAlNotSupported"), "{e:?}")
+        }
         other => panic!("expected a refusal naming {needle}, got {other:?}"),
     }
 }
