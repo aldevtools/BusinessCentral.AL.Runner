@@ -698,6 +698,16 @@ impl Session {
             Some(t) => t,
             None => self.xp_read_source(inst, xp)?,
         };
+        // A second Import on the same instance whose source an earlier Import read to its end: what BC does is not pinned.
+        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED);
+        if text.is_empty() && again {
+            return unsupported(
+                "a second Import on the same XmlPort instance whose source an earlier Import read to its end (not pinned)",
+            );
+        }
+        if !again {
+            inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
+        }
         // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
@@ -3634,6 +3644,9 @@ fn parse_duration_text(t: &str) -> Option<i64> {
 /// (`<lines>` in `<head>`, exported once per row, also when empty: QR_Export_OneHead_NoLines, QR_Export_TwoHeads_LinesOnSecond).
 /// The filter group of a table element's SourceTableView: its own, as a report's DataItemTableView has.
 const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
+
+/// The `Instance::xp_text` kind that says an Import read the source of the instance.
+const XP_IMPORTED: u8 = 15;
 
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {

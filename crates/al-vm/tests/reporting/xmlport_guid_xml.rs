@@ -122,6 +122,26 @@ codeunit 98 C
         exit(Import('<guids><row no="1"><g>{5A2F6C9E-1B3D-4E8F-9A0B-1C2D3E4F5A6B)</g></row></guids>'));
     end;
 
+    procedure ImportTwice(): Text
+    var
+        B: Record "GX Blob" temporary;
+        P: XmlPort "GX Port";
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        B.Id := 1;
+        B.Insert();
+        B.Data.CreateOutStream(OutS, TextEncoding::UTF8);
+        OutS.WriteText('<guids><row no="1"/></guids>');
+        B.Modify();
+        B.CalcFields(Data);
+        B.Data.CreateInStream(InS, TextEncoding::UTF8);
+        P.SetSource(InS);
+        P.Import();
+        P.Import();
+        exit(P.Rows());
+    end;
+
     procedure Export(): Text
     var
         B: Record "GX Blob" temporary;
@@ -200,5 +220,16 @@ fn a_guid_exports_in_braces_upper_case() {
     assert_eq!(
         text(run("Export")),
         format!("<guids>|<row no=\"1\" ga=\"{NULL}\">|<g>{KNOWN}</g>|</row>|</guids>|")
+    );
+}
+
+// A second Import on the same instance whose source an earlier Import read to its end (a partner app's SOAP handler imports
+// the port it was handed again): what BC does is not pinned, so it is refused rather than failed as an empty file.
+#[test]
+fn a_second_import_of_a_read_source_is_refused() {
+    let r = run("ImportTwice");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("second Import")),
+        "{r:?}"
     );
 }
