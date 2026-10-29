@@ -393,7 +393,14 @@ impl Session {
             return None;
         }
         let facts = self.engine.install_facts.get()?;
-        facts.unknown.get(&(object as usize)).map(String::as_str)
+        let o = object as usize;
+        // Decision 4c holds in the default mode only: under the opt-in the code ran once in each declared company.
+        if self.companies.is_empty() {
+            if let Some(why) = facts.per_company_shared.get(&o) {
+                return Some(why);
+            }
+        }
+        facts.unknown.get(&o).map(String::as_str)
     }
 
     /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
@@ -450,6 +457,10 @@ impl Session {
     /// (install/lt-bf-install-probes/BfInstallTests.al:60-62). A read filtered to one known name (a single-value filter on
     /// Name: the session company or a company row the run holds) is answered.
     pub(crate) fn company_table_read(&self, rec: &Rec, what: &str) -> Result<(), Signal> {
+        // Under the `--companies` opt-in the declared list is the database's complete company list: answered.
+        if !self.companies.is_empty() {
+            return Ok(());
+        }
         let named = {
             let r = rec.borrow();
             r.filters

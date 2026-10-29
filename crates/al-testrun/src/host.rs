@@ -161,6 +161,21 @@ pub fn company_name() -> Option<String> {
     COMPANY_NAME.read().ok().and_then(|r| r.clone())
 }
 
+/// The companies of the run's database (`--companies`, ADR-046 decision 2). The default is one company.
+static COMPANIES: std::sync::RwLock<al_host::Companies> = std::sync::RwLock::new(al_host::Companies::One);
+
+/// Sets the companies of the run.
+pub fn set_companies(companies: al_host::Companies) {
+    if let Ok(mut w) = COMPANIES.write() {
+        *w = companies;
+    }
+}
+
+/// The companies set by [`set_companies`].
+pub fn companies() -> al_host::Companies {
+    COMPANIES.read().map(|r| r.clone()).unwrap_or_default()
+}
+
 /// [`host_at`] with the company name given instead of read from the run setting.
 pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
     let host = match start {
@@ -171,6 +186,7 @@ pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
         Some(c) => host.in_company(c),
         None => host,
     };
+    let host = host.with_companies(companies());
     let host = host.in_environment(ENVIRONMENT.get().copied().unwrap_or_default());
     let host = host.with_server_url(&server_url().0);
     match FILES_DIR.get() {

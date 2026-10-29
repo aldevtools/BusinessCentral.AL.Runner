@@ -75,6 +75,40 @@ impl Session {
     /// baseline made for the session company, since a company BC creates holds such rows too.
     pub(crate) fn cx_for(&self, rec: &Rec, t: &TableDef) -> Result<AccessContext, Signal> {
         let r = rec.borrow();
+        // ADR-046 decision 5, under the `--companies` opt-in: in a declared company other than the session company only
+        // the per-company tables of the apps under test are answered (new at that app's install, so they hold what install
+        // code and tests wrote there). What a dependency app, Company-Initialize or the platform put into a per-company
+        // table of that company is not known: install/lt-bf-install-probes/BfInstallTests.al:74-95 counts rows there that
+        // the runtime does not make (P3).
+        if !self.companies.is_empty() && t.per_company && !r.temporary {
+            let company = r.company.as_deref().unwrap_or(&self.cx.company);
+            if let Some(why) = self.company_unknown.get(&(company.to_string(), t.object)) {
+                return unsupported(format!("{} in company {company}: {why}", t.name));
+            }
+            if !company.is_empty()
+                && company != self.companies[0]
+                && self.companies.iter().any(|c| c == company)
+                && !self
+                    .engine
+                    .install_facts
+                    .get()
+                    .is_some_and(|f| f.under_test_tables.contains(&(t.object as usize)))
+            {
+                return unsupported(format!(
+                    "{} in company {company}: what the dependency apps and the platform hold in a company other than the session company is not known; under --companies only the tables of the apps under test are answered there (ADR-046 decision 5)",
+                    t.name
+                ));
+            }
+            if r.company.is_some()
+                && self.companies.iter().any(|c| c == company)
+                && !self.engine.unseeded.contains(&(t.object as usize))
+            {
+                return Ok(AccessContext {
+                    company: company.into(),
+                    user: self.cx.user.clone(),
+                });
+            }
+        }
         // A temporary record keeps its rows when it changes company (record/TestChangeCompanyFiltersCopy
         // DeleteContracts.al:133-136): its rows do not belong to a company.
         let Some(company) = r.company.as_ref().filter(|_| !r.temporary) else {
