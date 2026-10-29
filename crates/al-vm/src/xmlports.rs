@@ -2708,6 +2708,14 @@ impl Session {
             let mut filters = kept;
             filters.extend(r.filters.iter().filter(|f| f.group == XP_VIEW_GROUP).cloned());
             r.filters = filters;
+            // A later export on the same instance: the SourceTableView is applied again, so the view an earlier export left is
+            // replaced; the row that export left in the buffer stays unpinned (assumption `xmlport-unlinked-reply`, the partner
+            // shape of QrXpContainerOccurs.al TR_Booking_Reply_TwoLinesTwoParts on branch al-runtime-rs-staging-tr: an outer
+            // row's OnAfterGetRecord empties and refills the table).
+            if r.unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                r.unpinned_buffer = Some(crate::records::XP_BUFFER_AFTER_EXPORT);
+            }
         }
         Ok(())
     }
@@ -2969,8 +2977,20 @@ impl Session {
                 }
                 // `unlinked_container`: every outer row writes ALL the inner records, `<attributes />` when there are none
                 // (QrXpContainerOccurs.al TP_Unlinked_Export, TP_Unlinked_Export_NoAttrs on branch al-runtime-rs-staging-pub-tp).
-                ir::XmlNodeKind::Text if unlinked_container(schema, child, node) => {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText);
+                // `unlinked_reply_container`: the inner table writes the rows it holds when it is reached, so an outer row's
+                // OnAfterGetRecord that empties and refills it gives each outer row its own rows; an optional inner table without rows
+                // leaves the text element empty (`<details />`) (QrXpContainerOccurs.al TR_Booking_Reply_* on branch
+                // al-runtime-rs-staging-tr).
+                ir::XmlNodeKind::Text
+                    if unlinked_container(schema, child, node) || unlinked_reply_container(schema, child, node) =>
+                {
+                    if unlinked_container(schema, child, node) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportUnlinkedTempInText,
+                        );
+                    } else {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                    }
                     let e = self.xp_export_container(inst, schema, child)?;
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
@@ -3164,11 +3184,18 @@ impl Session {
         self.xp_rows(inst, schema, node, &mut rows)?;
         // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
+        // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
+        // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. More rows are not pinned.
+        let mut ends_on = None;
         if n.max_unbounded == Some(false) && rows.len() > 1 {
             if export_triggers_below(schema, node) {
-                return unsupported(
-                    "XmlPort export of a table element with MaxOccurs = Once, several rows and export triggers (not pinned)",
-                );
+                if rows.len() > 2 {
+                    return unsupported(
+                        "XmlPort export of a table element with MaxOccurs = Once, more than two rows and export triggers (not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+                ends_on = rows.pop();
             }
             rows.truncate(1);
         }
@@ -3178,6 +3205,11 @@ impl Session {
         // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
         // Export_EmptyTable: 462 bytes, a row of `0`, empty text, `0.00`, `No`).
         if rows.is_empty() && !n.min_zero {
+            if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                return unsupported(
+                    "XmlPort export of a table element without rows that writes its record as it is, when an earlier export left that record (not pinned)",
+                );
+            }
             let mut e = Elem::new(&n.xml_name);
             let r = self.xp_export_content(inst, schema, node, &mut e);
             out.push(e);
@@ -3217,9 +3249,17 @@ impl Session {
         }
         for row in rows {
             self.load(&rec, row)?;
+            if rec.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                rec.borrow_mut().unpinned_buffer = None;
+            }
             // Skip leaves the row out, Break ends the rows; BreakUnbound ends the trigger and the row goes on (P112_Export_Skip,
             // _Break, _BreakUnbound at getRec2).
             match self.xp_site(inst, schema, node, "onaftergetrecord") {
+                Ok(Some(Flow::Break | Flow::Skip)) if ends_on.is_some() => {
+                    return unsupported(
+                        "XmlPort export of a table element with MaxOccurs = Once and two rows whose first OnAfterGetRecord skips or breaks (not pinned)",
+                    );
+                }
                 Ok(Some(Flow::Break)) => break,
                 Ok(Some(Flow::Skip)) => continue,
                 Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
@@ -3236,6 +3276,9 @@ impl Session {
             if Self::xp_quit(inst) {
                 return Ok(out);
             }
+        }
+        if let Some(row) = ends_on {
+            self.load(&rec, row)?;
         }
         Ok(out)
     }
@@ -3694,6 +3737,32 @@ fn unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && fields
             .iter()
             .all(|&f| schema.node(f).kind == ir::XmlNodeKind::FieldAttr)
+}
+
+/// For export only: a text element right below a temporary table element, without triggers, with `MinOccurs = Zero` and
+/// `MaxOccurs = Once`, holding only one temporary table element without LinkTable that is optional (`MinOccurs = Zero`) or
+/// required and repeating (`MinOccurs = Once`, `MaxOccurs = Unbounded`), with any nodes the export supports below it
+/// (assumption `xmlport-unlinked-reply`; corpus branch al-runtime-rs-staging-tr, QrXpContainerOccurs.al TR_Booking_*, xmlport
+/// 90064 in TrXpReplyObjects.al: `details` > `line` with text attributes and `parts` > `Part`).
+fn unlinked_reply_container(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let kids = schema.children(c);
+    let [inner] = kids[..] else {
+        return false;
+    };
+    let t = schema.node(inner);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && schema.node(table).kind == ir::XmlNodeKind::Table
+        && schema.node(table).use_temporary
+        && n.triggers.is_empty()
+        && n.min_zero
+        && n.max_unbounded == Some(false)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && (t.min_zero || t.max_unbounded == Some(true))
+        && !schema.children(inner).is_empty()
 }
 
 fn linked_container(schema: &Schema, c: usize, table: usize) -> bool {

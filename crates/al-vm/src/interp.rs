@@ -1236,6 +1236,10 @@ impl Session {
                         if let Some(why) = crate::records::xp_export_marked(src) {
                             return Err(Signal::Unsupported(format!("an assignment from a record: {why}")));
                         }
+                        // Every field of the target is replaced, so the row an earlier export left there no longer matters.
+                        if dst.borrow().unpinned_buffer == Some(crate::records::XP_BUFFER_AFTER_EXPORT) {
+                            dst.borrow_mut().unpinned_buffer = None;
+                        }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
                         // does not tell a copy from a shared Blob (record/TestFormatRecordContracts.al
                         // only formats the copy): docs/probes-needed.md.

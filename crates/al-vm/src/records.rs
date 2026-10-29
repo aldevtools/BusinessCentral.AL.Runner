@@ -2299,6 +2299,18 @@ impl Session {
         if why == MEDIA_KEY {
             return self.media_key_op(method, rec, args);
         }
+        // TransferFields(From, true) from a record of the same table replaces every field but the system fields of the buffer an
+        // earlier export left (assumption `xmlport-unlinked-reply`: within an export that buffer is the last row read,
+        // QrXpContainerOccurs.al TR_Booking_Reply_LinesWithoutParts on branch al-runtime-rs-staging-tr).
+        if why == XP_BUFFER_AFTER_EXPORT
+            && method == RecordOp::TransferFields
+            && matches!(args.first(), Some(Value::Record(src)) if src.borrow().table == rec.borrow().table)
+            && args.get(1).is_none_or(|v| matches!(v, Value::Boolean(true)))
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportUnlinkedReply);
+            rec.borrow_mut().unpinned_buffer = None;
+            return self.record_op_inner(method, rec, args);
+        }
         let refill = match method {
             RecordOp::Get | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet => true,
             RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "-" || w.as_str() == "+"),
