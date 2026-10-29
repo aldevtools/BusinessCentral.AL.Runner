@@ -1286,6 +1286,20 @@ registry! {
             since: "2026-10-28",
         },
     },
+    DotnetTypeUnassignedEnum => {
+        id: "dotnet-type-unassigned-enum",
+        assumed: "GetDotNetType of an unassigned DotNet variable declared as the enum System.DayOfWeek or System.Security.Cryptography.X509Certificates.X509ContentType gives that enum type (FullName and Format the full name, IsEnum true); System.Enum.Parse(that type, name) gives the member (Pkcs12 gives Pfx, 3), and a name that is not a member, or one in another case, fails with 'A call to System.Enum.Parse failed with this message: Requested value '<name>' was not found.' (DotNetInvoke:Argument). Pinned only by corpus writer TV's run on real BC, not yet on corpus master; other enums are refused.",
+        tests: "No Microsoft test: a partner app's tests that reach System Application's X509 certificate code (Enum.Parse of an X509ContentType name).",
+        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_GetDotNetType_UnassignedEnumVariables",
+                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType",
+            ],
+            since: "2026-10-29",
+        },
+    },
 }
 
 /// The words of a [`HitBits`]: room for 256 assumptions.
