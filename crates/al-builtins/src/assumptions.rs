@@ -1324,6 +1324,19 @@ registry! {
             since: "2026-10-29",
         },
     },
+    RowVersionReadShapes => {
+        id: "row-version-read-shapes",
+        assumed: "The rows an Insert wrote are sent at the first Get, FindFirst, FindLast, FindSet, IsEmpty, Count or CalcSums of their table, each table at its own read, and that read grows LastUsedRowVersion also after a Modify handed out a higher row version; a read of another table sends nothing; a Modify grows it while another table holds unsent inserted rows.",
+        tests: "No Microsoft test: a partner app's tests (LastUsedRowVersion and MinimumActiveRowVersion after reads).",
+        probe: "Done on writer UK's branch al-runtime-rs-staging-pub-uk (corpus PR 803, commit beab119c, PlTRowVersionValue.al UK_*); wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
     EvaluateRfc1123DateTime => {
         id: "evaluate-rfc-date-time",
         assumed: "Evaluate into a DateTime with number 0 (or none) reads `Ddd, dd Mon yyyy hh:mm:ss GMT` and `+0000` as UTC; a weekday that is not the date's answers false with no error; without the weekday it answers false and leaves `The date is not valid.` (DateInvalid) as the last error.",
