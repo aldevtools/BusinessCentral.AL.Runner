@@ -1058,6 +1058,17 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportTimeMsXml => {
+        id: "xmlport-time-ms-xml",
+        assumed: "XmlPort export with FormatEvaluate = Xml of a Time or a DateTime with milliseconds writes them as Format standard 9 does: the milliseconds without trailing zeros (12:34:56.789, 12:34:56.5, 12:34:56.007), a DateTime with the same fraction and Z; a zero Duration is P0DT0H0M0.0S. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's loyalty SOAP replies (a time stamp with milliseconds).",
+        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds; wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/PWXmlPortFormatEvaluate.al::TU_Export_TimeMilliseconds"],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
