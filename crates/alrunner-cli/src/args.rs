@@ -97,6 +97,9 @@ pub struct TestArgs {
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
     pub run_selected_only: bool,
+    /// `--ignore-permission-mock` (issue 5996): a test that lowers its own permissions runs with every access granted
+    /// instead of being refused; its pass is flagged `permissions-not-enforced`.
+    pub ignore_permission_mock: bool,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -356,6 +359,12 @@ selects only the tests both match)
                          the test methods that are enabled: the other tests do not run, so their
                          globals, rows, time and refusals do not reach the selected ones. The
                          codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
+    --ignore-permission-mock
+                         Run the tests that lower their own permissions (Permissions Mock, Library -
+                         Lower Permissions) with every access granted, instead of leaving them not
+                         run. Permissions are not checked: such a test can pass here and fail on
+                         Business Central. Each one is a flagged pass, `permissions-not-enforced`.
+                         In `serve`: the runTests field `ignorePermissionMock`.
 
 AFFECTED TESTS (ADR-050)
     --affected           Run only the test codeunits a change since the last --affected run can
@@ -935,6 +944,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.affected
         || t.include_failing
         || t.strict_environment
+        || t.ignore_permission_mock
         || t.affected_store.is_some()
     {
         return Err("al-runner serve takes only the options that do not depend on a request: --package-cache, --dep, --define, --preprocessor-symbols, --test-timeout, --bc-version, --cache-dir, --no-download, --test-data and the like; the rest comes in each `runTests` request".into());
@@ -1289,6 +1299,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--tdd" => a.tdd = true,
             "--run-selected-only" => a.run_selected_only = true,
+            "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
             "--include-failing" => a.include_failing = true,
@@ -1747,6 +1758,13 @@ mod tests {
             Command::Test(a) => *a,
             other => panic!("{other:?}"),
         }
+    }
+
+    /// Issue 5996: `--ignore-permission-mock` is off unless given, and `serve` takes it only per request.
+    #[test]
+    fn ignore_permission_mock_is_opt_in() {
+        assert!(!test_args("test A").ignore_permission_mock);
+        assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
     }
 
     #[test]

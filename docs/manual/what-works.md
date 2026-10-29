@@ -100,6 +100,12 @@ tests are not run, with the reason, and the exit code is 8. `--require-dotnet` t
 a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 (`System.IO.File`, `System.Net`, `Process`, the registry) is refused by a policy list.
 
+One exception is modeled instead of refused: `System.Environment.GetEnvironmentVariable`
+answers "not set" for every variable, as a Business Central container that sets none.
+AL reads the answer as an empty text. AL Runner never reads your machine's environment,
+so code that falls back when a variable is missing takes its fallback on every machine.
+It needs no .NET helper. Every other member of `System.Environment` is refused.
+
 ## Not available yet
 
 What is deferred, experimental, not built yet or decided against is listed in the

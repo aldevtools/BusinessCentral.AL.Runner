@@ -265,6 +265,11 @@ impl BackupProvider {
     }
 
     fn find(&self, req: &TableRequest) -> Result<&BcTable, TableError> {
+        self.find_in(req, &self.sql_company)
+    }
+
+    /// [`Self::find`] in the company whose name in table names is `sql_company`.
+    fn find_in(&self, req: &TableRequest, sql_company: &str) -> Result<&BcTable, TableError> {
         let want = normalize_sql_name(&req.name);
         let mut hits: Vec<&BcTable> = self
             .by_name
@@ -274,7 +279,7 @@ impl BackupProvider {
             .map(|&i| &self.tables[i])
             .filter(|t| eq_ci(&t.table_name, &want))
             .filter(|t| match &t.company {
-                Some(c) => req.per_company && eq_ci(c, &self.sql_company),
+                Some(c) => req.per_company && eq_ci(c, sql_company),
                 None => !req.per_company,
             })
             .collect();
@@ -444,6 +449,23 @@ impl TableProvider for BackupProvider {
                 Err(_) => Vec::new(),
             })
             .clone()
+    }
+
+    fn holds_rows_in(&self, company: &str, req: &TableRequest) -> Option<bool> {
+        let table = match self.find_in(req, &normalize_sql_name(company)) {
+            Ok(t) => t,
+            Err(TableError::Absent) => return Some(false),
+            Err(_) => return None,
+        };
+        let first = self.src.columns(&table.table).ok()?.into_iter().next()?;
+        let mut any = false;
+        self.src
+            .read_rows(&table.table, &[first], &mut |_| {
+                any = true;
+                Ok(false)
+            })
+            .ok()?;
+        Some(any)
     }
 
     fn read(&self, req: &TableRequest) -> Result<Arc<TableRows>, TableError> {

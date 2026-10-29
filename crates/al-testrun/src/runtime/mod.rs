@@ -491,6 +491,8 @@ pub(crate) struct Unit {
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// See `RunOptions::on_run_rows`.
     on_run_rows: OnRunRows,
+    /// See `RunOptions::ignore_permission_mock`.
+    ignore_permission_mock: bool,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -529,6 +531,8 @@ pub(crate) struct Scratch {
     onrun_carry: bool,
     /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
     on_run_rows: OnRunRows,
+    /// See `RunOptions::ignore_permission_mock`.
+    ignore_permission_mock: bool,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -609,6 +613,7 @@ fn run_unit(
             leak: u.leak.clone(),
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
+            ignore_permission_mock: u.ignore_permission_mock,
             ..Default::default()
         };
         if u.coverage {

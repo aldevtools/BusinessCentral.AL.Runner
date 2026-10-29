@@ -776,6 +776,10 @@ pub struct Session {
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
     pub runner_permission_step: bool,
+    /// `al-runner test --ignore-permission-mock`: a test that assigns a permission set itself
+    /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
+    /// `permissions-not-enforced`, instead of being refused.
+    pub ignore_permission_mock: bool,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1062,6 +1066,7 @@ impl Session {
             iso_min_unpinned: false,
             hub_disabled: false,
             runner_permission_step: false,
+            ignore_permission_mock: false,
             test_object: None,
             http_policy: None,
             scratch_messages: None,

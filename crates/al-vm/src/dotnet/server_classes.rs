@@ -16,7 +16,7 @@
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{
-    AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
+    AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
     TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
 };
 use al_builtins::native::Signal;
@@ -595,7 +595,7 @@ fn permission_helper_dispose(_: &mut Session, _: Option<&Rc<DotNetObject>>, args
 
 /// `AddEffectivePermissionSet(RoleId)` narrows the session to the assigned sets (enforced on BC: corpus
 /// permissions/TestPermissionsMockEnforcement.al:28-47). Permissions are not enforced here (ADR-027), so a test that
-/// lowers them is not run. The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302
+/// lowers them is not run, unless `--ignore-permission-mock` asks to run it anyway. The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302
 /// "Set State Test Run", every Microsoft test that does not disable TestPermissions) are assumed to grant all the test
 /// does (`runner-permission-sets-grant-all`): those tests pass in Microsoft's CI under them. On BC they do not grant
 /// everything: they grant what D365 Full Access, D365 Basic and LOCAL name, plus Execute on every object (All Objects);
@@ -607,11 +607,42 @@ fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, _: A
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
         return Ok(Value::Null);
     }
+    // `al-runner test --ignore-permission-mock`: the user chose to run such a test with every access granted. Each test
+    // that gets here is a flagged pass (`permissions-not-enforced`), never mistaken for a permission check.
+    if s.ignore_permission_mock {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PermissionsNotEnforced);
+        return Ok(Value::Null);
+    }
     Err(Signal::Unsupported(
         "DotNet PermissionTestHelper.AddEffectivePermissionSet lowers the permissions of the test session; \
-         permissions are not enforced here (every access is granted, ADR-027), so the test is not run"
+         permissions are not enforced here (every access is granted, ADR-027), so the test is not run \
+         (`--ignore-permission-mock` runs it without permission checks, as a flagged pass)"
             .into(),
     ))
+}
+
+/// How AL reads an unset environment variable: a null string (tests/al-language-onprem-dotnet/
+/// TestDotNetValueKindsContracts.al:130-131, :181-190 and :438, all with a variable no host sets).
+const UNSET_VARIABLE_PIN: &str = "tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:130-131, :181-190, :438 \
+    (an unset variable is a null string); owner decision 2026-10-30 (issue 6222): every variable reads as not set";
+
+/// `System.Environment.GetEnvironmentVariable(name)` and `(name, target)`: every variable reads as not set, as on a BC
+/// container that sets none (owner decision 2026-10-30, issue 6222). The host's environment is never read, so a run
+/// gives the same answer on every machine. The answer is a null string (`UNSET_VARIABLE_PIN`): `= ''` is true, a Text
+/// gets '' and a Variant stays empty. Every other member of System.Environment is refused (a registry type serves only
+/// its listed members).
+fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    if !matches!(
+        args,
+        [Value::Text(_) | Value::Code(_)] | [Value::Text(_) | Value::Code(_), _]
+    ) {
+        return Err(Signal::Unsupported(format!(
+            "DotNet System.Environment.GetEnvironmentVariable with {} arguments (only (name) and (name, target) are served)",
+            args.len()
+        )));
+    }
+    s.dotnet.null_string = true;
+    Ok(Value::Null)
 }
 
 fn probe(what: &str) -> Pin {
@@ -661,6 +692,14 @@ fn own_types() -> Vec<RegistryType> {
                 cfg("UsePermissionsFromExtensions", permission_sets_from_extensions),
                 cfg("IsSaaS", membership_entitlement),
             ],
+        },
+        RegistryType {
+            clr_name: ENVIRONMENT.into(),
+            members: vec![member(
+                "GetEnvironmentVariable",
+                Pin::Corpus(UNSET_VARIABLE_PIN.into()),
+                environment_variable,
+            )],
         },
         RegistryType {
             clr_name: TENANT_SETTINGS_HELPER.into(),
