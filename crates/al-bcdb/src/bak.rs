@@ -410,6 +410,10 @@ fn decode_fixed_var(
 }
 
 impl BcSource for BakSource {
+    fn last_row_version(&self) -> Result<Option<u64>> {
+        crate::catalog::db_timestamp(&self.pf).map(Some)
+    }
+
     fn sequences(&self) -> Result<Vec<crate::catalog::SqlSequence>> {
         self.cat.sequences(&self.pf)
     }
