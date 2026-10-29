@@ -744,11 +744,12 @@ impl Session {
         Ok(())
     }
 
-    /// `Delete()` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete on corpus branch
-    /// al-runtime-rs-staging-pub-tp; assumption tenant-media-delete): the media leaves Tenant Media and Delete returns true; the
-    /// row that holds it keeps the MediaId with HasValue false and ExportStream false. A missing id returns false without an
-    /// error. Tenant Media is a platform table without trigger code, so `Delete(true)` runs the same; with event subscribers or
-    /// global triggers, a missing id with the return value unused (its error), and a media a MediaSet holds, it is not pinned.
+    /// `Delete()` and `Delete(true)` of a Tenant Media row (media/TestMediaPngImport.al TP_TenantMedia_Delete on corpus branch
+    /// al-runtime-rs-staging-pub-tp; TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement on branch
+    /// al-runtime-rs-staging-pub-tq; assumption tenant-media-delete until the bump): the media leaves Tenant Media and Delete
+    /// returns true (the statement form raises no error); every row that holds it, also two rows, keeps the MediaId with
+    /// HasValue false and ExportStream false. A missing id returns false, or in the statement form fails with
+    /// DB:RecordNotFound. With event subscribers or global triggers, and for a media a MediaSet holds, it is not pinned.
     fn delete_tenant_media(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantMediaDelete);
         if (run && self.table_trigger(t, "OnDelete").is_some())
@@ -769,16 +770,20 @@ impl Session {
         {
             return unsupported("Delete of a Tenant Media row a MediaSet or Media Resources holds (not pinned)");
         }
-        match self.media.objects.borrow_mut().remove(&id) {
+        let removed = self.media.objects.borrow_mut().remove(&id);
+        match removed {
             Some(obj) => {
                 self.media.removed.borrow_mut().insert(id);
                 self.media_removed.0.push((id, obj));
                 Ok(Value::Boolean(true))
             }
-            None if self.ret_used => Ok(Value::Boolean(false)),
-            None => unsupported(
-                "Delete of a Tenant Media row that does not exist, its return value unused (error not pinned)",
-            ),
+            // A missing row: false when the return value is used (TP_TenantMedia_Delete, TQ_TenantMedia_DeleteTrue_Used), else
+            // `The Tenant Media does not exist. Identification fields and values: ID='{..}'`, DB:RecordNotFound
+            // (TQ_TenantMedia_DeleteTrue_Missing_Statement).
+            None => {
+                let row = rec.borrow().fields.clone();
+                self.fail(t, &row, false)
+            }
         }
     }
 

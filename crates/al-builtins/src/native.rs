@@ -2600,6 +2600,15 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
                 std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
             )
         }
+        // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again
+        // (xml/XmlNodes.al TP_NodeList_Clear on corpus branch al-runtime-rs-staging-pub-tp; assumption xml-node-list-clear).
+        Value::Library(name, _) if name.as_str() == "XmlNodeList" => {
+            crate::assumptions::assume(crate::assumptions::Assumption::XmlNodeListClear);
+            Value::Library(
+                name.clone(),
+                std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),
+            )
+        }
         other => return unsupported(&format!("Clear of a {} value", value_kind(other))),
     };
     Ok(Value::Null)

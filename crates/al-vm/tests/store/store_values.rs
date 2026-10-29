@@ -343,6 +343,26 @@ codeunit 69985 M
         exit(Format(TenantMedia.Get(Id)) + Format(Row.Pic.HasValue()));
     end;
 
+    // TestMediaPngImport.al TQ_TenantMedia_DeleteTrue_Used, TQ_TenantMedia_DeleteTrue_Missing_Statement (corpus branch
+    // al-runtime-rs-staging-pub-tq).
+    procedure DeleteTrueUsedTwice(): Text
+    var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; Id: Guid;
+    begin
+        Row.Id := 1; Row.Insert(); Import(Row, 'one'); Row.Modify();
+        Row.Get(1);
+        Id := Row.Pic.MediaId();
+        exit(Format(TenantMedia.Get(Id)) + Format(TenantMedia.Delete(true)) + Format(TenantMedia.Get(Id)) + Format(TenantMedia.Delete(true)));
+    end;
+
+    procedure DeleteTrueMissingStatement(): Text
+    var TenantMedia: Record "Tenant Media";
+    begin
+        TenantMedia.Init();
+        Evaluate(TenantMedia.ID, '{6B1D3E1A-0C2B-4F7E-9A51-3D2C1B0A9F87}');
+        asserterror TenantMedia.Delete(true);
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
     // A rollback brings back the Tenant Media row a Delete removed, with the row.
     procedure DeleteThenRollback(): Text
     var Row: Record "SV Media"; TenantMedia: Record "Tenant Media"; First: Guid;
@@ -406,6 +426,22 @@ fn a_delete_with_run_trigger_of_an_existing_tenant_media_row_removes_it() {
     assert_eq!(
         text(al_testkit::run_in(MEDIA, "M", "DeleteTenantMediaRunTrigger")),
         "NoNo"
+    );
+}
+
+#[test]
+fn a_delete_with_run_trigger_of_a_tenant_media_row_returns_true_then_false() {
+    assert_eq!(
+        text(al_testkit::run_in(MEDIA, "M", "DeleteTrueUsedTwice")),
+        "YesYesNoNo"
+    );
+}
+
+#[test]
+fn a_delete_statement_of_a_missing_tenant_media_row_fails_with_record_not_found() {
+    assert_eq!(
+        text(al_testkit::run_in(MEDIA, "M", "DeleteTrueMissingStatement")),
+        "The Tenant Media does not exist. Identification fields and values: ID='{6B1D3E1A-0C2B-4F7E-9A51-3D2C1B0A9F87}'|DB:RecordNotFound"
     );
 }
 
