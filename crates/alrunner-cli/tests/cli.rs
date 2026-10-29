@@ -2340,6 +2340,45 @@ fn run_selected_only_leaves_the_other_tests_of_the_codeunit_out() {
     assert!(text(&o).contains("Tests: 1 total, 1 passed"), "{}", text(&o));
 }
 
+/// Issue 6133 (finding 3): `AL_PROFILE` writes its file when the run ends, also for a run shorter than the profiler's
+/// periodic write (5 s), such as one test with `--run-selected-only`.
+#[test]
+fn al_profile_writes_its_file_at_the_end_of_a_short_run() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("prof");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000006133", "Prof", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50682 \"Prof Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Loop()\n    var\n        i: Integer;\n        n: Integer;\n    begin\n        for i := 1 to 20000 do\n            n += i;\n    end;\n}\n",
+    );
+    let file = d.path().join("profile.txt");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            dir.to_str().unwrap(),
+            "--no-download",
+            "--test-exact",
+            "Codeunit50682.Loop",
+            "--run-selected-only",
+        ])
+        .env("AL_CHECK_THREADS", "2")
+        .env("AL_LOWER_THREADS", "2")
+        .env("AL_TEST_THREADS", "2")
+        .env("ALRUNNER_NO_PATH_NOTE", "1")
+        .env("AL_PROFILE", &file)
+        .env("AL_PROFILE_US", "50")
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let profile = std::fs::read_to_string(&file).unwrap_or_default();
+    assert!(profile.starts_with("samples "), "no profile written: {profile:?}");
+}
+
 /// Al-runner issue 5748: a test codeunit whose OnRun raises, one whose OnRun does not, one without OnRun.
 const ONRUN: &str = r#"
 codeunit 50981 "R537 OnRun Tests"

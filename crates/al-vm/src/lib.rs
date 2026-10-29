@@ -33,6 +33,7 @@ pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
 #[doc(hidden)]
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
+pub use profile::flush as profile_flush;
 mod callstack;
 mod companies;
 mod dataset;
@@ -787,8 +788,9 @@ pub struct Session {
     /// The `[ErrorBehavior(Collect)]` scopes on the call stack and the errors they hold
     /// (see `errorcollect.rs`).
     pub(crate) error_scopes: errorcollect::Scopes,
+    /// The field values of a fresh record, by table: see `Session::initial_fields`.
+    pub(crate) initial_cache: std::collections::HashMap<usize, records::InitialFields>,
     /// Tables with an ad-hoc key appended, by (table object, key fields): see `Session::table`.
-    pub(crate) initial_cache: std::collections::HashMap<usize, Option<Vec<Value>>>,
     pub(crate) adhoc_tables: RefCell<AdhocTables>,
     /// Imported media objects and media sets (the platform tables behind Media fields).
     pub(crate) media: al_builtins::media::MediaStore,
@@ -1652,6 +1654,24 @@ impl Session {
         }))
     }
 
+    /// A record type whose default value has no state of its own (no temporary table): a record of a stored table. The
+    /// assumption a fresh buffer of the table relies on is still marked, as [`Session::initial_fields`] marks it.
+    fn record_without_state(&self, t: &RtType) -> bool {
+        let RtType::Record(table, false) = t else { return false };
+        if self.engine.object_facts[*table as usize].temporary() {
+            return false;
+        }
+        if self
+            .engine
+            .table_facts
+            .get(*table as usize)
+            .is_some_and(|f| f.ordinal_init)
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionInitValueOrdinal);
+        }
+        true
+    }
+
     /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
     /// `ops::record_ref_into_record` makes (record/lt-ar-records/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter).
     /// Of another table it raises ObjectDefinitionChanged, naming the first field of the ref's table: pinned for that field a Code
@@ -1881,6 +1901,9 @@ impl Session {
             // The default of a parameter that is passed in is never seen: the argument replaces it. One with state of
             // its own (a record takes the number of a temporary table) is still made, as the values are made in order.
             if i < passed && (plain_default(&s.ty) || matches!(&s.ty, RtType::Array(_, el) if plain_default(el))) {
+                locals.push(Value::Null);
+            } else if i < passed && self.record_without_state(&s.ty) {
+                // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
                 locals.push(self.default_value(&s.ty));
