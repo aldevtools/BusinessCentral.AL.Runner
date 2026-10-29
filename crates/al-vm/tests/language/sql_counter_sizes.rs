@@ -123,7 +123,7 @@ fn the_statement_budget_repro_passes() {
 /// An N the corpus does not measure (3, 0, 21) keeps the size unknown.
 #[test]
 fn an_unmeasured_n_is_refused() {
-    for (kind, n) in [(1, 3), (2, 3), (3, 3), (5, 4), (8, 3), (9, 0), (6, 21)] {
+    for (kind, n) in [(1, 3), (2, 3), (8, 3)] {
         refused(run(
             &src(&format!("procedure F(): Text begin exit(RoMeasure({kind}, {n})); end;")),
             "F",
@@ -156,10 +156,10 @@ fn a_table_in_another_state_is_refused() {
             begin RoReset(5); Mark(); for I := 1 to 2 do begin Row.Init(); Row.Id := 100 + I; Row.Insert(); end; exit(Measured()); end;"),
         "F",
     ));
-    // Two Gets in a table of 5 rows.
+    // Three Gets in a table of 5 rows, two of one row (the second may come from BC's cache).
     refused(run(
         &src(
-            "procedure F(): Text var Row: Record Row; begin RoReset(5); Mark(); Row.Get(1); Row.Get(2); exit(Measured()); end;",
+            "procedure F(): Text var Row: Record Row; begin RoReset(5); Mark(); Row.Get(1); Row.Get(1); Row.Get(2); exit(Measured()); end;",
         ),
         "F",
     ));
@@ -169,7 +169,6 @@ fn a_table_in_another_state_is_refused() {
 #[test]
 fn an_unmeasured_shape_is_refused() {
     for body in [
-        "RoReset(5); Mark(); Row.SetRange(Name, 'row 1'); Cnt := Row.Count();",
         "RoReset(0); Mark(); Row.Id := 1; Row.Insert(); Row.Id := 2; Row.Insert();",
         "RoReset(2); Mark(); Row.FindSet(); Row.Next();",
         "RoReset(2); Mark(); Row.Get(1); Cnt := Row.Count();",
@@ -182,6 +181,34 @@ fn an_unmeasured_shape_is_refused() {
         refused(run(&s, "F"));
     }
 }
+/// On this table, and for an N or filter the corpus did not measure, each record method costs what writer TX measured it to
+/// cost alone on its table (session/lt-bl-sql-counters/SkSqlBudget.al:709-860): Get 1/1, a FindSet loop 1/(N+1), Get and Modify
+/// 2/2 a row, Count 1/1. The pass is flagged: it rests on `sql-read-cost-unmeasured-shape`.
+#[test]
+fn an_unmeasured_shape_or_n_costs_as_measured_and_is_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    for (kind, n, want) in [(3, 3, "3/3"), (5, 4, "1/5"), (9, 0, "1/1"), (6, 21, "42/42")] {
+        take_hits();
+        let r = run(
+            &src(&format!("procedure F(): Text begin exit(RoMeasure({kind}, {n})); end;")),
+            "F",
+        );
+        assert_eq!(text(r), want, "kind {kind}, N {n}");
+        assert!(take_hits().contains(&Assumption::SqlReadCostUnmeasuredShape), "kind {kind}, N {n}");
+    }
+    for (body, want) in [
+        ("RoReset(5); Mark(); Row.Get(1); Row.Get(2);", "2/2"),
+        ("RoReset(5); Mark(); Row.SetRange(Name, 'row 1'); Cnt := Row.Count();", "1/1"),
+    ] {
+        take_hits();
+        let s = src(&format!(
+            "procedure F(): Text var Row: Record Row; Cnt: Integer; begin {body} exit(Measured()); end;"
+        ));
+        assert_eq!(text(run(&s, "F")), want, "{body}");
+        assert!(take_hits().contains(&Assumption::SqlReadCostUnmeasuredShape), "{body}");
+    }
+}
+
 /// Nothing between two reads: the change is 0 (SqlCounters.al:105-119), a plain number.
 #[test]
 fn nothing_between_two_reads_is_a_change_of_zero() {

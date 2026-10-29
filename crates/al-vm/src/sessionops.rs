@@ -188,17 +188,23 @@ impl Session {
         // A tainted value whose number is the runtime's model (sqlcount.rs, issue 5580).
         if id == ids::SESSIONINFORMATION_SQLSTATEMENTSEXECUTED_1 {
             let nothing_inserted = self.tx.tables_inserted.is_empty();
+            let pre_known = self.sql_pre_known();
             return Ok(self.sql.read(
                 al_builtins::value::SqlCounter::Statements,
                 self.commits,
                 nothing_inserted,
+                pre_known,
             ));
         }
         if id == ids::SESSIONINFORMATION_SQLROWSREAD_1 {
             let nothing_inserted = self.tx.tables_inserted.is_empty();
-            return Ok(self
-                .sql
-                .read(al_builtins::value::SqlCounter::RowsRead, self.commits, nothing_inserted));
+            let pre_known = self.sql_pre_known();
+            return Ok(self.sql.read(
+                al_builtins::value::SqlCounter::RowsRead,
+                self.commits,
+                nothing_inserted,
+                pre_known,
+            ));
         }
         if id == ids::SESSIONINFORMATION_CALLSTACK_1 {
             // Frames innermost first, a backslash after each, the runner's below

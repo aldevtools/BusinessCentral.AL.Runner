@@ -25,6 +25,7 @@
 //! session/lt-bl-sql-counters/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
 //! sized by their sum, whatever came before it, as long as the buffer was known throughout.
 
+use al_builtins::assumptions::Assumption;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{SqlCount, SqlCounter, SqlForm, Value};
 
@@ -49,6 +50,8 @@ struct Event {
     copy: CopyShape,
     /// What the method cost under the buffer rule ([`SqlCounters::cost`]).
     cost: Cost,
+    /// The cost rests on this assumption, not on a pin: a pass through it is flagged.
+    assume: Option<Assumption>,
 }
 
 /// The cost of one record method under the buffer rule (SkSqlBudget.al).
@@ -75,6 +78,22 @@ pub(crate) struct OpInfo {
     pub(crate) first_write: Option<(bool, bool)>,
     /// The AL code that called the method is in a dependency app (Microsoft's), not the app under test.
     pub(crate) dependency_code: bool,
+    /// The record and its table, as far as the cost of a read depends on them (`Session::sql_read_shape`).
+    pub(crate) read: ReadShape,
+}
+
+/// What the cost of one record method on a database table depends on (`Session::sql_read_shape`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ReadShape {
+    /// A database record with no state set but filters in filter group 0 and load fields.
+    pub(crate) readable: bool,
+    /// The table and filters of SkSqlBudget.al:969-985 (writer TX): the costs of [`SqlCounters::read_cost`] are measured on it.
+    pub(crate) measured: bool,
+    /// The table has an AutoIncrement field.
+    pub(crate) auto_increment: bool,
+    /// The fields filtered, one bit each (field index < 64): what tells two queries of one table apart, as far as the history
+    /// effect of [`SqlCounters::found_nothing`] goes.
+    pub(crate) filters: u64,
 }
 
 /// Whether a record of a database table is of the shape whose copy sizes SkSqlBudget.al measured: a table of the fields
@@ -104,6 +123,9 @@ enum Buffer {
 enum Kind {
     Get,
     FindSet,
+    FindFirst,
+    FindLast,
+    IsEmpty,
     Next,
     Count,
     Insert,
@@ -119,6 +141,9 @@ fn kind(m: RecordOp) -> Kind {
     match m {
         RecordOp::Get => Kind::Get,
         RecordOp::FindSet => Kind::FindSet,
+        RecordOp::FindFirst => Kind::FindFirst,
+        RecordOp::FindLast => Kind::FindLast,
+        RecordOp::IsEmpty => Kind::IsEmpty,
         RecordOp::Next => Kind::Next,
         RecordOp::Count => Kind::Count,
         RecordOp::Insert => Kind::Insert,
@@ -126,7 +151,9 @@ fn kind(m: RecordOp) -> Kind {
         RecordOp::Delete => Kind::Delete,
         RecordOp::Init => Kind::Init,
         RecordOp::DeleteAll => Kind::DeleteAll,
-        RecordOp::SetRange => Kind::SetRange,
+        // Methods that neither read nor write the table: SetFilter and SetLoadFields cost nothing (SkSqlBudget.al:709-729 Get
+        // with and without SetLoadFields, :742-762 SetRange and SetFilter before a FindSet).
+        RecordOp::SetRange | RecordOp::SetFilter | RecordOp::SetLoadFields => Kind::SetRange,
         _ => Kind::Other,
     }
 }
@@ -196,6 +223,19 @@ pub(crate) struct SqlCounters {
     inserted: std::collections::HashSet<u32>,
     /// Database tables written by a logged record method since the last logged read of them.
     written_since_read: std::collections::HashSet<u32>,
+    /// The logged reads of each database table since the last logged write to it: the key of a Get, `None` for any other read.
+    /// BC reads a row again from its cache (SqlCounters.al:232-276 "N Gets of one row: 1/1") and counts again from it after
+    /// reads (:139-140, :154), so [`SqlCounters::read_cost`] costs only a read with none of these before it.
+    reads_since_write: std::collections::HashMap<u32, Vec<Option<Vec<Value>>>>,
+    /// The queries (table, method, [`ReadShape::filters`]) that found no row, seen in this session: on BC 29 SaaS a FindSet
+    /// that finds rows right after the same query found none costs one statement more the first time (SkSqlBudget.al:657-662,
+    /// not asserted), so such a read is not costed. Noted while the counters are inactive too ([`SqlCounters::note_found_nothing`]).
+    found_nothing: std::collections::HashSet<(u32, u8, u64)>,
+    /// The last logged method on a database table other than SetRange and Init: (method, table, found or wrote, key).
+    prev_db: Option<(Kind, u32, bool, Option<Vec<Value>>)>,
+    /// The store operations right after the last database Insert seen while the counters were inactive
+    /// ([`SqlCounters::pre_insert`]).
+    pre_ops: u64,
 }
 
 /// What ran between two reads of a counter.
@@ -250,6 +290,14 @@ const TABLE_STEPS: [(Kind, bool, bool); 6] = [
 ];
 
 impl SqlCounters {
+    /// The counters of a new session: no transaction, so nothing is buffered.
+    pub(crate) fn new_session() -> SqlCounters {
+        SqlCounters {
+            buffer: Buffer::Empty,
+            ..Default::default()
+        }
+    }
+
     /// A record method starts.
     pub(crate) fn enter(&mut self, calls: u64) -> Entry {
         let outer = self.open == 0;
@@ -344,7 +392,17 @@ impl SqlCounters {
         // AL code ran inside only in Global Triggers events, and it touched no store.
         let global_only =
             e.outer && self.muted_dirty == e.muted_dirty && calls - e.calls == self.muted_calls - e.muted_calls;
-        let cost = self.cost(kind, temp, table, ok, trigger, nested && !global_only, result, info);
+        let (cost, assume) = self.cost(
+            kind,
+            temp,
+            table,
+            ok,
+            trigger,
+            nested && !global_only,
+            key.as_ref(),
+            result,
+            info,
+        );
         self.log.push(Event {
             kind,
             temp,
@@ -356,6 +414,7 @@ impl SqlCounters {
             rows_before,
             copy,
             cost,
+            assume,
         });
         if self.log.len() > LOG_CAP {
             self.reset();
@@ -387,9 +446,10 @@ impl SqlCounters {
         ok: bool,
         trigger: bool,
         nested: bool,
+        key: Option<&Vec<Value>>,
         result: &Result<Value, al_builtins::native::Signal>,
         info: OpInfo,
-    ) -> Cost {
+    ) -> (Cost, Option<Assumption>) {
         if temp {
             let free = matches!(
                 kind,
@@ -404,10 +464,18 @@ impl SqlCounters {
                     | Kind::SetRange
             );
             return if free && !nested && !trigger && (ok || kind == Kind::Next) {
-                Cost::Exact(0, 0)
+                (Cost::Exact(0, 0), None)
             } else {
-                Cost::Unknown
+                (Cost::Unknown, None)
             };
+        }
+        let quiet = matches!(self.buffer, Buffer::Empty | Buffer::Pending(_, 0));
+        let read = (!nested && quiet && info.read.readable)
+            .then(|| self.read_cost(kind, table, ok, trigger, key, result, info))
+            .flatten();
+        self.note_db(kind, table, ok, key, info);
+        if read.is_some() && kind == Kind::Insert {
+            self.inserted.insert(table);
         }
         let written = self.written_since_read.contains(&table);
         match kind {
@@ -421,6 +489,8 @@ impl SqlCounters {
         }
         let before = self.buffer;
         self.buffer = match (before, kind) {
+            // A method costed by `read_cost` with nothing buffered sends nothing buffered (SkSqlBudget.al:709-860).
+            _ if read.is_some() => before,
             _ if nested || trigger || !ok => Buffer::Unknown,
             (Buffer::Empty, Kind::Insert) => Buffer::Pending(table, 1),
             (Buffer::Pending(t, n), Kind::Insert) if t == table => Buffer::Pending(t, (n + 1) % BATCH),
@@ -431,21 +501,24 @@ impl SqlCounters {
             (Buffer::Empty, Kind::Get | Kind::FindSet | Kind::Next | Kind::Count) => Buffer::Empty,
             _ => Buffer::Unknown,
         };
+        if let Some(read) = read {
+            return read;
+        }
         if nested || trigger || !ok {
-            return Cost::Unknown;
+            return (Cost::Unknown, None);
         }
         let pending = match before {
             Buffer::Empty => Some(0),
             Buffer::Pending(t, n) if t == table => Some(n),
             _ => None,
         };
-        match kind {
+        let cost = match kind {
             Kind::SetRange | Kind::Init => Cost::Exact(0, 0),
             Kind::Insert => {
                 let first = !self.inserted.contains(&table);
                 self.inserted.insert(table);
                 let (Some(n), true) = (pending, info.buffer_shape) else {
-                    return Cost::Unknown;
+                    return (Cost::Unknown, None);
                 };
                 let sent = i64::from(n + 1 == BATCH);
                 match (first, info.first_write) {
@@ -469,7 +542,111 @@ impl SqlCounters {
                 }
             }
             _ => Cost::Unknown,
+        };
+        (cost, None)
+    }
+
+    /// The cost of a record method on a database table with nothing buffered, as writer TX measured each method alone
+    /// (SkSqlBudget.al:623-860, a table of [`ReadShape::measured`] committed before each measurement) and writer TW the
+    /// reporter's shapes of al-runner issue 6116 (:501-621, ten rows inserted and no Commit before):
+    ///
+    /// - Get that finds the row, with or without SetLoadFields: 1/1 (:709-729, TW :521);
+    /// - FindSet with Next to the end: 1/0 when it finds nothing (:731), 1/(N+1) for N rows (:742, :753, TW :547 N = 10;
+    ///   SqlCounters.al:204-276 N = 1, 2, 5, 10, 20), sized whole by [`SqlCounters::buffer_rule`]: FindSet 1/1, each Next 0/1;
+    /// - Modify right after the Get of its row: 1/1 (Get and Modify 2/2 per row, :764-784, TW :573 five rows 10/10);
+    /// - FindFirst that finds nothing: 1/0 (:786); FindLast that finds a row: 1/1 (:841-860);
+    /// - IsEmpty: 1/0 when empty, 1/1 when not (:797-817); Count: 1/1 (:819-839).
+    ///
+    /// Each only when no logged read of the table came since the last logged write to it (a read after a read may come from
+    /// BC's cache: [`SqlCounters::reads_since_write`]), but a Get after Gets of other rows, and a find not after the same
+    /// query found nothing ([`SqlCounters::found_nothing`]). On another table or filter the same costs are assumed
+    /// (`sql-read-cost-unmeasured-shape`), and so are those of an Insert(true) into a table with an AutoIncrement field
+    /// (`sql-autoincrement-insert-cost`, TW :600 pins only the sum of the reporter's loop).
+    #[allow(clippy::too_many_arguments)]
+    fn read_cost(
+        &self,
+        kind: Kind,
+        table: u32,
+        ok: bool,
+        trigger: bool,
+        key: Option<&Vec<Value>>,
+        result: &Result<Value, al_builtins::native::Signal>,
+        info: OpInfo,
+    ) -> Option<(Cost, Option<Assumption>)> {
+        let reads = self.reads_since_write.get(&table).map_or(&[][..], |v| &v[..]);
+        let no_reads = reads.is_empty();
+        let unmeasured = (!info.read.measured).then_some(Assumption::SqlReadCostUnmeasuredShape);
+        let seen_nothing = self.found_nothing.contains(&(table, kind as u8, info.read.filters));
+        let cost = match kind {
+            Kind::Get if ok && !trigger => {
+                let key = key?;
+                let other_gets = reads
+                    .iter()
+                    .all(|r| r.as_ref().is_some_and(|k| !al_builtins::ops::compare_keys(k, key)));
+                other_gets.then_some(Cost::Exact(1, 1))?
+            }
+            Kind::FindSet if no_reads && !trigger => {
+                if ok && seen_nothing {
+                    return None;
+                }
+                Cost::Exact(1, i64::from(ok))
+            }
+            // Sized with its FindSet by `buffer_rule`.
+            Kind::Next if !trigger => Cost::Exact(0, 1),
+            Kind::FindFirst if no_reads && !ok && !trigger => Cost::Exact(1, 0),
+            Kind::FindLast if no_reads && ok && !seen_nothing && !trigger => Cost::Exact(1, 1),
+            Kind::IsEmpty if no_reads && !trigger => match result {
+                Ok(Value::Boolean(empty)) => Cost::Exact(1, i64::from(!*empty)),
+                _ => return None,
+            },
+            Kind::Count if no_reads && !trigger && matches!(result, Ok(Value::Integer(_))) => Cost::Exact(1, 1),
+            Kind::Modify if ok && !trigger => {
+                let key = key?;
+                match &self.prev_db {
+                    Some((Kind::Get, t, true, Some(k))) if *t == table && al_builtins::ops::compare_keys(k, key) => {
+                        Cost::Exact(1, 1)
+                    }
+                    _ => return None,
+                }
+            }
+            Kind::Insert if ok && trigger && info.read.auto_increment => {
+                let first = !self.inserted.contains(&table);
+                let extra = match (first, info.first_write) {
+                    (false, None) => 0,
+                    (true, Some((false, false))) => 1,
+                    _ => return None,
+                };
+                return Some((
+                    Cost::Exact(1 + extra, 1),
+                    Some(Assumption::SqlAutoincrementInsertCost),
+                ));
+            }
+            _ => return None,
+        };
+        Some((cost, unmeasured))
+    }
+
+    /// Notes a logged method on a database table for [`SqlCounters::read_cost`]: its reads since the last write, the
+    /// queries that found nothing, the last method.
+    fn note_db(&mut self, kind: Kind, table: u32, ok: bool, key: Option<&Vec<Value>>, info: OpInfo) {
+        match kind {
+            Kind::SetRange | Kind::Init => return,
+            Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll if ok => {
+                self.reads_since_write.remove(&table);
+            }
+            Kind::Get => self
+                .reads_since_write
+                .entry(table)
+                .or_default()
+                .push(if ok { key.cloned() } else { None }),
+            Kind::Next => {}
+            Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll => {}
+            _ => self.reads_since_write.entry(table).or_default().push(None),
         }
+        if !ok && matches!(kind, Kind::FindSet | Kind::FindFirst | Kind::FindLast) {
+            self.found_nothing.insert((table, kind as u8, info.read.filters));
+        }
+        self.prev_db = Some((kind, table, ok, key.cloned()));
     }
 
     /// The size of the segment `from..to` under the buffer rule, where every method in it has a cost.
@@ -478,6 +655,7 @@ impl SqlCounters {
         if seg.iter().filter(|e| !e.temp && e.kind == Kind::Insert).count() > BUFFER_RULE_MAX_INSERTS {
             return None;
         }
+        let assumed = loops(seg)?;
         let (mut sum, mut bound) = (0, false);
         for e in seg {
             sum += match (e.cost, counter) {
@@ -489,6 +667,9 @@ impl SqlCounters {
                 }
                 _ => return None,
             };
+        }
+        for a in seg.iter().filter_map(|e| e.assume).chain(assumed) {
+            al_builtins::assumptions::assume(a);
         }
         Some(if bound {
             Change::AtLeast(sum)
@@ -503,6 +684,35 @@ impl SqlCounters {
         self.base += self.log.len();
         self.log.clear();
         self.commit_mark = None;
+    }
+
+    /// A find on a database table found no row while the counters were inactive ([`SqlCounters::found_nothing`]).
+    pub(crate) fn note_found_nothing(&mut self, m: RecordOp, table: u32, filters: u64) {
+        let kind = kind(m);
+        if matches!(kind, Kind::FindSet | Kind::FindFirst | Kind::FindLast) {
+            self.found_nothing.insert((table, kind as u8, filters));
+        }
+    }
+
+    /// A database Insert while the counters are inactive, right before it reaches the store (`ops`: the store operations
+    /// then): it brings [`SqlCounters::buffer`] up to date as a logged Insert would, so that a measurement whose first read
+    /// comes after Inserts knows what they left buffered (the reporter's tests of al-runner issue 6116, SkSqlBudget.al:521:
+    /// ten Inserts, then the first read). Any other store access while a row is buffered, an Insert with RunTrigger or into a
+    /// table with an AutoIncrement field, or an Insert into a second table leaves it unknown.
+    pub(crate) fn pre_insert(&mut self, table: u32, plain: bool, ops: u64) {
+        let touched = ops != self.pre_ops;
+        self.buffer = match self.buffer {
+            _ if !plain => Buffer::Unknown,
+            Buffer::Pending(_, n) if n > 0 && touched => Buffer::Unknown,
+            Buffer::Empty => Buffer::Pending(table, 1),
+            Buffer::Pending(t, n) if t == table => Buffer::Pending(t, (n + 1) % BATCH),
+            _ => Buffer::Unknown,
+        };
+    }
+
+    /// The Insert of [`SqlCounters::pre_insert`] reached the store; `ops`: the store operations right after it.
+    pub(crate) fn pre_inserted(&mut self, ops: u64) {
+        self.pre_ops = ops;
     }
 
     /// Whether `m` needs its primary key noted.
@@ -548,16 +758,22 @@ impl SqlCounters {
 
     /// A read of `counter`.
     ///
-    /// `nothing_inserted`: the transaction has inserted no row into a database table (so nothing is buffered).
-    pub(crate) fn read(&mut self, counter: SqlCounter, commits: u64, nothing_inserted: bool) -> Value {
+    /// `nothing_inserted`: the transaction has inserted no row into a database table (so nothing is buffered). `pre_known`:
+    /// every write of the transaction was a record method the store noted, so every Insert went through
+    /// [`SqlCounters::pre_insert`].
+    pub(crate) fn read(&mut self, counter: SqlCounter, commits: u64, nothing_inserted: bool, pre_known: bool) -> Value {
         let outside = al_data::memory::store_ops() - self.inside;
         if !self.active {
             self.active = true;
             self.base = 0;
             self.log.clear();
             self.commit_mark = None;
+            // What `pre_insert` followed, when nothing touched the store since a row was left buffered.
+            let quiet = matches!(self.buffer, Buffer::Empty | Buffer::Pending(_, 0));
             self.buffer = if nothing_inserted {
                 Buffer::Empty
+            } else if pre_known && (quiet || al_data::memory::store_ops() == self.pre_ops) {
+                self.buffer
             } else {
                 Buffer::Unknown
             };
@@ -712,6 +928,42 @@ fn step_len(evs: &[Event], want: Kind) -> Option<usize> {
         Some(e) if e.kind == Kind::Next && !e.ok => Some(i + 1),
         _ => None,
     }
+}
+
+/// The row counts a FindSet loop over a database table was measured for: SqlCounters.al:204-276 (N = 1, 2, 5, 10, 20),
+/// SkSqlBudget.al:742-762 (TX: 1 and 3) and :547-571 (TW: 10).
+const LOOP_ROWS: [usize; 6] = [1, 2, 3, 5, 10, 20];
+
+/// Checks the FindSet loops over database tables in a segment sized by the buffer rule, whose methods `read_cost` costs one by
+/// one (FindSet 1/1, each Next 0/1): each Next belongs to a FindSet that found a row, right after it or another Next of its
+/// loop on the same table, and each such loop runs to the Next that does not move, inside the segment. Gives the assumption
+/// a loop over a row count the corpus did not measure rests on; `None` when a loop is not whole.
+fn loops(seg: &[Event]) -> Option<Option<Assumption>> {
+    let mut assumed = None;
+    let mut i = 0;
+    while i < seg.len() {
+        let e = &seg[i];
+        if e.temp || e.cost == Cost::Unknown {
+            i += 1;
+            continue;
+        }
+        match e.kind {
+            Kind::Next => return None,
+            Kind::FindSet if e.ok => {
+                let len = step_len(&seg[i..], Kind::FindSet)?;
+                if seg[i + 1..i + len].iter().any(|n| n.temp || n.table != e.table) {
+                    return None;
+                }
+                // FindSet and N - 1 Nexts that moved read the N rows.
+                if !LOOP_ROWS.contains(&(len - 1)) {
+                    assumed = Some(Assumption::SqlReadCostUnmeasuredShape);
+                }
+                i += len;
+            }
+            _ => i += 1,
+        }
+    }
+    Some(assumed)
 }
 
 /// The part of a (statements, rows read) pair that is `counter`'s.
@@ -920,7 +1172,7 @@ mod tests {
     #[test]
     fn the_log_stays_bounded() {
         let mut c = SqlCounters::default();
-        let first = c.read(SqlCounter::Statements, 0, true);
+        let first = c.read(SqlCounter::Statements, 0, true, true);
         for _ in 0..(3 * LOG_CAP) {
             let e = c.enter(0);
             c.leave(
@@ -939,7 +1191,7 @@ mod tests {
         }
         assert!(c.log.len() <= LOG_CAP);
         let Value::SqlCount(a) = first else { panic!() };
-        let Value::SqlCount(b) = c.read(SqlCounter::Statements, 0, true) else {
+        let Value::SqlCount(b) = c.read(SqlCounter::Statements, 0, true, true) else {
             panic!()
         };
         assert_ne!(a.form, b.form, "a new epoch after the log was dropped");
