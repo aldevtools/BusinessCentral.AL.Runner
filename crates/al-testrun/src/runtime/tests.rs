@@ -466,41 +466,76 @@ fn a_shared_table_that_per_company_install_code_writes_is_not_known() {
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
 }
 
-// ADR-046 amendment 3 (A2 as amended): the order of two install routines of one app and part whose object ids lie in
-// different blocks of 65536 ids is not known (install/lt-bf-install-probes/BfInstallTests.al:239: 60445, 60618 and 60894
-// run after 81255, not ascending id). A table two such routines write (a), the tables a routine writes that reads what
-// the other writes (b), and those of routines sharing a SingleInstance codeunit (c) are refused.
+// ADR-046 amendment 3: install codeunit triggers and Extension Triggers subscribers of one app run as one sequence in
+// ascending codeunit id, across the 65536 id boundary (corpus PR 810, writer UR, branch al-runtime-rs-staging-ur 1ac158e1,
+// tests/al-language/install/lt-ur-block-order/UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515).
+// A table two such routines write (a), the tables a routine writes that reads what the other writes (b), and those of
+// routines sharing a SingleInstance codeunit (c) are answered; until that file is in the pinned corpus it is a flagged pass.
 #[test]
-fn tables_whose_install_rows_depend_on_the_order_of_the_routines_are_not_known() {
-    let o = outcomes(
-        "table 60900 Both { fields { field(1; K; Code[10]) { } } }
+fn tables_whose_install_rows_depend_on_the_order_of_the_routines_follow_ascending_id_across_blocks() {
+    let main = "table 60900 Both { fields { field(1; K; Code[10]) { } } }
             table 60901 Src { fields { field(1; K; Code[10]) { } } }
             table 60902 Dst { fields { field(1; K; Code[10]) { } } }
             table 60903 ViaState { fields { field(1; K; Code[10]) { } } }
-            table 60904 Alone { fields { field(1; K; Code[10]) { } } }
             codeunit 60906 State { SingleInstance = true; var N: Integer; procedure Next(): Integer begin N += 1; exit(N); end; }
-            codeunit 60907 Inst { Subtype = Install;
-                trigger OnInstallAppPerCompany() var B: Record Both; S: Record Src; V: Record ViaState; St: Codeunit State;
-                begin B.K := 'I'; B.Insert(); S.K := 'S'; S.Insert(); V.K := Format(St.Next()); V.Insert(); end; }
             codeunit 70905 Subs {
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
                 local procedure PerCompany() var B: Record Both; S: Record Src; D: Record Dst; St: Codeunit State;
-                begin B.K := 'S'; B.Insert(); D.K := Format(S.Count()); D.Insert(); St.Next(); end;
-                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerDatabase', '', false, false)]
-                local procedure PerDatabase() var A: Record Alone; begin end; }
+                begin B.K := 'S'; B.Insert(); D.K := Format(S.Count()) + '-' + Format(St.Next()); D.Insert(); end; }
+            codeunit 60907 Inst { Subtype = Install;
+                trigger OnInstallAppPerCompany() var B: Record Both; S: Record Src; V: Record ViaState; St: Codeunit State;
+                begin B.K := 'I'; B.Insert(); S.K := 'S'; S.Insert(); V.K := Format(St.Next()); V.Insert(); end; }
             codeunit 60102 T { Subtype = Test;
                 [Test] procedure ReadsBoth() var R: Record Both; begin if R.Count() <> 2 then Error('rows'); end;
-                [Test] procedure ReadsDst() var R: Record Dst; begin if R.IsEmpty() then Error('rows'); end;
-                [Test] procedure ReadsViaState() var R: Record ViaState; begin if not R.FindFirst() then Error('rows'); end;
-                [Test] procedure ReadsAlone() var R: Record Alone; begin if not R.IsEmpty() then Error('rows'); end; }",
-    );
-    for i in 0..3 {
-        assert!(
-            matches!(&o[i].1, Outcome::NotRun(r) if r.contains("order BC runs them in is not pinned")),
-            "{i}: {o:?}"
-        );
+                [Test] procedure ReadsDst() var R: Record Dst; begin R.FindFirst(); if R.K <> '1-2' then Error('%1', R.K); end;
+                [Test] procedure ReadsViaState() var R: Record ViaState; begin R.FindFirst(); if R.K <> '1' then Error('%1', R.K); end; }";
+    let (o, hits) = outcomes_and_hits_of_apps(&[("main", &[], main)], "T");
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
-    assert_eq!(o[3].1, Outcome::Pass, "{o:?}");
+    for (n, h) in &hits {
+        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+    }
+}
+
+// ADR-046 amendment 3: ids above 99999 could not be published on the sandbox (UrBlockOrderTests.al:9-11), so the order of
+// a routine with such an id against another is the same integer comparison, under assumption
+// `install-order-ids-above-probed-range`.
+#[test]
+fn install_routines_with_ids_above_99999_run_in_ascending_id_as_an_assumption() {
+    let main = "table 60900 Log { fields { field(1; Id; Integer) { AutoIncrement = true; } field(2; Names; Text[100]) { } } }
+            codeunit 60906 State { SingleInstance = true; var N: Text; procedure Add(X: Text): Text begin N += X; exit(N); end; }
+            codeunit 130000 High { Subtype = Install;
+                trigger OnInstallAppPerCompany() var L: Record Log; S: Codeunit State; begin L.Names := S.Add('H'); L.Insert(); end; }
+            codeunit 70000 Mid { Subtype = Install;
+                trigger OnInstallAppPerCompany() var L: Record Log; S: Codeunit State; begin L.Names := S.Add('M'); L.Insert(); end; }
+            codeunit 60100 Low { Subtype = Install;
+                trigger OnInstallAppPerCompany() var L: Record Log; S: Codeunit State; begin L.Names := S.Add('L'); L.Insert(); end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure Order() var R: Record Log; begin R.FindLast(); if R.Names <> 'LMH' then Error('%1', R.Names); end; }";
+    let (o, hits) = outcomes_and_hits_of_apps(&[("main", &[], main)], "T");
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+    assert!(hits[0].1.contains(&"install-order-ids-above-probed-range"), "{hits:?}");
+}
+
+// ADR-046 amendment 3: the order of two subscribers of one codeunit to one install event is not pinned (every pin has
+// one subscriber per codeunit), so a table both write stays refused (A2 a).
+#[test]
+fn a_table_two_install_subscribers_of_one_codeunit_write_is_not_known() {
+    let o = outcomes(
+        "table 60900 Both { fields { field(1; K; Code[10]) { } } }
+            codeunit 70905 Subs {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
+                local procedure One() var B: Record Both; begin B.K := 'A'; B.Insert(); end;
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
+                local procedure Two() var B: Record Both; begin B.K := 'B'; B.Insert(); end; }
+            codeunit 60102 T { Subtype = Test;
+                [Test] procedure ReadsBoth() var R: Record Both; begin if R.Count() <> 2 then Error('rows'); end; }",
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("subscribers of one codeunit") && r.contains("not pinned")),
+        "{o:?}"
+    );
 }
 
 // ADR-046 amendment 1, A2 d (kept by amendment 3 where the order is not pinned): SystemRowVersion orders rows across tables
