@@ -559,5 +559,8 @@ fn issue_6116_find_first_or_insert_counts() {
 #[test]
 fn issue_6116_find_set_after_the_same_query_found_nothing_stays_refused() {
     let o = issue_6116_outcome("FindSetAfterTheSameQueryFoundNothing");
-    assert!(matches!(&o, Outcome::NotRun(why) if why.contains("SQL counter")), "{o:?}");
+    assert!(
+        matches!(&o, Outcome::NotRun(why) if why.contains("SQL counter")),
+        "{o:?}"
+    );
 }

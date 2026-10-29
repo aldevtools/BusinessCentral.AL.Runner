@@ -194,11 +194,17 @@ fn an_unmeasured_shape_or_n_costs_as_measured_and_is_flagged() {
             "F",
         );
         assert_eq!(text(r), want, "kind {kind}, N {n}");
-        assert!(take_hits().contains(&Assumption::SqlReadCostUnmeasuredShape), "kind {kind}, N {n}");
+        assert!(
+            take_hits().contains(&Assumption::SqlReadCostUnmeasuredShape),
+            "kind {kind}, N {n}"
+        );
     }
     for (body, want) in [
         ("RoReset(5); Mark(); Row.Get(1); Row.Get(2);", "2/2"),
-        ("RoReset(5); Mark(); Row.SetRange(Name, 'row 1'); Cnt := Row.Count();", "1/1"),
+        (
+            "RoReset(5); Mark(); Row.SetRange(Name, 'row 1'); Cnt := Row.Count();",
+            "1/1",
+        ),
     ] {
         take_hits();
         let s = src(&format!(

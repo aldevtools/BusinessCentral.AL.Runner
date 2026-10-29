@@ -23,7 +23,10 @@
 //!
 //! Database Inserts are buffered, and each record method is also given its cost under the buffer rule that
 //! session/lt-bl-sql-counters/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
-//! sized by their sum, whatever came before it, as long as the buffer was known throughout.
+//! sized by their sum, whatever came before it, as long as the buffer was known throughout. With nothing buffered, the reads
+//! (and a Modify after its Get) have the cost writer TX measured for each method alone ([`SqlCounters::read_cost`]); Inserts
+//! made before the session's first read are followed too ([`SqlCounters::pre_insert`]), so a measurement that starts after
+//! them knows what they left buffered.
 
 use al_builtins::assumptions::Assumption;
 use al_builtins::record_op::RecordOp;
@@ -274,6 +277,9 @@ const BATCH: u32 = 5;
 /// A Count sends the rows still buffered one statement each, for up to this many (SkSqlBudget.al:449 three rows,
 /// :495 two, :496 one), then counts with one statement that reads one row.
 const COUNT_SENDS_MAX: u32 = 3;
+
+/// The reads of one table [`SqlCounters::reads_since_write`] tells apart; past it they count as one read of any row.
+const READS_KEPT: usize = 64;
 
 /// The most events the log holds. Past it the log is dropped (`SqlCounters::reset`): a test that reads a counter once and
 /// then runs many record methods does not keep them all.
@@ -599,7 +605,15 @@ impl SqlCounters {
                 Ok(Value::Boolean(empty)) => Cost::Exact(1, i64::from(!*empty)),
                 _ => return None,
             },
-            Kind::Count if no_reads && !trigger && matches!(result, Ok(Value::Integer(_))) => Cost::Exact(1, 1),
+            Kind::Count if no_reads && !trigger && matches!(result, Ok(Value::Integer(_))) => {
+                // A Count with rows after a write to a table of the buffer shape is pinned on its own (`cost`, SkSqlBudget.al:449,
+                // :493-497).
+                let rows = matches!(result, Ok(Value::Integer(n)) if *n > 0);
+                if rows && info.buffer_shape && self.written_since_read.contains(&table) {
+                    return Some((Cost::Exact(1, 1), None));
+                }
+                Cost::Exact(1, 1)
+            }
             Kind::Modify if ok && !trigger => {
                 let key = key?;
                 match &self.prev_db {
@@ -616,10 +630,7 @@ impl SqlCounters {
                     (true, Some((false, false))) => 1,
                     _ => return None,
                 };
-                return Some((
-                    Cost::Exact(1 + extra, 1),
-                    Some(Assumption::SqlAutoincrementInsertCost),
-                ));
+                return Some((Cost::Exact(1 + extra, 1), Some(Assumption::SqlAutoincrementInsertCost)));
             }
             _ => return None,
         };
@@ -634,14 +645,17 @@ impl SqlCounters {
             Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll if ok => {
                 self.reads_since_write.remove(&table);
             }
-            Kind::Get => self
-                .reads_since_write
-                .entry(table)
-                .or_default()
-                .push(if ok { key.cloned() } else { None }),
-            Kind::Next => {}
-            Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll => {}
-            _ => self.reads_since_write.entry(table).or_default().push(None),
+            Kind::Next | Kind::Insert | Kind::Modify | Kind::Delete | Kind::DeleteAll => {}
+            _ => {
+                let reads = self.reads_since_write.entry(table).or_default();
+                if reads.len() >= READS_KEPT {
+                    // Past the cap the reads are not told apart: no read of the table is costed until the next write.
+                    reads.clear();
+                    reads.push(None);
+                } else {
+                    reads.push(if kind == Kind::Get && ok { key.cloned() } else { None });
+                }
+            }
         }
         if !ok && matches!(kind, Kind::FindSet | Kind::FindFirst | Kind::FindLast) {
             self.found_nothing.insert((table, kind as u8, info.read.filters));
