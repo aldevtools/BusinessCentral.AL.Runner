@@ -8,8 +8,31 @@ pub struct OracleFile {
     pub corpus_repo: String,
     pub corpus_app: String,
     pub corpus_commit: String,
+    /// The companies of the oracle's database (ADR-046 decision 2 and amendment 1, A6): the corpus run declares them as
+    /// `--companies` does. Absent: one company.
+    pub companies: Option<CompaniesValue>,
     #[serde(rename = "version")]
     pub versions: Vec<VersionEntry>,
+}
+
+/// `companies` in `oracle.toml`: a list of names, the session company first, or `"all"`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CompaniesValue {
+    Names(Vec<String>),
+    Word(String),
+}
+
+impl CompaniesValue {
+    /// The setting it stands for; a word other than `all`, an empty list or a name given twice is an error.
+    pub fn companies(&self) -> Result<al_host::Companies, String> {
+        match self {
+            CompaniesValue::Word(w) if w == "all" => Ok(al_host::Companies::All),
+            CompaniesValue::Word(w) => Err(format!("companies = \"{w}\": a list of names or \"all\"")),
+            CompaniesValue::Names(n) if n.is_empty() => Err("companies = []: name at least the session company".into()),
+            CompaniesValue::Names(n) => al_host::Companies::parse(&n.join(",")).map_err(|e| format!("companies: {e}")),
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -23,6 +46,8 @@ pub struct VersionEntry {
     pub corpus_commit: Option<String>,
     /// The full build, once the corpus records it.
     pub bc_build: Option<String>,
+    /// The companies of this major's database, when they differ from the top-level `companies`.
+    pub companies: Option<CompaniesValue>,
     pub workflow_run: Option<u64>,
     pub artifact_id: Option<u64>,
     /// The `runtime` the corpus apps were compiled and published with on this leg. The apps in the
@@ -105,8 +130,24 @@ impl VersionEntry {
 }
 
 impl OracleFile {
+    /// The companies of `version`'s database: its own `companies`, else the top-level one, else one company.
+    pub fn companies_of(&self, version: &VersionEntry) -> Result<al_host::Companies, String> {
+        match version.companies.as_ref().or(self.companies.as_ref()) {
+            Some(c) => c.companies(),
+            None => Ok(al_host::Companies::One),
+        }
+    }
+
     pub fn parse(text: &str) -> Result<OracleFile, String> {
         let f: OracleFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        if let Some(c) = &f.companies {
+            c.companies()?;
+        }
+        for v in &f.versions {
+            if let Some(c) = &v.companies {
+                c.companies().map_err(|e| format!("version {}: {e}", v.major))?;
+            }
+        }
         if f.versions.is_empty() {
             return Err("no [[version]] table".into());
         }
@@ -198,6 +239,29 @@ baseline = "metrics/28/passing.txt"
 
     fn file() -> OracleFile {
         OracleFile::parse(TOML).unwrap()
+    }
+
+    // ADR-046 decision 2: `companies` declares the companies of the oracle's database; a [[version]] table may override it.
+    #[test]
+    fn companies_are_one_by_default_a_list_or_all_and_a_version_may_override_them() {
+        let f = file();
+        assert_eq!(f.companies_of(&f.versions[0]).unwrap(), al_host::Companies::One);
+        let t = format!("companies = [\"A\", \"B\"]\n{TOML}");
+        let f = OracleFile::parse(&t).unwrap();
+        assert_eq!(
+            f.companies_of(&f.versions[0]).unwrap(),
+            al_host::Companies::List(vec!["A".into(), "B".into()])
+        );
+        let t = format!(
+            "companies = [\"A\"]\n{}",
+            TOML.replacen("major = 28", "major = 28\ncompanies = \"all\"", 1)
+        );
+        let f = OracleFile::parse(&t).unwrap();
+        let v28 = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert_eq!(f.companies_of(v28).unwrap(), al_host::Companies::All);
+        for bad in ["companies = \"some\"", "companies = []", "companies = [\"A\", \"A\"]"] {
+            assert!(OracleFile::parse(&format!("{bad}\n{TOML}")).is_err(), "{bad}");
+        }
     }
 
     #[test]

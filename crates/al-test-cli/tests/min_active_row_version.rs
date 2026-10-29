@@ -113,10 +113,12 @@ fn minimum_active_row_version_stays_at_the_codeunit_start_under_codeunit_isolati
         "{:?}",
         of("LaterTestKeepsIt")
     );
-    for t in ["AfterInsertAndRead", "AfterModify"] {
+    // A Modify while another table holds unsent inserted rows: corpus branch al-runtime-rs-staging-pub-uk beab119c,
+    // PlTRowVersionValue.al UK_InsertThenModifyOtherTable.
+    for t in ["AfterInsertAndRead", "AfterModify", "InsertHereModifyThere"] {
         assert!(matches!(of(t), Outcome::Pass), "{t}: {:?}", of(t));
     }
-    for t in ["InsertHereModifyThere", "DeleteOfInsertedTable"] {
+    for t in ["DeleteOfInsertedTable"] {
         match of(t) {
             Outcome::NotRun(r) => assert!(r.contains("Database.LastUsedRowVersion after"), "{t}: {r}"),
             other => panic!("{t}: {other:?}"),

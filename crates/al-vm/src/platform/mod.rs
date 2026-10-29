@@ -81,6 +81,9 @@ pub(crate) struct Ident {
     pub time_zones: Vec<al_host::TimeZoneInfo>,
     /// The Windows name of the session's time zone.
     pub time_zone: String,
+    /// The companies the run declared (ADR-046 decision 2, `--companies`), the session company first; empty for the
+    /// default of one company. `Companies::All` is resolved against the test data in [`Ident::resolve_companies`].
+    pub companies: Vec<String>,
 }
 
 impl Ident {
@@ -98,7 +101,27 @@ impl Ident {
             client_type: id.current_client_type(),
             login_millis: host.clock.now_utc_millis(),
             time_zones: id.time_zones(),
+            companies: Vec::new(),
         }
+    }
+
+    /// Resolves the host's company list (ADR-046 decision 2): a list is taken as given; `all` is every company of the
+    /// restored database (`restored`), the session company first, then the others in the order given; without test data
+    /// the database is empty and `all` is the session company alone, the same as the default (an empty list).
+    pub(crate) fn resolve_companies(&mut self, declared: al_host::Companies, restored: Option<Vec<String>>) {
+        self.companies = match declared {
+            al_host::Companies::One => Vec::new(),
+            al_host::Companies::List(names) => names,
+            al_host::Companies::All => {
+                let mut v = vec![self.company.clone()];
+                for c in restored.unwrap_or_default() {
+                    if !v.contains(&c) {
+                        v.push(c);
+                    }
+                }
+                if v.len() == 1 { Vec::new() } else { v }
+            }
+        };
     }
 }
 

@@ -42,6 +42,12 @@ pub struct Args {
     pub files_dir: Option<PathBuf>,
     /// `--environment saas|onprem`: what Environment Information answers (default saas, as probed).
     pub environment: Option<al_host::Environment>,
+    /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database; overrides `companies` in
+    /// `oracle.toml`. `None`: the oracle's value, else one company.
+    pub companies: Option<al_host::Companies>,
+    /// `--one-company`: run with one company whatever `companies` in `oracle.toml` says (the default mode of ADR-046,
+    /// which `tools/company_mode_check.sh` compares with the opt-in).
+    pub one_company: bool,
     /// `--no-download`: never fetch a dependency app from Microsoft's artifact feed (ADR-013).
     pub no_download: bool,
     /// `--cache-dir DIR`: where downloaded artifacts are kept (else `ALRUNNER_CACHE`, else
@@ -213,6 +219,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--require-dotnet" => a.require_dotnet = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
+            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--one-company" => a.one_company = true,
             "--no-download" => a.no_download = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--fetch-deps" => a.fetch_deps = true,
@@ -289,6 +297,10 @@ INPUT
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
                               onprem (IsSaaS and IsSandbox No until a test library changes them;
                               an unprobed assumption Microsoft's suites need)
+  --companies NAMES|all       the companies of the database, session company first, comma separated (or `all`):
+                              per-company install code of the apps under test runs once in each (ADR-046).
+                              Default: `companies` in oracle.toml, else one company
+  --one-company               one company, whatever `companies` in oracle.toml says (the default mode)
   --files-dir DIR             let the File data type read and write real files under DIR (default: in memory)
   --cache-dir DIR             where downloaded artifacts are kept (default: ~/.cache/al-runtime)
 

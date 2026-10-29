@@ -1363,6 +1363,10 @@ impl Writer {
                 String::new()
             } else if !ap.is_empty() && mapped(&self.scope, ap).as_deref() == Some(ans.as_str()) {
                 ap.clone()
+            } else if ap == "xml" && ans == XML_URI {
+                // The `xml` prefix is bound without a declaration and written as it is (xml/XmlDocReadWrite.al:259-265
+                // ReadFrom_Whitespace_TextNode `xmlspace`: `<a xml:space="preserve">` is written back unchanged).
+                ap.clone()
             } else if let Some((p, _)) = self.scope.iter().rev().find(|(p, u)| !p.is_empty() && u == ans) {
                 p.clone()
             } else if ap.is_empty() && self.scope.is_empty() && generated.is_none() && children.is_empty() {
@@ -1471,6 +1475,15 @@ fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal> {
             XData::Document { decl, .. } => decl.clone(),
             _ => None,
         });
+        // A read declaration that names an encoding is written as its own node; one without an encoding is replaced by the
+        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, misc/lt-probes-needed-1/PnAXmlWriteTo.al:90: a line end after
+        // `<?xml version="1.0"?>` is written once).
+        let has_decl = decl.as_ref().is_some_and(|d| {
+            with(
+                d,
+                |x| matches!(x, XData::Declaration { encoding, explicit: false, .. } if !encoding.is_empty()),
+            )
+        });
         let text = match decl {
             Some(d) => with(&d, |x| match x {
                 XData::Declaration {
@@ -1503,12 +1516,18 @@ fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal> {
                 "InvalidOperation",
             ));
         }
-        for c in kids {
+        for (i, c) in kids.into_iter().enumerate() {
             match with(&c, |d| match d {
                 XData::Text(s) => Some(s.clone()),
                 _ => None,
             }) {
                 Some(s) => {
+                    // A line end read right after the document's own declaration (one that names an encoding) is written on a
+                    // line of its own: the declaration ends its line first (xml/XmlDocReadWrite.al:409-430 WriteTo_OutStream_RoundTrip `reread_out`).
+                    // Other white space there is written as before.
+                    if i == 0 && has_decl && s == "\n" {
+                        w.push_text("\n");
+                    }
                     let mut esc = String::new();
                     escape_dom_text(&s, &mut esc);
                     w.document_text(&esc);
@@ -3450,7 +3469,18 @@ fn pi_set_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 
 // ----- names
 
+/// Whether the receiver is a variable of type `ty` that holds nothing: never assigned, or cleared.
+fn unassigned(r: &Option<&mut Value>, ty: &str) -> bool {
+    matches!(r.as_deref(), Some(Value::Library(name, h)) if name.as_str() == ty && matches!(&*h.borrow(), LibraryValue::Empty))
+}
+
 fn element_name(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    // An unassigned XmlElement raises NotInitialized (xml/XmlElement.al:820 Default_Element_Uninitialized `name`); a cleared
+    // one is an unassigned one (Clear marks that assumption; corpus branch al-runtime-rs-staging-ul b753d3fb7a,
+    // xml/lt-ul-clear-ref/UlClearXmlRef.al:90-102 ClearXmlElement_NeverAssigned).
+    if unassigned(&r, "XmlElement") {
+        return Err(uninitialized("XmlElement"));
+    }
     let h = recv(r)?;
     Ok(Value::Text(
         with(&h, |d| match d {
@@ -3565,6 +3595,11 @@ fn get_namespace_of_prefix(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
 // ----- structure
 
 fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // Add of one node to an unassigned XmlElement raises NotInitialized (xml/XmlElement.al:822 Default_Element_Uninitialized
+    // `add`, an XmlText); other arguments are not pinned and stay refused below.
+    if unassigned(&r, "XmlElement") && matches!(a, [Value::Library(_, v)] if is_xml(v)) {
+        return Err(uninitialized("XmlElement"));
+    }
     let h = recv(r)?;
     // A text given as a string joins the text node it follows; an XmlText node is its own node
     // (xml/TestProbeXmlContracts.al:AdjacentTextNodes_NotMerged).
@@ -3840,6 +3875,12 @@ fn replace_nodes(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRe
 }
 
 fn get_root(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // The statement form on an unassigned or cleared document raises XmlNodeNotFound (corpus branch al-runtime-rs-staging-ul
+    // b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:168-204 ClearXmlDocument_SecondVariable `cleared doc|root`).
+    if !c.ret_used() && unassigned(&r, "XmlDocument") {
+        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        return Err(error("The XML node is not set.", "XmlNodeNotFound"));
+    }
     let h = recv(r)?;
     let root = children_of(&h)
         .into_iter()
@@ -3989,7 +4030,27 @@ node_kind!(is_comment, as_comment, "XmlComment");
 node_kind!(is_declaration, as_declaration, "XmlDeclaration");
 node_kind!(is_doctype, as_doctype, "XmlDocumentType");
 node_kind!(is_document, as_document, "XmlDocument");
-node_kind!(is_element, as_element, "XmlElement");
+node_kind!(is_element_node, as_element_node, "XmlElement");
+
+/// An unassigned or cleared XmlNode is no element, and AsXmlElement of it raises a Conversion error (corpus branch
+/// al-runtime-rs-staging-ul b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:106-142 ClearXmlNode_SecondVariable).
+fn is_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if unassigned(&r, "XmlNode") {
+        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        return Ok(Value::Boolean(false));
+    }
+    is_element_node(c, r, a)
+}
+fn as_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if unassigned(&r, "XmlNode") {
+        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        return Err(error(
+            "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavXmlNode to Microsoft.Dynamics.Nav.Runtime.NavXmlElement.",
+            "Conversion",
+        ));
+    }
+    as_element_node(c, r, a)
+}
 node_kind!(is_pi, as_pi, "XmlProcessingInstruction");
 
 /// `IsXmlText` is true for a text node only; a CDATA section is not text
@@ -4031,6 +4092,10 @@ fn is_empty(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
 }
 
 fn inner_text_fn(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    // xml/XmlElement.al:824 Default_Element_Uninitialized `inner`.
+    if unassigned(&r, "XmlElement") {
+        return Err(uninitialized("XmlElement"));
+    }
     let mut s = String::new();
     inner_text(&recv(r)?, &mut s);
     Ok(Value::Text(s.into()))
@@ -4356,6 +4421,10 @@ fn manager_has_namespace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 }
 
 fn write_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // An unassigned XmlElement raises NotInitialized naming XmlNode (xml/XmlElement.al:826 Default_Element_Uninitialized `writeto`).
+    if unassigned(&r, "XmlElement") {
+        return Err(uninitialized("XmlNode"));
+    }
     let h = recv_or_uninit(r, "XmlNode")?;
     a[0] = Value::Text(serialize(&h)?.into());
     Ok(Value::Boolean(true))

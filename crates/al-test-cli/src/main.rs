@@ -324,6 +324,20 @@ fn run_version(
         &cfg.corpus_commit,
     )
     .map_err(|e| format!("BC {}: {e}", version.bc_version))?;
+    // ADR-046 decision 2: the companies of the oracle's database (`companies` in oracle.toml, amendment 1 A6), or the
+    // command line's. The corpus runs in AL Runner's session company, which a list must name first.
+    let companies = if args.one_company {
+        al_host::Companies::One
+    } else {
+        match &args.companies {
+            Some(c) => c.clone(),
+            None => cfg
+                .companies_of(version)
+                .map_err(|e| format!("{}: {e}", oracle_path.display()))?,
+        }
+    };
+    companies.check_session_first(&al_host::Identity::company_name(&al_host::AlRunnerIdentity))?;
+    al_test_cli::host::set_companies(companies);
     let started = Instant::now();
     let junit_path = oracle_path.parent().unwrap_or(Path::new(".")).join(&version.junit);
     let junit_text = read(&junit_path)?;

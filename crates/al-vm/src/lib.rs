@@ -172,6 +172,13 @@ pub struct InstallFacts {
     /// of the install routines of one app and part (amendment 1, A2 items a to c). A read whose answer depends on the rows
     /// is refused outside install code, as for `Engine::unseeded`.
     pub unknown: std::collections::HashMap<usize, String>,
+    /// Table object -> why its rows are not known in the default mode of one company: a shared table that per-company
+    /// install code of an app under test writes (decision 4c). Under the `--companies` opt-in that code runs once in each
+    /// declared company, and the table is answered.
+    pub per_company_shared: std::collections::HashMap<usize, String>,
+    /// The tables of the apps under test (ADR-046 decision 5): under the opt-in, the only per-company tables answered in
+    /// a declared company other than the session company.
+    pub under_test_tables: std::collections::HashSet<usize>,
     /// Table object -> why the order of its install rows is not known: tables an app with two or more install routines
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
@@ -829,6 +836,12 @@ pub struct Session {
     pub application_areas: String,
     /// The clock and the identity (ADR-006).
     pub(crate) host: al_host::Host,
+    /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
+    /// default of one company.
+    pub(crate) companies: Vec<String>,
+    /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
+    /// (ADR-046 decision 6, `Session::mark_company_unknown`).
+    pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
@@ -930,7 +943,14 @@ impl Session {
         };
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
         let random_seed = host.random_seed;
-        let ident = platform::Ident::of(&host);
+        let mut ident = platform::Ident::of(&host);
+        let declared = host.identity.companies();
+        let restored = match declared {
+            al_host::Companies::All => engine.test_data.as_ref().map(|td| td.provider.companies()),
+            _ => None,
+        };
+        ident.resolve_companies(declared, restored);
+        let companies = ident.companies.clone();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();
         let mut store = al_data::memory::MemStore::with_virtual_tables(Rc::new(platform::Providers::new(
@@ -958,6 +978,8 @@ impl Session {
             sysid_load: false,
             host,
             waited_ms: 0,
+            companies,
+            company_unknown: Default::default(),
             sleep_budget: None,
             slept_in_test: 0,
             encrypted: Default::default(),

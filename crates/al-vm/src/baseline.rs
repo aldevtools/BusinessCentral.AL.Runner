@@ -29,6 +29,9 @@ pub struct Baseline {
     /// codeunit's OnRun added to (al-testrun run.rs, runner 130450) keeps the set of the baseline it started from. A
     /// company BC creates holds the install rows, not those. Not part of the bytes: such a baseline stays on its thread.
     pub install_rows: Option<std::collections::BTreeSet<u32>>,
+    /// (company, table, why): per-company tables whose rows in a company other than the session company are not known,
+    /// because install code stopped there (ADR-046 decision 6, `--companies`). Sorted.
+    pub company_unknown: Vec<(String, u32, String)>,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -42,7 +45,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x02";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x03";
 
 impl Baseline {
     /// The baseline as bytes, to keep on disk or to hand to another thread (a `Baseline` holds `Rc`s and cannot go
@@ -118,6 +121,12 @@ impl Baseline {
             }
         }
         put_u8(&mut out, self.company_built as u8);
+        put_u32(&mut out, self.company_unknown.len() as u32);
+        for (company, table, why) in &self.company_unknown {
+            put_str(&mut out, company);
+            put_u32(&mut out, *table);
+            put_str(&mut out, why);
+        }
         Some(out)
     }
 
@@ -184,6 +193,12 @@ impl Baseline {
             }
         };
         let company_built = r.u8()? != 0;
+        let mut company_unknown = Vec::new();
+        for _ in 0..r.u32()? {
+            let company = r.str()?;
+            let table = r.u32()?;
+            company_unknown.push((company, table, r.str()?));
+        }
         if !r.is_empty() {
             return None;
         }
@@ -198,6 +213,7 @@ impl Baseline {
             last_stamp,
             workspace_installs,
             company_built,
+            company_unknown,
             install_rows: None,
             origin: new_origin(),
         })
@@ -261,9 +277,30 @@ impl Session {
             last_stamp: self.last_stamp,
             workspace_installs: None,
             company_built: false,
+            company_unknown: {
+                let mut v: Vec<(String, u32, String)> = self
+                    .company_unknown
+                    .iter()
+                    .map(|((c, t), why)| (c.clone(), *t, why.clone()))
+                    .collect();
+                v.sort();
+                v
+            },
             install_rows: None,
             origin: new_origin(),
         }
+    }
+
+    /// Marks the rows of per-company table `table` in company `company` (not the session company) as not known: install
+    /// code that would have written them stopped there (ADR-046 decision 6). Every access to them there is refused.
+    pub fn mark_company_unknown(&mut self, company: &str, table: u32, why: String) {
+        self.company_unknown.entry((company.to_string(), table)).or_insert(why);
+    }
+
+    /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
+    /// default of one company.
+    pub fn companies(&self) -> &[String] {
+        &self.companies
     }
 
     /// Chooses the company the session works in; the empty name is no company, as in
@@ -309,6 +346,11 @@ impl Session {
         self.last_stamp = b.last_stamp.min(self.now_millis());
         self.baseline_rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
         self.company_built = b.company_built;
+        self.company_unknown = b
+            .company_unknown
+            .iter()
+            .map(|(c, t, why)| ((c.clone(), *t), why.clone()))
+            .collect();
         self.baseline_origin = Some((b.origin, self.store.change_counter()));
     }
 
@@ -363,6 +405,7 @@ mod tests {
             last_stamp: 639_277_389_274_520,
             workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
             company_built: true,
+            company_unknown: vec![("My Company".into(), 311, "why".into())],
             install_rows: None,
             origin: new_origin(),
         }
