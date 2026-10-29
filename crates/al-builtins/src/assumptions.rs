@@ -227,6 +227,17 @@ registry! {
         tests: "No Microsoft test and no user report for a report extension: the reported page extension shape is pinned (ExtLocalSameNameTests.al), and the lowering treats both extension kinds alike.",
         probe: "The page extension test of ExtLocalSameNameTests.al repeated with a report extension of another app's report: bare calls from the extension, the base's own calls, and a call on a report variable from a test codeunit.",
     },
+    EnumTypeBeforeRecField => {
+        id: "enum-type-before-rec-field",
+        assumed: "In a procedure (not the OnRun trigger) of a codeunit with TableNo, `X::Value` where the Rec has a field `X` and an enum type `X` exists names the enum type `X`, whatever values either enum has; a `with` record, a local or a global variable `X` still comes first. In the OnRun trigger, in a table and in a page, `X` stays the field.",
+        tests: "No Microsoft test: al-runner issue 6129 (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value). Pinned on the corpus branch al-runtime-rs-staging-ub (EnumTypeBeforeRecField.al and must-not-compile 2262 to 2267, bump PR 793), not yet in the pinned corpus.",
+        probe: "Written: corpus branch al-runtime-rs-staging-ub, tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (7 tests) and must-not-compile 2262 to 2267; lands with the bump of corpus PR 793.",
+        awaiting: Awaiting {
+            issues: &[6129],
+            files: &["tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al"],
+            since: "2026-10-29",
+        },
+    },
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",

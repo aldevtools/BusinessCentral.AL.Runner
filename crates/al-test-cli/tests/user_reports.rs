@@ -596,3 +596,149 @@ fn issue_6116_find_set_after_the_same_query_found_nothing_stays_refused() {
         "{o:?}"
     );
 }
+
+/// Issue 6129: `X::Value` where the implicit Rec has a field `X` and an enum type `X` exists too. The objects of the
+/// corpus pin tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (corpus branch
+/// al-runtime-rs-staging-ub, bump PR 793; not in the pinned corpus yet): `body` goes into the test procedure.
+fn issue_6129_objects(body: &str) -> String {
+    format!(
+        "enum 90250 \"LT UB Field Enum\" {{ value(0; Zero) {{ }} value(1; Both) {{ }} value(10; OnlyA) {{ }} }}
+enum 90251 \"LT UB X\" {{ value(0; Zero) {{ }} value(2; Both) {{ }} value(20; OnlyX) {{ }} }}
+table 90252 \"LT UB Rec\" {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; \"LT UB X\"; Enum \"LT UB Field Enum\") {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+    procedure OnlyA(): Integer begin exit(\"LT UB X\"::OnlyA.AsInteger()); end;
+    procedure OnlyAText(): Text begin exit(Format(\"LT UB X\"::OnlyA)); end;
+    procedure Both(): Integer begin exit(\"LT UB X\"::Both.AsInteger()); end;
+    trigger OnInsert() begin Id := \"LT UB X\"::Both.AsInteger(); end;
+}}
+page 90254 \"LT UB Page\" {{ SourceTable = \"LT UB Rec\"; layout {{ area(Content) {{ field(Id; Rec.Id) {{ }} }} }}
+    procedure PgOnlyA(): Integer begin exit(\"LT UB X\"::OnlyA.AsInteger()); end;
+    procedure PgBoth(): Integer begin exit(\"LT UB X\"::Both.AsInteger()); end;
+}}
+codeunit 90253 \"LT UB Table No\" {{ TableNo = \"LT UB Rec\";
+    procedure OnlyX(): Integer begin exit(\"LT UB X\"::OnlyX.AsInteger()); end;
+    procedure OnlyXText(): Text begin exit(Format(\"LT UB X\"::OnlyX)); end;
+    procedure Both(): Integer begin exit(\"LT UB X\"::Both.AsInteger()); end;
+    trigger OnRun() begin Rec.Id := \"LT UB X\"::Both.AsInteger(); end;
+}}
+codeunit 90256 \"LT UB Global Var\" {{ TableNo = \"LT UB Rec\";
+    var \"LT UB X\": Enum \"LT UB Field Enum\";
+    procedure OnlyA(): Integer begin exit(\"LT UB X\"::OnlyA.AsInteger()); end;
+    procedure Both(): Integer begin exit(\"LT UB X\"::Both.AsInteger()); end;
+    procedure LocalOnlyA(): Integer var \"LT UB X\": Enum \"LT UB Field Enum\"; begin exit(\"LT UB X\"::OnlyA.AsInteger()); end;
+    procedure LocalBoth(): Integer var \"LT UB X\": Enum \"LT UB Field Enum\"; begin exit(\"LT UB X\"::Both.AsInteger()); end;
+}}
+codeunit 50503 T {{ Subtype = Test;
+    local procedure Eq(Expected: Variant; Actual: Variant; What: Text) begin if Format(Expected) <> Format(Actual) then Error('%1: expected %2, got %3', What, Expected, Actual); end;
+    [Test] procedure Run()
+    var TableNoCu: Codeunit \"LT UB Table No\"; GlobalCu: Codeunit \"LT UB Global Var\"; R: Record \"LT UB Rec\"; Pg: Page \"LT UB Page\";
+    begin {body} end; }}"
+    )
+}
+
+/// Issue 6129, every context of the corpus pin (EnumTypeBeforeRecField.al:141-205): in a procedure of a TableNo
+/// codeunit `X` is the enum type (:142-149); in its OnRun trigger (:152-158), a table procedure (:161-168) and
+/// trigger (:171-177), a page procedure (:180-187), and with a global (:190-196) or local (:199-205) variable `X`,
+/// `X` is the field or variable.
+#[test]
+fn issue_6129_enum_type_only_in_a_procedure_of_a_tableno_codeunit() {
+    let body = "Eq(20, TableNoCu.OnlyX(), 'tableno only x'); Eq('OnlyX', TableNoCu.OnlyXText(), 'tableno text');
+        Eq(2, TableNoCu.Both(), 'tableno both');
+        Codeunit.Run(Codeunit::\"LT UB Table No\", R); Eq(1, R.Id, 'onrun');
+        Eq(10, R.OnlyA(), 'table only a'); Eq('OnlyA', R.OnlyAText(), 'table text'); Eq(1, R.Both(), 'table both');
+        R.Insert(true); Eq(1, R.Id, 'oninsert');
+        Eq(10, Pg.PgOnlyA(), 'page only a'); Eq(1, Pg.PgBoth(), 'page both');
+        Eq(10, GlobalCu.OnlyA(), 'global only a'); Eq(1, GlobalCu.Both(), 'global both');
+        Eq(10, GlobalCu.LocalOnlyA(), 'local only a'); Eq(1, GlobalCu.LocalBoth(), 'local both');";
+    all_pass(run_with_deps(&[], &issue_6129_objects(body)));
+}
+
+/// Compiles `src` as one workspace app: its diagnostics, and whether object `obj` marks the assumption.
+fn issue_6129_compile(src: &str, obj: &str) -> (Vec<String>, bool) {
+    let sources = vec![AppSource {
+        id: "app".into(),
+        name: "app".into(),
+        dependencies: vec![],
+        files: vec![("app.al".into(), src.into())],
+    }];
+    let (ws, l) = al_sema::lower::compile_apps(sources, vec![AppKind::Workspace], &Default::default());
+    let diags = ws.diagnostics.iter().map(|d| format!("{d:?}")).collect();
+    let marked = l
+        .program
+        .objects
+        .iter()
+        .find(|o| o.name == obj)
+        .is_some_and(|o| format!("{o:?}").contains("EnumTypeBeforeRecField"));
+    (diags, marked)
+}
+
+/// Issue 6129, the must-not-compile companions of the pin (corpus must-not-compile 2262 to 2267, branch
+/// al-runtime-rs-staging-ub), run through the must-not-compile harness: a member only the other enum has is AL0132 in
+/// each context.
+#[test]
+fn issue_6129_a_member_only_the_other_enum_has_does_not_compile() {
+    let head = "enum 50000 \"MNC UB Field Enum\" { value(0; Zero) { } value(1; Both) { } value(10; OnlyA) { } }
+enum 50001 \"MNC UB X\" { value(0; Zero) { } value(2; Both) { } value(20; OnlyX) { } }
+table 50002 \"MNC UB Rec\" { fields { field(1; Id; Integer) { } field(2; \"MNC UB X\"; Enum \"MNC UB Field Enum\") { } }
+    keys { key(PK; Id) { Clustered = true; } } TABLEPROC }
+";
+    let cases = [
+        // 2262: TableNo codeunit procedure, a member only the field's enum has.
+        (
+            "OnlyA",
+            "codeunit 50003 C { TableNo = \"MNC UB Rec\"; procedure P(): Integer begin exit(\"MNC UB X\"::OnlyA.AsInteger()); end; }",
+        ),
+        // 2263: the table's own procedure, a member only the enum type has.
+        (
+            "OnlyX",
+            "TABLE procedure P(): Integer begin exit(\"MNC UB X\"::OnlyX.AsInteger()); end;",
+        ),
+        // 2264: a page on the table.
+        (
+            "OnlyX",
+            "page 50004 C { SourceTable = \"MNC UB Rec\"; layout { area(Content) { field(Id; Rec.Id) { } } } procedure P(): Integer begin exit(\"MNC UB X\"::OnlyX.AsInteger()); end; }",
+        ),
+        // 2265: a global variable X.
+        (
+            "OnlyX",
+            "codeunit 50003 C { TableNo = \"MNC UB Rec\"; var \"MNC UB X\": Enum \"MNC UB Field Enum\"; procedure P(): Integer begin exit(\"MNC UB X\"::OnlyX.AsInteger()); end; }",
+        ),
+        // 2266: a local variable X.
+        (
+            "OnlyX",
+            "codeunit 50003 C { TableNo = \"MNC UB Rec\"; procedure P(): Integer var \"MNC UB X\": Enum \"MNC UB Field Enum\"; begin exit(\"MNC UB X\"::OnlyX.AsInteger()); end; }",
+        ),
+        // 2267: the OnRun trigger of a TableNo codeunit.
+        (
+            "OnlyX",
+            "codeunit 50003 C { TableNo = \"MNC UB Rec\"; trigger OnRun() begin Rec.Id := \"MNC UB X\"::OnlyX.AsInteger(); end; }",
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (member, case) in cases {
+        let body = match case.strip_prefix("TABLE ") {
+            Some(p) => head.replace("TABLEPROC", p),
+            None => format!("{}{case}", head.replace("TABLEPROC", "")),
+        };
+        let text = format!("// @expect AL0132 | '\"MNC UB X\"' does not contain a definition for '{member}'\n{body}");
+        let parsed = al_test_cli::mnc::parse_case("issue-6129.al", &text).unwrap();
+        let out = al_test_cli::mnc::run_case(&parsed, 29);
+        if out.verdict != al_test_cli::mnc::Verdict::Match {
+            wrong.push(format!("{case}: {:?} {:?}", out.verdict, out.got));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Issue 6129: only the reading the corpus branch pins but the pinned corpus does not yet hold (a procedure of a
+/// TableNo codeunit) marks the assumption; the field readings are the existing behavior and stay unflagged.
+#[test]
+fn issue_6129_only_the_tableno_procedure_reading_is_flagged() {
+    let (diags, marked) = issue_6129_compile(&issue_6129_objects(""), "LT UB Table No");
+    assert!(diags.is_empty(), "{diags:?}");
+    assert!(marked);
+    for obj in ["LT UB Rec", "LT UB Page", "LT UB Global Var"] {
+        assert!(!issue_6129_compile(&issue_6129_objects(""), obj).1, "{obj}");
+    }
+}
