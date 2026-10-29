@@ -948,6 +948,37 @@ registry! {
             since: "2026-10-29",
         },
     },
+    XmlportImportAgain => {
+        id: "xmlport-import-again",
+        assumed: "A second Import on an XmlPort instance whose first Import succeeded (unguarded, Format = Xml) reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run again (not OnInitXmlPort), also after SetSource on the same or a new stream, with or without Codeunit.Run. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP handler that imports the port it was handed again (loyalty points).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_*; wanted: the bump that puts them on corpus master. Open: a guarded second Import, one after a failed Import, and text formats.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameStreamAgain",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceOtherRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceSameRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_Direct",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportImportWholeSource => {
+        id: "xmlport-import-whole-source",
+        assumed: "An XML import reads the whole source stream, also when the stream was read to its end before SetSource, and leaves the stream's read position where it was. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP handler that reads the request stream before it imports it.",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource; wanted: the bump that puts them on corpus master. Open: a stream read partly before the import.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Import_SourceReadBefore",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportGuidXml => {
         id: "xmlport-guid-xml",
         assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",

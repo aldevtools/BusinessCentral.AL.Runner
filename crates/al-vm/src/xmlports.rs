@@ -624,6 +624,26 @@ impl Session {
                 n.name
             ));
         }
+        // A second Import on an instance that imported reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run
+        // again, also after SetSource on the same or a new stream, with or without Codeunit.Run (xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74 Instance_ImportTwiceSameSource:
+        // nothing stored again; QrXpContainerOccurs.al
+        // TT_ImportTwice_SameSource, _SameStreamAgain, _NewSourceOtherRows, _NewSourceSameRows, _Direct on corpus writer TT's
+        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-again`). Pinned for an unguarded XML import after one that
+        // succeeded; the rest is refused.
+        if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
+            if guarded || schema.xp().format != ir::XmlFormat::Xml {
+                return unsupported(
+                    "a second Import on the same XmlPort instance, guarded or of a Format other than Xml (not pinned)",
+                );
+            }
+            if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORT_FAILED) {
+                return unsupported(
+                    "a second Import on the same XmlPort instance after an Import that failed (not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportAgain);
+            return Ok(Value::Null);
+        }
         if guarded {
             // A guarded import needs a transaction world of its own, which BC refuses to open
             // while the caller holds an uncommitted write; the static form turns the refusal
@@ -654,6 +674,9 @@ impl Session {
         self.tx.tx_world += 1;
         let result = self.xp_import_document(inst, schema);
         self.tx.tx_world -= 1;
+        if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
+            inst.borrow_mut().xp_text.push((XP_IMPORT_FAILED, String::new()));
+        }
         // A Quit ends the import with the records stored so far kept (P112_Import_Quit); `xp_run` reads the request.
         let result = match result {
             Err(Signal::Exit(None)) if Self::xp_flow(inst) == Some(Flow::Quit) => Ok(()),
@@ -698,16 +721,8 @@ impl Session {
             Some(t) => t,
             None => self.xp_read_source(inst, xp)?,
         };
-        // A second Import on the same instance whose source an earlier Import read to its end: what BC does is not pinned.
-        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED);
-        if text.is_empty() && again {
-            return unsupported(
-                "a second Import on the same XmlPort instance whose source an earlier Import read to its end (not pinned)",
-            );
-        }
-        if !again {
-            inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
-        }
+        // `xp_import` answers a second Import before it gets here.
+        inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
         // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
@@ -931,7 +946,25 @@ impl Session {
         let LibraryValue::InStream(st) = &mut *g else {
             return unsupported("XmlPort import without SetSource (a file dialog is not supported)");
         };
-        let bytes = st.drain();
+        // An XML import reads the whole stream, also one read to its end before SetSource, and leaves its read position where it
+        // was (QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource `source at end` No, on corpus writer TT's
+        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-whole-source`). From a position inside the stream it is not
+        // pinned. A text-format import takes the bytes from the read position on (as before those pins).
+        let bytes = if xp.format == ir::XmlFormat::Xml {
+            let (pos, len) = (st.pos, st.len());
+            if pos != 0 && pos < len {
+                return unsupported("XmlPort import of a source stream read partly before (not pinned)");
+            }
+            if pos != 0 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportWholeSource);
+            }
+            st.pos = 0;
+            let all = st.rest();
+            st.pos = pos;
+            all
+        } else {
+            st.drain()
+        };
         if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
             let units: Vec<u16> = rest.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
             return utf16_declared_utf8(String::from_utf16_lossy(&units));
@@ -3748,6 +3781,8 @@ const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
 const XP_EXPORTED: u8 = 14;
 /// The `Instance::xp_text` kind that says an Import read the source of the instance.
 const XP_IMPORTED: u8 = 15;
+/// The `Instance::xp_text` kind that says an Import of the instance ended in an error.
+const XP_IMPORT_FAILED: u8 = 16;
 
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {
