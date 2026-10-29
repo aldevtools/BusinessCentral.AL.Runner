@@ -223,13 +223,10 @@ fn a_guid_exports_in_braces_upper_case() {
     );
 }
 
-// A second Import on the same instance whose source an earlier Import read to its end (a partner app's SOAP handler imports
-// the port it was handed again): what BC does is not pinned, so it is refused rather than failed as an empty file.
+// A second Import on the same instance reads nothing and stores nothing (corpus writer TT's branch al-runtime-rs-staging-tt,
+// QrXpContainerOccurs.al TT_ImportTwice_SameSource; xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74): the rows
+// are the first Import's.
 #[test]
-fn a_second_import_of_a_read_source_is_refused() {
-    let r = run("ImportTwice");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("second Import")),
-        "{r:?}"
-    );
+fn a_second_import_on_one_instance_stores_nothing() {
+    assert_eq!(text(run("ImportTwice")), format!("1:g={NULL} ga={NULL};"));
 }
