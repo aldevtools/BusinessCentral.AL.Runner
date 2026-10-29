@@ -313,15 +313,16 @@ fn a_dotnet_exception_is_not_run_and_carries_the_clr_type_and_message() {
 }
 
 #[test]
-fn policy_refuses_the_file_system_before_any_process_starts() {
+fn file_exists_answers_from_the_in_memory_file_system_never_the_disk() {
+    // ADR-056: .NET file calls run against the run's in-memory file system. `/etc/passwd` exists on the
+    // disk of every Linux machine, so `false` shows the call never reached the real disk.
     let Some(h) = host() else { return };
     let f = fixture();
     let mut s = f.session(Some(h));
-    let w = why(f.call(&mut s, "TouchesTheFileSystem", vec![]));
-    assert!(
-        w.contains("System.IO.File") && w.contains("refused by policy") && w.contains("file system"),
-        "{w}"
-    );
+    match f.call(&mut s, "TouchesTheFileSystem", vec![]) {
+        Ok(Value::Boolean(false)) => {}
+        other => panic!("expected Ok(Boolean(false)), got {other:?}"),
+    }
 }
 
 #[test]

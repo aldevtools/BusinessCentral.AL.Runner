@@ -557,6 +557,12 @@ registry! {
         tests: "Every test of Microsoft's Legacy test lane on a release whose artifact has no RapidStart package: the DemoTool's Export RapidStart Packages step reads the Media folder back (Config. XML Exchange.UpdateConfigPackageMediaSet, ConfigXMLExchange.Codeunit.al:1505-1522), and they pass in Microsoft's CI.",
         probe: "None for the order (pinned). The separator needs no probe but a runtime change: System.IO.Path members that split a path must treat a backslash as a separator, as Windows .NET does; then the listing can join with a backslash.",
     },
+    DotNetFileExistsSeesRunFiles => {
+        id: "dotnet-file-exists-sees-run-files",
+        assumed: "DotNet System.IO.File.Exists answers Yes for a file the run wrote into its in-memory file system (ADR-056): with AL's File type, a report's SaveAsXml, or XmlDocument.Save. The corpus pins No after a delete and for a path never written (onprem-dotnet lt-qx-dotnet/QxDotNetDemoShapes.al:328, :334), and AL's own File.Exists Yes for a written file (:323), but not .NET's Yes.",
+        tests: "Every Microsoft report test that reads its dataset through Library - Report Dataset (LoadDataSetFile: SaveAsXml into FileManagement.ServerTempFileName, then LoadXMLDocumentFromFile checks the file with DotNet File.Exists); they pass in Microsoft's CI.",
+        probe: "Write a file under TemporaryPath() with AL's File type, then DotNet System.IO.File.Exists of the same path; the same after Report.SaveAsXml into FileManagement.ServerTempFileName('xml').",
+    },
     OptionInitValueOrdinal => {
         id: "option-init-value-ordinal",
         assumed: "An Option field whose InitValue is a number that names no member (`InitValue = 1`) starts at the member of that ordinal: on a fresh variable, after Init and after Insert. Measured on Windows BC of the newest major (corpus branch winprobe-wc6, tests/wc6-probe/ContosoProbe.al, cu 61320 CS_OptionInitValueOrdinal: Sunday..Saturday with InitValue = 1 gives Monday/1 three times). A number that is also the name of a member at another ordinal stays refused.",
