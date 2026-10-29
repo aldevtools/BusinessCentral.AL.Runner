@@ -444,14 +444,11 @@ impl<'a> Lowerer<'a> {
             // (types/lt-up-ternary/UpTernary.al:111, :119, :128 with :152-157 and :183-188, a Text[250] true branch against a
             // StrSubstNo result and a Text variable, corpus PR 808 at branch commit 910da83e; types/TestTernaryContracts.al:
             // 390-391 for Text[10], pinned on master; al-runner issue 6213). Text[250] runs on the assumption
-            // `ternary-unbounded-text-false-branch` until PR 808 is in the pinned corpus, another length N on
-            // `ternary-unbounded-text-false-branch-other-length`.
-            (Ty::Text(Some(n)), Ty::Text(None)) => {
-                match n {
-                    10 => {}
-                    250 => self.assume(al_builtins::assumptions::Assumption::TernaryUnboundedTextFalseBranch),
-                    _ => self.assume(al_builtins::assumptions::Assumption::TernaryUnboundedTextFalseBranchOtherLength),
-                }
+            // `ternary-unbounded-text-false-branch` until PR 808 is in the pinned corpus.
+            // Another length N is not pinned: refused.
+            (Ty::Text(Some(10)), Ty::Text(None)) => true,
+            (Ty::Text(Some(250)), Ty::Text(None)) => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryUnboundedTextFalseBranch);
                 true
             }
             // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:

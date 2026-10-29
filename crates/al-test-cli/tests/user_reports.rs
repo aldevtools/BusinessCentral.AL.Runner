@@ -1592,7 +1592,17 @@ codeunit 50101 T
 
 #[test]
 fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
-    all_pass(run_with_deps(&[], ISSUE_6213_OBJECTS));
+    // Another length than the pinned 10 and 250 (here Text[30]) is not pinned: refused.
+    for (name, outcome) in run_with_deps(&[], ISSUE_6213_OBJECTS) {
+        if name.ends_with("OtherLength") {
+            assert!(
+                matches!(&outcome, Outcome::NotRun(why) if why.contains("Text[30] and Text") && why.contains("not pinned")),
+                "{outcome:?}"
+            );
+        } else {
+            assert_eq!(outcome, Outcome::Pass, "{name}");
+        }
+    }
 }
 
 /// Issue 6215: an interface true branch and a codeunit false branch that implements it compiles and the false branch calls
@@ -1750,6 +1760,22 @@ fn issue_6217_extension_adds_after_an_undeclared_promoted_category() {
         for (name, outcome) in results {
             assert_eq!(outcome, Outcome::Pass, "{anchor}: {name}");
         }
+    }
+}
+
+/// Issue 6217: the forms corpus PR 808 does not pin (another category, addbefore/addfirst) stay refused as not pinned.
+#[test]
+fn issue_6217_unpinned_promoted_category_forms_stay_refused() {
+    for anchor in [
+        "addbefore(Category_Category7)",
+        "addfirst(Category_Category7)",
+        "addafter(Category_Category5)",
+    ] {
+        let results = run_with_deps(&[], &issue_6217_objects(anchor));
+        assert!(
+            matches!(&results[..], [(_, Outcome::NotRun(why))] if why.contains("not pinned")),
+            "{anchor}: {results:?}"
+        );
     }
 }
 

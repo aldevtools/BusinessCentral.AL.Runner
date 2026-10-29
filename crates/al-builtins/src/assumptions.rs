@@ -298,12 +298,6 @@ registry! {
             since: "2026-10-29",
         },
     },
-    PageExtImplicitPromotedCategoryOther => {
-        id: "pageext-implicit-promoted-category-other",
-        assumed: "Every standard promoted group (Category_New, Category_Process, Category_Report, Category_Category4 to Category_Category20) is an implicit group of every page: a page extension may place actions with addafter, addbefore, addfirst or addlast at it although the page declares none, as for the pinned Category_Category7, Category_Category12 and Category_New; the actionrefs are on the page and run their actions.",
-        tests: "No Microsoft test and no user report: the reported names and positions are pinned; the others take the same lowering.",
-        probe: "UpPromotedCategories.al with addbefore and addfirst of Category_Category7, addafter of Category_Category5 and Category_Category20, and addafter of Category_Category21 (compiles or AL0271).",
-    },
     PageExtCurrPageProtectedVar => {
         id: "pageext-currpage-protected-var",
         assumed: "A page extension reads a protected variable of the page it extends through CurrPage.<name>: the same variable the plain name reads, on the base page's instance.",
@@ -731,12 +725,6 @@ registry! {
             files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
             since: "2026-10-29",
         },
-    },
-    TernaryUnboundedTextFalseBranchOtherLength => {
-        id: "ternary-unbounded-text-false-branch-other-length",
-        assumed: "A conditional expression with a Text[N] true branch and an unbounded Text false branch converts the false value to Text[N] for every length N, as it does for the lengths 10 (types/TestTernaryContracts.al PYC_Ternary_MoreBranchPairs) and 250: a value that fits is returned unchanged, a longer one fails StringLengthExceeded.",
-        tests: "No Microsoft test and no user report: the reported length is 250; other lengths take the same lowering.",
-        probe: "The length test of UpTernary.al with Text[30] and Text[2048] true branches: the value read back at N and N+1 characters, or the error text and code.",
     },
     TernaryInterfaceCodeunitBranch => {
         id: "ternary-interface-codeunit-branch",

@@ -774,40 +774,35 @@ const IMPLICIT_PROMOTED_CATEGORIES_ADD: &[&str] = &["Category_New", "Category_Pr
 /// Promoted category groups of `actions` that a page extension may place actionrefs after although the page declares none.
 const IMPLICIT_PROMOTED_CATEGORIES: &[&str] = &["Category_Process"];
 
-/// How a page extension may use a standard promoted category group the page does not declare, beyond the lists above, and
-/// what that rests on. `addafter` and `addlast` of `Category_Category7`, `Category_Category12` and `Category_New` (and
-/// `addafter(Category_Report)`, pages/W1ActionAreasPromoted.al:89) compile and the extension's action and actionref run from a
-/// TestPage (pages/lt-up-page-ext/UpPromotedCategories.al:99, :176, :249, :326, :399, corpus PR 808 at branch commit
-/// 910da83e; al-runner issue 6217): the assumption `pageext-implicit-promoted-category` until PR 808 is in the pinned
-/// corpus. Every other standard group (`Category_Category4` to `Category_Category20`, the PromotedCategory values) and the
-/// other two positions run on `pageext-implicit-promoted-category-other`. Any other name is refused (alc rejects an unknown
-/// one, AL0271, must-not-compile 2290 of the same commit).
+/// How a page extension may use a promoted category group the page does not declare, beyond the lists above, and what that
+/// rests on. `addafter` and `addlast` of `Category_Category7`, `Category_Category12` and `Category_New` compile and the
+/// extension's action and actionref run from a TestPage (pages/lt-up-page-ext/UpPromotedCategories.al:99, :176, :249, :326,
+/// :399, corpus PR 808 at branch commit 910da83e; al-runner issue 6217): the assumption `pageext-implicit-promoted-category`
+/// until PR 808 is in the pinned corpus. `addafter` of `Category_New` and `Category_Report` is pinned on master
+/// (pages/W1ActionAreasPromoted.al:82, :89). Every other group name and position is not pinned and stays refused (alc rejects
+/// an unknown name, AL0271, must-not-compile 2290 of the same commit).
 /// `None`: not such a group; `Some(None)`: pinned; `Some(Some(a))`: runs on the assumption `a`.
 fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_builtins::assumptions::Assumption>> {
-    use al_builtins::assumptions::Assumption;
     let lower = target.to_ascii_lowercase();
-    let standard = match lower.strip_prefix("category_") {
-        Some("new" | "process" | "report") => true,
-        Some(rest) => rest
-            .strip_prefix("category")
-            .and_then(|n| n.parse::<u32>().ok())
-            .is_some_and(|n| (4..=20).contains(&n)),
-        None => false,
-    };
-    if !standard || !["addafter", "addbefore", "addfirst", "addlast"].contains(&kind) {
-        return None;
-    }
-    // Pinned on master: pages/W1ActionAreasPromoted.al:82, :89.
     if kind == "addafter" && ["category_new", "category_report"].contains(&lower.as_str()) {
         return Some(None);
     }
-    let up = ["category_category7", "category_category12", "category_new"].contains(&lower.as_str())
-        && ["addafter", "addlast"].contains(&kind);
-    Some(Some(if up {
-        Assumption::PageExtImplicitPromotedCategory
-    } else {
-        Assumption::PageExtImplicitPromotedCategoryOther
-    }))
+    (["category_category7", "category_category12", "category_new"].contains(&lower.as_str())
+        && ["addafter", "addlast"].contains(&kind))
+    .then_some(Some(
+        al_builtins::assumptions::Assumption::PageExtImplicitPromotedCategory,
+    ))
+}
+
+/// A standard promoted category name (`Category_New`, `Category_Process`, `Category_Report`, `Category_CategoryN`) whose
+/// use as an undeclared anchor in this position is not pinned: refused with that reason rather than "not on the page".
+fn unpinned_standard_category(target: &str) -> bool {
+    let lower = target.to_ascii_lowercase();
+    match lower.strip_prefix("category_") {
+        Some("new" | "process" | "report") => true,
+        Some(rest) => rest.strip_prefix("category").is_some_and(|n| n.parse::<u32>().is_ok()),
+        None => false,
+    }
 }
 
 /// A list of sibling controls: the children of an area or of a group-like control.
@@ -1302,6 +1297,12 @@ impl Tree {
         for op in pending {
             let kind = op.section.name().to_ascii_lowercase();
             let target = op.section.args().first().cloned().unwrap_or_default();
+            if op.in_actions && unpinned_standard_category(&target) {
+                self.reasons.push(format!(
+                    "page extension: {kind}({target}): `{target}` is not declared on the page; using an undeclared promoted category group this way is not pinned"
+                ));
+                continue;
+            }
             self.reasons.push(format!(
                 "page extension: {kind}({target}): `{target}` is not on the page"
             ));
@@ -1987,8 +1988,9 @@ mod tests {
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
-        // A name that is no standard category stays refused (alc: AL0271, must-not-compile 2290).
-        for anchor in ["Category_Category21", "NoSuchGroup"] {
+        // Other categories and positions are not pinned, and a name that is no category (alc: AL0271, must-not-compile 2290):
+        // refused.
+        for anchor in ["Category_Category5", "Category_Category21", "NoSuchGroup"] {
             let ext = format!(
                 "pageextension 50101 E extends P {{ actions {{ addlast({anchor}) {{ actionref(Act_Promoted; Act) {{ }} }} }} }}"
             );
