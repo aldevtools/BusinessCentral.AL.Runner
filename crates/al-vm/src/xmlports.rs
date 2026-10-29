@@ -2117,6 +2117,17 @@ impl Session {
                 let Some(child) = seq.accept(schema, ce)? else {
                     continue;
                 };
+                // Real BC runs the OnAfterAssignVariable of an empty `<tier />` here twice (QrXpContainerOccurs.al
+                // TQ_Response_Import_Shapes `optional leaves absent`, `tier=;tier=;`, on corpus branch al-runtime-rs-staging-pub-tq).
+                // `<tier></tier>` is not pinned and the reader does not tell the two forms apart.
+                if schema.node(child).kind == ir::XmlNodeKind::Text
+                    && schema.node(child).trigger("onafterassignvariable").is_some()
+                    && ce.text().is_empty()
+                {
+                    return unsupported(
+                        "XmlPort import of an empty leaf text element with an OnAfterAssignVariable trigger inside a text element below a table element (real BC runs the trigger twice for `<x />`; `<x></x>` is not pinned)",
+                    );
+                }
                 match schema.node(child).kind {
                     ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
                     _ => self.xp_assign_variable(inst, schema, child, ce.text())?,
