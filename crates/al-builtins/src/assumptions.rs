@@ -109,14 +109,16 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 registry! {
     CrossAppSubscriberOrderByAppId => {
         id: "cross-app-subscriber-order-by-app-id",
-        assumed: "Subscribers of one event in apps that do not depend on each other run app by app in this order: the apps visited in ascending app id, each app's dependencies placed before it (depth first, post-order); inside an app in ascending codeunit id. Used only where every reading the probe allows (dependencies visited in ascending id, declared order or descending id; apps sorted by publisher first or not) gives the same order; otherwise the raise is refused.",
-        tests: "No Microsoft test: NP Retail run with its test app (both apps under test), where Tests-TestLibraries and NP Retail subscribe to the same event. Pinned on the corpus branch al-runtime-rs-staging-ua (bump PR 794), not yet in the pinned corpus.",
-        probe: "Written: corpus branch al-runtime-rs-staging-ua, BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps and SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp. Still wanted: an app whose two unrelated dependencies are declared against app id order (which dependency BC visits first), and apps of different publishers whose publisher order differs from their app id order.",
+        assumed: "Subscribers of one event in apps that do not depend on each other run app by app in this order: every app visited in ascending app id, each app's dependencies placed before it (depth first, post-order) and visited in ascending app id, not in declared order and not by publisher; inside an app in ascending codeunit id. Used only where walking from the apps no other app depends on (in ascending app id, or sorted by publisher first) gives the same order; otherwise the raise is refused.",
+        tests: "No Microsoft test: al-runner issues 6155 and 6165 and NP Retail run with its test app (both apps under test), where Tests-TestLibraries and the app under test subscribe to the same event. Pinned on the corpus branches al-runtime-rs-staging-ua (bump PR 794) and al-runtime-rs-staging-ui (bump PR 801), not yet in the pinned corpus.",
+        probe: "Written: BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp (writer UA), SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder and SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (writer UI). Still wanted: two apps nothing depends on, of different publishers whose publisher order differs from their app id order; and an app with a low app id that only a high-id app depends on, against an app nothing depends on whose app id lies between the two.",
         awaiting: Awaiting {
-            issues: &[],
+            issues: &[6155, 6165],
             files: &[
                 "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps",
                 "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp",
+                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder",
+                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall",
             ],
             since: "2026-10-29",
         },
