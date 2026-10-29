@@ -113,6 +113,15 @@ CI for a first-time contributor's pull request starts after a maintainer approve
 
 AL Runner is released under the license in [LICENSE](LICENSE).
 
-Before a contribution can be merged, its author signs a contributor agreement that transfers the
-rights in the contribution to the project owner. The agreement is being prepared. Until it is
-available, pull requests from outside contributors can be reviewed but not merged.
+Before a contribution can be merged, its author signs the
+[AL Runner Contributor Assignment Agreement](docs/contributor-agreement/INDIVIDUAL.md). It
+transfers the rights in the contribution to the project owner, Stefan Maroń, and gives the
+contributor back a broad license to their own contribution.
+
+- **As an individual:** on your first pull request, a bot asks you to sign. You sign by
+  commenting the sentence it shows. You only sign once.
+- **As part of your job:** your employer most likely owns your code. Then your employer signs
+  the [Entity version](docs/contributor-agreement/ENTITY.md) by email first, as described at its
+  end.
+
+A pull request is not merged until every author has signed.
