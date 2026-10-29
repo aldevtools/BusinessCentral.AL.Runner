@@ -802,6 +802,22 @@ impl Session {
             Err(Signal::Error(e)) if test_open && mode == PageMode::Edit && row_trigger => e,
             other => return other,
         };
+        // A control add-in call (the add-in is never created in a test session) does not close the page: OpenEdit of a card
+        // raises the add-in's error itself, out of OnAfterGetRecord with its own code and out of OnAfterGetCurrRecord with
+        // `:TargetInvocation` added (corpus lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen,
+        // TZ_CallInOnAfterGetCurrRecord_TestPageOpen, BC28PLUS). Out of OnFindRecord it is not pinned.
+        if e.code == crate::control_add_in::NOT_CREATED {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts);
+            let mut e = e;
+            match origin.as_deref() {
+                Some("onaftergetrecord") if self.is_card(st) && self.has_source(st) => return Err(Signal::Error(e)),
+                Some("onaftergetcurrrecord") if self.is_card(st) && self.has_source(st) => {
+                    e.code = format!("{}:TargetInvocation", e.code);
+                    return Err(Signal::Error(e));
+                }
+                _ => return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error()))),
+            }
+        }
         if self.is_card(st) && self.has_source(st) {
             let caption = self.page_caption(st);
             return Err(self.has_to_close(st, &e, caption));
@@ -1574,11 +1590,17 @@ impl Session {
             }
             // An error of OnClosePage comes wrapped, with the code TestWrapped, and the page is closed (CcPageLeads.al:624-633
             // TriggerError_OnClosePage `One or more errors occurred while closing the page.\n\n<text>`). Pinned for an AL
-            // Error (code Dialog); another error's text and code cannot be read.
+            // Error (code Dialog) and for a control add-in call (lt-ac/ACControlAddIn.al TZ_CallInOnClosePage_TestPageClose,
+            // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
                 self.mark_closed(st);
-                if e.code != "Dialog" {
+                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
+                }
+                if e.code == crate::control_add_in::NOT_CREATED {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts,
+                    );
                 }
                 Err(error_code(
                     format!("One or more errors occurred while closing the page.\n\n{}", e.message),

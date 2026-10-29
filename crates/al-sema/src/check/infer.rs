@@ -1161,12 +1161,16 @@ impl<'a> Checker<'a> {
             ScopeExpr => {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
                 let base = if kids[0].kind() == NameRef {
-                    match self.lookup_name(sc, &kids[0]) {
-                        Some(e) => e,
-                        None => {
-                            // `"Some Enum"::Value` where the enum is outside the workspace.
-                            self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
-                            return E::Val(Ty::Unknown);
+                    if let Some(e) = self.enum_type_before_rec_field(sc, &kids[0]) {
+                        e
+                    } else {
+                        match self.lookup_name(sc, &kids[0]) {
+                            Some(e) => e,
+                            None => {
+                                // `"Some Enum"::Value` where the enum is outside the workspace.
+                                self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
+                                return E::Val(Ty::Unknown);
+                            }
                         }
                     }
                 } else if let Some(e) = self.namespaced_enum(sc, &kids[0]) {
@@ -1253,6 +1257,44 @@ impl<'a> Checker<'a> {
             }
             _ => E::Val(Ty::Unknown),
         }
+    }
+
+    /// `X::Value` in a procedure of a codeunit with `TableNo`, where the implicit Rec has a field `X` and an enum type
+    /// `X` exists: `X` is the enum type, whatever values either enum has (al-runner issue 6129; corpus
+    /// types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149, must-not-compile 2262, on the corpus
+    /// branch al-runtime-rs-staging-ub, bump PR 793). Everywhere else `X` stays the field or variable, as before: the
+    /// codeunit's OnRun trigger (:152-158, mnc 2267), a table procedure or trigger (:161-177, mnc 2263), a page on the
+    /// table (:180-187, mnc 2264), and a global or local variable `X` (:190-205, mnc 2265 and 2266). A `with` record
+    /// is not pinned and keeps the record. Until the pin is in the corpus the name records
+    /// [`Res::EnumTypeBeforeRecField`] and lowering marks the assumption.
+    fn enum_type_before_rec_field(&mut self, sc: &mut Scope, name: &SyntaxNode) -> Option<E> {
+        if !sc.rec_unqualified
+            || !sc.withs.is_empty()
+            || sc.codeunit_on_run
+            || self.ws.objects[sc.self_obj].kind != ObjKind::Codeunit
+        {
+            return None;
+        }
+        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
+        let n = name_of(name);
+        let key = n.to_lowercase();
+        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
+            return None;
+        }
+        let ei = self.resolve_quiet(sc.file, ObjKind::Enum, &n)?;
+        let Some(E::Val(field_ty)) = self.member(sc, &rec, &n) else {
+            return None;
+        };
+        // Only a field (not a method of the record) gives way to the enum type.
+        self.field_res(sc, &rec, &n)?;
+        let enum_name = self.ws.objects[ei].name.as_str();
+        if matches!(&field_ty, Ty::Enum(f) if self.resolve_quiet(sc.file, ObjKind::Enum, f) == Some(ei)) {
+            return None;
+        }
+        let ty = Ty::Enum(enum_name.into());
+        self.touch(ei);
+        self.record(sc, name, Res::EnumTypeBeforeRecField(ei));
+        Some(E::TypeName(ty))
     }
 
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.

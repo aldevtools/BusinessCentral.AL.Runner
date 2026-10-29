@@ -90,7 +90,9 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
   handler confirmed with OK. `RunRequestPage` returns the parameters text.
 - **FilterPageBuilder.** `LibraryValue::FilterPageBuilder` holds named controls, each
   a record buffer; `al-vm/src/filterpage.rs` runs it. `:=` copies the control list and
-  shares the records. `RunModal` is refused.
+  shares the records. `RunModal` of a one-table builder goes to the bound
+  `[FilterPageHandler]` (`UiKind::FilterPage`), which gets a RecordRef on the control's
+  record; without one it answers false and sets the last error.
 - **Culture.** Fixed en-US, which matches the oracle.
 - **DotNet (ADR-014).** A `dotnet { assembly(..) { type(..; Alias) } }` block declares
   aliases; `X: DotNet Alias` lowers to `RtType::DotNet` and member uses to `Expr::DotNet`

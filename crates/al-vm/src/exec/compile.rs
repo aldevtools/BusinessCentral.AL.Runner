@@ -693,6 +693,10 @@ impl<'a> Compiler<'a> {
                 message: message.clone(),
                 code: code.clone(),
             }),
+            E::ControlAddInCall { control, page } => self.fault(FaultKind::ControlAddIn {
+                control: control.clone(),
+                page: page.clone(),
+            }),
             // A builtin no native implements: it is refused before an operand is evaluated.
             E::Builtin { id, .. } => self.fault(FaultKind::Unsupported(format!("builtin {id}"))),
         }

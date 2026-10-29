@@ -42,6 +42,9 @@ pub enum UiKind {
     /// `[HttpClientHandler]`: answers an `HttpClient` call (ADR-027 section 5; the probe
     /// session/PZHttpHandler.al on the corpus staging branch).
     HttpClient,
+    /// `[FilterPageHandler]`: answers `FilterPageBuilder.RunModal` (filterpage/W3FilterPageBuilder.al:159-212,
+    /// platform/lt-platform-members/PlTFilterPageBuilder.al:16-44,262-325).
+    FilterPage,
 }
 
 impl UiKind {
@@ -59,6 +62,7 @@ impl UiKind {
             "recallnotificationhandler" => Some(UiKind::RecallNotification),
             "httpclienthandler" => Some(UiKind::HttpClient),
             "reporthandler" => Some(UiKind::Report),
+            "filterpagehandler" => Some(UiKind::FilterPage),
             _ => None,
         }
     }
@@ -76,6 +80,7 @@ impl UiKind {
             UiKind::RecallNotification => "RecallNotification",
             UiKind::HttpClient => "HttpClient",
             UiKind::Report => "Report",
+            UiKind::FilterPage => "FilterPage",
         }
     }
 }
@@ -157,6 +162,16 @@ impl Session {
                     && matches!(
                         ty(0),
                         Some(RtType::Library(al_builtins::library_kind::LibraryKind::Notification))
+                    )
+            }
+            // FilterPageHandler(var Rec: RecordRef): Boolean (filterpage/W3FilterPageBuilder.al:160,
+            // platform/lt-platform-members/PlTFilterPageBuilder.al:17).
+            UiKind::FilterPage => {
+                r.params == 1
+                    && r.by_var == [true]
+                    && matches!(
+                        ty(0),
+                        Some(RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef))
                     )
             }
             // HttpClientHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
@@ -321,6 +336,61 @@ impl Session {
                 Err(Signal::Error(e))
             }
             other => other,
+        }
+    }
+
+    /// `FilterPageBuilder.RunModal` of a builder with one filter control whose record is `record`.
+    ///
+    /// With a bound `[FilterPageHandler]`, the handler gets a RecordRef on the control's record: the view it sees is the
+    /// builder's, the filters it sets are the builder's view afterwards whatever it answers, and its answer is the result
+    /// (filterpage/W3FilterPageBuilder.al:159-212: FieldRef.SetFilter, answers true and false;
+    /// platform/lt-platform-members/PlTFilterPageBuilder.al:262-311: the view handed over, SetView kept on cancel).
+    ///
+    /// Without one, in a test method, nothing is raised: the result is false and the last error is "Unhandled UI:
+    /// FilterPage 9598" with code MissingUIHandler (handlers/lt-az-handlers/AzHandlerTests.al:262-275,
+    /// misc/lt-cb-odd-leads/CbHandlerTests.al:45-61, both a TryFunction that answers true).
+    pub(crate) fn ui_filter_page(&mut self, record: &crate::records::Rec) -> Result<bool, Signal> {
+        let Some(scope) = self.ui_state.scope.as_ref() else {
+            return Err(Signal::Unsupported(
+                "FilterPageBuilder.RunModal outside a test method (what the runner does then is not pinned)".into(),
+            ));
+        };
+        if scope.in_handler {
+            return Err(Signal::Unsupported(
+                "FilterPageBuilder.RunModal from inside a handler function (not pinned)".into(),
+            ));
+        }
+        if !scope.handlers.iter().any(|h| h.kind == UiKind::FilterPage) {
+            self.last_error = AlError {
+                message: "Unhandled UI: FilterPage 9598".into(),
+                code: "MissingUIHandler".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            };
+            return Ok(false);
+        }
+        let handed = crate::refs::record_ref_shared(record);
+        let (answer, finals) = self.dispatch_ui_returning(UiKind::FilterPage, "9598", vec![handed])?;
+        // A handler that opens its RecordRef on another table or record leaves the builder's record behind: what the
+        // builder keeps then is not pinned.
+        let same = match finals.first() {
+            Some(Value::Library(_, lib)) => {
+                matches!(&*lib.borrow(), al_builtins::value::LibraryValue::RecordRef(r) if Rc::ptr_eq(r, record))
+            }
+            _ => false,
+        };
+        if !same {
+            return Err(Signal::Unsupported(
+                "a [FilterPageHandler] that points its RecordRef at another record (what the builder keeps is not pinned)"
+                    .into(),
+            ));
+        }
+        match answer {
+            Value::Boolean(b) => Ok(b),
+            other => Err(Signal::Unsupported(format!(
+                "a [FilterPageHandler] that answers {}",
+                other.describe()
+            ))),
         }
     }
 
