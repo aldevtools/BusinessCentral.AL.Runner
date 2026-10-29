@@ -1214,6 +1214,20 @@ registry! {
             since: "2026-10-29",
         },
     },
+    QueryFilterElementReadWithoutRow => {
+        id: "query-filter-element-read-without-row",
+        assumed: "Reading a query filter() element (not a column) as `Q.<FilterElement>` before Open, or after Open without a Read, raises the error a column read without a row raises: `You have not yet retrieved a data row for this query. The value for column '<name>' can only be accessed after a row is retrieved with a call to the READ function.` (QueryNoDataSet). Pinned only by corpus writer UH's run on real BC (branch al-runtime-rs-staging-uh, commit ab6c6eb2, corpus PR 799), not yet in the pinned corpus. After Close or after the last row it stays refused, and after a Read too (BC returns another column's value or crashes).",
+        tests: "No Microsoft test: an outside reporter's ISV app (al-runner issue 6173).",
+        probe: "Done on writer UH's branch al-runtime-rs-staging-uh (corpus PR 799): errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_*; wanted: the bump that puts them in the pinned corpus.",
+        awaiting: Awaiting {
+            issues: &[6173],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_BeforeOpen",
+                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_OpenNoRead",
+            ],
+            since: "2026-10-29",
+        },
+    },
     SqlReadCostUnmeasuredShape => {
         id: "sql-read-cost-unmeasured-shape",
         assumed: "The SQL statements and rows read of one record method with nothing buffered (Get 1/1, FindSet 1/0 or 1/1 and each Next 0/1, Modify right after the Get of its row 1/1, FindFirst that finds nothing 1/0, FindLast that finds a row 1/1, IsEmpty 1/0 or 1/1, Count 1/1) are the same on any table, filter and FindSet row count as on the ones measured (session/lt-bl-sql-counters/SkSqlBudget.al, writer TX: a table of Code[20], Integer, Text[50], Integer filtered on its key fields, FindSet loops of 0, 1, 3 and 10 rows; SqlCounters.al: 1, 2, 5, 10, 20 rows).",
@@ -1238,6 +1252,86 @@ registry! {
                 "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetCurrRecord_TestPageOpen",
                 "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnClosePage_TestPageClose",
                 "tests/al-language/lt-ac/ACControlAddIn.al::TZ_TwoProceduresFromActions_PageStaysUsable",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    EnumOperandArithmetic => {
+        id: "enum-operand-arithmetic",
+        assumed: "An Enum operand of + - * / div mod is its ordinal, an Integer, next to a number or another Enum; the result assigned to an Enum is the member of that ordinal; unary minus on an Enum variable does not compile (AL0172).",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6156).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
+        awaiting: Awaiting {
+            issues: &[6156],
+            files: &[
+                "tests/al-language/types/lt-uf-enum-arithmetic/UfEnumArithmetic.al",
+                "tests/must-not-compile/cases/2268-enum-unary-minus-ambiguous.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    TernaryGuidBranch => {
+        id: "ternary-guid-branch",
+        assumed: "A conditional expression with a Guid branch and a Label, Text, Code or text literal branch has the true branch's type: a Guid true branch converts the other branch to a Guid (InvalidGuidFormat when that branch is taken and holds no GUID), a Text, Code or Label true branch takes the Guid as its text in braces.",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6160).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
+        awaiting: Awaiting {
+            issues: &[6160],
+            files: &[
+                "tests/al-language/types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    FailedInsertNullSystemId => {
+        id: "failed-insert-null-system-id",
+        assumed: "A guarded Insert (result used, not temporary, not InsertWithSystemId) that fails on an existing key leaves the variable's SystemId null, the id it was given and one the code set both dropped; a Modify of a variable whose SystemId is null gives it the stored row's SystemId and leaves the row's.",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6153).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
+        awaiting: Awaiting {
+            issues: &[6153],
+            files: &[
+                "tests/al-language/events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    ClearHttpMessages => {
+        id: "clear-http-messages",
+        assumed: "Clear of an HttpRequestMessage, HttpContent or HttpResponseMessage gives a new one (GET with no URI, headers or content; an empty content with only its Content-Type; 200 OK with an empty body), and a value assigned from it before keeps what it held.",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issues 6170, 6171).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
+        awaiting: Awaiting {
+            issues: &[6170, 6171],
+            files: &[
+                "tests/al-language/network/lt-uf-http-clear/UfHttpClear.al",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    EvaluateRfc1123DateTime => {
+        id: "evaluate-rfc-date-time",
+        assumed: "Evaluate into a DateTime with number 0 (or none) reads `Ddd, dd Mon yyyy hh:mm:ss GMT` and `+0000` as UTC; a weekday that is not the date's answers false with no error; without the weekday it answers false and leaves `The date is not valid.` (DateInvalid) as the last error.",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6172).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. Another zone or offset and a one-digit day are refused.",
+        awaiting: Awaiting {
+            issues: &[6172],
+            files: &[
+                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::DateTime_Rfc1123",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    EvaluateJsonArray => {
+        id: "evaluate-json-array",
+        assumed: "Evaluate into a JsonArray reads the text as ReadFrom does; a text that is no array leaves the array as it was and answers false with ReadFrom's statement error (InvalidJsonType naming the token type, InvalidJsonData) as the last error.",
+        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6175).",
+        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
+        awaiting: Awaiting {
+            issues: &[6175],
+            files: &[
+                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::JsonArray_Texts",
+                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::JsonArray_UsedAfterEvaluate",
             ],
             since: "2026-10-29",
         },

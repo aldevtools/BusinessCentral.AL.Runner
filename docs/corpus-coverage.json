@@ -2,7 +2,7 @@
   "corpus_commit": "7319e1c8382edba4e97fbf251c3731d1c664b495",
   "language": {
     "bc": "27-29",
-    "implemented": 1596,
+    "implemented": 1599,
     "methods": [
       {
         "bc": [
@@ -4907,7 +4907,7 @@
         "scope": "",
         "sig": "()",
         "site": "network/lt-cz-http-leads/CzHttpNoNetwork.al:33",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpContent"
       },
       {
@@ -4939,7 +4939,7 @@
         "scope": "",
         "sig": "(var SecretText)",
         "site": "network/lt-cz-http-leads/CzHttpNoNetwork.al:34",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpContent"
       },
       {
@@ -4987,7 +4987,7 @@
         "scope": "",
         "sig": "(SecretText)",
         "site": "xml/lt-xml-attr-doc-http-members/P97ContentSecret.al:89",
-        "state": "refused",
+        "state": "implemented",
         "type": "HttpContent"
       },
       {
@@ -27947,7 +27947,7 @@
     ],
     "overloads": 1750,
     "pinned": 1706,
-    "refused": 126,
+    "refused": 123,
     "runtime_only": [
       "ErrorInfo.Create#3",
       "FieldRef.FieldError#2",

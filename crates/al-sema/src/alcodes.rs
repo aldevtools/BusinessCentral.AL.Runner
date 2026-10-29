@@ -16,13 +16,17 @@
 //!   these checks.
 //!
 //! The codes the checker itself reports (`check/`, where types are known) are AL0118, AL0122, AL0135, AL0139,
-//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text); they are listed in [`IMPLEMENTED`] too.
+//! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration); they are listed in [`IMPLEMENTED`] too.
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
 
 /// The AL codes this front end reports, with what each one covers.
 pub const IMPLEMENTED: &[(&str, &str)] = &[
+    (
+        "AL0172",
+        "unary minus on an Enum or Option variable or field, unary minus or plus on a Duration (check/infer.rs; cases 0584, 0585, 1531, 1532, 1728, 2268)",
+    ),
     (
         "AL0104",
         "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040)",

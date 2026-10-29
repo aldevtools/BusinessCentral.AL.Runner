@@ -1797,6 +1797,7 @@
 60193 BN_Ternary_Code20TrueBranch
 60193 BN_Ternary_IntegerAndDecimalBranches
 60193 BN_Ternary_VariantBranch
+60193 QW_Ternary_BooleanGuidTimePairs
 60193 QW_Ternary_Contexts
 60193 QW_Ternary_LabelBranches
 60193 QW_Ternary_LabelMaxLengthAndTextConst
@@ -10975,6 +10976,7 @@
 72601 ReadAs_FreshContent
 72601 RequestContent_IsItACopy
 72601 RequestWithoutContent
+72601 WriteFromInStream_NonAsciiBytes
 72601 WriteFromText_NonAscii
 72601 WriteFromText_ThenReadAndHeaders
 72611 Argument_And_Exit_TakeTheOrdinal
@@ -12354,6 +12356,8 @@
 73552 P130_EvaluateDate_Raises_OnFormat9WithSlashForm
 73563 RN_Transfer_Text100ToText10_ByValueLength
 73577 P130_Query_FlowFieldOfInnerJoinedItem_Control
+73577 P130_Query_FlowFieldOfOuterJoinedItem
+73577 P130_Query_FlowFieldOfOuterJoinedItem_WithFilterOnParent
 73578 DateTime_DateAndTimeMethods_DateZeroWithTime
 73578 DateTime_DateAndTimeMethods_SetValue
 73578 DateTime_DateAndTimeMethods_Undefined
@@ -12848,6 +12852,7 @@
 74014 ClearParameters
 74017 ClearInterface
 74018 ClearErrorInfo
+74019 ClearHttpXml
 74025 CodeCoverageRefreshOnly
 74031 DbSerialNumber
 74036 P133_MixedModalHandlers_TestPageList_PageCard
@@ -12980,6 +12985,7 @@
 74180 DifferentEnums_PlainVsPlain2
 74180 EnumEqualsInteger
 74180 EnumFromInteger
+74180 EnumPlusInteger
 74180 IntegerFromEnum
 74180 IntegerToEnumParameter
 74185 CreateGuid_ShapeOver50Calls
@@ -13792,6 +13798,9 @@
 74810 GetValues_UninitialisedHeaders
 74810 TryAddWithoutValidation_Values
 74810 TryAddWithoutValidation_VersusAdd
+74811 Plain_Content_Basics
+74811 Secret_Content_Unicode_Long
+74811 Secret_WriteFromInStream
 74812 ReadAs_Long
 74812 ReadAs_NewAndEmpty
 74812 WriteFrom_Text_And_Headers
@@ -15617,6 +15626,7 @@
 85600 DefaultRequestHeaders_ReferenceLost_AfterValidationOff
 85660 Get_UnresolvableHost_ReturnsFalse
 85660 Get_UnusedReturnValue_RaisesError
+85660 Send_CustomMethods_UnresolvableHost
 85660 Send_UnresolvableHost_ReturnsFalse
 85660 Send_UnusedReturnValue_RaisesError
 85661 AllowAll_UnresolvableHost_IsSentForReal

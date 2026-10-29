@@ -915,9 +915,17 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     }
     // An Option takes part in arithmetic as its ordinal, an Integer (types/PROptionInteger.al:OptionMember_AsInteger:
     // `Opt + 1`, `Opt * 2`).
-    if matches!(l, V::Option(..)) || matches!(r, V::Option(..)) {
+    // So does an Enum next to a number or another Enum (types/lt-uf-enum-arithmetic/UfEnumArithmetic.al:41-62 `Usage - 1`,
+    // `10 - Usage`, `Usage + Usage`, :172-176 a negative result; al-runner issue 6156).
+    let number_or_enum = |v: &Value| matches!(v, V::Enum(..) | V::Integer(_) | V::BigInteger(_) | V::Decimal(_));
+    if (matches!(l, V::Option(..)) || matches!(r, V::Option(..)))
+        || ((matches!(l, V::Enum(..)) || matches!(r, V::Enum(..))) && number_or_enum(l) && number_or_enum(r))
+    {
+        if matches!(l, V::Enum(..)) || matches!(r, V::Enum(..)) {
+            crate::assumptions::assume(crate::assumptions::Assumption::EnumOperandArithmetic);
+        }
         let ord = |v: &Value| match v {
-            V::Option(n, _) => V::Integer(*n),
+            V::Option(n, _) | V::Enum(_, n) => V::Integer(*n),
             other => other.clone(),
         };
         return arith(op, &ord(l), &ord(r));

@@ -950,3 +950,163 @@ codeunit 69558 T { Subtype = Test; var Seen: Text;
   end; }";
     all_pass(run_with_deps(&[], main));
 }
+
+/// Issue 6173: reading a query `filter()` element (not a column) before a row is read raises the error a column
+/// read without a row raises, before Open and after Open without a Read. After a Read BC returns the value of
+/// another column or crashes, so that form stays refused. Pins: corpus branch al-runtime-rs-staging-uh (commit
+/// ab6c6eb2, corpus PR 799) errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen,
+/// UH_Query_ReadFilter_OpenNoRead (assumption query-filter-element-read-without-row until that is pinned).
+const ISSUE_6173_OBJECTS: &str = "
+table 69630 \"UR Qf Addr\" { fields { field(1; \"No.\"; Code[20]) { } field(2; Country; Code[10]) { } field(3; \"Post Box\"; Text[30]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+query 69631 \"UR Qf Query\" {
+    elements {
+        dataitem(Addr; \"UR Qf Addr\") {
+            column(No; \"No.\") { }
+            column(CountryCode; Country) { }
+            filter(PostBox; \"Post Box\") { }
+        }
+    }
+}
+codeunit 69632 T {
+    Subtype = Test;
+    local procedure Seed()
+    var
+        Addr: Record \"UR Qf Addr\";
+    begin
+        Addr.DeleteAll();
+        Addr.\"No.\" := 'A1';
+        Addr.Country := 'DE';
+        Addr.\"Post Box\" := 'PB 7';
+        Addr.Insert();
+    end;
+    local procedure GetFieldValue(MyQuery: Query \"UR Qf Query\"; FieldNo: Integer): Text
+    begin
+        case FieldNo of
+            1:
+                exit(MyQuery.No);
+            2:
+                exit(MyQuery.CountryCode);
+            3:
+                exit(Format(MyQuery.PostBox));
+        end;
+    end;
+    [Test]
+    procedure BeforeOpen()
+    var
+        Q: Query \"UR Qf Query\";
+    begin
+        Seed();
+        asserterror GetFieldValue(Q, 3);
+        if GetLastErrorText() <> 'You have not yet retrieved a data row for this query. The value for column ''PostBox'' can only be accessed after a row is retrieved with a call to the READ function.' then
+            Error('got %1', GetLastErrorText());
+    end;
+    [Test]
+    procedure OpenNoRead()
+    var
+        Q: Query \"UR Qf Query\";
+        Txt: Text;
+    begin
+        Seed();
+        Q.SetRange(PostBox, 'PB 7');
+        Q.Open();
+        asserterror Txt := Format(Q.PostBox);
+        if GetLastErrorText() <> 'You have not yet retrieved a data row for this query. The value for column ''PostBox'' can only be accessed after a row is retrieved with a call to the READ function.' then
+            Error('got %1', GetLastErrorText());
+    end;
+    [Test]
+    procedure AfterRead()
+    var
+        Q: Query \"UR Qf Query\";
+        Txt: Text;
+    begin
+        Seed();
+        Q.Open();
+        Q.Read();
+        Txt := GetFieldValue(Q, 1) + GetFieldValue(Q, 3);
+    end;
+}";
+
+#[test]
+fn issue_6173_filter_element_read_without_a_row_raises() {
+    let results = run_with_deps(&[], ISSUE_6173_OBJECTS);
+    let get = |n: &str| {
+        results
+            .iter()
+            .find(|(name, _)| name == n)
+            .map(|(_, o)| o.clone())
+            .unwrap()
+    };
+    assert_eq!(get("BeforeOpen"), Outcome::Pass);
+    assert_eq!(get("OpenNoRead"), Outcome::Pass);
+    match get("AfterRead") {
+        Outcome::NotRun(why) => assert!(why.contains("filter element"), "{why}"),
+        other => panic!("AfterRead: {other:?}"),
+    }
+}
+
+/// Issue 6174: a query column over a Sum or Count FlowField of a LeftOuterJoin dataitem is calculated per joined
+/// row, and is 0 for a parent row without a matching child. Pins:
+/// errors/lt-ms-refusals-130/P130QueryOuterFlow.al:163-184 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
+#[test]
+fn issue_6174_flowfield_column_of_outer_joined_item() {
+    let objects = "
+table 69640 \"UR Of Header\" { fields { field(1; \"No.\"; Code[20]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
+table 69641 \"UR Of Line\" {
+    fields {
+        field(1; \"Document No.\"; Code[20]) { }
+        field(2; \"Line No.\"; Integer) { }
+        field(3; \"Reserved Qty. (Base)\"; Decimal) { FieldClass = FlowField; CalcFormula = sum(\"UR Of Entry\".Qty where(\"Line No.\" = field(\"Line No.\"))); }
+        field(4; Entries; Integer) { FieldClass = FlowField; CalcFormula = count(\"UR Of Entry\" where(\"Line No.\" = field(\"Line No.\"))); }
+    }
+    keys { key(PK; \"Document No.\", \"Line No.\") { Clustered = true; } }
+}
+table 69642 \"UR Of Entry\" { fields { field(1; Id; Integer) { } field(2; \"Line No.\"; Integer) { } field(3; Qty; Decimal) { } } keys { key(PK; Id) { Clustered = true; } } }
+query 69643 \"UR Of Query\" {
+    OrderBy = ascending(No);
+    elements {
+        dataitem(Header; \"UR Of Header\") {
+            column(No; \"No.\") { }
+            dataitem(Line; \"UR Of Line\") {
+                DataItemLink = \"Document No.\" = Header.\"No.\";
+                SqlJoinType = LeftOuterJoin;
+                column(Reserved_Qty_Base; \"Reserved Qty. (Base)\") { }
+                column(Entries; Entries) { }
+            }
+        }
+    }
+}
+codeunit 69644 T {
+    Subtype = Test;
+    [Test]
+    procedure Availability()
+    var
+        Header: Record \"UR Of Header\";
+        Line: Record \"UR Of Line\";
+        Entry: Record \"UR Of Entry\";
+        Q: Query \"UR Of Query\";
+        Res: Text;
+    begin
+        Header.\"No.\" := 'A';
+        Header.Insert();
+        Header.\"No.\" := 'B';
+        Header.Insert();
+        Line.\"Document No.\" := 'A';
+        Line.\"Line No.\" := 10;
+        Line.Insert();
+        Entry.Id := 1;
+        Entry.\"Line No.\" := 10;
+        Entry.Qty := 2.5;
+        Entry.Insert();
+        Entry.Id := 2;
+        Entry.\"Line No.\" := 10;
+        Entry.Qty := 4;
+        Entry.Insert();
+        Q.Open();
+        while Q.Read() do
+            Res += '[' + Q.No + '|' + Format(Q.Reserved_Qty_Base) + '|' + Format(Q.Entries) + ']';
+        if Res <> '[A|6.5|2][B|0|0]' then
+            Error('got %1', Res);
+    end;
+}";
+    all_pass(run_with_deps(&[], objects));
+}

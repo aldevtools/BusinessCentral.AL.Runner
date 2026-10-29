@@ -613,13 +613,34 @@ impl Builder<'_> {
         // Groups without an OrderBy (query/TestQueryAggregation.al always orders its groups) have no
         // pinned order, but that only matters when a run produces several: the VM refuses then
         // (`Session::query_rows`), so a query like Base App's 1302 can be declared and used.
-        // A FlowField on the optional side of an outer join would be calculated on the default row.
+        // A plain column over a Sum or Count FlowField of a left-outer-joined child of the top dataitem is
+        // calculated per joined row and is 0 for a parent without a matching child (errors/lt-ms-refusals-130/
+        // P130QueryOuterFlow.al:163-184, :210-229; al-runner issue 6174). Other FlowField kinds (Exist, Lookup,
+        // Average, Min, Max), a Method column in the query, a ColumnFilter, a deeper dataitem or a right or full outer join in the
+        // query are not pinned.
+        let any_right = self.items.iter().any(|i| i.right_outer);
+        let grouped = self.columns.iter().any(|c| c.method.is_some());
         for c in &self.columns {
             let item = &self.items[c.item];
             let Some(field) = c.field else { continue };
             if item.left_outer && item.parent.is_some() && item.table != usize::MAX {
                 let f = &self.members[item.table].fields[field];
-                if f.class != FieldClass::Normal {
+                let top_child = item.parent.is_some_and(|p| self.items[p].parent.is_none());
+                let sum_or_count = f.calc_formula.as_deref().is_some_and(|cf| {
+                    let cf = cf.trim_start().to_ascii_lowercase();
+                    ["sum", "count"]
+                        .iter()
+                        .any(|k| cf.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('(')))
+                });
+                let pinned = f.class == FieldClass::FlowField
+                    && sum_or_count
+                    && top_child
+                    && !any_right
+                    && !grouped
+                    && !c.filter_element
+                    && !c.reverse_sign
+                    && c.static_filter.is_none();
+                if f.class != FieldClass::Normal && !pinned {
                     let r = format!(
                         "column {} reads a FlowField of an outer-joined dataitem (not pinned)",
                         c.name
