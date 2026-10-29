@@ -1148,6 +1148,7 @@ impl CorpusRuntime {
                             onrun_carry: false,
                             leak: None,
                             on_run_rows: OnRunRows::PerTest,
+                            ignore_permission_mock: false,
                         });
                     }
                     continue;
@@ -1194,6 +1195,7 @@ impl CorpusRuntime {
                             impact: opts.impact_trace,
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,
+                            ignore_permission_mock: opts.ignore_permission_mock,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()

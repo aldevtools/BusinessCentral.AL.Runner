@@ -680,6 +680,8 @@ fn run_version(
         entries: Vec::new(),
         skipped_dependencies,
         process_ends_after,
+        // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
+        ignore_permission_mock: false,
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(

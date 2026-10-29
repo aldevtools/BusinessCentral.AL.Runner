@@ -176,6 +176,7 @@ pub(crate) fn run_codeunit_core(
         session.restore_baseline(b);
     }
     session.trace_faults(observe.is_some());
+    session.ignore_permission_mock = scratch.ignore_permission_mock;
     let covering = crate::coverage::enabled();
     if covering {
         session.enable_coverage();

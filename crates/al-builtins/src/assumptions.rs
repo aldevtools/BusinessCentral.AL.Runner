@@ -701,6 +701,12 @@ registry! {
         tests: "Every Microsoft test method of a codeunit without TestPermissions = Disabled when Tests-TestLibraries is loaded (about 6500 tests of the Base Application buckets in the 2026-10-20 measurement); they pass in Microsoft's CI under these sets.",
         probe: "Done for the corpus database (QcRunnerSets.al). Still wanted: the same reads and writes with Tests-TestLibraries installed, so TEST TABLES exists: a table of a Microsoft test app and of a test library under the runner sets.",
     },
+    PermissionsNotEnforced => {
+        id: "permissions-not-enforced",
+        assumed: "Opt-in, `al-runner test --ignore-permission-mock` (serve: `ignorePermissionMock`): a test that lowers its own permissions (Permissions Mock.Assign or Set, PermissionTestHelper.AddEffectivePermissionSet) runs on with every access granted. Known wrong: BC narrows the session to the assigned sets (permissions/TestPermissionsMockEnforcement.al:28-47), so an access the sets do not grant raises an error there and passes here. A pass under this flag says nothing about permissions.",
+        tests: "No Microsoft test needs it: without the flag such a test is not run. User suites whose tests lower their permissions and pass on real BC, run with the flag.",
+        probe: "None that removes it: the flag is the user's choice to run without permission checks. It goes away only when permissions are enforced (ADR-027).",
+    },
     HostSaveRecordRefreshesLinkedParts => {
         id: "host-save-record-refreshes-linked-parts",
         assumed: "A SetValue on a control of a host page that is not a Document page (a Card), or a Document page with a part hidden by a Visible expression, whose OnValidate calls CurrPage.SaveRecord() (and no CurrPage.Update), makes the host's parts that have a SubPageLink read their rows again from their first rows, as after CurrPage.Update on the host (testpart/TestPartTriggerOrderAndRefresh.al HostCurrPageUpdate_ReReadsThePart), without the host reading its own row again. On a Document host testpart/QiHostSaveParts.al pins it: every part reads again where it stands, the unlinked ones too.",

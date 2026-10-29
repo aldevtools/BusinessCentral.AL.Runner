@@ -595,7 +595,7 @@ fn permission_helper_dispose(_: &mut Session, _: Option<&Rc<DotNetObject>>, args
 
 /// `AddEffectivePermissionSet(RoleId)` narrows the session to the assigned sets (enforced on BC: corpus
 /// permissions/TestPermissionsMockEnforcement.al:28-47). Permissions are not enforced here (ADR-027), so a test that
-/// lowers them is not run. The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302
+/// lowers them is not run, unless `--ignore-permission-mock` asks to run it anyway. The sets BC's test runner assigns before each test method (Tests-TestLibraries codeunit 130302
 /// "Set State Test Run", every Microsoft test that does not disable TestPermissions) are assumed to grant all the test
 /// does (`runner-permission-sets-grant-all`): those tests pass in Microsoft's CI under them. On BC they do not grant
 /// everything: they grant what D365 Full Access, D365 Basic and LOCAL name, plus Execute on every object (All Objects);
@@ -607,9 +607,16 @@ fn permission_helper_add_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, _: A
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunnerPermissionSetsGrantAll);
         return Ok(Value::Null);
     }
+    // `al-runner test --ignore-permission-mock`: the user chose to run such a test with every access granted. Each test
+    // that gets here is a flagged pass (`permissions-not-enforced`), never mistaken for a permission check.
+    if s.ignore_permission_mock {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PermissionsNotEnforced);
+        return Ok(Value::Null);
+    }
     Err(Signal::Unsupported(
         "DotNet PermissionTestHelper.AddEffectivePermissionSet lowers the permissions of the test session; \
-         permissions are not enforced here (every access is granted, ADR-027), so the test is not run"
+         permissions are not enforced here (every access is granted, ADR-027), so the test is not run \
+         (`--ignore-permission-mock` runs it without permission checks, as a flagged pass)"
             .into(),
     ))
 }

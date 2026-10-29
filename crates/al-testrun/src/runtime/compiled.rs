@@ -108,6 +108,9 @@ pub struct RunOptions {
     /// compile and the engines are not freed at the end of the run (`retire_at_end`). Never set by a server or by a
     /// caller that runs again in the same process. Default `false`: they are freed on another thread.
     pub process_ends_after: bool,
+    /// `al-runner test --ignore-permission-mock`: a test that lowers its own permissions runs with every access granted
+    /// instead of being refused; each such test hits the assumption `permissions-not-enforced` (a flagged pass).
+    pub ignore_permission_mock: bool,
 }
 
 /// One entry of a run (`RunOptions::entries`).
