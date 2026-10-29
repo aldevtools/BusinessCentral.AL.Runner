@@ -2519,6 +2519,7 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
                 run: None,
                 instance: None,
                 in_before_open: false,
+                closed: false,
             })))
         }
         // A codeunit or report variable nothing has used yet has no instance to release, so
@@ -2590,6 +2591,21 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
         Value::Library(name, cell) if name.as_str() == "ErrorInfo" => {
             *cell.borrow_mut() = crate::value::LibraryValue::Empty;
             return Ok(Value::Null);
+        }
+        // A cleared HttpRequestMessage, HttpContent or HttpResponseMessage is a new one, and a value assigned from it before keeps
+        // what it held: the request is GET with no URI, no headers and no content (NotInitialized on ReadAs); the content is empty,
+        // with only the Content-Type text/plain; the response is 200 OK with an empty body (network/lt-uf-http-clear/UfHttpClear.al:
+        // 14-62, :64-114, :116-145; al-runner issues 6170, 6171).
+        Value::Library(name, _)
+            if matches!(
+                name.as_str(),
+                "HttpRequestMessage" | "HttpContent" | "HttpResponseMessage"
+            ) && crate::assumptions::hit(crate::assumptions::Assumption::ClearHttpMessages) =>
+        {
+            Value::Library(
+                name.clone(),
+                std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
+            )
         }
         Value::Library(name, _)
             if matches!(

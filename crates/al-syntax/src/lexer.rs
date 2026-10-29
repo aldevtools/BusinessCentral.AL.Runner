@@ -12,6 +12,21 @@ pub struct Token {
 /// U+FEFF in UTF-8.
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
+/// The byte length of a Unicode space separator at the start of `s` that is white space between tokens, or 0. alc reads
+/// these as white space (corpus misc/lt-uf-nbsp/UfNbsp.al:31-42 for U+00A0 as indentation, between tokens, after `begin`,
+/// before `;` and after `//`; :102-160 for U+2003, U+3000, U+202F, U+2009, U+2002, U+2007 and U+1680; al-runner issue 6152).
+/// The other separators of category Zs (U+2000, U+2001, U+2004-U+2006, U+2008, U+200A, U+205F) are not pinned and stay
+/// an error.
+fn unicode_space_len(s: &[u8]) -> usize {
+    match s {
+        [0xC2, 0xA0, ..] => 2,
+        [0xE1, 0x9A, 0x80, ..] // U+1680
+        | [0xE2, 0x80, 0x82 | 0x83 | 0x87 | 0x89 | 0xAF, ..] // U+2002, U+2003, U+2007, U+2009, U+202F
+        | [0xE3, 0x80, 0x80, ..] => 3, // U+3000
+        _ => 0,
+    }
+}
+
 pub fn lex(src: &str) -> Vec<Token> {
     let mut lx = Lexer {
         text: src,
@@ -117,14 +132,22 @@ impl Lexer<'_> {
                 self.push(Newline, start);
                 self.line_has_code = false;
             }
-            // A byte order mark (U+FEFF, bytes EF BB BF) between tokens is white space, as in BC's compiler.
-            b' ' | b'\t' | b'\r' | 0x0c | 0xEF if c != 0xEF || self.src[self.pos..].starts_with(&BOM) => {
+            // A byte order mark (U+FEFF, bytes EF BB BF) between tokens is white space, as in BC's compiler, and so are the
+            // Unicode space separators of `unicode_space_len`.
+            b' ' | b'\t' | b'\r' | 0x0c | 0xEF | 0xC2 | 0xE1 | 0xE2 | 0xE3
+                if !matches!(c, 0xEF | 0xC2 | 0xE1 | 0xE2 | 0xE3)
+                    || self.src[self.pos..].starts_with(&BOM)
+                    || unicode_space_len(&self.src[self.pos..]) > 0 =>
+            {
                 loop {
                     self.eat_while(|b| matches!(b, b' ' | b'\t' | 0x0c));
                     if self.src[self.pos..].starts_with(&BOM) {
                         self.pos += 3;
                     } else {
-                        break;
+                        match unicode_space_len(&self.src[self.pos..]) {
+                            0 => break,
+                            n => self.pos += n,
+                        }
                     }
                 }
                 if self.pos == start {
@@ -514,6 +537,29 @@ mod tests {
     #[test]
     fn bom_is_its_own_trivia_token() {
         assert_eq!(kinds("\u{FEFF}x"), vec![(Bom, "\u{FEFF}"), (Ident, "x")]);
+    }
+
+    // NO-BREAK SPACE and the other Unicode space separators the corpus pins are white space between tokens, as in
+    // alc, and stay one character inside a string: corpus misc/lt-uf-nbsp/UfNbsp.al:31-42 (U+00A0 as indentation,
+    // between tokens, after `begin`, before `;`, inside a string literal) and :102-160 (U+2003, U+3000, U+202F, U+2009,
+    // U+2002, U+2007, U+1680).
+    #[test]
+    fn pinned_unicode_space_separators_are_white_space() {
+        for sp in [
+            '\u{00A0}', '\u{1680}', '\u{2002}', '\u{2003}', '\u{2007}', '\u{2009}', '\u{202F}', '\u{3000}',
+        ] {
+            let src = format!("{sp}{sp}x{sp}:={sp}1 ;{sp}");
+            assert_eq!(
+                significant(&src),
+                vec![(Ident, "x"), (Assign, ":="), (Integer, "1"), (Semicolon, ";")],
+                "{:X}",
+                sp as u32
+            );
+            assert_eq!(kinds(&src)[0], (Whitespace, &src[..2 * sp.len_utf8()]));
+        }
+        assert_eq!(significant("'a\u{00A0}b'"), vec![(StringLit, "'a\u{00A0}b'")]);
+        // U+00A0 then a space and a tab: one white space token.
+        assert_eq!(kinds("\u{00A0} \tx")[0], (Whitespace, "\u{00A0} \t"));
     }
 
     // Microsoft's BC 29 Base Application has pages (Sales/Reminder/ReminderLevels.Page.al, ReminderTerms.Page.al,

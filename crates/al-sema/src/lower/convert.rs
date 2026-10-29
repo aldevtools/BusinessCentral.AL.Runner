@@ -380,6 +380,12 @@ impl<'a> Lowerer<'a> {
             // Pinned on master (:466): an empty literal true branch takes a Label false branch as it is.
             (Ty::Text(_), Ty::Label) if !maxlength && literal(yes.1).is_some_and(|s| s.is_empty()) => {}
             _ if maxlength => return unpinned(),
+            // A Guid true branch makes the Label a Guid (a text that is no GUID fails InvalidGuidFormat when that branch is taken);
+            // a Label true branch makes the Guid a Text in braces (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-55, :61-75,
+            // :78-104, :153-180; al-runner issue 6160).
+            (Ty::Guid, Ty::Label) | (Ty::Label, Ty::Guid) => {
+                self.assume(al_builtins::assumptions::Assumption::TernaryGuidBranch)
+            }
             (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {}
             (Ty::Code(Some(_)) | Ty::Text(Some(_)), Ty::Label) | (Ty::Label, Ty::Code(Some(_)) | Ty::Text(Some(_))) => {
                 let sized = if matches!(t, Ty::Label) { f } else { t };
@@ -411,8 +417,17 @@ impl<'a> Lowerer<'a> {
             (Ty::Text(Some(_)), Ty::Text(Some(_)) | Ty::Code(Some(_))) if target == Some(t) => true,
             (Ty::Text(_), Ty::Variant) => true,
             (Ty::Variant, _) => true,
+            // A Guid true branch converts a Text, Code or literal false branch to a Guid; a Text or Code true branch takes a Guid
+            // false branch as its text in braces, 38 characters, which fits an unbounded Text or a Text or Code of 38 and more
+            // (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, Text, Code[40] and a literal; al-runner issue 6160).
+            (Ty::Guid, Ty::Text(_) | Ty::Code(_)) => true,
+            (Ty::Text(None), Ty::Guid) => true,
+            (Ty::Text(Some(n)) | Ty::Code(Some(n)), Ty::Guid) if *n >= 38 => true,
             _ => false,
         };
+        if matches!((t, f), (Ty::Guid, _) | (_, Ty::Guid)) {
+            self.assume(al_builtins::assumptions::Assumption::TernaryGuidBranch);
+        }
         if !pinned {
             // A longer Text or Code false branch anywhere else is not pinned. Microsoft's DemoTool needs it to run (Base App
             // AccScheduleLine.Table.al:113 `Description := Description = '' ? GLAccCategory.Description : Description`, a

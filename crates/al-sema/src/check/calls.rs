@@ -341,6 +341,18 @@ impl<'a> Checker<'a> {
             all.extend(c);
             c = all;
         }
+        // A bare `RunModal(Page::X[, Rec])` in a page's code is the static Page.RunModal (pages/lt-uf-unqualified-runmodal/
+        // UfUnqualifiedRunModal.al:71-117, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The page's
+        // own RunModal() without arguments, the other static Page methods and a page extension are not pinned.
+        if c.is_empty() && n.eq_ignore_ascii_case("runmodal") && self.ws.objects[sc.oi].kind == ObjKind::Page {
+            c = self
+                .catalog
+                .overloads("Page", n)
+                .into_iter()
+                .filter(|s| !s.instance)
+                .map(|s| sig_cand(s, &Ty::Unknown, self.catalog.id(s)))
+                .collect();
+        }
         if c.is_empty() {
             c = self.global_cands(n);
         }

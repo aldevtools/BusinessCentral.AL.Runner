@@ -166,5 +166,6 @@
 98940 Handler_BaseAddressAbsoluteUrlBearer
 98940 Handler_BlockedAndUnsuccessful
 98940 Handler_BlockedByEnvironment
+98940 Handler_CustomMethods
 98940 Handler_RaisesError
 98940 Handler_UnsuccessfulRequest

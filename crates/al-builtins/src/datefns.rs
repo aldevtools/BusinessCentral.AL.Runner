@@ -375,7 +375,7 @@ fn closing_date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
 }
 
 /// 1 = Monday (session/TestSystemExtended.al:278). Day 1 (0001-01-01) is a Monday.
-fn weekday(day: i32) -> i32 {
+pub(crate) fn weekday(day: i32) -> i32 {
     (day - 1).rem_euclid(7) + 1
 }
 
