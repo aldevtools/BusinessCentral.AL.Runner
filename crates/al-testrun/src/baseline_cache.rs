@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x03";
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x04";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -109,8 +109,9 @@ pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
             put_i64(&mut out, i64::from(d));
             put_u8(&mut out, f as u8);
         }
-        put_u64(&mut out, l.hits as u64);
-        put_u64(&mut out, (l.hits >> 64) as u64);
+        for w in l.hits.0 {
+            put_u64(&mut out, w);
+        }
     }
     put_u8(&mut out, 1);
     let baseline = run.baseline.to_bytes()?;
@@ -161,7 +162,10 @@ pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
             let f = r.u8()? != 0;
             globals.push((g, d, f));
         }
-        let hits = u128::from(r.u64()?) | (u128::from(r.u64()?) << 64);
+        let mut hits = al_builtins::assumptions::HitBits::EMPTY;
+        for w in &mut hits.0 {
+            *w = r.u64()?;
+        }
         login.push(crate::baseline::LoginRecord {
             company,
             work_date,
@@ -376,7 +380,7 @@ mod tests {
                 work_date: 739_000,
                 day: 739_100,
                 globals: vec![(3, 739_100, false), (5, 0, true)],
-                hits: 1 << 100 | 5,
+                hits: al_builtins::assumptions::HitBits([5, 1 << 36, 0, 1 << 3]),
             }],
         }
     }

@@ -1203,8 +1203,9 @@ mod tests {
     }
 
     #[test]
-    fn max_occurs_once_runs_only_on_a_linked_nested_table_element_without_link_fields_and_min_occurs_zero() {
-        // Writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al TT_Confirm_Export_* (xmlport 90103).
+    fn max_occurs_once_on_a_linked_nested_table_element_runs_only_without_link_fields_and_with_min_occurs_zero() {
+        // Writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al TT_Confirm_Export_* (xmlport 90103). The unlinked
+        // one is `min_once_unbounded_and_min_zero_once_run_on_an_unlinked_nested_table_element`.
         let ok = layout_of(
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         );
@@ -1212,7 +1213,6 @@ mod tests {
         for refused in [
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; LinkFields = A = field(B); MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
-            "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");
         }

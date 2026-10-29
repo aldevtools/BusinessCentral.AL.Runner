@@ -1230,15 +1230,54 @@ registry! {
     },
 }
 
+/// The words of a [`HitBits`]: room for 256 assumptions.
+const HIT_WORDS: usize = 4;
+
+/// The assumption marks as a bit set: bit `a as u32` for assumption `a`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HitBits(pub [u64; HIT_WORDS]);
+
+impl HitBits {
+    /// No marks.
+    pub const EMPTY: HitBits = HitBits([0; HIT_WORDS]);
+
+    /// The bit set with the mark of `a` added.
+    #[inline]
+    pub fn with(self, a: Assumption) -> HitBits {
+        let mut w = self.0;
+        let i = a as usize;
+        w[i / 64] |= 1u64 << (i % 64);
+        HitBits(w)
+    }
+
+    /// Whether the mark of `a` is set.
+    #[inline]
+    pub fn has(self, a: Assumption) -> bool {
+        let i = a as usize;
+        self.0[i / 64] & (1u64 << (i % 64)) != 0
+    }
+}
+
+impl std::ops::BitOr for HitBits {
+    type Output = HitBits;
+    fn bitor(self, o: HitBits) -> HitBits {
+        let mut w = self.0;
+        for (a, b) in w.iter_mut().zip(o.0) {
+            *a |= b;
+        }
+        HitBits(w)
+    }
+}
+
 thread_local! {
-    static HITS: Cell<u128> = const { Cell::new(0) };
+    static HITS: Cell<HitBits> = const { Cell::new(HitBits::EMPTY) };
 }
 
 /// Notes that the code path of `a` ran. Cheap: one thread-local read and write. The runner collects the
 /// marks of each test with [`take_hits`].
 #[inline]
 pub fn assume(a: Assumption) {
-    HITS.with(|h| h.set(h.get() | (1u128 << (a as u32))));
+    HITS.with(|h| h.set(h.get().with(a)));
 }
 
 /// [`assume`] that answers true, for a match guard that decides to take the assumed path.
@@ -1250,28 +1289,24 @@ pub fn hit(a: Assumption) -> bool {
 
 /// Forgets the marks of this thread (a test is about to start).
 pub fn clear_hits() {
-    HITS.with(|h| h.set(0));
+    HITS.with(|h| h.set(HitBits::EMPTY));
 }
 
 /// The marks of this thread as a bit set (bit `a as u32` for assumption `a`); clears them. With [`add_hit_bits`], a
 /// caller that replays a recorded run of code puts back the marks that run made.
-pub fn take_hit_bits() -> u128 {
-    HITS.with(|h| h.replace(0))
+pub fn take_hit_bits() -> HitBits {
+    HITS.with(|h| h.replace(HitBits::EMPTY))
 }
 
 /// Adds the marks of the bit set `bits` (from [`take_hit_bits`]) to this thread's marks.
-pub fn add_hit_bits(bits: u128) {
+pub fn add_hit_bits(bits: HitBits) {
     HITS.with(|h| h.set(h.get() | bits));
 }
 
 /// The marks of this thread since the last [`clear_hits`] or `take_hits`, in registry order; clears them.
 pub fn take_hits() -> Vec<Assumption> {
-    let bits = HITS.with(|h| h.replace(0));
-    Assumption::ALL
-        .iter()
-        .copied()
-        .filter(|a| bits & (1u128 << (*a as u32)) != 0)
-        .collect()
+    let bits = HITS.with(|h| h.replace(HitBits::EMPTY));
+    Assumption::ALL.iter().copied().filter(|a| bits.has(*a)).collect()
 }
 
 /// The entry with this id.
@@ -1362,7 +1397,7 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), Assumption::ALL.len());
-        assert!(Assumption::ALL.len() <= 128, "the marks are a u128");
+        assert!(Assumption::ALL.len() <= 64 * HIT_WORDS, "the marks are a HitBits");
         for a in Assumption::ALL {
             assert_eq!(by_id(a.info().id), Some(*a));
         }
