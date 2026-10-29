@@ -990,17 +990,6 @@ registry! {
             since: "2026-10-29",
         },
     },
-    ShowPrintStatusInert => {
-        id: "show-print-status-inert",
-        assumed: "A report that sets ShowPrintStatus = true runs as one without it: Run, RunModal, Execute and SaveAs give the same triggers, order, results and handler needs. Measured by corpus writer TK on real BC, not yet in the pinned corpus; `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).",
-        tests: "No Microsoft test: al-runner issue 6056, a partner app whose install routine reaches a report with ShowPrintStatus (4,245 tests refused).",
-        probe: "Run, RunModal, Execute and SaveAs of processing-only reports with and without a request page and of an RDLC layout report, each with ShowPrintStatus true, false and unset: trigger log, handler needs, result. Corpus writer TK (branch al-runtime-rs-staging-tk, corpus PR 777).",
-        awaiting: Awaiting {
-            issues: &[6056],
-            files: &["tests/al-language/report/lt-tk-showprintstatus/LtTkShowPrintStatus.al"],
-            since: "2026-10-28",
-        },
-    },
     DotnetTypeUnassignedEnum => {
         id: "dotnet-type-unassigned-enum",
         assumed: "GetDotNetType of an unassigned DotNet variable declared as the enum System.DayOfWeek or System.Security.Cryptography.X509Certificates.X509ContentType gives that enum type (FullName and Format the full name, IsEnum true); System.Enum.Parse(that type, name) gives the member (Pkcs12 gives Pfx, 3), and a name that is not a member, or one in another case, fails with 'A call to System.Enum.Parse failed with this message: Requested value '<name>' was not found.' (DotNetInvoke:Argument). Pinned only by corpus writer TV's run on real BC, not yet on corpus master; other enums are refused.",
