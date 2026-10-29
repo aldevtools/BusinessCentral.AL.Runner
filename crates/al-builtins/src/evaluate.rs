@@ -60,6 +60,8 @@ enum Parsed {
     Rejected,
     /// Rejected, and the statement form raises this error (text, code) instead of the type's own.
     RejectedWith(&'static str, &'static str),
+    /// Rejected with this error (text, code), which the form with a used result leaves as the last error.
+    RejectedLastError(String, &'static str),
 }
 
 /// A Duration as `Evaluate` reads it (types/lt-datetime/Evaluate.al:380-447 Duration_Evaluate, :566-605 BT_Duration_UnitAbbreviations,
@@ -1209,6 +1211,9 @@ fn datetime(text: &str, number: i64) -> Result<Parsed, Signal> {
     if ["0d", "0t", "0dt"].iter().any(|k| t.eq_ignore_ascii_case(k)) || !t.bytes().any(|b| b.is_ascii_digit()) {
         return Ok(Parsed::Rejected);
     }
+    if let Some(p) = rfc1123(t) {
+        return Ok(p);
+    }
     if iso && t.as_bytes().get(10) == Some(&b'T') {
         // Without a zone it is rejected, and the statement form raises `The date is not valid.` (P86Eval.al:933-1110, `t2`
         // `2024-01-15T10:20:30` without a number and with 0).
@@ -1235,6 +1240,47 @@ fn datetime(text: &str, number: i64) -> Result<Parsed, Signal> {
     ))
 }
 
+/// The RFC 1123 form of an HTTP date header, `Fri, 05 Sep 2025 14:23:45 GMT`, in number 0 (and without a number): read as UTC
+/// with `GMT` or `+0000`; a weekday that is not the date's is rejected without an error; without the weekday the text is rejected
+/// and the error is `The date is not valid.`, also when the result is used (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:
+/// 19-60, :62-85; al-runner issue 6172). Number 9 rejects it (the ISO reader above). Another zone or offset, a one-digit day and
+/// a time or date out of range are not pinned: `None`, and the caller refuses.
+fn rfc1123(t: &str) -> Option<Parsed> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const DAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    let parts: Vec<&str> = t.split(' ').collect();
+    let (weekday, rest) = match parts.as_slice() {
+        [w, d, m, y, c, z] if w.len() == 4 && w.ends_with(',') => (Some(&w[..3]), [*d, *m, *y, *c, *z].to_vec()),
+        [d, m, y, c] => (None, vec![*d, *m, *y, *c]),
+        _ => return None,
+    };
+    let [d, m, y, clock] = [rest[0], rest[1], rest[2], rest[3]];
+    let month = MONTHS.iter().position(|x| *x == m)? + 1;
+    if d.len() != 2 || y.len() != 4 || clock.len() != 8 || !d.bytes().chain(y.bytes()).all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if weekday.is_none() {
+        crate::assumptions::assume(crate::assumptions::Assumption::EvaluateRfc1123DateTime);
+        return Some(Parsed::RejectedLastError(
+            "The date is not valid.".into(),
+            "DateInvalid",
+        ));
+    }
+    if !matches!(rest.get(4), Some(&"GMT" | &"+0000")) {
+        return None;
+    }
+    let weekday = DAYS.iter().position(|x| Some(*x) == weekday)? as i32 + 1;
+    let v = crate::iso::parse_datetime(&format!("{y}-{month:02}-{d}T{clock}Z"))?;
+    let day = crate::iso::parse_date(&format!("{y}-{month:02}-{d}"))?;
+    crate::assumptions::assume(crate::assumptions::Assumption::EvaluateRfc1123DateTime);
+    if crate::datefns::weekday(day) != weekday {
+        return Some(Parsed::Rejected);
+    }
+    Some(Parsed::Value(Value::DateTime(v)))
+}
+
 /// The value of a Date or a Guid in the form `Evaluate` reads it (and `Format` writes it), for a reader that has no
 /// variable to evaluate into: `None` for any other type, a text that is no such value, or a form not pinned.
 pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
@@ -1254,7 +1300,7 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     };
     match parsed {
         Parsed::Value(v) => Some(v),
-        Parsed::Rejected | Parsed::RejectedWith(..) => None,
+        Parsed::Rejected | Parsed::RejectedWith(..) | Parsed::RejectedLastError(..) => None,
     }
 }
 
@@ -1826,6 +1872,13 @@ fn evaluate_with_max(
     if matches!(&a[0], Value::Library(name, _) if name == "TableFilter") {
         return into_table_filter(c, a, &text, number);
     }
+    // Into a JsonArray, without a format number (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:88-194); with one it is not pinned.
+    if matches!(&a[0], Value::Library(name, _) if name == "JsonArray") {
+        if a.len() > 2 {
+            return unsupported("Evaluate into a JsonArray with a format number (not pinned)");
+        }
+        return crate::json::evaluate_array(c, &mut a[0], &text);
+    }
     let parsed = match &a[0] {
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,
         Value::Integer(_) => integer(&text, number)?,
@@ -2053,6 +2106,13 @@ fn evaluate_with_max(
         }
         Parsed::Rejected | Parsed::RejectedWith(..) if c.ret_used() => Ok(Value::Boolean(false)),
         Parsed::RejectedWith(message, code) => crate::native::raise(message, code),
+        Parsed::RejectedLastError(message, code) => match crate::native::raise::<Value>(&message, code) {
+            Err(Signal::Error(e)) if c.ret_used() => {
+                c.set_last_error(*e);
+                Ok(Value::Boolean(false))
+            }
+            other => other,
+        },
         // The error of a failed statement form (session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
         // `evaluate_int_overflow_statement`; types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError).
         Parsed::Rejected

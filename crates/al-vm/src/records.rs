@@ -3570,6 +3570,18 @@ impl Session {
                             }
                             return Ok(Value::Boolean(true));
                         }
+                        // A guarded Insert that fails on an existing key leaves the variable's SystemId null: the id it was given
+                        // and one the code set before are both dropped (events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al:
+                        // 52-60 `entry sysid null after failed insert` Yes, :124-132 Insert(true) and an explicit SystemId; al-runner
+                        // issue 6153). A temporary record and InsertWithSystemId are not pinned and keep what they held.
+                        if self.ret_used && !keep_id && !rec.borrow().temporary {
+                            al_builtins::assumptions::assume(
+                                al_builtins::assumptions::Assumption::FailedInsertNullSystemId,
+                            );
+                            if let Some(i) = id_slot {
+                                rec.borrow_mut().fields[i] = Value::Guid([0; 16]);
+                            }
+                        }
                         let r = self.fail(&t, &row, true);
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/
                         // lt-last-error-text-forms/InsertDuplicateKeyExcludeFlag.al:68, :85, :102). Other tables are not pinned.
@@ -3764,6 +3776,21 @@ impl Session {
                     WriteOutcome::Done => {
                         self.note_write(rec, &t, crate::state::TxWriteKind::Modify, &pk, before);
                         Self::clear_blob_written(rec);
+                        // A variable whose SystemId is null (a guarded Insert failed on the existing key) holds the stored row's SystemId
+                        // after the Modify; the row keeps its own (events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al:61-70
+                        // `entry sysid = stored` Yes, :86-95 the `if not Insert then Modify` idiom; al-runner issue 6153). Another id in
+                        // the buffer stays as it was (record/TestRecordSystemId.al:176-215 pins only the stored row).
+                        let temporary = rec.borrow().temporary;
+                        let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
+                        let null_id =
+                            id_slot.is_some_and(|i| matches!(rec.borrow().fields[i], Value::Guid(g) if g == [0; 16]));
+                        if let (Some(old), false, true, Some(i)) = (stored_row.as_deref(), temporary, null_id, id_slot)
+                        {
+                            al_builtins::assumptions::assume(
+                                al_builtins::assumptions::Assumption::FailedInsertNullSystemId,
+                            );
+                            rec.borrow_mut().fields[i] = old[i].clone();
+                        }
                         if !rec.borrow().temporary {
                             let image = rec.borrow().fields.clone();
                             rec.borrow_mut().last_modify = Some(image);

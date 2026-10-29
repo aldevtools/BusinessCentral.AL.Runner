@@ -1081,6 +1081,21 @@ fn is_numeric(t: &Ty) -> bool {
 }
 
 fn binary_ty(op: &str, l: &Ty, r: &Ty) -> Ty {
+    // An Enum operand of `+ - * / div mod` is its ordinal, an Integer (warning AL0603 in alc), next to a number or another Enum
+    // (types/lt-uf-enum-arithmetic/UfEnumArithmetic.al:41-62, :80-90, :146-152 `Usage / 2` is a Decimal; al-runner issue 6156).
+    if matches!(op, "+" | "-" | "*" | "/" | "div" | "mod")
+        && (matches!(l, Ty::Enum(_)) || matches!(r, Ty::Enum(_)))
+        && [l, r].iter().all(|t| matches!(t, Ty::Enum(_)) || is_numeric(t))
+    {
+        let ord = |t: &Ty| {
+            if matches!(t, Ty::Enum(_)) {
+                Ty::Integer
+            } else {
+                t.clone()
+            }
+        };
+        return binary_ty(op, &ord(l), &ord(r));
+    }
     match op {
         "=" | "<>" | "<" | "<=" | ">" | ">=" | "in" | "and" | "or" | "xor" => Ty::Boolean,
         // Duration div / mod a number is a Decimal18 (corpus types/lt-duration-div-mod/DurationDivIntegerOverflow.al: it formats as
