@@ -443,6 +443,11 @@ impl al_builtins::native::Ctx for Session {
             al_builtins::value::LibraryValue::FieldRef(r, p) | al_builtins::value::LibraryValue::KeyFieldRef(r, p) => {
                 (r.clone(), *p)
             }
+            al_builtins::value::LibraryValue::UserNameFieldRef { .. } => {
+                return Some(Err(Signal::Unsupported(
+                    "Evaluate into a FieldRef to a user-name system FlowField (not pinned)".into(),
+                )));
+            }
             _ => return None,
         };
         let t = match self.table(&rec) {

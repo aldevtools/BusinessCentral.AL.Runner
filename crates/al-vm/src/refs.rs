@@ -1113,12 +1113,17 @@ impl Session {
             "Field" => {
                 let no = int_arg(args, 0)?;
                 // BC 29 has the user-name FlowFields at 2000000005-8 (platform/fields.rs `USER_NAME_SYSTEM_FIELDS`); the
-                // runtime does not hold them.
+                // record buffer does not hold them, so the FieldRef names the field by number (see `user_name_fieldref_op`).
                 if (2_000_000_005..=2_000_000_008).contains(&no)
                     && self.has(al_version::Gate::PlatformMetadataColumnsFrom29)
                 {
-                    return unsupported(format!(
-                        "RecordRef.Field({no}): the user-name system FlowFields (SystemCreatedByUserName and the others) are not modelled"
+                    return Ok(handle(
+                        "FieldRef",
+                        LibraryValue::UserNameFieldRef {
+                            rec,
+                            no: no as u32,
+                            value: None,
+                        },
                     ));
                 }
                 match t.fields.iter().position(|f| i64::from(al_field_no(f.id)) == no) {
@@ -1362,6 +1367,9 @@ impl Session {
     }
 
     fn fieldref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
+        if matches!(&*lib.borrow(), LibraryValue::UserNameFieldRef { .. }) {
+            return self.user_name_fieldref_op(method, lib, args);
+        }
         let (rec, pos) = match &*lib.borrow() {
             LibraryValue::FieldRef(r, p) | LibraryValue::KeyFieldRef(r, p) => (r.clone(), *p),
             // Name, Number, Value(), Type, Length and Record raise on a FieldRef that was never assigned
@@ -1731,6 +1739,101 @@ impl Session {
 impl Session {
     /// `FieldRef.Type`. An Enum field is an Option field at run time (corpus fieldref/
     /// TestFieldRefEnumKeywordCase.al:95-106).
+    /// A FieldRef to a user-name system FlowField (SystemCreatedByUserName 2000000005, SystemCreatedByFullName 2000000006,
+    /// SystemModifiedByUserName 2000000007, SystemModifiedByFullName 2000000008). Pinned by
+    /// system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord, BC 29): Number, Class
+    /// FlowField, Type Text, Length 50 (user name) or 80 (full name), and the value after `CalcField`. On a normal record
+    /// the user name fields equal `UserId()` and the full name fields the session user's User."Full Name" (not blank,
+    /// not the user name); on a temporary record all four are blank. Everything else is refused: the value before
+    /// `CalcField`, a normal record stamped by another user or by no one, and the other FieldRef methods.
+    fn user_name_fieldref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
+        let (rec, no, value) = match &*lib.borrow() {
+            LibraryValue::UserNameFieldRef { rec, no, value } => (rec.clone(), *no, value.clone()),
+            _ => unreachable!("checked by fieldref_op"),
+        };
+        let (name, len) = crate::platform::user_name_system_field(no).expect("2000000005 to 2000000008");
+        match method {
+            "Number" => Ok(Value::Integer(no as i32)),
+            "Class" => {
+                let m = al_builtins::sysenum::option_members("FieldClass").expect("known");
+                Ok(Value::Option(1, m.into()))
+            }
+            "Type" => {
+                let members = al_builtins::sysenum::option_members("FieldType").expect("known");
+                let ord = members.iter().position(|m| m == "Text").expect("listed") as i32;
+                Ok(Value::Option(ord, members.into()))
+            }
+            "Length" => Ok(Value::Integer(len)),
+            "CalcField" if args.is_empty() => {
+                let v = self.user_name_field_value(&rec, no, name)?;
+                if let LibraryValue::UserNameFieldRef { value, .. } = &mut *lib.borrow_mut() {
+                    *value = Some(v);
+                }
+                Ok(Value::Boolean(true))
+            }
+            "Value" if args.is_empty() => match value {
+                Some(v) => Ok(Value::Text(v.into())),
+                None => unsupported(format!(
+                    "FieldRef.Value of {name} before CalcField: what the field holds then is not pinned (docs/probes-needed.md)"
+                )),
+            },
+            other => unsupported(format!(
+                "FieldRef.{other} of the user-name system FlowField {name}: only Number, Class, Type, Length, CalcField and Value are pinned (docs/probes-needed.md)"
+            )),
+        }
+    }
+
+    /// What `CalcField` puts into a user-name system FlowField of `rec` (see `user_name_fieldref_op`).
+    fn user_name_field_value(&mut self, rec: &Rec, no: u32, name: &str) -> Result<String, Signal> {
+        // Temporary record: blank (W6SystemFieldStamps.al:243-246).
+        if rec.borrow().temporary {
+            return Ok(String::new());
+        }
+        let t = self.table(rec)?;
+        // 2000000005 and 2000000006 follow SystemCreatedBy (2000000002), 2000000007 and 2000000008 SystemModifiedBy (2000000004).
+        let by = if no <= 2_000_000_006 {
+            2_000_000_002
+        } else {
+            2_000_000_004
+        };
+        let stamped = t
+            .fields
+            .iter()
+            .position(|f| f.id == by)
+            .map(|p| rec.borrow().fields[p].clone());
+        let sid = self.host.identity.user_security_id();
+        if !matches!(stamped, Some(Value::Guid(g)) if g == sid) {
+            return unsupported(format!(
+                "FieldRef.CalcField of {name} on a row the session user did not stamp: only the session user's own rows are pinned (docs/probes-needed.md)"
+            ));
+        }
+        // The User row of the session user: User Name (field 2) for the user name fields, Full Name (field 3) for the full
+        // name fields (W6SystemFieldStamps.al:239-242 compares them with UserId() and User."Full Name").
+        let column = if no % 2 == 1 { 2 } else { 3 };
+        match self.table_def(crate::usertable::USER) {
+            // The User table is not compiled, so no AL code reached it: the row is the platform seed (platform/seed.rs).
+            None => Ok(if column == 2 {
+                self.host.identity.user_id()
+            } else {
+                crate::platform::SESSION_USER_FULL_NAME.to_string()
+            }),
+            Some(user) => {
+                let row = self.store.get(&self.cx, &user, &[Value::Guid(sid)]).ok().flatten();
+                let Some(p) = user.fields.iter().position(|f| f.id == column) else {
+                    return unsupported(format!(
+                        "FieldRef.CalcField of {name}: the User table has no field {column}"
+                    ));
+                };
+                match row.as_ref().map(|r| &r[p]) {
+                    Some(Value::Text(s) | Value::Code(s)) => Ok(s.to_string()),
+                    _ => unsupported(format!(
+                        "FieldRef.CalcField of {name} when the session user's User row is gone: not pinned (docs/probes-needed.md)"
+                    )),
+                }
+            }
+        }
+    }
+
     fn field_type(&self, t: &TableDef, pos: usize) -> Result<Value, Signal> {
         let name = match &t.fields[pos].ty {
             RtType::Integer => "Integer",

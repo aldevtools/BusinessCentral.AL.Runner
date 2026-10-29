@@ -1625,7 +1625,8 @@ codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Ope
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
 /// SystemCreatedByUserName and 2000000007 SystemModifiedByUserName (Text 50), 2000000006 SystemCreatedByFullName and
 /// 2000000008 SystemModifiedByFullName (Text 80) (system-fields/W6SystemFieldStamps.al:239-246; metadata/W6FieldKeyRows.al:
-/// 167-168, :267-268). Their other columns are not pinned, and the runtime keeps no such fields: a FieldRef to one is refused.
+/// 167-168, :267-268). Their other columns are not pinned. A FieldRef to one reads its value only after CalcField (the value
+/// before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
 #[test]
 fn bc_29_lists_the_user_name_system_fields_in_the_field_table() {
     let src = r#"table 50001 "R" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
@@ -1642,7 +1643,7 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Columns");
     passes(&o, "RelationAndState");
     assert!(not_run(&o, "Caption").contains("not known"));
-    assert!(not_run(&o, "FieldRef").contains("user-name system FlowFields"));
+    assert!(not_run(&o, "FieldRef").contains("before CalcField"));
     // BC 27 has none of them (W6FieldKeyRows.al:169-170).
     let o = outcomes(&src.replace("<> 5", "<> 1"));
     passes(&o, "TextCount");
