@@ -180,15 +180,86 @@ impl Session {
                 return Ok(Value::Text("".into()));
             }
             Some("Web") => {}
+            Some(kind @ ("SOAP" | "OData" | "ODataV4" | "Api")) => {
+                let kind = kind.to_string();
+                return self.get_url_service(&kind, args);
+            }
             _ => {
                 return unsupported(format!(
-                    "GetUrl({}; the call had {} arguments): only ClientType::Web, Default, Windows, Phone, Tablet and Desktop are built, and Background, Management and NAS without an object (the other forms are not pinned)",
+                    "GetUrl({}; the call had {} arguments): only ClientType::Web, Default, Windows, Phone, Tablet, Desktop, SOAP, OData, ODataV4 and Api are built, and Background, Management and NAS without an object (the other forms are not pinned)",
                     args.first().describe(),
                     args.len()
                 ));
             }
         }
         self.get_url_web(args)
+    }
+
+    /// `GetUrl(ClientType::SOAP | OData | ODataV4 | Api, ...)`: the web address (its host and instance, masked by the pins,
+    /// come from the host's server address: assumption `geturl-web-base-address`), then `/WS/Services`, `/ODataV4` or
+    /// `/api/`; with a company `/WS/<company>/Services` or `/ODataV4/Company('<company>')`, the empty company as none;
+    /// with an object or a record the empty text. Pinned by platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master
+    /// (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi): the company `My Company`, page 21, report 69367,
+    /// a page with a record and UseFilters false, a codeunit (SOAP, ODataV4) and a query (ODataV4). Refused: Api with a
+    /// company (the id in `companies(...)` is not pinned), other company characters (`.` only with an object) and every other
+    /// form.
+    fn get_url_service(&mut self, kind: &str, args: &[Value]) -> Result<Value, Signal> {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlWebBaseAddress);
+        let refuse = |why: &str| {
+            unsupported(format!(
+                "GetUrl(ClientType::{kind}; the call had {} arguments): {why} (not pinned)",
+                args.len()
+            ))
+        };
+        let company = match args.get(1) {
+            None => String::new(),
+            // `.` too with an object, whose answer is the empty text whatever the company: the corpus company
+            // `CRONUS International Ltd.` is accepted for these client types (GetUrlCtService.al, CompanyName()).
+            Some(Value::Text(t)) | Some(Value::Code(t))
+                if !t.has_marker()
+                    && t.as_str()
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == ' ' || (c == '.' && args.len() > 2)) =>
+            {
+                t.as_str().to_string()
+            }
+            Some(_) => return refuse("a company of other characters than letters, digits and space"),
+        };
+        if args.len() > 2 {
+            let object = member(args.get(2));
+            if !matches!(args.get(3), Some(Value::Integer(n)) if *n > 0) {
+                return refuse("an object id that is not positive");
+            }
+            let pinned = match (object.as_deref(), args.len()) {
+                (Some("Page") | Some("Report"), 4) => true,
+                (Some("Codeunit"), 4) => kind == "SOAP" || kind == "ODataV4",
+                (Some("Query"), 4) => kind == "ODataV4",
+                (Some("Page"), 6) => {
+                    record_arg(args.get(4))?;
+                    matches!(args.get(5), Some(Value::Boolean(false)))
+                }
+                _ => false,
+            };
+            if !pinned {
+                return refuse("this object type or argument list");
+            }
+            return Ok(Value::Text("".into()));
+        }
+        let base = self.host.identity.server_base_url();
+        if !base.starts_with("http://") {
+            return refuse("a server address other than http");
+        }
+        let base = base.trim_end_matches('/');
+        let company = company.replace(' ', "%20");
+        let url = match (kind, company.is_empty()) {
+            ("SOAP", true) => format!("{base}/WS/Services"),
+            ("SOAP", false) => format!("{base}/WS/{company}/Services"),
+            ("Api", true) => format!("{base}/api/"),
+            ("Api", false) => return refuse("a company (the id in companies(...) is not pinned)"),
+            (_, true) => format!("{base}/ODataV4"),
+            (_, false) => format!("{base}/ODataV4/Company('{company}')"),
+        };
+        Ok(Value::Text(url.into()))
     }
 
     /// `GetUrl(ClientType::Phone | Tablet | Desktop, ...)`: the scheme `ms-dynamicsnav`, the web address after `http://`
