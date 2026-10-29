@@ -2978,12 +2978,28 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
         let lookup = st.borrow().lookup_set && st.borrow().lookup;
-        let pinned = read_only
+        let denied = |p: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
+        };
+        // An editable List with InsertAllowed, ModifyAllowed and DeleteAllowed false does the same (pages/lt-uj-outside-leads/
+        // UjTempList.al UJ_Temp_List_EmptyAll `view no update` and `view update`: `invoke;R:1;`, shown blank, First No; corpus
+        // branch al-runtime-rs-staging-uj 1dc037a8, assumption `list-action-rebuilds-rows` until the bump).
+        let all_denied_editable = !read_only
+            && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
+                .iter()
+                .all(|p| denied(p));
+        let pinned = (read_only || all_denied_editable)
             && !lookup
             && st.borrow().mode == PageMode::View
             && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
             && self.tree_indentation(st).is_none();
-        if pinned {
+        if pinned && all_denied_editable {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListActionRebuildsRows);
+            st.borrow_mut().gone_view_list = true;
+        } else if pinned {
             // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another
             // combination is the registered assumption `read-only-view-list-gone-only-row`.
             let all_denied = ["DeleteAllowed", "ModifyAllowed"].iter().all(|p| {

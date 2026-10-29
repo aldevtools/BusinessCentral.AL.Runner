@@ -61,7 +61,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0132",
-        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks; a page field Rec.X the source table lacks",
+        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks, also as a SubPageLink const(\"Enum\"::Value) (case 2276); a page field Rec.X the source table lacks",
+    ),
+    (
+        "AL0383",
+        "a SubPageLink const(Name) on an Enum field of the part's table that names no value of the enum, an enum of the workspace no extension adds to (case 2277)",
     ),
     (
         "AL0335",

@@ -803,6 +803,154 @@ codeunit 69622 T {
     all_pass(run_with_deps(&[], objects));
 }
 
+/// al-runner issue 6179: a generic field-by-field copy compares `FieldRef.Length` of every field, a Media and a MediaSet field
+/// included. Pin: record/lt-media-length-find-empty/MediaLengthFindEmpty.al:56-75 (Media 16, MediaSet 16).
+#[test]
+fn issue_6179_fieldref_length_of_media_and_mediaset() {
+    let main = "
+table 69540 \"UR Media Row\" { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } }
+  keys { key(PK; Id) { Clustered = true; } } }
+codeunit 69541 T { Subtype = Test;
+  [Test] procedure P() var RR: RecordRef; i: Integer; Total: Integer; begin
+    RR.Open(Database::\"UR Media Row\");
+    for i := 1 to RR.FieldCount() do Total += RR.FieldIndex(i).Length();
+    if RR.Field(2).Length() <> 16 then Error('Media length');
+    if RR.Field(3).Length() <> 16 then Error('MediaSet length');
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
+/// al-runner issue 6176: robust JSON parsing reads a property of the wrong type with `AsBoolean` inside a TryFunction; the
+/// conversion error is caught and the TryFunction returns false. Pin: json/JsonValueGetters.al:172 (`text_asboolean`, a text of
+/// letters raises "Unable to convert ... System.Boolean."); the reporter's text with blanks is the assumption
+/// `json-other-text-as-boolean-conversion-error`.
+#[test]
+fn issue_6176_json_text_as_boolean_in_a_try_function() {
+    let main = "
+codeunit 69542 T { Subtype = Test;
+  [TryFunction] local procedure TryBool(V: JsonValue; var B: Boolean) begin B := V.AsBoolean(); end;
+  [Test] procedure P() var O: JsonObject; T: JsonToken; B: Boolean; begin
+    O.ReadFrom('{\"successfully\":\"not a boolean\",\"other\":\"hello\",\"yes\":\"true\"}');
+    O.Get('successfully', T);
+    if TryBool(T.AsValue(), B) then Error('converted');
+    if GetLastErrorText() <> 'Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavJsonValue to System.Boolean.' then Error(GetLastErrorText());
+    O.Get('other', T);
+    if TryBool(T.AsValue(), B) then Error('converted letters');
+    O.Get('yes', T);
+    if not TryBool(T.AsValue(), B) then Error('true text');
+    if not B then Error('not true');
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
+/// al-runner issue 6178: Microsoft's retention policy code calls `Dialog.HideSubsequentDialogs(true)` before it opens a progress
+/// dialog (only under GuiAllowed); the call changes nothing a test sees. Pin: errorinfo/lt-errnotif/EnTDialogSession.al
+/// UJ_Dialog_HideSubsequent_OpenUpdateClose (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption
+/// `dialog-hide-subsequent-dialogs-no-headless-effect` until the bump).
+#[test]
+fn issue_6178_hide_subsequent_dialogs_then_open_update_close() {
+    let main = "
+codeunit 69543 T { Subtype = Test;
+  [Test] procedure P() var D: Dialog; begin
+    D.HideSubsequentDialogs(true);
+    D.Open('Applying #1######');
+    D.Update(1, 'x');
+    D.Close();
+    if not D.HideSubsequentDialogs(true) then Error('not true');
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
+/// al-runner issue 6181: a part's `SubPageLink` with `const("Enum"::Value)` compiles and filters the part on that value.
+/// Pin: pages/lt-uj-outside-leads/UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows (corpus branch al-runtime-rs-staging-uj
+/// 1dc037a8; assumption `subpagelink-const-qualified-enum-value` until the bump).
+#[test]
+fn issue_6181_subpagelink_const_with_a_qualified_enum_value() {
+    let main = "
+enum 69544 \"UR Src\" { Extensible = true; value(0; Resource) { } value(1; Header) { } }
+table 69545 \"UR Setup\" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+table 69546 \"UR Line\" { fields { field(1; \"Setup Code\"; Code[10]) { } field(2; \"UR Src\"; Enum \"UR Src\") { } field(3; N; Integer) { } }
+  keys { key(PK; \"Setup Code\", \"UR Src\", N) { Clustered = true; } } }
+page 69547 \"UR Part\" { PageType = ListPart; SourceTable = \"UR Line\";
+  layout { area(Content) { repeater(R) { field(NCtl; Rec.N) { ApplicationArea = All; } } } } }
+page 69548 \"UR Card\" { PageType = Card; SourceTable = \"UR Setup\";
+  layout { area(Content) { field(CodeCtl; Rec.Code) { ApplicationArea = All; }
+    part(Lines; \"UR Part\") { ApplicationArea = All; SubPageLink = \"Setup Code\" = field(Code), \"UR Src\" = const(\"UR Src\"::Header); } } } }
+codeunit 69549 T { Subtype = Test;
+  [Test] procedure P() var S: Record \"UR Setup\"; L: Record \"UR Line\"; Card: TestPage \"UR Card\"; begin
+    S.Code := 'S1'; S.Insert();
+    L.\"Setup Code\" := 'S1'; L.\"UR Src\" := L.\"UR Src\"::Resource; L.N := 1; L.Insert();
+    L.\"UR Src\" := L.\"UR Src\"::Header; L.N := 2; L.Insert();
+    Card.OpenView();
+    if not Card.Lines.First() then Error('no row');
+    if Card.Lines.NCtl.Value() <> '2' then Error('row %1', Card.Lines.NCtl.Value());
+    if Card.Lines.Next() then Error('second row');
+    Card.Close();
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
+/// al-runner issue 6182: a page extension declares OnPageBackgroundTaskCompleted (Microsoft's User Card Perf. Factboxes); the
+/// TestPage opens and the page's trigger runs before the extension's. Pin: pages/lt-uj-outside-leads/UjPageExtBgTask.al
+/// UJ_PageExt_BgTask_Completed (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption `pageext-background-task-triggers`).
+#[test]
+fn issue_6182_page_extension_background_task_completed() {
+    let main = "
+table 69550 \"UR Bg Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 69551 \"UR Bg Log\" { SingleInstance = true; var L: Text;
+  procedure Add(T: Text) begin L += T + ';'; end; procedure Take(): Text begin exit(L); end; }
+codeunit 69552 \"UR Bg Worker\" { trigger OnRun() var R: Dictionary of [Text, Text]; begin R.Add('who', 'w'); Page.SetBackgroundTaskResult(R); end; }
+page 69553 \"UR Bg Card\" { PageType = Card; SourceTable = \"UR Bg Row\";
+  layout { area(Content) { field(IdCtl; Rec.Id) { ApplicationArea = All; } } }
+  trigger OnPageBackgroundTaskCompleted(TaskId: Integer; Results: Dictionary of [Text, Text]) var Log: Codeunit \"UR Bg Log\"; begin Log.Add('base'); end; }
+pageextension 69554 \"UR Bg Ext\" extends \"UR Bg Card\" {
+  trigger OnAfterGetCurrRecord() var Args: Dictionary of [Text, Text]; TaskId: Integer; begin
+    CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::\"UR Bg Worker\", Args, 1000); end;
+  trigger OnPageBackgroundTaskCompleted(TaskId: Integer; Results: Dictionary of [Text, Text]) var Log: Codeunit \"UR Bg Log\"; begin Log.Add('ext'); end; }
+codeunit 69555 T { Subtype = Test;
+  [Test] procedure P() var Row: Record \"UR Bg Row\"; Log: Codeunit \"UR Bg Log\"; Card: TestPage \"UR Bg Card\"; begin
+    Row.Id := 1; Row.Insert();
+    Card.OpenView();
+    Card.Close();
+    if Log.Take() <> 'base;ext;' then Error(Log.Take());
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
+/// al-runner issue 6180: a history list over a temporary table without the new-row line, run modally; its action rebuilds the rows,
+/// then the handler filters, goes to the first row and reads it. Pin: pages/lt-uj-outside-leads/UjTempList.al
+/// UJ_Temp_List_Modal_FilterAfterRebuild (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption `list-action-rebuilds-rows`).
+#[test]
+fn issue_6180_history_list_action_rebuilds_temporary_rows() {
+    let main = "
+table 69556 \"UR Hist\" { fields { field(1; \"Entry No.\"; Integer) { } field(2; \"Field No.\"; Integer) { } field(3; \"Old Value\"; Text[30]) { } }
+  keys { key(PK; \"Entry No.\") { Clustered = true; } } }
+page 69557 \"UR Hist List\" { PageType = List; SourceTable = \"UR Hist\"; SourceTableTemporary = true;
+  InsertAllowed = false; ModifyAllowed = false; DeleteAllowed = false;
+  layout { area(Content) { repeater(Rows) { field(FieldNoCtl; Rec.\"Field No.\") { ApplicationArea = All; }
+    field(OldValueCtl; Rec.\"Old Value\") { ApplicationArea = All; } } } }
+  actions { area(Processing) { action(ThisMonth) { ApplicationArea = All; trigger OnAction() begin
+    Rec.Reset(); Rec.DeleteAll(); Add(21, 7, 'a'); Add(22, 8, 'b'); Add(23, 7, 'c'); Rec.FindFirst(); CurrPage.Update(false); end; } } }
+  trigger OnOpenPage() begin Add(1, 7, 'old'); Rec.FindFirst(); end;
+  trigger OnAfterGetRecord() begin end;
+  trigger OnAfterGetCurrRecord() begin end;
+  local procedure Add(No: Integer; F: Integer; V: Text[30]) begin
+    Rec.Init(); Rec.\"Entry No.\" := No; Rec.\"Field No.\" := F; Rec.\"Old Value\" := V; Rec.Insert(); end; }
+codeunit 69558 T { Subtype = Test; var Seen: Text;
+  [ModalPageHandler] procedure Handler(var H: TestPage \"UR Hist List\") begin
+    H.ThisMonth.Invoke();
+    H.Filter.SetFilter(\"Field No.\", '8');
+    H.First();
+    Seen := H.OldValueCtl.Value();
+    H.OK().Invoke();
+  end;
+  [Test] [HandlerFunctions('Handler')] procedure P() var H: Page \"UR Hist List\"; begin
+    H.RunModal();
+    if Seen <> 'b' then Error('seen %1', Seen);
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
+
 /// Issue 6173: reading a query `filter()` element (not a column) before a row is read raises the error a column
 /// read without a row raises, before Open and after Open without a Read. After a Read BC returns the value of
 /// another column or crashes, so that form stays refused. Pins: corpus branch al-runtime-rs-staging-uh (commit

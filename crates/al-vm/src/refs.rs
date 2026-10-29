@@ -1714,6 +1714,10 @@ impl Session {
                 RtType::Guid => Ok(Value::Integer(16)),
                 RtType::BigInteger | RtType::Duration | RtType::DateTime => Ok(Value::Integer(8)),
                 RtType::Library(al_builtins::library_kind::LibraryKind::Blob) => Ok(Value::Integer(8)),
+                // record/lt-media-length-find-empty/MediaLengthFindEmpty.al:56-75: Media 16, MediaSet 16.
+                RtType::Library(
+                    al_builtins::library_kind::LibraryKind::Media | al_builtins::library_kind::LibraryKind::MediaSet,
+                ) => Ok(Value::Integer(16)),
                 // The Security Filter columns of Permission and Metadata Permission (permissions/W6PermissionColumns.al:82,119).
                 RtType::Library(k) if k.as_str() == "TableFilter" => Ok(Value::Integer(504)),
                 other => unsupported(format!("FieldRef.Length of a {} field", other.describe())),
