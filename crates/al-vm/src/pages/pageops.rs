@@ -830,6 +830,7 @@ impl Session {
                     if st.borrow().typed_handler && self.has_source(st) {
                         let rec = self.page_rec(st);
                         rec.borrow_mut().fields = r.borrow().fields.clone();
+                        st.borrow_mut().handler_set_record = true;
                         return Ok(Value::Null);
                     }
                     let kept = st.borrow().set_record.clone().filter(|_| st.borrow().set_view);
@@ -1063,8 +1064,10 @@ impl Session {
                 if st.borrow().cursor != Cursor::Row {
                     // A page that ran over a table with no row at all hands back the blank record, whatever the record held
                     // (errors/lt-ms-refusals-129/P129PageMisc.al:P129_GetRecord_AfterRunModalCancelledOnEmptyTable,
-                    // _AfterRunModalOkOnEmptyTable, _PageTypedHandlerOnEmptyTable: `id=0|grp=|qty=0`). A page on no row of a
-                    // table that has rows is not pinned.
+                    // _AfterRunModalOkOnEmptyTable, _PageTypedHandlerOnEmptyTable: `id=0|grp=|qty=0`). So does a list with no
+                    // Editable property that closed on no row of a table that has rows, after OK, LookupOK, LookupCancel and
+                    // SetRecord of a row (P129PageMisc.al:675-818 on corpus master, TV_GetRecord_*_FilteredToNoRow). Other pages
+                    // on no row of a table that has rows, and a page on its new-row line, are not pinned.
                     // A page that never ran hands back the record SetRecord gave it (pages/lt-part-never-ran/NeverRanSetRecord.al:
                     // P182b_HostNeverRan_PartSetRecord, `id=7 name=seven`).
                     // Only a part is pinned: a Page variable's SetRecord before a typed handler ran it is not (PageVariable_LookupMode_HandlerSetRecord_Cancel).
@@ -1087,7 +1090,16 @@ impl Session {
                                 .zip(&initial)
                                 .all(|(a, b)| al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal))
                     };
-                    if !src_blank {
+                    // After a Page-typed handler called SetRecord, GetRecord hands back that record, for LookupOK and Cancel
+                    // (pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:214-266 PageVariable_LookupMode_HandlerSetRecord_*;
+                    // a SetTableView view does not bound the page's Rec, :116 SettableView_ThenAssignRecOutsideView).
+                    if st.borrow().handler_set_record {
+                        let fields = src.borrow().fields.clone();
+                        dst.borrow_mut().fields = fields;
+                        return Ok(Value::Null);
+                    }
+                    let pinned_no_row = st.borrow().cursor == Cursor::None && self.plain_list_with_rows(st);
+                    if !src_blank && !pinned_no_row {
                         return unsupported(
                             "Page.GetRecord of a page that closed on no row of a table that has rows (not pinned)",
                         );
