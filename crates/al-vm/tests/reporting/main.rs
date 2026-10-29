@@ -43,6 +43,7 @@ mod xmlport_nested_text_in_table;
 mod xmlport_request_page_rec;
 mod xmlport_root_table;
 mod xmlport_source_table_view;
+mod xmlport_text_content_optional;
 mod xmlport_text_encoding;
 mod xmlport_text_in_table;
 mod xmlport_unlinked_temp_in_text;
