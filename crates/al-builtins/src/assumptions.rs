@@ -229,9 +229,9 @@ registry! {
     },
     EnumTypeBeforeRecField => {
         id: "enum-type-before-rec-field",
-        assumed: "In an object whose implicit Rec fields can be named bare (a codeunit with TableNo, a table, a page), `X::Value` where the Rec has a field `X` and an enum type `X` exists that is not the field's type names the enum type `X`, as long as that enum has the value; a local or global variable `X` still comes first. Only when the enum type lacks the value is `X` the field.",
-        tests: "No Microsoft test: al-runner issue 6129, the reporter's run on real BC (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value, and compiles).",
-        probe: "A TableNo codeunit whose table has a field X of enum A, next to an enum type X: `X::V` for a V only X has, only A has, and both have (with different ordinals), read with AsInteger; the same with a local and a global variable X. Corpus writer: not yet assigned.",
+        assumed: "In a procedure (not the OnRun trigger) of a codeunit with TableNo, `X::Value` where the Rec has a field `X` and an enum type `X` exists names the enum type `X`, whatever values either enum has; a `with` record, a local or a global variable `X` still comes first. In the OnRun trigger, in a table and in a page, `X` stays the field.",
+        tests: "No Microsoft test: al-runner issue 6129 (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value). Pinned on the corpus branch al-runtime-rs-staging-ub (EnumTypeBeforeRecField.al and must-not-compile 2262 to 2267, bump PR 793), not yet in the pinned corpus.",
+        probe: "Written: corpus branch al-runtime-rs-staging-ub, tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (7 tests) and must-not-compile 2262 to 2267; lands with the bump of corpus PR 793.",
         awaiting: Awaiting {
             issues: &[6129],
             files: &["tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al"],

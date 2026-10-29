@@ -1138,7 +1138,7 @@ impl<'a> Checker<'a> {
             ScopeExpr => {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
                 let base = if kids[0].kind() == NameRef {
-                    if let Some(e) = self.enum_type_before_rec_field(sc, &kids[0], &rhs) {
+                    if let Some(e) = self.enum_type_before_rec_field(sc, &kids[0]) {
                         e
                     } else {
                         match self.lookup_name(sc, &kids[0]) {
@@ -1236,14 +1236,20 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `X::Value` where `X` is a field of the implicit Rec, named bare, and also an enum type that is not the field's
-    /// type: the enum type, when it has the value (al-runner issue 6129: NP Retail's `"Sales Document Type"::"Credit
-    /// Memo"` next to a Rec field "Sales Document Type" of an enum without that value compiles on real BC, so alc
-    /// reads `X` as the type). No corpus test pins the precedence yet: the name records
-    /// [`Res::EnumTypeBeforeRecField`] and lowering marks the assumption. A `with` record, a local and a global
-    /// variable named `X` still come first (unchanged); an enum type without the value leaves `X` the field.
-    fn enum_type_before_rec_field(&mut self, sc: &mut Scope, name: &SyntaxNode, rhs: &str) -> Option<E> {
-        if !sc.rec_unqualified || !sc.withs.is_empty() {
+    /// `X::Value` in a procedure of a codeunit with `TableNo`, where the implicit Rec has a field `X` and an enum type
+    /// `X` exists: `X` is the enum type, whatever values either enum has (al-runner issue 6129; corpus
+    /// types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149, must-not-compile 2262, on the corpus
+    /// branch al-runtime-rs-staging-ub, bump PR 793). Everywhere else `X` stays the field or variable, as before: the
+    /// codeunit's OnRun trigger (:152-158, mnc 2267), a table procedure or trigger (:161-177, mnc 2263), a page on the
+    /// table (:180-187, mnc 2264), and a global or local variable `X` (:190-205, mnc 2265 and 2266). A `with` record
+    /// is not pinned and keeps the record. Until the pin is in the corpus the name records
+    /// [`Res::EnumTypeBeforeRecField`] and lowering marks the assumption.
+    fn enum_type_before_rec_field(&mut self, sc: &mut Scope, name: &SyntaxNode) -> Option<E> {
+        if !sc.rec_unqualified
+            || !sc.withs.is_empty()
+            || sc.codeunit_on_run
+            || self.ws.objects[sc.self_obj].kind != ObjKind::Codeunit
+        {
             return None;
         }
         let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
@@ -1253,13 +1259,6 @@ impl<'a> Checker<'a> {
             return None;
         }
         let ei = self.resolve_quiet(sc.file, ObjKind::Enum, &n)?;
-        if !self.members[ei]
-            .enum_values
-            .iter()
-            .any(|(_, v)| v.eq_ignore_ascii_case(rhs))
-        {
-            return None;
-        }
         let Some(E::Val(field_ty)) = self.member(sc, &rec, &n) else {
             return None;
         };
