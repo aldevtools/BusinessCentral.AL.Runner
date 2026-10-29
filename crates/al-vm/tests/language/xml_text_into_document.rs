@@ -1,6 +1,6 @@
 //! Texts added to an XmlDocument. Pinned: a non-blank text raises the Argument error (xml/TestProbeXmlContracts.al:268,
 //! xml/XmlDocReadWrite.al:556, misc/lt-probes-needed-1/PnAXmlNodeAdds.al:38). An empty or blank text is not pinned
-//! (.NET takes white space at document level) runs under the assumption `xml-doc-blank-text`; a second one is refused.
+//! (.NET takes white space at document level) runs under the former assumption `xml-doc-blank-text` (pinned on corpus master since bump 1030); a second one is refused.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -23,7 +23,7 @@ fn a_non_blank_text_into_a_document_raises_the_argument_error() {
 #[test]
 fn an_empty_or_blank_text_into_a_document_runs_and_a_second_is_refused() {
     // misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch
-    // al-runtime-rs-staging-tt (assumption `xml-doc-blank-text`): an empty Text adds no node; a blank Text or XmlText is kept
+    // al-runtime-rs-staging-tt (former assumption `xml-doc-blank-text` (pinned on corpus master since bump 1030)): an empty Text adds no node; a blank Text or XmlText is kept
     // before or after the root and written as it is.
     // Expected texts: PnAXmlNodeAdds.al:284-291 on that branch.
     for (body, want) in [

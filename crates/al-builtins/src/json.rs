@@ -812,7 +812,7 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Text(t) | Value::Code(t))
             if matches!(&**t, "True" | "TRUE" | " true" | "true " | "false" | "False" | "FALSE") =>
         {
-            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            // Pinned by json/JsonValueGetters.al UN_BooleanTextGetters, UN_BooleanTextGetters_5 (was assumption `json-boolean-text-spellings`).
             Ok(Value::Boolean(t.trim().eq_ignore_ascii_case("true")))
         }
         // Other spellings of true and false (mixed case, blanks around false, other blanks) are not pinned.
@@ -833,11 +833,11 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         // A JSON number 0 reads No and 1 reads Yes (json/JsonValueGetters.al UN_BooleanTextGetters_5, same branch and
         // assumption). Other numbers are not pinned.
         Scalar::Val(Value::Integer(n @ (0 | 1))) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            // Pinned by json/JsonValueGetters.al UN_BooleanTextGetters, UN_BooleanTextGetters_5 (was assumption `json-boolean-text-spellings`).
             Ok(Value::Boolean(*n == 1))
         }
         Scalar::Val(Value::BigInteger(n @ (0 | 1))) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            // Pinned by json/JsonValueGetters.al UN_BooleanTextGetters, UN_BooleanTextGetters_5 (was assumption `json-boolean-text-spellings`).
             Ok(Value::Boolean(*n == 1))
         }
         other => unsupported(format!(
@@ -1733,7 +1733,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
 /// read; an object, a number, a string and null fail InvalidJsonType, `[1,`, the empty text and `not json` InvalidJsonData;
 /// :178-194 the array is usable afterwards; al-runner issue 6175).
 pub fn evaluate_array(c: &mut dyn Ctx, slot: &mut Value, text: &str) -> Result<Value, Signal> {
-    crate::assumptions::assume(crate::assumptions::Assumption::EvaluateJsonArray);
+    // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al JsonArray_Texts, JsonArray_UsedAfterEvaluate (was assumption `evaluate-json-array`).
     match read_text_into(false, Some(slot), text, Some("array")) {
         Err(Signal::Error(e)) if c.ret_used() => {
             c.set_last_error(*e);

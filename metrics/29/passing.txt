@@ -6128,6 +6128,9 @@
 69381 GetUrl_Web_CompanyCharacters
 69381 GetUrl_Web_FilterCharacters
 69381 GetUrl_Web_ReportQueryCodeunitWithRecord
+69381 TV_GetUrl_ClientOData
+69381 TV_GetUrl_ClientODataV4
+69381 TV_GetUrl_ClientSOAP
 69415 ExtensionOfTheBasePageRunsAndTheLocalPagesDoNot
 69415 ExtensionsOfTheLocalPageRunAndTheBasePagesDoesNot
 69415 ImportedAndQualifiedExtendsBothRunForAUniquelyNamedPage
@@ -11837,6 +11840,7 @@
 73276 P129_OpenNew_ListWithoutOnFindRecord_Reference
 73276 P129_PageVariable_SetSelectionFilter_IntoRecordWithFilters
 73276 TV_GetRecord_AfterLookupCancel_FilteredToNoRow
+73276 TV_GetRecord_AfterLookupOk_FilteredToNoRow
 73276 TV_GetRecord_AfterRunModalOk_FilteredToNoRow
 73276 TV_GetRecord_PageTypedHandler_FilteredToNoRow
 73283 P129_Callstack_PageNewRecordAndNestedAction
@@ -16342,6 +16346,7 @@
 87280 TT_Confirm_Export_NoReply
 87280 TT_Confirm_Export_NpFilters
 87280 TT_Confirm_Export_TwoReplies
+87280 TT_ImportTwice_Direct
 87280 TT_ImportTwice_NewSourceOtherRows
 87280 TT_ImportTwice_NewSourceSameRows
 87280 TT_ImportTwice_SameSource
@@ -17014,6 +17019,8 @@
 90255 TableNoCodeunit_ResolvesToEnumType
 90255 TableProcedure_ResolvesToField
 90255 TableTrigger_ResolvesToField
+90271 PageAndQuery_FilterGreaterB
+90271 SetView_FilterGreaterB
 90271 Value01_GreaterInMiddle
 90271 Value02_GreaterLeading
 90271 Value03_GreaterTrailing
@@ -17082,6 +17089,7 @@
 90492 UP_This_FieldAssignAndRead
 90492 UP_This_InCodeunit
 90492 UP_This_MethodOnTextField
+90492 UP_This_ValidateTestFieldCompound
 90492 UP_This_ValueStoredAfterModify
 90497 UP_Ternary_InterfaceTrueCodeunitFalse
 90497 UP_Ternary_Text250TrueUnboundedTextFalse

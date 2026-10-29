@@ -399,9 +399,8 @@ impl<'a> Lowerer<'a> {
             // A Guid true branch makes the Label a Guid (a text that is no GUID fails InvalidGuidFormat when that branch is taken);
             // a Label true branch makes the Guid a Text in braces (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-55, :61-75,
             // :78-104, :153-180; al-runner issue 6160).
-            (Ty::Guid, Ty::Label) | (Ty::Label, Ty::Guid) => {
-                self.assume(al_builtins::assumptions::Assumption::TernaryGuidBranch)
-            }
+            // Pinned by types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al (was assumption `ternary-guid-branch`).
+            (Ty::Guid, Ty::Label) | (Ty::Label, Ty::Guid) => {}
             (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {}
             (Ty::Code(Some(_)) | Ty::Text(Some(_)), Ty::Label) | (Ty::Label, Ty::Code(Some(_)) | Ty::Text(Some(_))) => {
                 let sized = if matches!(t, Ty::Label) { f } else { t };
@@ -448,7 +447,7 @@ impl<'a> Lowerer<'a> {
             // Another length N is not pinned: refused.
             (Ty::Text(Some(10)), Ty::Text(None)) => true,
             (Ty::Text(Some(250)), Ty::Text(None)) => {
-                self.assume(al_builtins::assumptions::Assumption::TernaryUnboundedTextFalseBranch);
+                // Pinned by types/lt-up-ternary/UpTernary.al (was assumption `ternary-unbounded-text-false-branch`).
                 true
             }
             // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:
@@ -457,14 +456,12 @@ impl<'a> Lowerer<'a> {
             // must-not-compile 2291 of the same commit) and stays refused here. Runs on the assumption
             // `ternary-interface-codeunit-branch` until PR 808 is in the pinned corpus.
             (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Codeunit, _)) => {
-                self.assume(al_builtins::assumptions::Assumption::TernaryInterfaceCodeunitBranch);
+                // Pinned by types/lt-up-ternary/UpTernary.al (was assumption `ternary-interface-codeunit-branch`).
                 true
             }
             _ => false,
         };
-        if matches!((t, f), (Ty::Guid, _) | (_, Ty::Guid)) {
-            self.assume(al_builtins::assumptions::Assumption::TernaryGuidBranch);
-        }
+        // Pinned by types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al (was assumption `ternary-guid-branch`).
         if !pinned {
             // A longer Text or Code false branch anywhere else is not pinned. Microsoft's DemoTool needs it to run (Base App
             // AccScheduleLine.Table.al:113 `Description := Description = '' ? GLAccCategory.Description : Description`, a

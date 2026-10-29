@@ -921,9 +921,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     if (matches!(l, V::Option(..)) || matches!(r, V::Option(..)))
         || ((matches!(l, V::Enum(..)) || matches!(r, V::Enum(..))) && number_or_enum(l) && number_or_enum(r))
     {
-        if matches!(l, V::Enum(..)) || matches!(r, V::Enum(..)) {
-            crate::assumptions::assume(crate::assumptions::Assumption::EnumOperandArithmetic);
-        }
+        // Pinned by types/lt-uf-enum-arithmetic/UfEnumArithmetic.al; tests/must-not-compile/cases/2268-enum-unary-minus-ambiguous.al (was assumption `enum-operand-arithmetic`).
         let ord = |v: &Value| match v {
             V::Option(n, _) | V::Enum(_, n) => V::Integer(*n),
             other => other.clone(),

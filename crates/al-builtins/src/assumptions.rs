@@ -111,93 +111,20 @@ registry! {
         id: "license-permission-any-object",
         assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
         tests: "No Microsoft test: two outside ISV suites check their own objects this way from a per-company install routine; they pass on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges pins Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001. Still wanted after it lands: whether every number of the range is a row (the table lists the license), and a negative number.",
-        awaiting: Awaiting {
-            issues: &[6214],
-            files: &["tests/al-language/platform/lt-ag-contoso/AgLicensePermission.al::LicensePermission_ByKey_CustomerAndIsvRanges"],
-            since: "2026-10-29",
-        },
+        probe: "Pinned on corpus master by platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges (corpus PR 809: Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001), but the runtime does not run it yet (an earlier test of its codeunit reads License Permission with a filter that names more than one object): run it, then retire. Still wanted: whether every number of the range is a row (the table lists the license), and a negative number.",
     },
-    TimeZoneWindowsIdIsARow => {
-        id: "time-zone-windows-id-is-a-row",
-        assumed: "A read of the Time Zone table filtered to one Windows time zone id (a Windows id of CLDR's windowsZones list) that is not among the runtime's host rows finds one row with that ID; its No. and Display Name are not known and refused when read.",
-        tests: "No Microsoft test: an outside ISV suite maps each ISO 3166-1 country code to a Windows time zone id and checks the id is in the table; it passes on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo present once; an unknown id absent). Still wanted: the full list of 144 rows with No. and Display Name, and whether the ID filter is case-sensitive on Windows.",
-        awaiting: Awaiting {
-            issues: &[6218],
-            files: &["tests/al-language/record/lt-at-partner-gaps/AtTimeZoneNumbering.al::UQ_TimeZone_LookupById"],
-            since: "2026-10-29",
-        },
-    },
-    ListActionRebuildsRows => {
-        id: "list-action-rebuilds-rows",
-        assumed: "A List without the new-row line (InsertAllowed, ModifyAllowed and DeleteAllowed false) whose action deletes its rows and inserts others shows the rows the action left: opened for view an emptied list shows nothing, and the TestPage then stands where the action left Rec, with First, Next and Last moving over the new rows.",
-        tests: "No Microsoft test: an outside ISV app's history list over a temporary table whose actions load another period; it passes on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjTempList.al (an action that empties the list, adds three rows, one row with another key or the same key; OpenEdit, OpenView and modal with a filter).",
-        awaiting: Awaiting {
-            issues: &[6180],
-            files: &["tests/al-language/pages/lt-uj-outside-leads/UjTempList.al"],
-            since: "2026-10-29",
-        },
-    },
-    PageExtBackgroundTaskTriggers => {
-        id: "pageext-background-task-triggers",
-        assumed: "A page extension's OnPageBackgroundTaskCompleted and OnPageBackgroundTaskError run after the page's own, for every task the page or an extension enqueued; the error trigger gets the IsHandled the one before it left.",
-        tests: "Microsoft's page extension User Card Perf. Factboxes (every TestPage of User Card); an outside ISV app's user rename test that passes on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjPageExtBgTask.al (completed and error triggers of a page and its extension, handled and unhandled).",
-        awaiting: Awaiting {
-            issues: &[6182],
-            files: &["tests/al-language/pages/lt-uj-outside-leads/UjPageExtBgTask.al"],
-            since: "2026-10-29",
-        },
-    },
-    SubPageLinkConstQualifiedEnumValue => {
-        id: "subpagelink-const-qualified-enum-value",
-        assumed: "A SubPageLink `const(\"Enum\"::Member)` filters the part's field on that member, as `const(Member)` does, also when the field has the enum's name.",
-        tests: "No Microsoft test: an outside ISV app's card page with a part linked this way; it compiles and filters on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows and UJ_SubPageLink_ConstEnum_NewRow; must-not-compile 2276.",
-        awaiting: Awaiting {
-            issues: &[6181],
-            files: &["tests/al-language/pages/lt-uj-outside-leads/UjSubPageLink.al"],
-            since: "2026-10-29",
-        },
-    },
-    DialogHideSubsequentDialogsNoHeadlessEffect => {
-        id: "dialog-hide-subsequent-dialogs-no-headless-effect",
-        assumed: "Dialog.HideSubsequentDialogs changes nothing AL sees in a test session: Open, Update and Close and their errors behave the same after it, and it returns true after the argument true.",
-        tests: "System Application Apply Retention Policy Impl. (called by every test that applies a retention policy); an outside ISV app's retention policy test that passes on the reporter's real-BC run.",
-        probe: "Written: corpus branch al-runtime-rs-staging-uj (bump PR 800), EnTDialogSession.al UJ_Dialog_HideSubsequent_OpenUpdateClose and UJ_Dialog_HideSubsequent_OpenedBefore.",
-        awaiting: Awaiting {
-            issues: &[6178],
-            files: &[
-                "tests/al-language/errorinfo/lt-errnotif/EnTDialogSession.al::UJ_Dialog_HideSubsequent_OpenUpdateClose",
-                "tests/al-language/errorinfo/lt-errnotif/EnTDialogSession.al::UJ_Dialog_HideSubsequent_OpenedBefore",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
+
+
+
+
     JsonOtherTextAsBooleanConversionError => {
         id: "json-other-text-as-boolean-conversion-error",
         assumed: "JsonValue.AsBoolean (and the other Boolean getters) of a JSON string that is not a spelling of true or false and is not made of letters only (blanks, digits or punctuation, as 'not a boolean') raises the same conversion error as a text of letters (json/JsonValueGetters.al:172 `text_asboolean` 'hello').",
         tests: "No Microsoft test: an outside ISV app test that feeds a JSON property of the wrong type to a TryFunction around AsBoolean; it passes on the reporter's real-BC run.",
         probe: "JsonValue.AsBoolean of the strings 'not a boolean', '1', '', ' true', 'True', 'false': the result or the error text and code.",
     },
-    CrossAppSubscriberOrderByAppId => {
-        id: "cross-app-subscriber-order-by-app-id",
-        assumed: "Subscribers of one event in apps that do not depend on each other run app by app in this order: every app visited in ascending app id, each app's dependencies placed before it (depth first, post-order) and visited in ascending app id, not in declared order and not by publisher; inside an app in ascending codeunit id. Used only where walking from the apps no other app depends on (in ascending app id, or sorted by publisher first) gives the same order; otherwise the raise is refused.",
-        tests: "No Microsoft test: al-runner issues 6155 and 6165 and NP Retail run with its test app (both apps under test), where Tests-TestLibraries and the app under test subscribe to the same event. Pinned on the corpus branches al-runtime-rs-staging-ua (bump PR 794) and al-runtime-rs-staging-ui (bump PR 801), not yet in the pinned corpus.",
-        probe: "Written: BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp (writer UA), SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder and SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (writer UI). Still wanted: two apps nothing depends on, of different publishers whose publisher order differs from their app id order; and an app with a low app id that only a high-id app depends on, against an app nothing depends on whose app id lies between the two.",
-        awaiting: Awaiting {
-            issues: &[6155, 6165],
-            files: &[
-                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps",
-                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp",
-                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder",
-                "tests/al-language/events/lt-bw-subscriber-order/BwSubscriberOrderTests.al::SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
     ReadUncommittedReadOpensNoWriteTransaction => {
         id: "readuncommitted-read-opens-no-write-transaction",
         assumed: "A read under ReadIsolation ReadUncommitted does not open a write transaction (IsInWriteTransaction No, a guarded Codeunit.Run allowed), as a ReadCommitted read does not (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `readcommitted_read` No).",
@@ -225,53 +152,25 @@ registry! {
     InstallTriggerSetupPerCompanyOnly => {
         id: "install-trigger-setup-per-company-only",
         assumed: "While install code runs, the platform asks the Global Triggers subscribers for a table's database trigger setup once in each company of the per-company part (with that company open, so a subscriber can read a per-company table), and never in the per-database part, where no company is open: a write there raises no database event.",
-        tests: "No Microsoft test: al-runner issue 6148 (a 45-app AppSource suite whose OnInstallAppPerDatabase writes a table while a GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup subscriber reads a per-company table without a CompanyName() guard; it installs on the reporter's real-BC run). Microsoft's install roots Plan Installer, Upgrade Tag Install and No. Series Copilot Install run through the same path.",
-        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), UgInstallTests.al TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart.",
-        awaiting: Awaiting {
-            issues: &[6148],
-            files: &["tests/al-language/install/lt-ug-install-trigger-setup/UgInstallTests.al"],
-            since: "2026-10-29",
-        },
+        tests: "No Microsoft test: an outside report (a 45-app AppSource suite whose OnInstallAppPerDatabase writes a table while a GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup subscriber reads a per-company table without a CompanyName() guard; it installs on the reporter's real-BC run). Microsoft's install roots Plan Installer, Upgrade Tag Install and No. Series Copilot Install run through the same path.",
+        probe: "Pinned on corpus master by install/lt-ug-install-trigger-setup/UgInstallTests.al (corpus PR 805), but the runtime does not run TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart and PerDatabasePart_IsEmptyOfPerCompanyTable_NoCompany yet (the per-database install routine reads GetLastErrorCode of an error whose text is not pinned): run them, then retire.",
     },
-    AllObjTableDataRowOfDependencyTable => {
-        id: "allobj-tabledata-row-of-dependency-table",
-        assumed: "AllObj has a TableData row for each table of a dependency app, with the Table row's name, namespace, package id and runtime package id; a table that does not exist has none. The rows of the app under test's tables and of platform tables stay refused.",
-        tests: "No Microsoft test: al-runner issue 6148 (install code that asks AllObj for the TableData row of Contact before it seeds setup rows; it installs on the reporter's real-BC run).",
-        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm.",
-        awaiting: Awaiting {
-            issues: &[6148],
-            files: &[
-                "tests/al-language/metadata/lt-all-obj-namespace/AllObjNamespace.al::UG_AllObj_TableDataRow_OfContact_AllColumns",
-                "tests/al-language/metadata/lt-all-obj-namespace/AllObjNamespace.al::UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
     PublishedApplicationLogoBlankWithoutManifestLogo => {
         id: "published-application-logo-blank-without-manifest-logo",
         assumed: "The Logo (column 20) of the Published Application row of an app whose app.json declares no logo is blank (no value, null MediaId, no Media row). The Logo of any other app (Microsoft's apps, an app that declares a logo, an app whose manifest was not read) stays refused: its content is not pinned.",
-        tests: "No Microsoft test: al-runner issue 6148 (Company-Initialize reaches Guided Experience Impl.GetIconInStream for the apps that register assisted setup entries; it runs on the reporter's real-BC run).",
-        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), onprem PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps. Still wanted: an app with a logo in app.json, and whether the Media content is the logo file's bytes.",
-        awaiting: Awaiting {
-            issues: &[6148],
-            files: &["tests/al-language-onprem/session/PZPublishedApplicationColumns.al::Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps"],
-            since: "2026-10-29",
-        },
+        tests: "No Microsoft test: an outside report (Company-Initialize reaches Guided Experience Impl.GetIconInStream for the apps that register assisted setup entries; it runs on the reporter's real-BC run).",
+        probe: "Pinned on corpus master by onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps (corpus PR 805), but the runtime does not run it yet (the Logo of Microsoft's apps is not pinned): run it, then retire. Still wanted: an app with a logo in app.json, and whether the Media content is the logo file's bytes.",
     },
     ReportLayoutListBuiltInNotUserDefined => {
         id: "report-layout-list-built-in-not-user-defined",
         assumed: "\"User Defined\" (column 14) of a Report Layout List row of an RDLC or Word layout declared in AL is No; a report without layouts has no rows. Excel and Custom layouts stay refused.",
-        tests: "No Microsoft test: al-runner issue 6191 (ForNAV Rep Lay Sel Core.GetBuiltInLayout, reached from an app's install code; it runs on the reporter's real-BC run).",
-        probe: "Written: corpus branch al-runtime-rs-staging-ug eff7eb2a (bump PR 805), UgReportLayoutList.al. Still wanted: an Excel and a Custom layout.",
-        awaiting: Awaiting {
-            issues: &[6191],
-            files: &["tests/al-language/platform/lt-ug-report-layout-list/UgReportLayoutList.al"],
-            since: "2026-10-29",
-        },
+        tests: "No Microsoft test: an outside report (ForNAV Rep Lay Sel Core.GetBuiltInLayout, reached from an app's install code; it runs on the reporter's real-BC run).",
+        probe: "Pinned on corpus master by platform/lt-ug-report-layout-list/UgReportLayoutList.al (corpus PR 805), but the runtime does not run ReportLayoutList_AllColumns_RdlcLayout and _WordLayout yet (CaptionML of Report Layout List is not pinned): run them, then retire. Still wanted: an Excel and a Custom layout.",
     },
     GetUrlWebBaseAddress => {
         id: "geturl-web-base-address",
-        assumed: "The host part (host name and port) and the instance of every GetUrl(ClientType::Web), Default, SOAP, OData, ODataV4 and Api answer come from the host's server base address as set (--server-url, default http://localhost:8080/BC; the corpus tool uses http://bcserver:8080/BC); GetUrl(ClientType::Web) alone returns the address unchanged (ADR-042). The scheme http, the port, the path /BC without a trailing slash, the Default forms dynamicsnav://<host>/BC/<company>/[runpage?page=N[&bookmark=...]|runreport?report=N] and the query after the address, and the paths /WS/[<company>/]Services, /ODataV4[/Company('<company>')] and /api/ after the masked host and instance, are pinned by the corpus (session/lt-geturl-shape/GetUrlShape.al:270, platform/lt-t-geturl/TGetUrl.al:203-210 and 481-559, platform/lt-system-database-members/GetUrl*.al) and are not part of the assumption.",
+        assumed: "The host part (host name and port) and the instance of every GetUrl(ClientType::Web), Default, SOAP, OData, ODataV4 and Api answer come from the host's server base address as set (--server-url, default http://localhost:8080/BC; the corpus tool uses http://bcserver:8080/BC); GetUrl(ClientType::Web) alone returns the address unchanged (ADR-042); SOAP uses it with port 7047, OData, ODataV4 and Api with port 7048 (BC's default service ports; the pins show only that the service host part differs from the web one, TGetUrl.al:95-102 and 487-538). The scheme http, the port, the path /BC without a trailing slash, the Default forms dynamicsnav://<host>/BC/<company>/[runpage?page=N[&bookmark=...]|runreport?report=N] and the query after the address, and the paths /WS/[<company>/]Services, /ODataV4[/Company('<company>')] and /api/ after the masked host and instance, are pinned by the corpus (session/lt-geturl-shape/GetUrlShape.al:270, platform/lt-t-geturl/TGetUrl.al:203-210 and 481-559, platform/lt-system-database-members/GetUrl*.al) and are not part of the assumption.",
         tests: "Company-Initialize (Doc. Exch. Service Setup.SetURLsToDefault -> OAuth2Impl.GetDefaultRedirectUrl), so the install baseline of a company built from the RapidStart package; every Microsoft test that reads Application Area Setup or Workflow after it.",
         probe: "GetUrl(ClientType::Web) inside a per-database install trigger (no company); the host name is environmental and is masked by the corpus (GetUrlShape.al:283).",
     },
@@ -281,67 +180,17 @@ registry! {
         tests: "Item Tracking Lines (InsertRecord inserts into the page's temporary source, ValidateAndInsert answers false); Tests-Manufacturing PostProductionJournalUsingLotItemTracking and the item tracking tests that set a lot and a quantity.",
         probe: "A page with OnInsertRecord { Rec.Insert(); exit(false) } and OnModifyRecord { Rec.Modify(); exit(false) }: OpenNew, set the key, set a second field, OK; read the row and count the trigger calls. Asked in corpus #641.",
     },
-    PageExtRecordTriggerAnswers => {
-        id: "pageext-record-trigger-answers",
-        assumed: "OnInsertRecord and OnModifyRecord of a page and of its page extensions all run, the page's first and then the extensions' in the order they apply, and one false answer of an extension vetoes the insert or the modify; after a vetoed insert on a list the page goes on as if the row were stored, so the save of the next edit fails with DB:RecordNotFound.",
-        tests: "No Microsoft test: al-runner issue 6149 (a partner suite whose page extensions declare these triggers; the reporter's real-BC run). Observed on real BC by corpus writer UE.",
-        probe: "Corpus pageext/lt-ue-pageext-leads/UeTriggerTests.al (corpus PR 796).",
-        awaiting: Awaiting {
-            issues: &[6149],
-            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UeTriggerTests.al"],
-            since: "2026-10-29",
-        },
-    },
+
     PageExtRecordTriggerPageFalse => {
         id: "pageext-record-trigger-page-false",
         assumed: "When page extensions declare OnInsertRecord or OnModifyRecord and answer true, the page's own false answer still vetoes the insert or the modify, as it does on a page without extensions (handlers/TestPageRecordTriggers.al:76).",
         tests: "No Microsoft test: the rule generalizes the corpus writer's pins of page extension triggers (an extension's false answer) to the page's own false answer next to extensions.",
         probe: "UeTriggerTests.al with the base page's OnInsertRecord and OnModifyRecord answering false and both extensions true: the stored row and the trigger log.",
     },
-    PageExtImplicitPromoted => {
-        id: "pageext-implicit-promoted",
-        assumed: "A page extension may add actionrefs with addfirst or addlast into area(Promoted) of a page that declares none (also with no actions section) and into the promoted groups Category_New, Category_Process and Category_Report the page does not declare; the actionrefs are on the page and run their actions.",
-        tests: "No Microsoft test: al-runner issues 6150 and 6158 (partner suites on real BC). Observed on real BC by corpus writer UE.",
-        probe: "Corpus pageext/lt-ue-pageext-leads/UePromotedTests.al (corpus PR 796).",
-        awaiting: Awaiting {
-            issues: &[6150, 6158],
-            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UePromotedTests.al"],
-            since: "2026-10-29",
-        },
-    },
-    PageExtImplicitPromotedCategory => {
-        id: "pageext-implicit-promoted-category",
-        assumed: "A page extension may place actions with addafter or addlast at the promoted groups Category_Category7, Category_Category12 and Category_New of a page that declares none of them; the actionrefs are on the page and run their actions.",
-        tests: "No Microsoft test: al-runner issue 6217 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
-        probe: "Corpus pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808).",
-        awaiting: Awaiting {
-            issues: &[6217],
-            files: &["tests/al-language/pages/lt-up-page-ext/UpPromotedCategories.al"],
-            since: "2026-10-29",
-        },
-    },
-    PageExtCurrPageProtectedVar => {
-        id: "pageext-currpage-protected-var",
-        assumed: "A page extension reads a protected variable of the page it extends through CurrPage.<name>: the same variable the plain name reads, on the base page's instance.",
-        tests: "No Microsoft test: al-runner issue 6219 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
-        probe: "Corpus pages/lt-up-page-ext/UpPageExt.al (corpus PR 808).",
-        awaiting: Awaiting {
-            issues: &[6219],
-            files: &["tests/al-language/pages/lt-up-page-ext/UpPageExt.al"],
-            since: "2026-10-29",
-        },
-    },
-    PageExtSiblingProtectedVar => {
-        id: "pageext-sibling-protected-var",
-        assumed: "A page extension can read and assign a protected variable that another page extension of the same page declares; both name one variable, on the declaring extension's instance.",
-        tests: "No Microsoft test: al-runner issue 6159 (a partner suite on real BC). Observed on real BC by corpus writer UE.",
-        probe: "Corpus pageext/lt-ue-pageext-leads/UeProtectedVarTests.al (corpus PR 796).",
-        awaiting: Awaiting {
-            issues: &[6159],
-            files: &["tests/al-language/pageext/lt-ue-pageext-leads/UeProtectedVarTests.al"],
-            since: "2026-10-29",
-        },
-    },
+
+
+
+
     PageExtSiblingProtectedVarCrossApp => {
         id: "pageext-sibling-protected-var-cross-app",
         assumed: "The same holds when the declaring page extension is in another app that the using extension's app depends on (directly or through other apps), and that extension's OnOpenPage runs first.",
@@ -426,17 +275,7 @@ registry! {
         tests: "No Microsoft test and no user report for a report extension: the reported page extension shape is pinned (ExtLocalSameNameTests.al), and the lowering treats both extension kinds alike.",
         probe: "The page extension test of ExtLocalSameNameTests.al repeated with a report extension of another app's report: bare calls from the extension, the base's own calls, and a call on a report variable from a test codeunit.",
     },
-    EnumTypeBeforeRecField => {
-        id: "enum-type-before-rec-field",
-        assumed: "In a procedure (not the OnRun trigger) of a codeunit with TableNo, `X::Value` where the Rec has a field `X` and an enum type `X` exists names the enum type `X`, whatever values either enum has; a `with` record, a local or a global variable `X` still comes first. In the OnRun trigger, in a table and in a page, `X` stays the field.",
-        tests: "No Microsoft test: al-runner issue 6129 (NP Retail's \"NPR POS Post Sales Doc.Entry\" writes `\"Sales Document Type\"::\"Credit Memo\"` next to a Rec field \"Sales Document Type\" of an enum without that value). Pinned on the corpus branch al-runtime-rs-staging-ub (EnumTypeBeforeRecField.al and must-not-compile 2262 to 2267, bump PR 793), not yet in the pinned corpus.",
-        probe: "Written: corpus branch al-runtime-rs-staging-ub, tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (7 tests) and must-not-compile 2262 to 2267; lands with the bump of corpus PR 793.",
-        awaiting: Awaiting {
-            issues: &[6129],
-            files: &["tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al"],
-            since: "2026-10-29",
-        },
-    },
+
     PageExpressionControlSetValue => {
         id: "page-expression-control-setvalue",
         assumed: "TestPage.SetValue on a field control whose source is an assignable path (a record in an array, `Totals[1].\"Inv. Discount Amount\"`) assigns the path, then runs the control's OnValidate; the value is converted to the type of the value the path holds now. An entry the client would refuse is refused with the variable-control texts.",
@@ -731,28 +570,8 @@ registry! {
         tests: "No Microsoft test and no user report: the reported shape (a Code[20] true branch and a Locked Label false branch) is pinned; other lengths take the same lowering.",
         probe: "The TI_Ternary_* tests of TestTernaryContracts.al with Code[10], Code[50] and Text[30] branches, and an unbounded Text branch against a Label either way.",
     },
-    TernaryUnboundedTextFalseBranch => {
-        id: "ternary-unbounded-text-false-branch",
-        assumed: "A conditional expression with a Text[250] true branch and an unbounded Text false branch (a Text variable or a StrSubstNo result) converts the false value to Text[250]: a value that fits is returned unchanged, a longer one fails StringLengthExceeded with the value in the message cut to 200 characters plus '...'.",
-        tests: "No Microsoft test: al-runner issue 6213 (a URL builder in a dependency app of partner suites). Observed on real BC by corpus writer UP.",
-        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
-        awaiting: Awaiting {
-            issues: &[6213],
-            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
-            since: "2026-10-29",
-        },
-    },
-    TernaryInterfaceCodeunitBranch => {
-        id: "ternary-interface-codeunit-branch",
-        assumed: "A conditional expression with an interface true branch and a codeunit false branch that implements the interface compiles; the false branch converts to the interface as an assignment does and calls the codeunit's implementation.",
-        tests: "No Microsoft test: al-runner issue 6215 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
-        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
-        awaiting: Awaiting {
-            issues: &[6215],
-            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
-            since: "2026-10-29",
-        },
-    },
+
+
     ResourceFileNameCase => {
         id: "resource-file-name-case",
         assumed: "A File.Open, File.Exists or read of a resource file of the company data (`--company-data demotool`) whose name differs from the file on disk only in case finds the file, as on the Windows server BCApps' CI builds the DemoTool company on (the DemoTool opens `CurrencyData.txt`, BCApps ships `CurrencyData.TXT`). A name that matches exactly does not take this path.",
@@ -899,284 +718,37 @@ registry! {
         tests: "No Microsoft test: a partner app's test on its own list page.",
         probe: "TestFilter.GetFilter of an Enum field after SetRange(First, Third) on the record handed to Page.Run, and after a SourceTableView range over three values.",
     },
-    AkvProviderNoKeyVault => {
-        id: "akv-provider-no-key-vault",
-        assumed: "The platform class AzureKeyVaultAppSecretProvider, in an app whose app.json names no key vault, on a server with no Azure Key Vault settings: the constructor gives an object; InitializeFromCallingAppExceptSystemApplication raises `No key vaults specified for extension '<name> by <publisher> <version>'.` (code AzureKeyVaultAppSecretProvider) naming the first calling app that is not the System Application; TryGetAzureKeyVaultSecret raises `Not initialized.` (same code), also after the failed initialization, and leaves the out value untouched. Pinned only for a call straight from the app; the walk past the System Application's own codeunits, and any other app's name, follow the member's name.",
-        tests: "No Microsoft test: a partner app's health check reads a secret through the System Application's App Key Vault Secret Provider.",
-        probe: "Done on writer TY's branch (corpus PR 790): TyAkvProvider.al TY_Akv_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al::TY_Akv_Construct_Initialize",
-                "tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al::TY_Akv_TryGetSecret_NoInitialize",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    RunOnClientStaticCreate => {
-        id: "run-on-client-create",
-        assumed: "`Create()` on a variable declared [RunOnClient] (a client feature such as the camera provider) raises DotNetFromAlNotSupported like the constructor and a static call do: `The operation cannot complete because it uses a feature that is not supported (.NET Framework Interoperability.)`. Pinned only by corpus writer TY's run on real BC, in a local variable behind a GuiAllowed() guard.",
-        tests: "No Microsoft test: a partner app's camera and barcode scanning code behind GuiAllowed().",
-        probe: "Done on writer TY's branch (corpus PR 790): BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al::TY_RunOnClient_GuiAllowedGuard_CameraCreate"],
-            since: "2026-10-29",
-        },
-    },
+
+
     IsolatedStorageOverwriteTx => {
         id: "isolated-storage-overwrite-tx",
         assumed: "IsolatedStorage.SetEncrypted over a key that already exists, or Set over a key stored encrypted, outside a write transaction, opens the write transaction (Database.IsInWriteTransaction is true after it), as a plain Set over a plain key does (pinned: session/lt-cn-session-leads/CnIsolatedStorageLeads.al TO_IsoOverwrite_OutsideWriteTransaction).",
         tests: "No Microsoft test: a partner app's EFT tests overwrite a stored key with SetEncrypted after a Commit.",
         probe: "The SetEncrypted forms of TO_IsoOverwrite_OutsideWriteTransaction (left out of the corpus: the Linux CI containers have no encryption key), run on a Windows BC.",
     },
-    XmlportAttrsOverUnlinked => {
-        id: "xmlport-attrs-over-unlinked",
-        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element with MaxOccurs = Once, holding text attributes and then one text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) over one temporary table element without LinkTable (MinOccurs = Once, MaxOccurs = Unbounded): both text elements are always written, the attributes first (an empty Required one as attr=\"\"), then the rows of the inner table, or that table once with the record as it stands when it has none (no OnAfterGetRecord). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change reply with its admissions).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Change_Export_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TwoRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TokenNoRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_Error",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportExportAgain => {
-        id: "xmlport-export-again",
-        assumed: "A table element record after an export under its SourceTableView holds the last row the export read (with its SystemId), the view's key, the filters the code set, and the view's filters in a filter group GetView does not show (Count counts through them). Field reads, Count, GetView(false), SetCurrentKey, SetRange and SetFilter in filter group 0, Init (primary key kept, SystemId null), TransferFields(From, true) from the same table (SystemId not copied) and an assignment to it (SystemId copied) run on it; Reset gives it the primary key and no filters. A later Export on the same instance reads every table element from the start, keeps each record's current key and applies the SourceTableView filters again; a required table element without rows writes its record as it is. A MaxOccurs = Once table element with export triggers and three or more rows writes the first with one OnAfterGetRecord (the row its record holds afterwards is refused). Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (one port instance exported twice).",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_* and TS_View_SecondExport; wanted: the bump that puts them on corpus master. Not covered: SetView on such a record before a later export, a view with ORDER on a later export.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_SameData",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_AssignBetween",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_TransferFieldsBetween",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_InitBetween",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_KeyBetween",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_LineFilter",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_View_SecondExport",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_TrBooking",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Again_TrMember",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportViewFilterUnlinked => {
-        id: "xmlport-view-filter-unlinked",
-        assumed: "XmlPort export of a table element without LinkTable whose SourceTableView has a WHERE: the export reads only the rows of the filter, in the view's key, and filters the code set on the record before the export combine with it. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's XmlPorts.",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_View_FirstExport and TS_View_SecondExport; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_View_FirstExport",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_View_SecondExport",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
+
+
     XmlportSelfClosedLeafAssignTwice => {
         id: "xmlport-self-closed-leaf-assign-twice",
         assumed: "XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TR_EmptyLeaf_Import); assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it).",
         tests: "No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count.",
         probe: "TR_EmptyLeaf_Import with the leaf two text elements deep, and a trigger that changes its own variable on the first run.",
     },
-    XmlportDefaultContainerUnlinked => {
-        id: "xmlport-default-container-unlinked",
-        assumed: "XmlPort export of a text element with the default MinOccurs and MaxOccurs, without triggers, right below a temporary table element, holding only one temporary table element without LinkTable (MaxOccurs = Once, MinOccurs = Zero): without rows the text element is written empty, with rows it holds the first row only, with one OnAfterGetRecord. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a member reply with its cards).",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Cards_DefaultOccurs_Export"],
-            since: "2026-10-29",
-        },
-    },
-    XmlportLinkedMaxUnbounded => {
-        id: "xmlport-linked-max-unbounded",
-        assumed: "An explicit MaxOccurs = Unbounded on a table element with LinkTable right below another table element is the default: export and import run exactly as without it (same XML, trigger order, imported rows and schema errors). Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (ticket rows linked to a request row).",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Linked_Unbounded_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Export",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Export_NoRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Linked_Unbounded_Import",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportLinkedOnce => {
-        id: "xmlport-linked-once",
-        assumed: "XmlPort export of a table element with LinkTable and no LinkFields, MinOccurs = Zero and MaxOccurs = Once, right below another table element: each pass (each row of the element above) writes the first row of the record's view only, with one OnAfterGetRecord, and nothing without rows; the row the record holds after a pass of two or more rows is not pinned (its reads refuse). Import of such an element is refused. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation with its reservation detail).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoPreFilter",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportLinkPassReset => {
-        id: "xmlport-link-pass-reset",
-        assumed: "XmlPort export of a table element with LinkTable and no LinkFields right below another table element: LinkTable adds no filter, and every pass (each row of the element above) starts from the filters the record had at its first pass, with its SourceTableView, and from the SourceTableView's sorting (or the primary key without a sorting in the view), ascending: filters, a key, a direction and a Reset that OnPreXmlItem set at an earlier pass do not carry over. The SourceTableView filters do not show in GetFilters, Count obeys them. A key, direction, filter or mark of the code's own on the record at the first pass, and a view with ORDER, are refused. Pinned only by corpus writer TT's and TU's runs on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket confirmation: tickets below a reply row, reservation detail below an admission row).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt (QrXpContainerOccurs.al TT_Confirm_Export_*) and writer TU's branch al-runtime-rs-staging-tu (QrXpContainerOccurs.al TU_LinkedKey_*, the key per pass); wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NpFilters",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_NoKindFilter",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Confirm_Export_TwoReplies",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_KeyAtFirstPass",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_LinkedKey_DescendingAtFirstPass",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportRootMinOccursOnce => {
-        id: "xmlport-root-min-occurs-once",
-        assumed: "An explicit MinOccurs = Once on the root text element is the default: export runs as without it; import accepts an empty root element, fails the schema check on another root element and fails with 'Root element is missing.' on an empty document, as without it. Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (a ticket change request).",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_RootOnce_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Export",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Import",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    FormatTimeCodeNames => {
-        id: "format-time-code-names",
-        assumed: "Format of a Time with the code names <Hours>, <Hour>, <Ho>, <H> (the 24-hour hour), <Minute>, <Min>, <Second>, <Sec> and <Thou>, in any case, without padding; <Hours,N> pads with blanks to N for N = 1 to 3 and writes '*' when the hour is longer, N = 0 is no width; on a DateTime <Hours,2> pads with a zero; the Length argument cuts a longer Time result to its first characters. Other widths and other short names are refused, and only the pinned unknown names raise the invalid-format error. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's fiscal requests (a time written with <Hours,2>:<Minutes,2>:<Seconds,2>).",
-        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: types/lt-datetime/Format.al TU_Time_Format_CodeNames; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/types/lt-datetime/Format.al::TU_Time_Format_CodeNames"],
-            since: "2026-10-29",
-        },
-    },
-    XmlDocBlankText => {
-        id: "xml-doc-blank-text",
-        assumed: "XmlDocument.Create and XmlDocument.Add with an empty Text add no node; a blank Text, or an empty or blank XmlText, is added as a document node before or after the root without an error, counts in GetChildNodes, and WriteTo writes it as it is (no line break before the root after it). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's fiscal web service requests (a document created with two empty texts).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument; wanted: the bump that puts it on corpus master. Open: two text nodes in one document, AddFirst and the sibling methods.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/misc/lt-probes-needed-1/PnAXmlNodeAdds.al::TT_EmptyOrBlankTextIntoXmlDocument"],
-            since: "2026-10-29",
-        },
-    },
-    XmlportImportAgain => {
-        id: "xmlport-import-again",
-        assumed: "A second Import on an XmlPort instance whose first Import succeeded (unguarded, Format = Xml) reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run again (not OnInitXmlPort), also after SetSource on the same or a new stream, with or without Codeunit.Run. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP handler that imports the port it was handed again (loyalty points).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_*; wanted: the bump that puts them on corpus master. Open: a guarded second Import, one after a failed Import, and text formats.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameStreamAgain",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceOtherRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceSameRows",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_Direct",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportImportWholeSource => {
-        id: "xmlport-import-whole-source",
-        assumed: "An XML import reads the whole source stream, also when the stream was read to its end before SetSource, and leaves the stream's read position where it was. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP handler that reads the request stream before it imports it.",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource; wanted: the bump that puts them on corpus master. Open: a stream read partly before the import.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Import_SourceReadBefore",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportOptionalNoRows => {
-        id: "xmlport-optional-no-rows",
-        assumed: "XmlPort export of an optional table element (MinOccurs = Zero) without LinkTable that is not below another table element, without rows: only its OnPreXmlItem runs; no OnBeforePassField or OnBeforePassVariable of its nodes runs and nothing is written. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts.",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows; wanted: the bump that puts it on corpus master. Open: the same below another table element.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Optional_Unlinked_NoRows"],
-            since: "2026-10-29",
-        },
-    },
-    PageExtValidateTableOnValidate => {
-        id: "page-ext-validate-table-onvalidate",
-        assumed: "A SetValue on a page control with OnBeforeValidate or OnAfterValidate in a page extension's modify block, whose field has a table OnValidate: the table's validation (its OnBeforeValidateEvent, OnValidate, OnAfterValidateEvent) runs first, then the page's OnBeforeValidateEvent, the modify OnBeforeValidate, the control's OnValidate, the modify OnAfterValidate and the page's OnAfterValidateEvent. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's page extension tests (a variety matrix on a transfer order).",
-        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order",
-                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order_WithEvents",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportTimeMsXml => {
-        id: "xmlport-time-ms-xml",
-        assumed: "XmlPort export with FormatEvaluate = Xml of a Time or a DateTime with milliseconds writes them as Format standard 9 does: the milliseconds without trailing zeros (12:34:56.789, 12:34:56.5, 12:34:56.007), a DateTime with the same fraction and Z; a zero Duration is P0DT0H0M0.0S. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's loyalty SOAP replies (a time stamp with milliseconds).",
-        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/PWXmlPortFormatEvaluate.al TU_Export_TimeMilliseconds; wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/xmlport/PWXmlPortFormatEvaluate.al::TU_Export_TimeMilliseconds"],
-            since: "2026-10-29",
-        },
-    },
-    XmlportNestedUnlinked => {
-        id: "xmlport-nested-unlinked",
-        assumed: "XmlPort export of a table element without LinkTable right below another table element: every pass after the first starts without the filters the pass before left (GetFilters is empty) and the record keeps its row; MinOccurs = Once with MaxOccurs = Unbounded without rows writes the element once from the record as it stands, without OnAfterGetRecord, and runs the elements below; MinOccurs = Zero with MaxOccurs = Once writes the first row and leaves the record on the second row, also of three or more rows. Filters, a key, a filter group or marks the code sets between passes, a key set at a pass, filters of the code's own at the first pass and a SourceTableView are refused, and so is import of MaxOccurs = Once. Pinned only by corpus writer TU's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change request reply: access entries below a ticket, reservation detail below an access entry).",
-        probe: "Done on writer TU's branch al-runtime-rs-staging-tu: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_*, TU_NestedTemp_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_ItemFilterFirstPass",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedReal_SlotNoFilter",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TU_NestedTemp_TwoTwoNoneFiltered",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlportGuidXml => {
-        id: "xmlport-guid-xml",
-        assumed: "XmlPort with FormatEvaluate = Xml and a Guid field element or attribute: import takes the 8-4-4-4-12 form bare, in braces or in parentheses, or the 32 digits bare, in any case, with spaces around; empty or missing gives the null Guid; a text with other characters, or the 8-4-4-4-12 form one digit short, fails with 'Invalid format of GUID string. ...' (InvalidGuidFormat). Export writes `{UPPER-CASE}`. Pinned only by corpus writer TS's run on real BC, not yet on corpus master; other forms are refused.",
-        tests: "No Microsoft test: a partner app's SOAP XmlPorts (Guid tokens in requests and replies).",
-        probe: "Done on writer TS's branch al-runtime-rs-staging-pub-ts (corpus PR 785): xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_*; wanted: the bump that puts them on corpus master. Not covered: mismatched brackets, the 32 digits in brackets, other lengths.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Guid_Import_Element",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Guid_Import_Attribute",
-                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_Guid_Export",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     InstallCompanyTriggersAllApps => {
         id: "install-company-triggers-all-apps",
         assumed: "In the install session of an app under test, Company Triggers OnCompanyOpen and then OnCompanyOpenCompleted reach the subscribers of every installed app (the dependency apps, Microsoft's included, the apps under test installed before it, and the app itself), each event in ascending codeunit id, before that company's install routines (owner decision 2026-10-19, ADR-046 amendment 1, A4 item 4). Pinned only for the subscribers of the app being installed (install/lt-bf-install-probes/BfInstallTests.al:125-140). A test that reads a table those other subscribers write, or one written by a per-company install routine that reads such a table or shares a SingleInstance codeunit with them, is a flagged pass.",
@@ -1187,161 +759,19 @@ registry! {
         id: "install-order-ascending-id",
         assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run in ascending object id in each company and in the per-database part, when their ids lie in one block of 65536 ids, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Across blocks the order is not pinned and stays refused: install/lt-bf-install-probes/BfInstallTests.al:239 runs 60445, 60618 and 60894 after 81255.",
         tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's NP Retail measurement).",
-        probe: "Written: UmInstallOrder.al (writer UM, corpus PR 807), five install codeunits 90431-90435 sharing one SingleInstance codeunit. Still wanted: install codeunits of one app whose ids lie in two blocks of 65536 ids, chosen so that ascending id within each block, ascending id modulo 65536 and descending block give three different orders (for example 60100, 70000 and 130000; the main corpus app's id ranges end at 99999, where ascending id modulo 65536 and descending block always agree, so this needs a wider id range or another app).",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &["tests/al-language/install/lt-um-install-order/UmInstallOrder.al"],
-            since: "2026-10-29",
-        },
+        probe: "Pinned on corpus master by install/lt-um-install-order/UmInstallOrder.al (corpus PR 807), but the runtime does not run InstallCodeunits_OneApp_RunOrderPerPart yet (per-company install code writes a DataPerCompany = false table: ADR-046 decision 4c): run it, then retire. Still wanted: install codeunits of one app whose ids lie in two blocks of 65536 ids, chosen so that ascending id within each block, ascending id modulo 65536 and descending block give three different orders (for example 60100, 70000 and 130000).",
     },
-    PageRunBlankRecordDescendingViewFirstRow => {
-        id: "page-run-blank-record-descending-view-first-row",
-        assumed: "Page.Run (not modal) of a List page with a record that is still blank (filters only), on a view that runs descending, enters on the first row of the view; RunModal of the same enters where `=><` from the blank record lands, the last row (pinned: pages/lt-page-sourceview-current-row/PageSourceViewCurrentRow.al:140). Measured in the reporter's run on real BC.",
-        tests: "No Microsoft test: al-runner issue 6114, a partner app's list pages with SourceTableView order(descending) opened with Page.Run.",
-        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-page-sourceview-current-row/TwPageRunDescView.al:161 DescViewAscRecPageRun, :188 DescViewDescRecPageRun and the controls.",
-        awaiting: Awaiting {
-            issues: &[6114],
-            files: &["tests/al-language/pages/lt-page-sourceview-current-row/TwPageRunDescView.al"],
-            since: "2026-10-29",
-        },
-    },
-    LookupPartUpdateFalseShowsPicked => {
-        id: "lookup-part-update-false-shows-picked",
-        assumed: "A TestField.Lookup through OnLookup whose OnValidate calls a procedure of a ListPart of the page that runs CurrPage.Update(false) on the part shows the picked value, as the pinned Update(false) of the page itself does (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:469-589). Measured in the reporter's run on real BC.",
-        tests: "No Microsoft test: al-runner issue 6118, a partner app's planner page.",
-        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al:644 TW_LookupOnValidateUpdatesThePart.",
-        awaiting: Awaiting {
-            issues: &[6118],
-            files: &["tests/al-language/pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al::TW_LookupOnValidateUpdatesThePart"],
-            since: "2026-10-29",
-        },
-    },
-    DrilldownMarkedRefillWithPart => {
-        id: "drilldown-marked-refill-with-part",
-        assumed: "On a list with a ListPart, after an OnDrillDown marked rows, turned MarkedOnly on and called CurrPage.Update(false), the page keeps its row and a GoToRecord of the row Rec was left on refills the rows as without a part (pinned without one: pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269, :379), in a secondary key and in the primary key, and the part follows to that row. Measured in the reporter's run on real BC.",
-        tests: "No Microsoft test: al-runner issue 6115, a partner app's worksheet with a marking tile and a ListPart.",
-        probe: "Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:518 TW_NameKeyWithPart_GoToRecordOfRecsRow, :562 TW_IdKeyWithPart_GoToRecordOfRecsRow.",
-        awaiting: Awaiting {
-            issues: &[6115],
-            files: &[
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_NameKeyWithPart_GoToRecordOfRecsRow",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_IdKeyWithPart_GoToRecordOfRecsRow",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    DrilldownMarkedWalkWithPart => {
-        id: "drilldown-marked-walk-with-part",
-        assumed: "On a list with a ListPart, after an OnDrillDown or an action marked rows, turned MarkedOnly on and called CurrPage.Update(false), a GoToRecord of a row other than the row Rec was left on refills the rows around Rec's row and answers false: in a key other than the primary key after a move onto each marked row, ending on Rec's row; in the primary key after a move onto the first marked row, where the page stays. Pinned with two marked rows and Rec on the last of them (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541, :585 on corpus master); any other count of marked rows, and Rec on another of them, is assumed to follow the same rule. Measured in the reporter's runs on real BC (al-runner issues 6139, 6141).",
-        tests: "No Microsoft test: al-runner issues 6139 and 6141, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
-        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_*WithPart_*; wanted: the same pages with three marked rows and Rec left on the middle one.",
-        awaiting: Awaiting {
-            issues: &[6139, 6141],
-            files: &[
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_NameKeyWithPart_GoToRecordOfUnmarkedRow",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::TW_IdKeyWithPart_GoToRecordOfUnmarkedRow",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    MarkedAgainWithPart => {
-        id: "marked-again-with-part",
-        assumed: "On a list with a ListPart and OnAfterGetRecord or OnAfterGetCurrRecord, an OnDrillDown or an action that runs while MarkedOnly is already on and calls CurrPage.Update(false) refreshes as the first marking did: the OnDrillDown keeps the page's row and the next GoToRecord refills around the row Rec was left on; the action reads the marked rows from Rec's row and holds them. Measured in the reporter's run on real BC (al-runner issue 6139), in the primary key, with a second marking after a row lost its flag.",
-        tests: "No Microsoft test: al-runner issue 6139, a partner app's worksheet with a marking tile, a marking action and a ListPart.",
-        probe: "Corpus writer UD (branch al-runtime-rs-staging-ud): pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630-784 UD_NameKeyWithPart_* and UD_IdKeyWithPart_*.",
-        awaiting: Awaiting {
-            issues: &[6139],
-            files: &[
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_NameKeyWithPart_ActionAfterRowLostFlag",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag",
-                "tests/al-language/pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al::UD_IdKeyWithPart_ActionAfterRowLostFlag",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    GoToKeyLastRowOfBlockReadsNextBlock => {
-        id: "gotokey-last-row-of-block-reads-next-block",
-        assumed: "TestPage GoToKey or GoToRecord that lands on the last row of a full block of rows read, with more rows after it, on a list without OnAfterGetCurrRecord, OnFindRecord or OnNextRecord: the read goes on with the next block (the last two rows again, then up to 20 new rows) and the page stands on the row found. At the end of the view the last two rows are read again (handlers/TestPageRuntimeContracts.al:331). Measured in the reporter's run on real BC.",
-        tests: "No Microsoft test: al-runner issue 6117, a partner app's lookup page run with Page.RunModal whose handler calls GoToRecord on row 40.",
-        probe: "The reporter's repro of al-runner issue 6117: GoToKey(40) on lists of 45 and 80 rows with OnAfterGetRecord logged, then Next and GoToKey(62); GoToRecord of row 40 in a ModalPageHandler, then OK. Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-testpage-list-rows/TwBlockEdge.al:125, :142, :162.",
-        awaiting: Awaiting {
-            issues: &[6117],
-            files: &["tests/al-language/pages/lt-testpage-list-rows/TwBlockEdge.al"],
-            since: "2026-10-29",
-        },
-    },
-    TreeExpandRunsNoRowTrigger => {
-        id: "tree-expand-runs-no-row-trigger",
-        assumed: "On a tree page (ShowAsTree, TreeInitialState = ExpandAll) with OnAfterGetRecord or OnAfterGetCurrRecord, the open reads the rows below the level-0 rows too (they stay hidden), and TestPage.Expand(true) and Expand(false) run no row trigger: the row and the values its OnAfterGetRecord computed stay, and the next move reads the row it lands on as any move does. Measured in the reporter's run on real BC.",
-        tests: "No Microsoft test: al-runner issue 6119, a partner app's tree list page.",
-        probe: "The reporter's repro of al-runner issue 6119: OpenView and Page.RunModal of a tree over a temporary table filled in OnOpenPage, First, Next, Expand(true), Next, Previous, Expand(false), Next, with the trigger log. Corpus writer TW (branch al-runtime-rs-staging-tw): pages/lt-page-runtime/TwTreeExpandTriggers.al:123, :137, :166.",
-        awaiting: Awaiting {
-            issues: &[6119],
-            files: &["tests/al-language/pages/lt-page-runtime/TwTreeExpandTriggers.al"],
-            since: "2026-10-29",
-        },
-    },
-    DotnetTypeUnassignedEnum => {
-        id: "dotnet-type-unassigned-enum",
-        assumed: "GetDotNetType of an unassigned DotNet variable declared as the enum System.DayOfWeek or System.Security.Cryptography.X509Certificates.X509ContentType gives that enum type (FullName and Format the full name, IsEnum true); System.Enum.Parse(that type, name) gives the member (Pkcs12 gives Pfx, 3), and a name that is not a member, or one in another case, fails with 'A call to System.Enum.Parse failed with this message: Requested value '<name>' was not found.' (DotNetInvoke:Argument). Pinned only by corpus writer TV's run on real BC, not yet on corpus master; other enums are refused.",
-        tests: "No Microsoft test: a partner app's tests that reach System Application's X509 certificate code (Enum.Parse of an X509ContentType name).",
-        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): lt-bb-dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_GetDotNetType_UnassignedEnumVariables",
-                "tests/al-language-onprem-dotnet/lt-bb-dotnet/BbGetDotNetType.al::TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    XmlWriteToOutstreamBuilt => {
-        id: "xml-write-to-outstream-built",
-        assumed: "WriteTo(OutStream) of a document built in code with one root element: a declaration from XmlDeclaration.Create('1.0', 'UTF-8', 'yes' or 'no') is kept as written in UTF-8 ('yes' also with XmlWriteOptions that PreserveWhitespace(true) set, unindented); 'utf-16' with standalone empty or 'yes', and an empty encoding with standalone empty, are written in UTF-16 LE with FF FE and the declaration as written; the stream's own encoding is ignored. Add of an XmlWriteOptions after a node to a document or an element adds nothing. Pinned only by corpus writer TV's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's fiscal and SOAP tests (documents built in code and written to a stream).",
-        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_*, TV_XmlWriteOptions_AsContent_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_BuiltWithoutDeclaration_Options",
-                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_Utf8Declaration_OtherStreams",
-                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_WriteToOutStream_Utf16AndNoEncodingDeclarations",
-                "tests/al-language/xml/lt-de-xml-leads/DeXmlWriteLeads.al::TV_XmlWriteOptions_AsContent_DocumentAdd",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    FindMissKeyText => {
-        id: "find-miss-key-text",
-        assumed: "Find without a filter whose result is not used, when no row meets the search, on a table that has rows or on an empty table with a key value other than the default: `The <table> does not exist. Identification fields and values: <key>` for none and `=`, and `The <table> does not exist. <search>\\\\Identification fields and values:\\\\<key>` for `>`, `<`, `=>`, `=<` and `=><`, with the record's key (DB:RecordNotFound). Pinned only by corpus writer TV's run on real BC, not yet on corpus master.",
-        tests: "No Microsoft test: a partner app's tests (a Find on a record whose key no row has).",
-        probe: "Done on writer TV's branch al-runtime-rs-staging-tv (corpus PR 788): record/lt-find-empty-table/FindEmptyTable.al TV_Find_*; wanted: the bump that puts them on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_TableWithRows_NoMatch",
-                "tests/al-language/record/lt-find-empty-table/FindEmptyTable.al::TV_Find_EmptyTable_KeyNotDefault",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    QueryFilterElementReadWithoutRow => {
-        id: "query-filter-element-read-without-row",
-        assumed: "Reading a query filter() element (not a column) as `Q.<FilterElement>` before Open, or after Open without a Read, raises the error a column read without a row raises: `You have not yet retrieved a data row for this query. The value for column '<name>' can only be accessed after a row is retrieved with a call to the READ function.` (QueryNoDataSet). Pinned only by corpus writer UH's run on real BC (branch al-runtime-rs-staging-uh, commit ab6c6eb2, corpus PR 799), not yet in the pinned corpus. After Close or after the last row it stays refused, and after a Read too (BC returns another column's value or crashes).",
-        tests: "No Microsoft test: an outside reporter's ISV app (al-runner issue 6173).",
-        probe: "Done on writer UH's branch al-runtime-rs-staging-uh (corpus PR 799): errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_*; wanted: the bump that puts them in the pinned corpus.",
-        awaiting: Awaiting {
-            issues: &[6173],
-            files: &[
-                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_BeforeOpen",
-                "tests/al-language/errors/lt-ms-refusals-131/P131QueryOuterFilter.al::UH_Query_ReadFilter_OpenNoRead",
-            ],
-            since: "2026-10-29",
-        },
-    },
+
+
+
+
+
+
+
+
+
+
+
     SqlReadCostUnmeasuredShape => {
         id: "sql-read-cost-unmeasured-shape",
         assumed: "The SQL statements and rows read of one record method with nothing buffered (Get 1/1, FindSet 1/0 or 1/1 and each Next 0/1, Modify right after the Get of its row 1/1, FindFirst that finds nothing 1/0, FindLast that finds a row 1/1, IsEmpty 1/0 or 1/1, Count 1/1) are the same on any table, filter and FindSet row count as on the ones measured (session/lt-bl-sql-counters/SkSqlBudget.al, writer TX: a table of Code[20], Integer, Text[50], Integer filtered on its key fields, FindSet loops of 0, 1, 3 and 10 rows; SqlCounters.al: 1, 2, 5, 10, 20 rows).",
@@ -1354,169 +784,22 @@ registry! {
         tests: "No Microsoft test: an outside reporter's partner-app SQL budget test (SkSqlBudget.al TW_FindFirstOrInsert_Counts).",
         probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
     },
-    ControlAddInCallTriggerContexts => {
-        id: "control-add-in-call-trigger-contexts",
-        assumed: "A control add-in call (the add-in is never created in a test session) in a card's OnAfterGetRecord or OnAfterGetCurrRecord during TestPage.OpenEdit raises the add-in's error itself (code DotNetControlAddInNotCreated, with `:TargetInvocation` added out of OnAfterGetCurrRecord) instead of closing the page, and in OnClosePage it comes wrapped as an AL Error does (`One or more errors occurred while closing the page.`, TestWrapped). After an action of a card failed on such a call, the card reads its row again (OnAfterGetRecord, OnAfterGetCurrRecord) before the next call on the page: the TZ tests show the read after a failed Invoke in a TryFunction followed by another Invoke, and no read when the log is taken right after the failed Invoke, so when exactly it runs is assumed. Pinned by corpus writer TZ on corpus master (commit 01d7177f, PR 792), not yet in the pinned corpus.",
-        tests: "No Microsoft test: ADR-027 section 3 row 18 (control add-ins in test sessions).",
-        probe: "Done on corpus master (PR 792): lt-ac/ACControlAddIn.al TZ_*; wanted: the bump that puts them in the pinned corpus.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetRecord_TestPageOpen",
-                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnAfterGetCurrRecord_TestPageOpen",
-                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_CallInOnClosePage_TestPageClose",
-                "tests/al-language/lt-ac/ACControlAddIn.al::TZ_TwoProceduresFromActions_PageStaysUsable",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    EnumOperandArithmetic => {
-        id: "enum-operand-arithmetic",
-        assumed: "An Enum operand of + - * / div mod is its ordinal, an Integer, next to a number or another Enum; the result assigned to an Enum is the member of that ordinal; unary minus on an Enum variable does not compile (AL0172).",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6156).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
-        awaiting: Awaiting {
-            issues: &[6156],
-            files: &[
-                "tests/al-language/types/lt-uf-enum-arithmetic/UfEnumArithmetic.al",
-                "tests/must-not-compile/cases/2268-enum-unary-minus-ambiguous.al",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    TernaryGuidBranch => {
-        id: "ternary-guid-branch",
-        assumed: "A conditional expression with a Guid branch and a Label, Text, Code or text literal branch has the true branch's type: a Guid true branch converts the other branch to a Guid (InvalidGuidFormat when that branch is taken and holds no GUID), a Text, Code or Label true branch takes the Guid as its text in braces.",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6160).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
-        awaiting: Awaiting {
-            issues: &[6160],
-            files: &[
-                "tests/al-language/types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    FailedInsertNullSystemId => {
-        id: "failed-insert-null-system-id",
-        assumed: "A guarded Insert (result used, not temporary, not InsertWithSystemId) that fails on an existing key leaves the variable's SystemId null, the id it was given and one the code set both dropped; a Modify of a variable whose SystemId is null gives it the stored row's SystemId and leaves the row's.",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6153).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
-        awaiting: Awaiting {
-            issues: &[6153],
-            files: &[
-                "tests/al-language/events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    ClearHttpMessages => {
-        id: "clear-http-messages",
-        assumed: "Clear of an HttpRequestMessage, HttpContent or HttpResponseMessage gives a new one (GET with no URI, headers or content; an empty content with only its Content-Type; 200 OK with an empty body), and a value assigned from it before keeps what it held.",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issues 6170, 6171).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
-        awaiting: Awaiting {
-            issues: &[6170, 6171],
-            files: &[
-                "tests/al-language/network/lt-uf-http-clear/UfHttpClear.al",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    ClearXmlRef => {
-        id: "clear-xml-ref",
-        assumed: "Clear of an XmlElement gives an unassigned one (Name raises NotInitialized naming NavXmlElement), Clear of an XmlNode gives an empty one (IsXmlElement false, AsXmlElement a Conversion error), and Clear of an XmlDocument gives one whose GetRoot statement raises XmlNodeNotFound; another variable that holds the same node or document keeps it. An unassigned variable reads the same.",
-        tests: "No Microsoft test: a partner app's tests (Clear of an XmlElement value).",
-        probe: "Done on writer UL's branch al-runtime-rs-staging-ul (corpus PR 802, commit b753d3fb7a, codeunit 90420); wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/xml/lt-ul-clear-ref/UlClearXmlRef.al",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    EvaluateRfc1123DateTime => {
-        id: "evaluate-rfc-date-time",
-        assumed: "Evaluate into a DateTime with number 0 (or none) reads `Ddd, dd Mon yyyy hh:mm:ss GMT` and `+0000` as UTC; a weekday that is not the date's answers false with no error; without the weekday it answers false and leaves `The date is not valid.` (DateInvalid) as the last error.",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6172).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. Another zone or offset and a one-digit day are refused.",
-        awaiting: Awaiting {
-            issues: &[6172],
-            files: &[
-                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::DateTime_Rfc1123",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    EvaluateJsonArray => {
-        id: "evaluate-json-array",
-        assumed: "Evaluate into a JsonArray reads the text as ReadFrom does; a text that is no array leaves the array as it was and answers false with ReadFrom's statement error (InvalidJsonType naming the token type, InvalidJsonData) as the last error.",
-        tests: "No Microsoft test: a closed-source ISV app suite's tests (al-runner issue 6175).",
-        probe: "Done on writer UF's branch al-runtime-rs-staging-uf (corpus PR 798, commit 3d7d7b66, green on the three BC majors in CI); wanted: the bump that puts it on corpus master. ",
-        awaiting: Awaiting {
-            issues: &[6175],
-            files: &[
-                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::JsonArray_Texts",
-                "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::JsonArray_UsedAfterEvaluate",
-            ],
-            since: "2026-10-29",
-        },
-    },
-    FilterAtSignInValue => {
-        id: "filter-at-sign-in-value",
-        assumed: "In a filter text an `@` after the first character of a value is a normal character (`a@b.dk` matches that text, `@a@b.dk` matches it in any case, `*@b*` is a pattern); only an `@` where a value starts makes it case-insensitive. The same for SetFilter, SetView and the other filter texts.",
-        tests: "No Microsoft test: a partner app's tests (SetView with an e-mail address as the filter value).",
-        probe: "Done for SetView on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master, and the same values through SetFilter.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text",
-                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text_2",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    EvaluateDateLettersStatement => {
-        id: "evaluate-date-letters-statement",
-        assumed: "An Evaluate statement into a Date that fails on a text of ASCII letters with number 9, or on letters mixed with digits and `-./` (such as `not-a-date`) with number 0, 9 or none, raises the Date-format error (`The format of the Date '<text>' does not match your device's date settings...`, code Evaluate) in an English session and keeps the value.",
-        tests: "No Microsoft test: a partner app's tests (Evaluate of a text that is no date into a Date, result unused).",
-        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/errors/lt-ms-refusals-130/P130EvaluateDate.al::UN_Evaluate_Statement_NotADate_ByTarget",
-            ],
-            since: "2026-10-30",
-        },
-    },
-    JsonBooleanTextSpellings => {
-        id: "json-boolean-text-spellings",
-        assumed: "JsonValue.AsBoolean of the JSON strings \"True\", \"TRUE\", \" true\" and \"true \" is Yes, of \"false\", \"False\" and \"FALSE\" is No; of the JSON numbers 0 and 1 it is No and Yes.",
-        tests: "No Microsoft test: a partner app's tests (AsBoolean of a JSON string \"false\").",
-        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Mixed case and blanks around false are refused.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters",
-                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters_5",
-            ],
-            since: "2026-10-30",
-        },
-    },
+
+
+
+
+
+
+
+
+
+
+
     DatetimeFilterDayAndHours => {
         id: "datetime-filter-day-and-hours",
         assumed: "In an English session a DateTime filter text that is a date alone (`01/15/25`, `1/15/25`, `2025-01-15`) covers the whole day from 00:00:00 to 23:59:59 (as a range end: the start of the day below, its end above; after `<`: before the start of the day), and GetFilter shows its end as `11:59:59 PM`; a clock reads any hour (`08:30`, `17:45`, `00:00` on a 24-hour clock, `08:30 AM`, `05:45:10.5 PM`); `15.01.25` alone or with a clock raises the evaluate error of DateTime.",
         tests: "No Microsoft test: a partner app's tests (DateTime filters of a date alone and of other hours).",
-        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
-        awaiting: Awaiting {
-            issues: &[],
-            files: &[
-                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_DateAlone",
-                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_HourNotTwelve",
-            ],
-            since: "2026-10-30",
-        },
+        probe: "Pinned on corpus master by errors/lt-ms-refusals-136/P136Filter.al UN_DateTimeFilter_HourNotTwelve (passes) and UN_DateTimeFilter_DateAlone (corpus PR 806), which the runtime does not run yet (SetFilter on a DateTime field with MakeDateTimeFilter subscribers is not pinned): run it, then retire. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
     },
 }
 

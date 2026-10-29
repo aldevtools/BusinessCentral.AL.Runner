@@ -3035,7 +3035,7 @@ fn doc_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
 }
 
 /// `XmlDocument.Create` and `Add` of an empty or blank text to a document (misc/lt-probes-needed-1/PnAXmlNodeAdds.al
-/// TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch al-runtime-rs-staging-tt; assumption `xml-doc-blank-text`): an
+/// TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch al-runtime-rs-staging-tt; former assumption `xml-doc-blank-text` (pinned on corpus master since bump 1030)): an
 /// empty Text adds no node; a blank Text, or an empty or blank XmlText, is appended as a node before or after the root, and
 /// `WriteTo` writes it as it is. A second text node in the document is not pinned. `false` for any other argument.
 fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> {
@@ -3044,7 +3044,7 @@ fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> {
     }
     let node = match arg {
         Value::Text(t) | Value::Code(t) if t.is_empty() => {
-            crate::assumptions::assume(crate::assumptions::Assumption::XmlDocBlankText);
+            // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
             return Ok(true);
         }
         Value::Text(t) | Value::Code(t) if t.trim().is_empty() => new_node(XData::Text(t.to_string())),
@@ -3063,7 +3063,7 @@ fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> {
     {
         return unsupported("a second empty or blank text added to an XmlDocument (not pinned)");
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::XmlDocBlankText);
+    // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
     with(doc, |d| {
         if let XData::Document { children, .. } = d {
             children.push(node.clone());
@@ -3613,7 +3613,7 @@ fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
             && matches!(arg, Value::Library(name, _) if name.as_str() == "XmlWriteOptions")
             && matches!(kind(&h), "XmlDocument" | "XmlElement")
         {
-            crate::assumptions::assume(crate::assumptions::Assumption::XmlWriteToOutstreamBuilt);
+            // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
             continue;
         }
         if doc_blank_text(&h, arg)? {
@@ -3878,7 +3878,7 @@ fn get_root(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
     // The statement form on an unassigned or cleared document raises XmlNodeNotFound (corpus branch al-runtime-rs-staging-ul
     // b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:168-204 ClearXmlDocument_SecondVariable `cleared doc|root`).
     if !c.ret_used() && unassigned(&r, "XmlDocument") {
-        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Err(error("The XML node is not set.", "XmlNodeNotFound"));
     }
     let h = recv(r)?;
@@ -4036,14 +4036,14 @@ node_kind!(is_element_node, as_element_node, "XmlElement");
 /// al-runtime-rs-staging-ul b753d3fb7a, xml/lt-ul-clear-ref/UlClearXmlRef.al:106-142 ClearXmlNode_SecondVariable).
 fn is_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if unassigned(&r, "XmlNode") {
-        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Ok(Value::Boolean(false));
     }
     is_element_node(c, r, a)
 }
 fn as_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if unassigned(&r, "XmlNode") {
-        crate::assumptions::assume(crate::assumptions::Assumption::ClearXmlRef);
+        // Pinned by xml/lt-ul-clear-ref/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Err(error(
             "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavXmlNode to Microsoft.Dynamics.Nav.Runtime.NavXmlElement.",
             "Conversion",
@@ -4573,7 +4573,6 @@ enum OutDecl {
 ///
 /// Anything else is not pinned.
 fn outstream_declaration(h: &Handle, options: Option<&Value>) -> Option<OutDecl> {
-    use crate::assumptions::{Assumption, assume};
     let kids = children_of(h);
     if kids.len() != 1 || !with(&kids[0], |d| matches!(d, XData::Element { .. })) {
         return None;
@@ -4621,11 +4620,11 @@ fn outstream_declaration(h: &Handle, options: Option<&Value>) -> Option<OutDecl>
             explicit: true,
         } if version == "1.0" => match (encoding.as_str(), standalone.as_str(), preserve) {
             ("UTF-8", "yes", _) | ("UTF-8", "no", false) => {
-                assume(Assumption::XmlWriteToOutstreamBuilt);
+                // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
                 Some(OutDecl::Keep)
             }
             ("utf-16", "" | "yes", false) | ("", "", false) => {
-                assume(Assumption::XmlWriteToOutstreamBuilt);
+                // Pinned by xml/lt-de-xml-leads/DeXmlWriteLeads.al TV_WriteToOutStream_BuiltWithoutDeclaration_Options, TV_WriteToOutStream_Utf8Declaration_OtherStreams, TV_WriteToOutStream_Utf16AndNoEncodingDeclarations, TV_XmlWriteOptions_AsContent_DocumentAdd (was assumption `xml-write-to-outstream-built`).
                 Some(OutDecl::Utf16)
             }
             _ => None,

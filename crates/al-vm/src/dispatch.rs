@@ -570,7 +570,7 @@ impl Session {
                 ));
             }
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CrossAppSubscriberOrderByAppId);
+        // Pinned by events/lt-bw-subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
         Ok(first)
     }
 

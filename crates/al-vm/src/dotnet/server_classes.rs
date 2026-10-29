@@ -412,7 +412,7 @@ fn akv_initialize(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) 
                 .into(),
         ));
     }
-    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AkvProviderNoKeyVault);
+    // Pinned by tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
     let program = &s.engine.program;
     let app = s
         .frames
@@ -438,7 +438,7 @@ fn akv_initialize(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) 
 /// `TryGetAzureKeyVaultSecret(name, var value)`: the provider never initializes, so it raises `Not initialized.`
 /// and leaves the out value as it was (TyAkvProvider.al:108-120).
 fn akv_try_get(s: &mut Session, this: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
-    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AkvProviderNoKeyVault);
+    // Pinned by tests/al-language-onprem-dotnet/lt-ty-dotnet/TyAkvProvider.al TY_Akv_Construct_Initialize, TY_Akv_TryGetSecret_NoInitialize (was assumption `akv-provider-no-key-vault`).
     if this.is_none() {
         // A variable never constructed (TyAkvProvider.al:140-152, TY_Akv_TryGetSecret_NotConstructed): the error names the
         // routine of the codeunit that made the call.

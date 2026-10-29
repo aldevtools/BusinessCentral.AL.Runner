@@ -1114,32 +1114,35 @@ fn geturl_web_encodes_every_other_printable_character() {
 // platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi):
 // the service client types answer the host's address (host and instance masked there) with their path, a company in it, and
 // the empty text for an object. Api with a company (an id the pins mask) and the forms no pin shows are refused.
+// The service address is not the web address: the pins mask the web address as <base> first and the service texts show
+// http://<host>/<instance>/..., so their host part differs from the web one (TGetUrl.al:95-102, 504, 521, 487). The ports
+// 7047 (SOAP) and 7048 (OData, ODataV4, Api) are BC's defaults and part of assumption `geturl-web-base-address`.
 #[test]
 fn geturl_of_the_service_client_types_builds_the_pinned_addresses() {
     for (body, want) in [
         (
             "exit(GetUrl(ClientType::SOAP));",
-            "http://localhost:8080/BC/WS/Services",
+            "http://localhost:7047/BC/WS/Services",
         ),
         (
             "exit(GetUrl(ClientType::SOAP, 'My Company'));",
-            "http://localhost:8080/BC/WS/My%20Company/Services",
+            "http://localhost:7047/BC/WS/My%20Company/Services",
         ),
         (
             "exit(GetUrl(ClientType::SOAP, ''));",
-            "http://localhost:8080/BC/WS/Services",
+            "http://localhost:7047/BC/WS/Services",
         ),
-        ("exit(GetUrl(ClientType::OData));", "http://localhost:8080/BC/ODataV4"),
+        ("exit(GetUrl(ClientType::OData));", "http://localhost:7048/BC/ODataV4"),
         (
             "exit(GetUrl(ClientType::ODataV4, 'My Company'));",
-            "http://localhost:8080/BC/ODataV4/Company('My%20Company')",
+            "http://localhost:7048/BC/ODataV4/Company('My%20Company')",
         ),
         (
             "exit(GetUrl(ClientType::ODataV4, ''));",
-            "http://localhost:8080/BC/ODataV4",
+            "http://localhost:7048/BC/ODataV4",
         ),
-        ("exit(GetUrl(ClientType::Api));", "http://localhost:8080/BC/api/"),
-        ("exit(GetUrl(ClientType::Api, ''));", "http://localhost:8080/BC/api/"),
+        ("exit(GetUrl(ClientType::Api));", "http://localhost:7048/BC/api/"),
+        ("exit(GetUrl(ClientType::Api, ''));", "http://localhost:7048/BC/api/"),
         ("exit(GetUrl(ClientType::SOAP, '', ObjectType::Page, 21));", ""),
         (
             "exit(GetUrl(ClientType::OData, 'My Company', ObjectType::Report, 69367));",

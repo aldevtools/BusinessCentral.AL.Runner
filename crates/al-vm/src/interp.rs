@@ -572,8 +572,26 @@ impl Session {
                             _ => None,
                         }
                     };
+                    let handle = Rc::as_ptr(&rc) as usize;
                     let (inst, saved) = self.enter_record(object, rc, page_xrec.as_ref())?;
+                    // A plain call: the procedure's xRec is the blank record `enter_record` made (`plain_proc_xrec`).
+                    let plain = page_xrec.is_none().then(|| {
+                        let slot = self.engine.program.objects[object].xrec_slot?;
+                        match &inst.borrow().globals[slot] {
+                            Value::Record(x) => Some(x.clone()),
+                            _ => None,
+                        }
+                    });
+                    let pushed = if let Some(Some(x)) = plain {
+                        self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
+                        true
+                    } else {
+                        false
+                    };
                     let r = self.finish_call(object, routine, inst.clone(), args, values, try_call, f);
+                    if pushed {
+                        self.plain_proc_xrec.pop();
+                    }
                     Self::leave_record(&inst, saved);
                     return r;
                 }
@@ -1162,9 +1180,7 @@ impl Session {
                 }
                 // The buffer of a table element record after an export under SourceTableView is the last row the export read
                 // (QrXpContainerOccurs.al TS_Again_SameData on branch al-runtime-rs-staging-pub-ts).
-                if rc.borrow().unpinned_buffer == Some(crate::records::XP_VIEW_AFTER_EXPORT) {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportExportAgain);
-                }
+                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                 let r = rc.borrow();
                 if !self.engine.unevaluable_init.is_empty() && !r.touched {
                     // The buffer of a record nothing has written is built by this read, which
@@ -1301,6 +1317,7 @@ impl Session {
                                             written: false,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
+                                            temp_inserted: false,
                                             // A shorter write into a copy of an unloaded Blob is not pinned (`UNLOADED_WRITE`).
                                             db_row: false,
                                             first_write_truncates: false,

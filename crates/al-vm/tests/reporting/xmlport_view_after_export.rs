@@ -1,6 +1,6 @@
 //! The table element record after an export under `SourceTableView`. The export order is pinned
 //! (xmlport/lt-ra-xmlport/RaXmlPortExport.al:416, :448, :474); its buffer afterwards (the last row read) is pinned by corpus
-//! writer TS (assumption `xmlport-export-again`), the other reads of its key, filters and position refuse until the code sets
+//! writer TS (former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)), the other reads of its key, filters and position refuse until the code sets
 //! a view of its own (Reset, SetView).
 
 use al_builtins::native::Signal;
@@ -126,7 +126,7 @@ fn reads_of_the_view_after_the_export_refuse() {
     refused("Key");
     refused("Filters");
     refused("First");
-    // The buffer is the last row the export read (assumption `xmlport-export-again`, QrXpContainerOccurs.al TS_Again_SameData
+    // The buffer is the last row the export read (former assumption `xmlport-export-again` (pinned on corpus master since bump 1030), QrXpContainerOccurs.al TS_Again_SameData
     // on branch al-runtime-rs-staging-pub-ts).
     assert!(matches!(run("CurrentId"), Ok(al_builtins::value::Value::Integer(1))));
     refused("Post");

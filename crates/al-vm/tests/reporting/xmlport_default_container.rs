@@ -1,5 +1,5 @@
 //! A text element with the default MinOccurs and MaxOccurs right below a temporary table element, holding one unlinked
-//! temporary table element (MaxOccurs = Once, MinOccurs = Zero) (assumption `xmlport-default-container-unlinked`; corpus branch
+//! temporary table element (MaxOccurs = Once, MinOccurs = Zero) (former assumption `xmlport-default-container-unlinked` (pinned on corpus master since bump 1030); corpus branch
 //! al-runtime-rs-staging-pub-ts, xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Cards_DefaultOccurs_Export,
 //! xmlport 90084 in TsXpObjects.al).
 

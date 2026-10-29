@@ -507,9 +507,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 k[pos(t, 60)] = Value::Guid(package_of(&c, o));
                 k[pos(t, 61)] = Value::Guid(runtime_package_id(&c, o));
                 k[pos(t, 62)] = Value::Text(namespace(o).into());
-                out.push(
-                    Entry::ok(k).assuming(al_builtins::assumptions::Assumption::AllObjTableDataRowOfDependencyTable),
-                );
+                out.push(Entry::ok(k));
                 continue;
             }
             out.push(Entry::poisoned(

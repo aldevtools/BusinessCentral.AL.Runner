@@ -627,7 +627,7 @@ impl Session {
         if exts.is_empty() {
             return Ok(own);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtRecordTriggerAnswers);
+        // Pinned by pageext/lt-ue-pageext-leads/UeTriggerTests.al (was assumption `pageext-record-trigger-answers`).
         if exts.contains(&false) {
             self.pages.ext_vetoed = true;
             return Ok(Some(false));

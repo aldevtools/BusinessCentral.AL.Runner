@@ -1849,7 +1849,7 @@ fn dialog_update(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Res
 /// corpus branch al-runtime-rs-staging-uj 1dc037a8). Microsoft's code calls it as a statement (System Application, Apply Retention
 /// Policy Impl.). The value it returns is pinned only after `true` (Yes); any other use of the result is an assumption.
 fn dialog_hide_subsequent(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    crate::assumptions::assume(crate::assumptions::Assumption::DialogHideSubsequentDialogsNoHeadlessEffect);
+    // Pinned by errorinfo/lt-errnotif/EnTDialogSession.al UJ_Dialog_HideSubsequent_OpenUpdateClose, UJ_Dialog_HideSubsequent_OpenedBefore (was assumption `dialog-hide-subsequent-dialogs-no-headless-effect`).
     let hide = match a.first() {
         Some(Value::Boolean(b)) => Some(*b),
         None => None,
@@ -2653,7 +2653,7 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
             if matches!(
                 name.as_str(),
                 "HttpRequestMessage" | "HttpContent" | "HttpResponseMessage"
-            ) && crate::assumptions::hit(crate::assumptions::Assumption::ClearHttpMessages) =>
+            ) =>
         {
             Value::Library(
                 name.clone(),
@@ -2681,10 +2681,7 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
         // A cleared XmlElement is an unassigned one and a cleared XmlNode an empty one; another variable that holds the same
         // node keeps it, and the node stays in its document (corpus branch al-runtime-rs-staging-ul b753d3fb7a,
         // xml/lt-ul-clear-ref/UlClearXmlRef.al:53-86 ClearXmlElement_SecondVariable, :106-142 ClearXmlNode_SecondVariable).
-        Value::Library(name, _)
-            if matches!(name.as_str(), "XmlElement" | "XmlNode")
-                && crate::assumptions::hit(crate::assumptions::Assumption::ClearXmlRef) =>
-        {
+        Value::Library(name, _) if matches!(name.as_str(), "XmlElement" | "XmlNode") => {
             Value::Library(name.clone(), Default::default())
         }
         // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again

@@ -399,9 +399,7 @@ impl Session {
         };
         let notes_ok = notes.iter().all(|n| match n {
             ShownNote::UpdateFalse(x) if *x != root_ptr && part_update(*x) => {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::LookupPartUpdateFalseShowsPicked,
-                );
+                // Pinned by pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al TW_LookupOnValidateUpdatesThePart (was assumption `lookup-part-update-false-shows-picked`).
                 true
             }
             ShownNote::UpdateFalse(x) => *x == root_ptr,

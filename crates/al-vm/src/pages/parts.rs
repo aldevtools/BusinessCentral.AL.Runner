@@ -987,12 +987,8 @@ impl Session {
             let table = self.table(&rec)?;
             let mut fresh: Vec<FieldFilter> = Vec::new();
             let mut fields = Vec::new();
-            for (i, entry) in link.entries.iter().enumerate() {
-                if link.enum_values.contains(&i) {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::SubPageLinkConstQualifiedEnumValue,
-                    );
-                }
+            // Pinned by pages/lt-uj-outside-leads/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
+            for entry in link.entries.iter() {
                 match entry {
                     ir::LinkEntry::Field(pf, hf) => {
                         fields.push(*pf);

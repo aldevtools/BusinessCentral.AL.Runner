@@ -177,19 +177,15 @@ impl Session {
                 .collect()
         };
         let (ext_before, ext_after) = (ext_validate("onbeforevalidate"), ext_validate("onaftervalidate"));
-        if !ext_before.is_empty() || !ext_after.is_empty() {
-            if !rec_bound {
-                return unsupported("OnBeforeValidate/OnAfterValidate on a control bound to a variable (not pinned)");
-            }
-            // With a table OnValidate: the table's validation (its events and OnValidate) first, then the page's
-            // OnBeforeValidateEvent, OnBeforeValidate, the control's OnValidate, OnAfterValidate, the page's OnAfterValidateEvent
-            // (misc/lt-probes-needed-2/PnBPages.al:185 ModifyValidateTriggers_AroundTableOnValidate `Name.OnValidate:2,E1.Name.Before,
-            // E1.Name.After`; corpus writer TT's branch al-runtime-rs-staging-tt, pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al
-            // TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; assumption `page-ext-validate-table-onvalidate`).
-            if self.control_field(st, idx).is_some_and(|f| f.on_validate.is_some()) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtValidateTableOnValidate);
-            }
+        if (!ext_before.is_empty() || !ext_after.is_empty()) && !rec_bound {
+            return unsupported("OnBeforeValidate/OnAfterValidate on a control bound to a variable (not pinned)");
         }
+        // With a table OnValidate: the table's validation (its events and OnValidate) first, then the page's
+        // OnBeforeValidateEvent, OnBeforeValidate, the control's OnValidate, OnAfterValidate, the page's OnAfterValidateEvent
+        // (misc/lt-probes-needed-2/PnBPages.al:185 ModifyValidateTriggers_AroundTableOnValidate `Name.OnValidate:2,E1.Name.Before,
+        // E1.Name.After`; corpus writer TT's branch al-runtime-rs-staging-tt, pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al
+        // TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; former assumption `page-ext-validate-table-onvalidate` (pinned on corpus master since bump 1030)).
+        // Pinned by pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents (was assumption `page-ext-validate-table-onvalidate`).
         let caption = self.control_caption(st, idx)?;
         let fmt = al_builtins::pagefmt::ControlFormat {
             work_date: self.work_date_day(),

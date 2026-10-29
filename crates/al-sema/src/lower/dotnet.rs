@@ -83,9 +83,7 @@ impl Lowerer<'_> {
             let ctor = ty.is_some_and(|i| self.ws.dotnet[i].decl.alias.eq_ignore_ascii_case(name))
                 || simple.eq_ignore_ascii_case(name);
             if ctor || name.eq_ignore_ascii_case("Create") || name.eq_ignore_ascii_case("MachineName") {
-                if name.eq_ignore_ascii_case("Create") {
-                    self.assume(al_builtins::assumptions::Assumption::RunOnClientStaticCreate);
-                }
+                // Pinned by tests/al-language-onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al TY_RunOnClient_GuiAllowedGuard_CameraCreate (was assumption `run-on-client-create`).
                 let key = format!("{why}: {name}");
                 self.run_failures.insert(
                     key.clone(),

@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// What a Blob field holds.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BlobBuf {
     pub bytes: Vec<u8>,
     /// Where the most recent `OutStream` on this buffer writes next. `CreateOutStream` sets it to 0.
@@ -53,6 +53,10 @@ pub struct BlobBuf {
     /// such a Blob of the same record is refused (misc/lt-probes-needed-5/PnE06Media.al:66-84 against streams/
     /// lt-stream-read-write-media/P102Media.al:24-41, see `refuse_media_import_from_own_blob` in al-vm).
     pub inserted: bool,
+    /// A temporary table's `Insert` stored this buffer, which held content then, as the row's own Blob, and no stream was
+    /// created on it since: the next `CreateOutStream` on the record writes to a copy, and the row keeps its content
+    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_Direct).
+    pub temp_inserted: bool,
     /// The buffer is the unloaded copy a read of a database row handed out (`copy_blob_db_row`): the first stream write
     /// after `CreateOutStream` replaces the stored content (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222-350).
     pub db_row: bool,
@@ -311,6 +315,7 @@ pub fn new_blob() -> BlobRef {
         written: false,
         render_pending: None,
         inserted: false,
+        temp_inserted: false,
         db_row: false,
         first_write_truncates: false,
         file: false,
@@ -339,6 +344,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         written: false,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
+        temp_inserted: false,
         db_row: false,
         first_write_truncates: false,
         file: false,
@@ -684,8 +690,23 @@ pub(crate) fn set_stream(slot: &Value, content: LibraryValue) -> Result<(), Sign
     }
 }
 
-fn blob_create_out(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let enc = Encoding::from_arg(a)?;
+    // A Blob that held content when a temporary table's Insert stored it: the stream writes to a copy, and the stored row
+    // keeps what the Insert stored (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_Direct:
+    // row 1 written `A` and inserted, then written `C` under key 2 and inserted; Get(1) reads `A`). A Blob empty at the
+    // Insert stays the row's own (streams/TestBlobUncommittedWriteIsolation.al:171).
+    if let Some(Value::Blob(b)) = r.as_deref_mut() {
+        let shared = b.borrow().temp_inserted;
+        if shared {
+            b.borrow_mut().temp_inserted = false;
+            if std::sync::Arc::strong_count(b) > 1 {
+                let mut copy = b.borrow().clone();
+                copy.inserted = false;
+                *b = std::sync::Arc::new(BlobCell::new(copy));
+            }
+        }
+    }
     let b = blob_of(r)?;
     {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
@@ -750,6 +771,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         written: false,
         render_pending: None,
         inserted: false,
+        temp_inserted: false,
         db_row: false,
         first_write_truncates: false,
         file: false,

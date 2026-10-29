@@ -195,9 +195,7 @@ impl Session {
         if rows.is_empty() {
             return Ok(false);
         }
-        if list {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListActionRebuildsRows);
-        }
+        // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
         let table = self.table(&rec)?;
         let now = self.row_key(&rec)?;
         // On the List shape Rec left on a later row of a view the window holds whole: the client reads the row, the rows from it
@@ -265,7 +263,7 @@ impl Session {
 
     /// A List with InsertAllowed, ModifyAllowed and DeleteAllowed false: an action that rebuilds its temporary rows is read as on a
     /// temporary Worksheet (pages/lt-uj-outside-leads/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
-    /// branch al-runtime-rs-staging-uj 1dc037a8; assumption `list-action-rebuilds-rows` until the bump).
+    /// branch al-runtime-rs-staging-uj 1dc037a8; former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
     fn temp_list_without_writes(&mut self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
