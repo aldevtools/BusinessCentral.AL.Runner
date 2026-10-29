@@ -1,6 +1,6 @@
 # ADR-057: A debugging API for AI agents
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-29; front end: a CLI and a shipped agent skill in place of MCP)
 - Date: 2026-10-29
 - Related: ADR-048 (`al-runner debug`, the `DebugHook` seam), ADR-030 (value renderer, loop passes), ADR-028 (`serve`),
   ADR-029 (incremental compile), ADR-004 (snapshot store), ADR-006 (core purity), ADR-009 (observable equivalence),
@@ -24,7 +24,7 @@ All features below are in scope (owner, 2026-10-29):
 4. Step back: one statement back, reverse continue to a breakpoint, back N loop passes or to pass K.
 5. Conditional breakpoints, hit counts, log points.
 6. Warm sessions: debugging inside `serve`, with the compile kept and several runs per session.
-7. A front end for agents (a JSON request in `serve` and/or an MCP server), and DAP kept for editors.
+7. A front end for agents (a JSON request in `serve`, a command line over it and an agent skill), and DAP kept for editors.
 
 ### What exists today
 
@@ -162,7 +162,7 @@ All features below are in scope (owner, 2026-10-29):
    - globals of any object instance on the stack, and of SingleInstance codeunits;
    - fields of a record variable (the buffer only: no `Validate`, no trigger);
    - filters, key and `MarkedOnly` of a record variable;
-   - rows of the database (recommended, see open question 2): insert, modify and delete of one row, raw, with no
+   - rows of the database (owner decision 2): insert, modify and delete of one row, raw, with no
      trigger and no event, inside the session's open transaction, so they roll back with it.
 2. **Values** are given as JSON in the form the renderer writes (section 2) and converted with the AL conversion
    rules of the target type. A value that does not convert is refused with the conversion error.
@@ -327,11 +327,15 @@ store alone (re-execution still needed for the session), behind the same interfa
 
    Every error is `{"error": "<reason>"}` and leaves the session stopped where it was.
 
-2. **MCP server (recommended, after serve).** `al-runner mcp` speaks the Model Context Protocol on stdin and stdout.
-   Each serve debug command is one MCP tool with the same fields (`debug_run_to`, `debug_step`, `debug_step_back`,
-   `debug_evaluate`, `debug_set`, `debug_rows`, `debug_continue`, `debug_end`), plus `run_tests`. It is a thin
-   adapter over the same handler as serve, with a small JSON-RPC layer written in the repository (no new
-   dependency). See open question 3.
+2. **Command line and an agent skill (owner, 2026-10-29: in place of an MCP server).** `al-runner debug-session`
+   gives each serve debug command a subcommand with the same fields as flags, and prints the same JSON on stdout:
+   `start` (starts or reuses a warm serve process for the apps and prints a session id), `run-to`, `step`,
+   `step-back`, `continue`, `evaluate`, `set`, `rows`, `breakpoints`, `restart` and `end`, each taking
+   `--session ID`. An agent drives a debug session with plain shell commands, one command per action, and needs no
+   protocol client. The release ships a skill file (`docs/agents/debug-skill/SKILL.md`, also in the release
+   archive): when to debug, the commands in the order an agent uses them, how to read a snapshot, what is refused,
+   and that a test changed by the debugger is never a pass. A test checks every command named in the skill against
+   `al-runner debug-session --help`.
 3. **DAP stays for editors.** Each feature maps to DAP where DAP has a request:
 
    | Feature | DAP |
@@ -383,7 +387,7 @@ serve wires gain requests; nothing existing changes meaning. This ADR records th
 | 2 | Serve debug sessions and the one-shot `debug` request with `until` and `snapshot`; database rows; pure expression evaluation (compile at a stop, allow-list, fingerprint); conditions, hit counts, log points in serve and DAP | 7 |
 | 3 | Change values: `Resume::Act`, `debugSet`, `setVariable`, `setExpression`, row changes, `changedByDebugger` in every report and the exit code | 3 |
 | 4 | Step back: step numbers, re-execution from the codeunit start, divergence hash, refusals, loop passes, `stepBack`, `reverseContinue`, `rewindLoop`, `restartFrame`, `runToStep`, timelines with changes, evaluation on a fork; measure `rewindMs` on the corpus and on a Microsoft test bucket | 7 |
-| 5 | MCP adapter; data breakpoints | 3 |
+| 5 | `al-runner debug-session` command line, the shipped agent skill and its check; data breakpoints | 3 |
 
 Total about 24 agent-days. Order: 1, 2, 3, 4, 5. Each phase is useful alone, and each later phase builds on the one
 before (changes need the expression and target resolution of phase 2; timelines need the changes of phase 3).
@@ -419,16 +423,13 @@ before (changes need the expression and target resolution of phase 2; timelines 
 - The extended equivalence test of section 8.1, on the fixture app and (ignored) on any app.
 - The ADR-031 VM speed budget for the plain form.
 
-## Open questions for the owner
+## Owner decisions (2026-10-29)
 
-1. **Step back by re-execution (a).** Accept re-execution from the codeunit start as the only mechanism, with store
-   snapshots (b) only if `rewindMs` measured in phase 4 is too slow? Recommended: yes.
-2. **Database rows.** May the debugger insert, modify and delete rows (raw, no triggers, rolled back with the
-   transaction, test marked as changed)? Recommended: yes. The other choice is read-only rows.
-3. **MCP.** Ship `al-runner mcp` as a thin adapter over the serve commands (recommended, phase 5), or serve JSON only?
-4. **Exit code of a changed test.** A pass changed by the debugger gives exit code 1 (recommended), or a new exit
-   code of its own?
-5. **The .NET helper and step back.** Refuse step back after any call into the .NET helper process (recommended), or
-   allow it when every such call is on a list of members known to answer the same each time?
-6. **Order.** Phases as listed (stop on error and records, then serve and evaluation, then changes, then step back,
-   then MCP)? Recommended: yes.
+1. **Step back by re-execution (a)** only. Store snapshots (b) are added later only if `rewindMs` measured in phase 4
+   is too slow.
+2. **Database rows:** the debugger may insert, modify and delete rows (raw, no triggers, rolled back with the
+   transaction, test marked as changed).
+3. **Front end:** no MCP server. A command line over the serve debug commands and a shipped agent skill (section 7).
+4. **Exit code:** a pass changed by the debugger gives exit code 1.
+5. **The .NET helper:** step back is refused after any call into the .NET helper process (no list of members).
+6. **Order:** phases 1 to 5 as listed.
