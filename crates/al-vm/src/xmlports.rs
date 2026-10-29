@@ -624,6 +624,26 @@ impl Session {
                 n.name
             ));
         }
+        // A second Import on an instance that imported reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run
+        // again, also after SetSource on the same or a new stream, with or without Codeunit.Run (xmlport/lt-xmlport-query-datatransfer/XpTStaticAndInstance.al:74 Instance_ImportTwiceSameSource:
+        // nothing stored again; QrXpContainerOccurs.al
+        // TT_ImportTwice_SameSource, _SameStreamAgain, _NewSourceOtherRows, _NewSourceSameRows, _Direct on corpus writer TT's
+        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-again`). Pinned for an unguarded XML import after one that
+        // succeeded; the rest is refused.
+        if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
+            if guarded || schema.xp().format != ir::XmlFormat::Xml {
+                return unsupported(
+                    "a second Import on the same XmlPort instance, guarded or of a Format other than Xml (not pinned)",
+                );
+            }
+            if inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORT_FAILED) {
+                return unsupported(
+                    "a second Import on the same XmlPort instance after an Import that failed (not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportAgain);
+            return Ok(Value::Null);
+        }
         if guarded {
             // A guarded import needs a transaction world of its own, which BC refuses to open
             // while the caller holds an uncommitted write; the static form turns the refusal
@@ -654,6 +674,9 @@ impl Session {
         self.tx.tx_world += 1;
         let result = self.xp_import_document(inst, schema);
         self.tx.tx_world -= 1;
+        if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
+            inst.borrow_mut().xp_text.push((XP_IMPORT_FAILED, String::new()));
+        }
         // A Quit ends the import with the records stored so far kept (P112_Import_Quit); `xp_run` reads the request.
         let result = match result {
             Err(Signal::Exit(None)) if Self::xp_flow(inst) == Some(Flow::Quit) => Ok(()),
@@ -698,16 +721,8 @@ impl Session {
             Some(t) => t,
             None => self.xp_read_source(inst, xp)?,
         };
-        // A second Import on the same instance whose source an earlier Import read to its end: what BC does is not pinned.
-        let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED);
-        if text.is_empty() && again {
-            return unsupported(
-                "a second Import on the same XmlPort instance whose source an earlier Import read to its end (not pinned)",
-            );
-        }
-        if !again {
-            inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
-        }
+        // `xp_import` answers a second Import before it gets here.
+        inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
         // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_MalformedXml_Throws
         if text.is_empty() {
             return Err(xerr(
@@ -931,7 +946,25 @@ impl Session {
         let LibraryValue::InStream(st) = &mut *g else {
             return unsupported("XmlPort import without SetSource (a file dialog is not supported)");
         };
-        let bytes = st.drain();
+        // An XML import reads the whole stream, also one read to its end before SetSource, and leaves its read position where it
+        // was (QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource `source at end` No, on corpus writer TT's
+        // branch al-runtime-rs-staging-tt; assumption `xmlport-import-whole-source`). From a position inside the stream it is not
+        // pinned. A text-format import takes the bytes from the read position on (as before those pins).
+        let bytes = if xp.format == ir::XmlFormat::Xml {
+            let (pos, len) = (st.pos, st.len());
+            if pos != 0 && pos < len {
+                return unsupported("XmlPort import of a source stream read partly before (not pinned)");
+            }
+            if pos != 0 {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportImportWholeSource);
+            }
+            st.pos = 0;
+            let all = st.rest();
+            st.pos = pos;
+            all
+        } else {
+            st.drain()
+        };
         if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
             let units: Vec<u16> = rest.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
             return utf16_declared_utf8(String::from_utf16_lossy(&units));
@@ -3062,6 +3095,24 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // `attrs_over_unlinked`: always written, its text attributes (an empty Required one as `attr=""`) and then the inner
+                // text element, which holds the rows of the inner table, or that table once with the record as it stands when it
+                // has none (QrXpContainerOccurs.al TT_Change_Export_TwoRows, _OneRow, _TokenNoRows, _Error on corpus writer TT's
+                // branch al-runtime-rs-staging-tt: `<Ticket ChangeRequestToken="" Kind="K"><Admissions><Admission Code="">...`).
+                // Its own text is not pinned.
+                ir::XmlNodeKind::Text if attrs_over_unlinked(schema, child, node) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAttrsOverUnlinked);
+                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
+                        return unsupported(
+                            "XmlPort export of a text element with text attributes over a text element that holds a table element, with its own text (not pinned)",
+                        );
+                    }
+                    let e = self.xp_export_container(inst, schema, child)?;
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
                         && !linked_container(schema, child, node)
@@ -3293,9 +3344,16 @@ impl Session {
         } else if rows.is_empty() && n.link_node.is_some() {
             // An optional linked element without rows passes no field (XmlPortTriggerFlow.al:353 Export_TriggerOrder_EmptyTables:
             // `Chi.PreXmlItem count=0` and no `Chi.Id.BeforePassField`).
+        } else if rows.is_empty() && !n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table) {
+            // An optional element that is not linked and not below another table element runs no trigger of its nodes without rows:
+            // only its OnPreXmlItem ran (corpus writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
+            // TT_Optional_Unlinked_NoRows: `pre opt;` and no `pass opt no;`; assumption `xmlport-optional-no-rows`).
+            if export_triggers_below(schema, node) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportOptionalNoRows);
+            }
         } else if rows.is_empty() {
             // P94XpPathFlow.al:Export_PathsNoRows pins the empty pass for an element that is not optional only; for an optional
-            // element that is not linked, whether its fields are passed is not pinned.
+            // element below another table element that is not linked, whether its fields are passed is not pinned.
             let passes = schema.children(node).into_iter().any(|c| {
                 let k = schema.node(c);
                 matches!(k.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
@@ -3305,19 +3363,6 @@ impl Session {
                 return unsupported(
                     "XmlPort export of an optional table element without rows whose fields have OnBeforePassField (not pinned)",
                 );
-            }
-            for child in schema.children(node) {
-                if matches!(
-                    schema.node(child).kind,
-                    ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr
-                ) {
-                    match self.xp_site(inst, schema, child, "onbeforepassfield") {
-                        Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(out),
-                        other => {
-                            other?;
-                        }
-                    }
-                }
             }
         }
         for row in rows {
@@ -3706,6 +3751,8 @@ const XP_VIEW_GROUP: i32 = crate::reports::ITEM_VIEW_GROUP;
 const XP_EXPORTED: u8 = 14;
 /// The `Instance::xp_text` kind that says an Import read the source of the instance.
 const XP_IMPORTED: u8 = 15;
+/// The `Instance::xp_text` kind that says an Import of the instance ended in an error.
+const XP_IMPORT_FAILED: u8 = 16;
 
 /// Whether node `node` or a node below it has a trigger an export runs.
 fn export_triggers_below(schema: &Schema, node: usize) -> bool {
@@ -3881,6 +3928,41 @@ fn default_unlinked_container(schema: &Schema, c: usize, table: usize) -> bool {
         && t.min_zero
         && t.max_unbounded == Some(false)
         && !schema.children(inner).is_empty()
+}
+
+/// For export only: a text element without triggers, with `MinOccurs = Zero` and `MaxOccurs = Once`, right below a temporary table
+/// element with `MaxOccurs = Once`, holding one or more text attributes and then one text element without triggers, with
+/// `MinOccurs = Zero` and `MaxOccurs = Once`, that holds only one temporary table element without LinkTable with `MinOccurs = Once`
+/// and `MaxOccurs = Unbounded` (assumption `xmlport-attrs-over-unlinked`; corpus writer TT's branch al-runtime-rs-staging-tt,
+/// QrXpContainerOccurs.al TT_Change_Export_*, xmlport 90104 in TtXpObjects.al: `Ticket` > `Admissions` > `Admission`).
+fn attrs_over_unlinked(schema: &Schema, c: usize, table: usize) -> bool {
+    let n = schema.node(c);
+    let tn = schema.node(table);
+    let kids = schema.children(c);
+    let Some((&inner, attrs)) = kids.split_last() else {
+        return false;
+    };
+    let optional_once = |k: &ir::XmlNode| k.triggers.is_empty() && k.min_zero && k.max_unbounded == Some(false);
+    let i = schema.node(inner);
+    let [t] = schema.children(inner)[..] else {
+        return false;
+    };
+    let t = schema.node(t);
+    n.kind == ir::XmlNodeKind::Text
+        && n.parent == Some(table)
+        && tn.kind == ir::XmlNodeKind::Table
+        && tn.use_temporary
+        && tn.max_unbounded == Some(false)
+        && optional_once(n)
+        && !attrs.is_empty()
+        && attrs.iter().all(|&a| schema.node(a).kind == ir::XmlNodeKind::TextAttr)
+        && i.kind == ir::XmlNodeKind::Text
+        && optional_once(i)
+        && t.kind == ir::XmlNodeKind::Table
+        && t.link_node.is_none()
+        && t.use_temporary
+        && !t.min_zero
+        && t.max_unbounded == Some(true)
 }
 
 /// What the import of `text` into a Guid field with `FormatEvaluate = Xml` gives.

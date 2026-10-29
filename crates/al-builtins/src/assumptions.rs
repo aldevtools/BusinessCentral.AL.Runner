@@ -667,6 +667,21 @@ registry! {
         tests: "No Microsoft test: a partner app's EFT tests overwrite a stored key with SetEncrypted after a Commit.",
         probe: "The SetEncrypted forms of TO_IsoOverwrite_OutsideWriteTransaction (left out of the corpus: the Linux CI containers have no encryption key), run on a Windows BC.",
     },
+    XmlportAttrsOverUnlinked => {
+        id: "xmlport-attrs-over-unlinked",
+        assumed: "XmlPort export of a text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) right below a temporary table element with MaxOccurs = Once, holding text attributes and then one text element (MinOccurs = Zero, MaxOccurs = Once, no triggers) over one temporary table element without LinkTable (MinOccurs = Once, MaxOccurs = Unbounded): both text elements are always written, the attributes first (an empty Required one as attr=\"\"), then the rows of the inner table, or that table once with the record as it stands when it has none (no OnAfterGetRecord). Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts (a ticket change reply with its admissions).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Change_Export_*; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TwoRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_TokenNoRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Change_Export_Error",
+            ],
+            since: "2026-10-29",
+        },
+    },
     XmlportExportAgain => {
         id: "xmlport-export-again",
         assumed: "A table element record after an export under its SourceTableView holds the last row the export read (with its SystemId), the view's key, the filters the code set, and the view's filters in a filter group GetView does not show (Count counts through them). Field reads, Count, GetView(false), SetCurrentKey, SetRange and SetFilter in filter group 0, Init (primary key kept, SystemId null), TransferFields(From, true) from the same table (SystemId not copied) and an assignment to it (SystemId copied) run on it; Reset gives it the primary key and no filters. A later Export on the same instance reads every table element from the start, keeps each record's current key and applies the SourceTableView filters again; a required table element without rows writes its record as it is. A MaxOccurs = Once table element with export triggers and three or more rows writes the first with one OnAfterGetRecord (the row its record holds afterwards is refused). Pinned only by corpus writer TS's run on real BC, not yet on corpus master.",
@@ -744,6 +759,62 @@ registry! {
             files: &[
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Export",
                 "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TS_RootOnce_Import",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportImportAgain => {
+        id: "xmlport-import-again",
+        assumed: "A second Import on an XmlPort instance whose first Import succeeded (unguarded, Format = Xml) reads nothing and stores nothing: only OnPreXmlPort and OnPostXmlPort run again (not OnInitXmlPort), also after SetSource on the same or a new stream, with or without Codeunit.Run. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP handler that imports the port it was handed again (loyalty points).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_ImportTwice_*; wanted: the bump that puts them on corpus master. Open: a guarded second Import, one after a failed Import, and text formats.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameStreamAgain",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceOtherRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_NewSourceSameRows",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_Direct",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportImportWholeSource => {
+        id: "xmlport-import-whole-source",
+        assumed: "An XML import reads the whole source stream, also when the stream was read to its end before SetSource, and leaves the stream's read position where it was. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP handler that reads the request stream before it imports it.",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Import_SourceReadBefore, TT_ImportTwice_SameSource; wanted: the bump that puts them on corpus master. Open: a stream read partly before the import.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Import_SourceReadBefore",
+                "tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_ImportTwice_SameSource",
+            ],
+            since: "2026-10-29",
+        },
+    },
+    XmlportOptionalNoRows => {
+        id: "xmlport-optional-no-rows",
+        assumed: "XmlPort export of an optional table element (MinOccurs = Zero) without LinkTable that is not below another table element, without rows: only its OnPreXmlItem runs; no OnBeforePassField or OnBeforePassVariable of its nodes runs and nothing is written. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's SOAP reply XmlPorts.",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows; wanted: the bump that puts it on corpus master. Open: the same below another table element.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al::TT_Optional_Unlinked_NoRows"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtValidateTableOnValidate => {
+        id: "page-ext-validate-table-onvalidate",
+        assumed: "A SetValue on a page control with OnBeforeValidate or OnAfterValidate in a page extension's modify block, whose field has a table OnValidate: the table's validation (its OnBeforeValidateEvent, OnValidate, OnAfterValidateEvent) runs first, then the page's OnBeforeValidateEvent, the modify OnBeforeValidate, the control's OnValidate, the modify OnAfterValidate and the page's OnAfterValidateEvent. Pinned only by corpus writer TT's run on real BC, not yet on corpus master.",
+        tests: "No Microsoft test: a partner app's page extension tests (a variety matrix on a transfer order).",
+        probe: "Done on writer TT's branch al-runtime-rs-staging-tt: pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; wanted: the bump that puts them on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order",
+                "tests/al-language/pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al::TT_TableOnValidate_Order_WithEvents",
             ],
             since: "2026-10-29",
         },
