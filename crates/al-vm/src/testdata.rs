@@ -558,6 +558,15 @@ impl TestBacking {
                 })?;
                 if let (Kind::RowVersion, Cell::RowVersion(v)) = (&m.kind, cell) {
                     self.data.stats.note_row_version(*v);
+                    // The session's row versions start after the database's last one (`Session::with_host`): a row above
+                    // it would sort after rows the session writes, which BC never does.
+                    if let Some(last) = self.data.provider.last_row_version()
+                        && *v > last
+                    {
+                        return Err(format!(
+                            "a row's timestamp {v} is above the database's last row version {last}"
+                        ));
+                    }
                 }
             }
             if let Some(i) = numbered {

@@ -166,11 +166,6 @@ pub fn find(object: &str, name: &str, params: &[String]) -> Option<&'static Entr
     })
 }
 
-/// The implementation registered under `id`.
-pub fn lookup_by_scan(id: &str) -> Option<NativeFn> {
-    TABLE.iter().find(|e| e.id == id).map(|e| e.run)
-}
-
 /// Every entry, in table order.
 pub fn entries() -> impl Iterator<Item = (&'static str, NativeFn)> {
     TABLE.iter().map(|e| (e.id, e.run))

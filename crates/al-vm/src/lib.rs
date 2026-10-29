@@ -709,6 +709,9 @@ pub struct Session {
     /// The highest SystemRowVersion install code gave a row (`Session::mark_install_end`): a row at or below it was
     /// written by install code (ADR-046 amendment 1, A2 item d).
     pub(crate) install_row_version: i64,
+    /// The last row version of the restored database (`TableProvider::last_row_version`), 0 without one: the session's
+    /// counter starts there, and rows at or below it are restored rows, not install code's.
+    pub(crate) restored_row_version: i64,
     /// `SessionId()` of an install session, which is not the test session (ADR-046 amendment 1, A4 item 1).
     session_id_override: Option<i32>,
     /// Last AutoIncrement value handed out per table (and company). It is not part of the
@@ -940,6 +943,13 @@ impl Session {
             store = store.with_backing(Rc::new(testdata::TestBacking::new(&engine, td.clone())));
         }
         let sequences = restored_sequences(&engine, &company);
+        // A restored database hands out row versions after its own: every row a session writes sorts after the restored
+        // rows, as on BC, where the counter is database wide (`TableProvider::last_row_version`).
+        let restored_row_version = engine
+            .test_data
+            .as_ref()
+            .and_then(|td| td.provider.last_row_version())
+            .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
         al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
         let mut session = Session {
             global_language: host.identity.global_language(),
@@ -977,9 +987,10 @@ impl Session {
             reseeded_in_test: false,
             inherited_draws: 0,
             unseeded_randomizes: 0,
-            next_row_version: 0,
+            next_row_version: restored_row_version,
             deletes: 0,
-            install_row_version: 0,
+            install_row_version: restored_row_version,
+            restored_row_version,
             session_id_override: None,
             autoinc: Default::default(),
             truncate_undo: Default::default(),
@@ -1048,7 +1059,10 @@ impl Session {
             part_sync_keeps_same_link: false,
             dotnet: Default::default(),
             application_areas: String::new(),
-            tx: TxState::fresh(),
+            tx: TxState {
+                committed_row_version: restored_row_version,
+                ..TxState::fresh()
+            },
             ui_state: UiState {
                 scope: None,
                 page_handler_depth: 0,
@@ -1155,8 +1169,8 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
+        self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
-        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
@@ -1252,8 +1266,8 @@ impl Session {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
+        self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
-        self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
@@ -1541,12 +1555,12 @@ impl Session {
     /// value it has now (LastUsedRowVersion() + 1) until the codeunit ends, through Insert, Modify and Commit (corpus
     /// platform/lt-platform-members/PlTRowVersionValue.al:157-226, TV_MinimumActiveRowVersion_AcrossInsertModifyCommit,
     /// and 228-264, _ReadOnlyAfterCommittedWrite: `min = start` after each step, the rows written not below it). Nothing
-    /// is frozen while the session holds rows it has not committed, nor over test data: the rows of a restored backup
-    /// keep the row versions they had there, above the session's counter, which they do not move.
+    /// is frozen while the session holds rows it has not committed, nor over test data whose last row version is not
+    /// known (a configuration package, a `.bacpac`): its rows would sort after the session's own.
     pub fn freeze_min_active_row_version(&mut self) {
         self.iso_min_unpinned = false;
         // With no row version handed out yet LastUsedRowVersion() reports 1 while the first row gets 1: nothing is frozen.
-        self.iso_min_row_version = (self.engine.test_data.is_none()
+        self.iso_min_row_version = ((self.engine.test_data.is_none() || self.restored_row_version > 0)
             && self.tx.committed_row_version > 0
             && self.tx.tx_phase != crate::transactions::TX_WRITE
             && self.tx.committed_row_version == self.next_row_version)

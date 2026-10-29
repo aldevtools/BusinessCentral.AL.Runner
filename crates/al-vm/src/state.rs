@@ -43,8 +43,6 @@ pub(crate) struct TxState {
     pub(crate) rolled_back: bool,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
-    /// A Record read ran after the open transaction wrote a row: `LastUsedRowVersion` is then not pinned.
-    pub(crate) read_after_write: bool,
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
     /// called: the table (object index) and the error come out at the next access to the table
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
@@ -61,6 +59,11 @@ pub(crate) struct TxState {
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
+    /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
+    /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
+    /// version), the highest row version a sent write holds, how many database row versions were handed out and how
+    /// many of them an Insert or Modify accounts for, and why the value is not pinned.
+    pub(crate) row_versions: RowVersionTx,
     /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
     /// Modify are not writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
@@ -89,6 +92,17 @@ pub(crate) enum TxWriteKind {
     Rename,
     /// A ModifyAll, DeleteAll, Truncate or another Rename: its own writes are not told apart.
     Other,
+}
+
+/// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`TxState::row_versions`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RowVersionTx {
+    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64)>,
+    pub(crate) sent: i64,
+    pub(crate) handed_out: u64,
+    pub(crate) accounted: u64,
+    pub(crate) last: i64,
+    pub(crate) unpinned: Option<&'static str>,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
@@ -120,7 +134,6 @@ impl TxState {
             writes: Vec::new(),
             find_set_tables: Vec::new(),
             isolation_lock: false,
-            read_after_write: false,
             rolled_back: false,
             last_commit_wrote: false,
             deferred_insert: None,
@@ -128,6 +141,7 @@ impl TxState {
             immediate_errors: false,
             try_depth: 0,
             used_tries: Vec::new(),
+            row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
             inconsistent: Vec::new(),
             lock_tx: false,

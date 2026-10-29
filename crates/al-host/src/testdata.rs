@@ -206,6 +206,12 @@ pub trait TableProvider: Send + Sync {
     fn sequences(&self) -> Vec<TestSequence> {
         Vec::new()
     }
+    /// The last row version the database handed out (SQL Server's `@@DBTS` when the backup was taken), at or above the
+    /// `timestamp` of every row it holds: a restored session hands out row versions after it. `None` when the source
+    /// does not hold it (a `.bacpac`, a configuration package). Additive.
+    fn last_row_version(&self) -> Option<u64> {
+        None
+    }
 }
 
 type Read = Result<Arc<TableRows>, TableError>;
