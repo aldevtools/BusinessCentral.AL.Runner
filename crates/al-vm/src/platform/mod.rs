@@ -16,6 +16,7 @@ pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 pub(crate) mod coverage;
 mod date;
 mod fields;
+pub(crate) use fields::user_name_system_field;
 mod host_tables;
 pub(crate) use host_tables::culture_name;
 pub(crate) use host_tables::time_zone_get_refusal;
@@ -32,6 +33,7 @@ pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
 mod seed;
+pub(crate) use seed::SESSION_USER_FULL_NAME;
 
 use crate::Engine;
 use al_builtins::describe::Describe;

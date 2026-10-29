@@ -91,6 +91,12 @@ impl Session {
                 // A FieldRef nobody assigned raises before anything opens (pages/lt-page-run-overloads-testpart/P106RunErrors.al:
                 // P106_Err_FieldRefVariants, observation 'uninitialized').
                 if let Some(Value::Library(_, lib)) = args.get(2) {
+                    if matches!(
+                        &*lib.borrow(),
+                        al_builtins::value::LibraryValue::UserNameFieldRef { .. }
+                    ) {
+                        return unsupported("Page.Run with a FieldRef to a user-name system FlowField (not pinned)");
+                    }
                     if !matches!(
                         &*lib.borrow(),
                         al_builtins::value::LibraryValue::FieldRef(..)

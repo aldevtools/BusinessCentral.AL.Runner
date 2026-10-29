@@ -16567,7 +16567,7 @@
         "code": "DB:NoFilter",
         "file": "crates/al-vm/src/recmeta.rs",
         "generic": false,
-        "line": 449,
+        "line": 454,
         "pinned": true,
         "site": "fieldref/lt-range-min-max-types/RangeMinMaxTypes.al:204",
         "template": "Specify a filter for the % field in the % table."
@@ -16630,7 +16630,7 @@
         "code": "IndexOutOfBounds",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1205,
+        "line": 1210,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds."
@@ -16639,7 +16639,7 @@
         "code": "DB:KeyNotFound",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1225,
+        "line": 1230,
         "pinned": true,
         "site": "recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:103",
         "template": "The % table does not have an active key at index %."
@@ -16648,7 +16648,7 @@
         "code": "KeyRef.{other}",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1353,
+        "line": 1358,
         "pinned": true,
         "site": "collections/lt-array-rows/ArrayRows.al:185",
         "template": "Index out of bounds"
@@ -16657,7 +16657,7 @@
         "code": "NotInitialized",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1373,
+        "line": 1381,
         "pinned": true,
         "site": "misc/lt-probes-needed-4/PnD05_UnassignedFieldRef.al:42",
         "template": "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized."
@@ -16666,7 +16666,7 @@
         "code": "Argument",
         "file": "crates/al-vm/src/refs.rs",
         "generic": false,
-        "line": 1464,
+        "line": 1472,
         "pinned": true,
         "site": "misc/lt-probes-needed-2/PnBDateFormat.al:404",
         "template": "The supplied value is not valid."

@@ -133,6 +133,11 @@ impl Session {
                 al_builtins::value::LibraryValue::RecordRef(r) => (r.clone(), None),
                 al_builtins::value::LibraryValue::FieldRef(r, p)
                 | al_builtins::value::LibraryValue::KeyFieldRef(r, p) => (r.clone(), Some(*p)),
+                al_builtins::value::LibraryValue::UserNameFieldRef { .. } => {
+                    return Some(Err(Signal::Unsupported(
+                        "Format of a FieldRef to a user-name system FlowField (not pinned)".into(),
+                    )));
+                }
                 _ => return None,
             },
             _ => return None,

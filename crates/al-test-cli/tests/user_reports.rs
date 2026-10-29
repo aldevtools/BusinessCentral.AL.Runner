@@ -1110,3 +1110,67 @@ codeunit 69644 T {
 }";
     all_pass(run_with_deps(&[], objects));
 }
+
+/// Issue 6177: `RecordRef.Field` reaches the user-name system FlowFields (SystemCreatedByUserName 2000000005,
+/// SystemCreatedByFullName 2000000006, SystemModifiedByUserName 2000000007, SystemModifiedByFullName 2000000008):
+/// class FlowField, and after `CalcField` the user name fields hold `UserId()` and the full name fields the User row's
+/// Full Name (not blank, not the user name) on a normal record; all four are blank on a temporary record. Pin:
+/// system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord).
+const ISSUE_6177_OBJECTS: &str = "
+table 69650 \"UR Un Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 69651 T {
+    Subtype = Test;
+
+    local procedure Collect(var RecRef: RecordRef): Text
+    var
+        FldRef: FieldRef;
+        No: Integer;
+        Res: Text;
+    begin
+        for No := 2000000005 to 2000000008 do begin
+            FldRef := RecRef.Field(No);
+            if FldRef.Class() = FieldClass::FlowField then
+                FldRef.CalcField();
+            Res += '[' + Format(FldRef.Number()) + '|' + Format(FldRef.Class()) + '|' + Format(FldRef.Type()) + '|' + Format(FldRef.Length())
+                + '|user=' + Format(Format(FldRef.Value()) = UserId()) + '|blank=' + Format(Format(FldRef.Value()) = '') + ']';
+        end;
+        exit(Res);
+    end;
+
+    [Test]
+    procedure NormalRecord()
+    var
+        Row: Record \"UR Un Row\";
+        RecRef: RecordRef;
+        Res: Text;
+    begin
+        Row.Id := 1;
+        Row.Insert();
+        Row.Get(1);
+        RecRef.GetTable(Row);
+        Res := Collect(RecRef);
+        if Res <> '[2000000005|FlowField|Text|50|user=Yes|blank=No][2000000006|FlowField|Text|80|user=No|blank=No][2000000007|FlowField|Text|50|user=Yes|blank=No][2000000008|FlowField|Text|80|user=No|blank=No]' then
+            Error('got %1', Res);
+    end;
+
+    [Test]
+    procedure TemporaryRecord()
+    var
+        Row: Record \"UR Un Row\" temporary;
+        RecRef: RecordRef;
+        Res: Text;
+    begin
+        Row.Id := 1;
+        Row.Insert();
+        Row.Get(1);
+        RecRef.GetTable(Row);
+        Res := Collect(RecRef);
+        if Res <> '[2000000005|FlowField|Text|50|user=No|blank=Yes][2000000006|FlowField|Text|80|user=No|blank=Yes][2000000007|FlowField|Text|50|user=No|blank=Yes][2000000008|FlowField|Text|80|user=No|blank=Yes]' then
+            Error('got %1', Res);
+    end;
+}";
+
+#[test]
+fn issue_6177_user_name_system_flow_fields_through_record_ref() {
+    all_pass(run_with_deps(&[], ISSUE_6177_OBJECTS));
+}

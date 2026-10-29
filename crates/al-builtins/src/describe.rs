@@ -143,7 +143,9 @@ impl Describe for LibraryValue {
             LibraryValue::Empty => "an untouched handle".into(),
             LibraryValue::Text(_) | LibraryValue::TextCap(..) => "a text handle".into(),
             LibraryValue::RecordRef(_) => "RecordRef".into(),
-            LibraryValue::FieldRef(..) | LibraryValue::KeyFieldRef(..) => "FieldRef".into(),
+            LibraryValue::FieldRef(..) | LibraryValue::KeyFieldRef(..) | LibraryValue::UserNameFieldRef { .. } => {
+                "FieldRef".into()
+            }
             LibraryValue::KeyRef(..) => "KeyRef".into(),
             LibraryValue::SystemTable(n) => format!("RecordRef on system table {n}"),
             LibraryValue::RecordId { .. } => "RecordId".into(),
