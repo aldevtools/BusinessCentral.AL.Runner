@@ -22,7 +22,7 @@ pure Microsoft.Dynamics.Nav.Types.Base64UrlHelper | spike: runs with no session 
 # A trailing dot classifies a whole namespace. The OpenXml spreadsheet classes work on a stream or a document held in
 # memory; only the file name forms of Create and Open touch the disk (owner decision 2026-10-29: NP Retail's Excel Buffer).
 pure Microsoft.Dynamics.Nav.OpenXml.Spreadsheet. | owner 2026-10-29: in-memory spreadsheet classes
-deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter.Create | creates a file; the stream form is pure
+deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter.Create | creates a file; the stream form is pure (ADR-056 serves the file name form from the in-memory file system before this rule)
 deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter.Open | reads a file; the stream form is pure
 deny-member-with-text Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader.Open | reads a file; the stream form is pure
 # The QR code provider encodes text into a stream. GetBarcode(text) writes a temporary file.

@@ -73,6 +73,9 @@ pub struct DotNetState {
     /// `availability()` of the host, asked once per session.
     available: Option<Result<(), String>>,
     bridges: HashMap<u64, BlobRef>,
+    /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
+    /// writes into instead. `Close` makes the bytes the file.
+    open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -322,6 +325,7 @@ impl Session {
         // XmlDocument.Save of a file there: .NET saves into an AL stream, and the bytes become the file
         // (QxDotNetDemoShapes.al:370-377: what Save writes; Config. XML Exchange.ExportPackageXML).
         let mut save_to = None;
+        let mut open_workbook = None;
         if let (Target::Host(..), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
             (&target, kind, values.as_slice())
             && clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument")
@@ -348,7 +352,8 @@ impl Session {
             && opens_file_by_path(&clr_type, &member, kind)
         {
             let p = p.to_string();
-            if let Err(why) = self.in_memory_file_argument(&clr_type, &member, &p, &mut values, &mut save_to) {
+            let saved = (&mut save_to, &mut open_workbook);
+            if let Err(why) = self.in_memory_file_argument(&clr_type, &member, &p, &mut values, saved) {
                 return unsupported(format!("DotNet {shown}: {why} (ADR-056)"));
             }
         }
@@ -405,6 +410,9 @@ impl Session {
         match reply {
             Ok(r) => {
                 let v = self.apply_reply(r, &book, &places, &shown, f)?;
+                if let Err(why) = self.workbook_effects(&target, &member, open_workbook, &v) {
+                    return unsupported(format!("DotNet {shown}: {why} (ADR-056)"));
+                }
                 if let Some((path, blob)) = save_to {
                     let bytes = blob.borrow().bytes.clone();
                     // A document holding content carried unread (owner decision 2026-10-23 "Carry bytes unread": the
@@ -549,19 +557,28 @@ impl Session {
     }
 
     /// ADR-056: `XmlDocument.Save(path)` saves into an AL stream whose bytes become the file (`save_to`), `XmlDocument.Load(path)`
-    /// reads the file's bytes as a stream, both in the in-memory file system; anything else that opens a file by its path is
-    /// refused. The folder of a saved file must exist, and a loaded file must exist: the .NET exceptions are not pinned.
+    /// reads the file's bytes as a stream, both in the in-memory file system. `WorkbookWriter.Create(path)` and
+    /// `WorkbookReader.Open(path)` take the stream forms of the same classes the same way; the writer's bytes become the file
+    /// when it is closed (`open_workbook`, `workbook_effects`). Anything else that opens a file by its path is refused. The
+    /// folder of a saved file must exist, and a loaded file must exist: the .NET exceptions are not pinned.
     fn in_memory_file_argument(
         &mut self,
         clr_type: &str,
         member: &str,
         path: &str,
         values: &mut [Value],
-        save_to: &mut Option<(String, al_builtins::stream::BlobRef)>,
+        (save_to, open_workbook): (
+            &mut Option<(String, al_builtins::stream::BlobRef)>,
+            &mut Option<(String, al_builtins::stream::BlobRef)>,
+        ),
     ) -> Result<(), String> {
-        let xml = clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") && values.len() == 1;
-        let save = xml && member.eq_ignore_ascii_case("Save");
-        let load = xml && member.eq_ignore_ascii_case("Load");
+        let one = values.len() == 1;
+        let xml = clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") && one;
+        let create_book =
+            one && clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) && member.eq_ignore_ascii_case("Create");
+        let read_book = one && clr_type.eq_ignore_ascii_case(WORKBOOK_READER) && member.eq_ignore_ascii_case("Open");
+        let save = xml && member.eq_ignore_ascii_case("Save") || create_book;
+        let load = xml && member.eq_ignore_ascii_case("Load") || read_book;
         if !self.host.files.in_memory() || !(save || load) {
             return Err("a .NET member that opens a file by its path (it would reach the real disk)".into());
         }
@@ -577,7 +594,7 @@ impl Session {
                 return Err("the folder of the file does not exist in the in-memory file system".into());
             }
             let blob = al_builtins::stream::new_blob();
-            *save_to = Some((path.to_string(), blob.clone()));
+            *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
                 LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default()),
                 al_builtins::library_kind::LibraryKind::OutStream,
@@ -597,6 +614,42 @@ impl Session {
             )),
             al_builtins::library_kind::LibraryKind::InStream,
         );
+        Ok(())
+    }
+
+    /// ADR-056: what a workbook writer does to the in-memory file system. `Create(path)` (`created`: the file and the stream it
+    /// writes into) creates the file, whose content is refused until the writer is closed: .NET has created the file then, and
+    /// what it holds before `Close` is not pinned. `Close` or `Dispose` of the writer makes the bytes written into the stream
+    /// the file, as the stream form of the class writes the package on `Close` (Excel Buffer.CloseBook, then SaveToStream
+    /// reads the file through File Management.BLOBImportFromServerFile).
+    fn workbook_effects(
+        &mut self,
+        target: &Target,
+        member: &str,
+        created: Option<(String, al_builtins::stream::BlobRef)>,
+        result: &Value,
+    ) -> Result<(), String> {
+        if let Some((path, blob)) = created {
+            let Value::DotNet(o) = result else {
+                return Err("WorkbookWriter.Create returned no writer".into());
+            };
+            let DotNetKind::Host { handle, .. } = &o.kind else {
+                return Err("WorkbookWriter.Create returned no writer of the host".into());
+            };
+            al_builtins::native::Ctx::fs_write_unproduced(self, &path, al_builtins::stream::WORKBOOK_OPEN)?;
+            self.dotnet.open_workbooks.insert(*handle, (path, blob));
+            return Ok(());
+        }
+        if self.dotnet.open_workbooks.is_empty() {
+            return Ok(());
+        }
+        if let Target::Host(h, _) = target
+            && (member.eq_ignore_ascii_case("Close") || member.eq_ignore_ascii_case("Dispose"))
+            && let Some((path, blob)) = self.dotnet.open_workbooks.remove(h)
+        {
+            let bytes = blob.borrow().bytes.clone();
+            al_builtins::native::Ctx::fs_write(self, &path, &bytes)?;
+        }
         Ok(())
     }
 
@@ -1468,8 +1521,12 @@ fn holds_carried_text(bytes: &[u8]) -> bool {
 
 /// Whether this .NET member opens a file by a path given as its first argument (ADR-056): XmlDocument.Load and Save, the
 /// path constructors of the stream and XML reader and writer classes, the static XmlReader/XmlWriter.Create, XDocument and
-/// XElement Load and Save, and XslCompiledTransform.Load and Transform. System.IO.File, Directory, FileInfo,
+/// XElement Load and Save, XslCompiledTransform.Load and Transform, and the OpenXml WorkbookWriter.Create and Open and
+/// WorkbookReader.Open (their stream forms take no text and are not matched: the first argument is no path). System.IO.File, Directory, FileInfo,
 /// DirectoryInfo and FileStream are refused by the policy as a whole.
+const WORKBOOK_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
+const WORKBOOK_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+
 fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
     let t = clr_type.to_ascii_lowercase();
     let m = member.to_ascii_lowercase();
@@ -1490,6 +1547,11 @@ fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
                     "load" | "save"
                 )
                 | ("system.xml.xsl.xslcompiledtransform", "load" | "transform")
+                | (
+                    "microsoft.dynamics.nav.openxml.spreadsheet.workbookwriter",
+                    "create" | "open"
+                )
+                | ("microsoft.dynamics.nav.openxml.spreadsheet.workbookreader", "open")
         ),
         _ => false,
     }
