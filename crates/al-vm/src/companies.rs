@@ -16,6 +16,16 @@ use al_data::{AccessContext, Store, TableDef};
 /// The object id of the platform's Company table.
 pub(crate) const COMPANY_TABLE: u32 = 2_000_000_006;
 
+/// The company of the corpus CI database other than the session company (install/lt-bf-install-probes/BfInstallTests.al:47-64).
+const CORPUS_OTHER_COMPANY: &str = "My Company";
+
+/// Base Application's app id.
+const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
+/// The Base Application tables that hold no row in [`CORPUS_OTHER_COMPANY`] (see [`Session::starts_empty_in`]): Company
+/// Information, General Ledger Setup, Source Code Setup, Sales & Receivables Setup, CDS Connection Setup.
+const EMPTY_IN_CORPUS_OTHER_COMPANY: [u32; 5] = [79, 98, 242, 311, 7200];
+
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
@@ -94,6 +104,12 @@ impl Session {
                     .get()
                     .is_some_and(|f| f.under_test_tables.contains(&(t.object as usize)))
             {
+                if self.starts_empty_in(company, t) {
+                    return Ok(AccessContext {
+                        company: company.into(),
+                        user: self.cx.user.clone(),
+                    });
+                }
                 return unsupported(format!(
                     "{} in company {company}: what the dependency apps and the platform hold in a company other than the session company is not known; under --companies only the tables of the apps under test are answered there (ADR-046 decision 5)",
                     t.name
@@ -129,6 +145,40 @@ impl Session {
             company: company.clone().into(),
             user: self.cx.user.clone(),
         })
+    }
+
+    /// Whether the per-company table `t` of a dependency app or the platform holds no row in `company`, a declared company
+    /// other than the session company, in the database the run models (ADR-046 amendment 4). Its rows there are then
+    /// what install code and tests write.
+    ///
+    /// - With test data, the restored database says (`TableProvider::holds_rows_in`): BC has what that database holds.
+    /// - Without test data the run models the corpus CI database, whose "My Company" holds no row of these Base
+    ///   Application tables, the same on the three supported majors: CDS Connection Setup
+    ///   (install/lt-bf-install-probes/BfInstallTests.al `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany`,
+    ///   corpus PR 804), General Ledger Setup, Sales & Receivables Setup and Company Information (the same file,
+    ///   `SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany`), Source Code Setup
+    ///   (`BfInstallTests.al:74-95`). Every other table there holds rows no test pins (Report Selections, No. Series, Job
+    ///   Queue Entry) or is not pinned, and stays refused (decision 5).
+    fn starts_empty_in(&self, company: &str, t: &TableDef) -> bool {
+        let program = &self.engine.program;
+        let obj = &program.objects[t.object as usize];
+        let app_id = program.apps.get(obj.app as usize).map(|a| a.id.as_str());
+        match &self.engine.test_data {
+            Some(td) => {
+                let request = al_host::testdata::TableRequest {
+                    name: obj.name.clone(),
+                    app_id: app_id.map(str::to_string),
+                    per_company: t.per_company,
+                    ..Default::default()
+                };
+                td.holds_rows_in(company, &request) == Some(false)
+            }
+            None => {
+                company == CORPUS_OTHER_COMPANY
+                    && app_id.is_some_and(|a| a.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID))
+                    && obj.id.is_some_and(|id| EMPTY_IN_CORPUS_OTHER_COMPANY.contains(&id))
+            }
+        }
     }
 
     /// `CurrentCompany` of `rec`.

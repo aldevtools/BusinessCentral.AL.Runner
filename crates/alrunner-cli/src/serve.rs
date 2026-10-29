@@ -27,6 +27,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "serverUrl",
     "tdd",
     "runSelectedOnly",
+    "ignorePermissionMock",
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
@@ -296,6 +297,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     if !matches!(fields.get("runSelectedOnly"), None | Some(Value::Null)) {
         a.run_selected_only = flag(fields, "runSelectedOnly")?;
     }
+    // Issue 5996: tests that lower their own permissions run with every access granted, as `--ignore-permission-mock`.
+    a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
     // ADR-050 decision 1: `affectedOnly` runs the test codeunits a change since the stored result can affect.
     a.affected = flag(fields, "affectedOnly")?;
     a.include_failing = flag(fields, "includeFailing")?;
@@ -888,6 +891,14 @@ mod tests {
                 .run_selected_only
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.run_selected_only);
+        // Issue 5996: `ignorePermissionMock` is `--ignore-permission-mock` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "ignorePermissionMock": true}))
+                .unwrap()
+                .0
+                .ignore_permission_mock
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
         assert!(run(json!({"sourcePaths": ["/a"], "runSelectedOnly": "yes"})).is_err());
         assert!(
             run(json!({"sourcePaths": ["/a"], "frobnicate": 1}))

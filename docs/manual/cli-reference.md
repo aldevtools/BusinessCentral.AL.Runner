@@ -69,6 +69,7 @@ files older than a day are removed.
 | `--test-exact NAME` | The test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable. |
 | `--exclude-test TEXT` | Leaves out the tests TEXT matches. Wins over every selecting option. Repeatable. |
 | `--run-selected-only` | Run only the selected tests of each codeunit, as Business Central's test tool runs only the enabled test methods. The other tests do not run, so their globals, rows, time and refusals do not reach the selected ones. The codeunit's `OnRun` still runs first. In `serve`: the `runTests` field `runSelectedOnly`. |
+| `--ignore-permission-mock` | Run the tests that lower their own permissions (`Permissions Mock`, `Library - Lower Permissions`) with every access granted. Without it, such a test is not run, because AL Runner does not enforce permissions. **Risk:** permissions are not checked. A test that passes here can fail on Business Central with a permission error, and a test that expects a permission error fails here. Each such test is a flagged pass with the assumption `permissions-not-enforced`, so it is never counted as a clean pass. Use it to run the rest of the test's logic, not to check permissions. In `serve`: the `runTests` field `ignorePermissionMock`. |
 | `--explain TEST` | Run one test and print its outcome and, for a failure or refusal, the routines and source lines. |
 
 `--filter` together with `--test-exact` selects only the tests both match. A test

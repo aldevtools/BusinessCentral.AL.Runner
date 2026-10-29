@@ -217,6 +217,14 @@ pub trait TableProvider: Send + Sync {
     fn companies(&self) -> Vec<String> {
         vec![self.company().to_string()]
     }
+    /// Whether the database holds rows of `table` in `company` (as AL spells it), another company than [`company`]
+    /// (ADR-046 amendment 4): `Some(false)` when it holds none there. `None`: not known. Additive.
+    ///
+    /// [`company`]: TableProvider::company
+    fn holds_rows_in(&self, company: &str, table: &TableRequest) -> Option<bool> {
+        let _ = (company, table);
+        None
+    }
 }
 
 type Read = Result<Arc<TableRows>, TableError>;
@@ -230,6 +238,8 @@ pub struct TestData {
     /// One slot per table. A thread that finds the slot empty reads the table; one that arrives
     /// meanwhile waits for it, and reads of other tables go on in parallel.
     reads: Arc<Mutex<HashMap<String, Arc<OnceLock<Read>>>>>,
+    /// [`TableProvider::holds_rows_in`] by company and table, asked once.
+    elsewhere: Arc<Mutex<HashMap<String, Option<bool>>>>,
     /// A number no other test data of the process has, shared by the clones: the same id means the same rows.
     pub id: u64,
 }
@@ -248,6 +258,7 @@ impl TestData {
             provider,
             stats: Arc::new(LoadStats::default()),
             reads: Arc::default(),
+            elsewhere: Arc::default(),
             id: NEXT_TEST_DATA_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
@@ -261,6 +272,25 @@ impl TestData {
             g.entry(key).or_default().clone()
         };
         slot.get_or_init(|| self.provider.read(table)).clone()
+    }
+
+    /// [`TableProvider::holds_rows_in`], asked of the provider once per company and table.
+    pub fn holds_rows_in(&self, company: &str, table: &TableRequest) -> Option<bool> {
+        let key = format!(
+            "{company}|{}|{}|{}",
+            table.name.to_lowercase(),
+            table.app_id.as_deref().unwrap_or(""),
+            table.per_company
+        );
+        if let Some(hit) = self.elsewhere.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            return *hit;
+        }
+        let answer = self.provider.holds_rows_in(company, table);
+        self.elsewhere
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, answer);
+        answer
     }
 }
 

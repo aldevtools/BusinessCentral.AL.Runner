@@ -129,6 +129,10 @@ impl al_host::dotnet::DotNetHost for HasDotNet {
 }
 
 fn run() -> CorpusRuntime {
+    run_with(&RunOptions::default())
+}
+
+fn run_with(opts: &RunOptions) -> CorpusRuntime {
     let manifest = |p: &str| Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
@@ -153,7 +157,7 @@ fn run() -> CorpusRuntime {
             ..Default::default()
         },
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        opts,
     )
     .expect("the run starts")
 }
@@ -188,4 +192,25 @@ fn a_test_without_test_permissions_gets_no_runner_sets_and_a_clean_pass() {
     let r = result(&rt, "RunsWithoutTheRunnersSets");
     assert_eq!(r.outcome, Outcome::Pass);
     assert!(r.assumptions.is_empty(), "{:?}", r.assumptions);
+}
+
+/// `--ignore-permission-mock` (al-runner issue 5996): a test that lowers its own permissions runs with full permissions.
+/// Its pass is flagged `permissions-not-enforced`, so it is never read as a permission check.
+#[test]
+fn with_ignore_permission_mock_a_test_that_lowers_its_permissions_runs_and_is_flagged() {
+    let rt = run_with(&RunOptions {
+        ignore_permission_mock: true,
+        ..Default::default()
+    });
+    let r = result(&rt, "LowersItsOwnPermissions");
+    assert_eq!(r.outcome, Outcome::Pass);
+    assert!(
+        r.assumptions.contains(&Assumption::PermissionsNotEnforced),
+        "{:?}",
+        r.assumptions
+    );
+    // The other tests keep their outcomes and flags.
+    let r = result(&rt, "RunsUnderTheRunnersSets");
+    assert_eq!(r.assumptions, vec![Assumption::RunnerPermissionSetsGrantAll]);
+    assert!(result(&rt, "RunsWithoutTheRunnersSets").assumptions.is_empty());
 }
