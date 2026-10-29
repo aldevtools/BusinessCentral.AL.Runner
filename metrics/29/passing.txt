@@ -11873,6 +11873,7 @@
 73500 Export_OnlyDirectionExport
 73500 Export_OptionalMinOccurs
 73500 Export_SkipInAfterGetRecord
+73500 Export_SourceTableViewSorted
 73500 Export_StaticWithRecordFilter
 73500 Export_StaticWithRecordNoRows
 73500 Export_TextAndAttributeElements
@@ -14272,6 +14273,7 @@
 78402 QX_VariableText_TextElementEvaluateAndShortLines
 78402 RequestPage_EmptySection_ImportAndExport
 78402 TableElement_MinOccursZero_Import
+78402 TableElement_SourceTableView_Export
 78402 TableElement_SourceTableView_Import
 78601 Decimal_MoreThanEighteenFractionalDigits
 78603 Header_AddressLines_AsInCorpusDatabase
