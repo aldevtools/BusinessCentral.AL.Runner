@@ -1185,14 +1185,23 @@ registry! {
     },
     InstallOrderAscendingId => {
         id: "install-order-ascending-id",
-        assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run in ascending object id in each company and in the per-database part, when their ids lie in one block of 65536 ids, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Across blocks the order is not pinned and stays refused: install/lt-bf-install-probes/BfInstallTests.al:239 runs 60445, 60618 and 60894 after 81255.",
-        tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's NP Retail measurement).",
-        probe: "Written: UmInstallOrder.al (writer UM, corpus PR 807), five install codeunits 90431-90435 sharing one SingleInstance codeunit. Still wanted: install codeunits of one app whose ids lie in two blocks of 65536 ids, chosen so that ascending id within each block, ascending id modulo 65536 and descending block give three different orders (for example 60100, 70000 and 130000; the main corpus app's id ranges end at 99999, where ascending id modulo 65536 and descending block always agree, so this needs a wider id range or another app).",
+        assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run as one sequence in ascending codeunit id in each company and in the per-database part, also across the 65536 id boundary, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Pinned on writer branches, not yet in the pinned corpus: ascending id inside one block (UmInstallOrder.al) and across the boundary (UrBlockOrderTests.al, 50300 to 90515). Two subscribers of one codeunit are not pinned and stay refused.",
+        tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's partner measurement).",
+        probe: "Written: UmInstallOrder.al (writer UM, corpus PR 807), five install codeunits 90431-90435 sharing one SingleInstance codeunit; UrBlockOrderTests.al (writer UR, corpus PR 810), install codeunits and subscribers 50300 to 90515 across the 65536 boundary. Wanted: the bumps that put both on corpus master.",
         awaiting: Awaiting {
             issues: &[],
-            files: &["tests/al-language/install/lt-um-install-order/UmInstallOrder.al"],
+            files: &[
+                "tests/al-language/install/lt-um-install-order/UmInstallOrder.al",
+                "tests/al-language/install/lt-ur-block-order/UrBlockOrderTests.al",
+            ],
             since: "2026-10-29",
         },
+    },
+    InstallOrderIdsAboveProbedRange => {
+        id: "install-order-ids-above-probed-range",
+        assumed: "An install routine of an app whose codeunit id is above 99999 runs in the same ascending integer order of codeunit ids as the pinned ids up to 99999 (ADR-046 amendment 3). The probe could not publish ids above 99999 on the sandbox, so nothing pins that range.",
+        tests: "No Microsoft test: a partner app whose install codeunits have ids in the millions (the owner's partner measurement).",
+        probe: "Install codeunits of one app with ids such as 60100, 70000 and 130000 (and one in the millions) sharing a log table and a SingleInstance codeunit, as in UrBlockOrderTests.al; it needs a BC environment that accepts ids above 99999 (the sandbox refused to publish id 120000).",
     },
     PageRunBlankRecordDescendingViewFirstRow => {
         id: "page-run-blank-record-descending-view-first-row",
