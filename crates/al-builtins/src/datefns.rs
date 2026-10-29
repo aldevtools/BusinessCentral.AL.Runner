@@ -445,6 +445,8 @@ enum Term {
     Edge { unit: Unit, end: bool },
     /// `WDn`: the next day (`-WDn`: the previous one) that is weekday `n`, Monday being 1.
     WeekDay { n: i32, forward: bool },
+    /// `Mn`: the first day of month `n` after the month of the date (`-Mn`: before it).
+    MonthLetterFirst { n: i32, forward: bool },
     /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
     DayLetterFirst { n: i32, forward: bool },
 }
@@ -593,6 +595,32 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 forward: !negative,
             });
             i += 3;
+            continue;
+        }
+        // `Mn`: the first day of month n after the month of the date (`-Mn`: before it). `M0` and `M13` raise the range error
+        // (corpus master types/lt-date-formula-edges/DateFormulaEdges.al:433-505, TV_MonthNumber_*); other numbers above 12
+        // are not pinned.
+        if b.get(i) == Some(&b'M') && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
+            let start = i + 1;
+            i = start;
+            while b.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+            let digits = &body[start..i];
+            match digits.parse::<i32>() {
+                Ok(n @ 1..=12) if !digits.starts_with('0') => {
+                    terms.push(Term::MonthLetterFirst { n, forward: !negative })
+                }
+                _ if digits == "0" || digits == "13" => {
+                    return raise(
+                        format!(
+                            "The date formula 'M{digits}' contains a number that is too large.\\\\The number must be in the range 1 - 12."
+                        ),
+                        "Evaluate",
+                    );
+                }
+                _ => return refuse(),
+            }
             continue;
         }
         // A `D` before its number is accepted (`D1`, types/TestDateFormulaEvaluateLeftoversContracts.al:
@@ -902,6 +930,20 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     );
                 }
                 day + 1
+            }
+            // DateFormulaEdges.al:433-505 (corpus master): from a date in month n the term goes a year on (`<M2>` on 02-29 is the
+            // next year's 02-01, `<-M2>` the year before's). The first day of month n itself is not pinned.
+            Term::MonthLetterFirst { n, forward } => {
+                let n = n as u32;
+                if m == n && d == 1 {
+                    return unsupported("date formula `Mn` on the first day of month n (not pinned)");
+                }
+                let year = match (forward, m < n, m > n) {
+                    (true, true, _) | (false, _, true) => y,
+                    (true, false, _) => y + 1,
+                    (false, _, false) => y - 1,
+                };
+                day_from_civil(year, n, 1)
             }
             Term::WeekDay { n, forward } => {
                 let wd = weekday(day);
@@ -1767,5 +1809,51 @@ mod tests {
         );
         assert_eq!(err("<2CW>").1, crate::native::UNPINNED_ERROR);
         assert_eq!(err("<WD0>").1, crate::native::UNPINNED_ERROR);
+    }
+
+    // `Mn`: the first day of month n after the month of the date (`-Mn`: before it), corpus master
+    // types/lt-date-formula-edges/DateFormulaEdges.al:433-505 (TV_MonthNumber_*).
+    #[test]
+    fn a_month_letter_before_its_number_goes_to_the_first_of_that_month() {
+        for (y, m, d, want) in [
+            (2024, 1, 10, (2024, 2, 1)),
+            (2024, 1, 31, (2024, 2, 1)),
+            (2024, 2, 29, (2025, 2, 1)),
+            (2023, 2, 28, (2024, 2, 1)),
+            (2024, 4, 30, (2025, 2, 1)),
+            (2024, 12, 31, (2025, 2, 1)),
+        ] {
+            is_date(calc("<M2>", date(y, m, d)), want.0, want.1, want.2);
+        }
+        is_date(calc("M2", date(2024, 1, 15)), 2024, 2, 1);
+        is_date(calc("<M1>", date(2024, 1, 10)), 2025, 1, 1);
+        is_date(calc("<M1>", date(2023, 2, 28)), 2024, 1, 1);
+        is_date(calc("<M12>", date(2024, 1, 10)), 2024, 12, 1);
+        is_date(calc("<M12>", date(2024, 12, 31)), 2025, 12, 1);
+        is_date(calc("<-M2>", date(2024, 1, 15)), 2023, 2, 1);
+        is_date(calc("<-M2>", date(2024, 4, 30)), 2024, 2, 1);
+        is_date(calc("<-M2>", date(2024, 2, 29)), 2023, 2, 1);
+        is_date(calc("<CM+M2>", date(2024, 1, 15)), 2024, 2, 1);
+        is_date(calc("<1Y+M2>", date(2024, 1, 15)), 2025, 2, 1);
+        for (f, shown) in [("<M0>", "M0"), ("<M13>", "M13")] {
+            let Err(Signal::Error(e)) = calc(f, date(2024, 1, 15)) else {
+                panic!("{f} must raise")
+            };
+            assert_eq!(
+                e.message,
+                format!(
+                    "The date formula '{shown}' contains a number that is too large.\\\\The number must be in the range 1 - 12."
+                )
+            );
+            assert_eq!(e.code, "Evaluate");
+        }
+        let Err(Signal::Error(e)) = calc("<2M2>", date(2024, 1, 15)) else {
+            panic!("2M2 must raise")
+        };
+        assert_eq!(e.message, "The date formula '2M2' must include plus (+) or minus (-).");
+        // The first day of month n itself is not pinned.
+        refused(calc("<M2>", date(2024, 2, 1)));
+        refused(calc("<-M2>", date(2024, 2, 1)));
+        refused(calc("<M14>", date(2024, 1, 15)));
     }
 }
