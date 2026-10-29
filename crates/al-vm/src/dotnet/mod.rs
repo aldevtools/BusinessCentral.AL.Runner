@@ -21,6 +21,9 @@ use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::ops;
 use al_builtins::stream::BlobRef;
+
+/// A file path and the stream it names, when a call opened or saved one.
+type PathBlob = Option<(String, BlobRef)>;
 use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, RtType, Value};
 use al_host::dotnet::{
     DotNetArg, DotNetFailure, DotNetHandle, DotNetHost, DotNetReply, DotNetSession, DotNetSessionConfig, DotNetTarget,
@@ -567,10 +570,7 @@ impl Session {
         member: &str,
         path: &str,
         values: &mut [Value],
-        (save_to, open_workbook): (
-            &mut Option<(String, al_builtins::stream::BlobRef)>,
-            &mut Option<(String, al_builtins::stream::BlobRef)>,
-        ),
+        (save_to, open_workbook): (&mut PathBlob, &mut PathBlob),
     ) -> Result<(), String> {
         let one = values.len() == 1;
         let xml = clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") && one;
