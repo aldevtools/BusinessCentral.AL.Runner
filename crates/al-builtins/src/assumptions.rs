@@ -107,6 +107,28 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 }
 
 registry! {
+    LicensePermissionAnyObject => {
+        id: "license-permission-any-object",
+        assumed: "License Permission read by object type and number answers, for a Report, Codeunit or Page numbered 1 to 2000000000 that no pinned row names, a row with Read, Insert, Modify, Delete and Execute Yes and Limited Usage blank; Codeunit 0 a row with every permission blank.",
+        tests: "No Microsoft test: two outside ISV suites check their own objects this way from a per-company install routine; they pass on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges pins Codeunit 50000, 50123, 99999, 70000123, 2000000000 and 0, Table 50000 and 70000123, TableData 70000123, Page 50100, Report 70000001. Still wanted after it lands: whether every number of the range is a row (the table lists the license), and a negative number.",
+        awaiting: Awaiting {
+            issues: &[6214],
+            files: &["tests/al-language/platform/lt-ag-contoso/AgLicensePermission.al::LicensePermission_ByKey_CustomerAndIsvRanges"],
+            since: "2026-10-29",
+        },
+    },
+    TimeZoneWindowsIdIsARow => {
+        id: "time-zone-windows-id-is-a-row",
+        assumed: "A read of the Time Zone table filtered to one Windows time zone id (a Windows id of CLDR's windowsZones list) that is not among the runtime's host rows finds one row with that ID; its No. and Display Name are not known and refused when read.",
+        tests: "No Microsoft test: an outside ISV suite maps each ISO 3166-1 country code to a Windows time zone id and checks the id is in the table; it passes on the reporter's real-BC run.",
+        probe: "Written: corpus branch al-runtime-rs-staging-uq at d651ec93 (bump PR 809), AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo present once; an unknown id absent). Still wanted: the full list of 144 rows with No. and Display Name, and whether the ID filter is case-sensitive on Windows.",
+        awaiting: Awaiting {
+            issues: &[6218],
+            files: &["tests/al-language/record/lt-at-partner-gaps/AtTimeZoneNumbering.al::UQ_TimeZone_LookupById"],
+            since: "2026-10-29",
+        },
+    },
     ListActionRebuildsRows => {
         id: "list-action-rebuilds-rows",
         assumed: "A List without the new-row line (InsertAllowed, ModifyAllowed and DeleteAllowed false) whose action deletes its rows and inserts others shows the rows the action left: opened for view an emptied list shows nothing, and the TestPage then stands where the action left Rec, with First, Next and Last moving over the new rows.",
@@ -284,6 +306,28 @@ registry! {
         awaiting: Awaiting {
             issues: &[6150, 6158],
             files: &["tests/al-language/pageext/lt-ue-pageext-leads/UePromotedTests.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtImplicitPromotedCategory => {
+        id: "pageext-implicit-promoted-category",
+        assumed: "A page extension may place actions with addafter or addlast at the promoted groups Category_Category7, Category_Category12 and Category_New of a page that declares none of them; the actionrefs are on the page and run their actions.",
+        tests: "No Microsoft test: al-runner issue 6217 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6217],
+            files: &["tests/al-language/pages/lt-up-page-ext/UpPromotedCategories.al"],
+            since: "2026-10-29",
+        },
+    },
+    PageExtCurrPageProtectedVar => {
+        id: "pageext-currpage-protected-var",
+        assumed: "A page extension reads a protected variable of the page it extends through CurrPage.<name>: the same variable the plain name reads, on the base page's instance.",
+        tests: "No Microsoft test: al-runner issue 6219 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus pages/lt-up-page-ext/UpPageExt.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6219],
+            files: &["tests/al-language/pages/lt-up-page-ext/UpPageExt.al"],
             since: "2026-10-29",
         },
     },
@@ -489,12 +533,6 @@ registry! {
         tests: "Library - Document Approvals.GetUser; 214 Tests-Dimension tests.",
         probe: "Nothing in AL can compare the numbers with BC's; the shape is pinned (PXDatabaseSid.al).",
     },
-    SaveValuesWithExtensions => {
-        id: "savevalues-with-extensions",
-        assumed: "A page extension that adds only controls bound to Rec fields, labels, parts or actions changes nothing about what a SaveValues page stores.",
-        tests: "Pages with SaveValues and page extensions in the buckets.",
-        probe: "A SaveValues page extended by a control bound to a variable and by one bound to a field. Asked in corpus #646.",
-    },
     TrappedPageLeftOpenIsReplaced => {
         id: "trapped-testpage-left-open-is-replaced",
         assumed: "A TestPage variable that trapped a page and was left open (never closed) can trap the next RunObject action of its page: the new page replaces the open one, whose close triggers do not run. (Page.Run closes the open page first, with its close triggers: pinned by pages/lt-f3-pages/F3TrappedAndModal.al:36.)",
@@ -692,6 +730,28 @@ registry! {
         assumed: "A conditional expression with a Label branch against a Code[N] or Text[N] branch: the true branch decides the result type. A Code[N] true branch makes the Label false branch a Code (upper case; StringLengthExceeded past N, with the label's own text in the message); a Text[N] true branch limits the Label to N; a Label true branch is a Text that takes the false branch as it is. Pinned for Code[20] and Text[10] against Labels of 7, 10, 15, 20 and 30 characters, each way (types/TestTernaryContracts.al TI_Ternary_*); assumed alike for every other length N.",
         tests: "No Microsoft test and no user report: the reported shape (a Code[20] true branch and a Locked Label false branch) is pinned; other lengths take the same lowering.",
         probe: "The TI_Ternary_* tests of TestTernaryContracts.al with Code[10], Code[50] and Text[30] branches, and an unbounded Text branch against a Label either way.",
+    },
+    TernaryUnboundedTextFalseBranch => {
+        id: "ternary-unbounded-text-false-branch",
+        assumed: "A conditional expression with a Text[250] true branch and an unbounded Text false branch (a Text variable or a StrSubstNo result) converts the false value to Text[250]: a value that fits is returned unchanged, a longer one fails StringLengthExceeded with the value in the message cut to 200 characters plus '...'.",
+        tests: "No Microsoft test: al-runner issue 6213 (a URL builder in a dependency app of partner suites). Observed on real BC by corpus writer UP.",
+        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6213],
+            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
+            since: "2026-10-29",
+        },
+    },
+    TernaryInterfaceCodeunitBranch => {
+        id: "ternary-interface-codeunit-branch",
+        assumed: "A conditional expression with an interface true branch and a codeunit false branch that implements the interface compiles; the false branch converts to the interface as an assignment does and calls the codeunit's implementation.",
+        tests: "No Microsoft test: al-runner issue 6215 (a partner suite on real BC). Observed on real BC by corpus writer UP.",
+        probe: "Corpus types/lt-up-ternary/UpTernary.al (corpus PR 808).",
+        awaiting: Awaiting {
+            issues: &[6215],
+            files: &["tests/al-language/types/lt-up-ternary/UpTernary.al"],
+            since: "2026-10-29",
+        },
     },
     ResourceFileNameCase => {
         id: "resource-file-name-case",

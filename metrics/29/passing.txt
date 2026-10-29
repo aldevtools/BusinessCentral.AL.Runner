@@ -4771,6 +4771,8 @@
 67761 QV_Preview_RunRequestPage
 67761 QV_Preview_SaveAsXml_Column
 67761 RB_SaveAs_NothingSet
+67762 Hyperlink_WithHandler
+67762 Hyperlink_WithHandler_EmptyAndMailtoUrl
 67762 Hyperlink_WithoutHandler
 67763 AddRecord_CopiesTheFiltersOfTheRecord
 67763 Errors_SameNameForASecondTable
@@ -5947,6 +5949,7 @@
 69261 UiCall_InCodeunitOnRun_ConfirmIsHandled
 69261 UiCall_InCodeunitOnRun_MessageIsHandled
 69300 ExtensionActions_InImplicitAreas_Run
+69301 ExtensionGroups_AfterImplicitCategories
 69302 Action_PendingEdit_OnCard
 69302 Action_PendingEdit_OnListRow
 69302 Action_PendingNewRow_OnCard
@@ -7808,6 +7811,9 @@
 70413 P99_FlagTrueInOnOpenPage
 70413 P99_StaticInvisible
 70414 P99_NoSaveValuesForComparison
+70414 P99_ReopenEditAfterSave
+70414 P99_ReopenNewAfterSave
+70414 P99_ReopenWithoutSavingRecord
 70431 P116_NoMockBothWork
 70476 P116_AccessInternalTable
 70476 P116_EnumAccessAndScope
@@ -9130,6 +9136,7 @@
 71128 ErrorInfo_Assign_Properties
 71128 ErrorInfo_NeverCreated_Defaults
 71130 Hyperlink_NoHandler
+71130 Hyperlink_WithHandler
 71130 TaskScheduler_Basics
 71130 TaskScheduler_UnknownTask
 71132 Aggregated_FilteredGroups
@@ -12627,6 +12634,8 @@
 73851 Flag_ErrorWithArgument
 73851 Flag_GetMissing
 73851 Flag_TestField
+73856 SaveValues_Ext_CancelThenReopen
+73856 SaveValues_Ext_OkThenReopen
 73859 Relation_QuotedFilter_Alternatives
 73859 Relation_QuotedFilter_Negated
 73859 Relation_QuotedFilter_NoRows
@@ -14209,7 +14218,9 @@
 76513 AA_SystemAction_EnabledExpression
 76513 AA_SystemAction_EnabledLiteral
 77041 LayoutValuesCompileAndFieldsRead
+77099 ActionAddInBeforeActionRunsBeforeOnAction
 77099 ActionAddInControlAddInTriggersOnTestPage
+77099 ActionAddInErrorInBeforeActionStopsOnAction
 77099 FixedShowAsTreeAndFileUploadActionListAllRows
 77099 GridShowAsTreeAndFileUploadActionListAllRows
 77099 PageEvtModifyRow
