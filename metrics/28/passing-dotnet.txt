@@ -68,6 +68,7 @@
 61484 Rethrow_AfterEvaluateWithoutReturnValue
 61484 Rethrow_AfterFailingTestField
 61484 Rethrow_AfterModifyOfMissingRow
+61492 AC_DnRunOnClient_GlobalVariable
 99000 Codeunit_AzureADGraphUser_Delegated
 99002 Attributes_MissingName
 99002 Attributes_NoAttributes
@@ -120,3 +121,7 @@
 99473 Kinds_GetMissing
 99473 ToString_NestedProcedure
 99473 ToString_OtherCodeunit
+99490 BG_RunOnClient_ClientFeatures_IsAvailable
+99490 BG_RunOnClient_OtherType_Constructor
+99490 BG_RunOnClient_OtherType_StaticCall
+99491 BG_DnRunOnClient_GlobalVariable_NotSupported

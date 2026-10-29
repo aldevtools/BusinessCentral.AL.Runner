@@ -539,7 +539,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
                         .parse::<u32>()
                         .ok()
                         .zip(b.parse::<u32>().ok())
-                        .filter(|(a, b)| a <= b && (*b <= 18 || (*a, *b) == (2, 26)));
+                        .filter(|(a, b)| a <= b && (*b <= 18 || WIDE_PRECISIONS.contains(&(*a, *b))));
                     Some(parsed.ok_or_else(|| format!("code `<{text}>`"))?)
                 }
                 None => match p.parse::<u32>() {
@@ -566,6 +566,12 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
             .iter()
             .any(|(is_code, t)| *is_code && (*t == "Integer" || *t == "Integer Thousand" || *t == "Decimals"))
     {
+        // Above 18 decimals only `2:26` is pinned here (TP_Format_PrecisionStrings).
+        if max > 18 && (min, max) != (2, 26) {
+            return Err(format!(
+                "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
+            ));
+        }
         let rounded = n
             .value
             .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
@@ -690,6 +696,11 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
     refuse()
 }
 
+/// The `<Precision,A:B>` forms above 18 decimals the corpus pins (types/lt-format-comma-format-string/FormatCommaFormatString.al:
+/// TP_Format_PrecisionStrings `2:26`; TV_Format_Precision0To26_* and TV_Format_PrecisionAbove18_Forms on corpus master: `0:19`,
+/// `0:26`, `0:28`, `26:26`). Alone, `0:26` writes nothing, as every Precision code does.
+const WIDE_PRECISIONS: [(u32, u32); 5] = [(2, 26), (0, 19), (0, 26), (0, 28), (26, 26)];
+
 /// `<Precision,A:B>` then `<Standard Format,N>` on a Decimal: the value rounded half away from zero to B decimals, written in
 /// standard format N, with zeros added up to A decimals (types/lt-format-precision-standard/FormatPrecStdEn.al:43-150, codeunit
 /// 71576, the same under GlobalLanguage 1031 in FormatPrecStdDe.al, codeunit 71577): format 0 groups thousands, 1, 2 and 9 do
@@ -723,6 +734,18 @@ fn precision_standard(
     // `<Precision,2:26>` (more than 18 decimals) is pinned by TP_Format_PrecisionStrings with standard formats 2 and 4
     // (`1234.50 `, `-1234.567`) and TQ_Format_PrecisionStd_* with standard formats 0, 2 and 9
     // (types/lt-format-comma-format-string/FormatCommaFormatString.al).
+    // `0:26` with standard formats 0, 2 and 9, and `0:19`, `0:28` and `26:26` with format 2: TV_Format_Precision0To26_Values,
+    // _OtherValues and TV_Format_PrecisionAbove18_Forms in the same file (corpus master, corpus PR 788): the value as format N
+    // writes it, `1.5` with `26:26` padded to 26 decimals. Other formats with these precisions are not pinned.
+    let wide_pinned = match (min, max) {
+        // `2:26` is kept as it was before the TV pins (pinned with formats 0, 2, 4 and 9 above).
+        (_, 0..=18) | (2, 26) => true,
+        (0, 26) => matches!(std, 0 | 2 | 9),
+        _ => std == 2,
+    };
+    if !wide_pinned {
+        return Err(format!("code `<Precision,{min}:{max}>` with `<{code}>` (not pinned)"));
+    }
     let rounded = n
         .value
         .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
