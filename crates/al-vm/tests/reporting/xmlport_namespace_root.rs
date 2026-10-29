@@ -75,11 +75,14 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
         Err(NOT_FOUND.into())
     );
     assert!(matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
+    // Used, it is the namespace of every element: a root in it is imported, one without is not found
+    // (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace).
     let used = "DefaultNamespace = 'urn:x'; UseDefaultNamespace = true;";
-    assert!(matches!(
-        run(&src(used, "<Root/>"), "Import"),
-        Err(Signal::Unsupported(_))
-    ));
+    assert_eq!(
+        import(used, "<Root xmlns=\"urn:x\"><R><Id>1</Id></R></Root>"),
+        Ok("1".into())
+    );
+    assert_eq!(import(used, "<Root><R><Id>1</Id></R></Root>"), Err(NOT_FOUND.into()));
 }
 
 /// UseDefaultNamespace = true without DefaultNamespace puts the port in BC's own default namespace

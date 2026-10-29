@@ -807,7 +807,15 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Boolean(b)) => Ok(Value::Boolean(*b)),
         // json/JsonValueGetters.al:202 `truetext_asboolean`: the text "true" reads Yes.
         Scalar::Val(Value::Text(t) | Value::Code(t)) if &**t == "true" => Ok(Value::Boolean(true)),
-        // Other spellings of true and false ("True", " false", "FALSE") are not pinned.
+        // json/JsonValueGetters.al UN_BooleanTextGetters* (writer UN's corpus branch, commit d3bcc580; assumption
+        // `json-boolean-text-spellings`): "True", "TRUE", " true", "true " read Yes; "false", "False", "FALSE" read No.
+        Scalar::Val(Value::Text(t) | Value::Code(t))
+            if matches!(&**t, "True" | "TRUE" | " true" | "true " | "false" | "False" | "FALSE") =>
+        {
+            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            Ok(Value::Boolean(t.trim().eq_ignore_ascii_case("true")))
+        }
+        // Other spellings of true and false (mixed case, blanks around false, other blanks) are not pinned.
         Scalar::Val(Value::Text(t) | Value::Code(t))
             if t.trim().eq_ignore_ascii_case("true") || t.trim().eq_ignore_ascii_case("false") =>
         {
@@ -821,6 +829,16 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Text(_) | Value::Code(_)) => {
             crate::assumptions::assume(crate::assumptions::Assumption::JsonOtherTextAsBooleanConversionError);
             Err(conversion(NAV_JSON_VALUE, "System.Boolean"))
+        }
+        // A JSON number 0 reads No and 1 reads Yes (json/JsonValueGetters.al UN_BooleanTextGetters_5, same branch and
+        // assumption). Other numbers are not pinned.
+        Scalar::Val(Value::Integer(n @ (0 | 1))) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            Ok(Value::Boolean(*n == 1))
+        }
+        Scalar::Val(Value::BigInteger(n @ (0 | 1))) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::JsonBooleanTextSpellings);
+            Ok(Value::Boolean(*n == 1))
         }
         other => unsupported(format!(
             "reading {} as Boolean (conversion not pinned yet)",
@@ -2569,4 +2587,35 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
 /// The compact text of a JSON value, as `WriteTo(Text)` gives it (for `Format`).
 pub fn write_text(h: &Handle, out: &mut String) -> Result<(), Signal> {
     write(h, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// json/JsonValueGetters.al UN_BooleanTextGetters* (writer UN's corpus branch, commit d3bcc580).
+    #[test]
+    fn as_boolean_reads_the_pinned_spellings_and_numbers() {
+        let text = |t: &str| as_boolean(&Scalar::Val(Value::Text(t.into())));
+        let b = |r: Result<Value, Signal>| match r {
+            Ok(Value::Boolean(b)) => Some(b),
+            _ => None,
+        };
+        for t in ["true", "True", "TRUE", " true", "true "] {
+            assert_eq!(b(text(t)), Some(true), "{t}");
+        }
+        for t in ["false", "False", "FALSE"] {
+            assert_eq!(b(text(t)), Some(false), "{t}");
+        }
+        for t in ["0", "1", "yes", "Yes", "No", ""] {
+            assert!(matches!(text(t), Err(Signal::Error(_))), "{t}");
+        }
+        assert!(matches!(text("tRue"), Err(Signal::Unsupported(_))));
+        assert_eq!(b(as_boolean(&Scalar::Val(Value::Integer(0)))), Some(false));
+        assert_eq!(b(as_boolean(&Scalar::Val(Value::Integer(1)))), Some(true));
+        assert!(matches!(
+            as_boolean(&Scalar::Val(Value::Integer(2))),
+            Err(Signal::Unsupported(_))
+        ));
+    }
 }

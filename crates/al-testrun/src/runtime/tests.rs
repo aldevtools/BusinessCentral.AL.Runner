@@ -466,9 +466,10 @@ fn a_shared_table_that_per_company_install_code_writes_is_not_known() {
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
 }
 
-// ADR-046 amendment 1, A2: the order of the install routines of one app and part is not known
-// (install/lt-bf-install-probes/BfInstallTests.al:239 fits no pinned rule). A table two of them write (a), the tables a
-// routine writes that reads what another writes (b), and those of routines sharing a SingleInstance codeunit (c) are refused.
+// ADR-046 amendment 3 (A2 as amended): the order of two install routines of one app and part whose object ids lie in
+// different blocks of 65536 ids is not known (install/lt-bf-install-probes/BfInstallTests.al:239: 60445, 60618 and 60894
+// run after 81255, not ascending id). A table two such routines write (a), the tables a routine writes that reads what
+// the other writes (b), and those of routines sharing a SingleInstance codeunit (c) are refused.
 #[test]
 fn tables_whose_install_rows_depend_on_the_order_of_the_routines_are_not_known() {
     let o = outcomes(
@@ -481,7 +482,7 @@ fn tables_whose_install_rows_depend_on_the_order_of_the_routines_are_not_known()
             codeunit 60907 Inst { Subtype = Install;
                 trigger OnInstallAppPerCompany() var B: Record Both; S: Record Src; V: Record ViaState; St: Codeunit State;
                 begin B.K := 'I'; B.Insert(); S.K := 'S'; S.Insert(); V.K := Format(St.Next()); V.Insert(); end; }
-            codeunit 60905 Subs {
+            codeunit 70905 Subs {
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
                 local procedure PerCompany() var B: Record Both; S: Record Src; D: Record Dst; St: Codeunit State;
                 begin B.K := 'S'; B.Insert(); D.K := Format(S.Count()); D.Insert(); St.Next(); end;
@@ -502,8 +503,9 @@ fn tables_whose_install_rows_depend_on_the_order_of_the_routines_are_not_known()
     assert_eq!(o[3].1, Outcome::Pass, "{o:?}");
 }
 
-// ADR-046 amendment 1, A2 d: SystemRowVersion orders rows across tables (install/lt-bf-install-probes/BfInstallTests.al:8-9),
-// so in an app with two install routines in one part, the row version of a row install code wrote shows their order. A row
+// ADR-046 amendment 1, A2 d (kept by amendment 3 where the order is not pinned): SystemRowVersion orders rows across tables
+// (install/lt-bf-install-probes/BfInstallTests.al:8-9), so in an app with two install routines in one part in different
+// blocks of 65536 ids, the row version of a row install code wrote shows their order. A row
 // the test wrote itself is answered.
 #[test]
 fn the_row_version_of_an_install_row_is_refused_when_the_order_of_the_routines_is_not_known() {
@@ -512,7 +514,7 @@ fn the_row_version_of_an_install_row_is_refused_when_the_order_of_the_routines_i
             table 60901 B { fields { field(1; K; Code[10]) { } } }
             codeunit 60907 Inst { Subtype = Install;
                 trigger OnInstallAppPerCompany() var R: Record A; begin R.K := 'A'; R.Insert(); end; }
-            codeunit 60905 Subs {
+            codeunit 70905 Subs {
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
                 local procedure PerCompany() var R: Record B; begin R.K := 'B'; R.Insert(); end; }
             codeunit 60102 T { Subtype = Test;
@@ -526,6 +528,55 @@ fn the_row_version_of_an_install_row_is_refused_when_the_order_of_the_routines_i
         "{o:?}"
     );
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// ADR-046 amendment 3: install codeunits of one app run in ascending object id in each company and in the per-database
+// part, whatever their names and source order, and a SingleInstance codeunit's state carries from one to the next and
+// starts again per part (corpus PR 807, writer UM, branch al-runtime-rs-staging-pub-um e3b2eedf,
+// tests/al-language/install/lt-um-install-order/UmInstallOrder.al:120-125; fact 5 for subscribers between them,
+// install/lt-bf-install-probes/BfInstallTests.al:239). Until that file is in the pinned corpus a test that reads what
+// they wrote is a flagged pass.
+#[test]
+fn install_routines_of_one_app_run_in_ascending_object_id_and_share_single_instance_state() {
+    let main = "table 60430 Log { fields { field(1; Id; Integer) { AutoIncrement = true; } field(2; Names; Text[250]) { } field(3; Calls; Integer) { } } }
+        table 60429 DbLog { DataPerCompany = false; fields { field(1; Id; Integer) { AutoIncrement = true; } field(2; Names; Text[250]) { } } }
+        codeunit 60436 State { SingleInstance = true; var Names: Text; Calls: Integer;
+            procedure Append(N: Text): Text begin Calls += 1; Names += N + ';'; exit(Names); end;
+            procedure CallCount(): Integer begin exit(Calls); end; }
+        codeunit 60437 Writer {
+            procedure Co(N: Text) var R: Record Log; S: Codeunit State; begin R.Names := S.Append(N); R.Calls := S.CallCount(); R.Insert(); end;
+            procedure Db(N: Text) var R: Record DbLog; S: Codeunit State; begin R.Names := S.Append(N); R.Insert(); end; }
+        codeunit 60435 \"Zz Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var W: Codeunit Writer; begin W.Co('Zz'); end;
+            trigger OnInstallAppPerDatabase() var W: Codeunit Writer; begin W.Db('Zz'); end; }
+        codeunit 60433 \"Cu Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var W: Codeunit Writer; begin W.Co('Cu'); end;
+            trigger OnInstallAppPerDatabase() var W: Codeunit Writer; begin W.Db('Cu'); end; }
+        codeunit 60431 \"Mu Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var W: Codeunit Writer; begin W.Co('Mu'); end;
+            trigger OnInstallAppPerDatabase() var W: Codeunit Writer; begin W.Db('Mu'); end; }
+        codeunit 60438 Subs {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
+            local procedure PerCompany() var W: Codeunit Writer; begin W.Co('Sub'); end; }
+        codeunit 60434 \"Ay Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var W: Codeunit Writer; begin W.Co('Ay'); end;
+            trigger OnInstallAppPerDatabase() var W: Codeunit Writer; begin W.Db('Ay'); end; }
+        codeunit 60432 \"b Install\" { Subtype = Install;
+            trigger OnInstallAppPerCompany() var W: Codeunit Writer; begin W.Co('b'); end;
+            trigger OnInstallAppPerDatabase() var W: Codeunit Writer; begin W.Db('b'); end; }
+        codeunit 60102 T { Subtype = Test;
+            [Test] procedure PerCompanyOrder() var R: Record Log; Seen: Text;
+            begin R.SetCurrentKey(Id); if R.FindSet() then repeat Seen += R.Names + '|' + Format(R.Calls) + ' '; until R.Next() = 0;
+                if Seen <> 'Mu;|1 Mu;b;|2 Mu;b;Cu;|3 Mu;b;Cu;Ay;|4 Mu;b;Cu;Ay;Zz;|5 Mu;b;Cu;Ay;Zz;Sub;|6 ' then Error('%1', Seen); end;
+            [Test] procedure PerDatabaseOrder() var R: Record DbLog;
+            begin R.FindLast(); if R.Names <> 'Mu;b;Cu;Ay;Zz;' then Error('%1', R.Names); end; }";
+    let (o, hits) = outcomes_and_hits_of_apps(&[("main", &[], main)], "T");
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
+    }
+    for (n, h) in &hits {
+        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+    }
 }
 
 // ADR-046 amendment 1, A4 items 1 and 2: the install runs in a session of its own, not the test session

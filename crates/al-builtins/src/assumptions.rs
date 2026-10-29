@@ -1183,6 +1183,17 @@ registry! {
         tests: "No Microsoft test: owner decision for partner apps whose per-company install routine reads a table a dependency app's Company Triggers subscriber writes (a reporter's suite: 126 tests refused before).",
         probe: "Probe Q3 of ADR-046: a fixture app subscriber to OnCompanyOpen increments a SingleInstance counter; the main app's per-company install routine logs it, and a test counts how often the subscriber ran during the fixture app's own install.",
     },
+    InstallOrderAscendingId => {
+        id: "install-order-ascending-id",
+        assumed: "The install routines of one app (install codeunit triggers and Extension Triggers subscribers) run in ascending object id in each company and in the per-database part, when their ids lie in one block of 65536 ids, and a SingleInstance codeunit's state carries from one to the next within a company or part (ADR-046 amendment 3). Across blocks the order is not pinned and stays refused: install/lt-bf-install-probes/BfInstallTests.al:239 runs 60445, 60618 and 60894 after 81255.",
+        tests: "No Microsoft test: a partner app's suite whose install codeunits share tables and SingleInstance codeunits (the owner's NP Retail measurement).",
+        probe: "Written: UmInstallOrder.al (writer UM, corpus PR 807), five install codeunits 90431-90435 sharing one SingleInstance codeunit. Still wanted: install codeunits of one app whose ids lie in two blocks of 65536 ids, chosen so that ascending id within each block, ascending id modulo 65536 and descending block give three different orders (for example 60100, 70000 and 130000; the main corpus app's id ranges end at 99999, where ascending id modulo 65536 and descending block always agree, so this needs a wider id range or another app).",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/install/lt-um-install-order/UmInstallOrder.al"],
+            since: "2026-10-29",
+        },
+    },
     PageRunBlankRecordDescendingViewFirstRow => {
         id: "page-run-blank-record-descending-view-first-row",
         assumed: "Page.Run (not modal) of a List page with a record that is still blank (filters only), on a view that runs descending, enters on the first row of the view; RunModal of the same enters where `=><` from the blank record lands, the last row (pinned: pages/lt-page-sourceview-current-row/PageSourceViewCurrentRow.al:140). Measured in the reporter's run on real BC.",
@@ -1450,6 +1461,61 @@ registry! {
                 "tests/al-language/types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al::JsonArray_UsedAfterEvaluate",
             ],
             since: "2026-10-29",
+        },
+    },
+    FilterAtSignInValue => {
+        id: "filter-at-sign-in-value",
+        assumed: "In a filter text an `@` after the first character of a value is a normal character (`a@b.dk` matches that text, `@a@b.dk` matches it in any case, `*@b*` is a pattern); only an `@` where a value starts makes it case-insensitive. The same for SetFilter, SetView and the other filter texts.",
+        tests: "No Microsoft test: a partner app's tests (SetView with an e-mail address as the filter value).",
+        probe: "Done for SetView on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master, and the same values through SetFilter.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text",
+                "tests/al-language/filters/W4Filters.al::UN_SetView_AtSignInValue_Text_2",
+            ],
+            since: "2026-10-30",
+        },
+    },
+    EvaluateDateLettersStatement => {
+        id: "evaluate-date-letters-statement",
+        assumed: "An Evaluate statement into a Date that fails on a text of ASCII letters with number 9, or on letters mixed with digits and `-./` (such as `not-a-date`) with number 0, 9 or none, raises the Date-format error (`The format of the Date '<text>' does not match your device's date settings...`, code Evaluate) in an English session and keeps the value.",
+        tests: "No Microsoft test: a partner app's tests (Evaluate of a text that is no date into a Date, result unused).",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-130/P130EvaluateDate.al::UN_Evaluate_Statement_NotADate_ByTarget",
+            ],
+            since: "2026-10-30",
+        },
+    },
+    JsonBooleanTextSpellings => {
+        id: "json-boolean-text-spellings",
+        assumed: "JsonValue.AsBoolean of the JSON strings \"True\", \"TRUE\", \" true\" and \"true \" is Yes, of \"false\", \"False\" and \"FALSE\" is No; of the JSON numbers 0 and 1 it is No and Yes.",
+        tests: "No Microsoft test: a partner app's tests (AsBoolean of a JSON string \"false\").",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Mixed case and blanks around false are refused.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters",
+                "tests/al-language/json/JsonValueGetters.al::UN_BooleanTextGetters_5",
+            ],
+            since: "2026-10-30",
+        },
+    },
+    DatetimeFilterDayAndHours => {
+        id: "datetime-filter-day-and-hours",
+        assumed: "In an English session a DateTime filter text that is a date alone (`01/15/25`, `1/15/25`, `2025-01-15`) covers the whole day from 00:00:00 to 23:59:59 (as a range end: the start of the day below, its end above; after `<`: before the start of the day), and GetFilter shows its end as `11:59:59 PM`; a clock reads any hour (`08:30`, `17:45`, `00:00` on a 24-hour clock, `08:30 AM`, `05:45:10.5 PM`); `15.01.25` alone or with a clock raises the evaluate error of DateTime.",
+        tests: "No Microsoft test: a partner app's tests (DateTime filters of a date alone and of other hours).",
+        probe: "Done on writer UN's branch al-runtime-rs-staging-un (corpus PR 806, commit d3bcc580); wanted: the bump that puts it on corpus master. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &[
+                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_DateAlone",
+                "tests/al-language/errors/lt-ms-refusals-136/P136Filter.al::UN_DateTimeFilter_HourNotTwelve",
+            ],
+            since: "2026-10-30",
         },
     },
 }
