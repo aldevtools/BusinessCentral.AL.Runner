@@ -132,6 +132,7 @@ mod xml_attribute_collection_set;
 mod xml_doctype;
 mod xml_node_list_clear;
 mod xml_options_assign;
+mod xml_reserved_prefix;
 mod xml_sibling_unparented;
 mod xml_text_into_document;
 mod xml_value_assign;
