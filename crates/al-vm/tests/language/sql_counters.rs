@@ -106,16 +106,21 @@ fn temporary_record_operations_change_nothing() {
     assert_eq!(text(run(&s, "F")), ["statements same, rows same"; 6].join("|"));
 }
 
-/// An exact count is not pinned for a Get of one row of three (only its sign): comparing with a number other than 0 refuses.
+/// A Get through a record with a filter in another filter group: the cost of one record method alone (SkSqlBudget.al:709-860)
+/// is measured only without one, so the size of its change is not known.
+const HIDDEN: &str = "Row.FilterGroup(2); Row.SetRange(Id, 1, 3); Row.FilterGroup(0); ";
+
+/// An exact count is not pinned for a Get of one row of three through a filter group (only its sign): comparing with a number
+/// other than 0 refuses.
 #[test]
 fn an_exact_count_is_refused() {
-    let s = src(
-        "procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore = 1); end;",
-    );
+    let s = src(&format!(
+        "procedure F(): Boolean var Row: Record Row; begin Mark(); {HIDDEN} Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore = 1); end;"
+    ));
     refused(run(&s, "F"), "SQL counter");
-    let s = src(
-        "procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore <= 5); end;",
-    );
+    let s = src(&format!(
+        "procedure F(): Boolean var Row: Record Row; begin Mark(); {HIDDEN} Seed(); Mark(); Row.Get(2); exit(SessionInformation.SqlStatementsExecuted() - StmtBefore <= 5); end;"
+    ));
     refused(run(&s, "F"), "SQL counter");
 }
 
@@ -134,7 +139,7 @@ fn other_uses_of_a_counter_are_refused() {
         "procedure F(): Text begin Message('%1', SessionInformation.SqlRowsRead()); end;",
         "procedure F(): Text var Row: Record Row; begin Row.Id := SessionInformation.SqlRowsRead(); end;",
         "procedure F(): Text var D: Decimal; begin D := SessionInformation.SqlRowsRead(); end;",
-        "procedure F(): Text var B: BigInteger; Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); B := (SessionInformation.SqlRowsRead() - RowsBefore) * 2; end;",
+        "procedure F(): Text var B: BigInteger; Row: Record Row; begin Mark(); Row.FilterGroup(2); Row.SetRange(Id, 1, 3); Row.FilterGroup(0); Seed(); Mark(); Row.Get(2); B := (SessionInformation.SqlRowsRead() - RowsBefore) * 2; end;",
         "procedure F(): Text var L: List of [BigInteger]; begin L.Add(SessionInformation.SqlRowsRead()); end;",
     ] {
         refused(run(&src(body), "F"), "SQL counter");
@@ -157,7 +162,7 @@ fn the_two_counters_do_not_compare() {
     refused(run(&s, "F"), "SQL counter");
 }
 
-/// A difference whose size is not pinned (a Get of one row of three) keeps its taint through a global, a Variant and a
+/// A difference whose size is not pinned (a Get of one row of three through a filter group) keeps its taint through a global, a Variant and a
 /// parameter.
 #[test]
 fn a_difference_through_a_variant_keeps_its_sign_only() {
@@ -165,7 +170,7 @@ fn a_difference_through_a_variant_keeps_its_sign_only() {
         src(&format!(
             "var G: Variant;
             local procedure Check(B: BigInteger): Boolean begin exit({check}); end;
-            procedure F(): Boolean var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); G := SessionInformation.SqlRowsRead() - RowsBefore; exit(Check(G)); end;"
+            procedure F(): Boolean var Row: Record Row; begin Mark(); {HIDDEN} Seed(); Mark(); Row.Get(2); G := SessionInformation.SqlRowsRead() - RowsBefore; exit(Check(G)); end;"
         ))
     };
     assert!(boolean(run(&body("B > 0"), "F")));
@@ -175,16 +180,18 @@ fn a_difference_through_a_variant_keeps_its_sign_only() {
 /// The measured sequence counts only from a Commit seen after the first read: a context from before it is not known.
 #[test]
 fn the_table_sequence_needs_its_commit_seen() {
-    let s = src("procedure F(): Text var Row: Record Row; begin Seed(); Mark(); Row.Get(2); exit(Note()); end;");
+    let s = src(&format!(
+        "procedure F(): Text var Row: Record Row; begin {HIDDEN} Seed(); Mark(); Row.Get(2); exit(Note()); end;"
+    ));
     refused(run(&s, "F"), "SQL counter");
 }
 
 /// Two steps between two reads, or the steps in another order, are not what was measured.
 #[test]
 fn the_table_sequence_is_matched_step_by_step() {
-    let s = src(
-        "procedure F(): Text var Row: Record Row; begin Mark(); Seed(); Mark(); Row.Get(2); Row.Get(3); exit(Note()); end;",
-    );
+    let s = src(&format!(
+        "procedure F(): Text var Row: Record Row; begin Mark(); {HIDDEN} Seed(); Mark(); Row.Get(2); Row.Get(3); exit(Note()); end;"
+    ));
     refused(run(&s, "F"), "SQL counter");
     // A Count right after the Commit that followed writes to the table: one statement that reads one row, whatever the
     // rows (SqlCounters.al:388-392; SkSqlBudget.al:493-497 counts over 10 and 15 rows).

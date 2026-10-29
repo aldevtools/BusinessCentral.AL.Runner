@@ -971,7 +971,7 @@ impl Session {
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
-            sql: Default::default(),
+            sql: sqlcount::SqlCounters::new_session(),
             dirty_ops_open: 0,
             reseeded_in_test: false,
             inherited_draws: 0,
