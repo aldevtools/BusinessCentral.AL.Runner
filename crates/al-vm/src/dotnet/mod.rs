@@ -430,6 +430,23 @@ impl Session {
                         );
                     }
                 }
+                // System.Enum.Parse(type, name) of a name that is not a member (also one in another case): writer TV, corpus
+                // branch al-runtime-rs-staging-tv 8ae7ac0b, lt-bb-dotnet/BbGetDotNetType.al
+                // TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (assumption dotnet-type-unassigned-enum).
+                if kind == MemberKind::Call
+                    && matches!(target, Target::Static(_))
+                    && clr_type.eq_ignore_ascii_case("System.Enum")
+                    && member.eq_ignore_ascii_case("Parse")
+                    && values.len() == 2
+                    && e.clr_type == "System.ArgumentException"
+                    && e.message.starts_with("Requested value '")
+                {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedEnum);
+                    return al_builtins::native::raise(
+                        format!("A call to System.Enum.Parse failed with this message: {}", e.message),
+                        "DotNetInvoke:Argument",
+                    );
+                }
                 // Encoding.GetEncoding: the sidecar registers the code-page provider, as BC's server answers code pages
                 // (corpus tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :152, :244).
                 // Pinned failures: a code page out of range (ArgumentOutOfRange, :168 and :244, 99999) and an unknown
