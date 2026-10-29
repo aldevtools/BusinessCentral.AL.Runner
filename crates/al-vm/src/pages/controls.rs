@@ -181,10 +181,13 @@ impl Session {
             if !rec_bound {
                 return unsupported("OnBeforeValidate/OnAfterValidate on a control bound to a variable (not pinned)");
             }
+            // With a table OnValidate: the table's validation (its events and OnValidate) first, then the page's
+            // OnBeforeValidateEvent, OnBeforeValidate, the control's OnValidate, OnAfterValidate, the page's OnAfterValidateEvent
+            // (misc/lt-probes-needed-2/PnBPages.al:185 ModifyValidateTriggers_AroundTableOnValidate `Name.OnValidate:2,E1.Name.Before,
+            // E1.Name.After`; corpus writer TT's branch al-runtime-rs-staging-tt, pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al
+            // TT_TableOnValidate_Order, TT_TableOnValidate_Order_WithEvents; assumption `page-ext-validate-table-onvalidate`).
             if self.control_field(st, idx).is_some_and(|f| f.on_validate.is_some()) {
-                return unsupported(
-                    "OnBeforeValidate/OnAfterValidate on a control whose field has a table OnValidate (their order is not pinned)",
-                );
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageExtValidateTableOnValidate);
             }
         }
         let caption = self.control_caption(st, idx)?;
@@ -899,13 +902,14 @@ impl Session {
                 }
                 _ => return unsupported("SetValue on a read-only control"),
             }
-            for (e, r) in &ext_before {
-                self.owner_routine(st, Some(*e), *r)?;
-            }
-            // The page's events around the control's own trigger (corpus P81PageValidateEvents.al).
+            // The page's events around the control's own trigger (corpus P81PageValidateEvents.al); OnBeforeValidate of `modify`
+            // blocks runs after the page's OnBeforeValidateEvent (TT_TableOnValidate_Order_WithEvents on writer TT's branch).
             let element = page_of(&self.engine(), st).controls[idx].name.clone();
             if rec_bound {
                 self.page_validate_event(st, "onbeforevalidateevent", &element)?;
+            }
+            for (e, r) in &ext_before {
+                self.owner_routine(st, Some(*e), *r)?;
             }
             if let Some(r) = ctl.trigger("onvalidate") {
                 if self.has_source(st) {

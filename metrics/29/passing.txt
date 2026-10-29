@@ -7975,7 +7975,9 @@
 70553 DataTransfer_OutsideInstall
 70553 ModuleInfo_Properties
 70553 WebServiceActionContext_Ordinals_AndDuplicateKey
+70555 CurrFieldNo_PageWriteVersusCode
 70555 ExtensionTriggers_RunOrder
+70555 ModifyValidateTriggers_AroundTableOnValidate
 70556 AllObj_OwnAndPlatformObjects
 70556 FieldTable_TypeColumn
 70556 TableMetadata_Columns
@@ -12006,6 +12008,7 @@
 73505 Encoding_XmlUtf16Property
 73505 Encoding_XmlUtf16ReadAsUtf8
 73506 Instance_ExportAfterImportDirection
+73506 Instance_ImportTwiceSameSource
 73506 Instance_TempBlobCodeunitRoundTrip
 73506 Static_ImportRecordParam
 73510 Close_BeforeOpen
