@@ -412,6 +412,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
         Value::Decimal(_) => {
             let (plain, point) = match template {
                 "<Sign><Integer><Decimals><Comma,.>" => (SIGN_INT_DEC, '.'),
+                // BC 28.5 CH synthetic FormatProbe.DecimalEnglish/DecimalSwissGerman
+                // (docs/decimal-format-probe.md): width 3 includes the point; overflow is stars, not rounding.
+                "<Sign><Integer><Decimals,3><Comma,.>" => ("<Sign><Integer><Decimals,3>", '.'),
                 "<Integer><Comma,.><Decimals>" => ("<Integer><Decimals>", '.'),
                 "<Sign><Integer><Decimals><Comma,,>" => (SIGN_INT_DEC, ','),
                 // TP_Format_PrecisionStrings on corpus branch al-runtime-rs-staging-pub-tp (`p2comma.`, `p2comma,`, `p2thousand`):
@@ -1141,6 +1144,64 @@ mod tests {
 
     fn fmt(v: Value, template: &str) -> Result<Value, Signal> {
         call("System.Format#2", vec![v, Value::Integer(0), t(template)])
+    }
+
+    // Real BC 28.5 CH, synthetic FormatProbe.DecimalEnglish/DecimalSwissGerman:
+    // docs/decimal-format-probe.md. The exact combination is awaiting its upstream corpus pin.
+    #[test]
+    fn exact_decimal_comma_width_three_matches_bc28_in_english_and_swiss_german() {
+        struct Context(i32);
+        impl crate::format::FormatCtx for Context {
+            fn enum_name(&self, _: u32, _: i32) -> String {
+                unreachable!()
+            }
+            fn language(&self) -> i32 {
+                self.0
+            }
+        }
+        let cases = [
+            ("0", "0.00"),
+            ("-0", "0.00"),
+            ("1234", "1234.00"),
+            ("-1234", "-1234.00"),
+            ("0.5", "0.50"),
+            ("-0.5", "-0.50"),
+            ("1234.5", "1234.50"),
+            ("-1234.5", "-1234.50"),
+            ("0.005", "0***"),
+            ("-0.005", "-0***"),
+            ("1.234", "1***"),
+            ("-1.234", "-1***"),
+            ("1.235", "1***"),
+            ("-1.235", "-1***"),
+            ("1.995", "1***"),
+            ("-1.995", "-1***"),
+            ("99999", "99999.00"),
+            ("-99999", "-99999.00"),
+            ("1.2300", "1.23"),
+            ("999999999999999.99", "999999999999999.99"),
+        ];
+        for language in [1033, 2055] {
+            for (input, expected) in cases {
+                assert_eq!(
+                    super::format_with_string(
+                        &Value::Decimal(input.parse().unwrap()),
+                        0,
+                        "<Sign><Integer><Decimals,3><Comma,.>",
+                        &Context(language),
+                    ),
+                    Ok(expected.to_string()),
+                    "language {language}, Decimal {input}",
+                );
+            }
+        }
+        assert_eq!(
+            text(fmt(
+                Value::Decimal("1234.5".parse().unwrap()),
+                "<Sign><Integer><Decimals,3><Comma,.>"
+            )),
+            "1234.50"
+        );
     }
 
     // Microsoft's Remittance Advice and Finance Charge Memo reports: Format(Amount, 0, AutoFormat.ResolveAutoFormat(.., 'GBP')) =
