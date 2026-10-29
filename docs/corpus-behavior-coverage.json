@@ -16045,7 +16045,7 @@
         "code": "ArgumentOutOfRange",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 376,
+        "line": 398,
         "pinned": true,
         "site": "streams/StTMedia.al:302",
         "template": "Argument was out of range: index."
@@ -16054,7 +16054,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 439,
+        "line": 461,
         "pinned": true,
         "site": "media/MediaFiles.al:207",
         "template": "The specified path is invalid."
@@ -16063,7 +16063,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 443,
+        "line": 465,
         "pinned": true,
         "site": "media/MediaFiles.al:209",
         "template": "Could not find a part of the path '%'."
