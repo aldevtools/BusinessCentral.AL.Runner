@@ -1152,6 +1152,7 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
+        self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
         self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();
@@ -1249,6 +1250,7 @@ impl Session {
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.sql.rolled_back();
+        self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
         self.tx.read_after_write = false;
         self.tx.tables_inserted.clear();

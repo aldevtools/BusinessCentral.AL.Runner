@@ -1338,6 +1338,7 @@ impl Session {
             return;
         }
         let company = rec.borrow().company.clone();
+        self.note_row_versions(t.object, &company, kind);
         self.tx.writes.push(crate::state::TxWrite {
             table: t.object,
             company,
@@ -1346,6 +1347,52 @@ impl Session {
             before,
             after: self.store.change_counter(),
         });
+    }
+
+    /// What a database write does to `Database.LastUsedRowVersion` (`last_used_row_version`). BC keeps the rows an Insert
+    /// wrote until a read of their table or a Modify sends them: the value does not grow after an Insert alone
+    /// (record/TestProbeRecordRefContracts.al:620-640 `grows_after_insert` No, platform/lt-platform-members/PlTDatabase.al:
+    /// 220-245 `after_insert_greater` No), it covers the inserted row after a read of its table (PlTRowVersionValue.al:157-172,
+    /// `insert open last > start last` and `row version <= last` Yes) and grows after a Modify (PlTDatabase.al:238
+    /// `after_modify_greater`, PlTRowVersionValue.al `modify open row version <= last`). A Delete, DeleteAll, Rename or
+    /// ModifyAll that meets rows an Insert left, or that hands out row versions, is not pinned.
+    fn note_row_versions(&mut self, table: u32, company: &Option<String>, kind: crate::state::TxWriteKind) {
+        use crate::state::TxWriteKind;
+        let rv = &mut self.tx.row_versions;
+        // An Insert or a Modify hands out one row version; more since the last one accounted for came from another write.
+        let new_versions = rv.handed_out != rv.accounted;
+        if rv.handed_out > rv.accounted + 1 {
+            rv.unpinned = Some("row versions handed out by a write other than an Insert or a Modify");
+        }
+        match kind {
+            TxWriteKind::Insert if new_versions => {
+                rv.accounted = rv.handed_out;
+                let last = rv.last;
+                match rv.pending_inserts.iter_mut().find(|(o, c, _)| *o == table && c == company) {
+                    Some(p) => p.2 = last,
+                    None => rv.pending_inserts.push((table, company.clone(), last)),
+                }
+            }
+            TxWriteKind::Modify if new_versions => {
+                rv.accounted = rv.handed_out;
+                rv.sent = rv.sent.max(rv.last);
+                self.send_pending_inserts(table, company);
+            }
+            _ => {
+                if rv.pending_inserts.iter().any(|(o, c, _)| *o == table && c == company) {
+                    rv.unpinned = Some("a Delete, DeleteAll, Rename or ModifyAll of a table the open transaction inserted into");
+                }
+            }
+        }
+    }
+
+    /// A read of a table, or a Modify of it, sends the rows an Insert left (`note_row_versions`).
+    pub(crate) fn send_pending_inserts(&mut self, table: u32, company: &Option<String>) {
+        let rv = &mut self.tx.row_versions;
+        if let Some(i) = rv.pending_inserts.iter().position(|(o, c, _)| *o == table && c == company) {
+            let (_, _, v) = rv.pending_inserts.swap_remove(i);
+            rv.sent = rv.sent.max(v);
+        }
     }
 
     /// Records a ModifyAll, DeleteAll, Rename or Truncate of a database table: `stale_verdict` does not tell its writes apart.
@@ -1643,6 +1690,10 @@ impl Session {
             return None;
         }
         self.next_row_version += 1;
+        if !rec.borrow().temporary {
+            self.tx.row_versions.handed_out += 1;
+            self.tx.row_versions.last = self.next_row_version;
+        }
         let old = std::mem::replace(
             &mut rec.borrow_mut().fields[i],
             Value::BigInteger(self.next_row_version),
@@ -3166,6 +3217,8 @@ impl Session {
             if self.tx.tables_inserted.iter().any(|(table, _)| *table == t.object) {
                 self.tx.read_after_write = true;
             }
+            let company = rec.borrow().company.clone();
+            self.send_pending_inserts(t.object, &company);
             use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other
