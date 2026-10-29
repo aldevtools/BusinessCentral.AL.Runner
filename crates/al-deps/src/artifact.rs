@@ -12,7 +12,9 @@
 //! is a hint; the `app.json` inside decides, by app id.
 
 use crate::build::{BuildId, BuildQuery, Origin, Selection, parse_index, select_build};
-use crate::cache::{BuildDir, Store, local_builds_for, local_country_files, local_platform_files};
+use crate::cache::{
+    BuildDir, Store, local_builds_for, local_country_extensions, local_country_files, local_platform_files,
+};
 use crate::load::{Found, Loaded, Planned, Request, ScanCache, plan_dependencies_labeled, read_planned};
 use crate::package::{Vars, read_info_with};
 use crate::remote::{HttpSource, RangeSource, RemoteError, RemoteZip, fetch_all, http_agent};
@@ -209,6 +211,33 @@ fn rank_by_name<'a, T>(items: &'a [T], name_of: impl Fn(&T) -> &str, dep: &DepDe
     out
 }
 
+/// The compiled packages of a country artifact's `Extensions/` folder that are the app `dep`: Microsoft's
+/// `Microsoft_<name>_<version>.app` (or without the version). Some of a country's apps are only there, such as the
+/// German "ELSTER VAT Localization for Germany" (al-runner issue 6167); each is a Ready-to-Run wrapper around the
+/// app with its AL source, which the package reader unwraps.
+fn rank_extensions<'a, T>(items: &'a [T], name_of: impl Fn(&T) -> &str, dep: &DepDecl) -> Vec<&'a T> {
+    if !dep.publisher.is_empty() && !dep.publisher.eq_ignore_ascii_case("Microsoft") {
+        return Vec::new();
+    }
+    let prefix = format!("microsoft_{}", dep.name.to_ascii_lowercase());
+    items
+        .iter()
+        .filter(|t| {
+            let n = name_of(t);
+            let base = n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
+            let Some(rest) = base.strip_prefix(&prefix).and_then(|r| r.strip_suffix(".app")) else {
+                return false;
+            };
+            // Nothing after the name, or `_` and a version: `Microsoft_E-Document Core Demo Data_..` is not
+            // `E-Document Core`.
+            rest.is_empty()
+                || rest
+                    .strip_prefix('_')
+                    .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        })
+        .collect()
+}
+
 /// A project's `.alpackages` folder: what its developer compiled against, often symbols of older builds.
 fn is_alpackages(dir: &Path) -> bool {
     dir.file_name()
@@ -283,6 +312,9 @@ fn entry_is(bytes: &[u8], name: &str, dep: &DepDecl, build: &BuildId, log: &mut 
 /// A build of the local artifacts that the query names, with its files.
 struct LocalPlatform {
     files: Vec<(String, PathBuf)>,
+    /// The compiled packages of the country artifact's `Extensions/` folder: asked only for an app that no file
+    /// of `files` holds.
+    extensions: Vec<(String, PathBuf)>,
 }
 
 /// The build of `root` that the query picks. With `exact_only`, only a query that names one whole
@@ -313,9 +345,11 @@ pub(crate) fn published_builds<C: Cdn>(cdn: &C, country: &str) -> Result<Vec<Bui
 pub(crate) struct CountryZip<S> {
     pub(crate) url: String,
     pub(crate) zip: RemoteZip<S>,
-    /// The entries under `Applications.<COUNTRY>/`: the country's own apps. (`Extensions/` holds
-    /// the same apps again as compiled packages; those are not used.)
+    /// The entries under `Applications.<COUNTRY>/`: the country's own apps, with their sources.
     pub(crate) entries: Vec<Entry>,
+    /// The compiled packages under `Extensions/`. Most are the apps of `entries` or of the platform artifact again;
+    /// they are asked only for an app neither has (a country-only app such as ELSTER, al-runner issue 6167).
+    pub(crate) extensions: Vec<Entry>,
     /// Lower-case names of the apps that have a `<name>.Source.zip` there.
     pub(crate) names: HashSet<String>,
 }
@@ -376,10 +410,17 @@ pub(crate) fn open_country<C: Cdn>(
         ));
     }
     let names = source_names(&entries);
+    let extensions: Vec<Entry> = zip
+        .entries
+        .iter()
+        .filter(|e| e.name.starts_with("Extensions/") && e.name.to_ascii_lowercase().ends_with(".app"))
+        .cloned()
+        .collect();
     Ok(CountryZip {
         url,
         zip,
         entries,
+        extensions,
         names,
     })
 }
@@ -561,7 +602,12 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
                 Vec::new()
             };
             files.extend(local_platform_files(root, &sel.build));
-            *local = Some(LocalPlatform { files });
+            let extensions = if localized {
+                local_country_extensions(root, &sel.build, &fetch.country)
+            } else {
+                Vec::new()
+            };
+            *local = Some(LocalPlatform { files, extensions });
             Some((store.build(&sel.build), sel))
         };
         if chosen.is_none() {
@@ -630,7 +676,11 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
             for dep in &todo {
                 tried.insert(dep_key(dep));
                 let mut found = false;
-                for (name, path) in rank_by_name(&l.files, |f| f.0.as_str(), dep) {
+                // The country's `Extensions/` last: only for an app no other file holds.
+                let candidates = rank_by_name(&l.files, |f| f.0.as_str(), dep)
+                    .into_iter()
+                    .chain(rank_extensions(&l.extensions, |f| f.0.as_str(), dep));
+                for (name, path) in candidates {
                     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
                     if !entry_is(&bytes, name, dep, &sel.build, &mut log) {
                         continue;
@@ -731,6 +781,31 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
                 fetched.push(entry.name.clone());
                 stored = true;
                 break;
+            }
+            // An app neither the country's `Applications.<COUNTRY>/` nor the platform has: the country's compiled
+            // package under `Extensions/` (al-runner issue 6167).
+            if !stored && let Some(cz) = &country_remote {
+                let cbd = store.country_build(&sel.build, &fetch.country);
+                for entry in rank_extensions(&cz.extensions, |e| e.name.as_str(), dep) {
+                    let bytes = cz
+                        .zip
+                        .read(entry)
+                        .map_err(|e| format!("{}: entry `{}`: {e}", cz.url, entry.name))?;
+                    if !entry_is(&bytes, &entry.name, dep, &sel.build, &mut log) {
+                        continue;
+                    }
+                    cbd.put_entry(&entry.name, &cz.url, &bytes)?;
+                    scans.remove(&cbd.apps_dir());
+                    log.push(format!(
+                        "artifact: fetched {} ({} bytes) from {}",
+                        entry.name,
+                        bytes.len(),
+                        cz.url
+                    ));
+                    fetched.push(entry.name.clone());
+                    stored = true;
+                    break;
+                }
             }
             if stored {
                 progress = true;
@@ -970,6 +1045,37 @@ mod tests {
         b.finish()
     }
 
+    const ELSTER_ID: &str = "b0c41a2d-9ebe-4773-a22f-86bd69e75949";
+    const ELSTER_NAME: &str = "ELSTER VAT Localization for Germany";
+
+    /// A Ready-to-Run wrapper (no manifest of its own) around a Microsoft app with AL source, as a country artifact's
+    /// `Extensions/` folder holds it.
+    fn elster_wrapper(country: &str) -> Vec<u8> {
+        let manifest = format!(
+            r#"<Package><App Id="{ELSTER_ID}" Name="{ELSTER_NAME}" Publisher="Microsoft" Version="27.5.46862.56249" /><Dependencies><Dependency Id="437dbf0e-84ff-417a-965d-ed2bb9650972" Name="Base Application" Publisher="Microsoft" MinVersion="27.5.0.0" /></Dependencies></Package>"#
+        );
+        let inner = navx(
+            &Builder::new()
+                .add("NavxManifest.xml", manifest.as_bytes(), true)
+                .add(
+                    "src/SalesVATAdvanceNotif.Table.al",
+                    format!("table 11021 \"Sales VAT Advance Notif.\" {{ }} // {country}").as_bytes(),
+                    true,
+                )
+                .finish(),
+        );
+        navx(
+            &Builder::new()
+                .add("readytorunappmanifest.json", b"{}", true)
+                .add(
+                    &format!("{}_27.5.46862.56249_27_1.app", ELSTER_ID.replace('-', "")),
+                    &inner,
+                    false,
+                )
+                .finish(),
+        )
+    }
+
     struct FixtureCdn {
         index: String,
         platform: HashMap<String, PathBuf>,
@@ -1021,6 +1127,18 @@ mod tests {
                 .add(&format!("{folder}/Base Application.Source.zip"), &base, false)
                 .add(
                     "Extensions/Microsoft_Base Application_27.5.46862.56249.app",
+                    b"compiled",
+                    false,
+                )
+                // A country-only app, only in `Extensions/`, as the Ready-to-Run wrapper of the real artifact (al-runner
+                // issue 6167), next to an app whose name starts with the same words.
+                .add(
+                    &format!("Extensions/Microsoft_{ELSTER_NAME}_27.5.46862.56249.app"),
+                    &elster_wrapper(country),
+                    false,
+                )
+                .add(
+                    &format!("Extensions/Microsoft_{ELSTER_NAME} Demo Data_27.5.46862.56249.app"),
                     b"compiled",
                     false,
                 )
@@ -1732,6 +1850,71 @@ mod tests {
         // Warm: the second run needs neither the feed nor the platform artifact.
         let again = run(&alpkg, &f, &NoNetwork, MissingPolicy::Error, &base_project()).unwrap();
         assert!(base_text(&again).contains("// us"));
+    }
+
+    /// al-runner issue 6167: an app the country artifact has only as a compiled package under `Extensions/` (ELSTER in
+    /// the German artifact) is fetched from there, unwrapped and loaded with its source; a second run takes it from
+    /// the cache.
+    #[test]
+    fn a_country_only_app_is_taken_from_the_extensions_folder_of_the_country_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let cdn = FixtureCdn::new(dir.path(), &["27.5.46862.56249"]).with_country(dir.path(), "de");
+        let alpkg = alpackages(dir.path());
+        let f = with_country(fetch(&dir.path().join("cache"), true, Some("27.5")), "de");
+        let mut project = base_project();
+        project.dependencies.push(dep(ELSTER_ID, ELSTER_NAME));
+        let out = run(&alpkg, &f, &cdn, MissingPolicy::Error, &project).unwrap();
+        let elster = out.loaded.apps.iter().find(|a| a.app.name == ELSTER_NAME);
+        let elster = elster.unwrap_or_else(|| panic!("{:?}", out.log));
+        assert!(
+            elster
+                .app
+                .files
+                .iter()
+                .any(|(_, t)| t.contains("Sales VAT Advance Notif.") && t.contains("// de")),
+            "{:?}",
+            elster.app.files
+        );
+        // The app named like it with more words is not read.
+        assert!(!out.log.iter().any(|l| l.contains("Demo Data")), "{:?}", out.log);
+        assert!(base_text(&out).contains("// de"));
+        // Warm: no feed.
+        let again = run(&alpkg, &f, &NoNetwork, MissingPolicy::Error, &project).unwrap();
+        assert!(again.loaded.apps.iter().any(|a| a.app.name == ELSTER_NAME));
+    }
+
+    /// The same from an extracted country artifact on disk (`--local-artifacts`).
+    #[test]
+    fn a_country_only_app_is_taken_from_the_extensions_folder_of_local_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("sandbox");
+        extracted_artifact(&root, "27.5.46862.56249");
+        let country = root.join("27.5.46862.56249/de");
+        std::fs::create_dir_all(country.join("Applications.DE")).unwrap();
+        std::fs::create_dir_all(country.join("Extensions")).unwrap();
+        let base_json = r#"{"id":"437dbf0e-84ff-417a-965d-ed2bb9650972","name":"Base Application","publisher":"Microsoft",
+            "version":"27.5.46862.56249","platform":"27.0.0.0","dependencies":[]}"#;
+        std::fs::write(
+            country.join("Applications.DE/Base Application.Source.zip"),
+            source_zip(base_json, &[("T.Table.al", "table 18 Customer { } // de")]),
+        )
+        .unwrap();
+        std::fs::write(
+            country.join(format!("Extensions/Microsoft_{ELSTER_NAME}_27.5.46862.56249.app")),
+            elster_wrapper("de"),
+        )
+        .unwrap();
+        let alpkg = alpackages(dir.path());
+        let mut f = with_country(fetch(&dir.path().join("cache"), false, Some("27.5.46862.56249")), "de");
+        f.local_artifacts = Some(root);
+        let mut project = project();
+        project.dependencies = vec![dep(ELSTER_ID, ELSTER_NAME)];
+        let out = run(&alpkg, &f, &NoNetwork, MissingPolicy::Error, &project).unwrap();
+        assert!(
+            out.loaded.apps.iter().any(|a| a.app.name == ELSTER_NAME),
+            "{:?}",
+            out.log
+        );
     }
 
     #[test]

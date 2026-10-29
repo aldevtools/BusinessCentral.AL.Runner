@@ -324,7 +324,9 @@ The country artifact `<feed>/sandbox/<build>/<country>` (measured on 28.5.54151.
   System Application, Business Foundation, Any, Library Assert, test libraries, ...) and Microsoft's test apps
   `Tests-*.Source.zip` (the buckets), flat in one folder. W1 keeps the same apps in the platform artifact under
   `Applications/**`.
-- `Extensions/` (compiled packages, not used), `ConfigurationPackages/`, `manifest.json`.
+- `Extensions/` (compiled packages, `Microsoft_<name>_<build>.app`, each a Ready-to-Run wrapper around the app with
+  its AL source), `ConfigurationPackages/`, `manifest.json`. Some country-only apps are only here (DE: "ELSTER VAT
+  Localization for Germany", al-runner issue 6167).
 
 The platform artifact stays the same (`System.app`, the apps no country changes).
 
@@ -332,6 +334,8 @@ The platform artifact stays the same (`System.app`, the apps no country changes)
 
 1. **Apps.** For a country other than `w1`, a Microsoft app that the country artifact has a Source.zip for under
    `Applications.<COUNTRY>/` comes from there; every other Microsoft app comes from the platform artifact as before.
+   An app neither has comes from the country artifact's `Extensions/` package (amendment 2026-10-29, al-runner
+   issue 6167; tooling, so no corpus pin is needed).
    Only that folder is read, by ranged requests, and only the entries the run needs (US 28.5: about 55 MB for Base
    Application, System Application and Business Foundation, plus the 65 KB central directory).
 2. **Cache.** The country's apps are kept in `artifacts/<build>/country-<country>/apps/`, apart from the platform's
