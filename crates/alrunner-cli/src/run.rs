@@ -1412,6 +1412,18 @@ fn test_inner(
             None => Default::default(),
         },
     };
+    // ADR-046 decision 2: `--companies`. The session company is chosen as without it (the restored company, the recipe
+    // lane's, or AL Runner's); a list must name it first.
+    let companies = a.companies.clone().unwrap_or_default();
+    let session_company = match &test_data {
+        Some((d, _)) => d.provider.company().to_string(),
+        None => a
+            .company_name
+            .clone()
+            .unwrap_or_else(|| al_host::Identity::company_name(&al_host::AlRunnerIdentity)),
+    };
+    companies.check_session_first(&session_company)?;
+    al_testrun::host::set_companies(companies);
     let opts = RunOptions {
         only: opts_only,
         lazy: std::iter::repeat_n(None, inputs.len())

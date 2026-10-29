@@ -212,6 +212,11 @@ pub trait TableProvider: Send + Sync {
     fn last_row_version(&self) -> Option<u64> {
         None
     }
+    /// The names of every company the database holds, as AL spells them, in the key order of its Company table
+    /// (`--companies all`, ADR-046 decision 2). Additive: a provider that knows one company answers it.
+    fn companies(&self) -> Vec<String> {
+        vec![self.company().to_string()]
+    }
 }
 
 type Read = Result<Arc<TableRows>, TableError>;

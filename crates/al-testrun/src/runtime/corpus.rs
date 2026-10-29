@@ -2019,6 +2019,8 @@ fn baseline_key(
     key.text("server_url", &crate::host::server_url().0);
     // CompanyName() answers it, and Company-Initialize may store that answer.
     key.text("company_name", crate::host::company_name().as_deref().unwrap_or(""));
+    // The companies the per-company install code of the apps under test runs in (ADR-046 decision 2).
+    key.text("companies", &crate::host::companies().key_text());
     // Read the wall clock without starting the run clock: a run that finds its baseline starts the clock at the
     // instant the baseline's run began (`SystemClock::begin_at`).
     let day = crate::host::SystemClock::wall().div_euclid(86_400_000);

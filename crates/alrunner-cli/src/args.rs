@@ -146,6 +146,8 @@ pub struct TestArgs {
     pub files_dir: Option<PathBuf>,
     /// `--environment saas|onprem`: what Environment Information answers (default saas, as probed).
     pub environment: Option<al_host::Environment>,
+    /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database. `None`: one company.
+    pub companies: Option<al_host::Companies>,
     /// `--server-url URL` (else `$ALRUNNER_SERVER_URL`): the base address `GetUrl` answers with (ADR-042).
     pub server_url: Option<String>,
     /// Not a command line option: the name `CompanyName()` answers when no company is restored (a lane of the recipe).
@@ -745,6 +747,10 @@ OTHER
                          until a test library's SetTestability* calls change them; Microsoft's own
                          test suites expect this, for example codeunit 134614). The on-prem values
                          are an unprobed assumption (docs/probes-needed.md).
+    --companies NAMES    The companies of the database, comma separated, the session company first, or
+                         `all` (every company of the restored test data, the session company first). The
+                         per-company install code of the apps under test runs once in each company, then
+                         the per-database part (ADR-046). Default: one company, the session company.
     --files-dir DIR      Let the File data type read and write real files under DIR.
     --define SYMBOL      A preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable.
                          `--preprocessor-symbols A,B` names several. Like the AL compiler,
@@ -1191,6 +1197,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--timings" => a.timings = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
+            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
             "--server-url" => {
                 a.server_url = Some(al_host::check_server_url(&text()?).map_err(|e| format!("--server-url: {e}"))?)
             }

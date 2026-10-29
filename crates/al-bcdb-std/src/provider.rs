@@ -41,6 +41,8 @@ pub struct BackupProvider {
     sequences: std::sync::OnceLock<Vec<TestSequence>>,
     /// `TableProvider::last_row_version`, read once.
     last_row_version: std::sync::OnceLock<Option<u64>>,
+    /// The companies of the database, read once (`TableProvider::companies`).
+    companies: std::sync::OnceLock<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -225,6 +227,7 @@ impl BackupProvider {
             cost: Cost::default(),
             sequences: std::sync::OnceLock::new(),
             last_row_version: std::sync::OnceLock::new(),
+            companies: std::sync::OnceLock::new(),
         })
     }
 
@@ -233,6 +236,32 @@ impl BackupProvider {
         let file = FileSource::open(path)?;
         let src = al_bcdb::open(Box::new(file)).map_err(|e| format!("{}: {e}", path.display()))?;
         query::companies(&*src).map_err(|e| e.to_string())
+    }
+
+    /// [`TableProvider::companies`], read from the source.
+    fn read_companies(&self) -> Vec<String> {
+        let read = (|| {
+            let t = self
+                .tables
+                .iter()
+                .find(|t| t.company.is_none() && t.app_id.is_none() && eq_ci(&t.table_name, "Company"))?;
+            let cols = self.src.columns(&t.table).ok()?;
+            let name = cols.iter().find(|c| eq_ci(&c.name, "Name"))?.clone();
+            let mut names = Vec::new();
+            self.src
+                .read_rows(&t.table, &[name], &mut |row| {
+                    if let Some(Value::Text(n)) = row.first() {
+                        names.push(n.clone());
+                    }
+                    Ok(true)
+                })
+                .ok()?;
+            Some(names)
+        })();
+        let mut names = read.unwrap_or_else(|| companies_of(&self.tables));
+        names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b)));
+        names.dedup();
+        names
     }
 
     fn find(&self, req: &TableRequest) -> Result<&BcTable, TableError> {
@@ -394,6 +423,12 @@ impl TableProvider for BackupProvider {
             c.rows.load(Ordering::Relaxed),
             ms(c.read_nanos.load(Ordering::Relaxed))
         ))
+    }
+
+    /// The `Name` of every row of the database's Company table, sorted without regard to case (the key order of a
+    /// case-insensitive collation); a database without that table gives the SQL spelling of its companies.
+    fn companies(&self) -> Vec<String> {
+        self.companies.get_or_init(|| self.read_companies()).clone()
     }
 
     fn last_row_version(&self) -> Option<u64> {

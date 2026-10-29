@@ -198,6 +198,16 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
     let objs = &lowered.program.objects;
     let app_name = |a: usize| lowered.program.apps.get(a).map_or_else(String::new, |x| x.name.clone());
     let mut out = InstallFacts::default();
+    if !dependency {
+        // Decision 5: the tables of the apps under test.
+        out.under_test_tables = objs
+            .heads()
+            .iter()
+            .enumerate()
+            .filter(|(oi, o)| !lowered.dependency[*oi] && o.table.is_some())
+            .map(|(oi, _)| oi)
+            .collect();
+    }
     let add = |map: &mut std::collections::HashMap<usize, String>, t: u32, why: String| {
         map.entry(t as usize).or_insert(why);
     };
@@ -213,7 +223,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         for &t in &c.written {
                             if objs.heads().get(t as usize).is_some_and(|o| !per_company(o)) {
                                 add(
-                                    &mut out.unknown,
+                                    &mut out.per_company_shared,
                                     t,
                                     format!(
                                         "per-company install code of {name} writes this DataPerCompany = false table, and BC runs that code once in each company of the database; this runtime runs one company (ADR-046 decision 4c)"
@@ -380,62 +390,95 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
             if routines.is_empty() {
                 continue;
             }
-            // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
-            session.reset_single_instances();
-            if part == Part::Database {
-                session.set_company("");
-            }
-            // A4 item 4: Company Triggers in each company, before the routines.
-            let open = if part == Part::Company {
-                company_open(lowered, session, app.app)
-            } else {
-                Ok(())
+            // Decision 3, step 4a: the per-company part once in each declared company, in list order (the session
+            // company first: install/lt-bf-install-probes/BfInstallTests.al:125-137, rows #1-#6, and
+            // install/lt-av-install-order/AvInstallOrder.al:56-67, `first per-company run`); one company completes
+            // before the next starts (BfInstallTests.al:239). Without `--companies`, the session company only.
+            let companies: Vec<String> = match part {
+                Part::Database => vec![String::new()],
+                Part::Company if session.companies().is_empty() => vec![company.clone()],
+                Part::Company => session.companies().to_vec(),
             };
-            match open {
-                Err(why) => {
-                    session.rollback_transaction();
-                    // What the subscribers wrote before the one that could not run is rolled back, and BC would have
-                    // kept it: a test that touches what any of them can write is not run either.
-                    for (so, sr) in
-                        company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app.app))
-                    {
-                        skipped.push((
-                            touched(&engine, lowered, so, sr),
-                            format!(
-                                "Company Triggers subscriber {} in the install session of {} could not run: {why}",
-                                label(lowered, so, sr),
-                                lowered
-                                    .program
-                                    .apps
-                                    .get(app.app)
-                                    .map(|a| a.name.as_str())
-                                    .unwrap_or("an app under test")
-                            ),
-                        ));
+            for in_company in companies {
+                // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
+                session.reset_single_instances();
+                session.set_company(&in_company);
+                // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
+                // apps stay in the session company (decision 5): in another company only the subscribers of the apps
+                // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
+                let with_dependencies = in_company == company;
+                let open = if part == Part::Company {
+                    company_open(lowered, session, app.app, with_dependencies)
+                } else {
+                    Ok(())
+                };
+                match open {
+                    Err(why) => {
+                        session.rollback_transaction();
+                        // What the subscribers wrote before the one that could not run is rolled back, and BC would have
+                        // kept it: a test that touches what any of them can write is not run either.
+                        for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
+                            installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+                        }) {
+                            refuse(
+                                lowered,
+                                session,
+                                &mut skipped,
+                                &in_company,
+                                &company,
+                                (
+                                    (so, sr),
+                                    format!(
+                                        "Company Triggers subscriber {} in the install session of {} could not run: {why}",
+                                        label(lowered, so, sr),
+                                        lowered
+                                            .program
+                                            .apps
+                                            .get(app.app)
+                                            .map(|a| a.name.as_str())
+                                            .unwrap_or("an app under test")
+                                    ),
+                                ),
+                            );
+                        }
+                        for &(oi, ri) in routines {
+                            refuse(
+                                lowered,
+                                session,
+                                &mut skipped,
+                                &in_company,
+                                &company,
+                                (
+                                    (oi, ri),
+                                    format!(
+                                        "install routine {} could not run: Company Triggers before it: {why}",
+                                        label(lowered, oi, ri)
+                                    ),
+                                ),
+                            );
+                        }
                     }
-                    for &(oi, ri) in routines {
-                        skipped.push((
-                            touched(&engine, lowered, oi, ri),
-                            format!(
-                                "install routine {} could not run: Company Triggers before it: {why}",
-                                label(lowered, oi, ri)
-                            ),
-                        ));
-                    }
-                }
-                Ok(()) => {
-                    session.commit_transaction();
-                    for &(oi, ri) in routines {
-                        if let Some(why) = run_routine(lowered, session, oi, ri) {
-                            session.rollback_transaction();
-                            skipped.push((
-                                touched(&engine, lowered, oi, ri),
-                                format!("install routine {} could not run: {why}", label(lowered, oi, ri)),
-                            ));
-                        } else {
-                            // A routine that ran is durable before the next one starts: a later one that cannot run
-                            // must not take its writes with it.
-                            al_builtins::native::Ctx::commit(session).expect("commit");
+                    Ok(()) => {
+                        session.commit_transaction();
+                        for &(oi, ri) in routines {
+                            if let Some(why) = run_routine(lowered, session, oi, ri) {
+                                session.rollback_transaction();
+                                refuse(
+                                    lowered,
+                                    session,
+                                    &mut skipped,
+                                    &in_company,
+                                    &company,
+                                    (
+                                        (oi, ri),
+                                        format!("install routine {} could not run: {why}", label(lowered, oi, ri)),
+                                    ),
+                                );
+                            } else {
+                                // A routine that ran is durable before the next one starts: a later one that cannot run
+                                // must not take its writes with it.
+                                al_builtins::native::Ctx::commit(session).expect("commit");
+                            }
                         }
                     }
                 }
@@ -453,6 +496,43 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
 
 /// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
 /// baseline installs them first), an app under test before it in dependency order, or the app itself.
+/// Records that install routine `what.0` could not run in company `in_company` (`what.1` says why). In the session
+/// company, or in the per-database part, a test that touches a table the routine touches is not run. In another declared
+/// company (`--companies`, ADR-046 decision 6) the tables the routine would have written there are not known: a shared one
+/// everywhere (a test that touches it is not run), a per-company one only in that company, refused at run time
+/// (`Session::mark_company_unknown`).
+fn refuse(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    in_company: &str,
+    session_company: &str,
+    what: ((usize, usize), String),
+) {
+    let ((oi, ri), why) = what;
+    let engine = session.engine.clone();
+    if in_company.is_empty() || in_company == session_company {
+        skipped.push((touched(&engine, lowered, oi, ri), why));
+        return;
+    }
+    let mut written = crate::baseline::tables_written(lowered, oi, ri);
+    for (so, sr) in crate::runtime::subscribers_reached(&engine, lowered, oi, ri) {
+        written.extend(crate::baseline::tables_written(lowered, so, sr));
+    }
+    written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
+    let heads = lowered.program.objects.heads();
+    let (per, shared): (BTreeSet<u32>, BTreeSet<u32>) = written
+        .into_iter()
+        .partition(|&t| heads.get(t as usize).is_some_and(per_company));
+    let why = format!("{why} (in company {in_company}, ADR-046 decision 6)");
+    for t in per {
+        session.mark_company_unknown(in_company, t, why.clone());
+    }
+    if !shared.is_empty() {
+        skipped.push((shared, why));
+    }
+}
+
 fn installed(lowered: &Lowered, o: usize, app: usize) -> bool {
     lowered.dependency[o] || lowered.program.objects[o].app as usize <= app
 }
@@ -488,9 +568,14 @@ fn company_open_subscribers(
 /// decided that every installed app's subscribers get them (ADR-046 amendment 1, A4 item 4, 2026-10-19), an assumption until
 /// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). A subscriber of
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
-fn company_open(lowered: &Lowered, session: &mut Session, app: usize) -> Result<(), String> {
+///
+/// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
+/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
+fn company_open(lowered: &Lowered, session: &mut Session, app: usize, with_dependencies: bool) -> Result<(), String> {
     let engine = session.engine.clone();
-    let all = company_open_subscribers(lowered, &engine.events, |o| installed(lowered, o, app));
+    let all = company_open_subscribers(lowered, &engine.events, |o| {
+        installed(lowered, o, app) && (with_dependencies || !lowered.dependency[o])
+    });
     run_subscribers(lowered, session, &all)
 }
 

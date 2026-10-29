@@ -242,6 +242,31 @@ impl Session {
                     wrote = true;
                     continue;
                 }
+                COMPANY if !i.companies.is_empty() => {
+                    // ADR-046 step 1 under the `--companies` opt-in: one row per declared company, in the order given.
+                    // The session company's row is the row of the default mode. Another company's row has `Evaluation
+                    // Company` No and `Display Name` empty, as "My Company" of the corpus database
+                    // (install/lt-bf-install-probes/BfInstallTests.al:47-64, ADR-046 amendment 1, A6); its `Id` is a host
+                    // value, as the session company's is (ADR-013 decision 9). The corpus database's session company is
+                    // an evaluation company (:61), but a run's own database need not be one, and Company-Initialize reads
+                    // the flag, so it is not set here (ADR-046 amendment 2).
+                    for (k, name) in i.companies.iter().enumerate() {
+                        let mut r = super::blank(t);
+                        r[pos(t, 1)] = text(t, 1, name);
+                        let mut id = i.company_id;
+                        if *name != i.company {
+                            id[8] = (k >> 8) as u8;
+                            id[9] = k as u8;
+                        }
+                        r[pos(t, 8000)] = Value::Guid(id);
+                        if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
+                            r[p] = Value::Guid(self.fresh_system_id());
+                        }
+                        let _ = self.store.insert(&self.cx, t, r);
+                    }
+                    wrote = true;
+                    continue;
+                }
                 COMPANY => {
                     let mut r = super::blank(t);
                     r[pos(t, 1)] = text(t, 1, &i.company);

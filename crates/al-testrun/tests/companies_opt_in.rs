@@ -1,0 +1,160 @@
+//! ADR-046 step B: the `--companies` opt-in. The run declares the companies of its database; the per-company install code
+//! of the apps under test runs once in each, the session company first, then the per-database part
+//! (install/lt-bf-install-probes/BfInstallTests.al:125-140; install/lt-av-install-order/AvInstallOrder.al:56-67). The
+//! company list is a setting of the process (`al_testrun::host::set_companies`), so these tests have a binary of their own,
+//! and every test in it declares the same list.
+
+use al_sema::workspace::AppSource;
+use al_testrun::Outcome;
+use al_vm::Engine;
+use std::sync::Arc;
+
+const SESSION: &str = "CRONUS International Ltd.";
+const OTHER: &str = "My Company";
+
+const COMPANY_TABLE: &str = "table 2000000006 Company { DataPerCompany = false;
+  fields { field(1; Name; Text[30]) { } field(2; \"Evaluation Company\"; Boolean) { } field(3; \"Display Name\"; Text[250]) { } field(8000; Id; Guid) { } } }";
+
+/// The outcomes of the test codeunit of `apps` (id, dependencies, source); the last app holds it.
+fn outcomes_of_apps(apps: &[(&str, &[&str], &str)]) -> Vec<(String, Outcome)> {
+    al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
+    // The app with id `dep` is a dependency app (ADR-013), the others are under test.
+    let (ws, l) = al_sema::lower::compile_apps(
+        apps.iter()
+            .map(|(id, deps, src)| AppSource {
+                id: (*id).into(),
+                name: (*id).into(),
+                dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
+                files: vec![(format!("{id}.al"), (*src).into())],
+            })
+            .collect(),
+        apps.iter()
+            .map(|(id, _, _)| {
+                if *id == "dep" {
+                    al_sema::AppKind::Dependency
+                } else {
+                    al_sema::AppKind::Workspace
+                }
+            })
+            .collect(),
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let engine = Arc::new(Engine::new(l.program.clone(), blocked));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| {
+            o.properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
+        })
+        .expect("a test codeunit");
+    al_testrun::runtime::run_codeunit(&engine, &l, oi)
+}
+
+fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+    outcomes_of_apps(&[("a", &[], src)])
+}
+
+fn all_pass(o: &[(String, Outcome)]) {
+    for (name, x) in o {
+        assert_eq!(*x, Outcome::Pass, "{name}: {o:?}");
+    }
+}
+
+// Step 1 (A6): one Company row per declared company, in key order; the other company's Evaluation Company is No and its
+// Display Name empty (BfInstallTests.al:47-64). The session company's row is that of the default mode (amendment 2).
+#[test]
+fn the_company_table_holds_the_declared_companies() {
+    let o = outcomes(&format!(
+        "{COMPANY_TABLE}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure Names() var C: Record Company; N: Integer; S: Text; begin
+                if C.FindSet() then repeat N += 1; S += C.Name + '|' + C.\"Display Name\" + '|' + Format(C.\"Evaluation Company\") + ';'; until C.Next() = 0;
+                if S <> 'CRONUS International Ltd.||No;My Company||No;' then Error('%1', S);
+            end;
+            [Test] procedure ChangeCompanyToTheOther() var C: Record Company; begin
+                if not C.ChangeCompany('My Company') then Error('no My Company');
+                if C.ChangeCompany('Not Declared') then Error('a company that is not declared');
+            end; }}"
+    ));
+    all_pass(&o);
+}
+
+// Step 4a and 4b: the per-company install code of the app under test runs in each declared company, session company
+// first, with CompanyName() that company; then the per-database part once, with CompanyName() empty
+// (BfInstallTests.al:125-140, AvInstallOrder.al:56-67). A shared table the per-company code writes is answered under the
+// opt-in (decision 4c does not apply), and a per-company table of the app holds its row in each company.
+#[test]
+fn per_company_install_code_runs_in_each_declared_company_then_per_database() {
+    let o = outcomes(&format!(
+        "{COMPANY_TABLE}
+        table 60900 Log {{ DataPerCompany = false; fields {{ field(1; Id; Integer) {{ AutoIncrement = true; }} field(2; Info; Text[50]) {{ }} field(3; Ev; Text[30]) {{ }} }} }}
+        table 60901 Seed {{ fields {{ field(1; K; Code[20]) {{ }} field(2; Info; Text[50]) {{ }} }} }}
+        codeunit 60905 Subs {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerCompany', '', false, false)]
+            local procedure PerCompany() var R: Record Log; S: Record Seed; begin
+                R.Info := CompanyName(); R.Ev := 'company'; R.Insert();
+                S.K := 'COMPANY1'; S.Info := CompanyName(); S.Insert(); end;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Extension Triggers\", 'OnInstallAppPerDatabase', '', false, false)]
+            local procedure PerDatabase() var R: Record Log; begin R.Info := CompanyName(); R.Ev := 'database'; R.Insert(); end; }}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure LogRows() var R: Record Log; S: Text; begin
+                R.SetCurrentKey(Id);
+                if R.FindSet() then repeat S += Format(R.Id) + ':' + R.Ev + '@' + R.Info + ';'; until R.Next() = 0;
+                if S <> '1:company@CRONUS International Ltd.;2:company@My Company;3:database@;' then Error('%1', S);
+            end;
+            [Test] procedure SeedInEachCompany() var S: Record Seed; begin
+                S.Get('COMPANY1'); if S.Info <> CompanyName() then Error('session %1', S.Info);
+                S.ChangeCompany('My Company'); S.Get('COMPANY1'); if S.Info <> 'My Company' then Error('other %1', S.Info);
+                if S.Count() <> 1 then Error('rows %1', S.Count());
+            end; }}"
+    ));
+    all_pass(&o);
+}
+
+// Decision 5: under the opt-in, dependency apps stay in the session company. A per-company table of a dependency app read
+// in the other declared company is refused; the same table in the session company is answered.
+#[test]
+fn a_dependency_table_in_the_other_company_is_refused() {
+    let dep = "table 60800 DepSetup { fields { field(1; K; Code[10]) { } } }";
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure SessionCompany() var R: Record DepSetup; begin R.K := 'D'; R.Insert(); R.Get('D'); end;
+            [Test] procedure OtherCompany() var R: Record DepSetup; begin R.ChangeCompany('My Company'); R.K := 'D'; R.Insert(); end; }}"
+    );
+    let o = outcomes_of_apps(&[("dep", &[], dep), ("main", &["dep"], &main)]);
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+    assert!(
+        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("My Company") && r.contains("decision 5")),
+        "{o:?}"
+    );
+}
+
+// Decision 5 inside install code: a per-company install routine of the app under test that reads a dependency table runs in
+// the session company, and stops in the other company; what it touches is not answered.
+#[test]
+fn install_code_that_reads_a_dependency_table_stops_in_the_other_company() {
+    let dep = "table 60800 DepSetup { fields { field(1; K; Code[10]) { } } }";
+    let main = format!(
+        "{COMPANY_TABLE}
+        table 60901 Seed {{ fields {{ field(1; K; Code[20]) {{ }} field(2; N; Integer) {{ }} }} }}
+        codeunit 60905 Inst {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var D: Record DepSetup; S: Record Seed; begin S.K := 'X'; S.N := D.Count(); S.Insert(); end; }}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure ReadsSeed() var S: Record Seed; begin if S.IsEmpty() then; end; }}"
+    );
+    let o = outcomes_of_apps(&[("dep", &[], dep), ("main", &["dep"], &main)]);
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("could not run") && r.contains("decision 5")),
+        "{o:?}"
+    );
+}
