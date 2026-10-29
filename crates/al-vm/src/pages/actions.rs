@@ -1149,7 +1149,11 @@ impl Session {
             // An error an action raises comes out of the test page's Invoke with the test framework's prefix on its code.
             let r = match r {
                 Err(Signal::Error(mut e)) => {
+                    let add_in = e.code == crate::control_add_in::NOT_CREATED;
                     e.code = action_error_code(&e.code, &e.message);
+                    if add_in {
+                        self.read_row_after_add_in_error(st)?;
+                    }
                     Err(Signal::Error(e))
                 }
                 other => other,
@@ -1415,6 +1419,52 @@ impl Session {
             }
         }
         Ok(Value::Null)
+    }
+
+    /// After an action failed on a control add-in call (the add-in is never created in a test session), a card reads its row
+    /// again, OnAfterGetRecord then OnAfterGetCurrRecord, and the page stays usable (lt-ac/ACControlAddIn.al
+    /// TZ_TwoProceduresFromActions_PageStaysUsable `log`, BC28PLUS: `CallAct before | OnAfterGetRecord 1 | OnAfterGetCurrRecord
+    /// 1 | OnAfterGetRecord 1 | CountAct before`). The read is not there yet when the test reads the log right after the
+    /// failed Invoke (TZ_HiddenUserControl_CallFromAction, TZ_PageExtensionUserControl_CallFromExtAction: the log ends with
+    /// `HiddenCallAct before`), so it runs before the next call on the page (`add_in_reread`, assumption
+    /// `control-add-in-call-trigger-contexts`). Pinned for a top-level card on a stored row; on another page that has row
+    /// triggers the next call refuses, one without runs none.
+    fn read_row_after_add_in_error(&mut self, st: &St) -> Result<(), Signal> {
+        let pinned = {
+            let s = st.borrow();
+            s.open && s.host.is_none() && s.parts.is_empty() && s.cursor == Cursor::Row && !s.draft && !s.dirty
+        } && self.is_card(st)
+            && self.has_source(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if pinned {
+            st.borrow_mut().add_in_reread = true;
+        } else if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
+            st.borrow_mut().unpinned_state = Some(
+                "what a page other than a card on a stored row reads after an action failed on a control add-in call (not pinned)"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// The read of the row an action that failed on a control add-in call left pending (`read_row_after_add_in_error`), before
+    /// the next call `method` on the page. Before Close it is not pinned.
+    pub(super) fn pending_add_in_reread(&mut self, st: &St, method: PageMethod) -> Result<(), Signal> {
+        if !st.borrow().add_in_reread {
+            return Ok(());
+        }
+        if method == PageMethod::Close {
+            return unsupported(
+                "Close after an action failed on a control add-in call (whether the row is read again first is not pinned)",
+            );
+        }
+        st.borrow_mut().add_in_reread = false;
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ControlAddInCallTriggerContexts);
+        self.populate_current(st)?;
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        Ok(())
     }
 
     /// A page over a table that shows no stored row when an action with OnAction runs: a list opened for edit that stands on its
@@ -3181,6 +3231,9 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 fn action_error_code(code: &str, message: &str) -> String {
     match code {
         "Dialog" | "MissingUIHandler" | "TestField" => format!("TestWrapped:{code}"),
+        // A call of a control add-in procedure (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable,
+        // pages/lt-ao-testpage/AoTests.al:794 AddinProcedureFromAction).
+        crate::control_add_in::NOT_CREATED => format!("TestWrapped:{code}"),
         "DB:RecordNotFound" => "TestWrapped:CSideRecordNotFound".into(),
         "DB:RecordExists" if message.starts_with("The record in table ") => "TestWrapped:CSideDuplicateKey".into(),
         c if c.starts_with("TestWrapped") || c == al_builtins::native::UNPINNED_ERROR => c.into(),

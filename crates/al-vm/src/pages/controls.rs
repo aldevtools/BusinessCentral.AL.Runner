@@ -1030,6 +1030,18 @@ impl Session {
                     );
                 }
                 al_builtins::native::refuse_unpinned_text(&e, "A page validation error built from an error")?;
+                // A control add-in call in a card control's own OnValidate (the add-in is never created in a test session) raises
+                // the add-in's error with NSValidationFailed: in front of its code (lt-ac/ACControlAddIn.al:99
+                // AC_ControlAddIn_ProcedureCallFromFieldTrigger, BC28PLUS). On another page type, or out of the table's OnValidate,
+                // it is not pinned.
+                if e.code == crate::control_add_in::NOT_CREATED {
+                    if !(from_page_trigger.get() && self.is_card(st)) {
+                        return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
+                    }
+                    let mut e = e;
+                    e.code = format!("NSValidationFailed:{}", e.code);
+                    return Err(Signal::Error(e));
+                }
                 if matches!(ctl.binding, ir::Binding::Expr(_)) {
                     return Err(refuse_bound(e.message));
                 }

@@ -872,18 +872,31 @@ impl Lowerer<'_> {
             None if self.runtime_refusal(node).is_some() => Err(self.runtime_refusal(node).unwrap_or_default()),
             // `Window.Open(..)` in a report extension, where `Window` is a variable of the base report.
             None if self.base_member(callee).is_some() => Err(self.base_member(callee).unwrap_or_default()),
-            // `CurrPage.<AddIn>.Method()`: refused when it runs, so code that never reaches it still runs
-            // (Base Application's "Item Tracking Lines" calls its barcode add-in only after the client said it
-            // is supported). Control add-ins are not modelled; no corpus test calls one.
+            // `CurrPage.<AddIn>.Method()`: the add-in was never created, so the call raises an error when it runs (ADR-027
+            // section 3 row 18; corpus lt-ac/ACControlAddIn.al TZ_*), and code that never reaches it runs (Base Application's
+            // "Item Tracking Lines" calls its barcode add-in only after the client said it is supported).
             None if callee.kind() == SyntaxKind::MemberExpr
-                && callee.children().next().and_then(|b| self.control_add_in(&b)).is_some() =>
+                && callee.children().next().and_then(|b| self.usercontrol_name(&b)).is_some() =>
             {
-                let why = callee
+                let control = callee
                     .children()
                     .next()
-                    .and_then(|b| self.control_add_in(&b))
+                    .and_then(|b| self.usercontrol_name(&b))
                     .unwrap_or_default();
-                Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())))
+                Ok(self.control_add_in_call(node, control, args))
+            }
+            // A procedure of a control add-in called through a `ControlAddIn` variable or parameter (al-runner issue 6154: a page
+            // part keeps the add-in its host page handed it, and a flag guards every call). Which add-in such a variable holds,
+            // and what the call does in a test session, is not pinned: the call refuses when it runs, and code that does not
+            // reach it runs.
+            None if receiver_node
+                .as_ref()
+                .is_some_and(|r| matches!(self.ty_of(r), Ty::Builtin(ref n) if n.eq_ignore_ascii_case("ControlAddIn"))) =>
+            {
+                Ok(ir::Expr::Refused(format!(
+                    "call `{}`: a procedure of a control add-in held by a ControlAddIn variable (not pinned)",
+                    node.text()
+                )))
             }
             // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused.
             None if receiver_node.as_ref().is_some_and(|r| {

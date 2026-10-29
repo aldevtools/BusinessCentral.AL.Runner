@@ -448,7 +448,15 @@ pub(crate) enum AuxSite {
 /// What a `Fault` raises.
 pub(crate) enum FaultKind {
     Unsupported(String),
-    Error { message: String, code: String },
+    Error {
+        message: String,
+        code: String,
+    },
+    /// A call of a control add-in procedure: the error the add-in that was never created raises (`ir::Expr::ControlAddInCall`).
+    ControlAddIn {
+        control: String,
+        page: String,
+    },
 }
 
 pub(crate) struct SpecialSite {

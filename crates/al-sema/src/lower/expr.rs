@@ -274,9 +274,17 @@ impl Lowerer<'_> {
     }
 
     /// `CurrPage.Chart` where `Chart` is a `usercontrol` of this page: a control add-in, which the runtime
-    /// does not model (no corpus test uses one; Base Application's chart pages pass theirs to a `var`
-    /// parameter).
+    /// does not model as a value (Base Application's chart pages pass theirs to a `var` parameter).
     pub(crate) fn control_add_in(&self, n: &SyntaxNode) -> Option<String> {
+        let name = self.usercontrol_name(n)?;
+        Some(format!(
+            "`CurrPage.{name}` is a control add-in (usercontrol): control add-ins are not modelled"
+        ))
+    }
+
+    /// The name, as its `usercontrol` declares it, of the usercontrol `n` names (`CurrPage.Chart`), when it is one of the
+    /// object being lowered.
+    pub(crate) fn usercontrol_name(&self, n: &SyntaxNode) -> Option<String> {
         // Only a node whose text starts with `CurrPage.` can name one: look at its first token before the text of the whole
         // node is built (this runs for every argument of every call).
         let first = n
@@ -296,16 +304,54 @@ impl Lowerer<'_> {
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ' ') {
             return None;
         }
-        let object = self
-            .ws
-            .object_ast(self.oi)
-            .syntax()
-            .text()
-            .to_string()
-            .to_ascii_lowercase();
+        let object = self.ws.object_ast(self.oi).syntax().text().to_string();
+        let lower_object = object.to_ascii_lowercase();
         let lower = name.to_ascii_lowercase();
-        (object.contains(&format!("usercontrol({lower};")) || object.contains(&format!("usercontrol(\"{lower}\";")))
-            .then(|| format!("`CurrPage.{name}` is a control add-in (usercontrol): control add-ins are not modelled"))
+        let (at, quoted) = match lower_object.find(&format!("usercontrol({lower};")) {
+            Some(at) => (at, false),
+            None => (lower_object.find(&format!("usercontrol(\"{lower}\";"))?, true),
+        };
+        let start = at + "usercontrol(".len() + usize::from(quoted);
+        Some(object.get(start..start + name.len())?.to_string())
+    }
+
+    /// The call `node` of procedure `method` of the add-in of usercontrol `control` (ADR-027 section 3 row 18): it raises
+    /// the add-in's not-instantiated error when it runs (al-vm `control_add_in.rs`, pinned by corpus lt-ac/ACControlAddIn.al).
+    /// The error names the page; only pages without a caption are pinned (the TZ fixtures, LT AO Addin Card, LT F3 Addin
+    /// Page), so the call on a page with a caption refuses when it runs. The arguments are not evaluated; whether BC
+    /// evaluates one that calls a procedure before the error is not pinned, so such a call refuses when it runs too.
+    pub(crate) fn control_add_in_call(&self, node: &SyntaxNode, control: String, args: &[SyntaxNode]) -> ir::Expr {
+        let refused = |why: &str| ir::Expr::Refused(format!("call `{}`: {why}", node.text()));
+        let page = match self.ws.objects[self.oi].kind {
+            ObjKind::Page => Some(self.oi),
+            ObjKind::PageExtension => self.ws.extension_target(self.oi),
+            _ => None,
+        };
+        let Some(page) = page else {
+            return refused("a control add-in call outside a page (not pinned)");
+        };
+        let captioned = self
+            .ws
+            .object_ast(page)
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("Caption") || p.name().eq_ignore_ascii_case("CaptionML"));
+        if captioned {
+            return refused(
+                "a control add-in call on a page with a caption (which name its error shows is not pinned)",
+            );
+        }
+        if args
+            .iter()
+            .any(|a| a.descendants().any(|d| d.kind() == SyntaxKind::CallExpr))
+        {
+            return refused(
+                "a control add-in call with an argument that calls a procedure (whether BC evaluates it before the error is not pinned)",
+            );
+        }
+        ir::Expr::ControlAddInCall {
+            control,
+            page: self.ws.objects[page].name.clone(),
+        }
     }
 
     /// Why a name cannot be lowered in a page or report extension: it is a variable or procedure of
