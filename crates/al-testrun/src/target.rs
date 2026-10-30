@@ -25,6 +25,22 @@ pub fn read_app_versions(dir: &Path) -> Result<AppVersions, String> {
 pub fn app_versions_from_json(text: &str) -> Result<AppVersions, String> {
     let json: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let field = |k: &str| json.get(k).and_then(serde_json::Value::as_str);
+    // AL1039: alc reads `runtime` as `X.Y` only. A one-part string, more than two parts, letters and a JSON number are
+    // refused before anything compiles (al-runner issue 5506, alc measured by the owner; text from that measurement,
+    // no corpus case pins it yet: docs/probes-needed.md). An empty string stays "not declared" (not measured).
+    if let Some(v) = json.get("runtime").filter(|v| !v.is_null()) {
+        let shown = v.as_str().map_or_else(|| v.to_string(), str::to_string);
+        let x_y = shown.split_once('.').is_some_and(|(x, y)| {
+            [x, y]
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        });
+        if !shown.is_empty() && !x_y {
+            return Err(format!(
+                "app.json: error AL1039: The version number '{shown}' for the property 'runtime' does not match the expected format: X.Y where X and Y represent positive integers."
+            ));
+        }
+    }
     AppVersions::parse(field("runtime"), field("platform"), field("application")).map_err(|e| format!("app.json: {e}"))
 }
 
@@ -51,6 +67,28 @@ mod tests {
     fn a_bad_runtime_is_an_error() {
         assert!(app_versions_from_json(r#"{"runtime":"soon"}"#).is_err());
         assert!(app_versions_from_json("{").is_err());
+    }
+
+    // al-runner issue 5506 (alc measured by the owner): a `runtime` that is not `X.Y` is AL1039, also a one-part string
+    // and a JSON number, which the runner used to read as 14.0 or as no runtime at all.
+    #[test]
+    fn a_runtime_not_in_x_y_form_is_al1039() {
+        for (json, shown) in [
+            (r#"{"runtime":"14"}"#, "14"),
+            (r#"{"runtime":"abc"}"#, "abc"),
+            (r#"{"runtime":14}"#, "14"),
+            (r#"{"runtime":"14.0.0"}"#, "14.0.0"),
+            (r#"{"runtime":"15.0.0.0"}"#, "15.0.0.0"),
+        ] {
+            let e = app_versions_from_json(json).unwrap_err();
+            assert!(
+                e.contains(&format!(
+                    "AL1039: The version number '{shown}' for the property 'runtime' does not match the expected format: X.Y where X and Y represent positive integers."
+                )),
+                "{json}: {e}"
+            );
+        }
+        assert!(app_versions_from_json(r#"{"runtime":"14.0"}"#).is_ok());
     }
 
     fn chosen(requested: Option<&str>, json: &str) -> (Chosen, AppVersions) {
