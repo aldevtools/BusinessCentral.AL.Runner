@@ -126,6 +126,7 @@ mod text_append;
 mod text_decimal_args;
 mod text_methods;
 mod text_scans;
+mod textbuilder_call_stack;
 mod textconst_languages;
 mod tree_free;
 mod typed_ops;

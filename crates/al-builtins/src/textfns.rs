@@ -816,8 +816,18 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
     Value::text_len(s) as i64
 }
 
+/// A Text argument of a TextBuilder method. A call stack text (it holds `CALL_STACK_MARK`) is carried into the builder
+/// and out of `ToText` like `+` carries it; no text function reads it (al-runner issue 6310; corpus
+/// error-handling/lt-wd/WdCallStackToBlob.al, codeunit 90742: the call stack text round-trips and is not empty).
+fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
+    match a.get(i) {
+        Some(Value::Text(t) | Value::Code(t)) if t.as_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
+        _ => text(a, i),
+    }
+}
+
 fn tb_append(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let (h, t) = (string_of(r)?, text(a, 0)?);
+    let (h, t) = (string_of(r)?, tb_text(a, 0)?);
     with_string(&h, |s| s.push_str(&t));
     grow_capacity(&h);
     Ok(Value::Boolean(true))
@@ -873,7 +883,7 @@ fn tb_append_line(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     let t = if a.is_empty() {
         String::new()
     } else {
-        text(a, 0)?.to_string()
+        tb_text(a, 0)?.to_string()
     };
     with_string(&h, |s| {
         s.push_str(&t);
@@ -1018,7 +1028,7 @@ fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 /// TextBuilder_Insert_InsertsAtPosition, TestTextProcessingContracts.al TextBuilder_Insert_AtOne_Prepends).
 fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
-    let (pos, t) = (int(a, 0)?, text(a, 1)?);
+    let (pos, t) = (int(a, 0)?, tb_text(a, 1)?);
     let u = with_string(&h, |s| u16s(s));
     if pos < 1 || pos as usize > u.len() + 1 {
         return crate::native::raise::<Value>(
