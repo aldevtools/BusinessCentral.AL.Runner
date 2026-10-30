@@ -709,6 +709,25 @@ fn a_dotnet_result_passed_to_a_text_parameter_is_coerced_and_isnull_takes_a_dotn
     assert!(dump.contains("DotNetCoerce(Text(None)"), "{dump}");
 }
 
+// System Application Uri.GetSegments: `Result.Add(Segment)` with `Segment: DotNet String` and `Result: List of [Text]`
+// (al-runner issue 6298). A variable declared `DotNet String` reads as a Text, nothing as '' (tests/al-language-onprem-dotnet/
+// lt-dotnet-interop/DotNetOperandStringEq.al), so it fits the list's Text element like a DotNet result does.
+#[test]
+fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
+    let (ws, l) = lower_src(
+        "dotnet { assembly(\"mscorlib\") { type(\"System.String\"; \"Str\") { } } }\n\
+         codeunit 50100 C { procedure P(): Integer var S: DotNet Str; L: List of [Text]; begin L.Add(S); exit(L.Count()); end; }",
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let (oi, r) = routine(&l, "P");
+    assert_eq!(l.unsupported[oi][0], Vec::<String>::new());
+    let dump = format!("{:?}", r.body);
+    assert!(
+        dump.contains("DotNetCoerce(Text(None)") && dump.contains("Convert(Text(None)"),
+        "{dump}"
+    );
+}
+
 // Tests-ERM Document Service Management.CheckError: `Error(Service.LastError.Message)`. A DotNet result
 // fits the Text overload of Error, not the ErrorInfo one (ADR-024).
 #[test]

@@ -134,7 +134,7 @@ impl fmt::Display for SelectError {
             } => {
                 write!(
                     f,
-                    "dependency `{}` by {} ({}) version {} or higher was not found{}; searched: {}; put its .app with AL source (or its source archive) in the project's .alpackages or pass --deps DIR",
+                    "dependency `{}` by {} ({}) version {} or higher was not found{}; searched: {}; put its .app with AL source (or its source archive) in the project's .alpackages or pass --dep DIR",
                     dep.name,
                     dep.publisher,
                     dep.id,

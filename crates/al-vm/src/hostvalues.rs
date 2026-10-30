@@ -18,9 +18,6 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
 
-/// How far a read of the clock moves it on: the resolution of `DateTime` and `Time` (ADR-045).
-pub(crate) const READ_STEP_MS: i64 = 1;
-
 /// Day number (1 = 0001-01-01) of 1970-01-01.
 fn unix_epoch_day() -> i64 {
     i64::from(day_from_civil(1970, 1, 1))
@@ -39,11 +36,12 @@ impl Session {
     }
 
     /// One reading of the clock by AL code (`Today`, `Time`, `CurrentDateTime`, the .NET clock
-    /// members): the instant now, after which the clock moves on by [`READ_STEP_MS`], so the next
+    /// members): the instant now, after which the clock moves on by the host's step (1 ms, the resolution of `DateTime`
+    /// and `Time`; `Host::clock_step_ms`), so the next
     /// reading is later (ADR-045). `Sleep` adds to the same counter, so there is one source.
     pub(crate) fn read_clock_millis(&mut self) -> i64 {
         let at = self.now_millis();
-        self.waited_ms += READ_STEP_MS;
+        self.waited_ms += self.host.clock_step_ms;
         at
     }
 
@@ -89,15 +87,22 @@ impl Session {
         Some(match id {
             ids::SYSTEM_TODAY_1 => {
                 let day = self.today_day_number();
-                self.waited_ms += READ_STEP_MS;
+                self.waited_ms += self.host.clock_step_ms;
                 Ok(Value::Date(day, false))
             }
             ids::SYSTEM_TIME_1 => Ok(Value::Time(self.read_clock_millis().rem_euclid(MS_PER_DAY) + 1)),
             ids::SYSTEM_CURRENTDATETIME_1 => Ok(datetime_of_unix_millis(self.read_clock_millis())),
             ids::SYSTEM_WORKDATE_1 => self.work_date_op(args),
-            ids::SYSTEM_SLEEP_1 => match args.first() {
+            ids::SYSTEM_SLEEP_1 => match args.first().map(|a| match a {
+                // A Duration argument is the Integer it converts to, its milliseconds (al-runner issue 6301;
+                // types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+                Value::Duration(_) => al_builtins::ops::convert(a.clone(), &al_builtins::value::RtType::Integer),
+                other => Ok(other.clone()),
+            }) {
+                Some(Err(e)) => Err(e),
                 // A negative wait is not pinned.
-                Some(Value::Integer(n)) if *n >= 0 => {
+                Some(Ok(Value::Integer(n))) if n >= 0 => {
+                    let n = &n;
                     self.waited_ms += i64::from(*n);
                     // The time asked for counts toward the test's time limit (al-runner issue 5605): past it, the test
                     // is stopped the way the CPU limit stops it, so a retry loop around Sleep whose exit never comes ends.
@@ -110,7 +115,7 @@ impl Session {
                 }
                 other => unsupported(format!(
                     "Sleep with {} (only a non-negative number is pinned)",
-                    other.describe()
+                    other.and_then(Result::ok).describe()
                 )),
             },
             ids::SYSTEM_RANDOM_1 => self.random_op(args),
@@ -184,6 +189,17 @@ impl Session {
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
                 None => Ok(Value::Integer(self.global_language)),
+                // These ids raise NotSupportedLanguage and leave the language as it was
+                // (platform/lt-platform-members/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
+                // :326-360, GlobalLanguage_PositiveIds: 1000, 4096, 8192, 9999, 32767, 65535). Other ids are set as before.
+                Some(Value::Integer(n @ (0 | -1 | 99999 | 1000 | 4096 | 8192 | 9999 | 32767 | 65535))) => {
+                    Err(crate::transactions::al_error_code(
+                        &format!(
+                            "'{n}' is not a valid language code. You must specify a locale identifier (LCID) or code in the format of language-country/region, such as en-US, de-DE, or da-DK."
+                        ),
+                        "NotSupportedLanguage",
+                    ))
+                }
                 Some(Value::Integer(n)) if *n > 0 => {
                     self.global_language = *n;
                     self.events.event_stats.language.set(*n);
@@ -192,7 +208,7 @@ impl Session {
                     Ok(Value::Null)
                 }
                 other => unsupported(format!(
-                    "GlobalLanguage with {other} (only a positive language id is pinned)",
+                    "GlobalLanguage with {other} (only a positive language id, 0 and -1 are pinned)",
                     other = other.describe()
                 )),
             },
