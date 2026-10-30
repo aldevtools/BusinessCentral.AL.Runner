@@ -491,10 +491,17 @@ impl<'a> Checker<'a> {
         let e = self.infer(sc, target);
         if let E::Callable(c) = &e {
             let visible: Vec<&Cand> = c.iter().filter(|c| c.hidden.is_none()).collect();
+            // The same form for the HttpClient members that take one Boolean and return nothing usable:
+            // `Client.UseResponseCookies := false` (network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74).
+            let builtin_setter = |c: &&Cand| {
+                matches!(&c.target, Res::Builtin(id)
+                    if id == "HttpClient.UseResponseCookies#1" || id == "HttpClient.UseServerCertificateValidation#1")
+            };
             if !visible.is_empty()
-                && visible
+                && (visible
                     .iter()
                     .all(|c| matches!(c.target, Res::Proc { .. }) && c.min == 1 && c.max >= 1)
+                    || visible.iter().all(builtin_setter))
             {
                 let c = c.clone();
                 let arg = self.ty(sc, rhs);

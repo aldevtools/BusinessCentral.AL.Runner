@@ -712,6 +712,11 @@ impl Gate {
                     file: "types/lt-aj-probes/AjMisc.al",
                     lines: "612,626,640",
                 },
+                // A temporary copy of the Field row of a user-name system field (al-runner issue 6313; the file is `#if BC29PLUS`).
+                Evidence {
+                    file: "platform/lt-wc/WcFieldRowCopy.al",
+                    lines: "9",
+                },
             ],
             Gate::TableFilterEvaluateError => &[Evidence {
                 file: "records/W4PlatformAndMeta.al",
