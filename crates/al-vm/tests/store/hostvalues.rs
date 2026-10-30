@@ -1175,3 +1175,23 @@ fn geturl_of_the_service_client_types_builds_the_pinned_addresses() {
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
     }
 }
+
+/// al-runner issue 6301: `Sleep(D)` with a Duration waits D's milliseconds, the Integer the Duration converts to
+/// (types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+#[test]
+fn sleep_takes_a_duration_as_its_milliseconds() {
+    assert_eq!(
+        text(
+            "A: DateTime; B: DateTime; D: Duration;",
+            "D := 200; A := CurrentDateTime(); Sleep(D); B := CurrentDateTime(); exit(Format(B - A = 201));"
+        ),
+        "Yes"
+    );
+    assert_eq!(
+        text(
+            "A: DateTime; D: Duration;",
+            "A := CurrentDateTime(); Sleep(D); exit(Format(CurrentDateTime() - A = 1));"
+        ),
+        "Yes"
+    );
+}

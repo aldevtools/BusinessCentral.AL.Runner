@@ -93,9 +93,16 @@ impl Session {
             ids::SYSTEM_TIME_1 => Ok(Value::Time(self.read_clock_millis().rem_euclid(MS_PER_DAY) + 1)),
             ids::SYSTEM_CURRENTDATETIME_1 => Ok(datetime_of_unix_millis(self.read_clock_millis())),
             ids::SYSTEM_WORKDATE_1 => self.work_date_op(args),
-            ids::SYSTEM_SLEEP_1 => match args.first() {
+            ids::SYSTEM_SLEEP_1 => match args.first().map(|a| match a {
+                // A Duration argument is the Integer it converts to, its milliseconds (al-runner issue 6301;
+                // types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+                Value::Duration(_) => al_builtins::ops::convert(a.clone(), &al_builtins::value::RtType::Integer),
+                other => Ok(other.clone()),
+            }) {
+                Some(Err(e)) => Err(e),
                 // A negative wait is not pinned.
-                Some(Value::Integer(n)) if *n >= 0 => {
+                Some(Ok(Value::Integer(n))) if n >= 0 => {
+                    let n = &n;
                     self.waited_ms += i64::from(*n);
                     // The time asked for counts toward the test's time limit (al-runner issue 5605): past it, the test
                     // is stopped the way the CPU limit stops it, so a retry loop around Sleep whose exit never comes ends.
@@ -108,7 +115,7 @@ impl Session {
                 }
                 other => unsupported(format!(
                     "Sleep with {} (only a non-negative number is pinned)",
-                    other.describe()
+                    other.and_then(Result::ok).describe()
                 )),
             },
             ids::SYSTEM_RANDOM_1 => self.random_op(args),
