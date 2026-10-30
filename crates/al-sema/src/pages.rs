@@ -338,6 +338,48 @@ pub fn array_element(text: &str) -> Option<(String, String)> {
         .map(|n| (n, t.to_string()))
 }
 
+/// Text that is a single call of a member, written as plain names joined by dots and one argument list that closes at the
+/// end (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`, `Names.Fixed()`): a control bound to it has no source field
+/// (record/lt-x3-6368/X3PageControlCalls.al:142-147, al-runner issue 6368). A member access with no argument list
+/// (`Rec.Name`) is not one.
+pub fn member_call_shape(text: &str) -> bool {
+    let t = text.trim();
+    let Some(open) = t.find('(') else {
+        return false;
+    };
+    let (path, args) = t.split_at(open);
+    let parts: Vec<&str> = path.split('.').collect();
+    parts.len() >= 2
+        && parts.iter().all(|p| {
+            !p.is_empty()
+                && !p.starts_with(|c: char| c.is_ascii_digit())
+                && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+        && call_shape(&format!("F{args}"))
+}
+
+/// Text of a call control whose SourceExpression is pinned as written: a call ([`call_shape`] or [`member_call_shape`])
+/// with an empty argument list or one argument that is a field of `Rec`, with no white space. BC keeps the text as
+/// written, `Rec.` included (record/lt-x3-6368/X3PageControlCalls.al:142-147: `Format(Rec.Kind)`, `Rec.DisplayCode()`,
+/// `Names.NameOf(Rec."No.")`, `Names.Fixed()`). Other arguments, white space and a bare name are not pinned.
+pub fn call_source_pinned(text: &str) -> bool {
+    let t = text.trim();
+    let Some(open) = t.find('(') else {
+        return false;
+    };
+    let Some(arg) = t[open + 1..].strip_suffix(')') else {
+        return false;
+    };
+    let rec_field = |a: &str| {
+        a.strip_prefix("Rec.").is_some_and(|f| {
+            let plain = !f.is_empty() && f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let quoted = f.len() > 2 && f.starts_with('"') && f.ends_with('"') && !f[1..f.len() - 1].contains('"');
+            plain || quoted
+        })
+    };
+    !t.contains(char::is_whitespace) && (arg.is_empty() || rec_field(arg)) && (call_shape(t) || member_call_shape(t))
+}
+
 /// Text that is a single call written as a plain name, with or without one argument list that closes at the end
 /// (`CompanyName`, `CompanyName()`, `Format(Costs[1])`): a control bound to it has no source field (record/lt-wb-6284/
 /// WbPageControlBuiltIn.al, al-runner issue 6284). A member access (`Rec.Name`), an operator or a second call is not one.
@@ -2218,6 +2260,54 @@ mod call_shape_tests {
             "Rec.Name()",
         ] {
             assert!(!super::call_shape(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_member_call_is_a_member_call_shape_and_other_expressions_are_not() {
+        for t in [
+            "Rec.DisplayCode()",
+            "Names.NameOf(Rec.\"No.\")",
+            " Names.Fixed() ",
+            "A.B.C(1)",
+        ] {
+            assert!(super::member_call_shape(t), "{t}");
+        }
+        for t in [
+            "Rec.Name",
+            "Names.NameOf(A) + 1",
+            "Rec.\"My Proc\"()",
+            "Format(A)",
+            ".F()",
+            "A.F()(B)",
+            "A. F()",
+        ] {
+            assert!(!super::member_call_shape(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn the_source_of_a_call_is_pinned_only_with_an_argument_list_and_no_space_or_text_constant() {
+        for t in [
+            "Format(Rec.Kind)",
+            "Rec.DisplayCode()",
+            "Names.NameOf(Rec.\"No.\")",
+            "Names.Fixed()",
+        ] {
+            assert!(super::call_source_pinned(t), "{t}");
+        }
+        for t in [
+            "CompanyName",
+            "Names.NameOf(Rec.\"No.\" )",
+            "StrSubstNo('%1', A)",
+            "Format(A, 0)",
+            "Format(A,0)",
+            "Format(Costs[1])",
+            "Format(Rec.Kind,0)",
+            "StrSubstNo('%1',A)",
+            "Rec.Name",
+        ] {
+            assert!(!super::call_source_pinned(t), "{t}");
         }
     }
 }

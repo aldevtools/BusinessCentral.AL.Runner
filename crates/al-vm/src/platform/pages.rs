@@ -687,13 +687,17 @@ fn control_row(
         // A control bound to an expression of a served form (`Control::expr_source`) has no source field and names the
         // expression as written; an undeclared Editable is `True` for an array element or a record variable's field and
         // `False` for an arithmetic expression (al-runner issue 5842, corpus writer's probe
-        // record/TestPageControlFieldArraySource.al; not on the pinned corpus yet).
+        // record/TestPageControlFieldArraySource.al; not on the pinned corpus yet). A call with an argument list and no space
+        // or text constant (`Format(Rec.Kind)`, `Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`) names the call as written, `Rec.`
+        // kept, and an undeclared Editable is `False` (record/lt-x3-6368/X3PageControlCalls.al:142-147 and :162-167, al-runner
+        // issue 6368; corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not yet on master).
         Binding::Expr(_) if let Some((text, editable)) = &ctl.expr_source => {
             r[pos(t, 9)] = Value::Text(text.clone().into());
             r[pos(t, 7)] = bool_prop(o, ctl, "editable", if *editable { "True" } else { "False" })?;
             return Ok(true);
         }
-        // A single call (a built-in such as `field(companyName; CompanyName)`, `Control::expr_call`): the row is served with no
+        // A single call of another form (a built-in such as `field(companyName; CompanyName)`, a method call written with a space,
+        // `Control::expr_call`): the row is served with no
         // source field, FieldNo 0 (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, al-runner issue 6284; corpus branch
         // al-runtime-rs-staging-wb at a07787b2, not yet on master). What BC stores as its SourceExpression, and an undeclared
         // Editable, are not pinned: a read of either is refused.

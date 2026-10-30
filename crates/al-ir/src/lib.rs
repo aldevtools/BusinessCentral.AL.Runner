@@ -1035,8 +1035,9 @@ pub struct Control {
     #[serde(default)]
     pub expr_source: Option<(String, bool)>,
     /// For a page's own control bound to an expression that is a single call written as a name with or without an argument
-    /// list (`CompanyName`, `Format(Costs[1])`): Page Control Field serves its row with no source field
-    /// (record/lt-wb-6284/WbPageControlBuiltIn.al, al-runner issue 6284).
+    /// list (`CompanyName`, `Format(Costs[1])`), or a member call (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`): Page
+    /// Control Field serves its row with no source field (record/lt-wb-6284/WbPageControlBuiltIn.al, al-runner issue 6284;
+    /// record/lt-x3-6368/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
 }
