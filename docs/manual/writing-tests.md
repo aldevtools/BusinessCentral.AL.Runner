@@ -139,7 +139,7 @@ What each value of `RequiredTestIsolation` does in this mode:
   in object id order).
 - `Codeunit`, or no property: as `--isolation codeunit`.
 
-Some cases are not pinned yet. Their tests are reported as not run, with the
+Some cases are not measured on real Business Central yet. Their tests are reported as not run, with the
 reason:
 
 - a codeunit with `Function` or `Disabled` that has handler functions or an
@@ -257,8 +257,8 @@ With `--companies`, the run behaves like Business Central with several companies
 - `all` means every company of the restored test data, the session company first.
   Without test data it gives only the session company, as the default does.
 - Microsoft's apps stay in the session company. A test that reads one of their
-  per-company tables in another company is not run, with the reason, except for the
-  few setup tables that the corpus shows are empty there.
+  per-company tables in another company is not run, with the reason, except for a
+  few setup tables that are known to be empty there on Business Central.
 
 Use the default for most work. Use `--companies` when your install or event code
 depends on how many companies exist.
@@ -295,7 +295,6 @@ yet. It refuses them, so a missing result is never taken for a pass.
 | A test codeunit with the `TestHandlers` property, or an extension of the enum `DefaultTestHandler` | Every test of the codeunit is not run. The reason says that `ITestHandler` callbacks are not supported yet. | A handler can skip a test with `TestHandlerContext.Skip`. A skipped test is not a failure and not a refusal, so it needs its own result. |
 | A data-driven test: a procedure with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]` | One not-run row under the procedure name. | Business Central runs it once per case. The name of each case's result row is not known yet. |
 
-The decision and the open points are in ADR-059 (`docs/adr/059-test-framework-results.md`).
 The planned change is a fourth result, "skipped", for a test that Business Central
 itself skips, and one result per data-driven case.
 

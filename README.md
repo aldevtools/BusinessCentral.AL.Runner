@@ -30,6 +30,8 @@ A feature AL Runner does not support is refused: the test is reported as "not ru
 reason. It never returns a guessed default instead. Every behavior it implements is checked
 against real Business Central 27.5, 28.5 and 29.0 by the
 [AL language test corpus](https://github.com/aldevtools/BusinessCentral.AL.Language.Tests).
+A few behaviors that Microsoft's own tests need are built before that check; a pass that
+relies on one is reported apart, as a flagged pass.
 See [How results are checked](docs/manual/how-it-works.md).
 
 > [!WARNING]
@@ -68,6 +70,7 @@ scripts, signing, dependencies and the cache.
 - [The manual](https://aldev.tools/al-runner/): install, writing tests, reading results, CI,
   Microsoft's tests, editor tools, the command line reference.
 - [What works and what is refused](docs/manual/what-works.md), and the [Roadmap](docs/manual/roadmap.md).
+- [Troubleshooting](docs/manual/troubleshooting.md) and [Questions and answers](docs/manual/faq.md).
 - [Reporting a problem](docs/manual/feedback.md): open an issue with the "Alpha feedback" template.
 
 ## Working on the runtime

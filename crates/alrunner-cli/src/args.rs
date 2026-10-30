@@ -434,7 +434,10 @@ OUTPUT
 TEST-FIRST
     --tdd                A test that calls a procedure that does not exist yet runs against a stub
                          instead of failing to compile. Only calls in test apps (apps that declare a
-                         test codeunit) on a codeunit variable become stubs. A stub returns the
+                         test codeunit) become stubs: a missing procedure on a codeunit, record, page
+                         or report variable, a missing field or enum value, or a missing codeunit,
+                         table or enum; a call on a TestPage, an interface or a built-in type stays
+                         an error. A stub returns the
                          default value of the type its use asks for (0, '', false, an empty record),
                          writes nothing and never raises; `var` arguments stay unchanged. A site
                          whose type its use does not tell is refused (its test is not run). Every

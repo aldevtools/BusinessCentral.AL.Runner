@@ -81,14 +81,9 @@ A full corpus run with `al-test-cli` takes about 20 seconds:
 ```
 
 It lists what newly passes and which baseline cases stopped passing. No baseline case may stop
-passing. If your change makes new corpus cases pass, update the baseline and commit it with
-your change:
-
-```
-./target/release/al-test-cli --root . --update-baseline --bc-version 27
-./target/release/al-test-cli --root . --update-baseline --bc-version 28
-./target/release/al-test-cli --root . --update-baseline --bc-version 29
-```
+passing. Do not edit `metrics/<major>/passing.txt` in your pull request: CI checks that no
+case stops passing, and a maintainer adds the new passes in a separate pull request. Say in
+your pull request which corpus cases newly pass.
 
 To work on one test: `--explain TestName` shows why a test ends as it does, and `--codeunit ID`
 or `--test NAME` runs only part of the corpus. `./target/release/al-test-cli --help` lists every

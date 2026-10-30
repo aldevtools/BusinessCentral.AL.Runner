@@ -34,7 +34,7 @@ If you maintain a tool that calls AL Runner, read
 | Command | `al-runner [FLAGS] DIR...` | `al-runner test [FLAGS] APP...` |
 | Input | A "bundle" folder | An app folder, a source archive or an `.app` with source. Name the app and its test app. |
 | Unsupported surface | The test fails with `RunnerOutOfScopeException` | The test is **not run**, with a reason. Exit code 7. |
-| Compile errors | Exit code 3 | An AL compiler error (the ones the must-not-compile corpus pins) still exits 3. So does source of an app under test that the parser does not accept; that line has the parser's message and no AL code. |
+| Compile errors | Exit code 3 | An AL compiler error (the ones the corpus has checked against the real compiler) still exits 3. So does source of an app under test that the parser does not accept; that line has the parser's message and no AL code. |
 | Test data | `--test-data`, needs the `bcbak` reader | On by default with Microsoft's apps. `--no-test-data` turns it off. No separate reader to install. |
 | Failure text | May carry a .NET prefix such as `NavNCLDialogException:` | The Business Central message only. |
 | Stack trace | A .NET stack | The AL call stack. |

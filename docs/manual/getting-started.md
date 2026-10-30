@@ -5,7 +5,7 @@ weight: 20
 
 ## Install
 
-`al-runner` is built for Linux x64, Windows x64 and macOS arm64.
+`al-runner` is built for Linux x64, Linux arm64, Windows x64 and macOS arm64.
 
 **With mise** (recommended). mise installs the binary from the GitHub releases
 and keeps it current:
@@ -20,27 +20,29 @@ The name `edge` never changes, so `mise up` does not see a newer edge build. Use
 
 **With the install script.** The script checks the SHA-256 of the download and
 puts the binary in `~/.local/bin` (Linux, macOS) or `%LOCALAPPDATA%\alrunner\bin`
-(Windows).
+(Windows). Set `ALRUNNER_INSTALL_DIR` to put it somewhere else. Without an argument
+it installs the newest numbered alpha:
 
 ```bash
-curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh -s -- edge
+curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.ps1))) -Version edge
+& ([scriptblock]::Create((irm https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.ps1)))
 ```
 
-Replace `edge` with `latest-alpha`, or with a tag such as `v3.0.0-alpha.4`, for a
-numbered alpha. You can also download an archive from the releases page and check
+Pass `edge` (`sh -s -- edge`, or `-Version edge` in PowerShell) for the nightly
+build, or a tag such as `v3.0.0-alpha.10` for one numbered alpha. The scripts are
+served from the `edge` release, but they install whatever version you ask for. You can also download an archive from the releases page and check
 it against `SHA256SUMS`. `gh attestation verify FILE --repo aldevtools/BusinessCentral.AL.Runner`
 checks the build provenance.
 
 **With the .NET tool.** If you already work with .NET tools and do not want to set
 up mise or a script, the `MSDyn365BC.AL.Runner` NuGet package runs the same engine.
-It is a thin wrapper around the Rust binary: the binaries for Linux (x64), macOS
-(Apple silicon) and Windows (x64) are in the package, so nothing is downloaded on
+It is a thin wrapper around the Rust binary: the binaries for Linux (x64 and arm64),
+macOS (Apple silicon) and Windows (x64) are in the package, so nothing is downloaded on
 the first run. It needs the .NET SDK 8 or newer and adds a small start-up overhead.
-Version 3 is published as a prerelease until 3.0.0, so add `--prerelease`:
+AL Runner is published as a prerelease until 3.0.0, so add `--prerelease`:
 
 ```bash
 dotnet tool install --global MSDyn365BC.AL.Runner --prerelease
@@ -119,12 +121,15 @@ The first run that uses Microsoft's apps is slow, and later runs are fast:
    Business Central, and keeps the result in the compile cache (about 20 MB per
    set of apps).
 
-Later runs load the cache. A test app with no Microsoft dependencies needs none
-of this. Use `--no-download` to forbid network access, and `--no-test-data` to
-skip the demo company.
+Later runs load the cache. An app that names a `platform` in `app.json` depends on
+Microsoft's System app, so even a small app without other Microsoft dependencies
+downloads `System.app` and, by default, the demo company on its first run. If your
+tests need no CRONUS data, add `--no-test-data` to skip the demo company. Use
+`--no-download` to forbid network access.
 
 Downloads and the compile cache live in the cache folder: `--cache-dir DIR`, else
-`$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime`.
+`$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime`
+(on Windows `%USERPROFILE%\.cache\al-runtime`).
 `al-runner cache info` shows what is in it, and entries unused for 30 days are
 removed automatically. See [the command line reference](cli-reference.md#the-compile-cache).
 
