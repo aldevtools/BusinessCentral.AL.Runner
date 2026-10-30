@@ -15,10 +15,8 @@ use std::sync::Arc;
 
 /// Reads an app folder: its `app.json` manifest and every `.al` file under it.
 pub fn load_app(dir: &std::path::Path) -> Result<al_sema::workspace::AppSource, String> {
-    let manifest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("app.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
-    )
-    .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
+        .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
     let mut files = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -28,10 +26,7 @@ pub fn load_app(dir: &std::path::Path) -> Result<al_sema::workspace::AppSource, 
                 stack.push(p);
             } else if p.extension().is_some_and(|x| x == "al") {
                 let rel = p.strip_prefix(dir).unwrap_or(&p).to_string_lossy().into_owned();
-                files.push((
-                    rel,
-                    std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?,
-                ));
+                files.push((rel, al_deps::load::read_text(&p)?));
             }
         }
     }
@@ -111,7 +106,7 @@ fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
             if !name.to_ascii_lowercase().ends_with(".al") {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&p) else {
+            let Ok(text) = al_deps::load::read_text(&p) else {
                 continue;
             };
             let lower = text.to_ascii_lowercase();
@@ -142,10 +137,8 @@ fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
 
 /// The manifest fields `NavApp.GetCurrentModuleInfo` reports, from `dir/app.json`.
 pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
-    let manifest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("app.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
-    )
-    .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
+        .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
     let s = |k: &str| manifest[k].as_str().unwrap_or_default().to_string();
     let mut resources = Vec::new();
     for folder in manifest["resourceFolders"]
