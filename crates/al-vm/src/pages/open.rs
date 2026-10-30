@@ -292,6 +292,7 @@ impl Session {
             s.gone_blank_shows_line = false;
             s.gone_view_list = false;
             s.parts = Vec::new();
+            s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
         }
         if let Err(e) = self.create_parts(st) {
@@ -500,7 +501,7 @@ impl Session {
                     )
                 };
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
-                self.apply_request_parameters(&inst, &exts, object, &xml)?;
+                self.apply_request_parameters(&inst, &exts, object, &xml, false)?;
             }
             self.restore_page_values(st);
             self.check_page_events(st)?;
