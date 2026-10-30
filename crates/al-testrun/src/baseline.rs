@@ -279,18 +279,7 @@ pub fn run_traced(
     if let Some(e) = company.and_then(|c| c.environment) {
         session.set_environment(e);
     }
-    // The apps under test install after the company exists: while the dependency apps install, Company-Initialize and the
-    // company build run, they are not installed, so none of their subscribers runs there (no `OnCompanyInitialize`
-    // subscriber, no `OnGetPerCompanyUpgradeTags` subscriber answering `SetAllUpgradeTags`). Their per-company install code
-    // then sees `HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes
-    // (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
-    let under_test: BTreeSet<u32> = (0..objs.len())
-        .filter(|&oi| !lowered.dependency[oi])
-        .map(|oi| objs[oi].app)
-        .collect();
-    let mut held = late_apps.clone().unwrap_or_default();
-    held.extend(under_test.iter().copied());
-    session.set_apps_not_installed(Some(held));
+    session.set_apps_not_installed(late_apps.clone());
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
@@ -302,7 +291,7 @@ pub fn run_traced(
     let mut step_failed = false;
     for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
         if late_from == Some(k) {
-            session.set_apps_not_installed(Some(under_test.clone()));
+            session.set_apps_not_installed(None);
         }
         let is_step = company_roots.contains(&k);
         if is_step && step_failed {

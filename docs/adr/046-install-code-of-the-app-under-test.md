@@ -923,7 +923,7 @@ database's two companies run in the default mode and fail (69852 `EventLog_RowsW
 `EventLog_InstallRowCompany`; 83950 `InstallOrder_ThisApp_FiveSubscribersPerCompanyAndPerDatabase`,
 `InstallOrder_DependencyAppA_TwoSubscribersAndCompanyOpenCalls`). It is built on its own branch.
 
-## Amendment 5 (2026-10-30): the corpus run uses two companies; the apps under test install after the company exists
+## Amendment 5 (2026-10-30): the corpus run uses two companies
 
 ### Built
 
@@ -935,10 +935,10 @@ database's two companies run in the default mode and fail (69852 `EventLog_RowsW
 3. **Decision 4c is gone in the default mode** (amendment 4, item 1): the default mode answers a shared table that
    per-company install code writes with the one write of its one company. `tools/company_mode_check.sh` now allows a
    case to fail in the default mode where the opt-in passes (a case that counts the corpus database's two companies).
-4. **The apps under test are not installed while the dependency apps install, Company-Initialize runs and the company
-   is built** (`al-testrun/src/baseline.rs`). Their subscribers do not run there: no `OnCompanyInitialize` subscriber,
-   and no `OnGetPerCompanyUpgradeTags` subscriber answers Base Application's `UpgradeTag.SetAllUpgradeTags()` in
-   Company-Initialize. A freshly installed app's per-company install code sees `HasUpgradeTag` = No for its own tag and
-   no row its `OnCompanyInitialize` subscriber writes, in both companies
-   (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43, corpus issue 812). Before, a partner app whose
-   install code starts with `if HasUpgradeTag(own tag) then exit;` skipped its own setup.
+
+### Not yet built: the apps under test install after the company exists
+
+Corpus PR 815 (issue 812, not yet on corpus master) pins that a freshly installed app's per-company install code sees
+`HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes. The runtime today runs the
+apps under test's subscribers during the dependency installs and Company-Initialize. The fix (hold them back there) waits
+for that pin.
