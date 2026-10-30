@@ -3371,6 +3371,10 @@ decl_prop!(decl_encoding, encoding);
 decl_prop!(decl_standalone, standalone);
 
 fn value_prop(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // Reading the Value of an unassigned XmlAttribute raises NotInitialized (xml/XmlAttributes.al:519-524 Attribute_Uninitialized).
+    if a.is_empty() && unassigned(&r, "XmlAttribute") {
+        return Err(uninitialized("XmlAttribute"));
+    }
     let h = recv(r)?;
     if let Some(v) = a.first() {
         let t = crate::native::text_of(v).ok_or_else(|| Signal::Unsupported("non-text XML value".into()))?;
@@ -3481,8 +3485,8 @@ fn element_name(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NRes
     if unassigned(&r, "XmlElement") {
         return Err(uninitialized("XmlElement"));
     }
-    // So does an unassigned XmlAttribute, also after a Get that found nothing (corpus master, corpus PR 886:
-    // xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:76-83 `missing, fresh attr after`).
+    // So does an unassigned XmlAttribute (xml/XmlAttributes.al:517-522 Attribute_Uninitialized), also after a Get that found
+    // nothing (corpus master, corpus PR 886: xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:76-83).
     if unassigned(&r, "XmlAttribute") {
         return Err(uninitialized("XmlAttribute"));
     }
@@ -5133,14 +5137,19 @@ fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
         // The statement raises XmlNodeNotFound naming the attribute (corpus master, corpus PR 886:
         // xml/lt-xml-attr-doc-http-members/AttrCollectionGetMissing.al:113 `missing, two arguments`). A qualified name is not pinned.
         None if !name.contains(':') => Err(attr_not_found(&name)),
-        None => unsupported("XmlAttributeCollection.Get of a missing qualified name, result unused (error text not pinned yet)"),
+        None => unsupported(
+            "XmlAttributeCollection.Get of a missing qualified name, result unused (error text not pinned yet)",
+        ),
     }
 }
 
 /// `The XML node with the name '<name>' could not be found.` (XmlNodeNotFound): `<name>` is the name for the two-argument
 /// Get and `{<namespace>}<local name>` for the three-argument one (AttrCollectionGetMissing.al:109-113).
 fn attr_not_found(name: &str) -> Signal {
-    error(&format!("The XML node with the name '{name}' could not be found."), "XmlNodeNotFound")
+    error(
+        format!("The XML node with the name '{name}' could not be found."),
+        "XmlNodeNotFound",
+    )
 }
 
 /// `Get(LocalName, NamespaceUri, var Attr)` finds the attribute by its local name and namespace: a prefixed attribute read
