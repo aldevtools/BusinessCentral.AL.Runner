@@ -679,12 +679,11 @@ impl<'a> Lowerer<'a> {
             self.calls.push((cu, routine));
             targets.push((cu, routine));
         }
-        if targets.is_empty() {
-            return Err(format!(
-                "interface \"{}\" has no implementing codeunit in the workspace",
-                self.ws.objects[iface].name
-            ));
-        }
+        // No implementer in the workspace (an optional capability nobody added yet, an extensible enum
+        // whose values live in apps not loaded): alc accepts the call, so it lowers with no targets
+        // (al-runner issue 6299). The variable can then only be unassigned when the call runs, which
+        // raises "Interface not initialized" (codeunit/TestInterfaceRuntimeContracts.al:76); an instance
+        // the list does not hold is refused at run time (`interface_target_value`).
         let receiver = Box::new(self.expr(receiver)?);
         let mut out = Vec::new();
         for (i, a) in args.iter().enumerate() {
