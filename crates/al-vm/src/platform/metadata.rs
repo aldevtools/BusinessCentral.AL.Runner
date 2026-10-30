@@ -275,6 +275,23 @@ fn subscription_row(
                 known,
             ));
         }
+        // A page action event's row has Event Type = Trigger and Active = Yes (events/lt-event-subscription-trigger-rows/
+        // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; events/lt-wd/WdActionEventRow.al:76-85 and :106-110 for
+        // OnBeforeActionEvent, also as filters; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6293). Its Published
+        // Function is `<event> - <number>`, and how the number follows from the action is not pinned: only that column is
+        // refused when read.
+        None if kind == al_ir::ObjKind::Page && is_action_event(&event) => {
+            r[pos(t, 3)] = option(t, 3, 0);
+            r[pos(t, 4)] = option(t, 4, object_type);
+            r[pos(t, 5)] = Value::Integer(publisher_id as i32);
+            r[pos(t, 6)] = super::unknown(
+                t,
+                6,
+                &format!("{} (the number in `{event} - <number>` of a page action event)", what()),
+            );
+            r[pos(t, 7)] = Value::Boolean(true);
+            return Ok(());
+        }
         None => return Err((format!("{}: the kind of event `{event}` is not known", what()), known)),
     };
     r[pos(t, 3)] = option(t, 3, event_type);
@@ -284,6 +301,10 @@ fn subscription_row(
     // A statically bound subscriber that resolved is active (TestEventSubscriptionVirtualTable.al:`_Row_DescribesTheSubscription`).
     r[pos(t, 7)] = Value::Boolean(true);
     Ok(())
+}
+
+fn is_action_event(event: &str) -> bool {
+    event.eq_ignore_ascii_case("OnBeforeActionEvent") || event.eq_ignore_ascii_case("OnAfterActionEvent")
 }
 
 fn is_trigger_event(event: &str) -> bool {

@@ -628,23 +628,39 @@ impl Session {
             ids::REPORT_EXECUTE_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
                 let schema = self.report_schema(&inst)?;
-                self.report_execute_args(id, args.first(), args.get(1))?;
+                let parameters = self.report_execute_args(id, args.first(), args.get(1))?;
+                let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
+                    list.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
+                };
+                // A second Execute of a variable when either of the two has a parameters string is not pinned (the corpus
+                // clears the variable between them, report/lt-wd/WdReportExecuteParams.al:58-75): refused.
+                if is(&self.report.report_executed_with_parameters)
+                    || (parameters.is_some() && is(&self.report.report_executed))
+                {
+                    return unsupported(format!(
+                        "{id}: a second Execute of a report variable, one of them with a parameters string (not pinned)"
+                    ));
+                }
                 // handlers/TestReportRuntimeContracts.al:395-414: Execute keeps the globals, and a
                 // second Execute on the same variable is refused.
-                if self
-                    .report
-                    .report_executed
-                    .iter()
-                    .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
-                {
+                if is(&self.report.report_executed) {
                     return Err(al_error("The object has been run. Use the function CLEAR(Report)."));
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
+                if parameters.is_some() {
+                    self.report
+                        .report_executed_with_parameters
+                        .retain(|w| w.strong_count() > 0);
+                    self.report.report_executed_with_parameters.push(Rc::downgrade(&inst));
+                }
                 let result = if quit {
                     Ok(())
                 } else {
-                    self.report_run(&inst, &schema, Entry::Execute, false)
+                    self.report.execute_parameters = parameters;
+                    let ran = self.report_run(&inst, &schema, Entry::Execute, false);
+                    self.report.execute_parameters = None;
+                    ran
                 };
                 // After an Execute the getter of a variable whose UseRequestPage was never set answers false
                 // (misc/lt-probes-needed-8/PnH2UseRp.al:389, WithRP_UseFalse_Run_RunModal_Execute `getter`). What the triggers
@@ -662,13 +678,15 @@ impl Session {
             }
             ids::REPORT_EXECUTE_3 => {
                 let (inst, schema) = self.report_by_number(id, args.first())?;
-                self.report_execute_args(id, args.get(1), args.get(2))?;
+                let parameters = self.report_execute_args(id, args.get(1), args.get(2))?;
                 let quit = self.report_init(&inst)?;
                 if quit {
                     return Ok(Value::Null);
                 }
-                self.report_run(&inst, &schema, Entry::Execute, false)
-                    .map(|()| Value::Null)
+                self.report.execute_parameters = parameters;
+                let ran = self.report_run(&inst, &schema, Entry::Execute, false);
+                self.report.execute_parameters = None;
+                ran.map(|()| Value::Null)
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
                 let schema = if id == ids::REPORT_PRINT_1 {
@@ -1132,20 +1150,32 @@ impl Session {
         id: al_ir::BuiltinId,
         parameters: Option<&Value>,
         record_ref: Option<&Value>,
-    ) -> Result<(), Signal> {
-        match parameters {
-            Some(Value::Text(s)) if s.is_empty() => {}
+    ) -> Result<Option<String>, Signal> {
+        // A parameters string with `<Options><Field name=..>` sets the request page's Text, Boolean and Integer variables
+        // before OnPreReport, and a field name no control has is skipped (report/lt-wd/WdReportExecuteParams.al:50-77, corpus
+        // branch al-runtime-rs-staging-1030c, al-runner issue 6306). Only the form `RunRequestPage` writes is read
+        // (`apply_request_parameters`).
+        let parameters = match parameters {
+            Some(Value::Text(s)) if s.is_empty() => None,
+            // Data item views in the string are not pinned for Execute (a later run of the report in the codeunit read
+            // other filters than BC: report/lt-report-requestpage/RptFilters.al:594 SetTableView_AndRequestFilter_Combined).
+            Some(Value::Text(s)) if s.contains("<DataItem ") => {
+                return unsupported(format!(
+                    "{id} with data item views in the parameters (only <Options> fields are pinned)"
+                ));
+            }
+            Some(Value::Text(s)) => Some(s.to_string()),
             other => {
                 return unsupported(format!(
-                    "{id} with the parameters {} (only '' is pinned)",
+                    "{id} with the parameters {} (only a text is pinned)",
                     other.describe()
                 ));
             }
-        }
+        };
         if record_ref.is_some() {
             return unsupported(format!("{id} with a RecordRef (not pinned)"));
         }
-        Ok(())
+        Ok(parameters)
     }
 
     // ------------------------------------------------------------------ OnInitReport
@@ -1917,13 +1947,21 @@ impl Session {
         if shows_page && self.report_handler_answers(inst, schema)? {
             return Ok(true);
         }
+        let execute_parameters = self.report.execute_parameters.take();
         let mut run = self.report_prepare(inst, schema, !shows_page)?;
         run.dataset = save_as.is_some();
         if !shows_page {
-            self.request_page_init_unshown(inst, schema, save_as.is_some_and(|x| !x.is_empty()))?;
+            self.request_page_init_unshown(
+                inst,
+                schema,
+                save_as.is_some_and(|x| !x.is_empty()) || execute_parameters.is_some(),
+            )?;
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
-            self.apply_run_parameters(inst, schema, &run, xml)?;
+            self.apply_run_parameters(inst, schema, &run, xml, false)?;
+        } else if let Some(xml) = &execute_parameters {
+            // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
+            self.apply_run_parameters(inst, schema, &run, xml, true)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
         // what the run reads, so the views are not applied again afterwards. A cancelled page ends
@@ -3582,7 +3620,14 @@ impl Session {
     /// page does before the run (handlers/TestReportRunRequestPage.al:TestReport_CapturedParameters_
     /// ReplayThroughSaveAs_FilterTheDataset). Only the text this runtime's `RunRequestPage` hands out
     /// is understood (`apply_request_parameters`).
-    fn apply_run_parameters(&mut self, inst: &Inst, schema: &Schema, run: &Run, xml: &str) -> Result<(), Signal> {
+    fn apply_run_parameters(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        run: &Run,
+        xml: &str,
+        skip_unknown: bool,
+    ) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return unsupported(format!(
@@ -3601,7 +3646,7 @@ impl Session {
             };
             exts.push((e, ext));
         }
-        self.apply_request_parameters(inst, &exts, schema.object, xml)
+        self.apply_request_parameters(inst, &exts, schema.object, xml, skip_unknown)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before
