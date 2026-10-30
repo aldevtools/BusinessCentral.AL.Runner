@@ -618,11 +618,13 @@ fn visit(
             } else if pn == "dataitemlinkreference" {
                 // Read by `item_ir` (corpus handlers/TestReportDataItemLinkReferenceContracts.al).
             } else if pn == "maxiteration" {
-                // Read by `item_ir`; pinned for an Integer item only (misc/lt-probes-needed-8/PnH3Link.al:MaxIteration_*).
+                // Read by `item_ir`; a positive number is pinned for an Integer item (misc/lt-probes-needed-8/
+                // PnH3Link.al:MaxIteration_*) and a record item (report/lt-maxiteration-zero/SgMaxIterationTable.al with
+                // MaxIterationZero.al:153-199, al-runner #6412).
                 let positive = p.value_text().trim().parse::<u32>().is_ok_and(|n| n > 0);
-                if !table.trim_matches('"').eq_ignore_ascii_case("Integer") || !positive {
+                if !positive {
                     reasons.push(format!(
-                        "property maxiteration of dataitem {name} is not supported yet (pinned for an Integer item with a positive number)"
+                        "property maxiteration of dataitem {name} is not supported yet (pinned for a positive number)"
                     ));
                 }
             } else if !["dataitemtableview", "dataitemlink"].contains(&pn.as_str())

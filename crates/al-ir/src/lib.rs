@@ -623,7 +623,7 @@ pub struct ReportItem {
     /// The columns the dataset writes for each row, in source order.
     #[serde(default)]
     pub columns: Vec<ReportColumn>,
-    /// `MaxIteration` of an `Integer` item: the rows after which the item stops (its `OnPostDataItem` still runs).
+    /// `MaxIteration` (a positive number): the rows after which the item stops (its `OnPostDataItem` still runs).
     #[serde(default)]
     pub max_iteration: Option<u32>,
     /// `PrintOnlyIfDetail = true`: the dataset leaves out a row whose nested items wrote no row.
