@@ -3338,3 +3338,33 @@ fn the_artifact_license_gives_every_pinned_row() {
         }
     }
 }
+
+/// The Published Function of a page action event is `<event> - <control id of the action>`, the id of the declaring object (a
+/// page extension for an action it adds) and the action name (corpus master, corpus PR 886:
+/// events/lt-event-subscription-trigger-rows/ActionEventPublishedFunction.al:259-272; the ids there are those of objects
+/// 91355 and 91357, so the test uses the same ids).
+#[test]
+fn a_page_action_event_names_the_control_id_of_the_action() {
+    let o = outcomes(
+        r#"table 91354 "Row" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 91355 "Page A" { PageType = Card; SourceTable = "Row"; layout { area(Content) { field("No."; Rec."No.") { } } }
+  actions { area(Processing) { action(SendIt) { trigger OnAction() begin end; } action("My Action") { trigger OnAction() begin end; }
+    group(Grp) { action(GroupedAction) { trigger OnAction() begin end; } } } } }
+pageextension 91357 "Page A Ext" extends "Page A" { actions { addlast(Processing) { action(ExtAction) { trigger OnAction() begin end; } } } }
+codeunit 50002 "Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"Page A", OnBeforeActionEvent, 'SendIt', false, false)] local procedure H1() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Page A", OnAfterActionEvent, 'SendIt', false, false)] local procedure H2() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Page A", OnBeforeActionEvent, 'My Action', false, false)] local procedure H3() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Page A", OnBeforeActionEvent, 'GroupedAction', false, false)] local procedure H4() begin end;
+  [EventSubscriber(ObjectType::Page, Page::"Page A", OnAfterActionEvent, 'ExtAction', false, false)] local procedure H5() begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Fn(Name: Text): Text var E: Record "Event Subscription"; begin E.Get(50002, Name); exit(E."Published Function"); end;
+  [Test] procedure Rows() begin
+    if Fn('H1') <> 'OnBeforeActionEvent - 610383273' then Error('H1 %1', Fn('H1'));
+    if Fn('H2') <> 'OnAfterActionEvent - 610383273' then Error('H2 %1', Fn('H2'));
+    if Fn('H3') <> 'OnBeforeActionEvent - 455536332' then Error('H3 %1', Fn('H3'));
+    if Fn('H4') <> 'OnBeforeActionEvent - 553585230' then Error('H4 %1', Fn('H4'));
+    if Fn('H5') <> 'OnAfterActionEvent - 1998974045' then Error('H5 %1', Fn('H5')); end; }"#,
+    );
+    passes(&o, "Rows");
+}
