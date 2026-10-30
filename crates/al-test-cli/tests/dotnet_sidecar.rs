@@ -230,6 +230,42 @@ fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     sess.close();
 }
 
+// A method that is generic only, with its one type parameter as its return type (OpenXml's `T GetWorksheetByName<T>(string)`),
+// is refused by a plain call with a text that says so, and runs when the call names the type argument.
+#[test]
+fn a_generic_only_method_is_refused_plainly_and_runs_closed_over_a_type_argument() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let sb = handle_of(
+        &sess
+            .construct(&ty("System.Text.StringBuilder"), vec![s("abc")])
+            .unwrap(),
+    );
+    let mut unsafe_ty = ty("System.Runtime.CompilerServices.Unsafe");
+    unsafe_ty.assembly = "System.Runtime".into();
+    unsafe_ty.public_key_token = Some("b03f5f7f11d50a3a".into());
+    let obj = arg(DotNetValue::Handle {
+        handle: sb,
+        ty: "System.Text.StringBuilder".into(),
+    });
+    let why = refused(sess.invoke(DotNetTarget::Static(unsafe_ty.clone()), "As", vec![obj.clone()]));
+    assert!(why.contains("generic only"), "{why}");
+    let r = sess
+        .invoke_generic(
+            DotNetTarget::Static(unsafe_ty),
+            "As",
+            &ty("System.Text.StringBuilder"),
+            vec![obj],
+        )
+        .unwrap();
+    let h2 = handle_of(&r);
+    assert_eq!(
+        text_of(&sess.invoke(DotNetTarget::Instance(h2), "ToString", vec![]).unwrap()),
+        "abc"
+    );
+    sess.close();
+}
+
 // ---- ADR-014 conformance: sessions, restricted environment, deadlines ------------------
 
 #[test]

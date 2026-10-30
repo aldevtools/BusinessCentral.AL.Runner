@@ -168,6 +168,19 @@ pub trait DotNetSession {
         member: &str,
         args: Vec<DotNetArg>,
     ) -> Result<DotNetReply, DotNetFailure>;
+    /// `invoke` of a generic method whose one type parameter is its return type, closed over `type_arg` (the declared type
+    /// of the DotNet variable the result is stored into). The default refuses.
+    fn invoke_generic(
+        &mut self,
+        _target: DotNetTarget,
+        member: &str,
+        _type_arg: &DotNetType,
+        _args: Vec<DotNetArg>,
+    ) -> Result<DotNetReply, DotNetFailure> {
+        Err(DotNetFailure::Refused(format!(
+            "this host cannot close the generic method '{member}'"
+        )))
+    }
     fn get_property(&mut self, target: DotNetTarget, name: &str) -> Result<DotNetReply, DotNetFailure>;
     fn set_property(
         &mut self,

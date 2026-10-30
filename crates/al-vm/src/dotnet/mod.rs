@@ -83,6 +83,8 @@ pub struct DotNetState {
     /// open (worksheet -> workbook): a `Clear` of either then only unassigns the variable (`clear_is_inert`).
     closed_workbooks: std::collections::HashSet<DotNetHandle>,
     worksheets: HashMap<DotNetHandle, DotNetHandle>,
+    /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
+    pub(crate) result_ty: Option<usize>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -153,7 +155,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         self.note_dotnet();
         self.dotnet.null_string = false;
-        let decl = ty.map(|i| {
+        let declared = |i: usize| {
             let d = &self.engine.program.dotnet_types[i];
             DotNetType {
                 assembly: d.assembly.clone(),
@@ -162,7 +164,9 @@ impl Session {
                 public_key_token: d.public_key_token.clone(),
                 name: d.type_name.clone(),
             }
-        });
+        };
+        let decl = ty.map(declared);
+        let result_decl = self.dotnet.result_ty.take().map(declared);
         let (kind, member) = match op {
             ir::DotNetOp::Construct => (
                 MemberKind::Construct,
@@ -412,7 +416,22 @@ impl Session {
                 session.set_property(host_target(&target), &member, value)
             }
             (MemberKind::Get, _) => session.get_property(host_target(&target), &member),
-            (_, _) => session.invoke(host_target(&target), &member, wire),
+            (_, _) => {
+                let again = result_decl.as_ref().map(|_| wire.clone());
+                let first = session.invoke(host_target(&target), &member, wire);
+                match (first, again) {
+                    // A method that is generic only, whose one type parameter is its return type (OpenXml's
+                    // `T WorkbookReader.GetWorksheetByName<T>(string)`, Excel Buffer.OpenBookStream): closed over the declared
+                    // type of the DotNet variable the result is stored into. The method converts its result to T, so on real BC
+                    // only that type works (assumption dotnet-generic-result-type).
+                    (Err(DotNetFailure::Refused(why)), Some(wire)) if why.contains("is generic only") => {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetGenericResultType);
+                        let g = result_decl.as_ref().expect("cloned only with a result type");
+                        session.invoke_generic(host_target(&target), &member, g, wire)
+                    }
+                    (other, _) => other,
+                }
+            }
         };
         match reply {
             Ok(r) => {
