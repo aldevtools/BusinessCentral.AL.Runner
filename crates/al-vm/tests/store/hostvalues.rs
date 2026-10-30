@@ -437,10 +437,11 @@ fn sleep_of_zero_is_allowed_and_a_negative_wait_is_refused() {
 }
 
 // platform/lt-platform-members/PlTSession.al:245-266 (GlobalLanguage_InvalidIds): 0, -1 and 99999 raise NotSupportedLanguage and
-// leave the language unchanged; other ids that are not positive are not pinned.
+// leave the language unchanged, and so do 1000, 4096, 8192, 9999, 32767 and 65535 (:326-360, GlobalLanguage_PositiveIds); other ids
+// that are not positive are not pinned.
 #[test]
 fn global_language_raises_for_the_pinned_invalid_ids() {
-    for bad in ["0", "-1", "99999"] {
+    for bad in ["0", "-1", "99999", "1000", "4096", "8192", "9999", "32767", "65535"] {
         match run(&format!("procedure F() begin GlobalLanguage({bad}); end;")) {
             Err(Signal::Error(e)) => {
                 assert_eq!(
