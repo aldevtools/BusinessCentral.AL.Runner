@@ -884,9 +884,32 @@ fn date_month_first(text: &str, today: Option<i32>) -> Option<Result<Parsed, Sig
 /// reader of filter text keeps the forms it had (the filter forms are pinned apart from Evaluate, docs/probes-needed.md).
 fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_first: bool) -> Result<Parsed, Signal> {
     if number == 9 {
-        let t = text.trim_matches(' ');
+        // White space alone reads as the empty date, and around a date it is dropped (corpus master, corpus PR 886:
+        // types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al:49-81 TAB, blanks, CR, LF, CR LF, VT, FF,
+        // no-break space alone; :90-113 TAB, blank, CR LF, LF and no-break space around 2026-10-16). A TAB inside the date rejects
+        // it (:114-120). Other white space, VT or FF next to a date and other white space inside one are not pinned.
+        const PINNED_WS: [char; 7] = [' ', '\t', '\r', '\n', '\u{B}', '\u{C}', '\u{A0}'];
+        if text.chars().any(|c| c.is_whitespace() && !PINNED_WS.contains(&c)) {
+            return unsupported(format!("Evaluate of `{text}` into a Date with format 9 and this white space (not pinned)"));
+        }
+        let t = text.trim_matches(PINNED_WS);
         if t.is_empty() {
+            if text.chars().any(|c| c != ' ') {
+                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+            }
             return Ok(Parsed::Value(Value::Date(0, false)));
+        }
+        if t.len() != text.trim_matches(' ').len() {
+            if text.contains(['\u{B}', '\u{C}']) {
+                return unsupported(format!("Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"));
+            }
+            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+        }
+        if t.contains(PINNED_WS) {
+            if t.contains('\t') && t.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '\t') {
+                return Ok(Parsed::Rejected);
+            }
+            return unsupported(format!("Evaluate of `{text}` into a Date with format 9: white space inside (not pinned)"));
         }
         // The first day of the calendar reads as the empty date, and year 0 as the day after it
         // (types/lt-datetime/Evaluate.al:Date_Format9 `iso min`, `iso 0D` and `iso year 0`).
@@ -2252,6 +2275,8 @@ fn evaluate_with_max(
                     || text
                         .bytes()
                         .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'/'))
+                    // A TAB inside an ISO date with format 9 (corpus master, corpus PR 886: EvaluateDateFormat9Space.al:114-120).
+                    || (number == 9 && text.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'\t')))
                     || letters_date_text(&text, number)) =>
         {
             // Letters alone with no number are pinned on master (types/lt-datetime/Evaluate.al:188-197 Date_Evaluate_Raises `abc`,

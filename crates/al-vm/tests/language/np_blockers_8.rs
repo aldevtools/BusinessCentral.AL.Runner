@@ -29,3 +29,51 @@ fn an_evaluate_statement_of_letters_into_a_date_raises_the_date_format_error() {
         assert_eq!(r, want, "{call}");
     }
 }
+
+// Corpus master (corpus PR 886) types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al:49-81, :90-120: with
+// format 9, white space alone (TAB, blanks, CR, LF, VT, FF, no-break space) reads as the empty date, white space around a date is
+// dropped, and a TAB inside the date rejects it with the Date format error.
+fn eval9(chars: &str) -> String {
+    text(
+        "D: Date; T: Text; C: Text[1]; Ok: Boolean; R: Text;",
+        &format!(
+            "{chars} D := DMY2Date(1, 1, 2000); Ok := Evaluate(D, T, 9); R := Format(Ok) + '|' + Format(D, 0, 9);
+             D := DMY2Date(1, 1, 2000); if TryEval9(D, T) then R += ' ok|' + Format(D, 0, 9) else R += ' ' + GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(D, 0, 9);
+             exit(R);"
+        ),
+    )
+}
+
+/// AL that sets `T` to the given parts: a number is that character, any other text is appended as written.
+fn build(parts: &[&str]) -> String {
+    let mut s = String::from("T := '';");
+    for p in parts {
+        match p.parse::<u32>() {
+            Ok(n) => s.push_str(&format!(" C[1] := {n}; T += C;")),
+            Err(_) => s.push_str(&format!(" T += '{p}';")),
+        }
+    }
+    s
+}
+
+#[test]
+fn format_9_reads_white_space_alone_as_the_empty_date_and_drops_it_around_a_date() {
+    for parts in [&["9"][..], &["9", "9"], &[" "], &["  "], &["13"], &["10"], &["13", "10"], &["11"], &["12"], &["160"], &[]] {
+        assert_eq!(eval9(&build(parts)), "Yes| ok|", "{parts:?}");
+    }
+    for parts in [
+        &["9", "2026-10-16"][..],
+        &["2026-10-16", "9"],
+        &[" 2026-10-16"],
+        &["2026-10-16 "],
+        &["2026-10-16", "13", "10"],
+        &["10", "2026-10-16"],
+        &["2026-10-16", "160"],
+    ] {
+        assert_eq!(eval9(&build(parts)), "Yes|2026-10-16 ok|2026-10-16", "{parts:?}");
+    }
+    assert_eq!(
+        eval9(&build(&["2026-10", "9", "-16"])),
+        "No|2000-01-01 The format of the Date '2026-10\t-16' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.|Evaluate|2000-01-01"
+    );
+}

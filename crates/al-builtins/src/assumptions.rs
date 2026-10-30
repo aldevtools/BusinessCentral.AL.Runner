@@ -675,12 +675,15 @@ registry! {
     },
     EvaluateDateBlankTabs => {
         id: "evaluate-blank-tabs",
-        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871), which the pinned corpus does not hold yet.",
+        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". With format 9, white space alone (TAB, blanks, CR, LF, VT, FF, no-break space) reads as the empty date, TAB, CR, LF and no-break space around a date are dropped, and a TAB inside one rejects it with the Date format error. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871) and types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al (corpus PR 886), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's tests evaluate a TAB into a Date with the result unused.",
-        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        probe: "Pinned on corpus master (corpus PRs 871 and 886); delete this entry when the corpus bump brings them.",
         awaiting: Awaiting {
             issues: &[],
-            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            files: &[
+                "tests/al-language/misc/lt-np4-probes/Np4Misc.al",
+                "tests/al-language/types/lt-evaluate-format-lasterror-setview/EvaluateDateFormat9Space.al",
+            ],
             since: "2026-10-30",
         },
     },
