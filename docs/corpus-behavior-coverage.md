@@ -554,7 +554,7 @@ Presentation-only properties (Caption, ToolTip, ApplicationArea, ... ) are left 
 
 A site is pinned when a corpus string literal holds the message text. Codes are not matched. Sites with a computed message are not listed.
 
-- crates/al-builtins/src/http.rs:2453 `The value '%' is not a valid HTTP status code.` code `InvalidValue`
+- crates/al-builtins/src/http.rs:2526 `The value '%' is not a valid HTTP status code.` code `InvalidValue`
 - crates/al-builtins/src/testcontexts.rs:53 `The expression System.Func`1[System.Int32] cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavValue value.` code `TypeConversion`
 - crates/al-vm/src/control_add_in.rs:31 `The control add-in on control % on page % has not been instantiated.`
 - crates/al-vm/src/http.rs:112 `Invalid URI: The URI is empty.` code `AL:UriFormat`

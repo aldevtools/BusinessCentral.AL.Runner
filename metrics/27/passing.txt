@@ -4639,6 +4639,7 @@
 67595 CallerCallstack_SameAppFramesTwice_ListsTheAppOnce
 67595 CallerCallstack_ThroughOwnFrame_ListsTheAskingAppThenTheCaller
 67600 Evaluate_Caption_SelectsThatMember
+67600 Evaluate_UnknownText_IsRefusedListingTheCaptions
 67600 FieldCaption_AnswersTheDeclaredCaption
 67600 FieldCaption_NoDeclaredCaption_AnswersTheName
 67600 FieldRef_OptionCaption_AnswersTheTableFieldCaption
@@ -10158,6 +10159,7 @@
 71866 P112_Lookup_ViewMode
 71873 P112_Upload_Page_Opens_PlainAction_Runs
 71876 P192_ArrayAdd_Byte_Get0
+71876 P192_ArrayAdd_Decimal_Get0
 71876 P192_ArrayAdd_Integer_Get0
 71876 P192_ObjectAdd_Numbers_Get
 71876 P192_Replace_Insert_Set_Get
@@ -12730,6 +12732,7 @@
 73874 PW_FindList_Descending_20Rows
 73874 PW_FindList_Descending_21Rows
 73874 PW_FindList_Descending_2Rows
+73874 PW_OpenOnLastRow_NoCurrRecord_3Rows
 73874 QV_DescKind_FindNext_Moves
 73874 QV_DescKind_FindOnly_Moves
 73874 RK_AscKind_FindNext_1Rows
@@ -17118,6 +17121,7 @@
 90605 HandlerErrorLeavesPageOpenAndCloseIsRefused
 90605 PageActionErrorLeavesPageOpenAndCloseIsAllowed
 90609 PostOfOneLineThatDeletesItAndLeavesRecOnAnotherKey
+90609 PostOfTwoLinesThatDeletesThemAndLeavesRecOnAnotherKey
 90640 WC_Integer_CharLiteral_Compare
 90640 WC_Integer_Plus_CharLiteral
 90641 WC_Sleep_Duration_Elapsed
