@@ -311,7 +311,7 @@ impl Object {
 pub const CAPTION_REFUSED: &str = "$CaptionRefused";
 
 /// The name of an object property the lowering adds beside [`CAPTION_REFUSED`] when one tableextension sets a `Caption` over
-/// the table's own: its value is that extension's caption (the TableRelation error names the table by it, al-runner issue 5955).
+/// the table's own: its value is that extension's caption, the caption the runtime's texts and caption reads give (al-runner issues 5955 and 6378).
 pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -1040,6 +1040,12 @@ pub struct Control {
     /// record/lt-x3-6368/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
+    /// For a page's own control bound to an element of a one-dimensional page array variable with a number index
+    /// (`ElementText[2]`): the slot of the array among the page's globals and the element's 0-based position. It shows
+    /// what a control bound to a plain page variable shows (pages/lt-y5/Y5PartArrayElementControl.al on corpus branch
+    /// al-runtime-rs-staging-y5, al-runner issue 6379).
+    #[serde(default)]
+    pub array_element: Option<(usize, usize)>,
 }
 
 /// The action an `actionref` delegates to.

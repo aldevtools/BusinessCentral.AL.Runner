@@ -670,12 +670,6 @@ registry! {
         tests: "No Microsoft test: a partner app's card test (a field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
         probe: "A list and a document page with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with the group's Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
     },
-    RelationErrorExtCaption => {
-        id: "relation-error-ext-caption",
-        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own Caption. A table without a Caption of its own is pinned (tableextension/TestTableExtFieldTableRelation.al TableExt_CaptionOfRelatedTable_InValidateErrorText); the corpus could not pin a Caption over the table's own (AL0839 in one app). TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
-        tests: "No Microsoft test: a partner app's tests (Validate of a field related to Work Center, extended with a Caption).",
-        probe: "A table with a Caption in one app and a tableextension with a Caption in another app: the TableRelation error of a Validate, TableCaption, RecordRef.Caption.",
-    },
     StaleOwnInsertTwoCommitsOtherInsert => {
         id: "stale-own-insert-two-commits-other-insert",
         assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and did not touch the row itself, lock the table or roll back. Pinned for an own Insert and Modify, one or two Commits, and an Insert of another row as the only write of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745); an own Insert without the Modify, and other writes of the table beside the Insert, are not told apart and stay assumed. The marker fires on the pinned shape too.",
@@ -800,7 +794,18 @@ registry! {
         assumed: "In an English session a DateTime filter text that is a date alone (`01/15/25`, `1/15/25`, `2025-01-15`) covers the whole day from 00:00:00 to 23:59:59 (as a range end: the start of the day below, its end above; after `<`: before the start of the day), and GetFilter shows its end as `11:59:59 PM`; a clock reads any hour (`08:30`, `17:45`, `00:00` on a 24-hour clock, `08:30 AM`, `05:45:10.5 PM`); `15.01.25` alone or with a clock raises the evaluate error of DateTime.",
         tests: "No Microsoft test: a partner app's tests (DateTime filters of a date alone and of other hours).",
         probe: "Pinned on corpus master by errors/lt-ms-refusals-136/P136Filter.al UN_DateTimeFilter_HourNotTwelve (passes) and UN_DateTimeFilter_DateAlone (corpus PR 806), which the runtime does not run yet (SetFilter on a DateTime field with MakeDateTimeFilter subscribers is not pinned): run it, then retire. Refused: an hour past 12 with AM or PM (an error whose texts are not built), other operators before a date alone, a range of a date alone and a value with a clock.",
-    },    FieldRowSystemId => {
+    },    ActionViewChangeListRereads => {
+        id: "action-view-change-list-rereads",
+        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view. Measured on real BC (corpus writer Y5, branch al-runtime-rs-staging-y5); flagged until the file is in the pinned corpus. A key or sort order change is not measured.",
+        tests: "No Microsoft test: a partner app's field picker (al-runner issue 6381) walks a Field list whose action changes the table filter, then calls GoToKey.",
+        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al once the corpus bump brings it in; then also an action that only calls SetCurrentKey or SetAscending, followed by GoToKey, Next and First.",
+        awaiting: Awaiting {
+            issues: &[6381],
+            files: &["tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al"],
+            since: "2026-10-30",
+        },
+    },
+    FieldRowSystemId => {
         id: "field-row-system-id",
         assumed: "The SystemId of a Field row is the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes. Measured only on the newest major for one table numbered above 65535, its field 2 and the user-name system fields 2000000005-8 (platform/lt-wc/WcFieldRowCopy.al:48, :60-63); a read of the SystemId of any other Field row (a table below 65536 or a system table, another system field, an older major) runs on the same rule.",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",

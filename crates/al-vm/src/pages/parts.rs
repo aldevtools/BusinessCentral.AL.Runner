@@ -945,6 +945,40 @@ impl Session {
         self.insert_draft(st)
     }
 
+    /// A field typed on the current row of part `child`: the parts that take their link from it (`Provider`) and link on that
+    /// field read their rows again with the typed value, before the row is stored (al-runner issue 6377; corpus writer Y5,
+    /// branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al:155 (plain field), :191 (OnValidate calls
+    /// CurrPage.Update), :223, :244, :268; codeunit 90980: a plain field and one whose
+    /// OnValidate calls CurrPage.Update; a part linked on another field keeps its rows). A linked field another field's
+    /// validation changes is not measured and keeps the earlier behavior.
+    fn resync_dependents_linked_by(&mut self, child: &St, control: usize) -> Result<(), Signal> {
+        let Some((host, idx)) = child.borrow().host.clone() else {
+            return Ok(());
+        };
+        let Some(host) = host.upgrade() else { return Ok(()) };
+        if !child.borrow().open || !host.borrow().open {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let ir::Binding::Field(pos) = page_of(&engine, child).controls[control].binding else {
+            return Ok(());
+        };
+        let page = page_of(&engine, &host);
+        let parts = host.borrow().parts.clone();
+        for (i, sibling) in &parts {
+            let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
+                l.provider == Some(idx)
+                    && l.entries
+                        .iter()
+                        .any(|e| matches!(e, ir::LinkEntry::Field(_, hf) if *hf == pos))
+            });
+            if follows {
+                self.sync_part(&host, *i, sibling)?;
+            }
+        }
+        Ok(())
+    }
+
     /// After part `child` moved, the parts that take their link from it follow.
     pub(super) fn sync_dependents(&mut self, child: &St) -> Result<(), Signal> {
         let Some((host, idx)) = child.borrow().host.clone() else {
@@ -1129,6 +1163,7 @@ impl Session {
     /// A field the host just changed is read by the link of some parts: they follow the new value
     /// (corpus handlers/TestPageOpenNewPartLink.al:OpenNew_NumberTyped_PartWriteCarriesTheNumber).
     pub(super) fn resync_parts_linked_by(&mut self, st: &St, control: usize) -> Result<(), Signal> {
+        self.resync_dependents_linked_by(st, control)?;
         if st.borrow().parts.is_empty() || !st.borrow().open {
             return Ok(());
         }
