@@ -493,7 +493,8 @@ pub fn parse_filter_with(
             }
             other => {
                 return Err(format!(
-                    "placeholder next to a wildcard on a {other:?} field (only Text, Code and Integer are pinned)"
+                    "placeholder next to a wildcard on a {} field (only Text, Code and Integer are pinned)",
+                    other.describe()
                 ));
             }
         }
