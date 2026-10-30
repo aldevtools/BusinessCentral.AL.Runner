@@ -2333,3 +2333,34 @@ fn issue_6219_assigning_through_currpage_stays_refused() {
         "{results:?}"
     );
 }
+
+/// al-runner #6412: MaxIteration on a data item over a record table stops it after that many rows, a skipped row counting
+/// toward them, and the record stands on the next row in OnPostDataItem (report/lt-maxiteration-zero/
+/// SgMaxIterationTable.al with MaxIterationZero.al:153-199; corpus branch al-runtime-rs-staging-y11
+/// Y11MaxIterationRecord.al).
+#[test]
+fn issue_6412_max_iteration_caps_a_record_data_item() {
+    let main = "
+table 69640 \"UR MI Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { Clustered = true; } } }
+codeunit 69641 \"UR MI Log\" { SingleInstance = true; var T: Text;
+  procedure Add(S: Text) begin T += S + ';'; end;
+  procedure Take(): Text var R: Text; begin R := T; T := ''; exit(R); end; }
+report 69642 \"UR MI Two\" { ProcessingOnly = true; UseRequestPage = false;
+  dataset { dataitem(R; \"UR MI Row\") { MaxIteration = 2;
+    trigger OnAfterGetRecord() begin L.Add('row ' + Format(R.No)); if R.No = 1 then CurrReport.Skip(); end;
+    trigger OnPostDataItem() begin L.Add('post at ' + Format(R.No)); end; } }
+  var L: Codeunit \"UR MI Log\"; }
+report 69643 \"UR MI Ten\" { ProcessingOnly = true; UseRequestPage = false;
+  dataset { dataitem(R; \"UR MI Row\") { MaxIteration = 10;
+    trigger OnAfterGetRecord() begin L.Add('row ' + Format(R.No)); end; } }
+  var L: Codeunit \"UR MI Log\"; }
+codeunit 69644 T { Subtype = Test;
+  [Test] procedure P() var Row: Record \"UR MI Row\"; L: Codeunit \"UR MI Log\"; I: Integer; begin
+    for I := 1 to 5 do begin Row.No := I; Row.Insert(); end;
+    Report.Run(Report::\"UR MI Two\");
+    if L.Take() <> 'row 1;row 2;post at 3;' then Error('two');
+    Report.Run(Report::\"UR MI Ten\");
+    if L.Take() <> 'row 1;row 2;row 3;row 4;row 5;' then Error('ten');
+  end; }";
+    all_pass(run_with_deps(&[], main));
+}
