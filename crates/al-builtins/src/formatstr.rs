@@ -457,7 +457,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                     ("<Precision,0:3><Sign><Integer Thousand><Decimals>", '.')
                 }
                 "<Precision,0:3><Integer><Decimals><Comma,.>" => ("<Precision,0:3><Integer><Decimals>", '.'),
-                "<Comma,.><Precision,0:3><Sign><Integer><Decimals>" => ("<Precision,0:3><Sign><Integer><Decimals>", '.'),
+                "<Comma,.><Precision,0:3><Sign><Integer><Decimals>" => {
+                    ("<Precision,0:3><Sign><Integer><Decimals>", '.')
+                }
                 "<Decimals><Comma,.>" => ("<Decimals>", '.'),
                 "<Comma,.>" => return Ok(crate::format::pad(String::new(), length)),
                 "<Sign><Integer><Decimals><Comma>" => return invalid(),
@@ -1203,14 +1205,32 @@ mod tests {
         let cases: &[(&str, &[(&str, &str)])] = &[
             (
                 "<Precision,0:3><Sign><Integer><Decimals><Comma,.>",
-                &[("1234", "1234"), ("1234.56789", "1234.568"), ("0.0005", "0.001"), ("0.0004", "0"), ("-0.0004", "-0"), ("-1234.5", "-1234.5")],
+                &[
+                    ("1234", "1234"),
+                    ("1234.56789", "1234.568"),
+                    ("0.0005", "0.001"),
+                    ("0.0004", "0"),
+                    ("-0.0004", "-0"),
+                    ("-1234.5", "-1234.5"),
+                ],
             ),
             (
                 "<Precision,0:3><Sign><Integer Thousand><Decimals><Comma,.>",
-                &[("1234.5", "1,234.5"), ("-1234.5", "-1,234.5"), ("1234567.125", "1,234,567.125"), ("-0.0004", "-0")],
+                &[
+                    ("1234.5", "1,234.5"),
+                    ("-1234.5", "-1,234.5"),
+                    ("1234567.125", "1,234,567.125"),
+                    ("-0.0004", "-0"),
+                ],
             ),
-            ("<Precision,0:3><Integer><Decimals><Comma,.>", &[("-1234.5", "1234.5"), ("-0.0004", "0"), ("0.1", "0.1")]),
-            ("<Comma,.><Precision,0:3><Sign><Integer><Decimals>", &[("1234.56789", "1234.568"), ("-0.0004", "-0"), ("0", "0")]),
+            (
+                "<Precision,0:3><Integer><Decimals><Comma,.>",
+                &[("-1234.5", "1234.5"), ("-0.0004", "0"), ("0.1", "0.1")],
+            ),
+            (
+                "<Comma,.><Precision,0:3><Sign><Integer><Decimals>",
+                &[("1234.56789", "1234.568"), ("-0.0004", "-0"), ("0", "0")],
+            ),
         ];
         for (template, values) in cases {
             for (v, want) in values.iter() {

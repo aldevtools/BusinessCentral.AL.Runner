@@ -869,7 +869,10 @@ fn user_agent_product_forms_follow_the_probe() {
         let call = |v: &str| {
             let mut b = al_testkit::Built::from_source(UA_SRC);
             let (oi, ri) = b.routine_in("U", f);
-            text(b.call(oi, ri, vec![al_builtins::value::Value::Text(v.into())]).map(|(v, _)| v))
+            text(
+                b.call(oi, ri, vec![al_builtins::value::Value::Text(v.into())])
+                    .map(|(v, _)| v),
+            )
         };
         assert_eq!(call("A B / C D 365 E"), "ret=Yes n=5[A][B/C][D][365][E] contains=Yes");
         assert_eq!(call("a / b"), "ret=Yes n=1[a/b] contains=Yes");

@@ -951,7 +951,9 @@ fn user_agent_parts(v: &str, ua: bool) -> Result<Option<Vec<String>>, Signal> {
                 None => is_token(&product),
             };
             if !ok && ua {
-                return Err(Signal::Error(Box::new(crate::native::unpinned_error_for(UA_BAD_PRODUCT_PROBE))));
+                return Err(Signal::Error(Box::new(crate::native::unpinned_error_for(
+                    UA_BAD_PRODUCT_PROBE,
+                ))));
             }
             if !ok {
                 return unsupported(format!(
@@ -1881,8 +1883,7 @@ fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         // A statement on request and client headers for a token name that is not there raises the same text and code as on content
         // headers: its first 80 characters and the code are pinned by network/lt-se-header-values/UserAgentProductForms.al:116-118,
         // :138-140 (`get=E[Exception of type '...NavNclInvalidHeaderEx|InvalidHeader]` after an Add answered false).
-        let pinned_missing =
-            matches!(kind, HeaderKind::Request | HeaderKind::Default) && !restricted && !c.ret_used();
+        let pinned_missing = matches!(kind, HeaderKind::Request | HeaderKind::Default) && !restricted && !c.ret_used();
         if kind != HeaderKind::Content && !pinned_missing {
             // On request, response and client headers a statement raises too, for a name that is not there, no token or a content
             // header (network/lt-ay-http/AyHeaderAddResult.al `get=E` after every refused Add, :88 to :383). The text and code are
@@ -3040,7 +3041,10 @@ mod tests {
         // UserAgentProductForms.al:110-121.
         let mut b = HeaderBag::default();
         assert!(add_header(&mut b, "User-Agent", "A B / C D 365 E", false).is_ok());
-        assert_eq!(find(&b.items, "User-Agent").unwrap().1, vec!["A", "B/C", "D", "365", "E"]);
+        assert_eq!(
+            find(&b.items, "User-Agent").unwrap().1,
+            vec!["A", "B/C", "D", "365", "E"]
+        );
         for v in ["/", "a/b/c", "a@b"] {
             let mut b = HeaderBag::default();
             assert!(

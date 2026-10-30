@@ -316,10 +316,9 @@ fn action_control_id(c: &Catalog, page_id: u32, name: &str) -> Option<i64> {
         .iter()
         .position(|h| h.kind == al_ir::ObjKind::Page && h.id == Some(page_id))?;
     let page = c.full[index].page.as_ref()?;
-    let mut found = page
-        .controls
-        .iter()
-        .filter(|ctl| ctl.kind == al_ir::ControlKind::Action && ctl.action_ref.is_none() && ctl.name.eq_ignore_ascii_case(name));
+    let mut found = page.controls.iter().filter(|ctl| {
+        ctl.kind == al_ir::ControlKind::Action && ctl.action_ref.is_none() && ctl.name.eq_ignore_ascii_case(name)
+    });
     let ctl = found.next()?;
     if found.next().is_some() {
         return None;
