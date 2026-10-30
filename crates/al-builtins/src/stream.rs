@@ -447,6 +447,11 @@ const CP437_AS_READ: [(u8, char); 18] = [
     (0xB4, '\u{201E}'),
 ];
 
+/// The bytes a Windows stream keeps the call stack mark (`native::CALL_STACK_MARK`, U+FDD0) as: its UTF-8 form. In code page
+/// 1252 they would be `ï·` and the undefined byte 0x90, which no text a Windows stream wrote holds next to each other
+/// (0x90 is written only for U+0090).
+const CALL_STACK_MARK_BYTES: &[u8] = "\u{FDD0}".as_bytes();
+
 /// Unicode of cp1252 bytes 0x80..=0x9F (the undefined ones map to themselves, as .NET does).
 const CP1252_HIGH: [u16; 32] = [
     0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D,
@@ -469,20 +474,29 @@ impl Encoding {
                     c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
                 })
                 .collect(),
-            Encoding::Windows => s
-                .chars()
-                .map(|c| {
+            Encoding::Windows => {
+                let mut out = Vec::with_capacity(s.len());
+                for c in s.chars() {
                     let cp = c as u32;
                     if cp < 0x80 || (0xA0..=0xFF).contains(&cp) {
-                        cp as u8
+                        out.push(cp as u8);
+                    } else if c == crate::native::CALL_STACK_MARK {
+                        // The runtime's mark of an untracked call stack frame has no code page 1252 byte; a call stack text
+                        // written to a Windows stream reads back equal (error-handling/lt-wd/WdCallStackToBlob.al
+                        // WD_CallStack_Collected_ToWindowsBlob, corpus branch al-runtime-rs-staging-1030c, al-runner issue
+                        // 6310). Its bytes are not pinned: the mark is kept as its UTF-8 bytes, which `decode` reads back.
+                        out.extend_from_slice(CALL_STACK_MARK_BYTES);
                     } else {
-                        CP1252_HIGH
-                            .iter()
-                            .position(|u| u32::from(*u) == cp)
-                            .map_or(b'?', |i| 0x80 + i as u8)
+                        out.push(
+                            CP1252_HIGH
+                                .iter()
+                                .position(|u| u32::from(*u) == cp)
+                                .map_or(b'?', |i| 0x80 + i as u8),
+                        );
                     }
-                })
-                .collect(),
+                }
+                out
+            }
         }
     }
 
@@ -503,13 +517,24 @@ impl Encoding {
                         .map_or(CP437_HIGH[usize::from(x - 0x80)], |(_, c)| *c),
                 })
                 .collect(),
-            Encoding::Windows => b
-                .iter()
-                .map(|&x| match x {
-                    0x80..=0x9F => char::from_u32(u32::from(CP1252_HIGH[usize::from(x - 0x80)])).unwrap_or('?'),
-                    x => char::from(x),
-                })
-                .collect(),
+            Encoding::Windows => {
+                let mut out = String::with_capacity(b.len());
+                let mut i = 0;
+                while i < b.len() {
+                    if b[i..].starts_with(CALL_STACK_MARK_BYTES) {
+                        out.push(crate::native::CALL_STACK_MARK);
+                        i += CALL_STACK_MARK_BYTES.len();
+                        continue;
+                    }
+                    let x = b[i];
+                    out.push(match x {
+                        0x80..=0x9F => char::from_u32(u32::from(CP1252_HIGH[usize::from(x - 0x80)])).unwrap_or('?'),
+                        x => char::from(x),
+                    });
+                    i += 1;
+                }
+                out
+            }
         }
     }
 
@@ -530,6 +555,12 @@ impl Encoding {
     pub fn encode_pinned(self, t: &str) -> bool {
         t.is_ascii()
             || match self {
+                // A call stack text with the untracked mark reads back equal from a UTF-8 stream too (WdCallStackToBlob.al
+                // WD_CallStack_Collected_ToWindowsBlob `utf8 round trip equal`); its other characters as for any text.
+                Encoding::Utf8 => {
+                    t.contains(crate::native::CALL_STACK_MARK)
+                        && t.chars().all(|c| c.is_ascii() || c == crate::native::CALL_STACK_MARK)
+                }
                 Encoding::Windows => self.decode(&self.encode(t)) == *t,
                 Encoding::MsDos => t.chars().all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c)),
                 _ => false,

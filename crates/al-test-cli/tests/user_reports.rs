@@ -291,8 +291,9 @@ report 50203 \"Repro Rep\" {{ ProcessingOnly = true; dataset {{ dataitem(R; \"Re
 /// - the same app, both public or protected: AL0440, page and report;
 /// - the same app, `internal` on either side: the declarations compile, a bare call in the extension is AL0196.
 ///
-/// No corpus test pins which body a call runs in the shapes that compile, so every call of the name refuses: a bare
-/// call in the base and in the extension, and a call on a page variable from outside.
+/// Which body a call runs is pinned only for an internal extension procedure beside a public or protected page procedure
+/// of another app (pageext/lt-wd/WdPageExtInternalTwin.al); in the other shapes that compile every call of the name
+/// refuses: a bare call in the base and in the extension, and a call on a page variable from outside.
 #[test]
 fn issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_does_and_its_calls_refuse() {
     let refused = |r: &[(String, Outcome)], name: &str| {
@@ -347,8 +348,16 @@ fn issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_do
         let label = format!("another app, ext `{ext}`, base `{base}`");
         let (codes, r) = codes_and_outcomes(&[&twin_base(base)], &format!("{page_ext}\n{tests}"));
         assert!(codes.is_empty(), "{label}: {codes:?}");
-        refused(&r, "Base");
-        refused(&r, "Ext");
+        // An internal extension procedure beside a public or protected page procedure: the base's own call runs the base's,
+        // the extension's own call its own (pageext/lt-wd/WdPageExtInternalTwin.al, al-runner issue 6294). A Page variable
+        // call from the extension's own app is not pinned.
+        if ext == "internal" && base != "internal" {
+            passes(&r, "Base");
+            passes(&r, "Ext");
+        } else {
+            refused(&r, "Base");
+            refused(&r, "Ext");
+        }
         if outside {
             refused(&r, "Outside");
         }

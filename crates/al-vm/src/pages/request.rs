@@ -822,6 +822,7 @@ impl Session {
         exts: &[(usize, Inst)],
         object: usize,
         xml: &str,
+        skip_unknown: bool,
     ) -> Result<(), Signal> {
         let engine = self.engine();
         let o = &engine.program.objects[object];
@@ -851,6 +852,9 @@ impl Session {
                             .is_some_and(|g| g.name == name)
                     })
             }) else {
+                if skip_unknown {
+                    continue;
+                }
                 return unsupported(format!(
                     "a parameter for the variable {name}, which no control of the request page shows"
                 ));

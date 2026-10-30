@@ -611,12 +611,6 @@ registry! {
         tests: "No Microsoft test: a partner app's card test (a field with Enabled = true inside a group with Enabled = false reads Enabled No on the TestPage).",
         probe: "A list and a document page with a field (Enabled = true, and without Enabled) in a group with Enabled = false, and with the group's Enabled bound to a variable that OnOpenPage sets: Enabled() of the field on the TestPage.",
     },
-    RelationErrorExtCaption => {
-        id: "relation-error-ext-caption",
-        assumed: "The TableRelation error of a Validate (`... cannot be found in the related table (<caption>).`) names the related table by the Caption of the one tableextension that sets a Caption over the table's own Caption. A table without a Caption of its own is pinned (tableextension/TestTableExtFieldTableRelation.al TableExt_CaptionOfRelatedTable_InValidateErrorText); the corpus could not pin a Caption over the table's own (AL0839 in one app). TableCaption, RecordRef.Caption and other error texts of such a table stay refused.",
-        tests: "No Microsoft test: a partner app's tests (Validate of a field related to Work Center, extended with a Caption).",
-        probe: "A table with a Caption in one app and a tableextension with a Caption in another app: the TableRelation error of a Validate, TableCaption, RecordRef.Caption.",
-    },
     StaleOwnInsertTwoCommitsOtherInsert => {
         id: "stale-own-insert-two-commits-other-insert",
         assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and wrote beside that Insert something other than Inserts and Modifies of other rows of the table (a Delete or a Rename, a write of another table). Pinned for an own Insert with and without the own Modify, one, two and three Commits, and Inserts and a Modify of other rows of the table as the only writes of the new transaction (record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745, :2484-2580), which do not mark it.",
@@ -694,11 +688,65 @@ registry! {
         probe: "One Insert(true) and one Insert(false) into a committed table with an AutoIncrement field between two counter reads, as the first write of the session and as a later one; the same with two and five Inserts in a row.",
     },
 
+    ActionViewChangeListRereads => {
+        id: "action-view-change-list-rereads",
+        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view. Measured on real BC (corpus writer Y5, branch al-runtime-rs-staging-y5); flagged until the file is in the pinned corpus. A key or sort order change is not measured.",
+        tests: "No Microsoft test: a partner app's field picker (al-runner issue 6381) walks a Field list whose action changes the table filter, then calls GoToKey.",
+        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al once the corpus bump brings it in; then also an action that only calls SetCurrentKey or SetAscending, followed by GoToKey, Next and First.",
+        awaiting: Awaiting {
+            issues: &[6381],
+            files: &["tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al"],
+            since: "2026-10-30",
+        },
+    },
     FieldRowSystemId => {
         id: "field-row-system-id",
         assumed: "The SystemId of a Field row is the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes. Measured only on the newest major for one table numbered above 65535, its field 2 and the user-name system fields 2000000005-8 (platform/lt-wc/WcFieldRowCopy.al:48, :60-63); a read of the SystemId of any other Field row (a table below 65536 or a system table, another system field, an older major) runs on the same rule.",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
         probe: "The SystemId of the Field rows of a table below 65536, a Base Application table, a tableextension field, field 2000000000 (SystemId) and the timestamp row (No. 0), on all three majors.",
+    },    RepeatableReadFindSetOpensWriteTransaction => {
+        id: "repeatable-read-findset-write-transaction",
+        assumed: "A FindSet on a database table under ReadIsolation RepeatableRead, as the first read after the isolation was set, leaves the session in a write transaction. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_ReadIsolation_RepeatableRead_Reads (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's tests read rows under RepeatableRead and then check the write transaction.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            since: "2026-10-30",
+        },
+    },
+    EmptyErrorListControlValidate => {
+        id: "empty-error-list-control-validate",
+        assumed: "Error('') out of a control's own OnValidate during TestPage SetValue on a List or a Worksheet page opened on its own ends the SetValue quietly: the test goes on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the row keeps it. Pinned on corpus master by misc/lt-np4-probes/Np4EmptyError.al NP4_EE_ControlValidate_List and _Worksheet (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's worksheet tests set a value whose validation ends with an empty error.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4EmptyError.al"],
+            since: "2026-10-30",
+        },
+    },
+    XmlPortOnceOnceNested => {
+        id: "xmlport-once-once-nested",
+        assumed: "An XmlPort export of a table element without LinkTable below another table element with MinOccurs = Once and MaxOccurs = Once writes the first row of each pass; a pass without rows writes the record as it stands, which after a pass of two rows holds the second row. Pinned on corpus master by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_OnceOnce_ZeroAndOneRows and _TwoRows (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's export of a document with one optional line.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4XmlPort.al"],
+            since: "2026-10-30",
+        },
+    },
+    XmlPortPreserveWhiteSpaceExport => {
+        id: "xmlport-preserve-white-space-export",
+        assumed: "An Xml XmlPort export with Encoding = UTF8 and PreserveWhiteSpace = true writes the same as without it, also with DefaultNamespace and UseDefaultNamespace; a line feed in a text value is written as CR LF (with PreserveWhiteSpace or a default namespace; another shape with a line feed is refused). Pinned on corpus master by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_PreserveWhiteSpace_WithNamespace, _DefaultWhiteSpace_WithNamespace and _PreserveWhiteSpace_NoNamespace (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's export in its own namespace.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4XmlPort.al"],
+            since: "2026-10-30",
+        },
     },
 }
 

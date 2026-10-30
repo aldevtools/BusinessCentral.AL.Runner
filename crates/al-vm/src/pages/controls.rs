@@ -976,11 +976,24 @@ impl Session {
                 // An error with an empty text (`Error('')`) out of a card control's own OnValidate ends the SetValue quietly: the
                 // test goes on, the entry does not stay, the last error has the empty text and code NSValidateField:Dialog, and
                 // the rows the trigger wrote stay (pages/lt-qi-empty-error/QiEmptyErrorPages.al:253
-                // QI_EE_EmptyValidate_NoAsserterror). On a list it is not pinned.
+                // QI_EE_EmptyValidate_NoAsserterror). The same on a List and a Worksheet page opened on its own, and on a card part
+                // of a card (misc/lt-np4-probes/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet, :248
+                // _PartOfCard: the control shows the old value and the stored row keeps it). A list part and another page type
+                // with a repeater are not pinned.
                 if from_page_trigger.get() && e.message.is_empty() {
-                    if self.is_list(st) {
+                    let pinned_list = st.borrow().host.is_none()
+                        && matches!(
+                            engine.object_facts[st.borrow().object as usize].page_type,
+                            Some(al_ir::PageType::List | al_ir::PageType::Worksheet)
+                        );
+                    if self.is_list(st) && !pinned_list {
                         return unsupported(
                             "an error with an empty text out of a list control's OnValidate (what the test client does with it is not pinned)",
+                        );
+                    }
+                    if self.is_list(st) {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::EmptyErrorListControlValidate,
                         );
                     }
                     let mut e = e;
@@ -1144,8 +1157,29 @@ impl Session {
         // Paging_GoToKey_Nav and 68164 TestPage_Control_Texts_GuidDurationAndBlankNumbers), and an action after them is refused
         // (`actions.rs`). Any other control call is refused.
         if m != PageMethod::Invoke && st.borrow().read_after_goto {
+            // AsBoolean and AsInteger of a field, Visible, Editable and Caption of a field and Enabled of an action read
+            // nothing either, and the action after them reads the row twice as after a Value read (pages/lt-wd/
+            // WdGoToKeyTypedReads.al:124-247, corpus branch al-runtime-rs-staging-1030c, al-runner issue 6304). Pinned on a
+            // page that is not a lookup; OK of a lookup after them is not pinned, so there they still mark the doubt.
+            let kind = match &c.target {
+                ControlTarget::Control(i) => Some(page_of(&self.engine(), st).controls[*i].kind.clone()),
+                _ => None,
+            };
+            let pinned_read = match kind {
+                Some(ir::ControlKind::Field) => matches!(
+                    m,
+                    PageMethod::AsBoolean
+                        | PageMethod::AsInteger
+                        | PageMethod::Visible
+                        | PageMethod::Editable
+                        | PageMethod::Caption
+                ),
+                Some(ir::ControlKind::Action) => m == PageMethod::Enabled,
+                _ => false,
+            };
             match m {
                 PageMethod::Value => {}
+                _ if pinned_read && !st.borrow().lookup => {}
                 PageMethod::SetValue => st.borrow_mut().read_after_goto_set = true,
                 PageMethod::AsBoolean
                 | PageMethod::AsDate

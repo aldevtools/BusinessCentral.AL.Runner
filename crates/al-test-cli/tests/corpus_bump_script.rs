@@ -298,7 +298,7 @@ fn a_rerun_job_leaves_two_artifacts_of_a_role_and_the_newest_wins() {
 
 /// A leg has a fourth artifact since the corpus added the TestLibraries job: it is not part of the oracle.
 #[test]
-fn the_test_libraries_artifact_of_a_leg_is_left_out() {
+fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite() {
     let f = fixture();
     let d = f.dir.path();
     let mut a = Vec::new();
@@ -310,7 +310,7 @@ fn the_test_libraries_artifact_of_a_leg_is_left_out() {
             ("junit-al-language-onprem-dotnet.xml", 3_000, "2026-10-19T18:41:00Z"),
         ];
         // The TestLibraries job (corpus tests/al-language-testlibraries) runs with Microsoft's Tests-TestLibraries
-        // installed, an environment the runtime does not model: its results are not an oracle (orchestrator, 2026-10-22).
+        // installed: its file is the oracle of the suite testlibraries, which runs in an environment of its own.
         roles.push(("junit-al-language-testlibraries.xml", 900, "2026-10-19T18:42:00Z"));
         for (xml, size, at) in roles {
             id += 1;
@@ -345,11 +345,11 @@ fn the_test_libraries_artifact_of_a_leg_is_left_out() {
     let (code, out) = bump(&f, &gh, &["--dry-run", "123"]);
     assert_eq!(code, 0, "{out}");
     assert!(
-        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203"),
+        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203, testlibraries artifact 204"),
         "{out}"
     );
     assert!(
-        out.contains("28.5: oracle artifact 205, onprem artifact 206, dotnet artifact 207"),
+        out.contains("28.5: oracle artifact 205, onprem artifact 206, dotnet artifact 207, testlibraries artifact 208"),
         "{out}"
     );
 }
@@ -365,13 +365,24 @@ fn usage_without_a_run_id() {
 
 /// Runs the oracle edit of the bump on a copy of the real `oracle/` with the given legs.
 fn edit_copy(sha: &str, run: &str, legs: &[[&str; 5]]) -> (tempfile::TempDir, String, String) {
+    edit_copy_with(sha, run, legs, &[])
+}
+
+/// [`edit_copy`] with environment variables (`DOTNET_IDS`, `TESTLIB_IDS`).
+fn edit_copy_with(
+    sha: &str,
+    run: &str,
+    legs: &[[&str; 5]],
+    env: &[(&str, &str)],
+) -> (tempfile::TempDir, String, String) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("oracle")).unwrap();
     for f in ["oracle.toml", "README.md"] {
         std::fs::copy(root().join("oracle").join(f), dir.path().join("oracle").join(f)).unwrap();
     }
     let mut c = Command::new("python3");
-    c.arg(root().join("tools/corpus_bump_edit.py"))
+    c.envs(env.iter().copied())
+        .arg(root().join("tools/corpus_bump_edit.py"))
         .arg(dir.path())
         .arg(sha)
         .arg(run);
@@ -467,6 +478,31 @@ fn a_new_pin_moves_the_legs_and_leaves_suites_of_other_runs_alone() {
         readme.contains("| 27 | 27.5 | `0123456` (the pin) | 999 | `junit-test-results-27.5` | 1 | 5600 |"),
         "{readme}"
     );
+}
+
+// TESTLIB_IDS names the artifact of each leg's TestLibraries file: the suite testlibraries moves to the run with it.
+#[test]
+fn a_new_pin_moves_the_testlibraries_suite_with_its_artifact() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let legs = [
+        ["27", "1", "2", "5600", "72"],
+        ["28", "3", "4", "5598", "72"],
+        ["29", "5", "6", "5598", "72"],
+    ];
+    let (_d, toml, _) = edit_copy_with(sha, "999", &legs, &[("TESTLIB_IDS", "27=71 28=72 29=73")]);
+    let v: toml::Value = toml::from_str(&toml).unwrap();
+    let mut seen = 0;
+    for ver in v["version"].as_array().unwrap() {
+        let major = ver["major"].as_integer().unwrap();
+        for s in ver["suite"].as_array().unwrap() {
+            if s["name"].as_str() == Some("testlibraries") {
+                assert_eq!(s["artifact_id"].as_integer(), Some(44 + major), "{s:?}");
+                assert_eq!(s["workflow_run"].as_integer(), Some(999), "{s:?}");
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, 3, "{toml}");
 }
 
 /// After the baselines, the bump prints the assumptions whose awaited corpus pin is now in the corpus
