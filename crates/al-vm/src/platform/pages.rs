@@ -454,8 +454,18 @@ fn page_metadata_row(
     r[pos(t, 12)] = Value::Text(text_prop(o, "EntitySetName", 250).into());
     r[pos(t, 13)] = Value::Text(text_prop(o, "EntityName", 250).into());
     r[pos(t, 14)] = Value::Integer(src_id as i32);
-    let (view, view_assumed) = view_text(o, src, c.full)?;
-    r[pos(t, 15)] = Value::Text(view.into());
+    // A view of a shape that is not pinned leaves only this column unknown: a read of it, or a filter on it, is refused,
+    // and the rest of the row is served (al-runner issue 6251: Base App's Sales Quote has `filter(Quote)`).
+    let view_assumed = match view_text(o, src, c.full) {
+        Ok((view, assumed)) => {
+            r[pos(t, 15)] = Value::Text(view.into());
+            assumed
+        }
+        Err(why) => {
+            r[pos(t, 15)] = Value::Unknown(format!("Page Metadata: {why}").into());
+            None
+        }
+    };
     for (id, name) in [(16, "InsertAllowed"), (17, "ModifyAllowed"), (18, "DeleteAllowed")] {
         r[pos(t, id)] = Value::Boolean(allowed(c, o, name)?);
     }
