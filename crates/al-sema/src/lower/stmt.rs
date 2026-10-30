@@ -1426,7 +1426,10 @@ impl Lowerer<'_> {
                         }))
                     }
                 } else if current_page {
-                    let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
+                    let slot = self
+                        .globals
+                        .get("currpage")
+                        .ok_or("`CurrPage` is not lowered for this object")?;
                     Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                 } else if sig.instance {
                     Some(Box::new(ir::Arg::Ref(self.implicit_rec(&kids[0])?)))
