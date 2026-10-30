@@ -18,7 +18,7 @@ pub fn build_query(requested: Option<&str>, chosen: &Chosen, app: &AppVersions) 
 /// `runtime`, `platform` and `application` of `dir/app.json`. A field that is absent stays `None`.
 pub fn read_app_versions(dir: &Path) -> Result<AppVersions, String> {
     let path = dir.join("app.json");
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = al_deps::load::read_text(&path)?;
     app_versions_from_json(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
