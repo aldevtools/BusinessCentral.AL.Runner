@@ -4,6 +4,7 @@
 //!   corpus writer Y1, branch al-runtime-rs-staging-y1, pages/lt-y1-6289/Y1ClearMarkedOnly.al:362, :390, :418, :446);
 //! - OnAfterGetCurrRecord that marks again after code outside the page cleared a row's flag: GoToRecord of that row is false
 //!   (al-runner issue 6288; pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223, :254, :278).
+//!
 //! The fixtures are the corpus files with a local "Probe Observer" whose Verify raises the observations as the error text.
 
 const CLEAR: &str = r##"table 90930 "LT Y1 Clear Row"
