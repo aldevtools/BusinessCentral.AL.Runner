@@ -663,6 +663,12 @@ pub struct PageState {
     /// `editable_off` came from `CurrPage.Editable(false)` in OnInit/OnOpenPage (not from a preset): its effect depends on
     /// the open mode (see `PageOps::page_editable`).
     pub editable_off_in_open: bool,
+    /// What `CurrPage.Editable(..)` set in the OnAction trigger that runs now: what page code reads back in the same trigger
+    /// (pages/lt-tc-bare-page-methods/TcBarePageObjects.al:309-310, TcBarePageMethodsTests.al:359). A later action reads
+    /// the page's own value again (pages/lt-page-runtime/P82CurrPage.al:196-219 Editable_ReadInTrigger).
+    pub editable_set_later: Option<bool>,
+    /// An action's OnAction (`TestAction.Invoke`) is running.
+    pub in_action: bool,
     /// Controls given a value by `SetValue` since the page opened (a Decimal FlowFilter control at zero shows '' only
     /// while it is unset).
     pub set_controls: Vec<usize>,
@@ -925,6 +931,8 @@ impl PageState {
             opening: false,
             editable_off: false,
             editable_off_in_open: false,
+            editable_set_later: None,
+            in_action: false,
             set_controls: Vec::new(),
             agr_row: None,
             agr_rows: Vec::new(),
