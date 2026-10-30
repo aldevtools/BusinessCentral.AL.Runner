@@ -371,9 +371,17 @@ impl Lowerer<'_> {
                                                 Some(((t, p), slot))
                                             });
                                     (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
-                                    expr_call = args.get(1).is_some_and(|a| crate::pages::call_shape(a));
-                                    // Only text with no quote and single spaces: how BC writes other text is not pinned.
-                                    expr_source =
+                                    expr_call = args.get(1).is_some_and(|a| {
+                                        crate::pages::call_shape(a) || crate::pages::member_call_shape(a)
+                                    });
+                                    // A call as written, Editable False (record/lt-x3-6368/X3PageControlCalls.al:142-147,
+                                    // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
+                                    // BC writes other text is not pinned.
+                                    let call_source = args
+                                        .get(1)
+                                        .filter(|a| crate::pages::call_source_pinned(a))
+                                        .map(|a| (a.trim().to_string(), false));
+                                    expr_source = call_source.or_else(|| {
                                         args.get(1).filter(|a| crate::pages::plain_spacing(a)).and_then(|a| {
                                             let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
                                                 globals.iter().any(|g| {
@@ -385,7 +393,8 @@ impl Lowerer<'_> {
                                             } else {
                                                 crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
                                             }
-                                        });
+                                        })
+                                    });
                                 }
                             }
                             // A control of an extension that names a variable of the base object
