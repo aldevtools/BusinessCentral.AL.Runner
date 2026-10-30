@@ -120,7 +120,7 @@ its corpus citation (the three disagreements above are the first such overrides)
   artifact the runner already uses for that version.
 - **`--license FILE`** (serve: `license`): any `.bclicense` file the user has: a developer license, a partner license,
   or an end customer's license. It replaces the default for the whole run.
-- **No license available** (offline without the artifact, an artifact without a license): the runtime answers exactly
+- **No license available** (offline without the artifact, an artifact that ships no license file): the runtime answers exactly
   what it answers today, the pinned rows only, and refuses the rest. `license-permission-any-object` is not used
   then either (see 5).
 - A file that cannot be parsed stops the run before any test starts, with the reason. It is never silently replaced
@@ -239,7 +239,7 @@ The owner accepted the recommended answer to each question.
    the only ones? *Decided:* add a corpus probe that reads License Permission for every system object number
    (2000000000 and up) of each type, per BC major, and serve those rows from the pins.
 4. **Table vs TableDescription.** Confirm that `Table` rows come from `TableDescription`. *Decided:* one probe row
-   for Table at a number where the TableDescription and TableData ranges differ (needs a license where they differ;
+   for Table at a number where the TableDescription and TableData ranges differ (needs a test license file in which they differ;
    with Cronus they are equal, so the inference is accepted and noted in `docs/probes-needed.md`).
 5. **Default when the artifact license is missing.** *Decided:* the pinned rows only, as today, and say so in the
    report. Never fall back to a built-in license.
