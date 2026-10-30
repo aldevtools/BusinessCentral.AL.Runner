@@ -117,10 +117,33 @@ table 69994 "KT Owner"
 table 69995 "KT Line" { fields { field(1; Id; Integer) { } field(2; OwnerId; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 69996 C
 {
-    procedure ByRowFlowField()
+    procedure ByRowFlowField(): Text
     var Owner: Record "KT Owner";
     begin
         Owner.SetCurrentKey(Cnt);
+        exit(Owner.CurrentKey());
+    end;
+
+    procedure ByIdThenRowFlowField(): Text
+    var Owner: Record "KT Owner";
+    begin
+        Owner.SetCurrentKey(Id, Cnt);
+        exit(Owner.CurrentKey());
+    end;
+
+    procedure ByRowFlowFieldThenClear(): Text
+    var Owner: Record "KT Owner";
+    begin
+        Owner.SetCurrentKey(Cnt);
+        Clear(Owner);
+        exit(Owner.CurrentKey());
+    end;
+
+    procedure ByRowFlowFieldThenFind()
+    var Owner: Record "KT Owner";
+    begin
+        Owner.SetCurrentKey(Cnt);
+        if Owner.FindSet() then;
     end;
 
     procedure ByConstantFlowField(): Text
@@ -133,12 +156,16 @@ codeunit 69996 C
 "#;
 
 // records/W4SortKeys.al:459, :471: a FlowField whose value is the same for every row is accepted and the key stays the primary
-// key. record/lt-set-current-key/SetCurrentKeyFlowFieldOrder.al:109-113 sorts by a FlowField that depends on the row and reports
-// it as the key: the rule that tells the two apart is not pinned, so that one is refused.
+// key. A FlowField that depends on the row is reported as the key, alone and after a normal field (record/
+// Y8SetCurrentKeyNotStored.al:84-106; SetCurrentKeyFlowFieldOrder.al:109-113). The order of the rows by it is not built: a read
+// refuses.
 #[test]
-fn set_current_key_on_a_flow_field_that_depends_on_the_row_is_refused() {
+fn set_current_key_on_a_flow_field_that_depends_on_the_row_names_it_and_refuses_reads() {
     assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByConstantFlowField")), "Id");
-    let r = al_testkit::run_in(FLOW, "C", "ByRowFlowField");
+    assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByRowFlowField")), "Cnt");
+    assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByIdThenRowFlowField")), "Id,Cnt");
+    assert_eq!(text(al_testkit::run_in(FLOW, "C", "ByRowFlowFieldThenClear")), "Id");
+    let r = al_testkit::run_in(FLOW, "C", "ByRowFlowFieldThenFind");
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
