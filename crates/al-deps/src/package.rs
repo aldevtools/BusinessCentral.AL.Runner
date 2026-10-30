@@ -361,6 +361,56 @@ pub fn read_resources(app: &[u8], vars: &Vars) -> Result<Vec<(String, Vec<u8>)>,
     })
 }
 
+/// The logo a package declares (Published Application's Logo, al-runner issue 6148): the entry the `Logo` attribute of
+/// a compiled package's `NavxManifest.xml` names (`/logo/ExtensionLogo.png` in Microsoft's packages), or the file the
+/// `logo` of a source archive's `app.json` names. An empty or absent name is no logo ([`al_ir::AppLogo::None`]); a name
+/// the package has no entry for is not known (`None`).
+pub fn read_logo(app: &[u8], vars: &Vars) -> Result<Option<al_ir::AppLogo>, PackageError> {
+    with_archive(app, 0, vars, &mut |zip, _, source_zip| {
+        let read_text = |name: &str| -> Result<String, PackageError> {
+            let bytes = zip.find(name).map(|e| zip.read(e)).transpose()?.unwrap_or_default();
+            let text = String::from_utf8_lossy(&bytes);
+            Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
+        };
+        let declared = if source_zip {
+            serde_json::from_str::<serde_json::Value>(&read_text("app.json")?)
+                .ok()
+                .and_then(|v| v["logo"].as_str().map(String::from))
+        } else {
+            manifest_logo(&read_text("NavxManifest.xml")?)
+        };
+        let Some(name) = declared.map(|n| n.trim().replace('\\', "/")).filter(|n| !n.is_empty()) else {
+            return Ok(Some(al_ir::AppLogo::None));
+        };
+        let name = name.trim_start_matches("./").trim_start_matches('/');
+        let wanted = percent_decode_once(name);
+        let entry = zip
+            .entries
+            .iter()
+            .find(|e| e.name == name || (!source_zip && percent_decode_once(&e.name) == wanted));
+        Ok(entry.map(|e| zip.read(e)).transpose()?.map(al_ir::AppLogo::File))
+    })
+}
+
+/// The `Logo` attribute of the `App` element of a `NavxManifest.xml`; `None` when it has none or cannot be read.
+fn manifest_logo(xml: &str) -> Option<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_str(xml);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"App" => {
+                return e
+                    .attributes()
+                    .flatten()
+                    .find(|a| a.key.as_ref() == b"Logo")
+                    .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned()));
+            }
+            Ok(Event::Eof) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+}
+
 /// Whether `name` (a path relative to the app, `/` or `\\` separators, any case) is a translation file BC applies: an `.xlf`
 /// under `Translations/` that is not the compiler's generated `*.g.xlf` (ADR-053 decision 1).
 pub fn is_translation_file(name: &str) -> bool {
@@ -757,6 +807,69 @@ mod tests {
                 .unwrap()
                 .preprocessor_symbols
                 .is_empty()
+        );
+    }
+
+    /// The logo a package declares (al-runner issue 6148): `Logo` of NavxManifest.xml names an entry of the compiled
+    /// package (as Microsoft's packages do, `/logo/ExtensionLogo.png`); `logo` of a source archive's app.json names a file
+    /// of the archive. An empty name is no logo; a name the package lacks is not known.
+    #[test]
+    fn the_logo_of_a_package_is_the_entry_its_manifest_names() {
+        let with_logo = |logo: &str, entries: &[(&str, &[u8])]| {
+            let manifest = MANIFEST.replace(r#"Target="OnPrem" />"#, &format!(r#"Target="OnPrem" Logo="{logo}" />"#));
+            let mut b = Builder::new().add("NavxManifest.xml", manifest.as_bytes(), true);
+            for (n, t) in entries {
+                b = b.add(n, t, true);
+            }
+            navx(&b.finish())
+        };
+        let png: &[u8] = b"\x89PNG bytes";
+        let app = with_logo(
+            "/logo/ExtensionLogo.png",
+            &[("src/A.al", b"codeunit 1 A { }"), ("logo/ExtensionLogo.png", png)],
+        );
+        assert_eq!(
+            read_logo(&app, &Vars::default()).unwrap(),
+            Some(al_ir::AppLogo::File(png.to_vec()))
+        );
+        let spaced = with_logo(
+            "/logo/My%20Logo.png",
+            &[("src/A.al", b"codeunit 1 A { }"), ("logo/My%20Logo.png", png)],
+        );
+        assert_eq!(
+            read_logo(&spaced, &Vars::default()).unwrap(),
+            Some(al_ir::AppLogo::File(png.to_vec()))
+        );
+        let blank = with_logo("", &[("src/A.al", b"codeunit 1 A { }")]);
+        assert_eq!(read_logo(&blank, &Vars::default()).unwrap(), Some(al_ir::AppLogo::None));
+        let none = app_with(&[("src/A.al", "codeunit 1 A { }")]);
+        assert_eq!(read_logo(&none, &Vars::default()).unwrap(), Some(al_ir::AppLogo::None));
+        let missing = with_logo("/logo/x.png", &[("src/A.al", b"codeunit 1 A { }")]);
+        assert_eq!(read_logo(&missing, &Vars::default()).unwrap(), None);
+        let source = Builder::new()
+            .add(
+                "app.json",
+                br#"{"id":"aa","name":"S","publisher":"P","version":"1.0.0.0","logo":"./img/logo.png"}"#,
+                true,
+            )
+            .add("src/A.al", b"codeunit 1 A { }", true)
+            .add("img/logo.png", png, true)
+            .finish();
+        assert_eq!(
+            read_logo(&source, &Vars::default()).unwrap(),
+            Some(al_ir::AppLogo::File(png.to_vec()))
+        );
+        let source_none = Builder::new()
+            .add(
+                "app.json",
+                br#"{"id":"aa","name":"S","publisher":"P","version":"1.0.0.0","logo":" "}"#,
+                true,
+            )
+            .add("src/A.al", b"codeunit 1 A { }", true)
+            .finish();
+        assert_eq!(
+            read_logo(&source_none, &Vars::default()).unwrap(),
+            Some(al_ir::AppLogo::None)
         );
     }
 }

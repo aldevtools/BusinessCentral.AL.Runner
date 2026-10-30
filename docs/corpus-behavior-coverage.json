@@ -16063,7 +16063,7 @@
         "code": "ArgumentOutOfRange",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 394,
+        "line": 400,
         "pinned": true,
         "site": "streams/StTMedia.al:302",
         "template": "Argument was out of range: index."
@@ -16072,7 +16072,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 457,
+        "line": 463,
         "pinned": true,
         "site": "media/MediaFiles.al:207",
         "template": "The specified path is invalid."
@@ -16081,7 +16081,7 @@
         "code": "InvalidPath",
         "file": "crates/al-builtins/src/media.rs",
         "generic": false,
-        "line": 461,
+        "line": 467,
         "pinned": true,
         "site": "media/MediaFiles.al:209",
         "template": "Could not find a part of the path '%'."
@@ -16243,7 +16243,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1006,
+        "line": 1021,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16252,7 +16252,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1200,
+        "line": 1215,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16261,7 +16261,7 @@
         "code": "InvalidStreamData",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1406,
+        "line": 1421,
         "pinned": true,
         "site": "lt-file-type/FileReadSeek.al:114",
         "template": "Invalid data encountered in stream, unable to read text."
@@ -16270,7 +16270,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1438,
+        "line": 1453,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16279,7 +16279,7 @@
         "code": "InvalidStreamMode",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1680,
+        "line": 1695,
         "pinned": true,
         "site": "streams/lt-stream-length/StreamLengthOthers.al:573",
         "template": "ALStream.ALWrite, invalid stream mode: Stream"
@@ -16288,7 +16288,7 @@
         "code": "InvalidStreamLength",
         "file": "crates/al-builtins/src/stream.rs",
         "generic": false,
-        "line": 1816,
+        "line": 1831,
         "pinned": true,
         "site": "misc/lt-probes-needed-1/PnAStreamReadMisc.al:223",
         "template": "An invalid length % was specified in stream function. % was expected."

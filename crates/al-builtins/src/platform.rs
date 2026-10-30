@@ -573,11 +573,12 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
 /// assumption (`assumption_of_column`). When the bump lands, each moves to `PINNED_ELSEWHERE` (or the generated list) and
 /// its assumption is deleted. As (table id, field id, assumption).
 pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
-    // Published Application Logo: blank for an app whose manifest declares none, unknown for any other app (al-vm apps.rs).
+    // Published Application Logo: blank for an app whose manifest declares none, the logo file for a PNG logo, unknown for
+    // any other app (al-vm apps.rs).
     (
         2_000_000_206,
         20,
-        crate::assumptions::Assumption::PublishedApplicationLogoBlankWithoutManifestLogo,
+        crate::assumptions::Assumption::PublishedApplicationLogoIsTheLogoFile,
     ),
     // Report Layout List "User Defined": No for an RDLC or Word layout declared in AL, unknown otherwise (al-vm reports.rs).
     (
