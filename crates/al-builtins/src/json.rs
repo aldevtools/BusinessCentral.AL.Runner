@@ -630,6 +630,13 @@ pub fn object_from_text(text: &str) -> Result<Option<Value>, Signal> {
 
 // ---------------------------------------------------------------- writing
 
+/// `s` as a JSON string literal, quoted and escaped the way `WriteTo` writes it.
+pub fn string_literal(s: &str) -> String {
+    let mut out = String::new();
+    write_string(&mut out, s);
+    out
+}
+
 fn write_string(out: &mut String, s: &str) {
     out.push('"');
     for c in s.chars() {
