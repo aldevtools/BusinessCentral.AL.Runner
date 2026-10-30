@@ -952,23 +952,11 @@ impl Session {
             );
         }
         // Rows that tie on every OrderBy column and still differ are ordered by the primary key
-        // ascending (corpus query/TestQueryOrderAfterWrite.al:92-104, ascending only), or in no
-        // pinned way: grouped rows. Ties under a descending OrderBy still ascend by primary key
+        // ascending (corpus query/TestQueryOrderAfterWrite.al:92-104, ascending only); grouped rows
+        // as below. Ties under a descending OrderBy still ascend by primary key
         // (query/TestQueryOuterJoinDescendingSaveAsContracts.al, corpus: .
-        let k = dirs.len();
-        if aggregated && k > 0 {
-            for w in rows.windows(2) {
-                if key_cmp(&w[0].key[..k], &w[1].key[..k], &dirs) == Ordering::Equal {
-                    // Microsoft's own queries do this (Create Pick's CalcQtyInWhseEntries orders by one Option column
-                    // and groups by ten): the groups stay in the order of their grouping columns, which
-                    // `group_rows` produced and the stable sort kept. Not pinned: an assumption.
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::GroupedQueryTiesInGroupingOrder,
-                    );
-                    break;
-                }
-            }
-        }
+        // Groups of an aggregated query that tie on every OrderBy column stay in the order of their grouping columns, which
+        // `group_rows` produced and the stable sort kept (query/lt-az-query/AzQueryTests.al:526-572, SG_OrderByTies_*).
         Ok((rows, stamps))
     }
 

@@ -349,6 +349,22 @@ impl Session {
             }
             return None;
         }
+        // Without the row triggers, with a part, in a key other than the primary key: the page still shows the row it showed
+        // before the drilldown until the next call other than a field read; the rest reads as without that (corpus writer Y1,
+        // branch al-runtime-rs-staging-y1, pages/lt-y1-6289/Y1ClearMarkedOnly.al:446 Y1_Clear_NameKeyWithPartNoTriggers
+        // `after drilldown` `4` with Rec left on row 1, then `goto 2 filtered` `false/1`; al-runner issue 6289). In the primary key
+        // it is not pinned and stays as it was.
+        if update_false && !row_triggers && with_parts && self.page_rec(st).borrow().key != 0 {
+            let rec = self.page_rec(st);
+            let moved = shown_before.as_ref().is_some_and(|shown| {
+                self.table(&rec)
+                    .is_ok_and(|t| !Self::same_key(&t.primary_key(shown), &t.primary_key(&rec.borrow().fields)))
+            });
+            if moved {
+                st.borrow_mut().shown_until_next_call = shown_before;
+            }
+            return None;
+        }
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return None;
         }
@@ -422,6 +438,19 @@ impl Session {
         f: impl FnOnce(&mut Self) -> Result<Value, Signal>,
     ) -> Result<Value, Signal> {
         use al_builtins::page_op::PageOp;
+        // A field read right after a marking drilldown on a list without row triggers shows the row shown before it
+        // (`drilldown_marked_only_refresh`); any other call ends that.
+        if st.borrow().shown_until_next_call.is_some() {
+            if method == PageOp::TestFieldValue {
+                let shown = st.borrow().shown_until_next_call.clone().unwrap_or_default();
+                let rec = self.page_rec(st);
+                let held = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+                let r = f(self);
+                rec.borrow_mut().fields = held;
+                return r;
+            }
+            st.borrow_mut().shown_until_next_call = None;
+        }
         // After the marking drilldown on a list in another key (`drilldown_marked_only_refresh`): reading what a field shows and
         // GoToRecord are measured (al-runner issue 6008); nothing else is.
         if st.borrow().marked_refill_in_key.is_some()
@@ -473,7 +502,12 @@ impl Session {
             ));
         }
         if !st.borrow().marked_only_unshown {
-            return f(self);
+            if !matches!(method, PageOp::TestPageFirst | PageOp::TestPageGoToRecord) {
+                return f(self);
+            }
+            st.borrow_mut().go_to_want = None;
+            let r = f(self)?;
+            return self.marked_view_changed_by_move(st, method, r);
         }
         match method {
             PageOp::TestPageClose => {
@@ -492,6 +526,101 @@ impl Session {
                 "{method} after an OnDrillDown turned MarkedOnly on without CurrPage.Update (what the page shows then is not pinned)"
             )),
         }
+    }
+
+    /// After a TestPage First or GoToRecord on a list with a part, OnAfterGetCurrRecord of the row it reached marked the rows again
+    /// with MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows of the new view and stays on the row
+    /// Rec was left on; a GoToRecord of a row outside the new view is false (corpus writer Y1, branch al-runtime-rs-staging-y1,
+    /// pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
+    /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
+    /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
+    /// not pinned: none run here. Pinned for a list in its primary key whose marked rows fit a window and hold Rec's row.
+    fn marked_view_changed_by_move(
+        &mut self,
+        st: &St,
+        method: al_builtins::page_op::PageOp,
+        r: Value,
+    ) -> Result<Value, Signal> {
+        use al_builtins::page_op::PageOp;
+        if !self.has_source(st) || !self.is_list(st) {
+            return Ok(r);
+        }
+        let rec = self.page_rec(st);
+        let due = {
+            let s = st.borrow();
+            s.open
+                && s.refresh
+                && s.refresh_by_update
+                && s.refresh_update_false
+                && s.host.is_none()
+                && !s.parts.is_empty()
+                && s.cursor == Cursor::Row
+                && !s.draft
+        } && rec.borrow().marked_only
+            && self.is_list(st)
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if !due {
+            return Ok(r);
+        }
+        if rec.borrow().key != 0 {
+            return unsupported(
+                "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false) on a list in a key other \
+                 than the primary key (not pinned)",
+            );
+        }
+        let refuse = || {
+            unsupported(
+                "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false), with Rec outside the \
+                 marked rows or more of them than a window holds (not pinned)",
+            )
+        };
+        let table = self.table(&rec)?;
+        let at = table.primary_key(&rec.borrow().fields);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        let mut rows = Vec::new();
+        self.ret_used = true;
+        let mut more = matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("-".into())])?,
+            Value::Boolean(true)
+        );
+        while more {
+            if rows.len() >= Self::WINDOW {
+                return refuse();
+            }
+            let stored = probe.borrow().fields.clone();
+            rows.push(al_builtins::value::WindowRow {
+                key: table.primary_key(&stored),
+                stored: stored.clone(),
+                shown: stored,
+            });
+            self.ret_used = true;
+            more = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
+        }
+        if !rows.iter().any(|w| Self::same_key(&w.key, &at)) {
+            return refuse();
+        }
+        let want = st.borrow_mut().go_to_want.take();
+        {
+            let mut s = st.borrow_mut();
+            s.window = rows;
+            s.window_from_start = true;
+            s.window_whole = true;
+            s.window_eof = true;
+            s.window_top_unread = false;
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+        }
+        let mut pk = at.clone();
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut pk)?;
+        if method == PageOp::TestPageGoToRecord {
+            let found = want.is_some_and(|w| Self::same_key(&w, &at));
+            return Ok(Value::Boolean(matches!(r, Value::Boolean(true)) && found));
+        }
+        Ok(r)
     }
 
     /// `Lookup()` on a control with no OnLookup trigger of its own: the source table field's
@@ -915,11 +1044,19 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.marking_action = !marked_only_before || again_with_part;
+            s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
+        let outer_view = std::mem::replace(
+            &mut st.borrow_mut().view_before_action,
+            view_before
+                .as_ref()
+                .map(|v| (v.filters.clone(), v.key.0, v.key.1.clone(), v.ascending)),
+        );
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
+        st.borrow_mut().view_before_action = outer_view;
         let r = match r {
             Ok(v) => self.drop_window_of_the_old_view(st, view_before).map(|()| v),
             e => e,
@@ -929,6 +1066,7 @@ impl Session {
             s.in_action = was_in_action;
             s.editable_set_later = None;
             s.marking_action = false;
+            s.unmarking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
         // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
@@ -1493,12 +1631,14 @@ impl Session {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
                 // (`settle_on_blank_rec`; pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :677 _OtherBatchRowRemains; al-runner issue 6027). With three rows shown before the
-                // action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
-                // TD_LeavesKey_Line1WithUpdate_ThreeLines, `#if BC28PLUS and not BC29PLUS`). Rows left in the view, another count
-                // of rows shown before (two, four and more are not pinned) or no CurrPage.Update(false) are not built.
+                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two or three rows shown before
+                // the action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
+                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`; the reporter's page
+                // pages/lt-y1-6292/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
+                // Rows left in the view, another count of rows shown before (four and more are not pinned) or no
+                // CurrPage.Update(false) are not built.
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let on_blank = (rows_before == 1 || rows_before == 3) && {
+                let on_blank = (1..=3).contains(&rows_before) && {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
                 };
@@ -1509,7 +1649,7 @@ impl Session {
                 }
                 let once = self.has(al_version::Gate::ThreeLineLeavesKeyOnceFrom28)
                     && !self.has(al_version::Gate::ThreeLineLeavesKeyTwiceAgainFrom29);
-                if rows_before == 3 && !once {
+                if rows_before > 1 && !once {
                     self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                     self.page_event(st, "onnewrecordevent", None, Some(true))?;
                     self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
@@ -2078,9 +2218,9 @@ impl Session {
     /// pages/lt-y5/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
     /// Previous, GoToKey(2,10), First and Last walk the new view; :143-156 GoToKey(1,50) No and the row stays; :158-174 an
     /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381). Until that file is in the pinned corpus the
-    /// path is a registered assumption (`action-view-change-list-rereads`). A key or sort order change is not measured: it
-    /// only drops the window (the row stays in the view, and on a list without row triggers no code sees what the client
-    /// reads).
+    /// path is a registered assumption (`action-view-change-list-rereads`). A key change (SetCurrentKey) keeps the row and
+    /// the next move follows the new key at once (branch al-runtime-rs-staging-y5b,
+    /// pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231): it drops the window too.
     ///
     /// Done only on a list without OnAfterGetRecord, OnFindRecord and OnNextRecord; with those triggers the refresh after the
     /// action decides what the client holds (`read_list_again_from_row_as`).
@@ -2093,6 +2233,22 @@ impl Session {
     /// A counter read across this action is classified by `sqlcount.rs`, which treats any order of reads no test pins as
     /// unknown (a new epoch), so a test that compares counters across it is refused rather than given a made-up count. They
     /// change no row and no row version.
+    /// Whether the action running on `st` changed the filters or the key of the page's record (`view_before_action`).
+    fn view_changed_by_action(&self, st: &St) -> bool {
+        let Some((filters, key, adhoc, ascending)) = st.borrow().view_before_action.clone() else {
+            return false;
+        };
+        let rec = self.page_rec(st);
+        let r = rec.borrow();
+        let same_filters = filters.len() == r.filters.len()
+            && filters.iter().zip(&r.filters).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            });
+        !same_filters || key != r.key || adhoc != r.adhoc.as_ref().map(|(_, f)| f.clone()) || ascending != r.ascending
+    }
+
     fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
         let Some(before) = before else {
             return Ok(());
@@ -2113,7 +2269,11 @@ impl Session {
                     && a.group == b.group
                     && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
             });
-        if same_filters && before.order == now.order {
+        // A key change applies at once (Y5GoToKeyAfterActionKeyAndTriggers.al:199-231 on branch al-runtime-rs-staging-y5b), and
+        // so does `Rec.Ascending(false)` (handlers/TestPageViewRoundTripRoutes.al:411, :469: the list shows the rows
+        // descending). `SetAscending` of one field has no visible effect on the list (Y5GoToKeyAfterActionKeyAndTriggers.al:
+        // 236-268: Next, First and Last stay ascending), so it is not compared.
+        if same_filters && before.key == now.key && before.ascending == now.ascending {
             return Ok(());
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
@@ -2376,10 +2536,13 @@ impl Session {
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
         let once_more = self.still_reads_once_more(st);
-        let marked_by_action = {
+        let by_action_update_false = {
             let s = st.borrow();
             s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
-        } && rec.borrow().marked_only;
+        };
+        let marked_by_action = by_action_update_false && rec.borrow().marked_only;
+        // An action on a list with a part that held marked rows turned MarkedOnly off and called CurrPage.Update(false).
+        let unmarked_by_action = by_action_update_false && !rec.borrow().marked_only && st.borrow().unmarking_action;
         if once_more && !read_first {
             // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
             // (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
@@ -2551,6 +2714,42 @@ impl Session {
             s.window_from_start = true;
             s.window_whole = true;
             s.marked_rows_held = true;
+        } else if read_first && unmarked_by_action {
+            // The client holds the rows of the view without MarkedOnly this refresh read: a GoToRecord finds a row that was not
+            // marked, and First goes to the first row of the page's key (corpus writer Y1, branch al-runtime-rs-staging-y1,
+            // pages/lt-y1-6289/Y1ClearMarkedOnly.al:362 Y1_Clear_NameKeyWithPartAndTriggers `goto 2 cleared` `true/2`, `first
+            // cleared` `true/4`; :390 _Row4; :418 Y1_Clear_PrimaryKeyWithPartAndTriggers `true/4`, `true/1`; al-runner issue 6289).
+            // Pinned for a view that fits a window.
+            if back.len() + rows.len() > Self::WINDOW || view_left {
+                return unsupported(
+                    "an action turned MarkedOnly off for a list with more rows than a window holds (the rows the client holds are not pinned)",
+                );
+            }
+            back.reverse();
+            back.extend(rows);
+            let mut s = st.borrow_mut();
+            s.window = back;
+            s.window_from_start = true;
+            s.window_whole = true;
+        } else if read_first && self.view_changed_by_action(st) {
+            // An action that changed the filters or the key: the client holds the rows of the new view this refresh read, from
+            // the row it settled on, and the rows before it; the rows of the old view are gone (corpus writer Y5, branch
+            // al-runtime-rs-staging-y5b, pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
+            // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
+            // issue 6381; registered assumption action-view-change-list-rereads until the file is in the corpus). With more rows
+            // than a window before the row, what the client holds is not pinned: the next move is refused.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
+            let mut s = st.borrow_mut();
+            if back.len() + rows.len() > Self::WINDOW {
+                s.window = Vec::new();
+                s.window_from_start = false;
+                s.validate_refresh_unheld = true;
+            } else {
+                back.reverse();
+                back.extend(rows);
+                s.window = back;
+                s.window_from_start = true;
+            }
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
             // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
@@ -3543,19 +3742,16 @@ enum EmptyShape {
 /// The view of a list's record an action can change: its filters, and its key and sort order.
 pub(super) struct ListView {
     filters: Vec<al_builtins::filter::FieldFilter>,
-    order: (usize, Option<Vec<usize>>, bool, u32),
+    key: (usize, Option<Vec<usize>>),
+    ascending: bool,
 }
 
 impl ListView {
     fn of(r: &al_builtins::value::RecordState) -> ListView {
         ListView {
             filters: r.filters.clone(),
-            order: (
-                r.key,
-                r.adhoc.as_ref().map(|(_, f)| f.clone()),
-                r.ascending,
-                r.field_descending,
-            ),
+            key: (r.key, r.adhoc.as_ref().map(|(_, f)| f.clone())),
+            ascending: r.ascending,
         }
     }
 }

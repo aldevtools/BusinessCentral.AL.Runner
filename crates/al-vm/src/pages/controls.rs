@@ -1430,8 +1430,9 @@ impl Session {
             // (corpus handlers/ProbeTestPageForms.al:109-131: OnValidate runs with the assigned text).
             PageMethod::Value if !args.is_empty() && self.in_cue_group(st, idx) => Ok(Value::Null),
             PageMethod::Value if !args.is_empty() => {
+                let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.control_set_value(st, idx, args)?;
-                self.resync_parts_linked_by(st, idx)?;
+                self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }
@@ -1590,8 +1591,9 @@ impl Session {
             // QZ_NoSourceTable_SetValue_OnExpressionControls: GetTotal(), ValA + ValB, UpperCase(PlainText)).
             PageMethod::SetValue if self.read_only_expression_control(st, idx) => Ok(Value::Null),
             PageMethod::SetValue => {
+                let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.control_set_value(st, idx, args)?;
-                self.resync_parts_linked_by(st, idx)?;
+                self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }

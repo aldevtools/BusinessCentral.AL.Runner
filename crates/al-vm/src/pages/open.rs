@@ -361,13 +361,9 @@ impl Session {
             dst.ascending = src.ascending;
         }
         if let (Some(view), true) = (source_view, has_source) {
-            // A view that names an ORDER on a page run on a record: nothing pins it, so it is read as the view alone is
-            // (the view's direction wins), on an assumption.
+            // A view that names an ORDER on a page run on a record: the view's direction wins over the record's, whatever
+            // the record's key and direction (types/lt-code-digits-page-run-view/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
             // A record an action's RunObject hands it has its own assumption (run-page-link-target-view, runobject.rs).
-            let run_object = std::mem::take(&mut st.borrow_mut().run_object_record);
-            if record.is_some() && !run_object && view.to_ascii_lowercase().contains("order(") {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageRunRecordViewOrderApplies);
-            }
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
             // The platform applies the view in filter group 2: the page's own AL reads it with
@@ -851,12 +847,8 @@ impl Session {
         if mode == PageMode::New {
             // corpus handlers/TestPageCreateModeNewRecordArgs.al:243-270: OnOpenPage, then
             // OnNewRecord with BelowxRec true and xRec on the last row.
-            // A page with an OnFindRecord trigger is opened the same way: the trigger is not asked (Microsoft's Service
-            // Credit Memo, Invoice and Order pages, whose tests open them with OpenNew). Assumed, see
-            // Assumption::OpenNewSkipsOnFindRecord.
-            if self.declares(st, "onfindrecord") {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OpenNewSkipsOnFindRecord);
-            }
+            // A page with an OnFindRecord trigger is opened the same way: the trigger is not asked, xRec is the last row
+            // (pages/lt-opennew-findrecord/OpenNewFindRecord.al:150-230, a card and a list, empty and with rows).
             self.ret_used = true;
             let rec = self.page_rec(st);
             self.record_op(RecordOp::FindLast, &rec, &mut [])?;

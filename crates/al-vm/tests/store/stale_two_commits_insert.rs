@@ -1,6 +1,8 @@
 //! A stale buffer from the variable's own Insert and Modify, made stale before two Commits, is written whole once the
 //! transaction after the second Commit inserted another row of the table (al-runner issue 5954, the reporter's repro on
-//! real BC; registered assumption `stale-own-insert-two-commits-other-insert`). Without that Insert BC refuses it.
+//! real BC; pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al:666-745 and :2484-2580). Without that Insert BC
+//! refuses it. Other writes beside the Insert (a Delete of another row, say) stay on assumption
+//! `stale-own-insert-two-commits-other-insert`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
@@ -41,6 +43,18 @@ codeunit 50150 C
         Stored.Get('R2');
         exit(Stored.Note + '|' + Format(Stored.Qty));
     end;
+
+    procedure WrittenBesideDelete(): Text
+    var Row: Record "Repro Row"; Another: Record "Repro Row"; Stored: Record "Repro Row";
+    begin
+        Prepare(Row);
+        Another."No." := 'R2-OTHER'; Another.Insert(true);
+        Another."No." := 'R2-THIRD'; Another.Insert(true);
+        Another.Delete(true);
+        Row.Qty := 5; Row.Modify(true);
+        Stored.Get('R2');
+        exit(Stored.Note + '|' + Format(Stored.Qty));
+    end;
 }
 "#;
 
@@ -48,6 +62,14 @@ codeunit 50150 C
 fn the_stale_buffer_is_written_after_an_insert_of_another_row() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Written")), "start|5");
+    assert!(!take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
+}
+
+/// A Delete of another row beside the Insert is not pinned: the same verdict, on the assumption.
+#[test]
+fn a_delete_beside_the_insert_is_assumed() {
+    clear_hits();
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "WrittenBesideDelete")), "start|5");
     assert!(take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
 }
 

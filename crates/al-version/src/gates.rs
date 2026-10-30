@@ -235,9 +235,11 @@ pub enum Gate {
     /// do not (al-language-onprem-dotnet/lt-az-dotnet/AzLastErrorObject.al:212-216 ToString_OtherCodeunit). Consumed by `al-vm`
     /// dotnet/last_error.rs `exception_text`.
     ExceptionTraceValueTaskFrameFrom29,
-    /// A list action that deletes three worksheet lines of a filtered page and leaves Rec on a key no row has runs
+    /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
-    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`). BC 28
+    /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines
+    /// from corpus writer Y1's branch: the same file's TD_LeavesKey_Line1WithUpdate_TwoLines and pages/lt-y1-6292/
+    /// Y1WorksheetPostLog.al, al-runner issue 6292). BC 28
     /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
     /// settle of a list action).
     ThreeLineLeavesKeyOnceFrom28,
