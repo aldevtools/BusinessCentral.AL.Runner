@@ -199,21 +199,31 @@ const HIGHEST_PROBED_ID: u32 = 99_999;
 /// in each company and in the per-database part, across the 65536 id boundary (install/lt-ur-block-order/
 /// UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515, corpus PR 810, writer UR, branch
 /// al-runtime-rs-staging-ur 1ac158e1; inside one block install/lt-um-install-order/UmInstallOrder.al:120-125, corpus PR
-/// 807). Both are awaited, so the order is an assumption until they are in the pinned corpus. Ids above 99999 could not
-/// be published there: the same integer comparison is a second assumption. Two subscribers of one codeunit are not
+/// 807). Both are in the pinned corpus. Ids above 99999 could not be published there: the same integer comparison is an
+/// assumption. Two subscribers of one codeunit are not
 /// pinned (every pin has one routine per codeunit and event). The earlier contradiction,
 /// install/lt-bf-install-probes/BfInstallTests.al:239, is SystemRowVersion of buffered plain Inserts (UrBlockOrderTests.al:99-115),
 /// not the run order.
-fn order_of(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> Option<al_builtins::assumptions::Assumption> {
-    use al_builtins::assumptions::Assumption;
+fn order_of(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> Order {
     if a.0 == b.0 {
-        return None;
+        return Order::Unknown;
     }
     if object_id(lowered, a.0).max(object_id(lowered, b.0)) > HIGHEST_PROBED_ID {
-        Some(Assumption::InstallOrderIdsAboveProbedRange)
+        Order::Assumed(al_builtins::assumptions::Assumption::InstallOrderIdsAboveProbedRange)
     } else {
-        Some(Assumption::InstallOrderAscendingId)
+        Order::Pinned
     }
+}
+
+/// What is known of the order of two install routines.
+#[derive(Clone, Copy)]
+enum Order {
+    /// The corpus pins it.
+    Pinned,
+    /// It rests on an unprobed assumption.
+    Assumed(al_builtins::assumptions::Assumption),
+    /// Not pinned: what depends on it is refused.
+    Unknown,
 }
 
 /// The tables whose install rows a test may not read (ADR-046 amendment 1, A2 items a to d), from the
@@ -317,24 +327,13 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         if i == j {
                             continue;
                         }
-                        use al_builtins::assumptions::Assumption;
                         let known = order_of(lowered, routines[i], routines[j]);
                         let hit = |map: &mut InstallFacts, t: u32, why: String| match known {
-                            // One assumption per table: the unprobed id range replaces the awaited order, since it
-                            // also relies on that order.
-                            Some(Assumption::InstallOrderIdsAboveProbedRange) => {
-                                let e = map
-                                    .assumed
-                                    .entry(t as usize)
-                                    .or_insert((app.app, Assumption::InstallOrderIdsAboveProbedRange));
-                                if e.1 == Assumption::InstallOrderAscendingId {
-                                    *e = (app.app, Assumption::InstallOrderIdsAboveProbedRange);
-                                }
-                            }
-                            Some(assumption) => {
+                            Order::Pinned => {}
+                            Order::Assumed(assumption) => {
                                 map.assumed.entry(t as usize).or_insert((app.app, assumption));
                             }
-                            None => {
+                            Order::Unknown => {
                                 map.unknown.entry(t as usize).or_insert(why);
                             }
                         };

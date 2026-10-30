@@ -490,8 +490,9 @@ fn tables_whose_install_rows_depend_on_the_order_of_the_routines_follow_ascendin
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
+    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
-        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+        assert!(h.is_empty(), "{n}: {hits:?}");
     }
 }
 
@@ -606,8 +607,9 @@ fn install_routines_of_one_app_run_in_ascending_object_id_and_share_single_insta
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
+    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
-        assert!(h.contains(&"install-order-ascending-id"), "{n}: {hits:?}");
+        assert!(h.is_empty(), "{n}: {hits:?}");
     }
 }
 

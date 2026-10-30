@@ -546,9 +546,9 @@ impl Session {
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
         use ir::CalcMethod as M;
         // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
-        // lookup are pinned (corpus master record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
-        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count;
-        // assumption calcformula-filter-equals-empty-date until the bump). Other methods are not pinned.
+        // lookup are pinned (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
+        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count).
+        // Other methods are not pinned.
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
@@ -560,7 +560,6 @@ impl Session {
                     "a CalcFormula sum, average, min, max or signed formula with a condition on a FlowField of its source table (not pinned)",
                 );
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CalcformulaFilterEqualsEmptyDate);
             let mut rows = Vec::new();
             self.each_row(&cx, &src_t, &stored, |row| {
                 rows.push(row.to_vec());

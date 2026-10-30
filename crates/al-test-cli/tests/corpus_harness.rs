@@ -555,7 +555,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
     // (report/lt-ah-dataset-header/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
     // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 19320 (AhDatasetHeader.al:309-430), BC 29 only.
-    assert!(out.contains("oracle: 209 case(s) differ between versions"), "{out}");
+    // Corpus bump to master 2db2dbd5 makes it 211: the two tests of 99830 in lt-ss1030/SsCallerModulesTestRunner.al run on
+    // BC 27 only (`#if not BC28PLUS`, the Test Runner app path of the CI; gate TestRunnerHubRequiredIsolationFrom28).
+    assert!(out.contains("oracle: 211 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
