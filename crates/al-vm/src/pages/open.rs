@@ -1969,15 +1969,24 @@ impl Session {
         if self.page_view_has_rows(st) {
             return Ok(false);
         }
-        if static_lookup {
-            return Err(Signal::Unsupported(
-                "OK of the lookup page of Page.RunModal(Id, Rec) that shows no row (only a page variable with LookupMode(true) is pinned)".into(),
-            ));
-        }
         if !self.is_list_page(st) {
             return Err(Signal::Unsupported(format!(
                 "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
             )));
+        }
+        // The static Page.RunModal(Id, Rec) on a list that shows no row is the same: an empty table with Rec cleared or holding
+        // values, a list with Editable = false, a table with rows and Rec filtered to none (corpus PR 896,
+        // errors/lt-ms-refusals-129/Y9LookupNoRow.al Y9_Lookup_RunModalIdRec_EmptyTable_Ok, _PrefilledRec_Ok, _ReadOnlyList_Ok,
+        // _FilteredToNoRow_Ok).
+        if static_lookup {
+            // Pinned for a page that showed no row from the start; one whose row left the view while it was open (the handler
+            // changed the row in the database) is not.
+            if st.borrow().cursor == Cursor::Row {
+                return Err(Signal::Unsupported(
+                    "OK of the lookup page of Page.RunModal(Id, Rec) whose row left its view while it was open (not pinned)".into(),
+                ));
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupOkNoRowStatic);
         }
         Ok(true)
     }

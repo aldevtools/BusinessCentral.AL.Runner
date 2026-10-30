@@ -19,10 +19,11 @@ use std::sync::Arc;
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
 /// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
-const UNPINNED_LOCKING_READ: &str =
-    "a read other than FindFirst and FindSet under ReadIsolation RepeatableRead or UpdLock";
-/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead set on a database table without a read yet.
-pub(crate) const REPEATABLE_READ_SET_WITHOUT_READ: &str = "a ReadIsolation RepeatableRead set without a read";
+pub(crate) const UNPINNED_LOCKING_READ: &str = "a FindFirst, FindSet, FindLast or Find('-'/'+'/'>'/'<') under a ReadIsolation RepeatableRead or UpdLock set in an earlier transaction";
+/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
+/// no write transaction open.
+pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
+    "a ReadIsolation RepeatableRead assigned again to a record that had it";
 
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
@@ -2670,6 +2671,20 @@ impl Session {
     /// ([`XP_BUFFER_AFTER_EXPORT`]); the table's names and `FieldNo` run; every other method refuses.
     fn xp_view_after_export_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         let group0 = rec.borrow().filter_group == 0;
+        // GetFilters reads '' while only the view's own filters are set (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+        // Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows `held 3/10/A/h3l10|filters=`: a linked element with a SourceTableView).
+        if method == RecordOp::GetFilters
+            && args.is_empty()
+            && self.xp_link_hidden.contains(&(Rc::as_ptr(rec) as usize))
+            && rec
+                .borrow()
+                .filters
+                .iter()
+                .all(|f| f.group == crate::reports::ITEM_VIEW_GROUP)
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlPortOnceOnceNested);
+            return Ok(Value::Text("".into()));
+        }
         let pinned = match method {
             RecordOp::Count | RecordOp::Reset | RecordOp::SetCurrentKey => true,
             RecordOp::GetView => matches!(args, [Value::Boolean(false)]),
@@ -3482,29 +3497,33 @@ impl Session {
                 ),
             );
             use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
-            // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
-            // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other
-            // reads under a locking isolation are not pinned; a ReadUncommitted read opens none under an assumption.
-            // A FindSet under RepeatableRead as the first read after the isolation was set opens it as well
-            // (misc/lt-np4-probes/Np4Misc.al:219 NP4_ReadIsolation_RepeatableRead_Reads `findset Yes|1|Yes`, corpus master): the
-            // isolation set without a read is then no longer the open question.
+            // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
+            // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
+            // transaction leaves IsInWriteTransaction No and a guarded Codeunit.Run runs (corpus PR 896
+            // misc/lt-np4-probes/Np4Misc.al Y9_UpdLock_SetBeforeCommit_FirstRead, Y9_RepeatableRead_SetBeforeCommit_FirstRead
+            // `before=No|...|after=No`, `ran=Yes tx=No`). Another read there (FindFirst, FindSet, FindLast, another Find) is not
+            // pinned. A ReadCommitted read opens none (codeunit/TestCodeunitRunWriteTransaction.al:254-278); a ReadUncommitted
+            // read opens none under an assumption.
+            let pinned_read = match method {
+                RecordOp::Get | RecordOp::IsEmpty | RecordOp::Count | RecordOp::Next | RecordOp::CalcFields => true,
+                RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
+                _ => false,
+            };
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
-                    if method == RecordOp::FindFirst || (method == RecordOp::FindSet && !rec.borrow().temporary) =>
+                    if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
                 {
-                    if method == RecordOp::FindSet && rec.borrow().read_isolation == ISOLATION_REPEATABLE_READ {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::RepeatableReadFindSetOpensWriteTransaction,
-                        );
-                    }
-                    if self.tx.lock_unpinned == Some(REPEATABLE_READ_SET_WITHOUT_READ) {
-                        self.tx.lock_unpinned = None;
-                    }
-                    self.tx.lock_tx = true;
                     self.tx.isolation_lock = true;
                     self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
+                    if !self.tx.lock_tx && !pinned_read {
+                        self.tx.locking_read_tx_unpinned = true;
+                    } else if !self.tx.lock_tx {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
+                        );
+                    }
                     // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
                     // only cause (see `read_of_others_only` in the stale-buffer decision).
                     if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {

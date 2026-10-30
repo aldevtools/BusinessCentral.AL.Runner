@@ -635,6 +635,9 @@ pub struct Session {
     /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
     /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
     pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
+    /// The table element records (by address) of linked elements with LinkFields whose link filter an export under
+    /// SourceTableView moved into the view's group: their GetFilters reads '' afterwards (xmlports.rs, corpus PR 896).
+    pub(crate) xp_link_hidden: Vec<usize>,
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
@@ -1019,6 +1022,7 @@ impl Session {
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
             xp_unlinked_passes: Vec::new(),
+            xp_link_hidden: Vec::new(),
             store,
             temps: Default::default(),
             next_temp: 0,
@@ -1215,6 +1219,7 @@ impl Session {
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
+        self.tx.locking_read_tx_unpinned = false;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -1301,6 +1306,7 @@ impl Session {
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
+        self.tx.locking_read_tx_unpinned = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
         }
