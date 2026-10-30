@@ -52,6 +52,9 @@ pub struct Header {
     pub expires: Option<String>,
     /// `Product Line`.
     pub product_line: Option<String>,
+    /// No expiry label the reader knows was found, but a line under a label it does not know holds a date: the expiry
+    /// is probably there in a header language the reader does not read (al-runner #6408).
+    pub expiry_label_unknown: bool,
 }
 
 /// A parsed license.
@@ -113,24 +116,45 @@ fn utf16_text(bytes: &[u8]) -> Result<String, String> {
     Ok(text.replace('\u{FEFF}', ""))
 }
 
+/// The header labels of the expiry date the reader knows: English (the Cronus license of the BC artifacts) and Danish
+/// (al-runner #6408, a partner license issued in Danish). The header is only reported, never used for a decision.
+const EXPIRY_LABELS: &[&str] = &["Expires", "Udløber"];
+
 fn parse_header(text: &str) -> Header {
     let mut h = Header::default();
+    let mut unknown_date = false;
     for line in text.lines() {
         let Some((key, value)) = line.split_once(':') else {
             continue;
         };
         let value = value.trim();
-        let slot = match key.trim() {
+        let key = key.trim();
+        let slot = match key {
             "Licensed to" => &mut h.licensee,
-            "Expires" => &mut h.expires,
             "Product Line" => &mut h.product_line,
-            _ => continue,
+            k if EXPIRY_LABELS.contains(&k) => &mut h.expires,
+            _ => {
+                unknown_date |= !key.is_empty() && looks_like_date(value);
+                continue;
+            }
         };
         if slot.is_none() && !value.is_empty() {
             *slot = Some(value.to_string());
         }
     }
+    h.expiry_label_unknown = h.expires.is_none() && unknown_date;
     h
+}
+
+/// Whether a header value starts with a date: three groups of digits split by `/`, `-` or `.` (`3/13/2033`,
+/// `13-03-2033`, `13.03.2033`).
+fn looks_like_date(value: &str) -> bool {
+    let first = value.split_whitespace().next().unwrap_or("");
+    let parts: Vec<&str> = first.split(['/', '-', '.']).collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
 }
 
 type Lists = (BTreeMap<String, Vec<Range>>, Vec<Range>);
@@ -308,12 +332,21 @@ pub mod synthetic {
     /// A license file with the header values given and one permission list per `(list, ranges)` entry, each range
     /// `(first, last, mask)`.
     pub fn file(licensee: &str, expires: &str, lists: &[List]) -> Vec<u8> {
+        file_with_header(
+            &format!(
+                "Licensed to             : {licensee}\r\n                          Somewhere\r\n\
+                 Product Line            : Synthetic test product\r\n\
+                 Expires                 : {expires}\r\n"
+            ),
+            lists,
+        )
+    }
+
+    /// A license file whose header lines (between the two star lines) are `header`, as written.
+    pub fn file_with_header(header: &str, lists: &[List]) -> Vec<u8> {
         let mut text = String::from("Synthetic License Information\r\n****\r\n");
-        text.push_str(&format!(
-            "Licensed to             : {licensee}\r\n                          Somewhere\r\n"
-        ));
-        text.push_str("Product Line            : Synthetic test product\r\n");
-        text.push_str(&format!("Expires                 : {expires}\r\n****\r\n\r\n\u{FEFF}"));
+        text.push_str(header);
+        text.push_str("****\r\n\r\n\u{FEFF}");
         text.push_str("<License><Properties><Property name=\"CC\" type=\"String\" id=\"1\"><![CDATA[XX]]></Property></Properties><PermissionCollections>");
         for (name, ranges) in lists {
             text.push_str(&format!("<pl t=\"{name}\" c=\"{}\"><ps>", ranges.len()));
@@ -367,6 +400,38 @@ mod tests {
         assert_eq!(l.header.product_line.as_deref(), Some("Synthetic test product"));
         assert_eq!(l.sha256, hex(&Sha256::digest(&bytes)));
         assert_eq!(l.sha256.len(), 64);
+    }
+
+    /// A header in another language (al-runner #6408: a Danish license writes `Udløber` for `Expires` and the date as
+    /// `dd-MM-yyyy`). Synthetic values only.
+    #[test]
+    fn a_danish_expiry_label_is_read() {
+        let header = "Licensed to              : Test Licensee\r\n\
+                      Sprog                    : Danish\r\n\
+                      Oprettet Dato            : 01-02-2030 10:11:12 (-07:00)\r\n\
+                      Udløber                  : 03-04-2040\r\n\
+                      Konfiguration            : XX\r\n";
+        let l = parse(&synthetic::file_with_header(header, &[("Codeunit", &[(1, 9, 31)])])).unwrap();
+        assert_eq!(l.header.licensee.as_deref(), Some("Test Licensee"));
+        assert_eq!(l.header.expires.as_deref(), Some("03-04-2040"));
+        assert!(!l.header.expiry_label_unknown);
+    }
+
+    /// A header whose expiry label the reader does not know: no value is guessed, the header says the expiry was not
+    /// read, as long as some line under an unknown label holds a date.
+    #[test]
+    fn an_unknown_expiry_label_is_reported_as_not_read() {
+        let header = "Licensed to              : Test Licensee\r\n\
+                      Synthlabel A             : 01.02.2030 10:11:12\r\n\
+                      Synthlabel B             : 03.04.2040\r\n";
+        let l = parse(&synthetic::file_with_header(header, &[("Codeunit", &[(1, 9, 31)])])).unwrap();
+        assert_eq!(l.header.expires, None);
+        assert!(l.header.expiry_label_unknown);
+
+        let header = "Licensed to              : Test Licensee\r\nProduct Line            : X\r\n";
+        let l = parse(&synthetic::file_with_header(header, &[("Codeunit", &[(1, 9, 31)])])).unwrap();
+        assert_eq!(l.header.expires, None);
+        assert!(!l.header.expiry_label_unknown);
     }
 
     #[test]
