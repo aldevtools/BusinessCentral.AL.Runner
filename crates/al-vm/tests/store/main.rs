@@ -30,6 +30,7 @@ mod np_blockers;
 mod option_init_ordinal;
 mod query_read_state;
 mod record_builtins;
+mod record_id_filter_text;
 mod record_is_dirty;
 mod record_ref_into_record;
 mod record_ref_set_table_variant;

@@ -9,6 +9,7 @@
 use crate::Session;
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
+use al_builtins::filter::FilterExpr;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
@@ -278,6 +279,43 @@ impl Session {
                 (_, other) => unsupported(format!("RecordId.{other}")),
             },
             other => unsupported(format!("{other} methods")),
+        }
+    }
+
+    /// The text of a `SetFilter` on a RecordId field, `<table name>: <key values>` as `Format(RecordId)` writes it, alone or after
+    /// `<>` (filters/lt-wc/WcRecordIdFilter.al, al-runner issue 6309): it filters on that RecordId, and `GetFilter` writes it back
+    /// (:118-137 WC_RecordIdFilter_FormatText, :166-186 WC_RecordIdFilter_PlaceholderAndRange `not equal`). The table is named by
+    /// its name, not its caption; a text that names no table raises the evaluate error (:139-164 WC_RecordIdFilter_EmptyAndWrongText);
+    /// a two-field key with one value given is accepted and keeps no row (`missing key part`). `None`: another filter text
+    /// (operators, wildcards, ranges), read as before.
+    pub(crate) fn record_id_filter_text(&mut self, text: &str) -> Result<Option<Result<FilterExpr, String>>, Signal> {
+        let (ne, body) = match text.strip_prefix("<>") {
+            Some(b) => (true, b),
+            None => (false, text),
+        };
+        if body.trim().is_empty()
+            || body.contains(['|', '&', '*', '?', '@', '(', ')', '<', '>', '=', '%', '\''])
+            || body.contains("..")
+        {
+            return Ok(None);
+        }
+        match self.evaluate_record_id_text(body, 0) {
+            Ok(Some(id)) => {
+                let v = handle("RecordId", id);
+                Ok(Some(Ok(if ne { FilterExpr::Ne(v) } else { FilterExpr::Eq(v) })))
+            }
+            Ok(None) if !ne => Ok(Some(Err(format!(
+                "{}RecordID\t{}",
+                al_builtins::filter::NOT_EVALUATED,
+                body.trim()
+            )))),
+            Ok(None) => {
+                unsupported("SetFilter on a RecordId field of `<>` before a text that names no table (not pinned)")
+            }
+            Err(Signal::Error(_)) => {
+                unsupported("SetFilter on a RecordId field of a text whose key value Evaluate rejects (not pinned)")
+            }
+            Err(e) => Err(e),
         }
     }
 
