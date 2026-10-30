@@ -254,6 +254,7 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
         .iter()
         .cloned()
         .chain(alcodes::check_context(&ws, 0, &ctx))
+        .chain(alcodes::check_resolved_scope(&ws, 0, &ctx, &checked))
         // The case's own diagnostics: what the compiler says about the corpus apps is not the case's verdict.
         .filter(|d| d.code.starts_with("AL") && d.app == 0)
         .collect();
