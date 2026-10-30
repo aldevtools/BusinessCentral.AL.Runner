@@ -4732,7 +4732,11 @@ impl Session {
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
                 // Bad_Time); what BC asks `MakeDateTimeFilter` is pinned only in part (the second call of Bad_DateTime m2 carries a
                 // text made from the work date), so a DateTime text that raises it is refused.
-                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)) {
+                // A number filter with a placeholder kept as written next to a wildcard has placeholders, so with subscribers it is
+                // refused below as well: whether BC raises the event for it is not pinned.
+                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)
+                    || e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD))
+                {
                     let event = match ty {
                         RtType::Integer => Some(("makeintfilter", "IntFilterText")),
                         RtType::Time => Some(("maketimefilter", "TimeFilterText")),
