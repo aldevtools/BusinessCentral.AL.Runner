@@ -968,3 +968,179 @@ fn a_handler_that_marks_the_request_unsuccessful_makes_the_call_answer_false() {
         ),
     );
 }
+
+// The Set-Cookie forms of network/lt-http-cookies/HttpCookieForms.al (codeunit 90820): a helper reads the names a response has
+// after one Set-Cookie header, or the parse error, and the cookie of a name.
+const COOKIE_HELPERS: &str = r#"
+    local procedure Names(Header: Text): Text
+    var Resp: HttpResponseMessage; H: HttpHeaders; L: List of [Text]; N: Text; R: Text;
+    begin
+        H := Resp.Headers;
+        H.Add('Set-Cookie', Header);
+        L := Resp.GetCookieNames();
+        R := Format(L.Count()) + ':';
+        foreach N in L do R += N + ';';
+        exit(R);
+    end;
+
+    local procedure NamesErr(Header: Text): Text
+    begin
+        asserterror Names(Header);
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
+    local procedure Cookie(Header: Text; Name: Text): Text
+    var Resp: HttpResponseMessage; H: HttpHeaders; C: Cookie;
+    begin
+        H := Resp.Headers;
+        H.Add('Set-Cookie', Header);
+        if not Resp.GetCookie(Name, C) then exit('none');
+        exit(C.Value() + '|' + C.Path() + '|' + Format(C.Secure()) + '|' + Format(C.HttpOnly()) + '|' + Format(C.Expires(), 0, 9));
+    end;
+
+    local procedure Check(Got: Text; Want: Text; What: Text)
+    begin
+        if Got <> Want then Error('%1: got [%2], want [%3]', What, Got, Want);
+    end;
+"#;
+
+const COOKIE_PARSE_ERROR: &str =
+    "An error occurred when parsing the Cookie header for Uri ''https://bccookie.microsoft.com/''.|AL:Cookie";
+
+// HttpCookieForms.al:91 Response_ExpiresForms.
+#[test]
+fn set_cookie_expires_forms() {
+    all_pass(
+        "",
+        &format!(
+            r#"{COOKIE_HELPERS}
+    [Test] procedure Expires()
+    begin
+        Check(Cookie('sid=a; Expires=Wednesday, 21-Oct-37 07:28:00 GMT', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'rfc850');
+        Check(Cookie('sid=a; Expires=Wed, 21-Oct-2037 07:28:00 GMT', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'dashes4');
+        Check(Cookie('sid=a; Expires=Wed, 21 Oct 2037 07:28:00 +0200', 'sid'), 'a|/|No|No|2037-10-21T05:28:00Z', 'offset');
+        Check(Cookie('sid=a; Expires=Wed, 21 Oct 2037 07:28:00', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'noZone');
+        Check(Cookie('sid=a; Expires=Mon, 21 Oct 2037 07:28:00 GMT', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'wrongWeekday');
+        Check(Cookie('sid=a; Expires=Wed, 21 oct 2037 07:28:00 GMT', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'lowerMonth');
+        Check(Cookie('sid=a; Expires=2037-10-21T07:28:00Z', 'sid'), 'a|/|No|No|2037-10-21T07:28:00Z', 'iso');
+        Check(Cookie('sid=a; Expires', 'sid'), 'a|/|No|No|', 'noValue');
+        Check(NamesErr('sid=a; Expires=Wed Oct 21 07:28:00 2037'), '{COOKIE_PARSE_ERROR}', 'asctime');
+        Check(NamesErr('sid=a; Expires=Wed, 21 Oct 2037 07:28:00 UTC'), '{COOKIE_PARSE_ERROR}', 'utc');
+        Check(NamesErr('sid=a; Expires=garbage'), '{COOKIE_PARSE_ERROR}', 'garbage');
+        Check(NamesErr('sid=a; Expires='), '{COOKIE_PARSE_ERROR}', 'empty');
+    end;"#
+        ),
+    );
+}
+
+// HttpCookieForms.al:122 Response_MaxAgeForms.
+#[test]
+fn set_cookie_max_age_forms() {
+    all_pass(
+        "",
+        &format!(
+            r#"{COOKIE_HELPERS}
+    [Test] procedure MaxAge()
+    begin
+        Check(Names('sid=a; Max-Age=0'), '0:', 'zero');
+        Check(Names('sid=a; Max-Age=-1'), '0:', 'minus');
+        Check(NamesErr('sid=a; Max-Age=abc'), '{COOKIE_PARSE_ERROR}', 'text');
+        Check(NamesErr('sid=a; Max-Age=1.5'), '{COOKIE_PARSE_ERROR}', 'decimal');
+        Check(NamesErr('sid=a; Max-Age='), '{COOKIE_PARSE_ERROR}', 'empty');
+        Check(NamesErr('sid=a; Max-Age=99999999999'), '{COOKIE_PARSE_ERROR}', 'huge');
+        Check(Names('sid=a; Max-Age=+3600'), '1:sid;', 'plus');
+        Check(Names('sid=a; max-age=3600'), '1:sid;', 'lowerName');
+        Check(Names('sid=a; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:01 GMT'), '1:sid;', 'futureThenPast');
+        Check(Names('sid=a; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=3600'), '0:', 'pastThenFuture');
+        Check(Names('sid=a; Max-Age=0; Expires=Wed, 21 Oct 2037 07:28:00 GMT'), '0:', 'zeroWithFuture');
+    end;"#
+        ),
+    );
+}
+
+// HttpCookieForms.al:149 Response_TwoCookiesInOneValue, :168 Response_NamesThatAreNotTokens, :222 Response_NamesDifferInCase.
+#[test]
+fn set_cookie_lists_names_and_case() {
+    all_pass(
+        "",
+        &format!(
+            r#"{COOKIE_HELPERS}
+    [Test] procedure Lists()
+    var Resp: HttpResponseMessage; H: HttpHeaders; C: Cookie;
+    begin
+        Check(Names('a=1, b=2'), '2:a;b;', 'comma');
+        Check(Names('a=1,b=2'), '2:a;b;', 'comma no space');
+        Check(Names('a=1; Expires=Wed, 21 Oct 2037 07:28:00 GMT, b=2'), '2:a;b;', 'comma after expires');
+        Check(Names('a=x,y'), '2:a;y;', 'comma in value');
+        Check(Cookie('a=x,y', 'a'), 'x|/|No|No|', 'comma in value a');
+        Check(Names('a=1; b=2'), '1:a;', 'semicolon pair');
+        Check(NamesErr('$x=1'), '{COOKIE_PARSE_ERROR}', 'dollar');
+        Check(NamesErr('=abc'), '{COOKIE_PARSE_ERROR}', 'empty name');
+        Check(Names('a b=1'), '1:a b;', 'space inside');
+        Check(Cookie('sid=a b', 'sid'), 'a b|/|No|No|', 'value space');
+        Check(Cookie('sid=a"b', 'sid'), 'a"b|/|No|No|', 'value quote inside');
+        H := Resp.Headers;
+        H.Add('Set-Cookie', 'SID=upper');
+        H.Add('Set-Cookie', 'sid=lower');
+        Check(Format(Resp.GetCookieNames().Count()), '1', 'case count');
+        Check(Format(Resp.GetCookie('SID', C)), 'No', 'get SID');
+        Check(Format(Resp.GetCookie('sid', C)) + C.Value(), 'Yeslower', 'get sid');
+    end;"#
+        ),
+    );
+}
+
+// HttpCookieForms.al:193 Response_OtherAttributes.
+#[test]
+fn set_cookie_other_attributes() {
+    all_pass(
+        "",
+        &format!(
+            r#"{COOKIE_HELPERS}
+    [Test] procedure Attributes()
+    begin
+        Check(Cookie('sid=a; Version=1', 'sid'), 'a||No|No|', 'version');
+        Check(Cookie('sid=a; Comment=hello', 'sid'), 'a|/|No|No|', 'comment');
+        Check(Cookie('sid=a; Port="443"', 'sid'), 'a||No|No|', 'port');
+        Check(Cookie('sid=a; Discard', 'sid'), 'a|/|No|No|', 'discard');
+        Check(Cookie('sid=a; Priority=High', 'sid'), 'a|/|No|No|', 'priority');
+        Check(Cookie('sid=a; Partitioned', 'sid'), 'a|/|No|No|', 'partitioned');
+        Check(Names('sid=a; Path=/x; Path=/'), '0:', 'path twice');
+        Check(Cookie('sid=a; Path=', 'sid'), 'a||No|No|', 'path empty');
+        Check(Cookie('sid=a; Secure=false', 'sid'), 'a|/|No|No|', 'secure false');
+        Check(Cookie('sid=a; HttpOnly=0', 'sid'), 'a|/|No|No|', 'httponly value');
+        Check(Cookie('sid=a;', 'sid'), 'a|/|No|No|', 'trailing semicolon');
+    end;"#
+        ),
+    );
+}
+
+// HttpCookieForms.al:286 CookieSetter_InvalidCharacters.
+#[test]
+fn cookie_name_setter_rejects_separators_dollar_and_blanks() {
+    all_pass(
+        "",
+        r#"
+    local procedure SetName(N: Text): Text
+    var C: Cookie; Ignored: Text;
+    begin
+        asserterror Ignored := C.Name(N);
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
+    [Test] procedure Names()
+    var C: Cookie; Ignored: Text;
+    begin
+        Ignored := C.Name('a b');
+        if C.Name() <> 'a b' then Error('space');
+        Ignored := C.Value(' a ');
+        if C.Value() <> ' a ' then Error('value');
+        if SetName('a;b') <> 'The ''Name''=''a;b'' part of the cookie is invalid.|AL:Cookie' then Error('semicolon %1', SetName('a;b'));
+        if SetName('a,b') <> 'The ''Name''=''a,b'' part of the cookie is invalid.|AL:Cookie' then Error('comma');
+        if SetName('a=b') <> 'The ''Name''=''a=b'' part of the cookie is invalid.|AL:Cookie' then Error('equals');
+        if SetName('$a') <> 'The ''Name''=''$a'' part of the cookie is invalid.|AL:Cookie' then Error('dollar');
+        if SetName(' ') <> 'The ''Name''='' '' part of the cookie is invalid.|AL:Cookie' then Error('blank');
+        if SetName(' a ') <> 'The ''Name''='' a '' part of the cookie is invalid.|AL:Cookie' then Error('padded');
+    end;"#,
+    );
+}

@@ -188,7 +188,8 @@ fn seed_days() -> &'static str {
 
 // pages/lt-ai-list-order/AiListOrderTests.al:777 OpenOnRow_SetPositionInOnOpenPage: a list whose OnOpenPage puts the cursor on
 // row 4 of 6 reads on to the end, then back from row 3 to the first row, each row once, until OnNextRecord(-1) answers 0 (the
-// corpus log loses its first entry, the OnFindRecord call: its first Add writes Id 0, which Dump leaves out); the
+// corpus log loses its first entry, the OnFindRecord call: its first Add writes Id 0, which Dump leaves out; that call is
+// `=>`, AiListOrderTests.al:851, :871 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog / _SecondLastRow_OpenLog); the
 // cursor stays on row 4 and First() reads nothing.
 #[test]
 fn a_list_opened_on_a_later_row_reads_back_to_the_first_row() {
@@ -198,7 +199,7 @@ fn a_list_opened_on_a_later_row_reads_back_to_the_first_row() {
         procedure OpenOnRow() var P: TestPage \"LRO Pos List\"; Log: Codeunit \"LRO Log\"; begin
             SeedDays(); Log.Reset();
             P.OpenView();
-            Check('F=><=Yes;R4;N1=1;R5;N1=1;R6;N1=0;R4;N-1=-1;R3;N-1=-1;R2;N-1=-1;R1;N-1=0;', Log.Trace());
+            Check('F=>=Yes;R4;N1=1;R5;N1=1;R6;N1=0;R4;N-1=-1;R3;N-1=-1;R2;N-1=-1;R1;N-1=0;', Log.Trace());
             Check('4', P.DayCtl.Value());
             Log.Reset();
             if not P.First() then Error('First');

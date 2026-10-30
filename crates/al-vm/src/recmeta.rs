@@ -1778,7 +1778,14 @@ impl Session {
 
     /// The `RecordId` of the row in `rec`'s buffer: the table and its primary key values.
     pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Value {
-        let key = t.primary_key(&rec.borrow().fields);
+        let mut key = t.primary_key(&rec.borrow().fields);
+        // An Option key field with an OptionCaption shows its caption in the RecordId's text (types/lt-option-evaluate-captions/
+        // OptionEvaluateCaptions.al:392 RecordId_OptionKeyWithCaption `format`: `LT Option Key Cap: Credit Memo cap,D-1`).
+        for (k, &p) in key.iter_mut().zip(&t.keys[0]) {
+            if let (Value::Option(o, _), Some(captions)) = (&*k, self.option_key_captions(t, p)) {
+                *k = Value::Option(*o, captions);
+            }
+        }
         Value::Library(
             "RecordId".into(),
             Rc::new(RefCell::new(al_builtins::value::LibraryValue::RecordId {
@@ -1861,7 +1868,7 @@ impl Session {
             let ty = &t.fields[p].ty;
             // An Option key field of a composite key (types/lt-wc/WcUnpinnedSingles.al:112-146, al-runner issue 6322).
             if let (RtType::Option(members), true) = (ty, fields.len() > 1) {
-                key.push(self.evaluate_option_key_part(t, p, members, v, *quoted)?);
+                key.push(self.evaluate_option_key_part(t, p, members, v)?);
                 continue;
             }
             if v.is_empty() && !quoted {
@@ -1903,19 +1910,34 @@ impl Session {
         Ok(Some(key))
     }
 
+    /// The OptionCaption of the Option field at `p` when it differs from the members, as the member list a RecordId key value
+    /// carries so that its text shows the captions. None for a field without one, and for one whose captions are not known here
+    /// (OptionCaptionML).
+    fn option_key_captions(&self, t: &TableDef, p: usize) -> Option<std::sync::Arc<[String]>> {
+        let (_, list) = self.members_of_field(t, p).ok()??;
+        list.iter()
+            .any(|(_, name, caption)| name != caption)
+            .then(|| list.into_iter().map(|(_, _, caption)| caption).collect())
+    }
+
     /// The value of the Option key field at `p` of a composite key, read from `v` by `Evaluate` into a RecordId
     /// (types/lt-wc/WcUnpinnedSingles.al:112-146, under languages 1033 and 1031 alike): a member name (`Invoice`, `Credit Memo`)
     /// or an ordinal (`1`; `9`, past the members, is kept and Format shows `9`) gives that member; an empty value that is not
     /// quoted gives ordinal 0 (Format shows `" "`); another text raises `'Quote' is not an option. The existing options are:
-    /// <members>` with code InvalidOptionString, and Evaluate answers false. Pinned only for a field whose members have no
-    /// captions, for values without blanks around them and for an exact-case name; the rest is refused.
+    /// <members>` with code InvalidOptionString, and Evaluate answers false.
+    /// types/lt-option-evaluate-captions/OptionEvaluateCaptions.al pins more:
+    /// - :392 RecordId_OptionKeyWithCaption: with an OptionCaption the name, the caption and the ordinal all give the member,
+    ///   and the error lists the captions;
+    /// - :414 RecordId_OptionKeyShapes: a name in another case and blanks around the value read, a quoted `""` or `" "` gives
+    ///   ordinal 0, a quoted name gives that member, `2147483647` is kept, `2147483648` and `-1` raise the error.
+    ///
+    /// A caption in another case, and a text that is the caption of one member and the name of another, are not pinned.
     fn evaluate_option_key_part(
         &mut self,
         t: &TableDef,
         p: usize,
         members: &[String],
         v: &str,
-        quoted: bool,
     ) -> Result<Value, Signal> {
         let refuse = |what: &str| {
             unsupported(format!(
@@ -1923,38 +1945,40 @@ impl Session {
                 t.name
             ))
         };
-        if let Some((_, list)) = self.members_of_field(t, p)? {
-            if list.iter().any(|(_, name, caption)| name != caption) {
-                return refuse("a field with OptionCaption");
-            }
-        }
-        let value = |o: i32| Ok(Value::Option(o, std::sync::Arc::from(members)));
+        let captions: Vec<String> = match self.members_of_field(t, p)? {
+            Some((_, list)) if list.len() == members.len() => list.into_iter().map(|(_, _, caption)| caption).collect(),
+            Some(_) => return refuse("captions of another number than the members"),
+            None => members.to_vec(),
+        };
+        let shown = self
+            .option_key_captions(t, p)
+            .unwrap_or_else(|| std::sync::Arc::from(members));
+        let value = |o: i32| Ok(Value::Option(o, shown.clone()));
+        let v = v.trim();
         if v.is_empty() {
-            return if quoted {
-                refuse("an empty quoted value")
-            } else {
-                value(0)
-            };
-        }
-        if v.trim() != v {
-            return refuse("a value with blanks around it");
+            return value(0);
         }
         if v.bytes().all(|b| b.is_ascii_digit()) {
-            return match v.parse::<i32>() {
-                Ok(n) => value(n),
-                Err(_) => refuse("an ordinal past the Integer range"),
-            };
+            if let Ok(n) = v.parse::<i32>() {
+                return value(n);
+            }
         }
-        if let Some(n) = members.iter().position(|m| m == v) {
-            return value(n as i32);
+        let by_name = members.iter().position(|m| m.eq_ignore_ascii_case(v));
+        let by_caption = captions.iter().position(|c| c == v);
+        match (by_name, by_caption) {
+            (Some(a), Some(b)) if a != b => {
+                return refuse("a text that is the caption of one member and the name of another");
+            }
+            (Some(n), _) | (None, Some(n)) => return value(n as i32),
+            (None, None) => {}
         }
-        if members.iter().any(|m| m.eq_ignore_ascii_case(v)) {
-            return refuse("a member name in another case");
+        if captions.iter().any(|c| c.eq_ignore_ascii_case(v)) {
+            return refuse("a caption in another case");
         }
         al_builtins::native::raise(
             format!(
                 "'{v}' is not an option. The existing options are: {}",
-                members.join(",")
+                captions.join(",")
             ),
             "InvalidOptionString",
         )
