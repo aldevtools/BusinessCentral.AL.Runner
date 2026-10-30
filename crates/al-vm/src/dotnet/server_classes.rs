@@ -263,24 +263,15 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
 }
 
 /// The service tier's credential type, which System Application `Identity Management.IsWindowsAuthentication`,
-/// `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` read (al-runner issue 6380).
-/// On the SaaS-like sandbox `IsUserNamePasswordAuthentication` is false (corpus writer Y5, branch al-runtime-rs-staging-y5,
-/// session/lt-y5/Y5AuthenticationType.al, codeunit 90987); the other two are Scope OnPrem, so a Cloud app cannot call them
-/// there and their answer is not measured: refused. On an on-prem server the credential type is user name and password, as
-/// on the test containers Microsoft's AL-Go and BcContainerHelper set up and on the reporter's real-BC container (assumption
-/// `credential-type-user-password-onprem`, until the OnPrem probe of the same writer lands).
-fn credential_type_is(s: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
+/// `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` read (al-runner issue 6380). Measured on the
+/// corpus CI containers by corpus writer Y5 (branch al-runtime-rs-staging-y5): user name and password, so Windows No, user
+/// name and password Yes, Access Control Service No (al-language-onprem/lt-y5/Y5AuthenticationTypeOnPrem.al:29-31, an OnPrem
+/// app; al-language/session/lt-y5/Y5AuthenticationType.al:29-30, a Cloud app). Both of the runner's environments are such a
+/// container (the SaaS-like sandbox is the corpus CI tier). A real SaaS sandbox answers No for user name and password
+/// (Y5AuthenticationType.al:9-10, measured, not asserted); the runner has no environment for it.
+fn credential_type_is(_: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
     no_args(args, member)?;
-    if s.host.identity.environment() == al_host::Environment::OnPrem {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CredentialTypeUserPasswordOnPrem);
-        return Ok(Value::Boolean(user_password));
-    }
-    if user_password {
-        return Ok(Value::Boolean(false));
-    }
-    Err(Signal::Unsupported(format!(
-        "DotNet {member}: the service tier's credential type on the SaaS-like sandbox is not pinned (docs/probes-needed.md)"
-    )))
+    Ok(Value::Boolean(user_password))
 }
 
 fn is_windows_authentication(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -691,8 +682,7 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
     Ok(Value::Null)
 }
 
-/// The credential-type members: the SaaS-like sandbox answer of `IsUserNamePasswordAuthentication` is measured; the
-/// on-prem answers are a registered assumption (`credential-type-user-password-onprem`, docs/probes-needed.md).
+/// The credential-type members, measured on the corpus CI containers (`credential_type_is`).
 const CREDENTIAL_PIN: &str = "probe tests/al-language/session/lt-y5/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
 
 fn probe(what: &str) -> Pin {

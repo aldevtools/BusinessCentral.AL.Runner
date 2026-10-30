@@ -811,11 +811,6 @@ registry! {
         assumed: "The SystemId of a Field row is the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes. Measured only on the newest major for one table numbered above 65535, its field 2 and the user-name system fields 2000000005-8 (platform/lt-wc/WcFieldRowCopy.al:48, :60-63); a read of the SystemId of any other Field row (a table below 65536 or a system table, another system field, an older major) runs on the same rule.",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
         probe: "The SystemId of the Field rows of a table below 65536, a Base Application table, a tableextension field, field 2000000000 (SystemId) and the timestamp row (No. 0), on all three majors.",
-    },    CredentialTypeUserPasswordOnPrem => {
-        id: "credential-type-user-password-onprem",
-        assumed: "On an on-prem server (`--environment onprem`) the service tier's credential type is user name and password, as on a test container that Microsoft's AL-Go and BcContainerHelper set up: `NavUserAccountHelper.IsWindowsAuthentication` and `IsAccessControlServiceAuthentication` answer false, `IsUserNamePasswordAuthentication` true (System Application `Identity Management`). A container set up with Windows authentication answers otherwise; the runner has no flag for it. On the SaaS-like sandbox `IsUserNamePasswordAuthentication` is measured false and the other two are refused.",
-        tests: "No Microsoft test: a partner app's per-database install routine asks `Identity Management.IsWindowsAuthentication` (the reporter's real-BC container runs with user name and password).",
-        probe: "An OnPrem test on each supported major: `Identity Management.IsWindowsAuthentication`, `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` on the corpus CI container (corpus writer Y5 has it queued, al-language-onprem/lt-y5, codeunit 98850).",
     },
 }
 
