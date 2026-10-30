@@ -14994,27 +14994,27 @@
       "dimension": "syntax",
       "items": [
         {
-          "corpus_uses": 905181,
+          "corpus_uses": 905186,
           "group": "expression",
-          "ms_uses": 1809637,
+          "ms_uses": 1810026,
           "name": "NameRef",
           "pinned": true,
           "runtime_reads": true,
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 331285,
+          "corpus_uses": 331287,
           "group": "expression",
-          "ms_uses": 475470,
+          "ms_uses": 475571,
           "name": "MemberExpr",
           "pinned": true,
           "runtime_reads": true,
           "site": "ALTCallstackModuleInfos.al:9"
         },
         {
-          "corpus_uses": 392352,
+          "corpus_uses": 392353,
           "group": "expression",
-          "ms_uses": 389686,
+          "ms_uses": 389837,
           "name": "CallExpr",
           "pinned": true,
           "runtime_reads": true,
@@ -15030,9 +15030,9 @@
           "site": "ALTCallstackModuleInfos.al:26"
         },
         {
-          "corpus_uses": 43925,
+          "corpus_uses": 43930,
           "group": "statement",
-          "ms_uses": 188839,
+          "ms_uses": 189174,
           "name": "Block",
           "pinned": true,
           "runtime_reads": true,
@@ -15057,9 +15057,9 @@
           "site": "ALTIsolatedStorageOwner.al:25"
         },
         {
-          "corpus_uses": 7760,
+          "corpus_uses": 7765,
           "group": "statement",
-          "ms_uses": 81177,
+          "ms_uses": 81512,
           "name": "ExitStmt",
           "pinned": true,
           "runtime_reads": true,
@@ -15068,7 +15068,7 @@
         {
           "corpus_uses": 58558,
           "group": "expression",
-          "ms_uses": 77744,
+          "ms_uses": 77747,
           "name": "Literal:Integer",
           "pinned": true,
           "runtime_reads": true,
@@ -15077,16 +15077,16 @@
         {
           "corpus_uses": 9462,
           "group": "expression",
-          "ms_uses": 71175,
+          "ms_uses": 71176,
           "name": "ScopeExpr",
           "pinned": true,
           "runtime_reads": true,
           "site": "ALTIsolatedStorageOwner.al:41"
         },
         {
-          "corpus_uses": 351484,
+          "corpus_uses": 351488,
           "group": "expression",
-          "ms_uses": 54387,
+          "ms_uses": 54475,
           "name": "Literal:StringLit",
           "pinned": true,
           "runtime_reads": false,
@@ -15149,7 +15149,7 @@
         {
           "corpus_uses": 1512,
           "group": "expression",
-          "ms_uses": 21542,
+          "ms_uses": 21543,
           "name": "IndexExpr",
           "pinned": true,
           "runtime_reads": true,
@@ -15165,9 +15165,9 @@
           "site": "TestDotNetValueKindsContracts.al:428"
         },
         {
-          "corpus_uses": 36215,
+          "corpus_uses": 36217,
           "group": "expression",
-          "ms_uses": 15888,
+          "ms_uses": 15901,
           "name": "BinExpr +",
           "pinned": true,
           "runtime_reads": true,
@@ -16144,7 +16144,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1067,
+        "line": 1078,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:81",
         "template": "Adding to an undefined (0T) time."
@@ -16153,7 +16153,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1131,
+        "line": 1142,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:116",
         "template": "Subtracting from an undefined (0T) time."
@@ -16162,7 +16162,7 @@
         "code": "InvalidTime",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1134,
+        "line": 1145,
         "pinned": true,
         "site": "misc/lt-probes-needed-6/PnF31TimeArithmetic.al:115",
         "template": "Subtracting an undefined (0T) time."
@@ -16171,7 +16171,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1159,
+        "line": 1170,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16180,7 +16180,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1167,
+        "line": 1178,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16189,7 +16189,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1204,
+        "line": 1215,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16198,7 +16198,7 @@
         "code": "AL:DivideByZero",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1229,
+        "line": 1240,
         "pinned": true,
         "site": "errors/lt-az-error-texts/AzErrorTexts.al:533",
         "template": "Attempted to divide by zero."
@@ -16207,7 +16207,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1283,
+        "line": 1294,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16216,7 +16216,7 @@
         "code": "AL:Overflow",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1288,
+        "line": 1299,
         "pinned": true,
         "site": "errors/lt-error-handling/ErTRuntimeErrors.al:97",
         "template": "Arithmetic operation resulted in an overflow."
@@ -16225,7 +16225,7 @@
         "code": "DateInvalid",
         "file": "crates/al-builtins/src/ops.rs",
         "generic": false,
-        "line": 1335,
+        "line": 1346,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131EvalScalars.al:376",
         "template": "The date is not valid."
@@ -16567,7 +16567,7 @@
         "code": "",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 362,
+        "line": 368,
         "pinned": true,
         "site": "query/TestQueryTopProperty.al:179",
         "template": "Top number of rows cannot be negative"
@@ -16576,7 +16576,7 @@
         "code": "QueryNoDataSet",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 815,
+        "line": 821,
         "pinned": true,
         "site": "xmlport/lt-xmlport-query-datatransfer/XpTQueryBasic.al:84",
         "template": "You have not yet retrieved a dataset for this query. The READ function can only be called after the dataset is retrieved with a call to the OPEN function."
@@ -16585,7 +16585,7 @@
         "code": "Query",
         "file": "crates/al-vm/src/queries.rs",
         "generic": false,
-        "line": 823,
+        "line": 829,
         "pinned": true,
         "site": "errors/lt-ms-refusals-131/P131QuerySetRangeAfterRead.al:111",
         "template": "The READ function is called on a query after query metadata has been changed by one of the following: SETFILTER, SETRANGE, SECURITYFILTERING, or TOPNUMBEROFROWS. After metadata changes, you must reopen the query by calling the OPEN function before calling the READ function."
@@ -16612,7 +16612,7 @@
         "code": "RenameArgument",
         "file": "crates/al-vm/src/records.rs",
         "generic": false,
-        "line": 5206,
+        "line": 5229,
         "pinned": true,
         "site": "recordref/lt-refs/RfTWrite.al:223",
         "template": "The number of field arguments does not match the primary key size."
@@ -29861,7 +29861,7 @@
           28,
           29
         ],
-        "ms_uses": 188839,
+        "ms_uses": 189174,
         "name": "begin",
         "owner": "keyword",
         "pinned": true,
@@ -29921,7 +29921,7 @@
           28,
           29
         ],
-        "ms_uses": 81177,
+        "ms_uses": 81512,
         "name": "exit",
         "owner": "keyword",
         "pinned": true,
