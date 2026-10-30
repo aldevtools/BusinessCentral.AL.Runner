@@ -21,6 +21,7 @@ mod run;
 mod serve;
 mod sources;
 mod sources_report;
+mod stability;
 mod style;
 mod testdata;
 mod version;
@@ -232,6 +233,10 @@ fn real_main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+        Command::PrintText(t) => {
+            print!("{t}");
+            ExitCode::SUCCESS
         }
         Command::TestMicrosoft(a) => match sources::test_microsoft(&a) {
             Ok(code) => ExitCode::from(code),

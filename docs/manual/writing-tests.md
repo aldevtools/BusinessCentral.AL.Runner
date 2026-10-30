@@ -31,6 +31,11 @@ The same holds for properties, data types, method attributes and object types: a
 property the compiler does not accept at the app's runtime (for example `Subtype` on a
 report layout below runtime 18.0, or `ObsoleteState` on a page area from runtime 13.0
 on) gets the compiler's AL0666, from a second table measured the same way.
+App files are read as the AL compiler reads them. `app.json` may start with a
+UTF-8 byte-order mark. `.al` files may be UTF-16 (little or big endian) with a
+byte-order mark. If the app declares a `logo` in `app.json` (a PNG file), a test
+that reads the Logo of its Published Application row gets that file. An app without
+a logo has a blank Logo.
 Preprocessor symbols for `#if` come from `--define SYMBOL` (repeatable), or
 `--preprocessor-symbols A,B`.
 
@@ -228,6 +233,81 @@ package` only on `w1`). One bad cell stops the run with exit 2.
   app's `preprocessorSymbols` and `--define`.
 - Refused with a matrix: `--explain`, `--test-data PATH.bak`, `--output-json` without a
   FILE, and `serve`.
+
+## Companies
+
+By default a run has one company, the session company. The install code of your
+apps runs once, in that company. This matches a database with one company. A test
+that looks for other companies sees only that one.
+
+Many apps support customers with several companies. To test that, name the
+companies:
+
+```bash
+al-runner test ./MyApp ./MyApp.Test --companies "CRONUS International Ltd.,Second Co"
+al-runner test ./MyApp ./MyApp.Test --companies all
+```
+
+With `--companies`, the run behaves like Business Central with several companies:
+
+- The first name is the session company. It must be the company the run already
+  uses, or the run stops with a usage error before anything runs.
+- The per-company install code of your apps runs once in each company, the session
+  company first. The per-database install code runs once after that.
+- `all` means every company of the restored test data, the session company first.
+  Without test data it gives only the session company, as the default does.
+- Microsoft's apps stay in the session company. A test that reads one of their
+  per-company tables in another company is not run, with the reason, except for the
+  few setup tables that the corpus shows are empty there.
+
+Use the default for most work. Use `--companies` when your install or event code
+depends on how many companies exist.
+
+## Permissions
+
+AL Runner does not enforce permissions. Every access is granted. A test that
+lowers its own permissions (`Permissions Mock`, `Library - Lower Permissions`)
+would give a wrong answer, so it is not run, with the reason.
+
+`--ignore-permission-mock` runs those tests with every access granted:
+
+```bash
+al-runner test ./MyApp ./MyApp.Test --ignore-permission-mock
+```
+
+Risks:
+
+- A test that passes can fail on Business Central with a permission error.
+- A test that expects a permission error fails here.
+- Each such pass is a flagged pass: the summary counts it apart from clean passes,
+  with the assumption `permissions-not-enforced`.
+
+Use the flag to run the rest of the test's logic. Do not use it to check
+permissions. In `serve`, the `runTests` field `ignorePermissionMock` does the same.
+
+## Test framework features of BC 29
+
+Business Central 29 adds two test framework features. AL Runner does not run them
+yet. It refuses them, so a missing result is never taken for a pass.
+
+| Feature | What AL Runner does today | Why |
+|---|---|---|
+| A test codeunit with the `TestHandlers` property, or an extension of the enum `DefaultTestHandler` | Every test of the codeunit is not run. The reason says that `ITestHandler` callbacks are not supported yet. | A handler can skip a test with `TestHandlerContext.Skip`. A skipped test is not a failure and not a refusal, so it needs its own result. |
+| A data-driven test: a procedure with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]` | One not-run row under the procedure name. | Business Central runs it once per case. The name of each case's result row is not known yet. |
+
+The decision and the open points are in ADR-059 (`docs/adr/059-test-framework-results.md`).
+The planned change is a fourth result, "skipped", for a test that Business Central
+itself skips, and one result per data-driven case.
+
+`TestHandlerContext` and `DataSourceContext` variables that your own code creates
+(not handed over by the test framework) work as they do on BC 29: reads return the
+values of a fresh variable. They need BC 29.
+
+Data-driven tests often read their cases from a file in the app. When data-driven
+tests are supported, a data source can read the app's resources with
+`NavApp.GetResource`, `NavApp.GetResourceAsText` or `NavApp.GetResourceAsJson`.
+Resources are the files in your app's Resources folder. Until then, keep the data in
+the test itself.
 
 ## Setup data
 

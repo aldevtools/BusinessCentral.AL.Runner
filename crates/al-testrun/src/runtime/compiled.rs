@@ -111,6 +111,9 @@ pub struct RunOptions {
     /// `al-runner test --ignore-permission-mock`: a test that lowers its own permissions runs with every access granted
     /// instead of being refused; each such test hits the assumption `permissions-not-enforced` (a flagged pass).
     pub ignore_permission_mock: bool,
+    /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
+    /// session's host values. The default is a normal run.
+    pub perturb: crate::stability::Perturb,
 }
 
 /// One entry of a run (`RunOptions::entries`).
