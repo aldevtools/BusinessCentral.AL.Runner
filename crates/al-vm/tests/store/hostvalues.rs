@@ -1214,3 +1214,98 @@ fn sleep_takes_a_duration_as_its_milliseconds() {
         "Yes"
     );
 }
+
+// ---------------------------------------------------------------- the run seed (ADR-061)
+
+const SEEDED: &str = r#"
+procedure Draw(): Text
+var
+    G: Guid;
+begin
+    G := CreateGuid();
+    exit(Format(Random(1000000)) + ' ' + Format(Random(1000000)) + ' ' + Format(G));
+end;
+procedure Unseeded(): Text
+begin
+    Randomize();
+    exit(Format(Random(1000000)));
+end;
+procedure Seed7(): Integer
+begin
+    Randomize(7);
+    exit(Random(100));
+end;
+procedure Next(): Text
+begin
+    exit(Format(Random(1000)) + ' ' + Format(Random(7)) + ' ' + Format(Random(1000000)));
+end;
+"#;
+
+/// A session on a host with run seed `seed` whose test method `method` of codeunit 50100 has begun.
+fn seeded_session(engine: &std::sync::Arc<Engine>, seed: i32) -> Session {
+    let host = al_host::Host {
+        run_seed: seed,
+        ..Default::default()
+    };
+    Session::with_host(engine.clone(), host)
+}
+
+fn draw(s: &mut Session, oi: usize, method: &str, routine: &str) -> String {
+    s.seed_test_method(50100, method, true, true);
+    match call(s, oi, routine) {
+        Ok(v) => format!("{v:?}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_same_run_seed_gives_a_test_method_the_same_numbers_and_guids() {
+    let (engine, oi) = compile(SEEDED);
+    let mut full = seeded_session(&engine, 4271833);
+    let a = draw(&mut full, oi, "A", "Draw");
+    let b = draw(&mut full, oi, "B", "Draw");
+    assert_ne!(a, b, "two methods draw their own values");
+    // `--seed N --test B`: B alone sees what it saw after A.
+    let mut alone = seeded_session(&engine, 4271833);
+    assert_eq!(draw(&mut alone, oi, "B", "Draw"), b);
+    // The derived seed is v2's: the first number is `new Random(Derive(seed, 50100, "A")).Next(1000000) + 1`.
+    let mut rng = al_host::random::NetRandom::new(al_host::seed::derive(4271833, 50100, "A"));
+    assert!(
+        a.starts_with(&format!("Text(\"{} ", rng.next_below(1000000) + 1)),
+        "{a}"
+    );
+}
+
+#[test]
+fn another_run_seed_gives_other_numbers_and_guids() {
+    let (engine, oi) = compile(SEEDED);
+    let one = draw(&mut seeded_session(&engine, 1), oi, "A", "Draw");
+    let two = draw(&mut seeded_session(&engine, 2), oi, "A", "Draw");
+    let (n1, g1) = one.rsplit_once(' ').unwrap();
+    let (n2, g2) = two.rsplit_once(' ').unwrap();
+    assert_ne!(n1, n2);
+    assert_ne!(g1, g2);
+}
+
+#[test]
+fn randomize_without_a_seed_reseeds_from_the_tests_derived_seed() {
+    let (engine, oi) = compile(SEEDED);
+    let a = draw(&mut seeded_session(&engine, 9), oi, "A", "Unseeded");
+    assert_eq!(draw(&mut seeded_session(&engine, 9), oi, "A", "Unseeded"), a);
+    assert_ne!(draw(&mut seeded_session(&engine, 10), oi, "A", "Unseeded"), a);
+}
+
+/// types/TestRandomSeededContracts.al:111-131: after `Randomize(7)` in one test, `Random` in the next test of the
+/// codeunit goes on with seed 7's sequence, whatever the run seed.
+#[test]
+fn randomize_with_a_seed_carries_over_to_the_next_test_for_every_run_seed() {
+    let (engine, oi) = compile(SEEDED);
+    for seed in [1, 4271833, 0, i32::MAX] {
+        let mut s = seeded_session(&engine, seed);
+        assert_eq!(draw(&mut s, oi, "RJ_Randomize_Seed7_InOneTest", "Seed7"), "Integer(39)");
+        assert_eq!(
+            draw(&mut s, oi, "RJ_Randomize_Seed7_RandomInTheNextTest", "Next"),
+            "Text(\"872 5 52262\")"
+        );
+    }
+}

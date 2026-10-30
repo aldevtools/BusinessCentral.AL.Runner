@@ -94,13 +94,13 @@ raised in (innermost first):
 ## Report files
 
 - `--junit FILE`: JUnit XML. A test that did not run is `<skipped>` with its reason.
-  The AL call stack is the text of each `<failure>`.
+  The AL call stack is the text of each `<failure>`. Every `testsuite` has a `seed` property: the run seed.
 - `--output-json [FILE]`: one JSON document in the shape of AL Runner version 2:
   `tests[]` with `name`, `status` (`pass`, `fail`, `error`), `durationMs`, `sleptMs`
   (the time the test's `Sleep` calls asked for, summed; `Sleep` returns at once, so
   `durationMs` does not hold it; absent when the test did not sleep), `message`
   and `stackTrace`, plus `passed`, `failed`, `errors`, `skipped`, `total`, `notRun`,
-  `exitCode` and `wallSeconds`. A test that did not run is `error` with the message
+  `exitCode`, `wallSeconds`, and the run seed as `seed` and `seedSource` (`option`, `env` or `fresh`). A test that did not run is `error` with the message
   `NotRun: out-of-scope: <reason>`. A test the time limit stopped is `error` with
   `Test exceeded <N>s timeout.` and a `clock` field (`cpu` or `virtual`). Without FILE, the document is the only thing on
   stdout and the report goes to stderr.

@@ -14,6 +14,8 @@ pub struct Plan {
     pub cell: String,
     pub variants: Vec<Variant>,
     pub master_seed: u64,
+    /// The run seed (ADR-061): part of every variant id.
+    pub run_seed: i32,
     /// `sha256:<hex>` of the config text.
     pub config_hash: String,
     /// The config as named on the command line.
@@ -21,6 +23,11 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// `<cell>/<n>@<run seed>` (ADR-061 section 5): `--stability-replay` with it sets the run seed too.
+    pub fn id(&self, v: &Variant) -> String {
+        format!("{}@{}", v.id(&self.cell), self.run_seed)
+    }
+
     pub fn perturbs(&self) -> Vec<stability::Perturb> {
         self.variants.iter().map(|v| v.perturb.clone()).collect()
     }
@@ -38,17 +45,9 @@ fn check_environment() -> Result<(), String> {
     Ok(())
 }
 
-/// The master seed: the config's, else one from the wall clock when the config draws values (printed, so the run can
-/// be repeated), else 0.
-fn master_seed(cfg: &stability::Config) -> (u64, bool) {
-    match cfg.master_seed {
-        Some(s) => (s, false),
-        None if cfg.draws() => {
-            let wall = al_testrun::host::SystemClock::wall() as u64;
-            (wall % 1_000_000_000, true)
-        }
-        None => (0, false),
-    }
+/// The master seed: the config's, else the run seed (ADR-061 section 5: a stability run prints one seed, not two).
+fn master_seed(cfg: &stability::Config, run_seed: i32) -> u64 {
+    cfg.master_seed.unwrap_or(u64::from(run_seed as u32))
 }
 
 /// The plan of `--stability` without `--stability-replay`; `None` for a normal run or a replay.
@@ -58,7 +57,8 @@ pub fn plan(a: &TestArgs, cell: &str) -> Result<Option<Plan>, String> {
         return Ok(None);
     }
     check_environment()?;
-    let (seed, picked) = master_seed(&st.config);
+    let run_seed = crate::seed::of(a).seed;
+    let seed = master_seed(&st.config, run_seed);
     let max = a.stability_max.unwrap_or(stability::DEFAULT_MAX_VARIANTS);
     let variants = stability::variants(&st.config, seed, max).map_err(|e| format!("--stability {}: {e}", st.source))?;
     // `order.codeunits` changes outcomes only where codeunits share the database (ADR-058 section 2).
@@ -70,15 +70,11 @@ pub fn plan(a: &TestArgs, cell: &str) -> Result<Option<Plan>, String> {
              database after install; use --isolation disabled to run the codeunits on one database"
         );
     }
-    if picked {
-        eprintln!(
-            "stability: master seed {seed} (picked from the clock; put \"masterSeed\": {seed} in the config to repeat this run)"
-        );
-    }
     Ok(Some(Plan {
         cell: cell.to_string(),
         variants,
         master_seed: seed,
+        run_seed,
         config_hash: format!("sha256:{:x}", sha2::Sha256::digest(st.text.as_bytes())),
         source: st.source.clone(),
     }))
@@ -92,10 +88,14 @@ pub fn replay(a: &TestArgs, cell: &str) -> Result<Option<Variant>, String> {
     check_environment()?;
     let variants = match &a.stability {
         Some(st) => {
-            let (seed, _) = master_seed(&st.config);
-            if st.config.master_seed.is_none() && st.config.draws() {
+            let run_seed = crate::seed::of(a);
+            let seed = master_seed(&st.config, run_seed.seed);
+            if st.config.master_seed.is_none()
+                && st.config.draws()
+                && run_seed.source == al_testrun::seed::SeedSource::Fresh
+            {
                 return Err(format!(
-                    "--stability-replay {arg}: the config draws values but has no \"masterSeed\"; put the master seed the run printed in the config, or replay with the printed values"
+                    "--stability-replay {arg}: the config draws values from the run seed; replay with the variant id the run printed (`<cell>/<n>@<seed>`), --seed, or the printed values"
                 ));
             }
             let max = a.stability_max.unwrap_or(stability::DEFAULT_MAX_VARIANTS);
@@ -105,7 +105,7 @@ pub fn replay(a: &TestArgs, cell: &str) -> Result<Option<Variant>, String> {
     };
     let v = stability::replay(arg, variants.as_deref()).map_err(|e| format!("--stability-replay {arg}: {e}"))?;
     let id = if variants.is_some() {
-        v.id(cell)
+        format!("{}@{}", v.id(cell), crate::seed::of(a).seed)
     } else {
         "replay".into()
     };
@@ -150,7 +150,7 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
         format!("Stability ({}, {} variants):", plan.source, plan.variants.len()),
     ];
     for v in &plan.variants {
-        lines.push(format!("  {}  {}", v.id(&plan.cell), v.describe()));
+        lines.push(format!("  {}  {}", plan.id(v), v.describe()));
     }
     let tests = per_variant.first().map_or(0, Vec::len);
     let changed: std::collections::BTreeSet<&str> = changes.iter().map(|c| c.test.as_str()).collect();
@@ -174,7 +174,7 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
                     "    {} -> {} under {}  {}",
                     c.base.text(),
                     c.outcome.text(),
-                    v.id(&plan.cell),
+                    plan.id(v),
                     v.describe()
                 );
                 if c.assumption {
@@ -198,7 +198,7 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
                 c.test,
                 c.base.text(),
                 c.outcome.text(),
-                v.id(&plan.cell),
+                plan.id(v),
                 v.describe(),
                 first_line(&c.message)
             ));
@@ -215,7 +215,7 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
         lines.push("Variants with the most flips:".into());
         for (i, n) in per.iter().take(5) {
             let v = &plan.variants[*i];
-            lines.push(format!("  {n:>4}  {}  {}", v.id(&plan.cell), v.describe()));
+            lines.push(format!("  {n:>4}  {}  {}", plan.id(v), v.describe()));
         }
     }
     lines.push(String::new());
@@ -251,7 +251,7 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
                 .iter()
                 .map(|(k, val)| (k.clone(), val.clone().into()))
                 .collect();
-            serde_json::json!({ "id": v.id(&plan.cell), "cell": plan.cell, "values": values })
+            serde_json::json!({ "id": plan.id(v), "cell": plan.cell, "values": values })
         })
         .collect();
     let flips: Vec<serde_json::Value> = out
@@ -269,7 +269,7 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
             serde_json::json!({
                 "test": c.test,
                 "base": c.base.text(),
-                "variant": v.id(&plan.cell),
+                "variant": plan.id(v),
                 "outcome": c.outcome.text(),
                 "message": c.message,
                 "minimal": minimal,
@@ -341,7 +341,7 @@ pub fn junit(plan: &Plan, results: &[Vec<&TestResult>], out: &Outcome) -> String
             .count();
         x.push_str(&format!(
             "  <testsuite name=\"{}\" tests=\"{}\" failures=\"{failures}\" skipped=\"{skipped}\">\n    <properties>\n",
-            xml(&v.id(&plan.cell)),
+            xml(&plan.id(v)),
             rs.len()
         ));
         for (k, val) in &v.values {
@@ -372,7 +372,7 @@ pub fn junit(plan: &Plan, results: &[Vec<&TestResult>], out: &Outcome) -> String
                     let msg = format!(
                         "outcome changed from {} under {}: {}{original}",
                         c.base.text(),
-                        v.id(&plan.cell),
+                        plan.id(v),
                         v.describe()
                     );
                     x.push_str(&format!(
@@ -411,6 +411,7 @@ mod tests {
             cell: "29.0-w1".into(),
             variants: stability::variants(&cfg, 7, 1000).unwrap(),
             master_seed: 7,
+            run_seed: 7,
             config_hash: "sha256:x".into(),
             source: "test".into(),
         }
@@ -435,15 +436,16 @@ mod tests {
         let out = compare(&plan, &runs);
         assert_eq!(out.flips, 1);
         let text = out.lines.join("\n");
-        assert!(text.contains("29.0-w1/1  order.methods=reverse"), "{text}");
-        assert!(text.contains("pass -> fail under 29.0-w1/1"), "{text}");
+        // ADR-061 section 5: the id carries the run seed.
+        assert!(text.contains("29.0-w1/1@7  order.methods=reverse"), "{text}");
+        assert!(text.contains("pass -> fail under 29.0-w1/1@7"), "{text}");
         assert!(text.contains("2 tests, 1 stable, 1 flipped"), "{text}");
         assert_eq!(exit_code(0, out.flips, false), 1);
         assert_eq!(exit_code(0, out.flips, true), 0);
         let j = json(&plan, &out, &runs);
         assert_eq!(j["summary"]["flipped"], 1);
         assert_eq!(j["flips"][0]["minimal"]["order.methods"], "reverse");
-        assert_eq!(j["variants"][1]["id"], "29.0-w1/1");
+        assert_eq!(j["variants"][1]["id"], "29.0-w1/1@7");
     }
 
     #[test]

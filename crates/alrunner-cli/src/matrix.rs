@@ -164,8 +164,9 @@ fn app_floor_and_symbols(a: &TestArgs) -> Result<(Floor, Vec<String>), String> {
 }
 
 /// Options that take a value and are set per cell by the parent: they are left out of a cell's command line.
-const PER_CELL: [&str; 6] = [
+const PER_CELL: [&str; 7] = [
     "--bc-version",
+    "--seed",
     "--country",
     "--matrix",
     "--matrix-parallel",
@@ -554,7 +555,7 @@ pub fn run(a: &TestArgs, cells: &[Cell], microsoft: bool) -> Result<u8, String> 
             let dir = work.0.as_path().join(format!("cell-{next}"));
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             let junit = a.junit.as_deref().map(|p| cell_file(p, &r.file_tag()));
-            let cargs = cell_args(
+            let mut cargs = cell_args(
                 &args,
                 &r.file_tag(),
                 &r.build,
@@ -562,6 +563,8 @@ pub fn run(a: &TestArgs, cells: &[Cell], microsoft: bool) -> Result<u8, String> 
                 junit.as_deref(),
                 &dir.join("cell.json"),
             );
+            // ADR-061 section 5: every cell runs with the run's seed.
+            cargs.extend(["--seed".to_string(), crate::seed::of(a).seed.to_string()]);
             let out_path = dir.join("stdout.txt");
             let err_path = dir.join("stderr.txt");
             let file = |p: &Path| std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()));

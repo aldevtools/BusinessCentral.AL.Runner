@@ -61,7 +61,7 @@ If you maintain a tool that calls AL Runner, read
 | `--country` | Same. |
 | `--show-pass`, `--failures-only`, `--no-strict-exit` | Not accepted. Failures print by default; use `--verbose` for every test and `--allow-not-run` to relax exit codes. |
 | `--cache PATH`, `--no-cache` | Gone. Your own apps are compiled on every run. The dependency apps use the compile cache (`--cache-dir`). |
-| `--seed N` | Not accepted. Version 3 prints no seed. |
+| `--seed N` | Same flag, and `AL_RUNNER_SEED` (or `ALRUNNER_SEED`). Every run prints `Seed: N` at the start and in the summary, with a `Replay:` command for the first failure. The same seed gives the same `Random` numbers as version 2. Guids are now seeded too, so text built from them replays as well. `--seed-library` also seeds `Library - Random`; by default it keeps `SetSeed(1)`. |
 | `--jobs N` | Gone. Test codeunits run on worker threads automatically. |
 | `--watch` | Not available. |
 | `--dap [PORT]`, `--dap stdio` | `al-runner debug [--port [N] \| --stdio]`, same DAP surface. See [Editor and tool integration](editor-tools.md#debugging). |

@@ -254,10 +254,10 @@ fn run_codeunit_inner(
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
-    let mut session = Session::with_host(
-        engine.clone(),
-        crate::host::host_perturbed(scratch.clock_start, &perturb),
-    );
+    let run_seed = scratch.run_seed;
+    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
+    host.run_seed = run_seed.seed;
+    let mut session = Session::with_host(engine.clone(), host);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -632,6 +632,7 @@ fn run_codeunit_inner(
         crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
         let test_started = std::time::Instant::now();
         let draws_before = session.inherited_random_draws();
+        let carried_before = session.carried_random_draws();
         // The flags of the codeunit that already hold their only value when this test starts.
         let settled: BTreeSet<(usize, usize)> = {
             let inst = instance.borrow();
@@ -701,12 +702,28 @@ fn run_codeunit_inner(
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                     // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                     session.start_random_scope();
+                    // The run seed (ADR-061): the method's `Random` and Guids derive from it and its own name, so
+                    // `--seed N --test X` gives X the values of the full run. A stability variant's own `random.hostSeed`
+                    // or `guid.seed` replaces the derived value for that variant.
+                    let codeunit_id = obj.id.unwrap_or(0);
+                    session.seed_test_method(
+                        codeunit_id,
+                        &routine.name,
+                        perturb.host_seed.is_none(),
+                        perturb.guid_seed.is_none(),
+                    );
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
                     let mut reset = runner.before(&mut session, obj, routine);
-                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2): after codeunit 130301, the
-                    // runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the variant's seed.
-                    if let (Ok(()), Some(seed)) = (&reset, perturb.library_seed) {
+                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
+                    // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
+                    // the variant's seed, else the one derived from the run seed.
+                    let library_seed = perturb.library_seed.or_else(|| {
+                        run_seed
+                            .library
+                            .then(|| al_host::seed::derive_library(run_seed.seed, codeunit_id, &routine.name))
+                    });
+                    if let (Ok(()), Some(seed)) = (&reset, library_seed) {
                         reset = runner_reset::library_seed(&mut session, seed);
                     }
                     let reset_ok = reset.is_ok();
@@ -924,6 +941,9 @@ fn run_codeunit_inner(
         // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
         // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
         let drew = session.inherited_random_draws() > draws_before;
+        // Of those, the numbers the run seed did not restart either (ADR-061): only they depend on an earlier test that
+        // cannot seed the sequence with `Randomize(n)`.
+        let drew_carried = session.carried_random_draws() > carried_before;
         // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
         // (al-runner issue 5641): what it found there is not pinned.
         let outcome = match session.store_mut().watch_hit() {
@@ -972,8 +992,12 @@ fn run_codeunit_inner(
                             })
                             .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
                     });
+                    // ADR-061: each test restarts `Random` from the run seed, so an earlier test's draws matter only when
+                    // the sequence goes on past that restart, after a `Randomize(n)`; an earlier test that can call
+                    // `Randomize(n)` may have left that state, so every draw counts.
+                    let drew = if facts.seeds_random() { drew } else { drew_carried };
                     match u.ended {
-                        Ended::Failed => facts.random().then(|| {
+                        Ended::Failed => (drew && facts.random()).then(|| {
                             format!(
                                 "a test before this one in the codeunit did not pass ({}) and could draw random numbers, and this test draws random numbers: the shared sequence is not BC's",
                                 u.what

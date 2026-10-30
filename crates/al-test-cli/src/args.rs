@@ -102,6 +102,9 @@ pub struct Args {
     /// `--timings-table FILE` (repeatable): print the timing table of these `--json` reports, then
     /// stop. CI uses it for the runs whose reports are not part of the summary.
     pub timings_tables: Vec<PathBuf>,
+    /// `--seed N` (ADR-061 section 5): the run seed for a local check. The default is the fixed seed 1, which the
+    /// ratchet needs.
+    pub seed: Option<i32>,
 }
 
 /// What the command line asks for.
@@ -268,6 +271,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--baseline-diff" => a.baseline_diff = true,
             "--timings" => a.timings = true,
             "--timings-table" => a.timings_tables.push(text()?.into()),
+            "--seed" => {
+                let v = text()?;
+                a.seed = Some(
+                    al_host::seed::parse(&v)
+                        .ok_or_else(|| format!("--seed needs a whole number from 0 to 2147483647, got `{v}`"))?,
+                );
+            }
             _ => return Err(format!("unknown argument `{flag}` (see --help)")),
         }
     }
@@ -275,6 +285,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
         return Err(format!(
             "--update-baseline cannot be combined with a selection ({}): the baseline would lose every case outside it",
             a.select.describe()
+        ));
+    }
+    if a.update_baseline && a.seed.is_some_and(|s| s != al_host::seed::FIXED_RUN_SEED) {
+        return Err(format!(
+            "--update-baseline needs the fixed run seed {} (ADR-061 section 5); leave out --seed",
+            al_host::seed::FIXED_RUN_SEED
         ));
     }
     if a.update_baseline && a.explain.is_some() {
@@ -352,6 +368,7 @@ DIAGNOSE
                               test codeunits (the --json and --markdown reports always carry the
                               times)
   --timings-table FILE        print the timing table of the --json reports named (repeatable), then stop
+  --seed N                    the run seed of Random and Guids per test (default: the fixed seed 1, ADR-061)
 
 BASELINE AND REPORTS
   --baseline FILE             ratchet against this file instead of metrics/<major>/passing.txt
@@ -452,6 +469,15 @@ mod tests {
         let a = run(&["--top-refusals-area", "record"]).unwrap();
         assert_eq!(a.select.areas, ["record"]);
         assert_eq!(a.top_refusals, Some(DEFAULT_TOP));
+    }
+
+    #[test]
+    fn update_baseline_refuses_another_seed() {
+        let e = run(&["--update-baseline", "--seed", "7"]).err().unwrap();
+        assert!(e.contains("fixed run seed"), "{e}");
+        assert_eq!(run(&["--update-baseline", "--seed", "1"]).unwrap().seed, Some(1));
+        assert_eq!(run(&[]).unwrap().seed, None);
+        assert!(run(&["--seed", "x"]).is_err());
     }
 
     #[test]

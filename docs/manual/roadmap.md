@@ -23,8 +23,6 @@ reported as not run, with the reason.
   AL Runner does not apply an app's own `Translations/*.xlf` files. After a test
   switches `GlobalLanguage` away from English (1033), a read whose text a translation
   could change, such as `Format` of an enum value or a label, is refused.
-- **`--seed`.** Version 2 printed a random seed and could replay a run with it.
-  Version 3 accepts no `--seed` and prints none.
 - **`Image.Resize` of the System Application**
   ([issue 5590](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/5590)).
   Tests that resize an image are refused.

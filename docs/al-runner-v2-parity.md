@@ -105,7 +105,7 @@ LethAL).
 | SEL-6 | Per-test timeout (`--test-timeout`, `AL_RUNNER_TEST_TIMEOUT_SEC`, message `Test exceeded {N}s timeout.`) | `Program.cs:603` | Done | Same flag, variable and message. The limit is CPU time, default 20 s; `Sleep` time counts (PR 5640). |
 | SEL-7 | Watchdog for hung tests; `--resume-aborts`; `--merge-counts`; `--merge-results` | `Infrastructure/AbortResume.cs` | N/A | The time limit stops one test cleanly. No re-exec. |
 | SEL-8 | `--jobs N`: parallel workers | `docs/jobs-unit-claiming.md` | Done | Test codeunits run on threads by default, one per core; `AL_TEST_THREADS` sets the count (`--help`, ENVIRONMENT). There is no `--jobs` flag. |
-| SEL-9 | `--seed N`, `AL_RUNNER_SEED`; seed printed; replay | `docs/run-seed.md` | Open | No seed. Needs an owner decision (ADR-016 gate R1). |
+| SEL-9 | `--seed N`, `AL_RUNNER_SEED`; seed printed; replay | `docs/run-seed.md` | Done | ADR-061: `--seed`, `ALRUNNER_SEED`/`AL_RUNNER_SEED`, else a fresh seed; v2's derivation per test method, and Guids seeded too. |
 | SEL-10 | `--tdd`: stubs for missing symbols, so the test fails red instead of the compile failing | `TddGeneration.cs`, `--guide` "TDD MODE" | Done | ADR-051: procedures, overloads, fields, enum values, missing codeunits, tables and enums, also in `serve` (PRs 5601, 5616, 5630, 5638, 5644, 5657). |
 | SEL-11 | Several bundles load together so events cross bundles | `README.md` (#4931) | Done | All APPs compile into one program (`apps.rs`, `combined_project`). |
 | SEL-12 | `--per-suite`, `--bundled` | `Program.cs:540` | N/A | v2 pipeline switches. `--per-suite` is refused with a reason. |
@@ -119,9 +119,9 @@ LethAL).
 | OUT-1 | Run header: tool version, BC build, country, app count | `CliText.cs` `RunHeader` | Partial | The version line by default; the build, apps and dependencies only with `--verbose` (`--help`, OUTPUT). |
 | OUT-2 | One `FAIL` line per failing test; PASS lines only with `--show-pass` | `Reporter.cs` | Done | FAIL lines by default; PASS lines with `--verbose` (`--help`, OUTPUT). `--show-pass` is not accepted. |
 | OUT-3 | AL call stack under a failure | `StackFrameMapper.cs`, `AlCallStackCapture.cs` | Done | Printed under each failing test and written to `--junit` and `--output-json` (`--help`, OUTPUT). |
-| OUT-4 | Summary: `Tests:`, `Seed:`, `Result:`, "Action needed" block | `Reporter.cs` | Partial | `Tests:`, totals, time and `Result:` lines. Missing: the `Seed:` line (see SEL-9) and the "Action needed" block. |
+| OUT-4 | Summary: `Tests:`, `Seed:`, `Result:`, "Action needed" block | `Reporter.cs` | Partial | `Tests:`, `Seed:` (with a `Replay:` line), totals, time and `Result:` lines. Missing: the "Action needed" block. |
 | OUT-5 | `--show-pass`, `--failures-only`/`--quiet`, `--verbose` | `Program.cs` | Done | `--verbose`, `--quiet`; the default shows only failures. The v2 names `--show-pass` and `--failures-only` are unknown options. |
-| OUT-6 | `--output-junit PATH`, grouped by codeunit, seed property, skipped | `JUnitReport.cs` | Done | `--junit FILE`: one suite per codeunit, not-run tests are `<skipped>` with the reason. No seed property. |
+| OUT-6 | `--output-junit PATH`, grouped by codeunit, seed property, skipped | `JUnitReport.cs` | Done | `--junit FILE`: one suite per codeunit, not-run tests are `<skipped>` with the reason, a `seed` property on every suite. |
 | OUT-7 | `--output-json`: per-test status, message, stack, duration, summary, exit code | `Reporter.cs` | Done | v2's shape (migrating-tools, section 4). Adds `notRun`, `sleptMs` (PR 5652). |
 | OUT-8 | `--coverage`: Cobertura XML, `--coverage-out` | `AlCoverage*.cs` | Done | `--coverage`, `--coverage-out`, `--coverage-json` (migrating-tools, section 4a). |
 | OUT-9 | Exit codes 0 to 6 and their order | `README.md` "Exit Codes" | Done | 0, 1, 2, 3, 6, plus 7 and 8 for tests not run (`--help`, EXIT CODES). Exit 3 (the APPs do not compile) came with PR 5623. v2's 4 and 5 belong to dev-only flags (DEV-1, DEV-2). |
@@ -215,7 +215,7 @@ older.
 | ID | Feature | v2 reference | Status | AL Runner today |
 |---|---|---|---|---|
 | ENV-1 | `AL_RUNNER_VERBOSE`, `AL_RUNNER_SHOW_PASS`, `AL_RUNNER_FAILURES_ONLY` | `CliText.cs` | Partial | The flags exist (OUT-5). Missing: the variables are not read (migrating-tools, section 6). |
-| ENV-2 | `AL_RUNNER_TEST_TIMEOUT_SEC`, `AL_RUNNER_SEED` | `Program.cs` | Partial | The timeout variable is read, and `ALRUNNER_TEST_TIMEOUT` too. Missing: the seed (SEL-9). |
+| ENV-2 | `AL_RUNNER_TEST_TIMEOUT_SEC`, `AL_RUNNER_SEED` | `Program.cs` | Done | The timeout variable is read, and `ALRUNNER_TEST_TIMEOUT` too; `AL_RUNNER_SEED` and `ALRUNNER_SEED` (SEL-9). |
 | ENV-3 | `AL_RUNNER_ARTIFACTS_ROOT`, `_CACHE_ROOT`, `_SYMBOLS_ROOT`, `_ENGINE_CACHE_ROOT` | `CacheRoots.cs` | Done | See DP-14. |
 | ENV-4 | `AL_RUNNER_DEFAULT_TEST_TOOL`, `AL_RUNNER_NO_DEP_COMPANY_CACHE`, `AL_RUNNER_BCBAK`, `AL_RUNNER_WATCH_*` | `README.md` | Partial | `_WATCH_*` is not planned (ADR-049). `_BCBAK` is not needed (DP-22). Missing: `_DEFAULT_TEST_TOOL` and `_NO_DEP_COMPANY_CACHE` are not read. |
 | ENV-5 | `AL_RUNNER_EMIT_TIMEOUT_SEC`, `AL_RUNNER_NCL_CACHE`, `AL_RUNNER_TRACE_*`, `AL_RUNNER_JOBS_*` and others | `CliText.cs` | N/A | They describe v2 internals. |
@@ -238,22 +238,22 @@ These four rows are not counted below.
 
 118 user-facing features are counted (sections 1 to 9).
 
-| Status | 2026-10-13 | 2026-10-22 |
-|---|---:|---:|
-| Done | 3 | 57 |
-| Partial | 36 | 33 |
-| Open (2026-10-13: "No") | 63 | 10 |
-| Not planned | 0 | 2 |
-| N/A | 16 | 16 |
+| Status | 2026-10-13 | 2026-10-22 | 2026-10-30 |
+|---|---:|---:|---:|
+| Done | 3 | 57 | 59 |
+| Partial | 36 | 33 | 32 |
+| Open (2026-10-13: "No") | 63 | 10 | 9 |
+| Not planned | 0 | 2 | 2 |
+| N/A | 16 | 16 | 16 |
 
 The counts come from the tables above. Recount them when a row changes.
 
-The 10 Open rows: IN-2, IN-3, IN-4 (how APP arguments are found), IN-10
+The 9 Open rows: IN-2, IN-3, IN-4 (how APP arguments are found), IN-10
 (`package`), DP-10 (compiled-only dependencies), DP-23 and OUT-13 (notes under a
-failure), SEL-9 (`--seed`), OUT-10 (`--no-strict-exit`), DIST-5 (signing).
+failure), OUT-10 (`--no-strict-exit`), DIST-5 (signing).
 
 For gate R1, each Open and Partial row needs to be built or deferred by the owner
-in writing. Candidates for a written deferral: DP-10, SEL-9, IN-10, OUT-10, and
+in writing. Candidates for a written deferral: DP-10, IN-10, OUT-10, and
 the missing platforms (DIST-2).
 
 ## What is hard to match, and why
