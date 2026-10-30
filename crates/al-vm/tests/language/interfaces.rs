@@ -430,3 +430,45 @@ fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_
     );
     assert_eq!(text(r), "a|bc|d");
 }
+
+// An interface that no codeunit in the workspace implements still lowers its calls (al-runner
+// issue 6299: alc accepts the code, so the runner must not refuse the procedure). With no
+// implementer the variable can only be unassigned when the call runs, so the call raises
+// "Interface not initialized" (codeunit/TestInterfaceRuntimeContracts.al:76), and an `is` guard
+// on an instance that does not implement it is false (codeunit/TestInterfaceIsAsContracts.al:61-102).
+#[test]
+fn a_call_on_an_interface_without_implementer_lowers_and_runs_behind_an_is_guard() {
+    let fixtures = "interface IA { procedure A(): Text; } interface IV extends IA { procedure V(): Boolean; } \
+        codeunit 60394 ImplA implements IA { procedure A(): Text begin exit('a'); end; }";
+    let r = run(
+        fixtures,
+        "procedure P(): Text var S: Interface IA; V: Interface IV; A: Codeunit ImplA; begin S := A; \
+         if S is IV then begin V := S as IV; V.V(); end; exit(S.A()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "a");
+    let r = run(
+        fixtures,
+        "procedure P(): Boolean var V: Interface IV; begin exit(V.V()); end;",
+        "P",
+    );
+    let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+    assert_eq!(
+        (e.message.as_str(), e.code.as_str()),
+        ("Interface not initialized", "InvalidOperation")
+    );
+}
+
+// An extensible enum with no values in the workspace that implements an interface nothing
+// implements (al-runner issue 6299): a foreach over its Ordinals() never runs the body.
+#[test]
+fn a_loop_over_an_empty_extensible_enum_with_an_interface_call_runs() {
+    let fixtures = "interface IS { procedure D(): Text; } enum 60395 ES implements IS { Extensible = true; }";
+    let r = run(
+        fixtures,
+        "procedure P(): Integer var E: Enum ES; S: Interface IS; L: List of [Text]; begin \
+         foreach E in Enum::ES.Ordinals() do begin S := E; L.Add(S.D()); end; exit(L.Count()); end;",
+        "P",
+    );
+    assert_eq!(int(r), 0);
+}

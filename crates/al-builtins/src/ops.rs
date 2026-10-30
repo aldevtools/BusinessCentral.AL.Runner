@@ -988,6 +988,17 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 .map(V::BigInteger)
                 .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
         }
+        // Duration * Decimal and Decimal * Duration: the Duration counts as its milliseconds and the product is a Decimal that
+        // keeps the fraction (types/lt-ax-text-format-dates/AxDurationDateTime.al, Duration_Wb_DurationTimesDecimalVariable100,
+        // Duration_Wb_DecimalTimesDurationVariable, Duration_Wb_DurationTimesFractionVariable,
+        // Duration_Wb_DurationTimesFractionPrintsValue: 7 * 1.5 is 10.5; corpus branch al-runtime-rs-staging-wb at a07787b2,
+        // not yet on master; al-runner issue 6285). An overflow is not pinned.
+        (V::Duration(ms), V::Decimal(d)) | (V::Decimal(d), V::Duration(ms)) if op == Arith::Mul => {
+            return Decimal::from(*ms)
+                .checked_mul(*d)
+                .map(|p| V::Decimal(p.normalize()))
+                .ok_or_else(|| Signal::Unsupported("Duration * Decimal overflow (error text not pinned yet)".into()));
+        }
         // Duration +/- Duration is a BigInteger of milliseconds: `Format(D1 + D2)` answers '4000', not a duration text, and `R := D1 + D2`
         // converts it back (corpus types/lt-duration-arithmetic/DurationAddDuration.al:Add_TwoVariables_Result, sum_format_default).
         (V::Duration(a), V::Duration(b)) if matches!(op, Arith::Add | Arith::Sub) => {

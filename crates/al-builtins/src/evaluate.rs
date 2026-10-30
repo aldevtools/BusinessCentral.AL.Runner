@@ -646,6 +646,18 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
 }
 
+/// A Boolean text under language 1031 (types/lt-wc/WcUnpinnedSingles.al:79-113 WC_Evaluate_Boolean_German): `Ja` is true,
+/// `Nein` false, and `Yes` and `vielleicht` are rejected. Other texts are not pinned in German (a rule for "any word that is no
+/// Boolean" would decide words such as `J` or `Wahr` that may be Boolean words there).
+fn german_boolean(text: &str) -> Result<Parsed, Signal> {
+    match text {
+        "Ja" => Ok(Parsed::Value(Value::Boolean(true))),
+        "Nein" => Ok(Parsed::Value(Value::Boolean(false))),
+        "Yes" | "vielleicht" => Ok(Parsed::Rejected),
+        _ => unsupported(format!("Evaluate of the Boolean text `{text}` in German (not pinned)")),
+    }
+}
+
 fn guid(text: &str) -> Result<Parsed, Signal> {
     // Blanks around the text do not count (types/lt-scalars/ScT70054.al:Guid_EvaluateInvalid `spaces`).
     let text = text.trim_matches(' ');
@@ -1909,6 +1921,7 @@ fn evaluate_with_max(
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
         Value::Duration(_) => duration(&text, number)?,
+        Value::Boolean(_) if number == 0 && c.session_locale().map(|l| l.0) == Some(1031) => german_boolean(&text)?,
         Value::Boolean(_) => boolean(&text, number)?,
         Value::Guid(_) => guid(&text)?,
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
@@ -2161,8 +2174,9 @@ fn evaluate_with_max(
             // In German the text is pinned for Decimal only (types/lt-evaluate-decimal-text/EvalDecimalDe.al:
             // P175_De_StatementErrorText, P175_De_Format9StatementErrorText).
             match (c.session_locale().map(|l| l.0), ty) {
-                (Some(1031), "Decimal") => crate::native::raise(
-                    format!("Der Wert „{text}“ kann nicht in Typ Decimal ausgewertet werden."),
+                // ... and Boolean (types/lt-wc/WcUnpinnedSingles.al:79-113 `vielleicht`).
+                (Some(1031), "Decimal" | "Boolean") => crate::native::raise(
+                    format!("Der Wert „{text}“ kann nicht in Typ {ty} ausgewertet werden."),
                     "Evaluate",
                 ),
                 (Some(1031), _) => unsupported(format!("the Evaluate error of {ty} in German (not pinned)")),

@@ -1008,6 +1008,7 @@ fn derived() -> &'static std::collections::HashMap<String, NativeFn> {
                     .or_else(|| crate::file::native_for(sig))
                     .or_else(|| crate::textfns::native_for(sig))
                     .or_else(|| crate::wsac::native_for(sig))
+                    .or_else(|| crate::testcontexts::native_for(sig))
                     .or_else(|| crate::errorinfo::native_for(sig))
                     .or_else(|| crate::version::native_for(sig))
                     .or_else(|| crate::datatransfer::native_for(sig))
@@ -2769,6 +2770,12 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
                 std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
             )
         }
+        // A cleared TableFilter field is the empty filter, as on a fresh record; the other fields keep their values and the stored
+        // row changes only with Modify (record/lt-wc/WcClearTableFilter.al:36-90, al-runner issue 6318).
+        Value::Library(name, _) if name.as_str() == "TableFilter" => Value::Library(
+            name.clone(),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
+        ),
         Value::Library(name, _)
             if matches!(
                 name.as_str(),

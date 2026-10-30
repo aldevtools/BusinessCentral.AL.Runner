@@ -2381,11 +2381,70 @@ codeunit 50000 "T" { Subtype = Test;
     if Actual <> Expected then Error('Expected %1, got %2', Expected, Actual); end;
   [Test] procedure OtherExpressionRefused() var P: Record "Page Control Field"; begin
     P.SetRange(PageNo, Page::"Repro Cost Line List 50103");
-    P.FindFirst(); end; }"#,
+    P.FindFirst();
+    if P.SourceExpression = '' then; end;
+  [Test] procedure OtherExpressionRowIsServed() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"Repro Cost Line List 50103");
+    P.FindFirst();
+    if (P.ControlName <> 'CostText') or (P.FieldNo <> 0) or (P.Sequence <> 0) then Error('row %1 %2 %3', P.ControlName, P.FieldNo, P.Sequence); end; }"#,
     );
     passes(&o, "HiddenControlReportsVisibleFalse");
     passes(&o, "ArrayElementControlRow");
-    not_run(&o, "OtherExpressionRefused");
+    passes(&o, "OtherExpressionRowIsServed");
+    let why = not_run(&o, "OtherExpressionRefused");
+    assert!(why.contains("SourceExpression"), "{why}");
+}
+
+// al-runner issue 6284: the row of a control bound to a built-in call (`field(companyName; CompanyName)`) is served with
+// FieldNo 0, so a walk over the page's controls or a filter on FieldNo finds the two table-bound controls
+// (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, corpus branch al-runtime-rs-staging-wb at a07787b2, not yet on master).
+// What BC stores in SourceExpression for a call is not pinned: a read of it is refused, as is an undeclared Editable.
+#[test]
+fn page_control_field_serves_the_row_of_a_control_bound_to_a_built_in_call() {
+    let o = outcomes(
+        r#"table 50100 "PX Entry" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decimal) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50100 "PX Entries API"
+{
+    PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'entry'; EntitySetName = 'entries';
+    SourceTable = "PX Entry"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) {
+        field(number; Rec."No.") { }
+        field(amount; Rec.Amount) { }
+        field(companyName; CompanyName) { }
+    } } }
+}
+codeunit 50101 "T" { Subtype = Test;
+  [Test] procedure FieldNumbersOfAnApiPageWithABuiltInControl() var PageControlField: Record "Page Control Field"; Bound: Integer; begin
+    PageControlField.SetRange(PageNo, Page::"PX Entries API");
+    PageControlField.FindSet();
+    repeat
+        if PageControlField.FieldNo <> 0 then
+            Bound += 1;
+    until PageControlField.Next() = 0;
+    if Bound <> 2 then
+        Error('got %1', Bound); end;
+  [Test] procedure FilterToTableBoundControlsOnly() var PageControlField: Record "Page Control Field"; begin
+    PageControlField.SetRange(PageNo, Page::"PX Entries API");
+    PageControlField.SetFilter(FieldNo, '<>0');
+    if PageControlField.Count() <> 2 then
+        Error('got %1', PageControlField.Count()); end;
+  [Test] procedure SourceExpressionOfTheCallIsRefused() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, 'companyName');
+    P.FindFirst();
+    if P.SourceExpression = '' then; end;
+  [Test] procedure EditableOfTheCallIsRefused() var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, 'companyName');
+    P.FindFirst();
+    if P.Editable = '' then; end; }"#,
+    );
+    passes(&o, "FieldNumbersOfAnApiPageWithABuiltInControl");
+    passes(&o, "FilterToTableBoundControlsOnly");
+    for t in ["SourceExpressionOfTheCallIsRefused", "EditableOfTheCallIsRefused"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("not pinned"), "{t}: {why}");
+    }
 }
 
 // The corpus writer's probe of al-runner issue 5842 (corpus branch al-runtime-rs-staging-pub-sc @2150ff97, green on BC 27.5, 28.5
@@ -2551,7 +2610,8 @@ codeunit 50000 "T" { Subtype = Test;
 ///   Delete blank (:94-117); Limited Usage is not read there and stays unknown. Page at 2000000000 and 2000000001 differs
 ///   by major (:103-115) and is refused.
 ///
-/// Other Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
+/// TableData and Table at eight numbers of the ISV and customer ranges are pinned (lt-ss1030/SsLicensePermissionObjects.al:56-87,
+/// corpus PR 852). Other Table, Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
 /// is a blank row, so the assumption stops at the highest number pinned `Yes` below it (Codeunit 99999999,
 /// AgLicensePermission.al:43-67). Other numbers, other types and a negative number stay refused.
 const ISSUE_6214_OBJECTS: &str = "
@@ -2649,7 +2709,25 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Table, 70012345);
+        if Describe(ObjType::Table, 70012345) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::Table, 70012345));
+    end;
+
+    [Test]
+    procedure IsvTableDataNumbers()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::TableData, 70000500) + '|' + Describe(ObjType::TableData, 99999999) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::TableData, 70000500));
+    end;
+
+    [Test]
+    procedure OtherTableDataNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::TableData, 70012345);
     end;
 
     [Test]
@@ -2677,13 +2755,15 @@ fn issue_6214_license_permission_of_any_object_number() {
         "OtherNumberOfTheIsvRange",
         "PinnedUnusedNumbers",
         "TopOfTheRange",
+        "OtherTableNumber",
+        "IsvTableDataNumbers",
     ] {
         passes(&o, t);
     }
     for t in [
         "PageAtTheTop",
         "BetweenTheRanges",
-        "OtherTableNumber",
+        "OtherTableDataNumber",
         "OtherXmlPortNumber",
         "NegativeNumber",
     ] {
@@ -2694,11 +2774,10 @@ fn issue_6214_license_permission_of_any_object_number() {
     assert!(why.contains("Limited Usage Permission"), "{why}");
 }
 
-/// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;
-/// an id that is no Windows zone finds none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
-/// record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo;
-/// `No Such Standard Time` absent). Other Windows ids are assumed (`time-zone-windows-id-is-a-row`); the `No.` and
-/// `Display Name` of such a row are not pinned and are refused when read.
+/// Issue 6218: a lookup by `ID` of a Windows time zone finds one row; an id that is no Windows zone finds none
+/// (record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById). Since corpus PR 829 the whole table is pinned
+/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al: 144 rows, `Arabian Standard Time` = No. 83 at :154, `W. Europe Standard
+/// Time` = No. 55 at :116), so the `No.` of every zone is served.
 const ISSUE_6218_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2738,13 +2817,23 @@ codeunit 50000 \"T\" {
     end;
 
     [Test]
-    procedure NumberOfAZoneOutsideTheDefaultRows()
+    procedure NumberOfEveryZoneIsServed()
     var
         TimeZone: Record \"Time Zone\";
     begin
         TimeZone.SetRange(ID, 'Arabian Standard Time');
         TimeZone.FindFirst();
-        if TimeZone.\"No.\" = 0 then;
+        if TimeZone.\"No.\" <> 83 then
+            Error('Arabian No. %1', TimeZone.\"No.\");
+        TimeZone.Reset();
+        if TimeZone.Count() <> 144 then
+            Error('count %1', TimeZone.Count());
+        TimeZone.Get(55);
+        if TimeZone.ID <> 'W. Europe Standard Time' then
+            Error('55: %1', TimeZone.ID);
+        TimeZone.Get(142);
+        if TimeZone.\"Display Name\" <> '(UTC+13:00) Nuku''alofa' then
+            Error('142: %1', TimeZone.\"Display Name\");
     end;
 }";
 
@@ -2753,8 +2842,7 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
     let o = outcomes(ISSUE_6218_OBJECTS);
     passes(&o, "WindowsZoneIdIsInTimeZoneTable");
     passes(&o, "OtherWindowsZone");
-    let why = not_run(&o, "NumberOfAZoneOutsideTheDefaultRows");
-    assert!(why.contains("Time Zone"), "{why}");
+    passes(&o, "NumberOfEveryZoneIsServed");
 }
 
 /// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (here three Option members) leaves only its

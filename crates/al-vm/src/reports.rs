@@ -2718,6 +2718,10 @@ impl Session {
         } else {
             self.custom_layout(&schema)?
         };
+        let payload_unpinned = match custom {
+            Some(_) => self.custom_layout_views_unpinned(&inst, &schema, &parameters, record_ref)?,
+            None => None,
+        };
         // A report with columns and no layout at all: the rendering formats stop after OnInitReport with the error, which a used result
         // turns into false (report/lt-report-pre-rendering/ReportPreRenderingSaveAsPdf.al: P195_SaveAsPdf_PreRenderingOrder and its
         // Word, Excel and Html siblings, the call in a TryFunction).
@@ -2973,7 +2977,7 @@ impl Session {
                             "{id} to a file of a report with a Custom layout (only a stream is handed to the merger)"
                         ));
                     };
-                    return self.render_custom_layout(&schema, &format, layout, bytes, &blob);
+                    return self.render_custom_layout(&schema, &format, layout, bytes, &blob, payload_unpinned);
                 }
                 if document_ready {
                     let SaveTarget::Stream(blob) = &target else {
@@ -3213,6 +3217,148 @@ impl Session {
         }
     }
 
+    /// Why the ObjectPayload of a rendered `SaveAs` with a custom layout is not pinned, when its data items have a view the
+    /// caller gave: its `filterviews` is pinned only empty, for a SaveAs with no request parameters and no view
+    /// (report/lt-report-layout-merger/ReportMergerPayload.al:37-38), and for one view given in the request parameters
+    /// (:152), whose field-number form is not built here. The payload is then refused on use; the merger still runs.
+    fn custom_layout_views_unpinned(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        parameters: &str,
+        record_ref: Option<&Value>,
+    ) -> Result<Option<&'static str>, Signal> {
+        if record_ref.is_some() {
+            return Ok(Some(
+                "the ObjectPayload of a custom layout merger for a SaveAs with a RecordRef (its filterviews is pinned only empty)",
+            ));
+        }
+        let mut rest = parameters;
+        while let Some(at) = rest.find("<DataItem ") {
+            let tag = &rest[at..];
+            let Some(end) = tag.find('>') else { break };
+            if tag[..end].ends_with('/') {
+                rest = &tag[end..];
+                continue;
+            }
+            let body = &tag[end + 1..];
+            let close = body.find("</DataItem>").unwrap_or(body.len());
+            if !body[..close].trim().is_empty() {
+                return Ok(Some(
+                    "the ObjectPayload of a custom layout merger for a SaveAs with a data item view in the request parameters \
+                     (its filterviews is pinned only empty)",
+                ));
+            }
+            rest = &body[close..];
+        }
+        for item in &schema.report().items {
+            if item.slot.is_none() {
+                continue;
+            }
+            let rec = self.base_item_record(inst, item)?;
+            let key = Rc::as_ptr(&rec) as usize;
+            if self.report.set_view_filters.iter().any(|(k, _)| *k == key) {
+                return Ok(Some(
+                    "the ObjectPayload of a custom layout merger for a SaveAs after SetTableView (its filterviews is pinned \
+                     only empty)",
+                ));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The ObjectPayload the platform hands a custom layout merger: 19 keys in this order, the same for every format but
+    /// `documenttype` (report/lt-report-layout-merger/ReportMergerPayload.al:37-38 Pdf, :54-55 Word, :71-72 Excel, :88-89 Html,
+    /// :172-175 the keys of all four, :199-200 a second report; ReportMergerLayoutChoice.al:30-31, :94-95 the layout's name
+    /// and mime type; ReportMergerStatic.al:93-95 the static form). `objectname` is the report's caption (`LT Merger Main`).
+    /// The values the corpus masks (invokedby, invokeddatetime, companyname, layoutapplicationid, reportrunid) are pinned
+    /// only in shape (a GUID, an ISO date time): their exact text is the assumption custom-layout-merger.
+    fn custom_layout_payload(
+        &mut self,
+        schema: &Schema,
+        format: &str,
+        layout: &ir::RenderingLayout,
+        unpinned: Option<&'static str>,
+    ) -> Result<Value, Signal> {
+        use al_builtins::json::string_literal as lit;
+        if let Some(why) = unpinned {
+            return Ok(al_builtins::json::unpinned_object(why));
+        }
+        let document_type = match format {
+            "Pdf" => "application/pdf",
+            "Word" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Excel" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Html" => "text/html",
+            other => return unsupported(format!("the ObjectPayload of a custom layout merger for {other}")),
+        };
+        if layout.mime_type.is_empty() {
+            return Ok(al_builtins::json::unpinned_object(
+                "the ObjectPayload of a custom layout merger for a layout without a MimeType (not pinned)",
+            ));
+        }
+        let o = &self.engine.program.objects[schema.object];
+        let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
+            Some((_, v)) => match crate::recmeta::string_literal(v) {
+                Some(c) => c,
+                None => {
+                    return unsupported(
+                        "the ObjectPayload of a custom layout merger: a report Caption that is not a literal",
+                    );
+                }
+            },
+            None => {
+                return Ok(al_builtins::json::unpinned_object(
+                    "the ObjectPayload of a custom layout merger of a report without a Caption (its objectname is not pinned)",
+                ));
+            }
+        };
+        let app = self
+            .engine
+            .program
+            .apps
+            .get(o.app as usize)
+            .map(|a| a.id.trim_matches(|c| c == '{' || c == '}').to_ascii_lowercase())
+            .unwrap_or_default();
+        let guid = |g: [u8; 16]| {
+            let t = al_builtins::format::format_guid(&g).to_ascii_lowercase();
+            t.trim_matches(|c| c == '{' || c == '}').to_string()
+        };
+        let invoked_by = guid(self.host.identity.user_security_id());
+        let run_id = guid(self.fresh_guid());
+        let ms = self.read_clock_millis();
+        let (y, mo, d) = al_builtins::format::civil_from_day(
+            (ms.div_euclid(86_400_000) + i64::from(al_builtins::format::day_from_civil(1970, 1, 1))) as i32,
+        );
+        let t = ms.rem_euclid(86_400_000);
+        let when = format!(
+            "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z",
+            t / 3_600_000,
+            t / 60_000 % 60,
+            t / 1000 % 60,
+            t % 1000
+        );
+        let text = format!(
+            "{{\"filterviews\":[],\"version\":1,\"objectname\":{},\"objectid\":{},\"documenttype\":{},\"invokedby\":{},\
+             \"invokeddatetime\":{},\"companyname\":{},\"printername\":\"\",\"duplex\":false,\"color\":false,\
+             \"defaultcopies\":1,\"papertray\":null,\"intent\":\"Save\",\"layoutmodel\":\"Custom\",\"layoutname\":{},\
+             \"layoutmimetype\":{},\"layoutapplicationid\":{},\"reportrunid\":{}}}",
+            lit(&caption),
+            self.object_id_of(schema.object as u32),
+            lit(document_type),
+            lit(&invoked_by),
+            lit(&when),
+            lit(&self.cx.company),
+            lit(&layout.name),
+            lit(&layout.mime_type),
+            lit(&app),
+            lit(&run_id),
+        );
+        match al_builtins::json::object_from_text(&text)? {
+            Some(v) => Ok(v),
+            None => unsupported("the ObjectPayload of a custom layout merger could not be built"),
+        }
+    }
+
     /// Raises the platform's `CustomDocumentMergerEx` for a custom layout (assumption custom-layout-merger) and answers
     /// whether a subscriber rendered the document into `blob`.
     fn render_custom_layout(
@@ -3222,6 +3368,7 @@ impl Session {
         (layout, layout_bytes): (ir::RenderingLayout, Vec<u8>),
         dataset: Vec<u8>,
         blob: &al_builtins::stream::BlobRef,
+        payload_unpinned: Option<&'static str>,
     ) -> Result<Value, Signal> {
         use al_builtins::stream::{Encoding, InState};
         use al_builtins::value::LibraryValue;
@@ -3267,10 +3414,7 @@ impl Session {
         .iter()
         .map(|n| n.to_string())
         .collect();
-        // The payload keys are not pinned (corpus topic #176): any use of the object is refused.
-        let payload = al_builtins::json::unpinned_object(
-            "the ObjectPayload of a custom layout merger is not pinned (corpus topic #176)",
-        );
+        let payload = self.custom_layout_payload(schema, format, &layout, payload_unpinned)?;
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             Value::Option(action, members),

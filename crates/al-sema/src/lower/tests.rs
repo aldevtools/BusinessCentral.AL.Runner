@@ -709,6 +709,25 @@ fn a_dotnet_result_passed_to_a_text_parameter_is_coerced_and_isnull_takes_a_dotn
     assert!(dump.contains("DotNetCoerce(Text(None)"), "{dump}");
 }
 
+// System Application Uri.GetSegments: `Result.Add(Segment)` with `Segment: DotNet String` and `Result: List of [Text]`
+// (al-runner issue 6298). A variable declared `DotNet String` reads as a Text, nothing as '' (tests/al-language-onprem-dotnet/
+// lt-dotnet-interop/DotNetOperandStringEq.al), so it fits the list's Text element like a DotNet result does.
+#[test]
+fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
+    let (ws, l) = lower_src(
+        "dotnet { assembly(\"mscorlib\") { type(\"System.String\"; \"Str\") { } } }\n\
+         codeunit 50100 C { procedure P(): Integer var S: DotNet Str; L: List of [Text]; begin L.Add(S); exit(L.Count()); end; }",
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let (oi, r) = routine(&l, "P");
+    assert_eq!(l.unsupported[oi][0], Vec::<String>::new());
+    let dump = format!("{:?}", r.body);
+    assert!(
+        dump.contains("DotNetCoerce(Text(None)") && dump.contains("Convert(Text(None)"),
+        "{dump}"
+    );
+}
+
 // Tests-ERM Document Service Management.CheckError: `Error(Service.LastError.Message)`. A DotNet result
 // fits the Text overload of Error, not the ErrorInfo one (ADR-024).
 #[test]
@@ -2229,4 +2248,25 @@ pageextension 50102 X extends P {
     assert_eq!(body(p, "Bare"), body(p, "Qual"));
     let x = obj("X");
     assert_eq!(body(x, "XBare"), body(x, "XQual"));
+}
+
+/// al-runner issue 6283: a bare `RunModal()` in a page procedure is the page's own `RunModal`, as the bare `LookupMode(true)`
+/// before it is (issue 6021). It lowers to the same IR as the `CurrPage.RunModal()` form (pinned by
+/// pages/lt-wb-6283/WbBareRunModal.al:35-43).
+#[test]
+fn a_bare_run_modal_in_a_page_lowers_as_the_currpage_form() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50100 P {
+    SourceTable = T;
+    procedure Bare(): Boolean begin LookupMode(true); RunModal(); if RunModal() = Action::LookupOK then exit(true); end;
+    procedure Qual(): Boolean begin CurrPage.LookupMode(true); CurrPage.RunModal(); if CurrPage.RunModal() = Action::LookupOK then exit(true); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
+    let p = &l.program.objects[i];
+    let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
+    assert_eq!(body("Bare"), body("Qual"));
 }

@@ -941,6 +941,7 @@ fn test_inner(
     .map_err(|e| e.to_string())?;
     // Each app under test sees the builtins of the runtime its own app.json declares (al-runner issue 5573): the AL
     // compiler rejects a call newer than that runtime with AL0666.
+    chosen.widen_runtime(inputs.iter().filter_map(|i| i.versions.runtime));
     chosen.target.app_runtimes = inputs
         .iter()
         .filter_map(|i| Some((i.source.id.clone(), i.versions.runtime?)))
@@ -1463,6 +1464,7 @@ fn test_inner(
         process_ends_after,
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
+        perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
             Arc::new(
@@ -1583,19 +1585,58 @@ fn test_inner(
     } else {
         vec![SuiteRun::everything()]
     };
+    // `--stability` (ADR-058): the variants of the config, run over one compile; `--stability-replay`: one variant as a
+    // normal run.
+    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
+    let stability_plan = crate::stability::plan(a, &cell)?;
+    if let Some(v) = crate::stability::replay(a, &cell)? {
+        opts.perturb = v.perturb;
+    }
+    if (stability_plan.is_some() || a.stability_replay.is_some()) && warm.is_some() {
+        return Err("--stability is not built for al-runner serve yet".into());
+    }
+    let mut variant_rts: Vec<CorpusRuntime> = Vec::new();
     let rt = match warm.as_deref_mut() {
         None => {
             let (all_apps, kinds, manifests) = build_apps();
-            CorpusRuntime::try_run_suites_with(
-                all_apps,
-                kinds,
-                &manifests,
-                &symbols,
-                Some(&chosen.target),
-                dotnet,
-                &suites,
-                &opts,
-            )?
+            match &stability_plan {
+                None => CorpusRuntime::try_run_suites_with(
+                    all_apps,
+                    kinds,
+                    &manifests,
+                    &symbols,
+                    Some(&chosen.target),
+                    dotnet,
+                    &suites,
+                    &opts,
+                )?,
+                Some(plan) => {
+                    let mut rts = CorpusRuntime::try_run_variants(
+                        all_apps,
+                        kinds,
+                        &manifests,
+                        &symbols,
+                        Some(&chosen.target),
+                        dotnet,
+                        &suites,
+                        &opts,
+                        &plan.perturbs(),
+                        |i| {
+                            let v = &plan.variants[i];
+                            eprintln!(
+                                "stability: variant {} of {}: {}  {}",
+                                i + 1,
+                                plan.variants.len(),
+                                v.id(&plan.cell),
+                                v.describe()
+                            );
+                        },
+                    )?;
+                    let base = rts.remove(0);
+                    variant_rts = rts;
+                    base
+                }
+            }
         }
         Some(w) => {
             // `--tdd` changes what compiles (ADR-051 decision 9), so it is part of the key.
@@ -1697,6 +1738,23 @@ fn test_inner(
         .filter(|r| a.test_apps.is_none_or(|n| r.app < n))
         .collect();
     results.sort_by_key(|r| (r.app, r.codeunit));
+    // `--stability`: the selected results of every variant, compared with the base variant's.
+    let stability = stability_plan.as_ref().map(|plan| {
+        let mut per_variant: Vec<Vec<&TestResult>> = vec![results.clone()];
+        for v in &variant_rts {
+            let mut rs: Vec<&TestResult> = v
+                .results()
+                .iter()
+                .filter(|r| selection.picks(r.codeunit, &r.test))
+                .filter(|r| a.test_apps.is_none_or(|n| r.app < n))
+                .collect();
+            rs.sort_by_key(|r| (r.app, r.codeunit));
+            per_variant.push(rs);
+        }
+        let seen: Vec<_> = per_variant.iter().map(|rs| crate::stability::seen(rs)).collect();
+        let out = crate::stability::compare(plan, &seen);
+        (plan, per_variant, seen, out)
+    });
     // A request with entries: the results of each entry, picked by its own selection, in the order of the entries.
     let mut entry_counts: Vec<Counts> = Vec::new();
     if !rt.entries.is_empty() {
@@ -2045,7 +2103,9 @@ fn test_inner(
     }
     let coverage_time = coverage_started.elapsed();
     let total_time = started.elapsed();
-    if let Some(path) = &a.junit {
+    if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
+        write_file(path, &crate::stability::junit(plan, per_variant, out))?;
+    } else if let Some(path) = &a.junit {
         let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();
         with_skipped.sort_by_key(|r| (r.app, r.codeunit));
         write_file(
@@ -2090,7 +2150,13 @@ fn test_inner(
             say!("{line}");
         }
     }
-    say!("{}", style::bold(&output::summary_line(&counts, test_data.is_some())));
+    say!(
+        "{}",
+        style::bold(&output::summary_line(
+            &counts,
+            output::needs_no_data_note(microsoft, test_data.is_some())
+        ))
+    );
     if !a.quiet && counts.total > 0 {
         for line in output::summary_table(&counts) {
             say!("{line}");
@@ -2142,6 +2208,12 @@ fn test_inner(
     }
     if empty_entries.contains(&true) {
         code = 6;
+    }
+    if let Some((_, _, _, out)) = &stability {
+        for line in &out.lines {
+            say!("{line}");
+        }
+        code = crate::stability::exit_code(code, out.flips, a.stability_allow_flips);
     }
     let verdict = match code {
         0 => "PASSED",
@@ -2240,6 +2312,15 @@ fn test_inner(
             output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
             affected.as_ref(),
         );
+        // `--stability`: the base variant's document plus a `stability` object (ADR-058 section 5).
+        let doc = match &stability {
+            Some((plan, _, seen, out)) => {
+                let mut d: serde_json::Value = serde_json::from_str(&doc).map_err(|e| e.to_string())?;
+                d["stability"] = crate::stability::json(plan, out, seen);
+                d.to_string()
+            }
+            None => doc,
+        };
         match target {
             Some(path) => write_file(path, &doc)?,
             None => println!("{doc}"),

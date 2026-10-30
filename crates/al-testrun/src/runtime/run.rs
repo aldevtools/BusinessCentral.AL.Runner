@@ -153,10 +153,108 @@ pub fn run_codeunit_full(
     )
 }
 
+/// Why the BC 29 test framework features of a test codeunit keep it from running (`None`: it runs). A codeunit with
+/// `TestHandlers` has ITestHandler callbacks run around it and around each test on BC
+/// (al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98, :125); the runner does not call them yet.
+/// An extension of the system enum DefaultTestHandler (2000000024) adds a handler to every test codeunit
+/// (System.app `DefaultTestHandler.Enum.al`); what it does is not probed.
+fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
+    let obj = &lowered.program.objects[object];
+    if obj
+        .properties
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("TestHandlers"))
+    {
+        return Some("a test codeunit with TestHandlers (ITestHandler callbacks) is not supported yet".into());
+    }
+    let default_handler = lowered
+        .program
+        .objects
+        .heads()
+        .iter()
+        // The heads only: reading every object would decode all of a lazy compile.
+        .any(|o| o.kind == al_ir::ObjKind::EnumExtension && o.extends_id == Some(2000000024));
+    default_handler.then(|| "an extension of the enum DefaultTestHandler (ITestHandler callbacks for every test codeunit) is not supported yet".into())
+}
+
+/// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]`. BC runs each once per
+/// case its ITestDataSource lists (BiTestDataSource.al:87, not asserted on the corpus CI); the runner reports each as
+/// not run, one row under its procedure name.
+fn data_driven_tests(lowered: &Lowered, object: usize) -> Vec<String> {
+    let obj = &lowered.program.objects[object];
+    obj.routines
+        .iter()
+        .filter(|r| {
+            r.attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("TestDataSource"))
+                && !r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
+        })
+        .map(|r| r.name.clone())
+        .collect()
+}
+
 /// [`run_codeunit_full`], or with `execute` the `OnRun` trigger of the codeunit run as its one test, with the text of
-/// the `Message` calls it made kept in `messages` (a scratch run).
+/// the `Message` calls it made kept in `messages` (a scratch run). Refuses the BC 29 test framework features the runner
+/// does not run yet; [`run_codeunit_inner`] runs the rest.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_codeunit_core(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    object: usize,
+    baseline: Option<&al_vm::Baseline>,
+    isolation: TestIsolation,
+    observe: Option<&mut Observer>,
+    stacks: &mut Vec<(String, String)>,
+    times: &mut Vec<(String, std::time::Duration)>,
+    hits: &mut Vec<(String, Vec<Assumption>)>,
+    scratch: &mut Scratch,
+    limit: Option<std::time::Duration>,
+    execute: bool,
+) -> Vec<(String, Outcome)> {
+    if execute {
+        return run_codeunit_inner(
+            engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
+        );
+    }
+    let data_driven = data_driven_tests(lowered, object);
+    let data_driven_why = "a data-driven test ([TestDataSource], one run per test case) is not supported yet";
+    let mut done = match test_handlers_refusal(lowered, object) {
+        Some(why) => {
+            let obj = &lowered.program.objects[object];
+            obj.routines
+                .iter()
+                .filter(|r| r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")))
+                .filter(|r| {
+                    scratch
+                        .run_only
+                        .as_ref()
+                        .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), r.name.to_lowercase())))
+                })
+                .map(|r| (r.name.clone(), Outcome::NotRun(why.clone())))
+                .collect()
+        }
+        None => run_codeunit_inner(
+            engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
+        ),
+    };
+    let obj = &lowered.program.objects[object];
+    done.extend(
+        data_driven
+            .into_iter()
+            .filter(|n| {
+                scratch
+                    .run_only
+                    .as_ref()
+                    .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), n.to_lowercase())))
+            })
+            .map(|n| (n, Outcome::NotRun(data_driven_why.into()))),
+    );
+    done
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_codeunit_inner(
     engine: &Arc<Engine>,
     lowered: &Lowered,
     object: usize,
@@ -171,7 +269,11 @@ pub(crate) fn run_codeunit_core(
     execute: bool,
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
-    let mut session = Session::with_host(engine.clone(), crate::host::host_at(scratch.clock_start));
+    let perturb = scratch.perturb.clone();
+    let mut session = Session::with_host(
+        engine.clone(),
+        crate::host::host_perturbed(scratch.clock_start, &perturb),
+    );
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -199,6 +301,13 @@ pub(crate) fn run_codeunit_core(
                     keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
                 })
         })
+        .collect();
+    // `order.methods` of a stability run (ADR-058): the test methods in another order.
+    let tests: Vec<usize> = perturb
+        .method_order
+        .arrange(tests.len())
+        .into_iter()
+        .map(|i| tests[i])
         .collect();
     if execute {
         session.capture_messages();
@@ -277,6 +386,12 @@ pub(crate) fn run_codeunit_core(
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
                 session.commit_transaction();
+                // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
+                // login code set it; a `WorkDate(d)` of the test still wins.
+                if let Some(shift) = perturb.work_date {
+                    let day = session.work_date();
+                    session.set_work_date(shift.apply_day(day));
+                }
                 wrote
             }
         }
@@ -541,7 +656,12 @@ pub(crate) fn run_codeunit_core(
                     session.start_random_scope();
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
-                    let reset = runner.before(&mut session, obj, routine);
+                    let mut reset = runner.before(&mut session, obj, routine);
+                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2): after codeunit 130301, the
+                    // runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the variant's seed.
+                    if let (Ok(()), Some(seed)) = (&reset, perturb.library_seed) {
+                        reset = runner_reset::library_seed(&mut session, seed);
+                    }
                     let reset_ok = reset.is_ok();
                     if let Err(why) = &reset {
                         runner_refused = Some(why.clone());

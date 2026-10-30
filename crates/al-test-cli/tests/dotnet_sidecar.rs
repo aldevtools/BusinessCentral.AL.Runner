@@ -1060,3 +1060,29 @@ fn an_indexer_is_called_by_its_indexer_name_with_its_arguments() {
     assert_eq!(text_of(&v), "1");
     sess.close();
 }
+
+/// `foreach` over an XmlAttributeCollection with no attributes (Base App "XML DOM Management".AddNamespaces, al-runner
+/// issue 6316): GetEnumerator returns System.Xml.EmptyEnumerator, which implements IEnumerator.MoveNext and Current only
+/// explicitly. The loop calls them by name, so they answer through the IEnumerator interface: MoveNext is false.
+#[test]
+fn move_next_and_current_answer_through_ienumerator_on_an_explicit_implementation() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let doc = handle_of(&sess.construct(&ty("System.Xml.XmlDocument"), vec![]).unwrap());
+    sess.invoke(DotNetTarget::Instance(doc), "LoadXml", vec![s("<r/>")])
+        .unwrap();
+    let root = handle_of(
+        &sess
+            .get_property(DotNetTarget::Instance(doc), "DocumentElement")
+            .unwrap(),
+    );
+    let attrs = handle_of(&sess.get_property(DotNetTarget::Instance(root), "Attributes").unwrap());
+    let en = handle_of(
+        &sess
+            .invoke(DotNetTarget::Instance(attrs), "GetEnumerator", vec![])
+            .unwrap(),
+    );
+    let more = sess.invoke(DotNetTarget::Instance(en), "MoveNext", vec![]).unwrap();
+    assert_eq!(more.value, DotNetValue::Bool(false));
+    sess.close();
+}
