@@ -113,7 +113,10 @@ const TESTS: &str = r#"codeunit 60300 Reads
     begin
         D.Get('DEP');
         S.Get('WS');
-        T.Get('SUB');
+        // The workspace is not installed while Company-Initialize runs, so its subscriber writes no row
+        // (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
+        if not T.Get('SUB') then
+            T.N := 0;
         E.Get('E');
         Error('%1 %2 %3 %4 %5', L.Prefix(), D.N, S.N, T.N, E.N);
     end;
@@ -244,7 +247,7 @@ fn after_edit(t: &[String; 5]) -> (WarmUse, Vec<String>, String) {
     let mut warm = Warm::new();
     let first = request(&mut warm, dir.path(), &texts());
     assert_eq!(first.2, "Some(\"ran\")", "{first:?}");
-    assert!(first.1[0].contains("v 1 2 7 4"), "{first:?}");
+    assert!(first.1[0].contains("v 1 2 0 4"), "{first:?}");
     let second = request(&mut warm, dir.path(), t);
     assert_eq!(
         second.1,
@@ -258,7 +261,7 @@ fn after_edit(t: &[String; 5]) -> (WarmUse, Vec<String>, String) {
 fn an_edit_of_a_test_method_keeps_the_baseline() {
     let (used, out, source) = after_edit(&edited(4, "Error('%1", "Error('edited %1"));
     assert_eq!(used, WarmUse::Updated);
-    assert!(out[0].contains("edited v 1 2 7 4"), "{out:?}");
+    assert!(out[0].contains("edited v 1 2 0 4"), "{out:?}");
     assert_eq!(source, "Some(\"kept\")");
 }
 
@@ -266,7 +269,7 @@ fn an_edit_of_a_test_method_keeps_the_baseline() {
 fn an_edit_of_code_only_the_tests_call_keeps_the_baseline() {
     let (used, out, source) = after_edit(&edited(3, "exit('v')", "exit('w')"));
     assert_eq!(used, WarmUse::Updated);
-    assert!(out[0].contains("w 1 2 7 4"), "{out:?}");
+    assert!(out[0].contains("w 1 2 0 4"), "{out:?}");
     assert_eq!(source, "Some(\"kept\")");
 }
 
@@ -287,7 +290,7 @@ fn a_kept_baseline_survives_several_edits_in_a_row() {
 fn an_edit_of_an_install_codeunit_runs_the_install_code_again() {
     let (used, out, source) = after_edit(&edited(0, "E.K := 'E';", "E.K := 'E'; E.N := 9;"));
     assert_eq!(used, WarmUse::Updated);
-    assert!(out[0].contains("v 1 2 7 9"), "{out:?}");
+    assert!(out[0].contains("v 1 2 0 9"), "{out:?}");
     assert_eq!(source, "Some(\"ran\")");
 }
 
@@ -295,21 +298,22 @@ fn an_edit_of_an_install_codeunit_runs_the_install_code_again() {
 fn an_edit_of_code_the_install_code_calls_runs_it_again() {
     let (used, out, source) = after_edit(&edited(0, "exit(2);", "exit(3);"));
     assert_eq!(used, WarmUse::Updated);
-    assert!(out[0].contains("v 1 3 7 4"), "{out:?}");
+    assert!(out[0].contains("v 1 3 0 4"), "{out:?}");
     assert_eq!(source, "Some(\"ran\")");
 }
 
 #[test]
 fn an_edit_of_a_company_initialize_subscriber_runs_the_install_code_again() {
+    // The subscriber does not run (the workspace is not installed yet); an edit of it still runs the install code again.
     let (used, out, source) = after_edit(&edited(1, "S.N := 7;", "S.N := 8;"));
     assert_eq!(used, WarmUse::Updated);
-    assert!(out[0].contains("v 1 2 8 4"), "{out:?}");
+    assert!(out[0].contains("v 1 2 0 4"), "{out:?}");
     assert_eq!(source, "Some(\"ran\")");
 }
 
 #[test]
 fn an_edit_of_a_table_field_the_install_code_uses_runs_it_again() {
     let (_, out, source) = after_edit(&edited(2, "InitValue = 4;", "InitValue = 5;"));
-    assert!(out[0].contains("v 1 2 7 5"), "{out:?}");
+    assert!(out[0].contains("v 1 2 0 5"), "{out:?}");
     assert_eq!(source, "Some(\"ran\")");
 }
