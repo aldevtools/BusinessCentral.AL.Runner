@@ -430,6 +430,202 @@ fn the_corpus_apps_the_app_under_test_depends_on_are_loaded_from_source() {
     assert_eq!(report["overall"]["fail"], 1, "{}\n{err}", report["overall"]);
 }
 
+/// The app the environment of the `env` suite adds (`extra_apps` in oracle.toml): one codeunit, which the tests run by
+/// its id. It has the id of Tests-TestLibraries' "Reset State Before Test Run", which the test runner runs before
+/// every test when it is installed (al-testrun `runner_reset.rs`); its OnRun does nothing.
+const ENV_APP_ID: &str = "0a1b2c3d-0000-4000-8000-0000000000e1";
+
+/// A fixture root whose main app and suite `env` each test whether codeunit 130301 of the app "Harness Env Lib" is
+/// installed. The suite names that app in `extra_apps`; the app itself is in `env-lib/` of the root (outside the
+/// corpus), to be passed with `--deps`.
+fn root_with_an_environment_suite() -> tempfile::TempDir {
+    // Codeunit.Run of an id no installed app has raises an error (corpus codeunit/TestCodeunitRunMissing.al:45).
+    let probe = |cu: u32, name: &str, test: &str, installed: bool| {
+        let call = if installed { "" } else { "asserterror " };
+        format!(
+            r#"codeunit {cu} "{name}"
+{{
+    Subtype = Test;
+
+    [Test]
+    procedure {test}()
+    begin
+        {call}Codeunit.Run(130301);
+    end;
+}}
+"#
+        )
+    };
+    let root = fake_root(|corpus| {
+        std::fs::write(
+            corpus.join("tests/app/Absent.al"),
+            probe(60901, "Harness Env Absent", "EnvAppIsAbsent", false),
+        )
+        .unwrap();
+        let suite = corpus.join("tests/suite-app");
+        std::fs::create_dir_all(&suite).unwrap();
+        std::fs::write(
+            suite.join("app.json"),
+            r#"{"id":"0a1b2c3d-0000-4000-8000-0000000000e2","name":"Harness Env Suite","publisher":"Test","version":"1.0.0.0","dependencies":[],"idRanges":[{"from":60960,"to":60969}],"runtime":"16.0","target":"Cloud"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            suite.join("Present.al"),
+            probe(60960, "Harness Env Present", "EnvAppIsLoaded", true),
+        )
+        .unwrap();
+    });
+    let at = |p: &str| root.path().join(p);
+    let lib = at("env-lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(
+        lib.join("app.json"),
+        format!(
+            r#"{{"id":"{ENV_APP_ID}","name":"Harness Env Lib","publisher":"Test","version":"1.0.0.0","dependencies":[],"idRanges":[{{"from":130301,"to":130301}}],"runtime":"16.0","target":"Cloud"}}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        lib.join("Lib.al"),
+        "codeunit 130301 \"Reset State Before Test Run\" { trigger OnRun() begin end; }",
+    )
+    .unwrap();
+    std::fs::write(
+        at("oracle/27/junit.xml"),
+        r#"<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="DEFAULT" tests="3" failures="0" errors="0" skipped="0">
+  <testsuite name="Codeunit 60900" tests="2" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60900" name="Passes" time="0.001" />
+    <testcase classname="Codeunit 60900" name="FailsOnPurpose" time="0.001" />
+  </testsuite>
+  <testsuite name="Codeunit 60901" tests="1" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60901" name="EnvAppIsAbsent" time="0.001" />
+  </testsuite>
+</testsuites>
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        at("oracle/27/junit-env.xml"),
+        r#"<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="DEFAULT" tests="1" failures="0" errors="0" skipped="0">
+  <testsuite name="Codeunit 60960" tests="1" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60960" name="EnvAppIsLoaded" time="0.001" />
+  </testsuite>
+</testsuites>
+"#,
+    )
+    .unwrap();
+    let toml = std::fs::read_to_string(at("oracle/oracle.toml")).unwrap();
+    std::fs::write(
+        at("oracle/oracle.toml"),
+        format!(
+            r#"{toml}
+[[version.suite]]
+name = "env"
+app = "fixture/tests/suite-app"
+oracle = "27/junit-env.xml"
+baseline = "metrics/27/passing-env.txt"
+extra_apps = [{{ id = "{ENV_APP_ID}", name = "Harness Env Lib" }}]
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::create_dir_all(at("metrics/27")).unwrap();
+    std::fs::write(at("metrics/27/passing.txt"), "60900 Passes\n").unwrap();
+    std::fs::write(at("metrics/27/passing-env.txt"), "").unwrap();
+    root
+}
+
+/// Runs the CLI on `root` with the Microsoft apps off (`--no-download`) and the env app as a package folder.
+fn cli_env(root: &Path, args: &[&str]) -> (i32, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root)
+        .args(["--bc-version", "27", "--no-download", "--deps"])
+        .arg(root.join("env-lib"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into(),
+        String::from_utf8_lossy(&out.stderr).into(),
+    )
+}
+
+// A suite with `extra_apps` (the corpus testlibraries app: corpus .github/workflows/ci.yml, job test-testlibraries) runs
+// in an environment of its own: the apps are installed for its tests and not for the main app's. One report and one
+// JUnit file per app, as for any suite.
+#[test]
+fn a_suite_with_extra_apps_runs_in_its_own_environment() {
+    let root = root_with_an_environment_suite();
+    let dir = root.path().join("out");
+    std::fs::create_dir_all(&dir).unwrap();
+    let json = dir.join("pass-rate.json");
+    let junit = dir.join("runtime-junit.xml");
+    let (code, out, err) = cli_env(
+        root.path(),
+        &["--json", json.to_str().unwrap(), "--junit", junit.to_str().unwrap()],
+    );
+    assert_eq!(code, 0, "{out}\n{err}");
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&json).unwrap_or_else(|_| panic!("no report; stdout:\n{out}\nstderr:\n{err}")),
+    )
+    .unwrap();
+    // The main app: Passes and EnvAppIsAbsent pass (the env app is not installed there), FailsOnPurpose fails.
+    assert_eq!(report["overall"]["total"], 3, "{report}");
+    assert_eq!(report["overall"]["pass"], 2, "{report}\n{err}");
+    let suites = report["suites"].as_array().unwrap();
+    assert_eq!(suites.len(), 1, "{report}");
+    assert_eq!(suites[0]["name"], "env");
+    assert_eq!(suites[0]["counts"]["total"], 1);
+    assert_eq!(suites[0]["counts"]["pass"], 1, "{report}\n{err}");
+    let main_junit = std::fs::read_to_string(dir.join("runtime-junit.xml")).unwrap();
+    assert!(
+        main_junit.contains("EnvAppIsAbsent") && !main_junit.contains("EnvAppIsLoaded"),
+        "{main_junit}"
+    );
+    let env_junit = std::fs::read_to_string(dir.join("runtime-junit-env.xml")).unwrap();
+    assert!(
+        env_junit.contains("EnvAppIsLoaded") && !env_junit.contains("EnvAppIsAbsent"),
+        "{env_junit}"
+    );
+    assert!(out.contains("BC 27.5 env: 1/1 pass"), "{out}");
+    // The suite's ratchet: --update-baseline writes its new pass to its own file, and the main one keeps its own.
+    let (code, out, err) = cli_env(root.path(), &["--update-baseline"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let env_base = std::fs::read_to_string(root.path().join("metrics/27/passing-env.txt")).unwrap();
+    assert!(env_base.contains("60960 EnvAppIsLoaded"), "{env_base}");
+    let main_base = std::fs::read_to_string(root.path().join("metrics/27/passing.txt")).unwrap();
+    assert!(
+        main_base.contains("60900 Passes")
+            && main_base.contains("60901 EnvAppIsAbsent")
+            && !main_base.contains("60960"),
+        "{main_base}"
+    );
+    // A selection of the suite's codeunit runs only its environment; --baseline-diff lists the suite.
+    let (code, out, err) = cli_env(root.path(), &["--codeunit", "60960", "--baseline-diff"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("BC 27.5 env: 1/1 pass"), "{out}");
+    assert!(out.contains("BC 27.5 env"), "{out}");
+    // A selection of the main app's codeunit does not run the suite.
+    let (code, out, err) = cli_env(root.path(), &["--codeunit", "60901"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("BC 27.5: 1/1 pass"), "{out}");
+    // --explain finds a test of the suite.
+    let (code, out, err) = cli_env(root.path(), &["--explain", "EnvAppIsLoaded"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("env: test EnvAppIsLoaded"), "{out}");
+    // A selection or a test name that no pass has is still an error.
+    let (code, _, err) = cli_env(root.path(), &["--codeunit", "60999"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("matches no test"), "{err}");
+    let (code, _, err) = cli_env(root.path(), &["--explain", "NoSuchTest"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("no test matches `NoSuchTest`"), "{err}");
+}
+
 #[test]
 fn markdown_summary_is_written() {
     require_corpus();
@@ -650,9 +846,10 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     assert_eq!(control["bc_failed_reproduced"], 4);
 }
 
-// BC 27 and 29 have no isolation oracle (the probe only ran in the BC 28.4 nightly).
+// BC 27 and 29 have no isolation oracle (the probe only ran in the BC 28.4 nightly). The testlibraries suite runs in
+// a pass of its own (`extra_apps`), and its report joins the version's.
 #[test]
-fn a_version_without_an_isolation_oracle_lists_only_the_onprem_apps() {
+fn a_version_without_an_isolation_oracle_lists_only_the_onprem_and_testlibraries_apps() {
     let r = all_versions().json("27");
     let names: Vec<_> = r["suites"]
         .as_array()
@@ -660,7 +857,7 @@ fn a_version_without_an_isolation_oracle_lists_only_the_onprem_apps() {
         .iter()
         .map(|s| s["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, vec!["onprem", "onprem-dotnet"]);
+    assert_eq!(names, vec!["onprem", "onprem-dotnet", "testlibraries"]);
 }
 
 // `--baseline FILE` is the main app's ratchet alone. The extra apps keep their own files in
@@ -813,8 +1010,8 @@ fn outcomes_do_not_depend_on_threads_or_home() {
     let b = run(&artifacts_home, "1", "run-b");
     assert_eq!(
         a.len(),
-        3,
-        "the main app and the two OnPrem suites: {:?}",
+        4,
+        "the main app, the two OnPrem suites and the testlibraries suite: {:?}",
         a.iter().map(|f| &f.0).collect::<Vec<_>>()
     );
     assert_eq!(

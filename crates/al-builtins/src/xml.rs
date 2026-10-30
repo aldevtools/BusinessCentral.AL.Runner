@@ -3601,6 +3601,7 @@ fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
         return Err(uninitialized("XmlElement"));
     }
     let h = recv(r)?;
+    reject_unassigned_element_content(&h, a, "Add")?;
     // A text given as a string joins the text node it follows; an XmlText node is its own node
     // (xml/TestProbeXmlContracts.al:AdjacentTextNodes_NotMerged).
     let last = a.len().saturating_sub(1);
@@ -3657,6 +3658,7 @@ fn reject_attributes(nodes: &[Handle]) -> Result<(), Signal> {
 
 fn add_first(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
+    reject_unassigned_element_content(&h, a, "AddFirst")?;
     let nodes = content_nodes(a)?;
     reject_declaration_in_document(&h, &nodes)?;
     insert(&h, Some(0), nodes)?;
@@ -3750,9 +3752,29 @@ fn insert_siblings(h: &Handle, p: &Handle, at: usize, nodes: Vec<Handle>) -> Res
     }
 }
 
+/// An element whose `Add`, `AddFirst`, `AddAfterSelf` or `AddBeforeSelf` gets one unassigned `XmlNode` raises
+/// `Microsoft.Dynamics.Nav.Runtime.NavXmlNode variable not initialized.` (NotInitialized) and changes nothing; an unassigned
+/// `XmlElement` given to `Add` or `AddAfterSelf` names NavXmlElement (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al
+/// WD_XmlNode_Unassigned_AsContent, WD_XmlElement_Unassigned_AsContent; corpus branch al-runtime-rs-staging-1030c, al-runner
+/// issue 6303). Other receivers, methods and argument lists are not pinned (content_nodes refuses them).
+fn reject_unassigned_element_content(h: &Handle, a: &[Value], method: &str) -> Result<(), Signal> {
+    if let [Value::Library(name, v)] = a {
+        let pinned = match name.as_str() {
+            "XmlNode" => matches!(method, "Add" | "AddFirst" | "AddAfterSelf" | "AddBeforeSelf"),
+            "XmlElement" => matches!(method, "Add" | "AddAfterSelf"),
+            _ => false,
+        };
+        if pinned && matches!(&*v.borrow(), LibraryValue::Empty) && with(h, |d| matches!(d, XData::Element { .. })) {
+            return Err(uninitialized(name));
+        }
+    }
+    Ok(())
+}
+
 fn add_after_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     reject_unassigned_sibling_arg(&h, a)?;
+    reject_unassigned_element_content(&h, a, "AddAfterSelf")?;
     let (p, i) = position_in_parent(&h, a)?;
     let nodes = sibling_content_nodes(&h, a)?;
     insert_siblings(&h, &p, i + 1, nodes)?;
@@ -3762,6 +3784,7 @@ fn add_after_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
 fn add_before_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     reject_unassigned_sibling_arg(&h, a)?;
+    reject_unassigned_element_content(&h, a, "AddBeforeSelf")?;
     let (p, i) = position_in_parent(&h, a)?;
     let nodes = sibling_content_nodes(&h, a)?;
     insert_siblings(&h, &p, i, nodes)?;
@@ -4993,14 +5016,42 @@ fn attrs_set(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
 /// `Set(Name, NamespaceUri, Value)` adds an attribute in that namespace; the writer gives it a generated prefix
 /// (xml/XmlAttributes.al:342-361 Collection_Set `set_ns`, see `Writer::element`). Pinned only on an element with no
 /// namespace in scope and no other attribute in a namespace; giving an existing one a new value is not pinned.
-fn attrs_set_ns(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    add_namespaced_attribute(owner_of(r)?, a)
+fn attrs_set_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let owner = owner_of(r)?;
+    if let Some(mut plain) = empty_namespace_args(&owner, a)? {
+        let mut owner_value = tagged("XmlElement", owner);
+        return set_attribute(c, Some(&mut owner_value), &mut plain);
+    }
+    add_namespaced_attribute(owner, a)
+}
+
+/// `Set(Name, '', Value)` and `SetAttribute(Name, '', Value)` are the two-argument forms: the attribute has no namespace and
+/// replaces the one of that name in place (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al WD_XmlAttrCollection_Set_EmptyNamespace,
+/// WD_XmlElement_SetAttribute_EmptyNamespace; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6303). Pinned for a
+/// plain name on an element without a namespace; a qualified name or an element in a namespace stays refused.
+fn empty_namespace_args(owner: &Handle, a: &[Value]) -> Result<Option<Vec<Value>>, Signal> {
+    let (name, ns) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    if !ns.is_empty() {
+        return Ok(None);
+    }
+    let in_ns = with(owner, |d| matches!(d, XData::Element { ns, .. } if !ns.is_empty()));
+    if name.contains(':') || in_ns {
+        return unsupported(
+            "XmlAttributeCollection.Set with an empty namespace URI and a qualified name or on an element in a namespace (not pinned)",
+        );
+    }
+    Ok(Some(vec![a[0].clone(), a[2].clone()]))
 }
 
 /// `XmlElement.SetAttribute(Name, NamespaceUri, Value)`: as `XmlAttributeCollection.Set` with a namespace
 /// (xml/lt-xml-remaining-node-methods/P104AttrCollection.al:18,50 `<e a="1" p1:c="3" xmlns:p1="urn:x" />`).
-fn set_attribute_ns(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    add_namespaced_attribute(recv(r)?, a)
+fn set_attribute_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    let owner = recv(r)?;
+    if let Some(mut plain) = empty_namespace_args(&owner, a)? {
+        let mut owner_value = tagged("XmlElement", owner);
+        return set_attribute(c, Some(&mut owner_value), &mut plain);
+    }
+    add_namespaced_attribute(owner, a)
 }
 
 /// `RemoveAll()` of the collection takes every attribute off its element and leaves the children
@@ -5085,6 +5136,24 @@ fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
 fn attrs_get_name_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let owner = owner_of(r)?;
     let (name, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    // An empty namespace URI finds the attribute of that name that has no namespace (xml/lt-wd/WdXmlEmptyNsAndUnassigned.al
+    // WD_XmlAttrCollection_Set_EmptyNamespace `Get with empty namespace` Yes; corpus branch al-runtime-rs-staging-1030c). That
+    // it answers No when there is none is not pinned.
+    if uri.is_empty() && !name.contains(':') {
+        let found = attrs_of(&owner).into_iter().find(|x| {
+            with(
+                x,
+                |d| matches!(d, XData::Attribute { local, ns, prefix, .. } if *local == name && ns.is_empty() && prefix.is_empty()),
+            )
+        });
+        let Some(at) = found else {
+            return unsupported(
+                "XmlAttributeCollection.Get with an empty namespace URI of an attribute that is not there (not pinned)",
+            );
+        };
+        a[2] = tagged("XmlAttribute", at);
+        return Ok(Value::Boolean(true));
+    }
     if uri.is_empty() || name.contains(':') {
         return unsupported("XmlAttributeCollection.Get with an empty namespace URI or a qualified name (not pinned)");
     }
