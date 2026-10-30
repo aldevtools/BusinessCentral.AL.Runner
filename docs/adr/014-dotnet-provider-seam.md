@@ -707,3 +707,16 @@ that is neither registered nor classified pure). The four failures of the on-pre
 (three `Document Approval - Comments` tests "The part with ID = ... was not found on the page", one ERM RS Package
 Dimensions test "The Dimension does not exist") were refused before at `GraphQuery.GetCurrentUser`; they are
 separate findings.
+
+## Decided without owner review (2026-10-30, branch `zip-outstream-bytes`): an `OutStream` bridge starts with the Blob's bytes
+
+- Section 4, streams, item 2 said the bridge for an `OutStream` starts empty. BC hands .NET the Blob's own stream, which reads,
+  writes and seeks (`SgDotNetStreams.al:106-126`), so a `ZipArchive` in `Read` mode over an `OutStream` that AL copied a zip into
+  reads that zip (corpus `tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al`, al-runner issue 6317;
+  this is System Application's `Data Compression.OpenZipArchive`).
+- Now, when the AL stream stands at the end of bytes its Blob holds, the host sends them (`DotNetValue::OutStreamWith`, wire
+  tag `outs` with a `v`), and the sidecar's bridge starts with them, positioned at their end. Bytes written after them are
+  appended to the Blob as before. A .NET write over them, or a shorter `SetLength`, is refused (what the Blob then holds is not
+  pinned; `ZipArchiveMode.Update` over an `OutStream` stays refused this way). A stream that stands elsewhere keeps the empty bridge.
+- Still copy-in and copy-out: no callback protocol, so item 4 stands. Additive: a new `DotNetValue` variant and an optional field
+  on an existing wire tag; the protocol version is 4 (host and sidecar change together).

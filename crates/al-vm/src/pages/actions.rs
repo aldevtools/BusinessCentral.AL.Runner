@@ -392,6 +392,7 @@ impl Session {
             s.window.clear();
             s.window_from_start = false;
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             drop(s);
             if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
                 self.pages.scope_unpinned.push(st.clone());
@@ -405,6 +406,7 @@ impl Session {
         s.window.clear();
         s.window_from_start = false;
         s.window_top_unread = false;
+        s.read_up_from_last = None;
         pk_shown
     }
 
@@ -2337,6 +2339,7 @@ impl Session {
         curr(self)?;
         // The client holds the rows the refresh read (`read_list_again_from_row_as`).
         st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().read_up_from_last = None;
         Ok(true)
     }
 
@@ -2709,6 +2712,7 @@ impl Session {
             // (pagefindrecord/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
             // list). Left set, First indexed the empty window (al-runner issue 5802).
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             return Ok(());
         }
         let rec = self.page_rec(st);

@@ -741,6 +741,7 @@ impl Session {
         st.borrow_mut().view_read_to_end = false;
         st.borrow_mut().window_read_up = false;
         st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().read_up_from_last = None;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
         // The rows of a page whose table holds a global filter (filter group 1) another record set (records.rs
@@ -883,6 +884,9 @@ impl Session {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
             }
             return Ok(());
+        }
+        if opening && walked == 0 && end_reached && !moved_open && self.opens_on_the_last_row_reading_up(st)? {
+            return self.read_rows_up_from_the_landed_last_row(st, keys, start);
         }
         // Back on the row the cursor is on. A page that serves its rows from triggers steps back
         // through them: the row is not necessarily in the table.
@@ -1047,6 +1051,146 @@ impl Session {
             st.borrow_mut().reads_once_more_in = Some(at);
         }
         Ok(())
+    }
+
+    /// Whether the open read of the list is the one `read_rows_up_from_the_landed_last_row` models: a modal list (Page.RunModal with a
+    /// record) without OnFindRecord and OnNextRecord, with OnAfterGetRecord and OnAfterGetCurrRecord, in a key other than the
+    /// primary key, descending, that landed on the last row of its view with rows above it.
+    fn opens_on_the_last_row_reading_up(&mut self, st: &St) -> Result<bool, Signal> {
+        if !st.borrow().modal || !st.borrow().open_read || !self.reads_once_more_in_its_key(st) {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        if rec.borrow().ascending {
+            return Ok(false);
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
+    }
+
+    /// The open read of a modal list in a key other than the primary key, descending, with OnAfterGetRecord and
+    /// OnAfterGetCurrRecord, that lands on the last row of its view (a blank record handed to Page.RunModal, `=><`): the client
+    /// reads that row and then the rows above it, up to 20, then the row three times before OnAfterGetCurrRecord (corpus master
+    /// 930653fe, pages/lt-wd/WdModalGoToKeyDescSecondary.al:146 WD_ModalGoToKey_Descending_Last `opening log`
+    /// `R:D01,R:D02,...,R:D21,R:D01,R:D01,R:D01,C:D01` for 30 rows, :184 WD_ModalGoToKey_Descending_FiveRows `R:D01,...,R:D05,
+    /// R:D01,R:D01,R:D01,C:D01`; al-runner issue 6363). The client then holds those rows, the cursor on the last one.
+    fn read_rows_up_from_the_landed_last_row(
+        &mut self,
+        st: &St,
+        mut keys: Vec<al_builtins::value::WindowRow>,
+        start: Vec<Value>,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let mut above = Vec::new();
+        while above.len() < Self::WINDOW && self.nav_next(st, -1)? {
+            let key = self.row_key(&rec)?;
+            let stored = rec.borrow().fields.clone();
+            self.populate_current(st)?;
+            above.push(al_builtins::value::WindowRow {
+                key,
+                stored,
+                shown: rec.borrow().fields.clone(),
+            });
+        }
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
+        for _ in 0..3 {
+            self.page_trigger(st, "onaftergetrecord", vec![])?;
+        }
+        let shown = rec.borrow().fields.clone();
+        let stored = keys[0].stored.clone();
+        keys[0].shown = shown;
+        self.set_xrec_fields(st, stored);
+        above.reverse();
+        above.extend(keys);
+        let at = (rec.borrow().key, rec.borrow().ascending);
+        let mut s = st.borrow_mut();
+        s.window = above;
+        s.reads_once_more_in = Some(at);
+        s.read_up_from_last = Some(false);
+        Ok(())
+    }
+
+    /// GoToKey on a list that opened as `read_rows_up_from_the_landed_last_row` models, the cursor still on the last row: the client
+    /// reads from the top row it holds up to the row before the first of the view, then moves from the first row down one row at a
+    /// time, each move reading the row three times and running OnAfterGetCurrRecord, until the key (WdModalGoToKeyDescSecondary.al:146
+    /// `GoToKey log` `R:D21,...,R:D29,R:D30,R:D30,R:D30,C:D30,R:D29,R:D29,R:D29,C:D29,...,C:D01` for D01 of 30 rows, :165 _First
+    /// for D30, :184 _FiveRows for D02 of 5 rows `R:D05,R:D05,R:D05,C:D05,...,C:D02`). Pinned for a key the view has, with 9 rows
+    /// above the rows held and with none; more rows above than a window holds, a key the view does not have, and a second
+    /// GoToKey or a move after it are refused.
+    fn go_to_key_from_the_last_row_read_up(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
+        let rec = self.page_rec(st);
+        let here = self.row_key(&rec)?;
+        let on_last = {
+            let s = st.borrow();
+            s.read_up_from_last == Some(false)
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && !s.stale
+                && s.window.last().is_some_and(|w| Self::same_key(&w.key, &here))
+        };
+        if !on_last {
+            return unsupported(
+                "GoToKey on a list that opened on the last row of its descending view in a key other than the primary key, after a move or a GoToKey (not pinned)",
+            );
+        }
+        // The rows from the top row held up to the first of the view, on a copy of the record.
+        let top = st.borrow().window[0].key.clone();
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::Get, &probe, &mut top.clone())?,
+            Value::Boolean(true)
+        ) {
+            return unsupported("GoToKey on a list whose top row held is gone from the table (not pinned)");
+        }
+        let mut up = vec![probe.borrow().fields.clone()];
+        loop {
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0)
+            {
+                break;
+            }
+            if up.len() > Self::WINDOW {
+                return unsupported(
+                    "GoToKey on a list that opened on the last row of its descending view, with more rows above the rows it holds than a window (not pinned)",
+                );
+            }
+            up.push(probe.borrow().fields.clone());
+        }
+        let table = self.table(&rec)?;
+        let mut rows: Vec<al_builtins::value::WindowRow> = up
+            .iter()
+            .rev()
+            .map(|f| al_builtins::value::WindowRow {
+                key: table.primary_key(f),
+                stored: f.clone(),
+                shown: f.clone(),
+            })
+            .collect();
+        rows.extend(st.borrow().window.iter().skip(1).cloned());
+        let Some(target) = rows.iter().position(|w| Self::same_key(&w.key, want)) else {
+            return unsupported(
+                "GoToKey for a key the view does not have, on a list that opened on the last row of its descending view (not pinned)",
+            );
+        };
+        // The reads up to the row before the first one.
+        for f in up.iter().take(up.len() - 1) {
+            rec.borrow_mut().fields = f.clone();
+            self.populate_current(st)?;
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.window = rows;
+            s.window_from_start = true;
+            s.read_up_from_last = Some(true);
+        }
+        for i in 0..=target {
+            let r = self.read_client_row_in(st, i, true);
+            self.torn_down_on_error(st, r)?;
+        }
+        Ok(Value::Boolean(true))
     }
 
     /// The open read of a plain list (no OnFindRecord or OnNextRecord) that opens on the row its OnOpenPage left Rec on, after the
@@ -1469,6 +1613,11 @@ impl Session {
         }
         if self.open_new_list_untouched(st) {
             return self.move_on_open_new_list(how);
+        }
+        if st.borrow().read_up_from_last.is_some() {
+            return unsupported(format!(
+                "{how}() on a list that opened on the last row of its descending view in a key other than the primary key (not pinned)"
+            ));
         }
         // A list opened for view over an empty view holds no row: First answers No and reads nothing, also after the test stored a
         // row the view admits (misc/lt-probes-needed-7/PnGShowRow.al:494 QG_ViewEmptyList_RowStoredByTest_ThenFirst `first` No,
@@ -2668,6 +2817,9 @@ impl Session {
             if first_is_cur && Self::same_key(&cur, &want) {
                 return Ok(Value::Boolean(true));
             }
+        }
+        if st.borrow().read_up_from_last.is_some() {
+            return self.go_to_key_from_the_last_row_read_up(st, &want);
         }
         self.refuse_descending_filtered_find_move(st)?;
         if st
