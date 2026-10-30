@@ -319,3 +319,147 @@ fn affected_in_a_matrix_keeps_a_stored_result_per_cell() {
     assert!(!out.contains("no stored result"), "{out}");
     assert_eq!(out.matches("affected: ran ").count(), 2, "{out}");
 }
+
+/// An app whose tests depend on the order of the methods.
+fn stability_app(root: &Path) -> PathBuf {
+    let dir = root.join("stability-app");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.json"),
+        r#"{"id":"43000000-0000-0000-0000-000000000058","name":"Stability Matrix App","publisher":"Test","version":"1.0.0.0","idRanges":[{"from":50710,"to":50719}],"dependencies":[]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("T.Codeunit.al"),
+        "codeunit 50710 \"Stability Matrix Tests\"\n{\n    Subtype = Test;\n\n    var\n        Counter: Integer;\n\n    [Test]\n    procedure First()\n    begin\n        Counter += 1;\n    end;\n\n    [Test]\n    procedure SecondNeedsFirst()\n    begin\n        if Counter <> 1 then\n            Error('counter=%1', Counter);\n    end;\n}\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// ADR-058 section 3 (phase 3): the matrix axes of a stability config. Version and companies cells are child
+/// processes (one compile each, the builds resolved as a matrix run resolves them); the environment cells of one child
+/// share its compile. Each cell runs the whole perturbation set and compares with its own base variant; the flips are
+/// reported per cell in the console, the JSON document and the JUnit file of each cell, and a variant id of any cell
+/// replays alone.
+#[test]
+fn stability_matrix_axes_run_every_cell_and_report_flips_per_cell() {
+    let dir = tempfile::tempdir().unwrap();
+    two_builds(dir.path());
+    let app = stability_app(dir.path());
+    let cfg = dir.path().join("stab.json");
+    std::fs::write(
+        &cfg,
+        format!(
+            r#"{{"format":1,"matrix":{{"bcVersion":["28.5","{NEW}"],"environment":["saas","onprem"],"companies":[null,["CRONUS International Ltd.","Second"]]}},"dimensions":{{"order.methods":["reverse"]}}}}"#
+        ),
+    )
+    .unwrap();
+    let out_dir = dir.path().join("out");
+    let junit = out_dir.join("r.xml");
+    let doc = out_dir.join("m.json");
+    let a = app.to_str().unwrap();
+    let c = cfg.to_str().unwrap();
+    let o = alrunner(
+        dir.path(),
+        &[
+            "test",
+            a,
+            "--stability",
+            c,
+            "--seed",
+            "5",
+            "--junit",
+            junit.to_str().unwrap(),
+            "--output-json",
+            doc.to_str().unwrap(),
+        ],
+        &[],
+    );
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}");
+    assert!(out.contains("Matrix: 4 cell(s)"), "{out}");
+    assert!(out.contains("\nStability per cell\n"), "{out}");
+    // Eight cells: two versions, two company lists, two environments.
+    for cell in [
+        "28.5-w1-companies1-saas",
+        "28.5-w1-companies1-onprem",
+        "28.5-w1-companies2-saas",
+        "29.0-w1-companies2-onprem",
+    ] {
+        assert!(out.contains(cell), "{cell}:\n{out}");
+    }
+    // The order-dependent test flips in every cell; the second company list reaches its cells' command lines.
+    assert!(
+        out.contains("Codeunit50710.SecondNeedsFirst  pass -> fail under 29.0-w1-companies2-onprem/1@5"),
+        "{out}"
+    );
+    assert_eq!(out.matches("pass -> fail under").count(), 8, "{out}");
+    assert!(out.contains("--companies 'CRONUS International Ltd.,Second'"), "{out}");
+    let m = json(&doc);
+    let cells = m["cells"].as_array().unwrap();
+    assert_eq!(cells.len(), 4, "{m}");
+    let st = &cells[3]["run"]["stability"];
+    assert_eq!(st["cells"].as_array().unwrap().len(), 2, "{m}");
+    assert_eq!(st["cells"][1]["cell"], "29.0-w1-companies2-onprem", "{m}");
+    assert_eq!(st["cells"][1]["summary"]["flipped"], 1, "{m}");
+    let x = std::fs::read_to_string(out_dir.join(format!("r.{NEW}-w1-companies2.xml"))).unwrap();
+    assert_eq!(x.matches("<testsuite ").count(), 4, "{x}");
+    assert!(x.contains("name=\"29.0-w1-companies2-onprem/1@5\""), "{x}");
+    // Replay one variant of one cell: a single run of that cell.
+    let o = alrunner(
+        dir.path(),
+        &[
+            "test",
+            a,
+            "--stability",
+            c,
+            "--stability-replay",
+            "28.5-w1-companies2-onprem/1@5",
+        ],
+        &[],
+    );
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}");
+    assert!(out.contains("replaying 28.5-w1-companies2-onprem/1@5"), "{out}");
+    assert!(out.contains("counter=0"), "{out}");
+    assert!(!out.contains("Matrix:"), "{out}");
+    // The command line cannot name an axis the config names.
+    let o = alrunner(dir.path(), &["test", a, "--stability", c, "--bc-version", "28.5"], &[]);
+    assert_eq!(o.status.code(), Some(2), "{}", text(&o));
+    assert!(text(&o).contains("bcVersion"), "{}", text(&o));
+    let o = alrunner(
+        dir.path(),
+        &["test", a, "--stability", c, "--environment", "onprem"],
+        &[],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", text(&o));
+}
+
+/// ADR-058 section 3: version and country lists on the command line keep working with a config that names no
+/// version or country axis; each cell runs the perturbation set.
+#[test]
+fn stability_with_a_version_list_on_the_command_line_runs_each_cell() {
+    let dir = tempfile::tempdir().unwrap();
+    two_builds(dir.path());
+    let app = stability_app(dir.path());
+    let o = alrunner(
+        dir.path(),
+        &[
+            "test",
+            app.to_str().unwrap(),
+            "--stability",
+            "microsoft",
+            "--bc-version",
+            &format!("28.5,{NEW}"),
+            "--seed",
+            "5",
+        ],
+        &[],
+    );
+    let out = text(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}");
+    assert!(out.contains("\nStability per cell\n"), "{out}");
+    assert!(out.contains("under 28.5-w1/"), "{out}");
+    assert!(out.contains("under 29.0-w1/"), "{out}");
+}

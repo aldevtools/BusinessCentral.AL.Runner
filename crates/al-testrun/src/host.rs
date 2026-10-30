@@ -235,7 +235,11 @@ fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crat
         None => host,
     };
     let host = host.with_companies(companies());
-    let host = host.in_environment(ENVIRONMENT.get().copied().unwrap_or_default());
+    // A cell of the `environment` matrix axis (ADR-058 section 3) names its own; else the run's.
+    let host = host.in_environment(
+        p.environment
+            .unwrap_or_else(|| ENVIRONMENT.get().copied().unwrap_or_default()),
+    );
     let host = host.with_server_url(&server_url().0);
     match FILES_DIR.get() {
         Some(dir) => host.with_files(DirFileSystem::new(dir.clone())),

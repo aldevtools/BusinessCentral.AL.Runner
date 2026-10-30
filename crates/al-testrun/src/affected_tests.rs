@@ -59,6 +59,7 @@ fn stored_cu(id: u32, keys: &[&str], entered: &[String]) -> StoredCodeunit {
         stubbed: false,
         ended: Ended::Normal,
         tests: vec![("Test1".into(), Outcome::Pass)],
+        seed: None,
     }
 }
 
@@ -367,8 +368,21 @@ fn the_stored_result_survives_json() {
     stored.codeunits[2].ended = Ended::Cut;
     stored.codeunits[2].dotnet = true;
     stored.codeunits[0].stubbed = true;
+    // ADR-061 section 5: the run seed a codeunit ran with is recorded.
+    stored.codeunits[1].seed = Some(4271833);
     let back = Stored::from_json(&stored.to_json()).expect("readable");
     assert_eq!(back, stored);
+}
+
+/// ADR-061 section 5: the run seed is not part of the rule; a codeunit that ran under another seed is skipped.
+#[test]
+fn another_run_seed_is_no_reason_to_run_again() {
+    let (mut stored, now) = base();
+    let before = ran(&select(&stored, &now));
+    for c in &mut stored.codeunits {
+        c.seed = Some(17);
+    }
+    assert_eq!(ran(&select(&stored, &now)), before);
 }
 
 #[test]

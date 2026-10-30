@@ -686,8 +686,15 @@ pub struct Session {
     /// Ids of temporary tables whose last record variable has gone (`TempId`); freed on the next use of a temporary table.
     pub(crate) temp_release: Rc<RefCell<Vec<u64>>>,
     pub(crate) next_guid: u64,
-    /// The host's seed, mixed into every Guid the session makes (see [`Session::fresh_guid`]).
-    guid_seed: i32,
+    /// The key mixed into every Guid the session makes (see [`Session::fresh_guid`]): the host's seed
+    /// (`al_host::seed::fixed_guid_key`), or the test method's (`Session::seed_test_method`, ADR-061).
+    guid_key: u64,
+    /// What `Randomize()` without a seed reseeds from, plus a count: the host's seed, or the test method's derived seed
+    /// (ADR-061).
+    pub(crate) unseeded_base: i32,
+    /// AL code of this session called `Randomize(n)`: the sequence goes on into the next test of the codeunit, as in BC
+    /// (types/TestRandomSeededContracts.al:111-131), so a test method's start no longer reseeds it (ADR-061).
+    pub(crate) randomized_with_seed: bool,
     /// The session's `Random` (`System.Random`, `Randomize`); see `hostvalues.rs`.
     pub(crate) rng: al_host::random::NetRandom,
     /// How many numbers `Random` has drawn in this session (a test that draws after tests that did not run sees another
@@ -704,6 +711,11 @@ pub struct Session {
     pub(crate) reseeded_in_test: bool,
     /// How many numbers `Random` has drawn from a sequence the test running did not seed itself.
     pub(crate) inherited_draws: u64,
+    /// The run seed reseeded `Random` when the test running began (`Session::seed_test_method`, ADR-061).
+    pub(crate) run_seeded_in_test: bool,
+    /// Of `inherited_draws`, those from a sequence the run seed did not restart either: they go on with what the tests
+    /// before drew (after a `Randomize(n)` of theirs).
+    pub(crate) carried_draws: u64,
     /// How many `Randomize()` calls without a seed the session has seen.
     pub(crate) unseeded_randomizes: i32,
     pub(crate) next_row_version: i64,
@@ -1005,7 +1017,9 @@ impl Session {
             next_temp: 0,
             temp_release: Default::default(),
             next_guid: 0,
-            guid_seed: guid_seed.unwrap_or(random_seed),
+            guid_key: al_host::seed::fixed_guid_key(guid_seed.unwrap_or(random_seed)),
+            unseeded_base: random_seed,
+            randomized_with_seed: false,
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
@@ -1013,6 +1027,8 @@ impl Session {
             dirty_ops_open: 0,
             reseeded_in_test: false,
             inherited_draws: 0,
+            run_seeded_in_test: false,
+            carried_draws: 0,
             unseeded_randomizes: 0,
             next_row_version: restored_row_version,
             deletes: 0,
@@ -1676,11 +1692,44 @@ impl Session {
         self.inherited_draws
     }
 
+    /// Of [`Session::inherited_random_draws`], the numbers drawn from a sequence that the run seed did not restart at the
+    /// start of the test either (ADR-061): they go on with what the tests before drew, after a `Randomize(n)` of theirs
+    /// (types/TestRandomSeededContracts.al:111-131).
+    pub fn carried_random_draws(&self) -> u64 {
+        self.carried_draws
+    }
+
+    /// A test method of codeunit `codeunit` begins, before the test runner's reset (ADR-061): with `random`, the
+    /// session's `Random` starts from `al_host::seed::derive(run seed, codeunit, method)` (unless AL code of this session
+    /// called `Randomize(n)`: that sequence goes on, types/TestRandomSeededContracts.al:111-131) and `Randomize()`
+    /// reseeds from it; with `guids`, the method's Guids and SystemIds come from its own key and counter. So a test's
+    /// values depend on the run seed and its own name, not on the tests before it.
+    pub fn seed_test_method(&mut self, codeunit: u32, method: &str, random: bool, guids: bool) {
+        let run_seed = self.host.run_seed;
+        if random {
+            let seed = al_host::seed::derive(run_seed, codeunit, method);
+            self.unseeded_base = seed;
+            self.unseeded_randomizes = 0;
+            if !self.randomized_with_seed {
+                // The draws still count as inherited (`Session::inherited_random_draws`): an earlier test that did not
+                // finish could have called `Randomize(n)`, and then this test would have gone on with that sequence.
+                // They are not carried (`Session::carried_random_draws`).
+                self.rng = al_host::random::NetRandom::new(seed);
+                self.run_seeded_in_test = true;
+            }
+        }
+        if guids {
+            self.guid_key = al_host::seed::guid_key(run_seed, codeunit, method);
+            self.next_guid = 0;
+        }
+    }
+
     /// A test method begins, before the test runner's reset: until something reseeds the `Random` sequence (the reset's
     /// `LibraryRandom.SetSeed(1)` included), what `Random` draws depends on the tests before (see
     /// [`Session::inherited_random_draws`]).
     pub fn start_random_scope(&mut self) {
         self.reseeded_in_test = false;
+        self.run_seeded_in_test = false;
     }
 
     /// The instance a codeunit runs on when the session starts it: the session's single instance for a SingleInstance

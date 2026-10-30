@@ -30,7 +30,7 @@ or an `.app` that carries its source.
 | `--package-cache DIR` | A folder of `.app` files. Repeatable. |
 | `--bc-version V` | A Business Central major, major.minor, or an exact build (four numbers). An exact build also fills Microsoft's `$(app_...)` variables in source archives outside a folder named for their build. |
 | `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). |
-| `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime`. |
+| `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime` (on Windows `%USERPROFILE%\.cache\al-runtime`). |
 | `--country CODE` | The Business Central country version (`us`, `gb`, `de`, ...). Default `w1`. See [Test data](test-data.md). |
 | `--define SYMBOL` | A preprocessor symbol for `#if SYMBOL`. Repeatable. `--preprocessor-symbols A,B` names several. Like the AL compiler, AL Runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`). |
 
@@ -70,8 +70,10 @@ files older than a day are removed.
 | `--exclude-test TEXT` | Leaves out the tests TEXT matches. Wins over every selecting option. Repeatable. |
 | `--run-selected-only` | Run only the selected tests of each codeunit, as Business Central's test tool runs only the enabled test methods. The other tests do not run, so their globals, rows, time and refusals do not reach the selected ones. The codeunit's `OnRun` still runs first. In `serve`: the `runTests` field `runSelectedOnly`. |
 | `--ignore-permission-mock` | Run the tests that lower their own permissions (`Permissions Mock`, `Library - Lower Permissions`) with every access granted. Without it, such a test is not run, because AL Runner does not enforce permissions. **Risk:** permissions are not checked. A test that passes here can fail on Business Central with a permission error, and a test that expects a permission error fails here. Each such test is a flagged pass with the assumption `permissions-not-enforced`, so it is never counted as a clean pass. Use it to run the rest of the test's logic, not to check permissions. In `serve`: the `runTests` field `ignorePermissionMock`. See [Writing tests](writing-tests.md#permissions). |
-| `--stability FILE\|microsoft` | Stability mode (ADR-058): run the selected tests once per variant of a JSON config over one compile and list the tests whose outcome changes against the base variant. The preset `microsoft` is Microsoft's four: another `Library - Random` seed, each test alone, reverse method order, work date plus one year. Dimensions built: `random.librarySeed`, `isolation.alone`, `order.methods`, `workDate.offset`, `clock.date`, `order.codeunits` (changes outcomes only with `--isolation disabled`), `random.hostSeed`, `guid.seed`, `clock.timeOfDay`, `clock.stepMs` (positive), `identity.userId` (letters and digits), `identity.userSecurityId`, `identity.sessionId`, `identity.serviceInstanceId`, `identity.tenantId`, `company.name` (letters, digits and spaces, up to 30); the integer ones also take a range; strategies `oneAtATime`, `matrix`, `sample`. A config that names a "never" or "pin first" dimension, a dimension not built yet, or a matrix axis is refused with exit 2. Exit 1 when a test changes between pass and fail; a change to or from not run is listed apart. `--junit` holds one testsuite per variant, `--output-json` a `stability` object. Not with `--affected`, `--matrix`, version or country lists, `--recipe`, `--explain`, `serve`, or `ALRUNNER_REAL_CLOCK=1`. |
-| `--stability-replay ID\|VALUES` | Run one variant as a normal run: its id (`29.0-w1/3`) with `--stability`, or its printed values (`"order.methods=reverse workDate.offset=+1Y"`) without. |
+| `--stability FILE\|microsoft` | Stability mode (ADR-058): run the selected tests once per variant of a JSON config over one compile and list the tests whose outcome changes against the base variant. The preset `microsoft` is Microsoft's four: another `Library - Random` seed, each test alone, reverse method order, work date plus one year. Dimensions built: `random.librarySeed`, `isolation.alone`, `order.methods`, `workDate.offset`, `clock.date`, `order.codeunits` (changes outcomes only with `--isolation disabled`), `random.hostSeed`, `guid.seed`, `clock.timeOfDay`, `clock.stepMs` (positive), `identity.userId` (letters and digits), `identity.userSecurityId`, `identity.sessionId`, `identity.serviceInstanceId`, `identity.tenantId`, `company.name` (letters, digits and spaces, up to 30); the integer ones also take a range; strategies `oneAtATime`, `matrix`, `sample`. The config's `matrix` names the axes `bcVersion`, `country`, `companies` (each value `null` for one company, `"all"`, or a list of names) and `environment` (`saas`, `onprem`): every cell runs every variant and is compared with its own base variant. Version, country and companies cells are child processes, as with `--matrix`; the environments of a cell share its compile. A version or country list on the command line forms the cells the same way when the config names neither axis. A config that names a "never" or "pin first" dimension, a dimension not built yet, or an unknown matrix axis is refused with exit 2, and so is an axis the config names together with its command-line option (`--bc-version`, `--country`, `--matrix`, `--environment`, `--companies`). Exit 1 when a test changes between pass and fail; a change to or from not run is listed apart. `--junit` holds one testsuite per variant, `--output-json` a `stability` object. In a matrix, each cell writes its own JUnit file and its document holds its `stability` object; the matrix report adds a table of the cells and the tests that changed within each. Not with `--affected`, `--recipe`, `--explain`, `serve`, or `ALRUNNER_REAL_CLOCK=1`. |
+| `--seed N` | The run seed, 0 to 2147483647 (ADR-061). Every run has one: `--seed`, else `ALRUNNER_SEED` or `AL_RUNNER_SEED`, else a fresh one. It is printed at the start and in the summary (`Seed: N`, plus a `Replay:` command for the first failure), and written to `--output-json` (`seed`, `seedSource`), `--junit` (a `seed` property on every testsuite) and the `serve` summary. Per test method it derives the seed of `Random` (version 2's formula; `Randomize(n)` still carries over to the next test, as in Business Central) and the Guids and SystemIds. The same seed, apps and selection replay the same values. It does not change the clock, the work date, the test order or what install code draws. A value out of range is exit 2. |
+| `--seed-library` | Also hand `Library - Random` a seed derived from the run seed, after the reset step's `SetSeed(1)`. Off by default, as Business Central's test runner keeps 1. A stability run always does it. |
+| `--stability-replay ID\|VALUES` | Run one variant as a normal run: its id (`29.0-w1/3@4271833`, which also sets the run seed; with matrix axes in the config, also the cell, such as `28.5-w1-companies2-onprem/1@4271833`) with `--stability`, or its printed values (`"order.methods=reverse workDate.offset=+1Y"`) without. |
 | `--stability-max N` | The most variants the `matrix` strategy forms (default 1000). |
 | `--stability-allow-flips` | Exit 0 although a test changed outcome. |
 | `--stability-print-preset microsoft` | Print the preset, as a starting point for a config file. |
@@ -112,8 +114,8 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 
 | Flag | Effect |
 |---|---|
-| `--verbose` | Setup details first, then one line per test (PASS, FAIL, NOT RUN with reason) with its run time, the test data rows line, and the full `Time:` line. |
-| `--quiet` | Summary only. |
+| `--verbose`, `-v` | Setup details first, then one line per test (PASS, FAIL, NOT RUN with reason) with its run time, the test data rows line, and the full `Time:` line. |
+| `--quiet`, `-q` | Summary only. |
 | `--color auto\|always\|never` | PASS green, FAIL red, NOT RUN yellow, flagged passes cyan. `auto` colors only on a terminal and never when `NO_COLOR` is set. JUnit and JSON are never colored. |
 | `--top-refusals [N]` | The N most common reasons tests were not run (default 10). |
 | `--top-failures [N]` | The N most common failure messages (default 10), numbers and quoted values folded. |
@@ -141,7 +143,7 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 | `--no-test-data` | Run without company data. |
 | `--test-data [PATH]` | Name a backup (`.bak`, `.bacpac`), or insist on test data: a missing backup then stops the run. Write `--test-data=PATH`, or end the name in `.bak` or `.bacpac`, because a bare name after `--test-data` is an APP. |
 | `--test-data-company NAME` | The company to restore (exact name or prefix). Default: the only company, else `CRONUS International Ltd.`. |
-| `--company-data bak\|package` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. The other values build Microsoft's demo company; they are experimental and off by default. |
+| `--company-data bak\|package` | `bak` (default) restores the CRONUS company of the backup. `package` builds the company from the RapidStart package, the way Microsoft's Legacy test lane does. The other values (`demotool`, `contoso-setup`, `contoso-all`) build Microsoft's demo company; they are experimental and need `--experimental-company-builds`. |
 | `--package PATH` | The `.rapidstart` file to use. Implies `--company-data package`. |
 | `--disabled-tests DIR` | Microsoft's list of disabled tests (BCApps `src/DisabledTests`, or one app's folder). Those tests still run and are marked `disabled_by_microsoft`. |
 | `--parity` | With `--disabled-tests`: do not run those tests. |
@@ -155,9 +157,9 @@ See [Editor and tool integration](editor-tools.md) for the formats.
 |---|---|
 | `--server-url URL` | The base address that `GetUrl(ClientType::Web)` answers with. Default `http://localhost:8080/BC`, else `$ALRUNNER_SERVER_URL`. |
 | `--environment saas\|onprem` | The server that `Environment Information` describes. Default `saas`. The on-prem values are an unprobed assumption. |
-| `--companies NAMES` | The companies of the database, comma separated, the session company first, or `all` (every company of the restored test data, the session company first). The per-company install code of your apps runs once in each company, then the per-database part runs once. Microsoft's apps stay in the session company: a test that reads one of their per-company tables in another company is not run. Without the flag the run has one company. See [Writing tests](writing-tests.md#companies) and ADR-046. |
+| `--companies NAMES` | The companies of the database, comma separated, the session company first, or `all` (every company of the restored test data, the session company first). The per-company install code of your apps runs once in each company, then the per-database part runs once. Microsoft's apps stay in the session company: a test that reads one of their per-company tables in another company is not run. Without the flag the run has one company. See [Writing tests](writing-tests.md#companies). |
 | `--files-dir DIR` | Let the `File` data type read and write real files under DIR. |
-| `--auto-provision` | Accepted and ignored. Version 3 always downloads unless `--no-download`. |
+| `--auto-provision` | Accepted and ignored. AL Runner always downloads unless `--no-download`. |
 
 ## Test first
 
@@ -199,7 +201,7 @@ Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
 | 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET 8 runtime). `--allow-not-run` makes this 0. |
 
-Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the must-not-compile corpus pins, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
+Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the corpus has checked against the real compiler, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
 [Impact analysis](impact.md).
 
 ## Environment variables
@@ -208,6 +210,7 @@ Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the erro
 |---|---|
 | `ALRUNNER_CACHE` | The cache folder when `--cache-dir` is not given. |
 | `ALRUNNER_SERVER_URL` | The address `--server-url` sets, when it is not given. |
+| `ALRUNNER_SEED`, `AL_RUNNER_SEED` | The run seed when `--seed` is not given. The second is version 2's name. |
 | `ALRUNNER_NO_COMPILE_CACHE=1` | Same as `--no-compile-cache`. |
 | `ALRUNNER_NO_CACHE_PRUNE=1` | Turn off the automatic cache cleanup. |
 | `ALRUNNER_BCAPPS_URL` | The address `--recipe` fetches BCApps from. |

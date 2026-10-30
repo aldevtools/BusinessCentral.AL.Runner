@@ -18,8 +18,8 @@ Do not rely on it alone to decide that an app is ready for production: before yo
 deploy, run your tests at least once in a way Microsoft supports, for example in a
 Business Central container on Windows (BcContainerHelper) or with AL-Go for GitHub.
 
-**Version 3 is an alpha.** It replaces version 2, which was written in C# and is
-frozen. Many tests are still reported as "not run", and results can change
+**AL Runner is an alpha.** This version replaces AL Runner version 2, which was
+written in C# and is frozen ([Migrating from version 2](migrating-from-v2.md)). Many tests are still reported as "not run", and results can change
 between builds. [Reading results](results.md) explains what a pass, a failure and
 "not run" each mean.
 
@@ -28,6 +28,7 @@ between builds. [Reading results](results.md) explains what a pass, a failure an
 - **[Getting started](getting-started.md)**: install it and run your tests.
 - **[Supported versions](versions.md)**: Business Central versions, platforms and release channels.
 - **[Writing tests](writing-tests.md)**: apps, test codeunits, selecting tests, isolation, test-first work.
+- **[Stability mode](stability.md)**: run tests again under changed seeds, order and dates to find hidden dependencies.
 - **[Reading results](results.md)**: what you can trust, and how to find out why a test did not run.
 - **[How results are checked](how-it-works.md)**: why results can be trusted, and the known risks.
 - **[Command line reference](cli-reference.md)**: every command and flag.
@@ -42,13 +43,14 @@ between builds. [Reading results](results.md) explains what a pass, a failure an
 - **[Roadmap](roadmap.md)**: what is deferred, experimental, not built yet or decided against.
 - **[Migrating from version 2](migrating-from-v2.md)**: command and flag changes.
 - **[Troubleshooting](troubleshooting.md)**: what common messages mean.
+- **[Questions and answers](faq.md)**: short answers to common questions.
 - **[Reporting a problem](feedback.md)**: a wrong result, a refused feature you need, or a crash.
 
 ## What it is for
 
 Fast feedback on your own machine and in pull request builds, before the full
 Business Central pipeline runs. A run of a small app takes under a second after
-the first one. Linux x64, Windows x64 and macOS arm64 are supported.
+the first one. Linux x64, Linux arm64, Windows x64 and macOS arm64 are supported.
 
 It does not replace testing against a real service tier. When AL Runner cannot
 answer a question the way Business Central would, it refuses the test and says

@@ -177,20 +177,15 @@ fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
     default_handler.then(|| "an extension of the enum DefaultTestHandler (ITestHandler callbacks for every test codeunit) is not supported yet".into())
 }
 
-/// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]`. BC runs each once per
-/// case its ITestDataSource lists (BiTestDataSource.al:87, not asserted on the corpus CI); the runner reports each as
-/// not run, one row under its procedure name.
-fn data_driven_tests(lowered: &Lowered, object: usize) -> Vec<String> {
+/// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]`.
+fn data_driven_tests(lowered: &Lowered, object: usize) -> Vec<usize> {
     let obj = &lowered.program.objects[object];
-    obj.routines
-        .iter()
-        .filter(|r| {
-            r.attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("TestDataSource"))
-                && !r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
+    (0..obj.routines.len())
+        .filter(|&r| {
+            let a = &obj.routines[r].attributes;
+            a.iter().any(|a| a.name.eq_ignore_ascii_case("TestDataSource"))
+                && !a.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
         })
-        .map(|r| r.name.clone())
         .collect()
 }
 
@@ -217,14 +212,16 @@ pub(crate) fn run_codeunit_core(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
         );
     }
-    let data_driven = data_driven_tests(lowered, object);
-    let data_driven_why = "a data-driven test ([TestDataSource], one run per test case) is not supported yet";
-    let mut done = match test_handlers_refusal(lowered, object) {
+    match test_handlers_refusal(lowered, object) {
         Some(why) => {
             let obj = &lowered.program.objects[object];
             obj.routines
                 .iter()
-                .filter(|r| r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test")))
+                .filter(|r| {
+                    r.attributes
+                        .iter()
+                        .any(|a| a.name.eq_ignore_ascii_case("Test") || a.name.eq_ignore_ascii_case("TestDataSource"))
+                })
                 .filter(|r| {
                     scratch
                         .run_only
@@ -237,20 +234,7 @@ pub(crate) fn run_codeunit_core(
         None => run_codeunit_inner(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
         ),
-    };
-    let obj = &lowered.program.objects[object];
-    done.extend(
-        data_driven
-            .into_iter()
-            .filter(|n| {
-                scratch
-                    .run_only
-                    .as_ref()
-                    .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), n.to_lowercase())))
-            })
-            .map(|n| (n, Outcome::NotRun(data_driven_why.into()))),
-    );
-    done
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -270,10 +254,10 @@ fn run_codeunit_inner(
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
-    let mut session = Session::with_host(
-        engine.clone(),
-        crate::host::host_perturbed(scratch.clock_start, &perturb),
-    );
+    let run_seed = scratch.run_seed;
+    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
+    host.run_seed = run_seed.seed;
+    let mut session = Session::with_host(engine.clone(), host);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -312,9 +296,24 @@ fn run_codeunit_inner(
     if execute {
         session.capture_messages();
     }
+    // The data-driven procedures (ADR-059): they run after the plain tests, once per case (`data_driven.rs`).
+    let data_driven: Vec<usize> = if execute {
+        Vec::new()
+    } else {
+        data_driven_tests(lowered, object)
+            .into_iter()
+            .filter(|&r| {
+                scratch
+                    .run_only
+                    .as_ref()
+                    .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase())))
+            })
+            .collect()
+    };
     let all = |o: Outcome| {
         tests
             .iter()
+            .chain(&data_driven)
             .map(|&r| (obj.routines[r].name.clone(), o.clone()))
             .collect::<Vec<_>>()
     };
@@ -332,7 +331,7 @@ fn run_codeunit_inner(
     let runner_function = isolation == TestIsolation::Function && !scratch.hub && !execute;
     // A [TransactionModel] other than AutoCommit, AutoRollback or None is refused.
     let mut models = std::collections::HashMap::new();
-    for &r in &tests {
+    for &r in tests.iter().chain(&data_driven) {
         for a in obj.routines[r]
             .attributes
             .iter()
@@ -572,8 +571,6 @@ fn run_codeunit_inner(
         None => None,
     };
     let mut out: Vec<(String, Outcome)> = Vec::new();
-    // The rows of `out` before the first test's.
-    let first_test = out.len();
     // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
     // or failed. A later failure is not trusted when such a test could have changed what it reads (`written.rs`).
     let mut unfinished: Vec<Unfinished> = Vec::new();
@@ -585,7 +582,49 @@ fn run_codeunit_inner(
     // Why the tests after one are not run: under a runner's TestIsolation = Function, that test changed an isolated
     // storage key or a number sequence that was there before it, and what the rollback leaves of it is not measured.
     let mut unmeasured_restore: Option<String> = None;
-    for r in tests.iter().copied() {
+    let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
+    // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
+    let mut data_driven_rows: Vec<usize> = Vec::new();
+    while let Some(item) = queue.pop_front() {
+        let r = item.routine;
+        let name = item.name;
+        if matches!(item.step, data_driven::Step::Source) {
+            match data_driven::list(&mut session, lowered, object, r, &name) {
+                data_driven::Listed::Items(items) => {
+                    for it in items.into_iter().rev() {
+                        queue.push_front(it);
+                    }
+                }
+                data_driven::Listed::SessionEnds => {
+                    let why = || Outcome::NotRun(data_driven::SESSION_ENDS.into());
+                    for &row in &data_driven_rows {
+                        out[row].1 = why();
+                    }
+                    // Only data-driven procedures are left: the plain tests ran first.
+                    let rest: Vec<_> = std::iter::once(r).chain(queue.drain(..).map(|i| i.routine)).collect();
+                    let mut seen = BTreeSet::new();
+                    for p in rest.into_iter().filter(|p| seen.insert(*p)) {
+                        queue.push_back(data_driven::Item {
+                            routine: p,
+                            name: obj.routines[p].name.clone(),
+                            step: data_driven::Step::Decided(why()),
+                        });
+                    }
+                }
+            }
+            continue;
+        }
+        let decided = match &item.step {
+            data_driven::Step::Decided(o) => Some(o.clone()),
+            _ => None,
+        };
+        let case = match item.step {
+            data_driven::Step::Case { source, index, id } => Some((source, index, id)),
+            _ => None,
+        };
+        if !matches!((&case, &decided), (None, None)) {
+            data_driven_rows.push(out.len());
+        }
         // A cancelled run starts no further test (the one running finishes).
         if crate::events::cancelled() {
             break;
@@ -593,6 +632,7 @@ fn run_codeunit_inner(
         crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
         let test_started = std::time::Instant::now();
         let draws_before = session.inherited_random_draws();
+        let carried_before = session.carried_random_draws();
         // The flags of the codeunit that already hold their only value when this test starts.
         let settled: BTreeSet<(usize, usize)> = {
             let inst = instance.borrow();
@@ -616,8 +656,16 @@ fn run_codeunit_inner(
         al_builtins::assumptions::clear_hits();
         session.take_tdd_reached();
         let mut began = false;
-        let outcome = if let Some(why) = &unmeasured_restore {
+        let outcome = if let Some(o) = decided {
+            o
+        } else if let Some(why) = &unmeasured_restore {
             Outcome::NotRun(why.clone())
+        } else if let Some(b) = case
+            .as_ref()
+            .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
+        {
+            refused_in = Some((b.object, b.routine));
+            Outcome::NotRun(b.text)
         } else if let Err(reason) = &handlers {
             Outcome::NotRun(reason.clone())
         } else if let Some(b) = blocked_site(lowered, object, r) {
@@ -654,12 +702,28 @@ fn run_codeunit_inner(
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                     // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                     session.start_random_scope();
+                    // The run seed (ADR-061): the method's `Random` and Guids derive from it and its own name, so
+                    // `--seed N --test X` gives X the values of the full run. A stability variant's own `random.hostSeed`
+                    // or `guid.seed` replaces the derived value for that variant.
+                    let codeunit_id = obj.id.unwrap_or(0);
+                    session.seed_test_method(
+                        codeunit_id,
+                        &routine.name,
+                        perturb.host_seed.is_none(),
+                        perturb.guid_seed.is_none(),
+                    );
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
                     let mut reset = runner.before(&mut session, obj, routine);
-                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2): after codeunit 130301, the
-                    // runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the variant's seed.
-                    if let (Ok(()), Some(seed)) = (&reset, perturb.library_seed) {
+                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
+                    // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
+                    // the variant's seed, else the one derived from the run seed.
+                    let library_seed = perturb.library_seed.or_else(|| {
+                        run_seed
+                            .library
+                            .then(|| al_host::seed::derive_library(run_seed.seed, codeunit_id, &routine.name))
+                    });
+                    if let (Ok(()), Some(seed)) = (&reset, library_seed) {
                         reset = runner_reset::library_seed(&mut session, seed);
                     }
                     let reset_ok = reset.is_ok();
@@ -703,7 +767,19 @@ fn run_codeunit_inner(
                             if std::env::var("ALRUNNER_DEBUG_PANIC_IN").is_ok_and(|n| n == routine.name) {
                                 panic!("requested by ALRUNNER_DEBUG_PANIC_IN");
                             }
-                            session.call(object, r, instance.clone(), Vec::new())
+                            match &case {
+                                None => session.call(object, r, instance.clone(), Vec::new()),
+                                Some((source, index, id)) => data_driven::run_case(
+                                    &mut session,
+                                    lowered,
+                                    object,
+                                    r,
+                                    instance.clone(),
+                                    source,
+                                    *index,
+                                    id,
+                                ),
+                            }
                         })),
                     };
                     let result = match called {
@@ -865,6 +941,9 @@ fn run_codeunit_inner(
         // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
         // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
         let drew = session.inherited_random_draws() > draws_before;
+        // Of those, the numbers the run seed did not restart either (ADR-061): only they depend on an earlier test that
+        // cannot seed the sequence with `Randomize(n)`.
+        let drew_carried = session.carried_random_draws() > carried_before;
         // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
         // (al-runner issue 5641): what it found there is not pinned.
         let outcome = match session.store_mut().watch_hit() {
@@ -913,8 +992,12 @@ fn run_codeunit_inner(
                             })
                             .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
                     });
+                    // ADR-061: each test restarts `Random` from the run seed, so an earlier test's draws matter only when
+                    // the sequence goes on past that restart, after a `Randomize(n)`; an earlier test that can call
+                    // `Randomize(n)` may have left that state, so every draw counts.
+                    let drew = if facts.seeds_random() { drew } else { drew_carried };
                     match u.ended {
-                        Ended::Failed => facts.random().then(|| {
+                        Ended::Failed => (drew && facts.random()).then(|| {
                             format!(
                                 "a test before this one in the codeunit did not pass ({}) and could draw random numbers, and this test draws random numbers: the shared sequence is not BC's",
                                 u.what
@@ -996,7 +1079,7 @@ fn run_codeunit_inner(
         // probe T10 and T11 under runner 61300, IsolProbeFixture.Codeunit.al:118-160).
         if let Some(observe) = observe.as_mut() {
             observe(
-                &routine.name,
+                &name,
                 &outcome,
                 &Observed {
                     session: &session,
@@ -1028,17 +1111,17 @@ fn run_codeunit_inner(
         }
         if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
             if !e.call_stack.is_empty() {
-                stacks.push((routine.name.clone(), e.call_stack.clone()));
+                stacks.push((name.clone(), e.call_stack.clone()));
             }
         }
         let marks = al_builtins::assumptions::take_hits();
         if !marks.is_empty() {
-            hits.push((routine.name.clone(), marks));
+            hits.push((name.clone(), marks));
         }
         // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
         let reached = session.take_tdd_reached();
         if !reached.is_empty() {
-            scratch.stubbed.push((routine.name.clone(), reached.clone()));
+            scratch.stubbed.push((name.clone(), reached.clone()));
         }
         let took = test_started.elapsed();
         // The count starts with the test (`start_sleep_budget`): a test that did not start slept nothing.
@@ -1048,19 +1131,19 @@ fn run_codeunit_inner(
             0
         };
         if slept_ms > 0 {
-            scratch.slept.push((routine.name.clone(), slept_ms));
+            scratch.slept.push((name.clone(), slept_ms));
         }
         if execute {
-            scratch.messages.push((routine.name.clone(), session.take_messages()));
+            scratch.messages.push((name.clone(), session.take_messages()));
         }
         let captured_at = scratch
             .capture
             .any()
             .then(|| crate::capture::resolve(&lowered.program, &scratch.order, session.take_capture()));
         if let Some(c) = &captured_at {
-            scratch.captured.push((routine.name.clone(), c.clone()));
+            scratch.captured.push((name.clone(), c.clone()));
         }
-        times.push((routine.name.clone(), took));
+        times.push((name.clone(), took));
         let cov = if covering { session.take_coverage() } else { Vec::new() };
         if scratch.trace {
             let touched = session.take_impact_trace();
@@ -1078,12 +1161,12 @@ fn run_codeunit_inner(
             crate::events::report(crate::events::TestEvent {
                 codeunit: obj.id.unwrap_or(0),
                 codeunit_name: obj.name.clone(),
-                test: routine.name.clone(),
+                test: name.clone(),
                 outcome: outcome.clone(),
                 call_stack: stacks
                     .iter()
                     .rev()
-                    .find(|(n, _)| *n == routine.name)
+                    .find(|(n, _)| *n == name)
                     .map(|(_, s)| s.clone())
                     .unwrap_or_default(),
                 time: took,
@@ -1095,9 +1178,9 @@ fn run_codeunit_inner(
             });
         }
         if covering {
-            crate::coverage::push(&routine.name, cov);
+            crate::coverage::push(&name, cov);
         }
-        out.push((routine.name.clone(), outcome));
+        out.push((name.clone(), outcome));
         // A panic in a test ends the codeunit: the session may be inconsistent.
         if panicked {
             break;
@@ -1107,8 +1190,7 @@ fn run_codeunit_inner(
         }
     }
     if panicked {
-        let ran = out.len() - first_test;
-        for &r in &tests[ran..] {
+        for name in queue.drain(..).map(|i| i.name) {
             let outcome = Outcome::NotRun(
                 "an earlier test of this codeunit panicked (a runtime bug), so the rest of it was not run".into(),
             );
@@ -1116,7 +1198,7 @@ fn run_codeunit_inner(
                 crate::events::report(crate::events::TestEvent {
                     codeunit: obj.id.unwrap_or(0),
                     codeunit_name: obj.name.clone(),
-                    test: obj.routines[r].name.clone(),
+                    test: name.clone(),
                     outcome: outcome.clone(),
                     call_stack: String::new(),
                     time: std::time::Duration::ZERO,
@@ -1127,7 +1209,7 @@ fn run_codeunit_inner(
                     entry: None,
                 });
             }
-            out.push((obj.routines[r].name.clone(), outcome));
+            out.push((name, outcome));
         }
     }
     // RequiredTestIsolation = Disabled under the TestRunnerHub: everything persists into the next codeunit, the write
@@ -1159,7 +1241,7 @@ fn run_codeunit_inner(
         let mut tables = session.store_mut().tables_changed_since(changes_from);
         // A test that did not run to its end may have left out writes it would have made: the tables it names count too.
         if unfinished.is_some() {
-            for &r in &tests {
+            for &r in tests.iter().chain(&data_driven) {
                 tables.extend(tables_touched(lowered, object, r));
             }
         }

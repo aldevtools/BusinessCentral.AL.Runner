@@ -1189,6 +1189,7 @@ impl CorpusRuntime {
                             on_run_rows: OnRunRows::PerTest,
                             ignore_permission_mock: false,
                             perturb: Default::default(),
+                            run_seed: opts.run_seed,
                         });
                     }
                     continue;
@@ -1237,6 +1238,7 @@ impl CorpusRuntime {
                             on_run_rows: opts.on_run_rows,
                             ignore_permission_mock: opts.ignore_permission_mock,
                             perturb: opts.perturb.clone(),
+                            run_seed: opts.run_seed,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()

@@ -693,7 +693,10 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                             // A text that starts with a double quote is quoted and doubles its quotes (types/lt-evaluate-recordid/
                             // EvaluateRecordIdComposite.al:RoundTrip_KeyValueWithComma `dquote`: `"Q"` reads `"""Q"""`); a quote further in
                             // is left as it is (types/lt-implicit-conversions/P79RecordId.al:CompositeKey_SpecialCharacters: `A"B`).
+                            // An Option key value whose member is a blank (` `) is quoted too: `" "`
+                            // (types/lt-wc/WcUnpinnedSingles.al:129, :140).
                             if t.is_empty()
+                                || (matches!(k, Value::Option(..)) && t.trim().is_empty())
                                 || (matches!(k, Value::Text(_) | Value::Code(_))
                                     && (t.contains(',') || t.starts_with('"')))
                             {

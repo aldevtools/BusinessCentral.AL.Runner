@@ -516,6 +516,23 @@ fn windows_language_get_of_a_pinned_absent_id_is_false() {
     }
 }
 
+// Windows Language 12297 (English (Zimbabwe)): one row, Abbreviated Name ENW, Globally Enabled, no STX file
+// (types/lt-wc/WcUnpinnedSingles.al:148-173, al-runner issue 6322). Its code page and tag are not pinned: a read of one is refused.
+#[test]
+fn windows_language_12297_is_a_pinned_row() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Row() var W: Record "Windows Language"; begin W.SetRange("Language ID", 12297); if W.Count() <> 1 then Error('count'); W.FindFirst(); if (W.Name <> 'English (Zimbabwe)') or (W."Abbreviated Name" <> 'ENW') or not W."Globally Enabled" or W."STX File Exist" then Error('row'); W.SetRange("Globally Enabled", true); if W.IsEmpty() then Error('empty'); if W.Count() <> 1 then Error('count enabled'); end;
+  [Test] procedure CodePage() var W: Record "Windows Language"; begin W.Get(12297); if W."Primary CodePage" = '' then; end;
+  [Test] procedure Tag() var W: Record "Windows Language"; begin W.Get(12297); if W."Language Tag" = '' then; end; }"#,
+    );
+    passes(&o, "Row");
+    for t in ["CodePage", "Tag"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("language 12297"), "{t}: {why}");
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
@@ -1667,6 +1684,78 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "TextCount");
 }
 
+/// The SystemId of a Field row is not the null Guid: the Field table's number, the table's number and the field's number as
+/// little-endian bytes, then four zero bytes (platform/lt-wc/WcFieldRowCopy.al:48, :60-63 on BC 29, al-runner issue 6313).
+/// A copy of the row of a user-name system field into a temporary Field record inserts with it (:53-65) and so does every
+/// row of a table (:67-85).
+#[test]
+fn a_field_row_has_its_system_id_and_its_temporary_copy_inserts() {
+    let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  procedure Copy(No: Integer): Text var F: Record Field; TempF: Record Field temporary; begin F.Get(90646, No); TempF := F; TempF.Insert(); TempF.Get(90646, No); exit(Format(TempF.SystemId)); end;
+  [Test] procedure Ordinary() begin if Copy(2) <> '{77359429-6216-0001-0200-000000000000}' then Error('%1', Copy(2)); end;
+  [Test] procedure UserName() begin if Copy(2000000005) <> '{77359429-6216-0001-0594-357700000000}' then Error('%1', Copy(2000000005)); if Copy(2000000008) <> '{77359429-6216-0001-0894-357700000000}' then Error('%1', Copy(2000000008)); end;
+  [Test] procedure AllFields() var F: Record Field; TempF: Record Field temporary; begin F.SetRange(TableNo, 90646); F.FindSet(); repeat TempF := F; TempF.Insert(); until F.Next() = 0; if (F.Count() <> 11) or (TempF.Count() <> 11) then Error('%1 %2', F.Count(), TempF.Count()); end; }"#;
+    let o = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
+    passes(&o, "Ordinary");
+    passes(&o, "UserName");
+    passes(&o, "AllFields");
+}
+
+/// The Field SystemId rule is measured for a table numbered above 65535, an ordinary field and fields 2000000005-8 on the
+/// newest major (WcFieldRowCopy.al:48, :60-63): a read of one of those is a clean pass. A read of the SystemId of another
+/// Field row (a table below 65536, field 2000000000, an older major) runs on assumption field-row-system-id.
+#[test]
+fn a_field_row_system_id_outside_the_measured_shapes_is_a_flagged_read() {
+    let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
+table 50001 "S" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Measured() var F: Record Field; begin F.Get(90646, 2); if Format(F.SystemId) = '' then Error('blank'); end;
+  [Test] procedure MeasuredUserName() var F: Record Field; begin F.Get(90646, 2000000005); if IsNullGuid(F.SystemId) then Error('null'); end;
+  [Test] procedure BelowTableNo65536() var F: Record Field; begin F.Get(50001, 1); if Format(F.SystemId) <> '{77359429-C351-0000-0100-000000000000}' then Error('%1', F.SystemId); end;
+  [Test] procedure SystemIdRow() var F: Record Field; begin F.Get(90646, 2000000000); if IsNullGuid(F.SystemId) then Error('null'); end; }"#;
+    let flagged = |bc: &str| {
+        let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), bc);
+        let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+        let mut hits = Vec::new();
+        let out = al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            al_testrun::isolation::TestIsolation::Disabled,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        );
+        let a = al_builtins::assumptions::Assumption::FieldRowSystemId;
+        out.iter()
+            .map(|(n, o)| {
+                (
+                    n.clone(),
+                    *o == Outcome::Pass,
+                    hits.iter().any(|(h, m)| h == n && m.contains(&a)),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let on29 = flagged("29.0.0.0");
+    assert_eq!(
+        on29,
+        vec![
+            ("Measured".to_string(), true, false),
+            ("MeasuredUserName".to_string(), true, false),
+            ("BelowTableNo65536".to_string(), true, true),
+            ("SystemIdRow".to_string(), true, true),
+        ]
+    );
+    // An older major: the same read passes on the assumption.
+    let on27 = flagged("27.5.0.0");
+    assert!(on27.contains(&("Measured".to_string(), true, true)), "{on27:?}");
+}
+
 /// A Tests Run row's `Test ID` is the same in two recordings of one test and is not 1
 /// (coverage/W6CodeCoverageIds.al:144-171); four tests recorded together share one Test ID (:96-97, :111-112), which
 /// the runtime's Tests Run table, keyed by Test ID alone, cannot hold: a read of the per-test tables is refused then.
@@ -2445,6 +2534,63 @@ codeunit 50101 "T" { Subtype = Test;
         let why = not_run(&o, t);
         assert!(why.contains("not pinned"), "{t}: {why}");
     }
+}
+
+// al-runner issue 6368: the rows of controls bound to a procedure call (a source-table method `Rec.DisplayCode()`, a codeunit
+// variable's method with and without an argument) and to a built-in call with an argument list: FieldNo 0, Editable False,
+// SourceExpression the call as written with `Rec.` kept; a field control drops `Rec.` (record/lt-x3-6368/X3PageControlCalls.al:142-147,
+// :182-183, corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not yet on master). A call written with a space or a
+// single quote, and a bare name such as `CompanyName`, still refuse SourceExpression and Editable (how BC writes them is not pinned).
+#[test]
+fn page_control_field_serves_rows_of_controls_bound_to_procedure_calls() {
+    let o = outcomes(
+        r#"table 50100 "PX Entry" { fields { field(1; "No."; Code[20]) { } field(2; Kind; Option) { OptionMembers = Sale,Purchase; } } keys { key(PK; "No.") { Clustered = true; } }
+  procedure DisplayCode(): Code[20] begin exit("No."); end; }
+codeunit 50102 "PX Names" { procedure NameOf(No: Code[20]): Text begin exit('Name ' + No); end; procedure Fixed(): Text begin exit('Fixed'); end; }
+page 50100 "PX Entries API"
+{
+    PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'entry'; EntitySetName = 'entries';
+    SourceTable = "PX Entry"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) {
+        field(number; Rec."No.") { }
+        field(kindText; Format(Rec.Kind)) { }
+        field(displayCode; Rec.DisplayCode()) { }
+        field(name; Names.NameOf(Rec."No.")) { }
+        field(fixedName; Names.Fixed()) { }
+        field(spaced; Names.NameOf(Rec."No." )) { }
+    } } }
+    var Names: Codeunit "PX Names";
+}
+codeunit 50101 "T" { Subtype = Test;
+  local procedure Row(ControlName: Text): Text var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, ControlName);
+    P.FindFirst();
+    exit(StrSubstNo('%1|%2|%3|%4|%5|%6|%7', P.TableNo, P.FieldNo, P.Enabled, P.Editable, P.Visible, P.SourceExpression, P.OptionString)); end;
+  [Test] procedure FieldNumbers() var P: Record "Page Control Field"; Bound: Integer; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.FindSet();
+    repeat
+        if P.FieldNo <> 0 then
+            Bound += 1;
+    until P.Next() = 0;
+    if Bound <> 1 then
+        Error('got %1', Bound);
+    P.SetRange(FieldNo, 0);
+    if P.Count() <> 5 then
+        Error('zero %1', P.Count()); end;
+  [Test] procedure CallRows() begin
+    if Row('kindText') <> '50100|0|true|False|true|Format(Rec.Kind)|' then Error(Row('kindText'));
+    if Row('displayCode') <> '50100|0|true|False|true|Rec.DisplayCode()|' then Error(Row('displayCode'));
+    if Row('name') <> '50100|0|true|False|true|Names.NameOf(Rec."No.")|' then Error(Row('name'));
+    if Row('fixedName') <> '50100|0|true|False|true|Names.Fixed()|' then Error(Row('fixedName')); end;
+  [Test] procedure SpacedCallSourceExpressionIsRefused() begin
+    if Row('spaced') = '' then; end; }"#,
+    );
+    passes(&o, "FieldNumbers");
+    passes(&o, "CallRows");
+    let why = not_run(&o, "SpacedCallSourceExpressionIsRefused");
+    assert!(why.contains("not pinned"), "{why}");
 }
 
 // The corpus writer's probe of al-runner issue 5842 (corpus branch al-runtime-rs-staging-pub-sc @2150ff97, green on BC 27.5, 28.5

@@ -283,6 +283,10 @@ impl al_builtins::native::Ctx for Session {
             .find(|a| *a != inner)?;
         Some(self.engine.program.apps.get(caller as usize)?.publisher.clone())
     }
+    fn module_at_root(&self) -> Option<al_builtins::value::ModuleInfoState> {
+        let root = *self.frames.first()?;
+        self.module_of_app(self.engine.program.objects[root].app as usize)
+    }
     fn module_callstack(&self, skip: usize) -> Vec<al_builtins::value::ModuleInfoState> {
         let mut seen = Vec::new();
         let mut out = Vec::new();
@@ -551,8 +555,8 @@ impl al_builtins::native::Ctx for Session {
 /// byte looks random and a run is still repeatable (ADR-006: no OS randomness in the core;
 /// ADR-009: determinism is allowed where AL cannot tell the difference). The bytes are two
 /// SplitMix64 outputs; the version nibble is 4 and the variant bits are `10`.
-pub(crate) fn guid_for(seed: i32, n: u64) -> [u8; 16] {
-    let mut g = raw_guid_for(seed, n);
+pub(crate) fn guid_for(key: u64, n: u64) -> [u8; 16] {
+    let mut g = raw_guid_for(key, n);
     g[6] = 0x40 | (g[6] & 0x0F);
     g[8] = 0x80 | (g[8] & 0x3F);
     g
@@ -561,8 +565,8 @@ pub(crate) fn guid_for(seed: i32, n: u64) -> [u8; 16] {
 /// The bytes of [`guid_for`] before the version and variant bits are set: the form of the SystemId the
 /// platform gives a new row, which is not RFC 4122 version 4 (types/TestGuidFormContracts.al:
 /// SystemId_OfNewRows_IsNotVersion4).
-pub(crate) fn raw_guid_for(seed: i32, n: u64) -> [u8; 16] {
-    let mut state = ((seed as u32 as u64) << 32) ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+pub(crate) fn raw_guid_for(key: u64, n: u64) -> [u8; 16] {
+    let mut state = key ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     let mut next = || {
         state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = state;
@@ -581,13 +585,13 @@ impl Session {
     /// `CreateGuid` is a version 4 Guid (types/TestGuidFormContracts.al:CreateGuid_IsVersion4).
     pub(crate) fn fresh_guid(&mut self) -> [u8; 16] {
         self.next_guid += 1;
-        guid_for(self.guid_seed, self.next_guid)
+        guid_for(self.guid_key, self.next_guid)
     }
 
     /// The SystemId of a new row: not a version 4 Guid.
     pub(crate) fn fresh_system_id(&mut self) -> [u8; 16] {
         self.next_guid += 1;
-        raw_guid_for(self.guid_seed, self.next_guid)
+        raw_guid_for(self.guid_key, self.next_guid)
     }
 }
 

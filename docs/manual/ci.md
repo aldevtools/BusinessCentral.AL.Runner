@@ -4,7 +4,7 @@ weight: 80
 ---
 
 AL Runner runs without a BC service tier, Docker or SQL Server, so it runs on an ordinary
-hosted runner. Version 3 is an alpha. Use `--allow-not-run` so refused tests do not
+hosted runner. AL Runner is an alpha. Use `--allow-not-run` so refused tests do not
 fail the job, and drop it when you want every test to run.
 
 Use AL Runner in a pipeline for fast feedback, not as the only check before a
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install al-runner
         run: |
-          curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh -s -- edge
+          curl -fsSL https://github.com/aldevtools/BusinessCentral.AL.Runner/releases/download/edge/install.sh | sh -s -- v3.0.0-alpha.10
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
         with:
@@ -45,11 +45,15 @@ jobs:
 
 ## Advice
 
-- **Pin the version** when the result must be repeatable. Replace `edge` with a tag
-  such as `v3.0.0-alpha.4`.
+- **Pin the version** so the result is repeatable. The example installs one numbered
+  alpha. Use `latest-alpha` for the newest numbered alpha, or `edge` for the nightly
+  build. The compile cache is kept per `al-runner` build, so a new build fills it again
+  once.
 - **Cache the cache folder.** Set `ALRUNNER_CACHE` to a folder inside the workspace
   and cache it. It holds the downloads, the demo backup and the compile cache. The
   first run builds it, which takes about 10 seconds of compile plus the downloads.
+  Add `--no-test-data` if your tests need no CRONUS data; the cache is then much
+  smaller.
 - **Require the cache** with `--require-compile-cache` when a missing cache should
   fail the job rather than silently take longer.
 - **Go offline** with `--no-download` once the cache is warm and the feed is not needed.

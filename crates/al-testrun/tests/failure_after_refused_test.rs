@@ -102,6 +102,35 @@ codeunit 50330 "Random"
     end;
 }
 
+codeunit 50350 "Random Seeded"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('H')]
+    procedure A_RefusedThatSeeds()
+    begin
+        Seed();
+    end;
+    local procedure Seed()
+    begin
+        Randomize(5);
+    end;
+    [Test]
+    procedure B_DrawsAndFails()
+    begin
+        if Random(10) > 0 then Error('boom');
+    end;
+    [Test]
+    procedure C_FailsWithoutDrawing()
+    begin
+        Error('boom');
+    end;
+    [FilterPageHandler]
+    procedure H(var Builder: FilterPageBuilder): Boolean
+    begin
+    end;
+}
+
 codeunit 50340 "Random Reached"
 {
     Subtype = Test;
@@ -205,9 +234,20 @@ fn a_refused_test_that_cannot_draw_random_numbers_does_not_distrust_a_drawing_fa
     assert!(matches!(outcome(&rt, 50330, "B_DrawsAndFails"), Outcome::Fail(_)));
 }
 
+/// ADR-061: each test restarts `Random` from the run seed, so what an earlier refused test would have drawn does not
+/// change a later test's numbers.
 #[test]
-fn a_refused_test_that_can_draw_random_numbers_distrusts_a_drawing_failure_only() {
+fn a_refused_test_that_only_draws_random_numbers_does_not_distrust_a_drawing_failure() {
     let rt = run();
-    assert!(not_trusted(outcome(&rt, 50340, "B_DrawsAndFails")));
+    assert!(matches!(outcome(&rt, 50340, "B_DrawsAndFails"), Outcome::Fail(_)));
     assert!(matches!(outcome(&rt, 50340, "C_FailsWithoutDrawing"), Outcome::Fail(_)));
+}
+
+/// A refused test that can call `Randomize(n)` may have left a sequence that goes on into the next test
+/// (types/TestRandomSeededContracts.al:111-131): a later failure that draws is not trusted, one that does not draw is.
+#[test]
+fn a_refused_test_that_can_seed_random_distrusts_a_drawing_failure_only() {
+    let rt = run();
+    assert!(not_trusted(outcome(&rt, 50350, "B_DrawsAndFails")));
+    assert!(matches!(outcome(&rt, 50350, "C_FailsWithoutDrawing"), Outcome::Fail(_)));
 }

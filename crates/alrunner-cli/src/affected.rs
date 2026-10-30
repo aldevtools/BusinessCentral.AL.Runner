@@ -43,6 +43,8 @@ pub struct Affected {
     /// The number of workspace apps: the caller's app indexes below it are theirs.
     workspace: usize,
     decided: Arc<Mutex<Option<Decided>>>,
+    /// The run seed (ADR-061 section 5): recorded with each codeunit that ran, never part of the header or the rule.
+    seed: i32,
 }
 
 /// One test of a skipped codeunit, with its stored outcome.
@@ -299,6 +301,7 @@ impl Affected {
             include_failing: a.include_failing,
             workspace: inputs.len(),
             decided: Arc::default(),
+            seed: crate::seed::of(a).seed,
         })
     }
 
@@ -342,7 +345,10 @@ impl Affected {
     pub fn finish(self, results: &[TestResult], impact_keys: &[String], store: bool) -> Option<Report> {
         let d = self.decided.lock().expect("the decision").take()?;
         let id_of: BTreeMap<usize, &String> = d.caller.iter().map(|(id, &app)| (app, id)).collect();
-        let (ran, ran_tests) = ran_codeunits(results, impact_keys, |app| id_of.get(&app).map(|id| (*id).clone()));
+        let (mut ran, ran_tests) = ran_codeunits(results, impact_keys, |app| id_of.get(&app).map(|id| (*id).clone()));
+        for c in &mut ran {
+            c.seed = Some(self.seed);
+        }
         let before = self.stored.unwrap_or_default();
         let skipped: Vec<Skipped> = before
             .codeunits
@@ -567,6 +573,7 @@ mod tests {
                 codeunits: Vec::new(),
                 caller: BTreeMap::new(),
             }))),
+            seed: 1,
         };
         assert!(make().finish(&[], &[], false).is_some());
         assert!(!store.exists());

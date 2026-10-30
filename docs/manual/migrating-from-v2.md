@@ -34,7 +34,7 @@ If you maintain a tool that calls AL Runner, read
 | Command | `al-runner [FLAGS] DIR...` | `al-runner test [FLAGS] APP...` |
 | Input | A "bundle" folder | An app folder, a source archive or an `.app` with source. Name the app and its test app. |
 | Unsupported surface | The test fails with `RunnerOutOfScopeException` | The test is **not run**, with a reason. Exit code 7. |
-| Compile errors | Exit code 3 | An AL compiler error (the ones the must-not-compile corpus pins) still exits 3. So does source of an app under test that the parser does not accept; that line has the parser's message and no AL code. |
+| Compile errors | Exit code 3 | An AL compiler error (the ones the corpus has checked against the real compiler) still exits 3. So does source of an app under test that the parser does not accept; that line has the parser's message and no AL code. |
 | Test data | `--test-data`, needs the `bcbak` reader | On by default with Microsoft's apps. `--no-test-data` turns it off. No separate reader to install. |
 | Failure text | May carry a .NET prefix such as `NavNCLDialogException:` | The Business Central message only. |
 | Stack trace | A .NET stack | The AL call stack. |
@@ -61,7 +61,7 @@ If you maintain a tool that calls AL Runner, read
 | `--country` | Same. |
 | `--show-pass`, `--failures-only`, `--no-strict-exit` | Not accepted. Failures print by default; use `--verbose` for every test and `--allow-not-run` to relax exit codes. |
 | `--cache PATH`, `--no-cache` | Gone. Your own apps are compiled on every run. The dependency apps use the compile cache (`--cache-dir`). |
-| `--seed N` | Not accepted. Version 3 prints no seed. |
+| `--seed N` | Same flag, and `AL_RUNNER_SEED` (or `ALRUNNER_SEED`). Every run prints `Seed: N` at the start and in the summary, with a `Replay:` command for the first failure. The same seed gives the same `Random` numbers as version 2. Guids are now seeded too, so text built from them replays as well. `--seed-library` also seeds `Library - Random`; by default it keeps `SetSeed(1)`. |
 | `--jobs N` | Gone. Test codeunits run on worker threads automatically. |
 | `--watch` | Not available. |
 | `--dap [PORT]`, `--dap stdio` | `al-runner debug [--port [N] \| --stdio]`, same DAP surface. See [Editor and tool integration](editor-tools.md#debugging). |

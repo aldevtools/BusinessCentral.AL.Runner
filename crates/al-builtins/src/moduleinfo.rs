@@ -253,12 +253,21 @@ fn version_of(m: ModuleInfoState) -> Out {
 /// A freshly installed app's data version is its app version (not pinned further: the corpus asks
 /// only that a version comes back, session/TestMiscTypes.al).
 ///
-/// While its install code runs, the app's own data version is 0.0.0.0, per company and per database: the app was
-/// not installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this
-/// runtime always installs fresh).
+/// While its install code runs, an app's data version is 0.0.0.0, per company and per database: the app was not
+/// installed before (install/lt-cm-install-leads/CmInstallLeads.al:Item43_ModuleInfoVersions_DuringInstall; this runtime
+/// always installs fresh). The data version belongs to the app asked about, not to the app whose code asks: a dependency
+/// app's code that reads the installing app's data version (GetModuleInfo of its id, GetCallerModuleInfo) gets 0.0.0.0
+/// too, and its own data version is its app version (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85 per
+/// company, :95-104 per database, al-runner issue 6367; corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not
+/// yet on master). The app being installed is the app of the outermost frame: the install routine (al-testrun
+/// `install::plan` groups each install root under its own app).
 fn data_version(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let m = state_of(r, true)?;
-    if c.install_without_client() && c.module_at_frame(0).is_some_and(|own| own.id == m.id) {
+    if c.install_without_client()
+        && c.module_at_root()
+            .or_else(|| c.module_at_frame(0))
+            .is_some_and(|installing| installing.id == m.id)
+    {
         return Ok(version_value([0, 0, 0, 0]));
     }
     version_of(m)
@@ -454,7 +463,19 @@ fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
 fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = name_arg(a)?;
     let enc = encoding_arg(a, 1)?;
-    Ok(Value::Text(enc.decode(&resource(c, &name)?).into()))
+    let bytes = resource(c, &name)?;
+    // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/lt-bi-test-framework/
+    // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861). Which character a byte from 128 up
+    // becomes is not pinned.
+    if a.get(1).is_none() {
+        if !bytes.is_ascii() {
+            return unsupported(format!(
+                "GetResourceAsText of `{name}` without a text encoding: one character per byte is pinned, which characters the bytes from 128 up become is not pinned"
+            ));
+        }
+        return Ok(Value::Text(String::from_utf8_lossy(&bytes).into_owned().into()));
+    }
+    Ok(Value::Text(enc.decode(&bytes).into()))
 }
 
 fn get_resource_as_json(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {

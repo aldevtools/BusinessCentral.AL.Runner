@@ -208,6 +208,7 @@ fn table_entries(
         let mut r = blank.row();
         r[pos(t, 1)] = Value::Integer(tid as i32);
         r[pos(t, 2)] = Value::Integer(f.id as i32);
+        set_field_row_system_id(t, &mut r, tid, f.id);
         // IsPartOfPrimaryKey: the field is in the primary key (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:
         // FieldTable_IsPartOfPrimaryKey_OwnTable and _BaseApp).
         if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
@@ -360,6 +361,51 @@ pub(crate) fn user_name_system_field(no: u32) -> Option<(&'static str, i32)> {
 /// on it still answers (docs/probes-needed.md).
 const PINNED_USER_NAME_COLUMNS: [u32; 8] = [1, 2, 4, 5, 6, 7, 21, 25];
 
+/// The SystemId of a Field row: not the null Guid but the Field table's number, the table's number and the field's number, each as
+/// four little-endian bytes of the Guid's binary form (so the first two read as Data1 and Data2/Data3 in the text), then four zero
+/// bytes (platform/lt-wc/WcFieldRowCopy.al, al-runner issue 6313: field 2 of table 90646
+/// is {77359429-6216-0001-0200-000000000000}, 2000000041 = 0x77359429; SystemCreatedByUserName 2000000005 is
+/// {77359429-6216-0001-0594-357700000000}). Derived from the five values of one table (docs/probes-needed.md).
+/// Set in column SystemId (2000000000) when the Field table has it.
+fn set_field_row_system_id(t: &TableDef, r: &mut al_data::Row, table_no: u32, field_no: u32) {
+    if let Some(col) = t.fields.iter().position(|x| x.id == 2_000_000_000) {
+        r[col] = field_row_system_id(table_no, field_no);
+    }
+}
+
+/// Marks assumption field-row-system-id when a read of column SystemId of a Field row (`row`, in the columns of the Field
+/// table `schema`) gives the value of [`field_row_system_id`] for a row outside the measured shapes: a table numbered
+/// 65536 to 1999999999, a field below 2000000000 or one of 2000000005-8, on a major with `user_name_fields`
+/// (WcFieldRowCopy.al:48, :60-63). `v` is the value read; a value code wrote is not marked.
+pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: &Value, user_name_fields: bool) {
+    let col = |id: u32| schema.fields.iter().position(|f| f.id == id).and_then(|i| row.get(i));
+    let (Some(Value::Integer(tid)), Some(Value::Integer(no))) = (col(1), col(2)) else {
+        return;
+    };
+    let (Ok(tid), Ok(no)) = (u32::try_from(*tid), u32::try_from(*no)) else {
+        return;
+    };
+    if !matches!((v, field_row_system_id(tid, no)), (Value::Guid(a), Value::Guid(b)) if *a == b) {
+        return;
+    }
+    let measured = user_name_fields
+        && (65_536..2_000_000_000).contains(&tid)
+        && (no < 2_000_000_000 || (2_000_000_005..=2_000_000_008).contains(&no));
+    if !measured {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRowSystemId);
+    }
+}
+
+fn field_row_system_id(table_no: u32, field_no: u32) -> Value {
+    let mut g = [0u8; 16];
+    // `Value::Guid` holds the bytes in the order of the text.
+    g[..4].copy_from_slice(&2_000_000_041u32.to_be_bytes());
+    g[4..6].copy_from_slice(&((table_no & 0xFFFF) as u16).to_be_bytes());
+    g[6..8].copy_from_slice(&((table_no >> 16) as u16).to_be_bytes());
+    g[8..12].copy_from_slice(&field_no.to_le_bytes());
+    Value::Guid(g)
+}
+
 fn user_name_system_field_rows(t: &TableDef, blank: &Blank, tid: u32) -> Vec<Entry> {
     static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
     let why = WHY
@@ -385,6 +431,7 @@ fn user_name_system_field_rows(t: &TableDef, blank: &Blank, tid: u32) -> Vec<Ent
             r[pos(t, 7)] = blank.option(t, 7, 1);
             r[pos(t, 21)] = Value::Integer(0);
             r[pos(t, 25)] = blank.option(t, 25, 0);
+            set_field_row_system_id(t, &mut r, tid, id);
             Entry::ok(r)
         })
         .collect()
