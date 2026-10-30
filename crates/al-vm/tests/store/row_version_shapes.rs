@@ -177,6 +177,71 @@ codeunit 50160 C
         exit(Log + Format(F.Total));
     end;
 
+    procedure NextAndFindOfOtherTable(): Text
+    var
+        A: Record "Rv A";
+        B: Record "Rv B";
+    begin
+        Start();
+        B.Id := 2;
+        B.Insert();
+        B.Id := 3;
+        B.Insert();
+        Commit();
+        Prev := LastUsedRowVersion();
+        A.Id := 1;
+        A.Insert();
+        Snap('insert');
+        B.FindSet();
+        B.Next();
+        B.Next();
+        Snap('next-other');
+        B.Id := 2;
+        B.Find('=');
+        B.Find('>');
+        B.Find('<');
+        B.Find('-');
+        B.Find('+');
+        Snap('finds-other');
+        Commit();
+        Snap('commit');
+        exit(Log);
+    end;
+
+    procedure FindGreaterOfInsertedTable(): Text
+    var
+        A: Record "Rv A";
+    begin
+        Start();
+        A.Id := 1;
+        A.Insert();
+        A.Id := 2;
+        A.Insert();
+        Snap('insert');
+        A.Id := 1;
+        A.Find('>');
+        Snap('find-greater');
+        A.Find('<');
+        A.FindSet();
+        A.Next();
+        Snap('later');
+        exit(Log + Format(A.Id));
+    end;
+
+    procedure NextOneOfOtherTable(): Text
+    var
+        A: Record "Rv A";
+        B: Record "Rv B";
+    begin
+        Start();
+        A.Id := 1;
+        A.Insert();
+        B.FindSet();
+        B.Next(1);
+        Snap('next-1');
+        exit(Log);
+    end;
+
     procedure ReadKinds(): Text
     var
         A: Record "Rv A";
@@ -279,4 +344,34 @@ fn calcfields_of_an_inserted_table_sends_its_rows() {
         text(al_testkit::run_in(SRC, "C", "CalcFieldsOwn")),
         "insert= calcfields> 1"
     );
+}
+
+// PlTRowVersionValue.al (corpus master, corpus PR 871) NP4_RowVersions_InsertA_FindSetNextOfB and _InsertA_FindFormsOfB:
+// Next and Find('='/'>'/'<'/'-'/'+') of another table send nothing.
+#[test]
+fn next_and_find_forms_of_another_table_send_nothing() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "NextAndFindOfOtherTable")),
+        "insert= next-other= finds-other= commit> "
+    );
+}
+
+// PlTRowVersionValue.al (corpus master) NP4_RowVersions_InsertA_FindSetNextAndFindGreaterOfA: Find('>') of the inserted
+// table sends its rows; reads after that send nothing.
+#[test]
+fn find_greater_of_the_inserted_table_sends_its_rows() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "FindGreaterOfInsertedTable")),
+        "insert= find-greater> later= 2"
+    );
+}
+
+// Only Next() is pinned (NP4_RowVersions_InsertA_FindSetNextOfB): Next(1) of another table stays unpinned, so the value
+// read after it is refused.
+#[test]
+fn next_with_a_step_count_is_refused() {
+    match al_testkit::run_in(SRC, "C", "NextOneOfOtherTable") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("a read other than"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }

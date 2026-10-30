@@ -352,6 +352,27 @@ impl al_builtins::native::Ctx for Session {
         let apps = &self.engine.program.apps;
         let parse = |s: &str| ops::parse_guid(s);
         if let Some(i) = apps.iter().position(|a| parse(&a.id).as_ref() == Some(id)) {
+            // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
+            // install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
+            let events = &self.events;
+            if events
+                .not_installed_apps
+                .as_ref()
+                .is_some_and(|a| a.contains(&(i as u32)))
+            {
+                return ModuleLookup::NotInstalled;
+            }
+            if events
+                .order_unknown_apps
+                .as_ref()
+                .is_some_and(|a| a.contains(&(i as u32)))
+            {
+                return ModuleLookup::OrderUnknown(format!(
+                    "NavApp.GetModuleInfo of app {} while an app installs that it has no dependency path to; the install \
+                     order of the two is not known",
+                    apps[i].name
+                ));
+            }
             if let Some(m) = self.module_of_app(i) {
                 return ModuleLookup::Found(m);
             }
