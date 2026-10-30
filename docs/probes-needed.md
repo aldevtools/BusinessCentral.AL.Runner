@@ -615,19 +615,21 @@ Refused until a probe pins them, unless the row says otherwise. Code: `crates/al
 
 ## Record.IsDirty (lane-record-isdirty, 2026-10-20)
 
-Pinned by lt-ac/ACRecordIsDirty.al (codeunit 77504, BC 29). Everything below is refused. Code: `crates/al-vm/src/isdirty.rs`.
+Pinned by lt-ac/ACRecordIsDirty.al (codeunit 77504) and lt-ac/Y8RecordIsDirtyShapes.al (codeunit 91415, corpus PR 888), BC 29:
+a temporary record, Find('-'), FindSet, Next, Find('='), Find('>'), GetBySystemId, Insert(true), Modify(true), Delete(true) and
+IsDirty of Rec and xRec inside their triggers, Copy, Clear, CalcFields right after a read, SetPosition, reads and writes that answer
+false on a changed record, a by-value parameter, RecordRef.SetTable, SystemId, InitValue fields of a declared variable, a partial
+record, a written Blob, ModifyAll and DeleteAll. What is still refused is below. Code: `crates/al-vm/src/isdirty.rs`.
 
 | What is not pinned | Today | Probe wanted |
 |---|---|---|
-| IsDirty on a temporary record | REFUSED | The 77504 sequences on a `temporary` variable |
-| IsDirty after Find('-'), FindSet or Next (FindFirst and FindLast are pinned) | REFUSED | FindSet, change a field, Next, IsDirty; and Find('-') then IsDirty |
-| IsDirty after Insert(true), Modify(true), Delete(true), or a write whose triggers or subscribers ran | REFUSED | A table whose OnInsert/OnModify/OnRename sets a field: IsDirty after each write, and inside the trigger |
-| IsDirty after Copy, Clear, CalcFields, GetBySystemId, SetPosition, ChangeCompany, a failed or false Get/Find/Insert/Modify | REFUSED | IsDirty right after each of these |
-| IsDirty of a record passed by value, of xRec, of a record filled by a page or RecordRef.SetTable | REFUSED (where the snapshot and the stored row disagree, or the state is a copy) | IsDirty on a by-value parameter right after the call starts, and on xRec in OnModify |
-| Whether system fields (SystemId, SystemCreatedAt, ...) count: Init clears them, TransferFields does not copy them | REFUSED where only system fields differ | Get, Init, then set every other field back to the read values: IsDirty |
-| Whether TransferFields and Delete keep the snapshot or take the buffer as the new one | answered only where both readings agree (ACRecordIsDirty.al:65-71) | TransferFields from another row into a read record, then IsDirty; Delete of a changed buffer, then IsDirty |
-| IsDirty of a declared variable of a table with InitValue fields; a partial record (SetLoadFields); a FlowField or Blob that differs | REFUSED | The 77504 sequences on such a table |
-| IsDirty after DeleteAll or ModifyAll on a record that was read (pinned only on a fresh variable, ACRecordIsDirty.al:37-38) | REFUSED | Get, DeleteAll, IsDirty |
+| A read or write that answers false, and Delete(true), on a record that had not changed (Y8RecordIsDirtyShapes.al pins them only on a changed record, :273-308, :204-206) | REFUSED where the answer would be "not dirty" | `Get(1); if Get(99) then; IsDirty`; Delete(true) whose trigger changes nothing |
+| IsDirty inside OnInsert/OnModify/OnDelete after the trigger changed the record, xRec in OnInsert/OnDelete, inside a subscriber, after Rename(true) or a write whose subscribers ran, after a record method that failed | REFUSED | IsDirty after a field write in each trigger; in an OnBeforeModify subscriber |
+| IsDirty after CalcFields of a changed or fresh record, ChangeCompany, Copy of a record into itself | REFUSED | IsDirty right after each of these |
+| IsDirty of xRec outside a trigger, a record filled by a page, a by-value event parameter | REFUSED (where the snapshot and the stored row disagree, or the state is a copy) | IsDirty in an OnAfterModifyEvent subscriber on its by-value Rec |
+| Whether system fields other than SystemId (SystemCreatedAt, ...) count | REFUSED where only those differ | Get, set SystemModifiedAt, IsDirty |
+| Whether TransferFields and Delete without triggers keep the snapshot or take the buffer as the new one | answered only where both readings agree (ACRecordIsDirty.al:65-71) | TransferFields from another row into a read record, then IsDirty; Delete of a changed buffer, then IsDirty |
+| A declared variable of a table with a Date, Time or DateTime InitValue; a partial record whose unloaded field was assigned the value it holds; a FlowFilter that differs; two Blob buffers with other content that no stream wrote | REFUSED | The 91415 sequences on such fields |
 
 ## New rows and inserts on a TestPage (lane-page-inserts, 2026-10-20)
 
