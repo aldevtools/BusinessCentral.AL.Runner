@@ -11183,6 +11183,7 @@
 72794 P195_Literal_CharFromTextTimeMillisEnumNames
 72794 P195_Literal_DecimalTwentyDigits
 72795 P195_Binary_DecimalDivMod
+72795 P195_Binary_DurationMixed
 72795 P195_Binary_TimeDateIntegerOperands
 72800 Join_Full_NoFilter
 72800 Join_Inner_NoFilter
@@ -11705,6 +11706,7 @@
 73109 P113_DC_CardCaptionAfterEdit
 73109 P113_DC_CardCaptionFollowsRecord
 73109 P113_DC_CardNewRecord
+73109 P113_DC_DataCaptionExpression
 73109 P113_DC_EmptyDataCaptionFields
 73109 P113_DC_EmptyTable
 73109 P113_DC_ListCaption
@@ -13184,6 +13186,8 @@
 74208 SelectLatestVersion_UnknownTable
 74210 ApplicationArea_SetAndRestore
 74210 ApplicationArea_SetTwiceAndInvalid
+74210 GlobalLanguage_InvalidIds
+74210 GlobalLanguage_PositiveIds
 74210 GlobalLanguage_SetAndRestore
 74210 Language_Relations
 74210 LogMessage_DataClassificationValues
@@ -14813,6 +14817,7 @@
 80424 Duration_DividedBy_IntegerAndDecimal
 80424 Duration_DividedBy_ZeroDecimal
 80424 Duration_IntoDecimal_And_BigInteger
+80424 Duration_MulDiv_Decimal_Format9
 80424 Time_PlusMinus_BigInteger
 80425 Durations_English
 80425 Durations_French

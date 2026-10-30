@@ -86,6 +86,21 @@ pub struct Chosen {
     pub notes: Vec<String>,
 }
 
+impl Chosen {
+    /// Raises the target's runtime to the highest runtime one of the apps under test declares, up to the newest
+    /// the target's BC major accepts. Each app then sees the builtins of its own runtime through
+    /// `Target::app_runtimes`, which only lowers it, whatever the order of the apps: alc compiles each app at the
+    /// runtime of its own app.json (al-runner issue 6295).
+    pub fn widen_runtime(&mut self, declared: impl IntoIterator<Item = Runtime>) {
+        let max = Runtime::max_for_bc(self.target.bc.major);
+        if let Some(highest) = declared.into_iter().filter(|r| *r <= max).max()
+            && highest > self.target.runtime
+        {
+            self.target.runtime = highest;
+        }
+    }
+}
+
 /// Chooses the target of a run.
 ///
 /// 1. `requested` (`--bc-version`) wins. Below BC 27 it is an error.
@@ -158,6 +173,20 @@ mod tests {
         assert_eq!(app(None, None, None).floor(), None);
         assert_eq!(app(Some(""), Some(""), None), AppVersions::default());
         assert!(AppVersions::parse(Some("x"), None, None).is_err());
+    }
+
+    #[test]
+    fn the_runtime_is_the_highest_any_app_declares_whatever_the_order() {
+        // al-runner issue 6295: a runtime 9.0 app first, a runtime 18.0 app second.
+        let first = app(Some("9.0"), Some("29.0.0.0"), None);
+        let mut c = choose_target(Some(&bc("29")), &first, &bc("29")).unwrap();
+        c.widen_runtime([rt("9.0"), rt("18.0")]);
+        assert_eq!(c.target.runtime, rt("18.0"));
+        // A runtime above what the major accepts does not raise it; a lower one never lowers it.
+        let mut c = choose_target(Some(&bc("29")), &first, &bc("29")).unwrap();
+        let before = c.target.runtime;
+        c.widen_runtime([rt("99.0"), rt("1.0")]);
+        assert_eq!(c.target.runtime, before);
     }
 
     #[test]

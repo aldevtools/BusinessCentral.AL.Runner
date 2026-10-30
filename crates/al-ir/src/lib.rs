@@ -972,6 +972,10 @@ impl Binding {
     }
 }
 
+/// The name of the routine the lowering makes from a page's `DataCaptionExpression` (`al_sema::pages::data_caption_routine`):
+/// it returns the expression's value as Text.
+pub const DATA_CAPTION_ROUTINE: &str = "__datacaption_0";
+
 /// A control property: written as a literal, or an expression compiled to a
 /// routine of the page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
