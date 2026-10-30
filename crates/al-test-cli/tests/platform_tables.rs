@@ -3357,3 +3357,40 @@ codeunit 50100 T { Subtype = Test;
         );
     }
 }
+
+/// al-runner #6410: Windows Language."Primary Language ID" is the LCID of the primary culture, measured on the reporter's
+/// real-BC run and by writer Y11 (corpus branch al-runtime-rs-staging-y11, Y11WindowsLanguagePrimary.al), which is not in
+/// the pinned corpus yet: the values run on assumption windows-language-primary-language-id. A row not measured (9226)
+/// leaves the column unknown.
+#[test]
+fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assumption() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  procedure Check(Id: Integer; Expected: Integer) var W: Record "Windows Language"; begin W.Get(Id); W.TestField("Primary Language ID", Expected); end;
+  [Test] procedure Measured() begin Check(1030, 1030); Check(1031, 1031); Check(1033, 1033); Check(3079, 1031); Check(2057, 1033); Check(2070, 1046); Check(1044, 1044); end;
+  [Test] procedure ByFilter() var W: Record "Windows Language"; begin W.SetRange("Primary Language ID", 1031); W.SetRange("Language ID", 3079); if W.Count() <> 1 then Error('count %1', W.Count()); end;
+  [Test] procedure NotMeasured() var W: Record "Windows Language"; begin W.Get(9226); if W."Primary Language ID" = 0 then; end; }"#;
+    let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), "29.0.0.0");
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let a = al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId;
+    for (n, o) in &out {
+        if n == "NotMeasured" {
+            assert!(matches!(o, Outcome::NotRun(_)), "{n}: {o:?}");
+            continue;
+        }
+        assert_eq!(*o, Outcome::Pass, "{n}: {o:?}");
+        assert!(hits.iter().any(|(h, m)| h == n && m.contains(&a)), "{n} not flagged");
+    }
+}
