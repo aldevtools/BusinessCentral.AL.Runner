@@ -1041,6 +1041,17 @@ pub(crate) fn char_and_one_char_literal(
             || (chained(&kids[0], l) && one_char_literal(&kids[1])))
 }
 
+/// `Num + '-'`, `'A' - Num`, `Num = '-'` and `Num > '-'`: an Integer next to a one-character literal under `+`, `-`, `=` or `>`.
+/// The literal is a Char, so the two add, subtract and compare as numbers (types/lt-wc/WcIntegerCharLiteral.al:13-57: a literal
+/// Integer, an Integer variable and an earlier such sum on the left, a variable on the right). Other operators and other number
+/// types are not pinned.
+pub(crate) fn integer_and_one_char_literal(op: &str, kids: &[SyntaxNode], l: &Ty, r: &Ty) -> bool {
+    matches!(op, "+" | "-" | "=" | ">")
+        && kids.len() == 2
+        && ((matches!(l, Ty::Integer) && one_char_literal(&kids[1]))
+            || (matches!(r, Ty::Integer) && one_char_literal(&kids[0])))
+}
+
 fn op_token(node: &SyntaxNode) -> String {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())

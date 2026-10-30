@@ -158,6 +158,7 @@ impl Lowerer<'_> {
                     var_field: None,
                     var_slot: None,
                     expr_source: None,
+                    expr_call: false,
                 });
                 continue;
             }
@@ -261,10 +262,14 @@ impl Lowerer<'_> {
             let mut var_field = None;
             let mut var_slot = None;
             let mut expr_source = None;
+            let mut expr_call = false;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
                 let args = sec.args();
+                // `args` unquotes a lone quoted name ("Profile Name" becomes Profile Name), which `plain_name` no longer
+                // reads as a name: it reads the argument as written (al-runner issue 6314).
+                let raw_args = sec.args_raw();
                 match args.get(1).map(|a| crate::pages::classify_source(a, &ow.names)) {
                     Some(crate::pages::Source::RecField(f)) => {
                         let pos = table.and_then(|t| {
@@ -307,7 +312,7 @@ impl Lowerer<'_> {
                     // nothing else in scope has the name; with a procedure of the page or the table, a page variable or another
                     // control of that name, which one BC binds is not pinned: refused.
                     Some(crate::pages::Source::Expr)
-                        if let Some((n, p)) = crate::pages::plain_name(args.get(1).map_or("", |a| a.as_str()))
+                        if let Some((n, p)) = crate::pages::plain_name(raw_args.get(1).map_or("", |a| a.as_str()))
                             .and_then(|n| {
                                 let t = table?;
                                 let p = self.members[t]
@@ -366,6 +371,7 @@ impl Lowerer<'_> {
                                                 Some(((t, p), slot))
                                             });
                                     (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
+                                    expr_call = args.get(1).is_some_and(|a| crate::pages::call_shape(a));
                                     // Only text with no quote and single spaces: how BC writes other text is not pinned.
                                     expr_source =
                                         args.get(1).filter(|a| crate::pages::plain_spacing(a)).and_then(|a| {
@@ -387,7 +393,7 @@ impl Lowerer<'_> {
                             None => {
                                 let base_slot = raw
                                     .owner
-                                    .and_then(|_| crate::pages::plain_name(args.get(1)?))
+                                    .and_then(|_| crate::pages::plain_name(raw_args.get(1)?))
                                     .and_then(|n| globals.iter().position(|g| g.name.eq_ignore_ascii_case(&n)));
                                 match base_slot {
                                     Some(slot) => binding = ir::Binding::BaseVar(slot),
@@ -473,6 +479,7 @@ impl Lowerer<'_> {
                 var_field,
                 var_slot,
                 expr_source,
+                expr_call,
             });
         }
         let base = owner_of(None);

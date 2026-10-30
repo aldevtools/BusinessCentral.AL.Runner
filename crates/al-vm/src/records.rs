@@ -18,6 +18,9 @@ use std::sync::Arc;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
+/// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
+const UNPINNED_LOCKING_READ: &str = "a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock";
+
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
 
@@ -876,15 +879,24 @@ impl Session {
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
                 let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
                 if verdict != StaleVerdict::Fresh {
-                    let mut hooks = run && self.table_trigger(t, "OnDelete").is_some();
+                    let mut ext = false;
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {
-                        hooks |= run && !self.ext_triggers(t, n).is_empty();
+                        ext |= run && !self.ext_triggers(t, n).is_empty();
                     }
-                    if hooks
+                    let hooks = run && self.table_trigger(t, "OnDelete").is_some()
                         || self.listened(t, "onbeforedeleteevent", None)?
                         || self.listened(t, "onafterdeleteevent", None)?
-                        || self.global_enabled(t, GlobalOp::Delete)?
-                    {
+                        || self.global_enabled(t, GlobalOp::Delete)?;
+                    // A stale own-Insert buffer deleted after the new transaction deleted other rows of the table only (the
+                    // neighbour shape, written): the row is deleted and the table's OnDelete trigger, OnBeforeDeleteEvent,
+                    // OnAfterDeleteEvent and the OnDatabaseDelete global trigger run as for a fresh buffer
+                    // (al-language-testlibraries/lt-wb-6286/WbStaleDeleteTests.al:13-53, al-runner issue 6286). A table
+                    // extension's delete triggers and a RecordChanged verdict are not pinned.
+                    let company = rec.borrow().company.clone();
+                    let pinned = verdict == StaleVerdict::Written
+                        && !ext
+                        && self.stale_after_other_deletes_only(t, &company, &pk);
+                    if (hooks || ext) && !pinned {
                         return unsupported(format!(
                             "a Delete through a stale {} buffer, with triggers or events: not pinned",
                             t.name
@@ -1563,10 +1575,26 @@ impl Session {
                     .zip(pk)
                     .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
         });
+        // Four Commits after the buffer's own write, a read under ReadIsolation UpdLock (Find, as No. Series takes a number) of
+        // another table only, beside writes of other tables only, decides as the same writes after a plain Get: DB:RecordChanged
+        // (record/lt-wb-6287/WbStaleUpdLockTests.al:16-25 UpdLockReadOfAnotherTableFourCommitsLaterRecordChanged, contrast
+        // :29-38; al-runner issue 6287). Other Commit counts and reads of the buffer's own table keep the lock as contact.
+        // The lock then comes from ReadIsolation alone (no LockTable), on other tables only.
+        let read_of_others_only = self.tx.lock_unpinned == Some(UNPINNED_LOCKING_READ)
+            && origin.is_some_and(|o| o.version == mine && o.own_write && o.commits + 4 == self.commits)
+            && self.tx.locked_tables.is_empty()
+            && (!self.tx.lock_tx || self.tx.isolation_lock)
+            && self
+                .tx
+                .isolation_lock_tables
+                .iter()
+                .all(|(o, c)| *o != t.object || *c != company)
+            && self.writes_all_noted()
+            && self.tx.writes.iter().all(|w| w.table != t.object);
         let contact = touched
             || self.tx.rolled_back
-            || self.tx.lock_tx
-            || self.tx.lock_unpinned.is_some()
+            || (self.tx.lock_tx && !read_of_others_only)
+            || (self.tx.lock_unpinned.is_some() && !read_of_others_only)
             || self.store_for(rec).written_since_commit(cx, t);
         match origin.filter(|o| o.version == mine) {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
@@ -1760,6 +1788,18 @@ impl Session {
         // An Insert and a Rename of another row are measured at one to three Commits only (TE_*_InsertOtherRow_*,
         // TE_*_RenameOtherRow_*).
         other_rows_of_one_kind.then_some(StaleVerdict::Written)
+    }
+
+    /// Whether the open transaction's only writes are Deletes of other rows of `t` and it took no lock: the neighbour shape
+    /// `stale_neighbour_shape` decides as written (record/lt-sb-stale-own-modify/SbStaleOwnModify.al TeDeleteOther).
+    fn stale_after_other_deletes_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
+        !self.tx.writes.is_empty()
+            && self
+                .tx
+                .writes
+                .iter()
+                .all(|w| w.kind == crate::state::TxWriteKind::Delete && w.table == t.object && w.company == *company)
+            && self.stale_neighbour_shape(t, company, pk) == Some(StaleVerdict::Written)
     }
 
     fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {
@@ -3405,10 +3445,15 @@ impl Session {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
                     self.tx.lock_tx = true;
                     self.tx.isolation_lock = true;
+                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
-                    self.tx.lock_unpinned =
-                        Some("a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock")
+                    // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
+                    // only cause (see `read_of_others_only` in the stale-buffer decision).
+                    if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {
+                        self.tx.lock_unpinned = Some(UNPINNED_LOCKING_READ);
+                    }
+                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_READ_UNCOMMITTED => self.tx.read_uncommitted_read = true,
                 _ => {}
@@ -4708,7 +4753,18 @@ impl Session {
                         al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
                     })
                 };
-                let mut parsed = parse(&text);
+                // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
+                let record_id = if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId))
+                    && args.len() <= 2
+                {
+                    self.record_id_filter_text(text.trim())?
+                } else {
+                    None
+                };
+                let mut parsed = match record_id {
+                    Some(p) => p,
+                    None => parse(&text),
+                };
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
@@ -4727,7 +4783,11 @@ impl Session {
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
                 // Bad_Time); what BC asks `MakeDateTimeFilter` is pinned only in part (the second call of Bad_DateTime m2 carries a
                 // text made from the work date), so a DateTime text that raises it is refused.
-                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)) {
+                // A number filter with a placeholder kept as written next to a wildcard has placeholders, so with subscribers it is
+                // refused below as well: whether BC raises the event for it is not pinned.
+                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)
+                    || e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD))
+                {
                     let event = match ty {
                         RtType::Integer => Some(("makeintfilter", "IntFilterText")),
                         RtType::Time => Some(("maketimefilter", "TimeFilterText")),
@@ -4782,6 +4842,25 @@ impl Session {
                         return Err(Signal::Error(Box::new(AlError {
                             message: format!(
                                 "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{value}\" can't be evaluated into type {type_name}.",
+                                text.trim(),
+                                self.field_caption(&t, pos),
+                                self.caption(&t)
+                            ),
+                            code: "Filter:CSide".into(),
+                            call_stack: String::new(),
+                            ..Default::default()
+                        })));
+                    }
+                    // A number filter that starts with a placeholder kept as written next to a wildcard
+                    // (filters/W4Filters.al:694 `num_star_after`).
+                    Err(e)
+                        if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
+                            && self.global_language == 1033 =>
+                    {
+                        let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
+                        return Err(Signal::Error(Box::new(AlError {
+                            message: format!(
+                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
                                 text.trim(),
                                 self.field_caption(&t, pos),
                                 self.caption(&t)
