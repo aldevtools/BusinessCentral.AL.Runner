@@ -2447,6 +2447,63 @@ codeunit 50101 "T" { Subtype = Test;
     }
 }
 
+// al-runner issue 6368: the rows of controls bound to a procedure call (a source-table method `Rec.DisplayCode()`, a codeunit
+// variable's method with and without an argument) and to a built-in call with an argument list: FieldNo 0, Editable False,
+// SourceExpression the call as written with `Rec.` kept; a field control drops `Rec.` (record/lt-x3-6368/X3PageControlCalls.al:142-147,
+// :182-183, corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not yet on master). A call written with a space or a
+// single quote, and a bare name such as `CompanyName`, still refuse SourceExpression and Editable (how BC writes them is not pinned).
+#[test]
+fn page_control_field_serves_rows_of_controls_bound_to_procedure_calls() {
+    let o = outcomes(
+        r#"table 50100 "PX Entry" { fields { field(1; "No."; Code[20]) { } field(2; Kind; Option) { OptionMembers = Sale,Purchase; } } keys { key(PK; "No.") { Clustered = true; } }
+  procedure DisplayCode(): Code[20] begin exit("No."); end; }
+codeunit 50102 "PX Names" { procedure NameOf(No: Code[20]): Text begin exit('Name ' + No); end; procedure Fixed(): Text begin exit('Fixed'); end; }
+page 50100 "PX Entries API"
+{
+    PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'entry'; EntitySetName = 'entries';
+    SourceTable = "PX Entry"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) {
+        field(number; Rec."No.") { }
+        field(kindText; Format(Rec.Kind)) { }
+        field(displayCode; Rec.DisplayCode()) { }
+        field(name; Names.NameOf(Rec."No.")) { }
+        field(fixedName; Names.Fixed()) { }
+        field(spaced; Names.NameOf(Rec."No." )) { }
+    } } }
+    var Names: Codeunit "PX Names";
+}
+codeunit 50101 "T" { Subtype = Test;
+  local procedure Row(ControlName: Text): Text var P: Record "Page Control Field"; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.SetRange(ControlName, ControlName);
+    P.FindFirst();
+    exit(StrSubstNo('%1|%2|%3|%4|%5|%6|%7', P.TableNo, P.FieldNo, P.Enabled, P.Editable, P.Visible, P.SourceExpression, P.OptionString)); end;
+  [Test] procedure FieldNumbers() var P: Record "Page Control Field"; Bound: Integer; begin
+    P.SetRange(PageNo, Page::"PX Entries API");
+    P.FindSet();
+    repeat
+        if P.FieldNo <> 0 then
+            Bound += 1;
+    until P.Next() = 0;
+    if Bound <> 1 then
+        Error('got %1', Bound);
+    P.SetRange(FieldNo, 0);
+    if P.Count() <> 5 then
+        Error('zero %1', P.Count()); end;
+  [Test] procedure CallRows() begin
+    if Row('kindText') <> '50100|0|true|False|true|Format(Rec.Kind)|' then Error(Row('kindText'));
+    if Row('displayCode') <> '50100|0|true|False|true|Rec.DisplayCode()|' then Error(Row('displayCode'));
+    if Row('name') <> '50100|0|true|False|true|Names.NameOf(Rec."No.")|' then Error(Row('name'));
+    if Row('fixedName') <> '50100|0|true|False|true|Names.Fixed()|' then Error(Row('fixedName')); end;
+  [Test] procedure SpacedCallSourceExpressionIsRefused() begin
+    if Row('spaced') = '' then; end; }"#,
+    );
+    passes(&o, "FieldNumbers");
+    passes(&o, "CallRows");
+    let why = not_run(&o, "SpacedCallSourceExpressionIsRefused");
+    assert!(why.contains("not pinned"), "{why}");
+}
+
 // The corpus writer's probe of al-runner issue 5842 (corpus branch al-runtime-rs-staging-pub-sc @2150ff97, green on BC 27.5, 28.5
 // and 29.0), a copy in fixtures/outside-sc with a stand-in for the Assert codeunit, until the corpus bump lands.
 #[test]
