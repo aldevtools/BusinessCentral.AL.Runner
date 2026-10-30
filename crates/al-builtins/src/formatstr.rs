@@ -467,7 +467,11 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
             };
             let out = format_with_string(v, 0, plain, ctx)?;
             // The digits before the point carry no grouping or group with commas, so the first point is the decimal one.
-            let out = if point == '.' { out } else { out.replacen('.', &point.to_string(), 1) };
+            let out = if point == '.' {
+                out
+            } else {
+                out.replacen('.', &point.to_string(), 1)
+            };
             Ok(crate::format::pad(out, length))
         }
         Value::Integer(_) | Value::Text(_) | Value::Date(..) => {

@@ -629,10 +629,7 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
         // `W17` and `Q3` forward (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_W17,
         // NP4_CalcDate_Q3; assumption date-formula-letter-first-forms awaits the bump): see `apply`. Other numbers, `-Wn` and
         // `-Qn` are not pinned.
-        if !negative
-            && matches!(b.get(i), Some(b'W' | b'Q'))
-            && b.get(i + 1).is_some_and(u8::is_ascii_digit)
-        {
+        if !negative && matches!(b.get(i), Some(b'W' | b'Q')) && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
             let letter = b[i];
             let start = i + 1;
             i = start;
@@ -1016,7 +1013,11 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                 if (first..first + 3).contains(&m) {
                     return unsupported(format!("date formula `Q{n}` on a date inside quarter {n} (not pinned)"));
                 }
-                if m < first { day_from_civil(y, first, 1) } else { day_from_civil(y + 1, first, 1) }
+                if m < first {
+                    day_from_civil(y, first, 1)
+                } else {
+                    day_from_civil(y + 1, first, 1)
+                }
             }
             // DateFormulaEdges.al:433-505 (corpus master): from a date in month n the term goes a year on (`<M2>` on 02-29 is the
             // next year's 02-01, `<-M2>` the year before's). The first day of month n itself is not pinned.
@@ -1136,7 +1137,8 @@ mod tests {
     /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_*.
     #[test]
     fn letter_first_formulas_follow_the_np4_pins() {
-        let cases: &[(&str, (i32, u32, u32), (i32, u32, u32))] = &[
+        type Ymd = (i32, u32, u32);
+        let cases: &[(&str, Ymd, Ymd)] = &[
             ("<D15>", (2023, 2, 14), (2023, 2, 15)),
             ("<D15>", (2024, 6, 15), (2024, 7, 15)),
             ("<D29>", (2023, 1, 31), (2023, 2, 28)),
