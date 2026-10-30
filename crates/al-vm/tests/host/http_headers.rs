@@ -222,8 +222,9 @@ fn typed_response_header_values_follow_the_probe() {
     assert_eq!(call("Resp", "Accept-Ranges", "a b"), "ret=No get=E");
 }
 
-/// GetValues of a missing name as a statement on request headers raises an error whose text and code no corpus test pins
-/// (AyHeaderAddResult.al `get=E`; the text is pinned on content headers only, HttpContent.al:290-291). Every read of them is
+/// GetValues of a missing name as a statement on response headers raises an error whose text and code no corpus test pins
+/// (AyHeaderAddResult.al `get=E`; the text is pinned on content headers, HttpContent.al:290-291, and on request and client headers,
+/// UserAgentProductForms.al:116-118). Every read of them is
 /// refused, naming the probe.
 const UNPINNED_SRC: &str = r#"
 table 50191 "HH Row"
@@ -238,11 +239,11 @@ page 50192 "HH Card"
     layout { area(Content) { field(NameCtl; Rec.Name) { trigger OnValidate() begin Missing(); end; } } }
     local procedure Missing()
     var
-        R: HttpRequestMessage;
+        R: HttpResponseMessage;
         H: HttpHeaders;
         Vals: List of [Text];
     begin
-        R.GetHeaders(H);
+        H := R.Headers();
         H.GetValues('X-Missing', Vals);
     end;
 }
@@ -250,11 +251,11 @@ codeunit 50193 C
 {
     local procedure Missing()
     var
-        R: HttpRequestMessage;
+        R: HttpResponseMessage;
         H: HttpHeaders;
         Vals: List of [Text];
     begin
-        R.GetHeaders(H);
+        H := R.Headers();
         H.GetValues('X-Missing', Vals);
     end;
 
@@ -801,4 +802,81 @@ fn a_read_adds_the_content_length_only_when_it_is_missing() {
         text(al_testkit::run(LENGTH_SRC, "LongerAfterRead")),
         "Yes[5] Yes[5] read=a longer text"
     );
+}
+
+/// network/lt-se-header-values/UserAgentProductForms.al (codeunit 91350): the read back with the GetValues error and Contains.
+const UA_SRC: &str = r#"
+codeunit 50195 U
+{
+    [TryFunction]
+    local procedure TryAdd(var H: HttpHeaders; V: Text; var Ret: Boolean)
+    begin
+        Ret := H.Add('User-Agent', V);
+    end;
+
+    [TryFunction]
+    local procedure TryGetValues(var H: HttpHeaders; var Vals: List of [Text])
+    begin
+        H.GetValues('User-Agent', Vals);
+    end;
+
+    local procedure AddTo(var H: HttpHeaders; V: Text): Text
+    var
+        Vals: List of [Text];
+        S: Text;
+        Out: Text;
+        Ret: Boolean;
+    begin
+        ClearLastError();
+        if not TryAdd(H, V, Ret) then
+            exit('E');
+        Out := 'ret=' + Format(Ret) + ' ';
+        if TryGetValues(H, Vals) then begin
+            Out += 'n=' + Format(Vals.Count());
+            foreach S in Vals do
+                Out += '[' + S + ']';
+        end else
+            Out += 'get=E[' + CopyStr(GetLastErrorText(), 1, 80) + '|' + GetLastErrorCode() + ']';
+        ClearLastError();
+        exit(Out + ' contains=' + Format(H.Contains('User-Agent')));
+    end;
+
+    procedure Req(V: Text): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        exit(AddTo(H, V));
+    end;
+
+    procedure Cli(V: Text): Text
+    var
+        Client: HttpClient;
+        H: HttpHeaders;
+    begin
+        H := Client.DefaultRequestHeaders();
+        exit(AddTo(H, V));
+    end;
+}
+"#;
+
+#[test]
+fn user_agent_product_forms_follow_the_probe() {
+    // UserAgentProductForms.al:110-121 (request headers) and :132-143 (client headers).
+    let bad = "ret=No get=E[Exception of type 'Microsoft.Dynamics.Nav.Types.Exceptions.NavNclInvalidHeaderEx|InvalidHeader] contains=No";
+    for f in ["Req", "Cli"] {
+        let call = |v: &str| {
+            let mut b = al_testkit::Built::from_source(UA_SRC);
+            let (oi, ri) = b.routine_in("U", f);
+            text(b.call(oi, ri, vec![al_builtins::value::Value::Text(v.into())]).map(|(v, _)| v))
+        };
+        assert_eq!(call("A B / C D 365 E"), "ret=Yes n=5[A][B/C][D][365][E] contains=Yes");
+        assert_eq!(call("a / b"), "ret=Yes n=1[a/b] contains=Yes");
+        assert_eq!(call("a /1"), "ret=Yes n=1[a/1] contains=Yes");
+        assert_eq!(call("a/ 1"), "ret=Yes n=1[a/1] contains=Yes");
+        assert_eq!(call("/"), bad);
+        assert_eq!(call("a/b/c"), bad);
+        assert_eq!(call("a@b"), bad);
+    }
 }
