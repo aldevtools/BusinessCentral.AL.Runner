@@ -916,8 +916,15 @@ impl Session {
             s.marked_rows_held = false;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
+        let outer_view = std::mem::replace(
+            &mut st.borrow_mut().view_before_action,
+            view_before
+                .as_ref()
+                .map(|v| (v.filters.clone(), v.key.0, v.key.1.clone(), v.ascending)),
+        );
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
+        st.borrow_mut().view_before_action = outer_view;
         let r = match r {
             Ok(v) => self.drop_window_of_the_old_view(st, view_before).map(|()| v),
             e => e,
@@ -2076,9 +2083,9 @@ impl Session {
     /// pages/lt-y5/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
     /// Previous, GoToKey(2,10), First and Last walk the new view; :143-156 GoToKey(1,50) No and the row stays; :158-174 an
     /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381). Until that file is in the pinned corpus the
-    /// path is a registered assumption (`action-view-change-list-rereads`). A key or sort order change is not measured: it
-    /// only drops the window (the row stays in the view, and on a list without row triggers no code sees what the client
-    /// reads).
+    /// path is a registered assumption (`action-view-change-list-rereads`). A key change (SetCurrentKey) keeps the row and
+    /// the next move follows the new key at once (branch al-runtime-rs-staging-y5b,
+    /// pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231): it drops the window too.
     ///
     /// Done only on a list without OnAfterGetRecord, OnFindRecord and OnNextRecord; with those triggers the refresh after the
     /// action decides what the client holds (`read_list_again_from_row_as`).
@@ -2091,6 +2098,22 @@ impl Session {
     /// A counter read across this action is classified by `sqlcount.rs`, which treats any order of reads no test pins as
     /// unknown (a new epoch), so a test that compares counters across it is refused rather than given a made-up count. They
     /// change no row and no row version.
+    /// Whether the action running on `st` changed the filters or the key of the page's record (`view_before_action`).
+    fn view_changed_by_action(&self, st: &St) -> bool {
+        let Some((filters, key, adhoc, ascending)) = st.borrow().view_before_action.clone() else {
+            return false;
+        };
+        let rec = self.page_rec(st);
+        let r = rec.borrow();
+        let same_filters = filters.len() == r.filters.len()
+            && filters.iter().zip(&r.filters).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            });
+        !same_filters || key != r.key || adhoc != r.adhoc.as_ref().map(|(_, f)| f.clone()) || ascending != r.ascending
+    }
+
     fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
         let Some(before) = before else {
             return Ok(());
@@ -2111,7 +2134,11 @@ impl Session {
                     && a.group == b.group
                     && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
             });
-        if same_filters && before.order == now.order {
+        // A key change applies at once (Y5GoToKeyAfterActionKeyAndTriggers.al:199-231 on branch al-runtime-rs-staging-y5b), and
+        // so does `Rec.Ascending(false)` (handlers/TestPageViewRoundTripRoutes.al:411, :469: the list shows the rows
+        // descending). `SetAscending` of one field has no visible effect on the list (Y5GoToKeyAfterActionKeyAndTriggers.al:
+        // 236-268: Next, First and Last stay ascending), so it is not compared.
+        if same_filters && before.key == now.key && before.ascending == now.ascending {
             return Ok(());
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
@@ -2548,6 +2575,25 @@ impl Session {
             s.window_from_start = true;
             s.window_whole = true;
             s.marked_rows_held = true;
+        } else if read_first && self.view_changed_by_action(st) {
+            // An action that changed the filters or the key: the client holds the rows of the new view this refresh read, from
+            // the row it settled on, and the rows before it; the rows of the old view are gone (corpus writer Y5, branch
+            // al-runtime-rs-staging-y5b, pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
+            // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
+            // issue 6381; registered assumption action-view-change-list-rereads until the file is in the corpus). With more rows
+            // than a window before the row, what the client holds is not pinned: the next move is refused.
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
+            let mut s = st.borrow_mut();
+            if back.len() + rows.len() > Self::WINDOW {
+                s.window = Vec::new();
+                s.window_from_start = false;
+                s.validate_refresh_unheld = true;
+            } else {
+                back.reverse();
+                back.extend(rows);
+                s.window = back;
+                s.window_from_start = true;
+            }
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
             // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
@@ -3539,19 +3585,16 @@ enum EmptyShape {
 /// The view of a list's record an action can change: its filters, and its key and sort order.
 pub(super) struct ListView {
     filters: Vec<al_builtins::filter::FieldFilter>,
-    order: (usize, Option<Vec<usize>>, bool, u32),
+    key: (usize, Option<Vec<usize>>),
+    ascending: bool,
 }
 
 impl ListView {
     fn of(r: &al_builtins::value::RecordState) -> ListView {
         ListView {
             filters: r.filters.clone(),
-            order: (
-                r.key,
-                r.adhoc.as_ref().map(|(_, f)| f.clone()),
-                r.ascending,
-                r.field_descending,
-            ),
+            key: (r.key, r.adhoc.as_ref().map(|(_, f)| f.clone())),
+            ascending: r.ascending,
         }
     }
 }

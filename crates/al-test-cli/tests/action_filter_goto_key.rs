@@ -75,9 +75,10 @@ fn goto_key_after_an_action_changed_the_filter_finds_the_row_of_the_new_view() {
     );
 }
 
-// A sort order change drops the rows read too: GoToKey walks the new order (not measured; the row stays in the view).
+// Rec.Ascending(false) in an action turns the list's order at once (handlers/TestPageViewRoundTripRoutes.al:411): the rows
+// read before leave the window, and GoToKey walks the new order.
 #[test]
-fn goto_key_after_an_action_changed_the_sort_order_finds_the_row() {
+fn goto_key_after_an_action_turned_the_order_descending_finds_the_row() {
     passes(
         r#"[Test] procedure Desc() var S: Codeunit "AFG Seed"; L: TestPage "AFG List"; begin
             S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.Descending.Invoke();
@@ -105,5 +106,97 @@ fn goto_key_after_an_action_that_kept_the_filter_still_passes() {
         r#"[Test] procedure Same() var S: Codeunit "AFG Seed"; L: TestPage "AFG List"; begin
             S.Seed(); L.OpenView(); L.GoToKey(1, 50); L.SameFilter.Invoke(); L.GoToKey(1, 40);
             if L.No.AsInteger() <> 40 then Error('expected row 40, got %1', L.No.Value); end;"#,
+    );
+}
+
+const KEYS: &str = r#"
+table 62600 "AFK Row" { fields { field(1; Grp; Integer) { } field(2; No; Integer) { } }
+    keys { key(PK; Grp, No) { Clustered = true; } key(ByNo; No, Grp) { } } }
+codeunit 62601 "AFK Seed" {
+    procedure Seed() var R: Record "AFK Row"; G: Integer; I: Integer; begin R.DeleteAll(); for G := 1 to 2 do for I := 1 to 60 do begin R.Grp := G; R.No := I; R.Insert(); end; end; }
+page 62602 "AFK Key List" { PageType = List; SourceTable = "AFK Row"; Editable = false;
+    layout { area(Content) { repeater(R) { field(Grp; Rec.Grp) { } field(No; Rec.No) { } } } }
+    actions { area(Processing) {
+        action(KeyByNo) { trigger OnAction() begin Rec.SetCurrentKey(No, Grp); end; }
+        action(Descending) { trigger OnAction() begin Rec.SetAscending(No, false); end; } } } }
+page 62603 "AFK Rec List" { PageType = List; SourceTable = "AFK Row"; Editable = false;
+    layout { area(Content) { repeater(R) { field(Grp; Rec.Grp) { } field(No; Rec.No) { } field(Shown; ShownText) { } } } }
+    actions { area(Processing) { action(NextGroup) { trigger OnAction() begin Rec.SetRange(Grp, 2); if Rec.FindFirst() then; CurrPage.Update(false); end; } } }
+    trigger OnOpenPage() begin Rec.SetRange(Grp, 1); end;
+    trigger OnAfterGetRecord() begin ShownText := 'row ' + Format(Rec.Grp) + '/' + Format(Rec.No); end;
+    var ShownText: Text; }
+page 62604 "AFK Curr List" { PageType = List; SourceTable = "AFK Row"; Editable = false;
+    layout { area(Content) { repeater(R) { field(Grp; Rec.Grp) { } field(No; Rec.No) { } field(Shown; ShownText) { } field(Current; CurrentText) { } } } }
+    actions { area(Processing) { action(NextGroup) { trigger OnAction() begin Rec.SetRange(Grp, 2); if Rec.FindFirst() then; CurrPage.Update(false); end; } } }
+    trigger OnOpenPage() begin Rec.SetRange(Grp, 1); end;
+    trigger OnAfterGetRecord() begin ShownText := 'row ' + Format(Rec.Grp) + '/' + Format(Rec.No); end;
+    trigger OnAfterGetCurrRecord() begin CurrentText := 'curr ' + Format(Rec.Grp) + '/' + Format(Rec.No); end;
+    var ShownText: Text; CurrentText: Text; }
+"#;
+
+fn keys_pass(tests: &str) {
+    let src = format!("{KEYS}\ncodeunit 62610 T {{ Subtype = Test; {tests} }}");
+    let o = al_testkit::outcomes_in(&src, "T");
+    assert!(!o.is_empty());
+    let bad: Vec<_> = o.into_iter().filter(|(_, r)| *r != Outcome::Pass).collect();
+    assert!(bad.is_empty(), "{bad:?}");
+}
+
+// Corpus writer Y5, branch al-runtime-rs-staging-y5b, pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231: an action that only
+// calls SetCurrentKey keeps the row (1/51); GoToKey(1,50) Yes; Next follows the new key at once (2/50); First 1/1, Next 2/1.
+// :236-268: SetAscending(No, false) has no visible effect: the row stays 1/50; GoToKey(2,10), Next 2/11, First 1/1, Next 1/2,
+// Last 2/60.
+#[test]
+fn an_action_that_changes_the_key_or_sets_a_field_descending() {
+    keys_pass(
+        r#"[Test] procedure KeyOnly() var S: Codeunit "AFK Seed"; L: TestPage "AFK Key List"; begin
+            S.Seed(); L.OpenView();
+            if not L.GoToKey(1, 50) then Error('goto'); if not L.Next() then Error('next before');
+            L.KeyByNo.Invoke();
+            if (L.Grp.AsInteger() <> 1) or (L.No.AsInteger() <> 51) then Error('after action %1/%2', L.Grp.Value, L.No.Value);
+            if not L.GoToKey(1, 50) then Error('goto again'); if L.No.AsInteger() <> 50 then Error('row %1', L.No.Value);
+            if not L.Next() then Error('next'); if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 50) then Error('after next %1/%2', L.Grp.Value, L.No.Value);
+            if not L.First() then Error('first'); if (L.Grp.AsInteger() <> 1) or (L.No.AsInteger() <> 1) then Error('first %1/%2', L.Grp.Value, L.No.Value);
+            if not L.Next() then Error('next 2'); if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 1) then Error('first next %1/%2', L.Grp.Value, L.No.Value); end;
+        [Test] procedure AscendingOnly() var S: Codeunit "AFK Seed"; L: TestPage "AFK Key List"; begin
+            S.Seed(); L.OpenView();
+            if not L.GoToKey(1, 50) then Error('goto');
+            L.Descending.Invoke();
+            if (L.Grp.AsInteger() <> 1) or (L.No.AsInteger() <> 50) then Error('after action %1/%2', L.Grp.Value, L.No.Value);
+            if not L.GoToKey(2, 10) then Error('goto 2/10');
+            if not L.Next() then Error('next'); if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 11) then Error('next %1/%2', L.Grp.Value, L.No.Value);
+            if not L.First() then Error('first'); if (L.Grp.AsInteger() <> 1) or (L.No.AsInteger() <> 1) then Error('first %1/%2', L.Grp.Value, L.No.Value);
+            if not L.Next() then Error('next 2'); if (L.Grp.AsInteger() <> 1) or (L.No.AsInteger() <> 2) then Error('first next %1/%2', L.Grp.Value, L.No.Value);
+            if not L.Last() then Error('last'); if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 60) then Error('last %1/%2', L.Grp.Value, L.No.Value); end;"#,
+    );
+}
+
+// Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 (OnAfterGetRecord) and :308-342 (with OnAfterGetCurrRecord too): after the
+// filter change the row is 2/1 and the controls show it; GoToKey(2,50) and Next show their rows; a GoToKey that misses
+// leaves the shown values.
+#[test]
+fn a_filter_change_on_a_list_with_row_triggers() {
+    keys_pass(
+        r#"[Test] procedure Agr() var S: Codeunit "AFK Seed"; L: TestPage "AFK Rec List"; begin
+            S.Seed(); L.OpenView();
+            if not L.GoToKey(1, 50) then Error('goto'); if L.Shown.Value() <> 'row 1/50' then Error('shown %1', L.Shown.Value());
+            L.NextGroup.Invoke();
+            if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 1) then Error('after action %1/%2', L.Grp.Value, L.No.Value);
+            if L.Shown.Value() <> 'row 2/1' then Error('shown after action %1', L.Shown.Value());
+            if not L.GoToKey(2, 50) then Error('goto 2/50'); if L.Shown.Value() <> 'row 2/50' then Error('shown 2/50 %1', L.Shown.Value());
+            if not L.Next() then Error('next'); if L.Shown.Value() <> 'row 2/51' then Error('shown next %1', L.Shown.Value());
+            if L.GoToKey(1, 50) then Error('goto 1/50'); if L.Shown.Value() <> 'row 2/51' then Error('shown miss %1', L.Shown.Value()); end;
+        [Test] procedure Curr() var S: Codeunit "AFK Seed"; L: TestPage "AFK Curr List"; begin
+            S.Seed(); L.OpenView();
+            if not L.GoToKey(1, 50) then Error('goto');
+            if L.Current.Value() <> 'curr 1/50' then Error('current %1', L.Current.Value());
+            L.NextGroup.Invoke();
+            if (L.Grp.AsInteger() <> 2) or (L.No.AsInteger() <> 1) then Error('after action %1/%2', L.Grp.Value, L.No.Value);
+            if L.Shown.Value() <> 'row 2/1' then Error('shown after action %1', L.Shown.Value());
+            if L.Current.Value() <> 'curr 2/1' then Error('current after action %1', L.Current.Value());
+            if not L.GoToKey(2, 50) then Error('goto 2/50');
+            if (L.Shown.Value() <> 'row 2/50') or (L.Current.Value() <> 'curr 2/50') then Error('2/50 %1 %2', L.Shown.Value(), L.Current.Value());
+            if not L.Next() then Error('next');
+            if (L.Shown.Value() <> 'row 2/51') or (L.Current.Value() <> 'curr 2/51') then Error('next %1 %2', L.Shown.Value(), L.Current.Value()); end;"#,
     );
 }
