@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# ADR-046 step B: the default mode (one company) must refuse what it cannot know and never answer it differently from
-# the `--companies` opt-in. This check runs the corpus twice, with the opt-in and with one company (`--one-company`), and
-# compares the JUnit files: a case may differ only by being not run in the default mode. A case that passes or fails
-# differently, or runs in the default mode but is not run under the opt-in, is an error.
+# ADR-046 step B and amendment 4: the default mode models a database with one company (owner 2026-10-30: decision 4c
+# no longer refuses there). This check runs the corpus twice, with the opt-in and with one company (`--one-company`), and
+# compares the JUnit files. A case may differ only by being not run in the default mode, or by failing there where the
+# opt-in passes: the corpus database has two companies, and a case that counts them fails in a one-company database. A
+# case that passes in the default mode but not under the opt-in, or runs in the default mode but is not run under the
+# opt-in, is an error.
 #
 # The opt-in is `companies` of oracle/oracle.toml; while that key is absent, the companies of the corpus CI database
 # (install/lt-bf-install-probes/BfInstallTests.al:47-64), or COMPANIES="A,B" from the environment.
@@ -50,12 +52,12 @@ for key in sorted(set(opt) | set(one)):
     o, d = opt.get(key, ("missing", "")), one.get(key, ("missing", ""))
     if o[0] == d[0]:
         continue
-    if d[0] == "not run":
+    if d[0] == "not run" or (d[0] == "fail" and o[0] == "pass"):
         allowed += 1
         continue
     bad += 1
     print(f"DIFFERS: {key}\n  --companies: {o[0]} {o[1][:300]}\n  one company: {d[0]} {d[1][:300]}")
-print(f"{len(opt)} tests compared, {allowed} not run in the default mode only, {bad} error(s)")
+print(f"{len(opt)} tests compared, {allowed} not run or failing in the default mode only, {bad} error(s)")
 sys.exit(1 if bad else 0)
 PY
     n=$((n + 1))
@@ -86,5 +88,5 @@ run() {
 case "${1:-}" in
   compare) compare "${2:?usage: company_mode_check.sh compare DIR}" ;;
   run) run "${2:-$root/target/company-mode-check}" ;;
-  *) sed -n '2,16p' "$0"; exit 2 ;;
+  *) sed -n '2,18p' "$0"; exit 2 ;;
 esac

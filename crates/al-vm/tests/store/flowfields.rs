@@ -1743,12 +1743,11 @@ codeunit 69952 C
 }
 
 /// `filter(= 0D)` and `filter(=0D)` on a Date field match the empty rows, in count and exist, and a FlowField over a
-/// FlowField that counts with that filter reads it (corpus master record/lt-calcformula-date-literal/
+/// FlowField that counts with that filter reads it (record/lt-calcformula-date-literal/
 /// CalcFormulaDateLiteral.al:47-61,76-95 and :205-240 EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, :243-280
-/// EqualsEmptyDate_Chained_GroupOverFlowField; assumption calcformula-filter-equals-empty-date, awaiting the bump).
+/// EqualsEmptyDate_Chained_GroupOverFlowField).
 #[test]
 fn a_calcformula_filter_equals_the_empty_date_counts_the_empty_rows_also_through_a_chained_flowfield() {
-    use al_builtins::assumptions::{Assumption, take_hits};
     let src = r#"
 table 69953 "DE Row"
 {
@@ -1796,9 +1795,7 @@ codeunit 69956 C
     end;
 }
 "#;
-    take_hits();
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "01|11Yes|10O1");
-    assert!(take_hits().contains(&Assumption::CalcformulaFilterEqualsEmptyDate));
 }
 
 /// A CalcFormula filter written as one quoted literal is read as the filter its content spells: `'<>'''''` is `<>''`,
