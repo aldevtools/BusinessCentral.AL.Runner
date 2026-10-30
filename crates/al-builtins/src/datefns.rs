@@ -474,6 +474,10 @@ enum Term {
     MonthLetterFirst { n: i32, forward: bool },
     /// `Dn`, the day letter before its number. Only `D1` on the last day of a month is pinned (see `apply`).
     DayLetterFirst { n: i32, forward: bool },
+    /// `Wn`: the Monday of ISO week `n` after the date (only `W17` is pinned).
+    WeekLetterFirst { n: i32 },
+    /// `Qn`: the first day of quarter `n` after the date (only `Q3` is pinned).
+    QuarterLetterFirst { n: u32 },
 }
 
 /// A formula as stored or typed, without the angle brackets: how `Format` prints it
@@ -620,6 +624,23 @@ fn parse_formula(text: &str) -> Result<Vec<Term>, Signal> {
                 forward: !negative,
             });
             i += 3;
+            continue;
+        }
+        // `W17` and `Q3` forward (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_W17,
+        // NP4_CalcDate_Q3; assumption date-formula-letter-first-forms awaits the bump): see `apply`. Other numbers, `-Wn` and
+        // `-Qn` are not pinned.
+        if !negative && matches!(b.get(i), Some(b'W' | b'Q')) && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
+            let letter = b[i];
+            let start = i + 1;
+            i = start;
+            while b.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+            match (letter, &body[start..i]) {
+                (b'W', "17") => terms.push(Term::WeekLetterFirst { n: 17 }),
+                (b'Q', "3") => terms.push(Term::QuarterLetterFirst { n: 3 }),
+                _ => return refuse(),
+            }
             continue;
         }
         // `Mn`: the first day of month n after the month of the date (`-Mn`: before it). `M0` and `M13` raise the range error
@@ -948,6 +969,19 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             }
             // `D1` on 2024-01-31 is 2024-02-01 (types/TestDateFormulaEvaluateLeftoversContracts.al:45). That fits both "add n
             // days" and "the next day n of a month"; nothing pins which one BC does, so any other number, sign or date is refused.
+            // `D15`, `D28`, `D29`, `D31` (corpus master, corpus PR 871: misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_D15,
+            // _D28, _D29, _D31; assumption date-formula-letter-first-forms): day n of the date's month, cut back to the month's
+            // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
+            // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
+            Term::DayLetterFirst { n, forward: true } if matches!(n, 15 | 28 | 29 | 31) => {
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
+                let n = n as u32;
+                if d < n {
+                    day_from_civil(y, m, n.min(days_in_month(y, m)))
+                } else {
+                    add_months(y, m, n, 1)?
+                }
+            }
             Term::DayLetterFirst { n, forward } => {
                 if !(n == 1 && forward && d == days_in_month(y, m)) {
                     return unsupported(
@@ -956,12 +990,46 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                 }
                 day + 1
             }
+            // The Monday of ISO week n of the date's year when it is after the date, else of the next year's week n
+            // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n is not pinned.
+            Term::WeekLetterFirst { n } => {
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
+                let monday = |year: i32| {
+                    // ISO week 1 holds January 4.
+                    let jan4 = day_from_civil(year, 1, 4);
+                    jan4 - (weekday(jan4) - 1) + (n - 1) * 7
+                };
+                let this = monday(y);
+                if day >= this && day < this + 7 {
+                    return unsupported(format!("date formula `W{n}` on a date inside week {n} (not pinned)"));
+                }
+                if this > day { this } else { monday(y + 1) }
+            }
+            // The first day of quarter n of the date's year when it is after the date, else of the next year
+            // (NP4_CalcDate_Q3: 2023-06-30 2023-07-01, 2023-12-31 2024-07-01). A date inside quarter n is not pinned.
+            Term::QuarterLetterFirst { n } => {
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
+                let first = (n - 1) * 3 + 1;
+                if (first..first + 3).contains(&m) {
+                    return unsupported(format!("date formula `Q{n}` on a date inside quarter {n} (not pinned)"));
+                }
+                if m < first {
+                    day_from_civil(y, first, 1)
+                } else {
+                    day_from_civil(y + 1, first, 1)
+                }
+            }
             // DateFormulaEdges.al:433-505 (corpus master): from a date in month n the term goes a year on (`<M2>` on 02-29 is the
             // next year's 02-01, `<-M2>` the year before's). The first day of month n itself is not pinned.
             Term::MonthLetterFirst { n, forward } => {
                 let n = n as u32;
+                // Forward on the first day of month n: the next year's (NP4_CalcDate_M1 2023-01-01 2024-01-01; assumption
+                // date-formula-letter-first-forms). Backward is not pinned.
                 if m == n && d == 1 {
-                    return unsupported("date formula `Mn` on the first day of month n (not pinned)");
+                    if !forward {
+                        return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
+                    }
+                    crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 }
                 let year = match (forward, m < n, m > n) {
                     (true, true, _) | (false, _, true) => y,
@@ -1066,13 +1134,45 @@ mod tests {
         call("System.CalcDate#2", vec![t(formula), from])
     }
 
+    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_*.
+    #[test]
+    fn letter_first_formulas_follow_the_pins() {
+        type Ymd = (i32, u32, u32);
+        let cases: &[(&str, Ymd, Ymd)] = &[
+            ("<D15>", (2023, 2, 14), (2023, 2, 15)),
+            ("<D15>", (2024, 6, 15), (2024, 7, 15)),
+            ("<D29>", (2023, 1, 31), (2023, 2, 28)),
+            ("<D29>", (2023, 2, 28), (2023, 2, 28)),
+            ("<D31>", (2023, 6, 30), (2023, 6, 30)),
+            ("<D31>", (2024, 3, 31), (2024, 4, 30)),
+            ("<D28>", (2023, 2, 28), (2023, 3, 28)),
+            ("<W17>", (2023, 4, 15), (2023, 4, 24)),
+            ("<W17>", (2023, 6, 30), (2024, 4, 22)),
+            ("<W17>", (2024, 6, 15), (2025, 4, 21)),
+            ("<Q3>", (2023, 6, 30), (2023, 7, 1)),
+            ("<Q3>", (2023, 12, 31), (2024, 7, 1)),
+            ("<M1>", (2023, 1, 1), (2024, 1, 1)),
+            ("<M3>", (2024, 3, 31), (2025, 3, 1)),
+        ];
+        for &(f, (y, m, d), (ry, rm, rd)) in cases {
+            match calc(f, date(y, m, d)) {
+                Ok(Value::Date(n, false)) => assert_eq!(n, day_from_civil(ry, rm, rd), "{f} on {y}-{m}-{d}"),
+                other => panic!("{f} on {y}-{m}-{d}: {other:?}"),
+            }
+        }
+        // A date inside week 17 or quarter 3 is not pinned.
+        assert!(matches!(calc("<W17>", date(2023, 4, 26)), Err(Signal::Unsupported(_))));
+        assert!(matches!(calc("<Q3>", date(2023, 8, 1)), Err(Signal::Unsupported(_))));
+    }
+
     // `Dn` before its number: the only pin is `D1` on 2024-01-31 giving 2024-02-01
     // (types/TestDateFormulaEvaluateLeftoversContracts.al:45). Whether `Dn` adds n days or goes to the next day n of a
     // month is not pinned anywhere else, so every other date and number is refused.
     #[test]
     fn a_day_letter_before_its_number_is_pinned_only_for_d1_at_the_end_of_a_month() {
         is_date(calc("D1", date(2024, 1, 31)), 2024, 2, 1);
-        refused(calc("<D31>", date(2024, 1, 1)));
+        // `<D31>` is pinned on corpus master now (Np4DateFormulas.al NP4_CalcDate_D31).
+        is_date(calc("<D31>", date(2024, 1, 1)), 2024, 1, 31);
         refused(calc("<D1>", date(2024, 1, 1)));
         refused(calc("<D2>", date(2024, 1, 31)));
         refused(calc("<-D1>", date(2024, 1, 31)));
@@ -1916,8 +2016,9 @@ mod tests {
             panic!("2M2 must raise")
         };
         assert_eq!(e.message, "The date formula '2M2' must include plus (+) or minus (-).");
-        // The first day of month n itself is not pinned.
-        refused(calc("<M2>", date(2024, 2, 1)));
+        // Forward from the first day of month n: the next year's (corpus master, Np4DateFormulas.al NP4_CalcDate_M1); backward
+        // is not pinned.
+        is_date(calc("<M2>", date(2024, 2, 1)), 2025, 2, 1);
         refused(calc("<-M2>", date(2024, 2, 1)));
         refused(calc("<M14>", date(2024, 1, 15)));
     }
