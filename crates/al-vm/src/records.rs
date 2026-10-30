@@ -4796,6 +4796,25 @@ impl Session {
                             ..Default::default()
                         })));
                     }
+                    // A number filter that starts with a placeholder kept as written next to a wildcard
+                    // (filters/W4Filters.al:694 `num_star_after`).
+                    Err(e)
+                        if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
+                            && self.global_language == 1033 =>
+                    {
+                        let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
+                        return Err(Signal::Error(Box::new(AlError {
+                            message: format!(
+                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
+                                text.trim(),
+                                self.field_caption(&t, pos),
+                                self.caption(&t)
+                            ),
+                            code: "Filter:CSide".into(),
+                            call_stack: String::new(),
+                            ..Default::default()
+                        })));
+                    }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.

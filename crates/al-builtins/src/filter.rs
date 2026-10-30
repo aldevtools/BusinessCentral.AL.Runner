@@ -132,6 +132,10 @@ pub const FILTER_SYNTAX: &str = "invalid Date filter syntax: ";
 /// events/lt-platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal, Bad_Time).
 pub const NOT_EVALUATED: &str = "filter value not evaluated: ";
 
+/// The prefix of the error for a number filter that starts with a placeholder kept as written; the filter text follows
+/// (`The variable "%1*" was not understood.`, filters/W4Filters.al:694 `num_star_after`).
+pub const VARIABLE_NOT_UNDERSTOOD: &str = "filter variable not understood: ";
+
 /// The upper case of a Code filter value. Under Turkish or Azerbaijani a value with `i` is not pinned (only an assignment to a Code
 /// is, text/lt-text-functions/CaseConv.Codeunit.al:280-310) and is refused.
 fn filter_upper(s: &str) -> Result<String, String> {
@@ -471,7 +475,29 @@ pub fn parse_filter_with(
     } else {
         text
     };
-    let toks = tokenize(text, args)?;
+    let mut kept_placeholder = false;
+    let toks = tokenize(text, args, &mut kept_placeholder)?;
+    // A placeholder kept as written next to a wildcard (see `tokenize`) is pinned on a Text, a Code and an Integer field only
+    // (filters/W4Filters.al:661-695): on an Integer field `%1*` raises `The variable "%1*" was not understood.` and `*%1` the
+    // evaluate error.
+    if kept_placeholder {
+        match ty {
+            crate::value::RtType::Text(_) | crate::value::RtType::Code(_) => {}
+            crate::value::RtType::Integer => {
+                let t = text.trim();
+                return Err(if t.starts_with('%') {
+                    format!("{VARIABLE_NOT_UNDERSTOOD}{t}")
+                } else {
+                    not_evaluated("Integer", t)
+                });
+            }
+            other => {
+                return Err(format!(
+                    "placeholder next to a wildcard on a {other:?} field (only Text, Code and Integer are pinned)"
+                ));
+            }
+        }
+    }
     let mut p = Parser { toks, i: 0, ty, enums };
     let e = p.or()?;
     if p.i != p.toks.len() {
@@ -503,7 +529,7 @@ impl Describe for Tok {
     }
 }
 
-fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
+fn tokenize(text: &str, args: &[Value], kept_placeholder: &mut bool) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut raw = String::new();
@@ -585,19 +611,29 @@ fn tokenize(text: &str, args: &[Value]) -> Result<Vec<Tok>, String> {
             }
             out.push(Tok::Quoted(lit));
         } else if c[i] == '%' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
-            flush(&mut raw, &mut out);
             let n = c[i + 1].to_digit(10).expect("digit") as usize;
-            // A placeholder right before a wildcard is not put in after `<>`: `<>%1*` with `A` reads back as `<>%1*` and keeps every
-            // row (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:188, :198). Elsewhere it is not pinned.
-            if c.get(i + 2).is_some_and(|w| matches!(w, '*' | '?')) {
-                if matches!(out.last(), Some(Tok::Op("<>"))) && raw.trim().is_empty() {
-                    raw.push('%');
-                    raw.push(c[i + 1]);
-                    i += 2;
-                    continue;
+            // A placeholder right next to a wildcard is not put in: the filter keeps `%1` as written. Pinned: `<>%1*` with `A` reads
+            // back as `<>%1*` and keeps every row (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:188, :198); `%1*`, `*%1*`,
+            // `@*%1*`, `*%1` and `?%1` on a Text and a Code field read back as written and keep no row (filters/W4Filters.al:661-695,
+            // SetFilterPercent1_WildcardsAroundThePlaceholder_BQ). A placeholder after other text and a wildcard (`x%1*`, `**%1`) is
+            // not pinned.
+            let wild = |w: &char| matches!(w, '*' | '?');
+            let before = raw.trim();
+            let after_wildcard = before.chars().count() == 1
+                && before.chars().all(|w| wild(&w))
+                && (out.is_empty() || matches!(out.last(), Some(Tok::Op("@"))));
+            let start = before.is_empty() && (out.is_empty() || matches!(out.last(), Some(Tok::Op("<>"))));
+            if after_wildcard || c.get(i + 2).is_some_and(wild) {
+                if !(after_wildcard || start) {
+                    return Err(format!("placeholder %{n} right before a wildcard (not pinned)"));
                 }
-                return Err(format!("placeholder %{n} right before a wildcard (not pinned)"));
+                *kept_placeholder = true;
+                raw.push('%');
+                raw.push(c[i + 1]);
+                i += 2;
+                continue;
             }
+            flush(&mut raw, &mut out);
             let arg = args
                 .get(n.wrapping_sub(1))
                 .cloned()
