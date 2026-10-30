@@ -218,7 +218,7 @@ fn a_base_table_pinned_empty_in_my_company_starts_empty_there() {
 
 // "My Company" of the corpus CI database holds no CRM Connection Setup row either
 // (install/lt-bf-install-probes/BfInstallTests.al, SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany, corpus
-// issue 811): under the opt-in a run without test data answers it as empty there.
+// issue 811, :317-318): under the opt-in a run without test data answers it as empty there.
 #[test]
 fn crm_connection_setup_starts_empty_in_my_company() {
     let base = "table 5330 \"CRM Connection Setup\" { fields { field(1; \"Primary Key\"; Code[20]) { } } }";

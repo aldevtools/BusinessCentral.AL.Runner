@@ -156,7 +156,7 @@ impl Session {
     /// - Without test data the run models the corpus CI database, whose "My Company" holds no row of these Base
     ///   Application tables, the same on the three supported majors: CDS Connection Setup
     ///   (install/lt-bf-install-probes/BfInstallTests.al `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany`,
-    ///   corpus PR 804), CRM Connection Setup (the same file, `SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany`,
+    ///   corpus PR 804), CRM Connection Setup (the same file, `SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany` at :317-318,
     ///   corpus issue 811), General Ledger Setup, Sales & Receivables Setup and Company Information (the same file,
     ///   `SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany`), Source Code Setup
     ///   (`BfInstallTests.al:74-95`). Every other table there holds rows no test pins (Report Selections, No. Series, Job
