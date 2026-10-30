@@ -223,6 +223,9 @@ impl al_builtins::native::Ctx for Session {
             .filter(|m| al_builtins::stream::is_carried_mark(m))
             .cloned()
     }
+    fn dotnet_clear_is_inert(&mut self, handle: u64, clr_type: &str) -> bool {
+        Session::dotnet_clear_is_inert(self, handle, clr_type)
+    }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
         self.host.files.write(path, &[])?;
         self.render_pending_files.insert(pending_key(path), mark.into());

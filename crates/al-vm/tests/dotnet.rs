@@ -131,6 +131,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader\"; \"WorkbookReader\") { }
+    type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter\"; \"WorksheetWriter\") { }
     type(\"Microsoft.Dynamics.Nav.AzureKeyVaultClient.AzureKeyVaultAppSecretProvider\"; \"AkvProvider\") { }
     type(\"Microsoft.Dynamics.Nav.Types.ALConfigSettings\"; \"ALConfigSettings\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper\"; \"NavUserAccountHelper\") { }
@@ -2673,6 +2674,7 @@ fn an_enum_member_named_through_a_property_of_an_unassigned_variable_is_refused(
 // file back with AL's File (SaveToStream through File Management.BLOBImportFromServerFile).
 const WBW: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
 const WBR: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+const WSW: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
 
 fn workbook_host() -> Fake {
     Fake::new(|r| match r {
@@ -2688,6 +2690,7 @@ fn workbook_host() -> Fake {
                 },
             })
         }
+        Req::Get(DotNetTarget::Instance(5), m) if m == "FirstWorksheet" => reply(handle(6, WSW)),
         Req::Invoke(DotNetTarget::Instance(5), m, _) if m == "Close" => Ok(DotNetReply {
             value: DotNetValue::Null,
             by_ref: vec![],
@@ -2707,6 +2710,35 @@ fn workbook_writer_create_of_a_file_writes_the_in_memory_file_system_when_it_is_
         F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close(); exit(T);";
     let vars = "W: DotNet WorkbookWriter; F: File; I: InStream; T: Text;";
     assert_eq!(text(run_mem(&host, vars, body)), "PK-book");
+}
+
+// Excel Buffer.CloseBook: `Close` of the workbook writer, then `Clear` of its worksheet writer and of the workbook writer. After
+// the Close the two variables are unassigned and the file keeps what Close wrote (assumption clear-closed-workbook-writer: Microsoft's
+// Tests-ERM "ERM Analysis View Excel Export" AnalysisViewGeneralInfo passes on real BC through CloseBook and reads the file).
+#[test]
+fn clear_of_a_closed_workbook_writer_and_its_worksheet_writer_unassigns_them() {
+    let host = workbook_host();
+    let body = "W := W.Create('temp/1.xlsx'); S := W.FirstWorksheet; W.Close(); Clear(S); Clear(W);
+        F.Open('temp/1.xlsx'); F.CreateInStream(I); I.ReadText(T); F.Close();
+        exit(Format(IsNull(S)) + ' ' + Format(IsNull(W)) + ' ' + T);";
+    let vars = "W: DotNet WorkbookWriter; S: DotNet WorksheetWriter; F: File; I: InStream; T: Text;";
+    assert_eq!(text(run_mem(&host, vars, body)), "Yes Yes PK-book");
+}
+
+// Before the workbook is closed, a Clear may dispose the writer and change what Close writes: not pinned, refused.
+#[test]
+fn clear_of_a_workbook_or_worksheet_writer_before_the_close_is_refused() {
+    let vars = "W: DotNet WorkbookWriter; S: DotNet WorksheetWriter;";
+    let host = workbook_host();
+    let r = run_mem(
+        &host,
+        vars,
+        "W := W.Create('temp/1.xlsx'); S := W.FirstWorksheet; Clear(S); exit('ran');",
+    );
+    assert!(unsupported(&r).contains("WorksheetWriter"), "{}", unsupported(&r));
+    let host = workbook_host();
+    let r = run_mem(&host, vars, "W := W.Create('temp/1.xlsx'); Clear(W); exit('ran');");
+    assert!(unsupported(&r).contains("WorkbookWriter"), "{}", unsupported(&r));
 }
 
 // What the file holds while the writer is open is not pinned (.NET has created it; its bytes before Close are the package's

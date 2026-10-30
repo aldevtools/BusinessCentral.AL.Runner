@@ -79,6 +79,10 @@ pub struct DotNetState {
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
+    /// The workbook writers of `open_workbooks` whose `Close` or `Dispose` ran, and the worksheet writers each handed out while
+    /// open (worksheet -> workbook): a `Clear` of either then only unassigns the variable (`clear_is_inert`).
+    closed_workbooks: std::collections::HashSet<DotNetHandle>,
+    worksheets: HashMap<DotNetHandle, DotNetHandle>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -669,14 +673,39 @@ impl Session {
         if self.dotnet.open_workbooks.is_empty() {
             return Ok(());
         }
+        // A worksheet writer an open workbook writer hands out (FirstWorksheet, AddWorksheet, GetWorksheetByName).
+        if let (Target::Host(h, _), Value::DotNet(o)) = (target, result)
+            && self.dotnet.open_workbooks.contains_key(h)
+            && let DotNetKind::Host { handle, clr_type } = &o.kind
+            && clr_type.eq_ignore_ascii_case(WORKSHEET_WRITER)
+        {
+            self.dotnet.worksheets.insert(*handle, *h);
+        }
         if let Target::Host(h, _) = target
             && (member.eq_ignore_ascii_case("Close") || member.eq_ignore_ascii_case("Dispose"))
             && let Some((path, blob)) = self.dotnet.open_workbooks.remove(h)
         {
             let bytes = blob.borrow().bytes.clone();
             al_builtins::native::Ctx::fs_write(self, &path, &bytes)?;
+            self.dotnet.closed_workbooks.insert(*h);
         }
         Ok(())
+    }
+
+    /// Whether `Clear` of a DotNet variable holding `handle` only unassigns it: a workbook writer `WorkbookWriter.Create(fileName)`
+    /// made, after its `Close` or `Dispose`, or a worksheet writer it handed out while open (Excel Buffer.CloseBook; assumption
+    /// clear-closed-workbook-writer). Before the Close a Dispose could change what Close writes, which is not pinned.
+    pub(crate) fn dotnet_clear_is_inert(&self, handle: DotNetHandle, clr_type: &str) -> bool {
+        let dn = &self.dotnet;
+        if clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) {
+            dn.closed_workbooks.contains(&handle)
+        } else if clr_type.eq_ignore_ascii_case(WORKSHEET_WRITER) {
+            dn.worksheets
+                .get(&handle)
+                .is_some_and(|book| dn.closed_workbooks.contains(book))
+        } else {
+            false
+        }
     }
 
     /// ADR-056: a static System.IO.File or System.IO.Directory call (`ty` and `member` in lower case) answered by the
@@ -1568,6 +1597,7 @@ fn holds_carried_text(bytes: &[u8]) -> bool {
 /// DirectoryInfo and FileStream are refused by the policy as a whole.
 const WORKBOOK_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
 const WORKBOOK_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
+const WORKSHEET_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
 
 fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
     let t = clr_type.to_ascii_lowercase();
