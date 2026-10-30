@@ -4732,7 +4732,11 @@ impl Session {
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
                 // Bad_Time); what BC asks `MakeDateTimeFilter` is pinned only in part (the second call of Bad_DateTime m2 carries a
                 // text made from the work date), so a DateTime text that raises it is refused.
-                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)) {
+                // A number filter with a placeholder kept as written next to a wildcard has placeholders, so with subscribers it is
+                // refused below as well: whether BC raises the event for it is not pinned.
+                if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED)
+                    || e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD))
+                {
                     let event = match ty {
                         RtType::Integer => Some(("makeintfilter", "IntFilterText")),
                         RtType::Time => Some(("maketimefilter", "TimeFilterText")),
@@ -4787,6 +4791,25 @@ impl Session {
                         return Err(Signal::Error(Box::new(AlError {
                             message: format!(
                                 "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{value}\" can't be evaluated into type {type_name}.",
+                                text.trim(),
+                                self.field_caption(&t, pos),
+                                self.caption(&t)
+                            ),
+                            code: "Filter:CSide".into(),
+                            call_stack: String::new(),
+                            ..Default::default()
+                        })));
+                    }
+                    // A number filter that starts with a placeholder kept as written next to a wildcard
+                    // (filters/W4Filters.al:694 `num_star_after`).
+                    Err(e)
+                        if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
+                            && self.global_language == 1033 =>
+                    {
+                        let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
+                        return Err(Signal::Error(Box::new(AlError {
+                            message: format!(
+                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
                                 text.trim(),
                                 self.field_caption(&t, pos),
                                 self.caption(&t)
