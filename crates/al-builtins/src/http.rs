@@ -890,8 +890,10 @@ fn is_entity_tag(item: &str) -> bool {
     item == "*" || (t.len() >= 2 && t.starts_with('"') && t.ends_with('"') && !t[1..t.len() - 1].contains('"'))
 }
 
-/// The tokens of a User-Agent: products `name/version` and comments `(...)`, each a value of its own.
-fn user_agent_parts(v: &str) -> Option<Vec<String>> {
+/// The tokens of a User-Agent: products `name/version` and comments `(...)`, each a value of its own. `Ok(None)` for an
+/// unbalanced comment (`((((`: P87Values.al:330-336). A product that is neither `token` nor `token/token` (a lone `/`, spaces
+/// around `/`, a second `/`) is not measured (only valid products are: SeHeaderValues.al:302-311), so it is refused.
+fn user_agent_parts(v: &str) -> Result<Option<Vec<String>>, Signal> {
     let chars: Vec<char> = v.chars().collect();
     let (mut i, mut out) = (0, Vec::new());
     while i < chars.len() {
@@ -900,7 +902,8 @@ fn user_agent_parts(v: &str) -> Option<Vec<String>> {
         } else if chars[i] == '(' {
             let (mut depth, start) = (0, i);
             loop {
-                match chars.get(i)? {
+                let Some(c) = chars.get(i) else { return Ok(None) };
+                match c {
                     '(' => depth += 1,
                     ')' => depth -= 1,
                     _ => {}
@@ -922,12 +925,14 @@ fn user_agent_parts(v: &str) -> Option<Vec<String>> {
                 None => is_token(&product),
             };
             if !ok {
-                return None;
+                return unsupported(format!(
+                    "User-Agent or Server value {v:?}: a product that is not `name` or `name/version` (not pinned)"
+                ));
             }
             out.push(product);
         }
     }
-    (!out.is_empty()).then_some(out)
+    Ok((!out.is_empty()).then_some(out))
 }
 
 /// The known Cache-Control directives in the order .NET writes them (network/lt-http-header-names-cache-control/CacheControlPairs.al,
@@ -1092,7 +1097,7 @@ fn typed_add(bag: &HeaderBag, name: &str, value: &str) -> Result<Option<Typed>, 
                 None => fail(),
             }
         }
-        "user-agent" => match user_agent_parts(value) {
+        "user-agent" => match user_agent_parts(value)? {
             Some(parts) => list(parts),
             None => fail(),
         },
@@ -1573,7 +1578,7 @@ fn typed_add_se(bag: &HeaderBag, lower: &str, value: &str) -> Result<Option<Type
         }
         // Products and comments, each a value, as User-Agent: `a/1.0 (x)` reads `[a/1.0][(x)]`, `a b` reads `[a][b]`; `(` refused
         // (SE_Untyped_Response).
-        (HeaderKind::Response, "server") => match user_agent_parts(value) {
+        (HeaderKind::Response, "server") => match user_agent_parts(value)? {
             Some(parts) => list(parts),
             None => fail(),
         },
@@ -2959,6 +2964,24 @@ mod tests {
             q,
             vec![("q".to_string(), " a".to_string()), ("x".to_string(), "1".to_string())]
         );
+    }
+
+    #[test]
+    fn a_user_agent_product_outside_the_pinned_shapes_is_refused() {
+        // Pinned: `A/1 (comment) B/2` and `((((` (P87Values.al:329-336), `a b`, `a/1 b/2`, `Mozilla/5.0 (X11; Linux) Foo/1`
+        // (SeHeaderValues.al:302-311). A product that is not `token` or `token/token` (a lone `/`, spaces around `/`) is not
+        // measured: .NET may read `a / b` as one product. Refused, not answered with an invented Format error.
+        let mut b = HeaderBag::default();
+        assert!(add_header(&mut b, "User-Agent", "a/1 b/2", false).is_ok());
+        let mut b = HeaderBag::default();
+        assert!(matches!(add_header(&mut b, "User-Agent", "((((", false), Err(Signal::Error(_))));
+        for v in ["NP Retail / Dynamics 365", "a /1", "a/ 1", "/", "a/b/c"] {
+            let mut b = HeaderBag::default();
+            assert!(
+                matches!(add_header(&mut b, "User-Agent", v, false), Err(Signal::Unsupported(_))),
+                "{v}"
+            );
+        }
     }
 
     #[test]
