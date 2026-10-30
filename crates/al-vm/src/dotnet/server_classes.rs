@@ -262,6 +262,52 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
     Ok(Value::Boolean(false))
 }
 
+/// The service tier's credential type, which System Application `Identity Management.IsWindowsAuthentication`,
+/// `IsUserNamePasswordAuthentication` and `IsAccessControlServiceAuthentication` read (al-runner issue 6380).
+/// On the SaaS-like sandbox `IsUserNamePasswordAuthentication` is false (corpus writer Y5, branch al-runtime-rs-staging-y5,
+/// session/lt-y5/Y5AuthenticationType.al, codeunit 90987); the other two are Scope OnPrem, so a Cloud app cannot call them
+/// there and their answer is not measured: refused. On an on-prem server the credential type is user name and password, as
+/// on the test containers Microsoft's AL-Go and BcContainerHelper set up and on the reporter's real-BC container (assumption
+/// `credential-type-user-password-onprem`, until the OnPrem probe of the same writer lands).
+fn credential_type_is(s: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
+    no_args(args, member)?;
+    if s.host.identity.environment() == al_host::Environment::OnPrem {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CredentialTypeUserPasswordOnPrem);
+        return Ok(Value::Boolean(user_password));
+    }
+    if user_password {
+        return Ok(Value::Boolean(false));
+    }
+    Err(Signal::Unsupported(format!(
+        "DotNet {member}: the service tier's credential type on the SaaS-like sandbox is not pinned (docs/probes-needed.md)"
+    )))
+}
+
+fn is_windows_authentication(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    credential_type_is(s, args, "NavUserAccountHelper.IsWindowsAuthentication", false)
+}
+
+fn is_user_name_password_authentication(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: Args,
+) -> Result<Value, Signal> {
+    credential_type_is(s, args, "NavUserAccountHelper.IsUserNamePasswordAuthentication", true)
+}
+
+fn is_access_control_service_authentication(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: Args,
+) -> Result<Value, Signal> {
+    credential_type_is(
+        s,
+        args,
+        "NavUserAccountHelper.IsAccessControlServiceAuthentication",
+        false,
+    )
+}
+
 /// `NavUserAccountHelper.GetEffectivePermissionForObject(user, company, objectType, objectId)`:
 /// five comma-separated Permission ordinals (Read, Insert, Modify, Delete, Execute) of the
 /// session user. A test session is SUPER; on table data it holds the four data rights and no
@@ -645,6 +691,10 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
     Ok(Value::Null)
 }
 
+/// The credential-type members: the SaaS-like sandbox answer of `IsUserNamePasswordAuthentication` is measured; the
+/// on-prem answers are a registered assumption (`credential-type-user-password-onprem`, docs/probes-needed.md).
+const CREDENTIAL_PIN: &str = "probe tests/al-language/session/lt-y5/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
+
 fn probe(what: &str) -> Pin {
     Pin::Probe(format!("{ENV_PROBE}:{what}"))
 }
@@ -760,6 +810,21 @@ fn own_types() -> Vec<RegistryType> {
                     "IsUserDelegatedHelpdesk",
                     Pin::Corpus("al-language-onprem-dotnet/lt-al-dotnet/AlUserAccountHelper.al:63".into()),
                     is_user_delegated_helpdesk,
+                ),
+                member(
+                    "IsWindowsAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_windows_authentication,
+                ),
+                member(
+                    "IsUserNamePasswordAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_user_name_password_authentication,
+                ),
+                member(
+                    "IsAccessControlServiceAuthentication",
+                    Pin::Probe(CREDENTIAL_PIN.into()),
+                    is_access_control_service_authentication,
                 ),
                 member(
                     "IsPermissionSetAssigned",

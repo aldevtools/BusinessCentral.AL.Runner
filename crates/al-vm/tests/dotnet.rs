@@ -1587,6 +1587,8 @@ fn the_declared_result_types_match_the_registry() {
             "InitializeFromCallingAppExceptSystemApplication" | "TryGetAzureKeyVaultSecret" => continue,
             // Refused by design (it lowers permissions); adding_an_effective_permission_set_is_refused runs it.
             "AddEffectivePermissionSet" => continue,
+            // Refused on the default SaaS-like sandbox by design; the_credential_type_follows_the_environment_of_the_host runs them.
+            "IsWindowsAuthentication" | "IsAccessControlServiceAuthentication" => continue,
             // Need a staged folder; directory_info_of_a_folder_staged_for_the_company_build_* run them.
             "DirectoryInfo" | "Exists" | "GetFiles" | "GetEnumerator" | "MoveNext" | "Current" | "Length" => continue,
             // Need a query's Application Object Metadata; al-test-cli tests/platform_tables.rs
@@ -2826,4 +2828,46 @@ codeunit 50100 C
         al_testkit::text(al_testkit::run(src, "HostEnvironmentType")),
         "from the web client URL"
     );
+}
+
+/// al-runner issue 6380: `Identity Management.IsWindowsAuthentication` (and its two siblings) asks
+/// `NavUserAccountHelper` for the service tier's credential type. On the SaaS-like sandbox `IsUserNamePasswordAuthentication`
+/// is No (corpus writer Y5, branch al-runtime-rs-staging-y5, session/lt-y5/Y5AuthenticationType.al) and the other two are
+/// refused (Scope OnPrem there, not measured). On an on-prem server (`--environment onprem`) the runner answers as a test
+/// container with user name and password: Windows No, user name and password Yes, Access Control Service No (assumption
+/// `credential-type-user-password-onprem`, flagged).
+#[test]
+fn the_credential_type_follows_the_environment_of_the_host() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let answers = |env: Option<al_host::Environment>, body: &str| {
+        let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+        let (program, blocked, oi, ri) = compile("U: DotNet NavUserAccountHelper;", body, ": Text");
+        let engine = Engine::with_dotnet(program, blocked, cfg(&host));
+        let mut s = match env {
+            None => Session::new(engine),
+            Some(e) => Session::with_host(engine, al_host::Host::default().in_environment(e)),
+        };
+        let inst = s.instance(oi);
+        s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
+    };
+    let all = "exit(Format(U.IsWindowsAuthentication()) + Format(U.IsUserNamePasswordAuthentication()) + Format(U.IsAccessControlServiceAuthentication()));";
+    take_hits();
+    match answers(Some(al_host::Environment::OnPrem), all) {
+        Ok(Value::Text(t)) => assert_eq!(t, "NoYesNo"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(take_hits(), vec![Assumption::CredentialTypeUserPasswordOnPrem]);
+    for env in [None, Some(al_host::Environment::Saas)] {
+        match answers(env, "exit(Format(U.IsUserNamePasswordAuthentication()));") {
+            Ok(Value::Text(t)) => assert_eq!(t, "No"),
+            other => panic!("{other:?}"),
+        }
+        assert!(take_hits().is_empty());
+        for member in ["IsWindowsAuthentication", "IsAccessControlServiceAuthentication"] {
+            match answers(env, &format!("exit(Format(U.{member}()));")) {
+                Err(Signal::Unsupported(m)) => assert!(m.contains("credential type"), "{m}"),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
 }
