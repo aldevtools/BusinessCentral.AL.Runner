@@ -34,6 +34,16 @@ overall count.
 | `onprem` (27, 28, 29) | `tests/al-language-onprem` | `<major>/junit-onprem.xml` | the small artifact of the same CI run as the main oracle (ids 11957600568, 11957362118, 11956862735), copied unchanged | 72 |
 | `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the Windows nightly of 2026-10-18, BC 28.5, run 39127745894, artifact 12137159749 | 7 |
 | `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 7 (T5 fails on BC, on purpose) |
+| `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 34 (BC 29: 36, one skipped on purpose) |
+
+The `testlibraries` suite names `extra_apps` in `oracle.toml`: Microsoft's Tests-TestLibraries and Data
+Archive, which the corpus job installs although no test app declares them (corpus `.github/workflows/ci.yml`,
+job `test-testlibraries`). They change what AL code sees (the test runner runs codeunits 130301 and 130302 of
+Tests-TestLibraries around every test, and Backup Management sets the database trigger flags), so a suite with
+`extra_apps` runs in an environment of its own: a second compile and run of that version, with those apps loaded
+from the artifact (compiled from their source, ADR-013) and without the main app's tests. The main app and the other
+suites keep the main job's environment. Its ratchet is `metrics/<major>/passing-testlibraries.txt`; the regen bot
+fills it from main.
 
 The isolation probe never runs in the Linux CI legs: it needs two custom test runners
 (`-testRunnerCodeunitId`), which only the Windows nightly provides. Its files are BcContainerHelper

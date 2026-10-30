@@ -223,7 +223,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `mnc.rs` (300): The must-not-compile corpus (`--must-not-compile [DIR]`): parse a case header, compile it alone, compare the ALnnnn codes, report match / mismatch / not checked / skipped. Entry: `parse_case`, `read_cases`, `run_case`, `render`.
 - `insight.rs` (388): --top-refusals (folded reason ranking) and --baseline-diff. Entry: `normalise_reason` 22, `top_refusals` 116, `baseline_diff` 194, `render_top` 145, `render_diff` 222.
 - `lib.rs` (22): Runs the corpus's `[Test]` codeunits and reports them against the oracle.
-- `main.rs` (806): The binary: run each oracle version, report, ratchet. Exit 0 ok, 1 regression, 2 setup error. Entry: `main` 17, `run` 40, `run_version` 135, `find_explained` 670, `drift_summary` 124.
+- `main.rs` (806): The binary: run each oracle version, report, ratchet. Exit 0 ok, 1 regression, 2 setup error. A version runs in passes (`passes`, `run_version_passes`): the main app with the suites of the main environment, then one pass per set of `extra_apps` (oracle.toml) with only those suites; the reports are joined before `--json`/`--markdown` are written. Entry: `main` 17, `run` 40, `run_version_passes`, `run_version` 135, `find_explained` 670, `drift_summary` 124.
 - `oracle.rs` (288): The oracle: JUnit and xUnit cases of real BC, identified by (codeunit, name). Entry: `CaseId` 7, `OracleCase` 13, `parse_junit` 30, `parse_xunit` 74.
 - `output.rs` (238): Renders a report as Markdown (CI step summary) and the runtime's outcomes as JUnit in the same shape the corpus CI emits. Entry: `markdown` 7, `junit` 69.
 - `pin.rs` (169): The per-version corpus pin check (ADR-007, "Decided without owner review (2026-10-13/14)"). Entry: `check` 13.

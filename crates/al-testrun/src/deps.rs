@@ -212,7 +212,33 @@ pub fn load_with(
     extra_dirs: &[PathBuf],
     provision: Option<&Provision>,
 ) -> Result<Dependencies, String> {
-    let project = app_json(app_dir)?;
+    load_with_extra(app_dir, source_dirs, extra_dirs, provision, &[])
+}
+
+/// [`load_with`] where the environment also has `extra` installed, given as (id, name): apps the corpus CI installs for
+/// a test app although no app declares them (oracle.toml `extra_apps`, corpus `.github/workflows/ci.yml` job
+/// test-testlibraries). They are looked up by id like declared dependencies of the app in `app_dir`, with their own
+/// dependencies; one that is not found is skipped and reported like a missing dependency. As for the Test Runner app
+/// (`with_test_environment`), loading them does not make them visible to an app that does not declare them.
+pub fn load_with_extra(
+    app_dir: &Path,
+    source_dirs: &[PathBuf],
+    extra_dirs: &[PathBuf],
+    provision: Option<&Provision>,
+    extra: &[(String, String)],
+) -> Result<Dependencies, String> {
+    let mut project = app_json(app_dir)?;
+    for (id, name) in extra {
+        if !project.dependencies.iter().any(|d| d.id.eq_ignore_ascii_case(id)) {
+            project.dependencies.push(al_deps::select::DepDecl {
+                id: id.clone(),
+                name: name.clone(),
+                publisher: "Microsoft".into(),
+                min: Default::default(),
+                optional: false,
+            });
+        }
+    }
     let mut workspace_apps = Vec::new();
     for d in source_dirs {
         workspace_apps.push(WorkspaceApp {
