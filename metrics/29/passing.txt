@@ -9502,6 +9502,7 @@
 71483 P182b_HostNeverRan_PartReadCount
 71483 P182b_HostNeverRan_PartReadFilters
 71483 P182b_HostNeverRan_PartReadRec
+71483 P182b_HostRanAndClosed_PartReadRec
 71484 P182b_HostNeverRan_PartUpdateFalse
 71484 P182b_HostNeverRan_PartUpdateTrue
 71485 P182b_HostNeverRan_PartSetRecord
@@ -11949,6 +11950,7 @@
 73401 AddAfterBefore_Self
 73401 Add_AlreadyParented_Node
 73401 Add_DuplicateAttribute
+73401 Add_Element_To_Uninitialized_Arg
 73401 AsXmlElement_Add_Text_Via_Node
 73401 Copy_Clone_ViaNode
 73401 Copy_Semantics
@@ -15685,6 +15687,7 @@
 84893 SetEncrypted_216Ascii
 84893 SetEncrypted_EncryptionEnabled
 84893 Set_Plain_1000Ascii_Control
+84894 CreateTask_ScheduledTaskUser
 84895 GetCurrUTCDateTime_IsCurrentDateTime
 84895 GetCurrUTCDateTime_TextForms
 84895 TestSession_TimeZoneAndConversions
