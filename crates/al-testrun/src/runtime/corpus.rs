@@ -800,6 +800,7 @@ impl CorpusRuntime {
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.test_data = opts.test_data.clone();
+                e.license = opts.license.clone();
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             engine
@@ -810,6 +811,7 @@ impl CorpusRuntime {
             let mut sibling = engine.sibling();
             if let Some(e) = Arc::get_mut(&mut sibling) {
                 e.test_data = opts.test_data.clone();
+                e.license = opts.license.clone();
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             sibling
@@ -1972,9 +1974,10 @@ fn kept_engine_key(
     opts: &RunOptions,
 ) -> String {
     format!(
-        "target={target:?} dotnet={} test_data={:?} skipped={:?}",
+        "target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?}",
         dotnet.host.availability().is_ok(),
         opts.test_data.as_ref().map(|td| td.provider.identity()),
+        opts.license.as_ref().map(|l| &l.sha256),
         opts.skipped_dependencies,
     )
 }
@@ -2001,6 +2004,7 @@ fn take_kept_engines(
         e.reset_run_state();
         e.dotnet = dotnet.clone();
         e.test_data = opts.test_data.clone();
+        e.license = opts.license.clone();
         e.skipped_apps = opts.skipped_dependencies.clone();
         Some(engine)
     };
@@ -2062,6 +2066,9 @@ fn baseline_key(
         Some(td) => key.text("test_data", &td.provider.identity()?),
         None => key.text("test_data", ""),
     };
+    // The license (ADR-060): install code may read License Permission. Only its hash goes into the key; the license
+    // itself is never written to a cache.
+    key.text("license", opts.license.as_ref().map_or("", |l| l.sha256.as_str()));
     // Whether `DotNet` calls of the install code could run. A baseline made without a usable .NET holds what the
     // refused calls left out, and one made with it holds what they did. With .NET, what runs the calls: a baseline is
     // kept only when its calls answer from their arguments alone (`Engine::dotnet_called`), and those answers are
