@@ -2655,15 +2655,18 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
     assert!(why.contains("Time Zone"), "{why}");
 }
 
-/// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (`filter(<option name>)`) leaves only its
+/// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (here three Option members) leaves only its
 /// SourceTableView column unknown. A filtered read that leaves the page out, and a Get of it that reads other columns, are
-/// served; a read of its SourceTableView is still refused (only the shapes in `view_text` are pinned).
+/// served; a read of its SourceTableView is still refused. `filter(<option name>)` reads `FILTER(<ordinal>)`
+/// (lt-ss1030/SsPageMetaFilterView.al:97-113).
 #[test]
 fn page_metadata_serves_the_rows_beside_a_page_whose_view_is_not_pinned() {
     let o = outcomes(
         r#"table 50100 "PM Document" { fields { field(1; "Document Type"; Option) { OptionMembers = Quote,Order,Invoice; } field(2; "No."; Code[20]) { } }
     keys { key(PK; "Document Type", "No.") { Clustered = true; } } }
-page 50100 "PM Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote));
+page 50100 "PM Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote|Order|Invoice));
+    layout { area(Content) { repeater(Lines) { field("No."; Rec."No.") { } } } } }
+page 50102 "PM Only Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote));
     layout { area(Content) { repeater(Lines) { field("No."; Rec."No.") { } } } } }
 page 50101 "PM Documents API" { PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'document';
     EntitySetName = 'documents'; SourceTable = "PM Document"; DelayedInsert = true;
@@ -2676,13 +2679,16 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(Page::"PM Quotes"); if M.SourceTable <> Database::"PM Document" then Error('got %1', M.SourceTable); end;
   [Test] procedure ViewRead() var M: Record "Page Metadata"; begin
     M.Get(Page::"PM Quotes"); if M.SourceTableView = '' then Error('empty view'); end;
+  [Test] procedure PinnedViewRead() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Only Quotes"); if M.SourceTableView <> 'WHERE(Field1=FILTER(0))' then Error('got %1', M.SourceTableView); end;
   [Test] procedure FilterOnView() var M: Record "Page Metadata"; begin
     M.SetRange(SourceTable, Database::"PM Document"); M.SetFilter(SourceTableView, '<>%1', ''); if M.FindFirst() then; end; }"#,
     );
     passes(&o, "FilterOnApiPagesOfATable");
     passes(&o, "GetReadsOtherColumns");
-    assert!(not_run(&o, "ViewRead").contains("filter(Quote)"), "{o:?}");
-    assert!(not_run(&o, "FilterOnView").contains("filter(Quote)"), "{o:?}");
+    passes(&o, "PinnedViewRead");
+    assert!(not_run(&o, "ViewRead").contains("filter(Quote|Order|Invoice)"), "{o:?}");
+    assert!(not_run(&o, "FilterOnView").contains("filter(Quote|Order|Invoice)"), "{o:?}");
 }
 
 /// al-runner issue 6251 follow-up: a page whose PageType is not pinned (System Application's "Power BI Element Addin Host" is a

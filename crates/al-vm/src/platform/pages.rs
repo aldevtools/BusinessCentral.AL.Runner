@@ -74,8 +74,8 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// space; `where` with one or more conditions, each `const` of an integer, option, enum or Text value or `filter` of an
 /// integer range `a .. b`, and on a Date field `filter('')`, `filter(0D)`, `filter(<> '')` and `const(0D)`
 /// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
-/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), and a Decimal const of a whole number. Anything else (a const on
-/// another type, another filter) is not pinned.
+/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117), a Decimal const of a whole number, and the Option, Enum and Code `filter()`
+/// shapes of [`member_filter_text`]. Anything else (a const on another type, another filter) is not pinned.
 /// The second value is the assumption the text rests on, if any.
 fn view_text(
     o: &Object,
@@ -184,6 +184,12 @@ fn view_text(
                 // A Decimal `filter(> 0)` reads `FILTER(>0)` (platform/lt-aw-fresh-tenant/AwTests.al:117). Another operator
                 // or a fraction is not pinned.
                 conds.push(format!("Field{}=FILTER(>{n})", f.id));
+            } else if let Some(text) = rest
+                .strip_prefix_ci("filter(")
+                .and_then(|r| r.strip_suffix(')'))
+                .and_then(|v| member_filter_text(f, v.trim(), table_objects))
+            {
+                conds.push(format!("Field{}=FILTER({text})", f.id));
             } else if let Some(value) = rest.strip_prefix_ci("filter(").and_then(|r| r.strip_suffix(')')) {
                 // An integer range, written `1 .. 5`, reads `1..5` (W2PageMetadata.al:395 E_filter_range).
                 let (a, b) = value.split_once("..").ok_or_else(not_pinned)?;
@@ -204,6 +210,40 @@ fn view_text(
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
 /// (TestPageMetadataSourceObject.al:61-80 declares `Status = const(Active)` and expects `CONST(2)`), a number as written,
 /// a Text value without its quotes (W2PageMetadata.al:394 `CONST(x)`, :397 `CONST(a b)`).
+/// The text of a `filter()` on an Option, Enum or Code field, the shapes pinned by lt-ss1030/SsPageMetaFilterView.al:97-113
+/// (PageMetadata_SourceTableView_FilterShapes; al-runner issue 6251): an Option member reads as its ordinal (`filter(Quote)`
+/// `FILTER(0)`), two Option members joined by `|` as their ordinals (`filter(Quote | Invoice)` `FILTER(0|2)`), `<>` and one Option
+/// member as `<>` and its ordinal (`filter(<> "Order")` `FILTER(<>1)`), one Enum member as its ordinal (`filter(Beta)`
+/// `FILTER(1)`), and a Code literal of two values joined by `|` without its quotes (`filter('A|B')` `FILTER(A|B)`). Any other
+/// shape (more members, `<>` or `|` on an Enum, another operator, a Code literal of another form) is not pinned.
+fn member_filter_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> Option<String> {
+    let member = |v: &str| {
+        let v = v.trim();
+        let v = v.strip_prefix('"').and_then(|x| x.strip_suffix('"')).unwrap_or(v);
+        const_text(f, v, table_objects)
+    };
+    match &f.ty {
+        RtType::Option(_) => {
+            if let Some(rest) = value.strip_prefix("<>") {
+                return Some(format!("<>{}", member(rest)?));
+            }
+            match value.split('|').collect::<Vec<_>>().as_slice() {
+                [one] => member(one),
+                [a, b] => Some(format!("{}|{}", member(a)?, member(b)?)),
+                _ => None,
+            }
+        }
+        RtType::Enum(_) if !value.contains(['|', '<', '>', '&', '.']) => member(value),
+        RtType::Code(_) => {
+            let text = string_lit(value)?;
+            let parts: Vec<&str> = text.split('|').collect();
+            let plain = |p: &&str| !p.is_empty() && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+            (parts.len() == 2 && parts.iter().all(plain)).then_some(text)
+        }
+        _ => None,
+    }
+}
+
 fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> Option<String> {
     let plain = |v: &str| !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
     match &f.ty {
@@ -474,11 +514,16 @@ fn page_metadata_row(
     r[pos(t, 21)] = Value::Boolean(has_source && lit_bool(o, "MultipleNewLines", false));
     r[pos(t, 22)] = Value::Boolean(has_source && lit_bool(o, "SaveValues", false));
     r[pos(t, 23)] = Value::Boolean(has_source && lit_bool(o, "AutoSplitKey", false));
-    r[pos(t, 24)] = Value::Text(if has_source {
-        caption_fields(o, src)?.into()
+    // DataCaptionFields that cannot be resolved leave only this column unknown, as an unpinned view does (al-runner issue
+    // 6251: lt-ss1030/SsPageMetaFilterView.al:116 PageMetadata_FilteredRead_ApiPageOfTable reads the table beside such a page).
+    r[pos(t, 24)] = if has_source {
+        match caption_fields(o, src) {
+            Ok(text) => Value::Text(text.into()),
+            Err(why) => Value::Unknown(format!("Page Metadata: {why}").into()),
+        }
     } else {
-        String::new().into()
-    });
+        Value::Text(String::new().into())
+    };
     r[pos(t, 26)] = Value::Boolean(has_source && lit_bool(o, "LinksAllowed", true));
     r[pos(t, 27)] = Value::Boolean(lit_bool(o, "ChangeTrackingAllowed", false));
     r[pos(t, 28)] = Value::Boolean(has_source && lit_bool(o, "PopulateAllFields", false));
