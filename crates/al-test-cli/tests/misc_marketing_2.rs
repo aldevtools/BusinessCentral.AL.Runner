@@ -8,6 +8,7 @@ use al_vm::Engine;
 
 const OBJECTS: &str = "
 table 69400 \"MM Head\" { fields { field(1; No; Code[20]) { } } keys { key(PK; No) { Clustered = true; } } }
+table 69402 \"MM Doc\" { fields { field(1; \"Document Type\"; Option) { OptionMembers = \" \",Invoice,\"Credit Memo\"; } field(2; No; Code[20]) { } } keys { key(PK; \"Document Type\", No) { Clustered = true; } } }
 table 69401 \"MM Line\" { fields { field(1; No; Code[20]) { } field(2; Line; Integer) { } field(3; Sub; Code[10]) { } }
   keys { key(PK; No, Line, Sub) { Clustered = true; } } }
 ";
@@ -54,6 +55,51 @@ fn a_variant_holding_a_record_takes_a_record_of_another_table() {
              V := Q[2]; Clear(RR); RR.GetTable(V); if RR.Number <> 69401 then Error('second %1', RR.Number);
          end;",
     );
+}
+
+// Evaluate into a RecordId whose first key field is an Option (types/lt-wc/WcUnpinnedSingles.al:112-146, al-runner issue 6322):
+// a member name (also with a space), an ordinal (also past the members: Format shows `9`), an empty unquoted value (ordinal 0,
+// Format shows `" "`); the same under language 1031; an unknown name raises InvalidOptionString naming the members.
+#[test]
+fn evaluate_into_a_record_id_reads_an_option_key_field() {
+    all_pass(
+        r#"[Test] procedure OptionKey() var L: Record "MM Doc"; Rid: RecordId; begin
+             L."Document Type" := L."Document Type"::Invoice; L.No := 'D-001'; L.Insert();
+             if Format(L.RecordId) <> 'MM Doc: Invoice,D-001' then Error('format %1', Format(L.RecordId));
+             if not Evaluate(Rid, 'MM Doc: Invoice,D-001') then Error('name');
+             if Rid <> L.RecordId then Error('name equal');
+             if not Evaluate(Rid, 'MM Doc: 1,D-001') then Error('ordinal');
+             if Rid <> L.RecordId then Error('ordinal equal');
+             if not Evaluate(Rid, 'MM Doc: Credit Memo,D-001') then Error('space');
+             if Format(Rid) <> 'MM Doc: Credit Memo,D-001' then Error('space %1', Format(Rid));
+             if not Evaluate(Rid, 'MM Doc: ,D-001') then Error('blank');
+             if Format(Rid) <> 'MM Doc: " ",D-001' then Error('blank %1', Format(Rid));
+             if not Evaluate(Rid, 'MM Doc: 9,D-001') then Error('nine');
+             if Format(Rid) <> 'MM Doc: 9,D-001' then Error('nine %1', Format(Rid));
+             if Evaluate(Rid, 'MM Doc: Quote,D-001') then Error('quote');
+             if GetLastErrorText() <> '''Quote'' is not an option. The existing options are:  ,Invoice,Credit Memo' then Error('text %1', GetLastErrorText());
+             if GetLastErrorCode() <> 'InvalidOptionString' then Error('code %1', GetLastErrorCode());
+             GlobalLanguage(1031);
+             if not Evaluate(Rid, 'MM Doc: Invoice,D-001') then Error('name 1031');
+             if Rid <> L.RecordId then Error('name 1031 equal');
+             GlobalLanguage(1033);
+         end;"#,
+    );
+}
+
+// The shapes of an Option key value WcUnpinnedSingles.al does not pin are refused (docs/probes-needed.md).
+#[test]
+fn evaluate_into_a_record_id_refuses_the_unpinned_option_key_shapes() {
+    for v in ["invoice", " Invoice", "\"\""] {
+        let o = run(&format!(
+            "[Test] procedure T1() var Rid: RecordId; begin if Evaluate(Rid, 'MM Doc: {v},D-001') then; end;"
+        ));
+        assert!(
+            matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Option key field")),
+            "{v}: {:?}",
+            o[0].1
+        );
+    }
 }
 
 // errors/lt-ms-refusals-128/P128EvalRecordId.al pins a single-field key, types/lt-evaluate-recordid/EvaluateRecordIdComposite.al a composite

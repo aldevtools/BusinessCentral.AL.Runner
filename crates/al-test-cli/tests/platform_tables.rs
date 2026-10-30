@@ -516,6 +516,23 @@ fn windows_language_get_of_a_pinned_absent_id_is_false() {
     }
 }
 
+// Windows Language 12297 (English (Zimbabwe)): one row, Abbreviated Name ENW, Globally Enabled, no STX file
+// (types/lt-wc/WcUnpinnedSingles.al:148-173, al-runner issue 6322). Its code page and tag are not pinned: a read of one is refused.
+#[test]
+fn windows_language_12297_is_a_pinned_row() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Row() var W: Record "Windows Language"; begin W.SetRange("Language ID", 12297); if W.Count() <> 1 then Error('count'); W.FindFirst(); if (W.Name <> 'English (Zimbabwe)') or (W."Abbreviated Name" <> 'ENW') or not W."Globally Enabled" or W."STX File Exist" then Error('row'); W.SetRange("Globally Enabled", true); if W.IsEmpty() then Error('empty'); if W.Count() <> 1 then Error('count enabled'); end;
+  [Test] procedure CodePage() var W: Record "Windows Language"; begin W.Get(12297); if W."Primary CodePage" = '' then; end;
+  [Test] procedure Tag() var W: Record "Windows Language"; begin W.Get(12297); if W."Language Tag" = '' then; end; }"#,
+    );
+    passes(&o, "Row");
+    for t in ["CodePage", "Tag"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("language 12297"), "{t}: {why}");
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
@@ -1665,6 +1682,24 @@ codeunit 50000 "T" { Subtype = Test;
     // BC 27 has none of them (W6FieldKeyRows.al:169-170).
     let o = outcomes(&src.replace("<> 5", "<> 1"));
     passes(&o, "TextCount");
+}
+
+/// The SystemId of a Field row is not the null Guid: the Field table's number, the table's number and the field's number as
+/// little-endian bytes, then four zero bytes (platform/lt-wc/WcFieldRowCopy.al:48, :60-63 on BC 29, al-runner issue 6313).
+/// A copy of the row of a user-name system field into a temporary Field record inserts with it (:53-65) and so does every
+/// row of a table (:67-85).
+#[test]
+fn a_field_row_has_its_system_id_and_its_temporary_copy_inserts() {
+    let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  procedure Copy(No: Integer): Text var F: Record Field; TempF: Record Field temporary; begin F.Get(90646, No); TempF := F; TempF.Insert(); TempF.Get(90646, No); exit(Format(TempF.SystemId)); end;
+  [Test] procedure Ordinary() begin if Copy(2) <> '{77359429-6216-0001-0200-000000000000}' then Error('%1', Copy(2)); end;
+  [Test] procedure UserName() begin if Copy(2000000005) <> '{77359429-6216-0001-0594-357700000000}' then Error('%1', Copy(2000000005)); if Copy(2000000008) <> '{77359429-6216-0001-0894-357700000000}' then Error('%1', Copy(2000000008)); end;
+  [Test] procedure AllFields() var F: Record Field; TempF: Record Field temporary; begin F.SetRange(TableNo, 90646); F.FindSet(); repeat TempF := F; TempF.Insert(); until F.Next() = 0; if (F.Count() <> 11) or (TempF.Count() <> 11) then Error('%1 %2', F.Count(), TempF.Count()); end; }"#;
+    let o = outcomes_bc("main", src, al_sema::check::Roots::default(), "29.0.0.0");
+    passes(&o, "Ordinary");
+    passes(&o, "UserName");
+    passes(&o, "AllFields");
 }
 
 /// A Tests Run row's `Test ID` is the same in two recordings of one test and is not 1
