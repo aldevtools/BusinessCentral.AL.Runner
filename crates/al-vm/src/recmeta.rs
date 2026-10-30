@@ -620,6 +620,8 @@ impl Session {
                                 (ISOLATION_UPDLOCK, false) => {
                                     self.tx.lock_tx = true;
                                     self.tx.isolation_lock = true;
+                                    let key = (r.table, r.company.clone());
+                                    self.tx.note_isolation_lock(key.0, key.1);
                                 }
                                 (ISOLATION_REPEATABLE_READ, false) => {
                                     self.tx.lock_unpinned = Some("a ReadIsolation RepeatableRead set without a read")
