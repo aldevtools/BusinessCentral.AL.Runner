@@ -176,11 +176,43 @@ pub fn companies() -> al_host::Companies {
     COMPANIES.read().map(|r| r.clone()).unwrap_or_default()
 }
 
+/// The run clock under a variant of a stability run (ADR-058 `clock.date`, `clock.timeOfDay`): its date moved and its
+/// time of day set; the step per read stays the session's.
+pub struct PerturbedClock(pub crate::stability::Perturb);
+
+impl Clock for PerturbedClock {
+    fn now_utc_millis(&self) -> i64 {
+        self.0.clock_ms(SystemClock.now_utc_millis())
+    }
+}
+
+/// [`host_at`] with the host values of a stability variant (ADR-058): clock, seeds, clock step, identity and company.
+/// The default [`Perturb`](crate::stability::Perturb) is [`host_at`].
+pub fn host_perturbed(start: Option<i64>, p: &crate::stability::Perturb) -> Host {
+    let company = p.company_name.clone().or_else(company_name);
+    let mut host = host_in_company_perturbed(start, company.as_deref(), p);
+    if p.host_seed.is_some() || p.guid_seed.is_some() {
+        // `guid.seed` is its own host value in a variant: moving one seed leaves the other at a normal run's.
+        host.random_seed = p.host_seed.unwrap_or(al_host::DEFAULT_RANDOM_SEED);
+        host.guid_seed = Some(p.guid_seed.unwrap_or(al_host::DEFAULT_RANDOM_SEED));
+    }
+    if let Some(step) = p.step_ms {
+        host.clock_step_ms = step;
+    }
+    host.with_identity_overrides(p.identity.clone())
+}
+
 /// [`host_at`] with the company name given instead of read from the run setting.
 pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
-    let host = match start {
-        Some(ms) => Host::new(FixedClock(ms), AlRunnerIdentity),
-        None => Host::new(SystemClock, AlRunnerIdentity),
+    host_in_company_perturbed(start, company, &Default::default())
+}
+
+fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crate::stability::Perturb) -> Host {
+    let host = match (start, p.moves_clock()) {
+        (Some(ms), false) => Host::new(FixedClock(ms), AlRunnerIdentity),
+        (Some(ms), true) => Host::new(FixedClock(p.clock_ms(ms)), AlRunnerIdentity),
+        (None, false) => Host::new(SystemClock, AlRunnerIdentity),
+        (None, true) => Host::new(PerturbedClock(p.clone()), AlRunnerIdentity),
     };
     let host = match company {
         Some(c) => host.in_company(c),
