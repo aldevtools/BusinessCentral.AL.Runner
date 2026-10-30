@@ -69,6 +69,9 @@ struct Numeric {
     precision_single: bool,
     /// The precision code comes after a `<Standard Format,N>` code.
     precision_after_std: bool,
+    /// A negative number `<Precision,0:3>` rounded to zero: `<Sign>` still shows `-` (FormatPrecision03Comma.al:59 `-0.0004` is
+    /// `-0`). Pinned for 0:3 only.
+    negative_zero: bool,
 }
 
 const CODE_NAMES: [&str; 22] = [
@@ -448,6 +451,13 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                     let cut = t.len() - "<Comma,.>".len();
                     (&t[..cut], t[cut + "<Comma,".len()..].chars().next().unwrap_or('.'))
                 }
+                // Corpus master (corpus PR 886) types/lt-format-precision-standard/FormatPrecision03Comma.al:68, :87, :106: with
+                // `<Integer Thousand>`, without `<Sign>`, and with `<Comma,.>` first, which reads as the strings without it.
+                "<Precision,0:3><Sign><Integer Thousand><Decimals><Comma,.>" => {
+                    ("<Precision,0:3><Sign><Integer Thousand><Decimals>", '.')
+                }
+                "<Precision,0:3><Integer><Decimals><Comma,.>" => ("<Precision,0:3><Integer><Decimals>", '.'),
+                "<Comma,.><Precision,0:3><Sign><Integer><Decimals>" => ("<Precision,0:3><Sign><Integer><Decimals>", '.'),
                 "<Decimals><Comma,.>" => ("<Decimals>", '.'),
                 "<Comma,.>" => return Ok(crate::format::pad(String::new(), length)),
                 "<Sign><Integer><Decimals><Comma>" => return invalid(),
@@ -522,6 +532,7 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
         precision: None,
         precision_single: false,
         precision_after_std: false,
+        negative_zero: false,
     };
     let mut seen_integer = false;
     let mut seen_std = false;
@@ -600,13 +611,16 @@ fn numeric_of(v: &Value, pieces: &[(bool, &str)], min_decimals: u32) -> Result<O
             || rounded.is_sign_negative() != n.value.is_sign_negative()
             || (decimals && (rounded != n.value || min > n.value.fract().normalize().scale()));
         if seen {
-            // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma, 2:2 by TP_Format_PrecisionStrings (FormatCommaFormatString.al).
-            if !matches!((min, max), (0, 0) | (1, 3) | (2, 2) | (3, 3)) {
+            // Pinned for 0:0, 1:3 and 3:3 by TQ_Format_PrecisionComma, 2:2 by TP_Format_PrecisionStrings (FormatCommaFormatString.al),
+            // 0:3 by corpus master (corpus PR 886) types/lt-format-precision-standard/FormatPrecision03Comma.al:49-106 (`0.0005` is
+            // `0.001`, `-0.0004` with `<Sign>` is `-0`).
+            if !matches!((min, max), (0, 0) | (0, 3) | (1, 3) | (2, 2) | (3, 3)) {
                 return Err(format!(
                     "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
                 ));
             }
         }
+        n.negative_zero = (min, max) == (0, 3) && rounded.is_zero() && n.value.is_sign_negative() && !n.value.is_zero();
         n.value = rounded;
         n.min_decimals = n.min_decimals.max(min);
     }
@@ -638,7 +652,7 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
     let refuse = || Err(format!("code `<{code}>` on {}", v.describe()));
     if code == "Sign" || code.starts_with("Sign,") {
         let w = width(code, "Sign")?;
-        let neg = n.value.is_sign_negative() && !n.value.is_zero();
+        let neg = (n.value.is_sign_negative() && !n.value.is_zero()) || n.negative_zero;
         return match (neg, w) {
             (true, w) => Ok(format!("{:>1$}", "-", w.unwrap_or(1))),
             (false, Some(w)) => Ok(" ".repeat(w)),
@@ -1179,6 +1193,33 @@ mod tests {
 
     fn fmt(v: Value, template: &str) -> Result<Value, Signal> {
         call("System.Format#2", vec![v, Value::Integer(0), t(template)])
+    }
+
+    /// Corpus master (corpus PR 886) types/lt-format-precision-standard/FormatPrecision03Comma.al:49-106.
+    #[test]
+    fn precision_0_3_with_comma_dot() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            (
+                "<Precision,0:3><Sign><Integer><Decimals><Comma,.>",
+                &[("1234", "1234"), ("1234.56789", "1234.568"), ("0.0005", "0.001"), ("0.0004", "0"), ("-0.0004", "-0"), ("-1234.5", "-1234.5")],
+            ),
+            (
+                "<Precision,0:3><Sign><Integer Thousand><Decimals><Comma,.>",
+                &[("1234.5", "1,234.5"), ("-1234.5", "-1,234.5"), ("1234567.125", "1,234,567.125"), ("-0.0004", "-0")],
+            ),
+            ("<Precision,0:3><Integer><Decimals><Comma,.>", &[("-1234.5", "1234.5"), ("-0.0004", "0"), ("0.1", "0.1")]),
+            ("<Comma,.><Precision,0:3><Sign><Integer><Decimals>", &[("1234.56789", "1234.568"), ("-0.0004", "-0"), ("0", "0")]),
+        ];
+        for (template, values) in cases {
+            for (v, want) in values.iter() {
+                match fmt(Value::Decimal(Decimal::from_str(v).unwrap()), template) {
+                    Ok(Value::Text(got)) => assert_eq!(got.as_str(), *want, "{template} {v}"),
+                    other => panic!("{template} {v}: {other:?}"),
+                }
+            }
+        }
     }
 
     // types/lt-format-comma-more/FormatCommaMore.al Format_SignIntegerDecimalsWidth3Comma_Lang1033,
