@@ -202,13 +202,16 @@ impl Lowerer<'_> {
             // compiles, and the extension's own bare call runs its own procedure (pageext/lt-wd/WdPageExtInternalTwin.al
             // WD_PageExtInternal_ExtensionCodeCallsTheName `ext internal public-twin;ext internal protected-twin`; corpus
             // branch al-runtime-rs-staging-1030c, al-runner issue 6294). The base's own calls: `twin_call_refusal`.
+            // (Reached only inside the `any` above: at least one base procedure has the same signature.)
             let internal = mine.as_ref().is_some_and(|m| m.is_internal());
+            let twins: Vec<ast::Routine> = crate::base_access::visible_procs(&self.ws.object_ast(base), &name)
+                .filter(|b| same_signature(b))
+                .collect();
             if internal
+                && !twins.is_empty()
                 && self.ws.objects[object].kind == ObjKind::PageExtension
                 && self.ws.objects[object].app != self.ws.objects[base].app
-                && crate::base_access::visible_procs(&self.ws.object_ast(base), &name)
-                    .filter(|b| same_signature(b))
-                    .all(|b| !b.is_internal())
+                && twins.iter().all(|b| !b.is_internal())
             {
                 return Ok(());
             }
@@ -291,11 +294,14 @@ impl Lowerer<'_> {
             // xapp-a WdXaTwin.al and xapp-b WdXbTwin.al: `base public;base protected`, `ext internal public-twin;ext internal
             // protected-twin`, `base public`; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6294). Only the call
             // that resolves that way is pinned (a Page variable call from an app other than the extension's); the other
-            // combinations stay refused.
+            // combinations stay refused. The outside call the corpus pins comes from one third app (the corpus test app);
+            // a call from another object of the page's app or from any other third app is not pinned: it is taken to
+            // run the page's procedure too, because the extension's internal procedure is not visible there.
             let caller = self.oi;
             let pinned_internal_twin = !report
                 && !same_app
                 && !exts.is_empty()
+                && !bases.is_empty()
                 && exts.iter().all(|x| x.is_internal() && !x.is_local())
                 && bases.iter().all(|y| !y.is_internal() && !y.is_local())
                 && ((object == b && (caller == b || ws.objects[caller].app != ws.objects[e].app))
