@@ -150,7 +150,7 @@ fn run() -> Result<ExitCode, String> {
     let last = versions.len() - 1;
     for (i, v) in versions.into_iter().enumerate() {
         // The process ends after the last version's run: its compile is not freed (`RunOptions::process_ends_after`).
-        let r = run_version(&args, &root, &oracle_path, &cfg, v, None, i == last)?;
+        let r = run_version_passes(&args, &root, &oracle_path, &cfg, v, None, i == last)?;
         code = code.max(r.code);
         runs.push((v.major, r));
     }
@@ -211,7 +211,7 @@ fn awaiting_assumptions(
     args.no_ratchet = true;
     args.update_baseline = false;
     let mut cases = Vec::new();
-    run_version(args, root, oracle_path, cfg, version, Some(&mut cases), true)?;
+    run_version_passes(args, root, oracle_path, cfg, version, Some(&mut cases), true)?;
     println!();
     for e in &landed {
         let v = awaiting::verdict(e.id, &e.awaiting, &cases);
@@ -296,6 +296,143 @@ struct VersionRun {
     oracle: std::collections::BTreeSet<oracle::CaseId>,
     /// Cases the runtime passed.
     passing: std::collections::BTreeSet<oracle::CaseId>,
+    /// The report, for `--json` and `--markdown` (written by the caller once every pass of the version ran).
+    rep: Option<report::Report>,
+    /// Set instead of an error when a pass of a version that has several has no selected or explained test: the
+    /// error, should no pass of the version have one.
+    unmatched: Option<String>,
+}
+
+impl VersionRun {
+    fn empty(code: u8) -> VersionRun {
+        VersionRun {
+            code,
+            oracle: Default::default(),
+            passing: Default::default(),
+            rep: None,
+            unmatched: None,
+        }
+    }
+}
+
+/// One compile and run of a version. The main pass runs the main app and the suites that need no app beyond the
+/// corpus CI's main environment; each other pass runs the suites whose CI job installs the same extra apps
+/// (`SuiteEntry::extra_apps`), in an environment of their own, without the main app's tests.
+struct Pass {
+    main: bool,
+    /// (id, name) of the apps this pass loads beyond the declared dependencies.
+    extra_apps: Vec<(String, String)>,
+}
+
+/// The passes of `version`, the main one first, each with the version's table narrowed to its suites.
+fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
+    let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
+    for suite in &version.suites {
+        match groups.iter_mut().find(|(extra, _)| *extra == suite.extra_apps) {
+            Some((_, suites)) => suites.push(suite.clone()),
+            None => groups.push((suite.extra_apps.clone(), vec![suite.clone()])),
+        }
+    }
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, (extra, suites))| {
+            let mut view = version.clone();
+            view.suites = suites;
+            let pass = Pass {
+                main: i == 0,
+                extra_apps: extra.into_iter().map(|a| (a.id, a.name)).collect(),
+            };
+            (view, pass)
+        })
+        .collect()
+}
+
+/// Runs every pass of `version` and joins them: one exit code, the main app's sets, one report.
+#[allow(clippy::too_many_arguments)]
+fn run_version_passes(
+    args: &Args,
+    root: &Path,
+    oracle_path: &Path,
+    cfg: &config::OracleFile,
+    version: &config::VersionEntry,
+    mut awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
+    process_ends_after: bool,
+) -> Result<VersionRun, String> {
+    let all = passes(version);
+    let multi = all.len() > 1;
+    let last = all.len() - 1;
+    let mut joined: Option<VersionRun> = None;
+    let mut unmatched = Vec::new();
+    for (i, (view, pass)) in all.iter().enumerate() {
+        let r = run_version(
+            args,
+            root,
+            oracle_path,
+            cfg,
+            view,
+            pass,
+            multi,
+            awaited.as_deref_mut(),
+            process_ends_after && i == last,
+        )?;
+        if let Some(why) = r.unmatched {
+            unmatched.push(why);
+            continue;
+        }
+        joined = Some(match joined {
+            None => r,
+            Some(mut j) => {
+                j.code = j.code.max(r.code);
+                j.oracle.extend(r.oracle);
+                j.passing.extend(r.passing);
+                match (&mut j.rep, r.rep) {
+                    (Some(a), Some(b)) => join_reports(a, b),
+                    (a @ None, b) => *a = b,
+                    (Some(_), None) => {}
+                }
+                j
+            }
+        });
+    }
+    let Some(joined) = joined else {
+        // No pass has a selected test: what a version without other passes says.
+        if args.explain.is_some() && args.all_versions {
+            println!(
+                "BC {}: no test matches `{}`",
+                version.bc_version,
+                args.explain.as_deref().unwrap_or_default()
+            );
+            return Ok(VersionRun::empty(0));
+        }
+        return Err(unmatched.into_iter().next().unwrap_or_default());
+    };
+    if let Some(rep) = &joined.rep {
+        let all = args.all_versions;
+        if let Some(p) = &args.json {
+            write(
+                &per_version(p, version.major, all),
+                &serde_json::to_string_pretty(rep).expect("report serializes"),
+            )?;
+        }
+        if let Some(p) = &args.markdown {
+            write(&per_version(p, version.major, all), &output::markdown(rep))?;
+        }
+    }
+    Ok(joined)
+}
+
+/// `b`, the report of another pass of the same version, added to `a`: its suites, and its times.
+fn join_reports(a: &mut report::Report, b: report::Report) {
+    a.suites.extend(b.suites);
+    if let (Some(ta), Some(tb)) = (&mut a.timings, b.timings) {
+        ta.load_s += tb.load_s;
+        ta.compile_s += tb.compile_s;
+        ta.baseline_s += tb.baseline_s;
+        ta.tests_s += tb.tests_s;
+        ta.total_s += tb.total_s;
+        ta.suites.extend(tb.suites.into_iter().filter(|s| s.name != "corpus"));
+    }
 }
 
 /// `pass-rate.json` becomes `pass-rate-29.json` when several versions run.
@@ -322,12 +459,17 @@ fn drift_summary(runs: &[(u16, VersionRun)]) -> String {
     out
 }
 
+/// One pass of a version (`Pass`): `version` holds that pass's suites only. With `multi` (the version has other
+/// passes), finding no selected or explained test is `VersionRun::unmatched`, not an error.
+#[allow(clippy::too_many_arguments)]
 fn run_version(
     args: &Args,
     root: &Path,
     oracle_path: &Path,
     cfg: &config::OracleFile,
     version: &config::VersionEntry,
+    pass: &Pass,
+    multi: bool,
     awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
     process_ends_after: bool,
 ) -> Result<VersionRun, String> {
@@ -355,7 +497,11 @@ fn run_version(
     let started = Instant::now();
     let junit_path = oracle_path.parent().unwrap_or(Path::new(".")).join(&version.junit);
     let junit_text = read(&junit_path)?;
-    let all_cases = oracle::parse_junit(&junit_text).map_err(|e| format!("{}: {e}", junit_path.display()))?;
+    let mut all_cases = oracle::parse_junit(&junit_text).map_err(|e| format!("{}: {e}", junit_path.display()))?;
+    // A pass of other suites runs none of the main app's tests (its compile still holds the main app: they depend on it).
+    if !pass.main {
+        all_cases.clear();
+    }
     // When real BC ran each test codeunit: the run clock of a codeunit starts there, so what the oracle recorded from
     // `Today` is what the run sees.
     let mut clocks = oracle::parse_clocks(&junit_text).map_err(|e| format!("{}: {e}", junit_path.display()))?;
@@ -395,17 +541,19 @@ fn run_version(
     let explained = match &args.explain {
         Some(pattern) => match find_explained(pattern, &args.select, &all_cases, &index, &suite_data, version)? {
             Some(found) => Some(found),
+            None if multi => {
+                return Ok(VersionRun {
+                    unmatched: Some(format!("--explain: no test matches `{pattern}`")),
+                    ..VersionRun::empty(0)
+                });
+            }
             None if !args.all_versions => {
                 return Err(format!("--explain: no test matches `{pattern}`"));
             }
             None => {
                 // A test an older oracle does not list is not an error across versions.
                 println!("BC {}: no test matches `{pattern}`", version.bc_version);
-                return Ok(VersionRun {
-                    code: 0,
-                    oracle: Default::default(),
-                    passing: Default::default(),
-                });
+                return Ok(VersionRun::empty(0));
             }
         },
         None => None,
@@ -434,11 +582,18 @@ fn run_version(
         ),
     };
     if selecting && cases.is_empty() && suite_cases_all.iter().all(Vec::is_empty) {
-        return Err(format!(
+        let why = format!(
             "BC {}: the selection ({}) matches no test",
             version.bc_version,
             args.select.describe()
-        ));
+        );
+        if multi {
+            return Ok(VersionRun {
+                unmatched: Some(why),
+                ..VersionRun::empty(0)
+            });
+        }
+        return Err(why);
     }
     if selecting {
         println!(
@@ -524,7 +679,13 @@ fn run_version(
             local_artifacts: None,
             country: String::new(),
         };
-        let deps = deps::load_with(&root.join(&cfg.corpus_app), &corpus_deps, &args.deps, Some(&provision))?;
+        let deps = deps::load_with_extra(
+            &root.join(&cfg.corpus_app),
+            &corpus_deps,
+            &args.deps,
+            Some(&provision),
+            &pass.extra_apps,
+        )?;
         for line in &deps.log {
             eprintln!("{line}");
         }
@@ -557,11 +718,7 @@ fn run_version(
     println!("{}", license.line());
     if args.fetch_deps {
         println!("dependencies ready for BC {}", chosen.target.bc);
-        return Ok(VersionRun {
-            code: 0,
-            oracle: Default::default(),
-            passing: Default::default(),
-        });
+        return Ok(VersionRun::empty(0));
     }
     let compile_cache = args.compile_cache.then(|| al_testrun::compile_cache::CompileCache {
         dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
@@ -611,11 +768,7 @@ fn run_version(
             verified.elapsed().as_secs_f64(),
         );
         println!("compile cache build time: {:.2} s", started.elapsed().as_secs_f64());
-        return Ok(VersionRun {
-            code: 0,
-            oracle: Default::default(),
-            passing: Default::default(),
-        });
+        return Ok(VersionRun::empty(0));
     }
     // ADR-014: the sidecar starts lazily, at the first `DotNet` call that reaches it.
     let host = Arc::new(SidecarHost::new(SidecarConfig {
@@ -651,8 +804,11 @@ fn run_version(
         app: None,
         runner: None,
     }];
-    // The main run takes the corpus app's test codeunits only, as before.
+    // The main run takes the corpus app's test codeunits only, as before; another pass does not run them.
     runs[0].app = Some(main_app);
+    if !pass.main {
+        runs.clear();
+    }
     for suite in &version.suites {
         let app = app_index.iter().find(|(a, _)| *a == suite.app).map(|(_, i)| *i);
         runs.push(runtime::SuiteRun {
@@ -661,8 +817,9 @@ fn run_version(
             runner: suite.runner,
         });
     }
-    // A selection roots the compile at the selected test codeunits (app index, object id).
-    let only = selecting.then(|| {
+    // A selection roots the compile at the selected test codeunits (app index, object id); so does a pass without the
+    // main app's tests, at its suites' codeunits.
+    let only = (selecting || !pass.main).then(|| {
         let mut v: Vec<(usize, u32)> = cases.iter().map(|c| (main_app, c.id.codeunit)).collect();
         for (suite, cases) in version.suites.iter().zip(&suite_cases_all) {
             if let Some((_, app)) = app_index.iter().find(|(a, _)| *a == suite.app) {
@@ -899,17 +1056,9 @@ fn run_version(
         }
     }
 
+    // `--json` and `--markdown` are written by `run_version_passes`, from the reports of every pass.
     let all = args.all_versions;
-    if let Some(p) = &args.json {
-        write(
-            &per_version(p, version.major, all),
-            &serde_json::to_string_pretty(&rep).expect("report serializes"),
-        )?;
-    }
-    if let Some(p) = &args.markdown {
-        write(&per_version(p, version.major, all), &output::markdown(&rep))?;
-    }
-    if let Some(p) = &args.junit {
+    if let Some(p) = args.junit.as_ref().filter(|_| pass.main) {
         write(
             &per_version(p, version.major, all),
             &output::junit_with(
@@ -948,16 +1097,18 @@ fn run_version(
         .filter(|c| outcome(c) == report::Outcome::Pass)
         .cloned()
         .collect();
-    println!(
-        "BC {}: {}/{} pass ({:.1}%){}, {} fail, {} not run",
-        version.bc_version,
-        rep.overall.pass,
-        rep.overall.total,
-        rep.overall.rate() * 100.0,
-        flagged_note(rep.overall.flagged),
-        rep.overall.fail,
-        rep.overall.not_run
-    );
+    if pass.main {
+        println!(
+            "BC {}: {}/{} pass ({:.1}%){}, {} fail, {} not run",
+            version.bc_version,
+            rep.overall.pass,
+            rep.overall.total,
+            rep.overall.rate() * 100.0,
+            flagged_note(rep.overall.flagged),
+            rep.overall.fail,
+            rep.overall.not_run
+        );
+    }
     for x in rep.suites.iter().filter(|x| !selecting || x.counts.total > 0) {
         println!(
             "BC {} {}: {}/{} pass ({:.1}%){}, {} fail, {} not run; BC fails {} on purpose, the runtime fails {} of them",
@@ -1021,6 +1172,8 @@ fn run_version(
             code: 0,
             oracle: oracle_ok,
             passing,
+            rep: Some(rep),
+            unmatched: None,
         });
     }
 
@@ -1036,7 +1189,8 @@ fn run_version(
         /// Whether the selection picks a case (every case when nothing is selected).
         selected: Box<dyn Fn(&oracle::CaseId) -> bool + 'a>,
     }
-    let mut targets = vec![Target {
+    let mut targets = Vec::new();
+    targets.push(Target {
         label: version.bc_version.clone(),
         baseline_path: Some(args.baseline.clone().unwrap_or_else(|| root.join(&version.baseline))),
         passing: passing.clone(),
@@ -1047,7 +1201,11 @@ fn run_version(
             Some((_, e)) => *c == e.id,
             None => !args.select.is_active() || args.select.matches(c, &index),
         }),
-    }];
+    });
+    // A pass without the main app's tests leaves its ratchet alone.
+    if !pass.main {
+        targets.clear();
+    }
     for ((suite, suite_cases), (_, suite_index)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
         let outcome = |c: &oracle::CaseId| rt.outcome_in(&suite.name, c);
         // `--baseline FILE` is the main app's alone (a run without the dependency apps has its own
@@ -1114,6 +1272,8 @@ fn run_version(
             code: 0,
             oracle: oracle_ok,
             passing,
+            rep: Some(rep),
+            unmatched: None,
         });
     }
     targets.retain(|t| t.baseline_path.is_some());
@@ -1154,6 +1314,8 @@ fn run_version(
             code: 1,
             oracle: oracle_ok,
             passing,
+            rep: Some(rep),
+            unmatched: None,
         });
     }
     if args.update_baseline {
@@ -1166,6 +1328,8 @@ fn run_version(
         code: 0,
         oracle: oracle_ok,
         passing,
+        rep: Some(rep),
+        unmatched: None,
     })
 }
 
