@@ -176,11 +176,36 @@ pub fn companies() -> al_host::Companies {
     COMPANIES.read().map(|r| r.clone()).unwrap_or_default()
 }
 
+/// The run clock with its date moved (a `clock.date` variant of a stability run, ADR-058): the time of day and the
+/// 1 ms per read stay.
+pub struct ShiftedClock(pub crate::stability::DateShift);
+
+impl Clock for ShiftedClock {
+    fn now_utc_millis(&self) -> i64 {
+        self.0.apply_ms(SystemClock.now_utc_millis())
+    }
+}
+
+/// [`host_at`] whose clock's date is moved by `shift` (ADR-058 `clock.date`); `None` is [`host_at`].
+pub fn host_shifted(start: Option<i64>, shift: Option<crate::stability::DateShift>) -> Host {
+    host_in_company_shifted(start, company_name().as_deref(), shift)
+}
+
 /// [`host_at`] with the company name given instead of read from the run setting.
 pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
-    let host = match start {
-        Some(ms) => Host::new(FixedClock(ms), AlRunnerIdentity),
-        None => Host::new(SystemClock, AlRunnerIdentity),
+    host_in_company_shifted(start, company, None)
+}
+
+fn host_in_company_shifted(
+    start: Option<i64>,
+    company: Option<&str>,
+    shift: Option<crate::stability::DateShift>,
+) -> Host {
+    let host = match (start, shift) {
+        (Some(ms), None) => Host::new(FixedClock(ms), AlRunnerIdentity),
+        (Some(ms), Some(s)) => Host::new(FixedClock(s.apply_ms(ms)), AlRunnerIdentity),
+        (None, None) => Host::new(SystemClock, AlRunnerIdentity),
+        (None, Some(s)) => Host::new(ShiftedClock(s), AlRunnerIdentity),
     };
     let host = match company {
         Some(c) => host.in_company(c),
