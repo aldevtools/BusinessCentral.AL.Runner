@@ -693,7 +693,43 @@ impl Session {
                             .map(|(_, _, t)| t.clone())
                     });
                 if let Some(text) = view_text {
-                    return Ok(Value::Text(text.into()));
+                    let current = {
+                        let f = rec
+                            .borrow()
+                            .filters
+                            .iter()
+                            .find(|f| f.field == pos && f.group == 0)
+                            .cloned();
+                        match f {
+                            Some(f) => Some(self.filter_text(&f.expr)?),
+                            None => None,
+                        }
+                    };
+                    if current.as_deref() == Some(text.as_str()) {
+                        return Ok(Value::Text(text.into()));
+                    }
+                    // The handler changed the field. Only a range view on a RequestFilterFields field is pinned.
+                    let name = table.fields[pos].name.clone();
+                    let engine = self.engine();
+                    let in_request_fields = engine.program.objects[st.borrow().object as usize]
+                        .report
+                        .as_ref()
+                        .is_some_and(|r| {
+                            r.items.iter().any(|i| {
+                                i.table == Some(rec.borrow().table as usize)
+                                    && i.request_filter_fields.as_deref().is_some_and(|l| {
+                                        l.split(',')
+                                            .any(|n| n.trim().trim_matches('"').eq_ignore_ascii_case(&name))
+                                    })
+                            })
+                        });
+                    let range = text.contains("..") && text.chars().all(|c| c.is_ascii_digit() || c == '.');
+                    if in_request_fields && range {
+                        return Ok(Value::Text(text.into()));
+                    }
+                    return unsupported(format!(
+                        "TestFilter.GetFilter of field '{name}' after the handler changed a SetTableView filter (only a numeric range on a RequestFilterFields field is pinned)"
+                    ));
                 }
                 let first = rec.borrow().filters.iter().find(|f| f.field == pos).cloned();
                 match first {
