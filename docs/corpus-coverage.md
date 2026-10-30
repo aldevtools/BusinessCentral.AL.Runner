@@ -98,7 +98,7 @@ The catalog is every method overload the AL language server offers (`docs/langua
 | XmlDocumentType | 27 | 27 | 100.0% | 27 | 100.0% | 0 | 0 | 0 |
 | XmlElement | 48 | 48 | 100.0% | 48 | 100.0% | 0 | 0 | 0 |
 | XmlNameTable | 2 | 2 | 100.0% | 0 | 0.0% | 2 | 0 | 0 |
-| XmlNamespaceManager | 8 | 8 | 100.0% | 4 | 50.0% | 4 | 0 | 0 |
+| XmlNamespaceManager | 8 | 8 | 100.0% | 8 | 100.0% | 0 | 0 | 0 |
 | XmlNode | 32 | 32 | 100.0% | 32 | 100.0% | 0 | 0 | 0 |
 | XmlNodeList | 2 | 2 | 100.0% | 2 | 100.0% | 0 | 0 | 0 |
 | XmlProcessingInstruction | 20 | 20 | 100.0% | 20 | 100.0% | 0 | 0 | 0 |
