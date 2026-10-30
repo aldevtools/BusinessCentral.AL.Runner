@@ -418,7 +418,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         } else if out.xml_v11 {
             Some("XmlVersionNo = V11")
         } else if out.preserve_whitespace && (own_namespace.is_none() || !utf8) {
-            // With DefaultNamespace on an UTF8 export it is pinned (above); the VM refuses an import with both.
+            // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
             Some("PreserveWhiteSpace")
         } else if (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
             Some("a NamespacePrefix")
@@ -721,7 +721,19 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (Some("once"), Some("once")) => Some((&["once"][..], &["once"][..])),
                 _ => None,
             };
-            if layout.direction == ir::XmlDirection::Export || saves {
+            // Linked with LinkFields, MinOccurs = Once and MaxOccurs = Once, on an export port: the first row of each pass in the
+            // view's order, a pass without rows writes the record as it stands (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+            // Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows, _TwoRowsThenNone, _OneRowThenNone; the VM decides the row held after).
+            let linked_once_once = linked
+                && layout.property(i, "LinkFields").is_some()
+                && layout.direction == ir::XmlDirection::Export
+                && matches!(
+                    (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()),
+                    (Some("once"), Some("once"))
+                );
+            if linked_once_once {
+                (&["once"][..], &["once"][..])
+            } else if layout.direction == ir::XmlDirection::Export || saves {
                 match unlinked_pair {
                     Some(pair) if !linked => pair,
                     _ => (

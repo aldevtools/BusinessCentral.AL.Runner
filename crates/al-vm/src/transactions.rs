@@ -253,7 +253,13 @@ impl Session {
         if self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE || self.tx.lock_tx || self.tx.recref_lock_tx {
             return Ok(true);
         }
-        match self.tx.lock_unpinned {
+        // Only reads under a locking isolation set in an earlier transaction whose effect is pinned: no write transaction
+        // (misc/lt-np4-probes/Np4Misc.al Y9_*_SetBeforeCommit_FirstRead, corpus PR 896).
+        let unpinned = match self.tx.lock_unpinned {
+            Some(crate::records::UNPINNED_LOCKING_READ) if !self.tx.locking_read_tx_unpinned => None,
+            other => other,
+        };
+        match unpinned {
             Some(what) => Err(Signal::Unsupported(format!(
                 "whether {what} starts a write transaction (not pinned)"
             ))),

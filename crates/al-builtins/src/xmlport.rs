@@ -229,18 +229,31 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
     out.push('>');
 }
 
-/// Whether an element's text, or the text of an element below it, holds a line feed that no carriage return comes before.
-pub fn has_bare_line_feed(e: &Elem) -> bool {
+/// Whether an element's text, or the text of an element below it, holds a line end (a carriage return or a line feed).
+pub fn has_line_end(e: &Elem) -> bool {
     e.children.iter().any(|c| match c {
-        Node::Elem(c) => has_bare_line_feed(c),
-        Node::Text(t) => t.char_indices().any(|(i, ch)| ch == '\n' && !t[..i].ends_with('\r')),
+        Node::Elem(c) => has_line_end(c),
+        Node::Text(t) => t.contains(['\r', '\n']),
     })
 }
 
+/// The element with every line end of its texts (CR LF, a lone CR, a lone LF) made a single line feed, for
+/// [`line_feeds_to_crlf`] after serializing.
+pub fn line_ends_to_lf(e: &mut Elem) {
+    for c in e.children.iter_mut() {
+        match c {
+            Node::Elem(c) => line_ends_to_lf(c),
+            Node::Text(t) if t.contains('\r') => *t = t.replace("\r\n", "\n").replace('\r', "\n"),
+            Node::Text(_) => {}
+        }
+    }
+}
+
 /// A serialized document with every line feed that no carriage return comes before written as a carriage return and a line
-/// feed, as an XmlPort export writes a line feed of a text value (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320 on corpus
-/// master: `len=161`/`177` count a CR before both line feeds of the value). The serializer writes only CR LF between elements,
-/// so a bare line feed comes from text.
+/// feed, as an XmlPort export writes a line end of a text value: LF, CR LF and a lone CR all become CR LF (corpus PR 896,
+/// misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_Export_LineFeed_Plain `n1\r\nn2\r\nn3\r\nn4`, 149 bytes; Np4XmlPort.al:280,
+/// :300, :320 `len=161`/`177`). The serializer writes only CR LF between elements, so a bare line feed comes from text
+/// ([`line_ends_to_lf`] first).
 pub fn line_feeds_to_crlf(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 8);
     for ch in text.chars() {

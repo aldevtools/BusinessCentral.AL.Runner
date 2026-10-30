@@ -612,19 +612,39 @@ impl Session {
                     Some(Value::Option(i, _)) => {
                         let mut r = rec.borrow_mut();
                         if is_iso {
+                            let before = r.read_isolation;
                             r.read_isolation = *i;
-                            // UpdLock set on a database table starts the write transaction before any read
-                            // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`, :340-355). A RepeatableRead
-                            // set without a read, and either on a temporary table, are not pinned.
+                            // The ASSIGNMENT of UpdLock or RepeatableRead on a database table opens the write transaction, the
+                            // read under it does not (codeunit/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`,
+                            // :340-355; corpus PR 896 misc/lt-np4-probes/Np4Misc.al Y9_UpdLock_SetAfterCommit_FirstRead,
+                            // Y9_RepeatableRead_SetAfterCommit_FirstRead `before=Yes`). Assigning the level the record already
+                            // has opens none (Y9_ReadIsolation_ValueAcrossCommit `after setting again UpdLock|tx=No`); another
+                            // level does, also on a fresh record (Y9_ReadIsolation_SetAgainAfterCommit `different level`,
+                            // `same level other record`); ReadCommitted does not (`read committed`). RepeatableRead assigned
+                            // again is pinned only before a Commit; either on a temporary table is not pinned.
                             match (*i, r.temporary) {
-                                (ISOLATION_UPDLOCK, false) => {
+                                (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
+                                    if *i == ISOLATION_REPEATABLE_READ
+                                        && !self.tx.lock_tx
+                                        && self.tx.lock_unpinned.is_none()
+                                    {
+                                        self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
+                                    } else if *i == ISOLATION_UPDLOCK {
+                                        al_builtins::assumptions::assume(
+                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
+                                        );
+                                    }
+                                }
+                                (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
+                                    if *i == ISOLATION_REPEATABLE_READ || before != 0 {
+                                        al_builtins::assumptions::assume(
+                                            al_builtins::assumptions::Assumption::ReadIsolationAssignmentOpensWriteTransaction,
+                                        );
+                                    }
                                     self.tx.lock_tx = true;
                                     self.tx.isolation_lock = true;
                                     let key = (r.table, r.company.clone());
                                     self.tx.note_isolation_lock(key.0, key.1);
-                                }
-                                (ISOLATION_REPEATABLE_READ, false) => {
-                                    self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_SET_WITHOUT_READ)
                                 }
                                 (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
                                     self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")

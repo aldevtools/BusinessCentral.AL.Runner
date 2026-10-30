@@ -978,14 +978,24 @@ impl Session {
                 // the rows the trigger wrote stay (pages/lt-qi-empty-error/QiEmptyErrorPages.al:253
                 // QI_EE_EmptyValidate_NoAsserterror). The same on a List and a Worksheet page opened on its own, and on a card part
                 // of a card (misc/lt-np4-probes/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet, :248
-                // _PartOfCard: the control shows the old value and the stored row keeps it). A list part and another page type
-                // with a repeater are not pinned.
+                // _PartOfCard: the control shows the old value and the stored row keeps it). The same on a ListPart inside a Card
+                // or a Document page (corpus PR 896, Np4EmptyError.al Y9_EE_ControlValidate_ListPartInCard,
+                // Y9_EE_ControlValidate_DocumentLinePart). A list part in another host and another page type with a repeater
+                // are not pinned.
                 if from_page_trigger.get() && e.message.is_empty() {
-                    let pinned_list = st.borrow().host.is_none()
-                        && matches!(
-                            engine.object_facts[st.borrow().object as usize].page_type,
-                            Some(al_ir::PageType::List | al_ir::PageType::Worksheet)
-                        );
+                    let own = &engine.object_facts[st.borrow().object as usize].page_type;
+                    let host = st.borrow().host.as_ref().map(|(h, _)| h.upgrade());
+                    let pinned_list = match host {
+                        None => matches!(own, Some(al_ir::PageType::List | al_ir::PageType::Worksheet)),
+                        Some(Some(h)) => {
+                            matches!(own, Some(al_ir::PageType::Other(o)) if o == "listpart")
+                                && matches!(
+                                    engine.object_facts[h.borrow().object as usize].page_type,
+                                    Some(al_ir::PageType::Card | al_ir::PageType::Document)
+                                )
+                        }
+                        Some(None) => false,
+                    };
                     if self.is_list(st) && !pinned_list {
                         return unsupported(
                             "an error with an empty text out of a list control's OnValidate (what the test client does with it is not pinned)",
