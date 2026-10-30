@@ -94,7 +94,12 @@ fn the_caption_of_a_page_with_a_data_caption_expression() {
     let o = outcomes_in(SRC, "T");
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("CardWithRows"), "Some(Pass)");
-    for t in ["EditorWithoutSourceTable", "EmptyExpressionIsRefused", "NewRowIsRefused", "ListIsRefused"] {
+    for t in [
+        "EditorWithoutSourceTable",
+        "EmptyExpressionIsRefused",
+        "NewRowIsRefused",
+        "ListIsRefused",
+    ] {
         let g = get(t);
         assert!(g.contains("NotRun") && g.contains("DataCaptionExpression"), "{t}: {g}");
     }
