@@ -666,7 +666,9 @@ registry! {
         awaiting: Awaiting {
             issues: &[],
             files: &[
-                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al",
+                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindSetNextOfB",
+                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindFormsOfB",
+                "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al::NP4_RowVersions_InsertA_FindSetNextAndFindGreaterOfA",
             ],
             since: "2026-10-30",
         },
