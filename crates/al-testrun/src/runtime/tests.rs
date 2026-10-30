@@ -3574,3 +3574,131 @@ fn stability_host_value_variants_change_only_what_they_name() {
     let passing = |v: &[(String, String)]| v.iter().filter(|(_, m)| m == "pass").count();
     assert_eq!(passing(&base) - passing(&rev), 1, "{rev:?}");
 }
+
+/// ADR-061: an install codeunit that keeps what it drew, and a test that reports it next to its own draws.
+const RUN_SEED_INSTALL_APP: &str = "table 60995 SeedRow
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Drawn; Integer) { }
+        field(3; G; Guid) { }
+    }
+}
+codeunit 60996 SeedInstall
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var
+        R: Record SeedRow;
+    begin
+        R.Id := 1;
+        R.Drawn := Random(1000000);
+        R.G := CreateGuid();
+        R.Insert();
+    end;
+}
+codeunit 60997 SeedInstallProbe
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InstallDrew()
+    var
+        R: Record SeedRow;
+    begin
+        R.Get(1);
+        Error('%1 %2', R.Drawn, R.G);
+    end;
+}";
+
+fn seeded_messages(app: &str, run_seed: crate::seed::RunSeed, only: Option<(u32, &str)>) -> Vec<(String, String)> {
+    let opts = RunOptions {
+        run_seed,
+        run_only: only.map(|(c, t)| Arc::new(std::collections::BTreeSet::from([(c, t.to_lowercase())]))),
+        ..Default::default()
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), app.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    );
+    let mut v: Vec<(String, String)> = rt
+        .results()
+        .iter()
+        .filter_map(|r| match &r.outcome {
+            Outcome::Pass => Some((r.test.clone(), "pass".to_string())),
+            Outcome::Fail(m) => Some((r.test.clone(), m.clone())),
+            Outcome::NotRun(_) => None,
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+fn seed(n: i32) -> crate::seed::RunSeed {
+    crate::seed::RunSeed::new(n, crate::seed::SeedSource::Option)
+}
+
+fn message<'a>(v: &'a [(String, String)], test: &str) -> &'a str {
+    &v.iter()
+        .find(|(t, _)| t == test)
+        .unwrap_or_else(|| panic!("{test} in {v:?}"))
+        .1
+}
+
+#[test]
+fn the_run_seed_drives_random_and_guids_per_test_method() {
+    let a = seeded_messages(STABILITY_HOST_APP, seed(4271833), None);
+    let again = seeded_messages(STABILITY_HOST_APP, seed(4271833), None);
+    assert_eq!(a, again, "the same seed gives the same values");
+    let b = seeded_messages(STABILITY_HOST_APP, seed(4271834), None);
+    assert_ne!(message(&a, "HostRandom"), message(&b, "HostRandom"));
+    assert_ne!(message(&a, "NewGuid"), message(&b, "NewGuid"));
+    // Only what the seed drives moves.
+    for t in ["TimeOfDay", "ClockStep", "Identity", "Company"] {
+        assert_eq!(message(&a, t), message(&b, t), "{t}");
+    }
+    // `--seed N --test NewGuid`: the test alone sees what it saw in the full run.
+    let alone = seeded_messages(STABILITY_HOST_APP, seed(4271833), Some((60991, "NewGuid")));
+    assert_eq!(message(&alone, "NewGuid"), message(&a, "NewGuid"));
+    let alone = seeded_messages(STABILITY_HOST_APP, seed(4271833), Some((60991, "HostRandom")));
+    assert_eq!(message(&alone, "HostRandom"), message(&a, "HostRandom"));
+}
+
+#[test]
+fn install_code_keeps_the_fixed_seed_whatever_the_run_seed() {
+    let a = seeded_messages(RUN_SEED_INSTALL_APP, seed(4271833), None);
+    let b = seeded_messages(RUN_SEED_INSTALL_APP, seed(17), None);
+    let fixed = seeded_messages(RUN_SEED_INSTALL_APP, Default::default(), None);
+    assert_eq!(message(&a, "InstallDrew"), message(&b, "InstallDrew"));
+    assert_eq!(message(&a, "InstallDrew"), message(&fixed, "InstallDrew"));
+}
+
+#[test]
+fn seed_library_hands_library_random_the_derived_seed() {
+    let opts = |library| {
+        let mut s = seed(4271833);
+        s.library = library;
+        s
+    };
+    let off = seeded_messages(STABILITY_APP, opts(false), None);
+    assert_eq!(
+        message(&off, "SeedIsOne"),
+        "pass",
+        "by default the reset step's SetSeed(1) stays"
+    );
+    let on = seeded_messages(STABILITY_APP, opts(true), None);
+    let want = al_host::seed::derive_library(4271833, 60990, "SeedIsOne");
+    assert_eq!(message(&on, "SeedIsOne"), format!("seed {want}"));
+}

@@ -138,6 +138,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lib.rs` (350): The host seam: clock, identity, client type, file system (ADR-006). Entry: `Clock` 21, `Identity` 70, `ClientType` 54, `Host` 258.
 - `testdata.rs` (330): Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `TestData`, `LoadStats`, `Summary`.
 - `random.rs` (112): .NET's seeded `System.Random` for `Random` and `Randomize`. Entry: `NetRandom` 15.
+- `seed.rs`: the run seed's derivations per test method (ADR-061): `derive` (v2's FNV-1a), `derive_library`, `guid_key`.
 
 ### al-ir
 

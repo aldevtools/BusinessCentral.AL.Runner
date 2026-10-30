@@ -756,6 +756,18 @@ fn test_inner(
     process_ends_after: bool,
 ) -> Result<u8, String> {
     let started = Instant::now();
+    // The run seed (ADR-061): fixed once per run; a caller that did not fix it (a `serve` request without `seed`) gets
+    // `--seed`, the environment's or a fresh one here.
+    let ensured;
+    let a = if a.run_seed.is_none() {
+        let mut c = a.clone();
+        crate::seed::ensure(&mut c)?;
+        ensured = c;
+        &ensured
+    } else {
+        a
+    };
+    let run_seed = crate::seed::of(a);
     REPORT_TO_STDERR.store(
         matches!(a.output_json, Some(None)) || warm.is_some() || debug.is_some(),
         std::sync::atomic::Ordering::Relaxed,
@@ -1211,6 +1223,8 @@ fn test_inner(
 
     if !a.quiet {
         say!("{}", style::bold(&crate::version::line()));
+        // ADR-061 section 3: the seed before the first test, so a run that never ends still shows it.
+        say!("{}", crate::seed::line(run_seed));
     }
     // Setup details: --verbose only (see HELP, "Output").
     if a.verbose {
@@ -1426,6 +1440,7 @@ fn test_inner(
     companies.check_session_first(&session_company)?;
     al_testrun::host::set_companies(companies);
     let opts = RunOptions {
+        run_seed,
         only: opts_only,
         lazy: std::iter::repeat_n(None, inputs.len())
             .chain(dependencies.lazy.iter().cloned())
@@ -1627,7 +1642,7 @@ fn test_inner(
                                 "stability: variant {} of {}: {}  {}",
                                 i + 1,
                                 plan.variants.len(),
-                                v.id(&plan.cell),
+                                plan.id(v),
                                 v.describe()
                             );
                         },
@@ -1710,7 +1725,10 @@ fn test_inner(
         say!("{why}");
         let result = format!("Result: COMPILE ERRORS (exit {code})");
         say!("{}", style::bold(&style::yellow(&result)));
-        let doc = output::json_compile_errors(code, total_time.as_secs_f64(), &errors);
+        let doc = crate::seed::json(
+            output::json_compile_errors(code, total_time.as_secs_f64(), &errors),
+            run_seed,
+        );
         if let Some(w) = warm {
             w.report = Some(Report {
                 doc: serde_json::from_str(&doc).unwrap_or_default(),
@@ -2104,18 +2122,24 @@ fn test_inner(
     let coverage_time = coverage_started.elapsed();
     let total_time = started.elapsed();
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
-        write_file(path, &crate::stability::junit(plan, per_variant, out))?;
+        write_file(
+            path,
+            &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
+        )?;
     } else if let Some(path) = &a.junit {
         let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();
         with_skipped.sort_by_key(|r| (r.app, r.codeunit));
         write_file(
             path,
-            &output::junit(
-                &with_skipped,
-                bc_build.as_deref(),
-                total_time.as_secs_f64(),
-                &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
-                &rt.phases.baseline_assumptions,
+            &crate::seed::junit(
+                &output::junit(
+                    &with_skipped,
+                    bc_build.as_deref(),
+                    total_time.as_secs_f64(),
+                    &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
+                    &rt.phases.baseline_assumptions,
+                ),
+                run_seed,
             ),
         )?;
     }
@@ -2157,6 +2181,18 @@ fn test_inner(
             output::needs_no_data_note(microsoft, test_data.is_some())
         ))
     );
+    // ADR-061 section 3: the seed, also under --quiet (a seed that is not printed cannot be used), and the command that
+    // replays the first failure.
+    say!("{}", crate::seed::line(run_seed));
+    if let Some(r) = results
+        .iter()
+        .find(|r| matches!(r.outcome, al_testrun::Outcome::Fail(_)))
+    {
+        say!(
+            "{}",
+            crate::seed::replay_line(run_seed, &a.apps, &format!("Codeunit{}.{}", r.codeunit, r.test))
+        );
+    }
     if !a.quiet && counts.total > 0 {
         for line in output::summary_table(&counts) {
             say!("{line}");
@@ -2260,9 +2296,12 @@ fn test_inner(
             passes: p.passes.clone(),
         });
         w.report = Some(Report {
-            doc: serde_json::from_str(&crate::affected::with_selection(
-                output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
-                affected.as_ref(),
+            doc: serde_json::from_str(&crate::seed::json(
+                crate::affected::with_selection(
+                    output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                    affected.as_ref(),
+                ),
+                run_seed,
             ))
             .map(|mut doc: serde_json::Value| {
                 if !entry_counts.is_empty() {
@@ -2308,9 +2347,12 @@ fn test_inner(
         });
     }
     if let Some(target) = &a.output_json {
-        let doc = crate::affected::with_selection(
-            output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
-            affected.as_ref(),
+        let doc = crate::seed::json(
+            crate::affected::with_selection(
+                output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                affected.as_ref(),
+            ),
+            run_seed,
         );
         // `--stability`: the base variant's document plus a `stability` object (ADR-058 section 5).
         let doc = match &stability {

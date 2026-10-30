@@ -39,6 +39,9 @@ fn command(args: &[&str]) -> Command {
     c.env("AL_CHECK_THREADS", "2")
         .env("AL_LOWER_THREADS", "2")
         .env("ALRUNNER_NO_PATH_NOTE", "1")
+        // One run seed (ADR-061) for the run with and without the debugger, so their values are the same.
+        .env("ALRUNNER_SEED", "1")
+        .env_remove("AL_RUNNER_SEED")
         .args(args);
     c
 }

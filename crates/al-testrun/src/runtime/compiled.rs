@@ -114,6 +114,9 @@ pub struct RunOptions {
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,
+    /// The run seed (ADR-061): each test method's `Random` seed and Guid key derive from it. The default is
+    /// `al-test-cli`'s fixed seed 1.
+    pub run_seed: crate::seed::RunSeed,
 }
 
 /// One entry of a run (`RunOptions::entries`).

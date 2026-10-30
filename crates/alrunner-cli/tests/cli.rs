@@ -4,7 +4,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn alrunner(args: &[&str]) -> Output {
+    alrunner_with(args, &[])
+}
+
+fn alrunner_with(args: &[&str], env: &[(&str, &str)]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        // The run seed (ADR-061) comes from the test, not from the machine's environment.
+        .env_remove("ALRUNNER_SEED")
+        .env_remove("AL_RUNNER_SEED")
+        .envs(env.iter().copied())
         // Few threads: the machine is shared, and the fixtures are tiny.
         .env("AL_CHECK_THREADS", "2")
         .env("AL_LOWER_THREADS", "2")
@@ -2721,4 +2729,144 @@ fn stability_mode_moves_host_values() {
     ]);
     assert_eq!(code(&o), 1, "{}", text(&o));
     assert!(text(&o).contains("company Other Company"), "{}", text(&o));
+}
+
+// ---------------------------------------------------------------- the run seed (ADR-061)
+
+const SEEDED: &str = r#"
+codeunit 50300 "Seeded Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Draws()
+    begin
+        Error('%1 %2 %3', Random(1000000), Random(1000000), CreateGuid());
+    end;
+
+    [Test]
+    procedure DrawsToo()
+    begin
+        Error('%1 %2', Random(1000000), CreateGuid());
+    end;
+}
+"#;
+
+fn seeded_app(root: &Path) -> PathBuf {
+    let dir = root.join("seeded");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000003", "Seeded", &[]),
+    );
+    write(&dir, "src/Tests.al", SEEDED);
+    dir
+}
+
+/// The failure messages of a run of the seeded app: the values each test drew.
+fn drawn(app: &Path, extra: &[&str], env: &[(&str, &str)]) -> (Vec<String>, String) {
+    let mut args = vec!["test", app.to_str().unwrap(), "--no-download"];
+    args.extend_from_slice(extra);
+    let o = alrunner_with(&args, env);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    let mut v: Vec<String> = t
+        .lines()
+        .filter(|l| l.starts_with("FAIL"))
+        .map(|l| l.split_once("Seeded Tests.").map_or(l, |(_, r)| r).to_string())
+        .collect();
+    v.sort();
+    (v, t)
+}
+
+#[test]
+fn the_run_seed_is_printed_and_replays_the_values() {
+    let d = tempfile::tempdir().unwrap();
+    let app = seeded_app(d.path());
+    let (a, t) = drawn(&app, &["--seed", "4271833"], &[]);
+    assert_eq!(a.len(), 2, "{t}");
+    assert_eq!(
+        t.matches("Seed: 4271833").count(),
+        2,
+        "at the start and in the summary: {t}"
+    );
+    assert!(
+        t.contains(&format!(
+            "Replay: al-runner test {} --seed 4271833 --test Codeunit50300.Draws",
+            app.display()
+        )),
+        "{t}"
+    );
+    // The same seed gives the same values, from the option or the environment; another seed other values.
+    assert_eq!(drawn(&app, &["--seed", "4271833"], &[]).0, a);
+    assert_eq!(drawn(&app, &[], &[("ALRUNNER_SEED", "4271833")]).0, a);
+    assert_eq!(drawn(&app, &[], &[("AL_RUNNER_SEED", "4271833")]).0, a);
+    let (b, _) = drawn(&app, &["--seed", "4271834"], &[]);
+    for (x, y) in a.iter().zip(&b) {
+        assert_ne!(x, y);
+    }
+    // `--test`: the test sees what it saw in the full run.
+    let (alone, _) = drawn(&app, &["--seed", "4271833", "--test", "DrawsToo"], &[]);
+    assert_eq!(alone, [a[1].clone()]);
+    // Without a seed, a fresh one is printed, and it replays the run.
+    let (fresh, t) = drawn(&app, &[], &[]);
+    let seed = t
+        .lines()
+        .find_map(|l| l.strip_prefix("Seed: "))
+        .expect("a fresh seed is printed")
+        .trim()
+        .to_string();
+    assert_eq!(drawn(&app, &["--seed", &seed], &[]).0, fresh);
+    // `--quiet` still prints the seed.
+    let (_, t) = drawn(&app, &["--seed", "9", "--quiet"], &[]);
+    assert!(t.contains("Seed: 9"), "{t}");
+}
+
+#[test]
+fn the_run_seed_is_in_the_json_and_junit_reports() {
+    let d = tempfile::tempdir().unwrap();
+    let app = seeded_app(d.path());
+    let junit = d.path().join("j.xml");
+    let o = alrunner_with(
+        &[
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--output-json",
+            "--junit",
+            junit.to_str().unwrap(),
+        ],
+        &[("ALRUNNER_SEED", "77")],
+    );
+    let doc: serde_json::Value = serde_json::from_slice(&o.stdout).expect("stdout is only the JSON document");
+    assert_eq!(doc["seed"], 77);
+    assert_eq!(doc["seedSource"], "env");
+    assert!(String::from_utf8_lossy(&o.stderr).contains("Seed: 77"));
+    let x = std::fs::read_to_string(&junit).unwrap();
+    assert_eq!(
+        x.matches("<property name=\"seed\" value=\"77\" />").count(),
+        x.matches("<testsuite ").count(),
+        "{x}"
+    );
+    let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--output-json"]);
+    let doc: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(doc["seedSource"], "fresh");
+    assert!(doc["seed"].as_i64().is_some_and(|n| n >= 0));
+}
+
+#[test]
+fn a_bad_run_seed_is_a_bad_invocation() {
+    let d = tempfile::tempdir().unwrap();
+    let app = seeded_app(d.path());
+    for bad in ["x", "-1", "2147483648"] {
+        let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--seed", bad]);
+        assert_eq!(code(&o), 2, "{}", text(&o));
+        assert!(text(&o).contains("--seed"), "{}", text(&o));
+    }
+    let o = alrunner_with(
+        &["test", app.to_str().unwrap(), "--no-download"],
+        &[("ALRUNNER_SEED", "abc")],
+    );
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    assert!(text(&o).contains("ALRUNNER_SEED"), "{}", text(&o));
 }

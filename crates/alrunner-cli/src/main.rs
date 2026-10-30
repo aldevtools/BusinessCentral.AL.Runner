@@ -18,6 +18,7 @@ mod path_note;
 mod recipe;
 mod recipe_run;
 mod run;
+mod seed;
 mod serve;
 mod sources;
 mod sources_report;
@@ -57,13 +58,25 @@ fn main() -> ExitCode {
 }
 
 fn real_main() -> ExitCode {
-    let command = match args::parse(std::env::args().skip(1)) {
+    let mut command = match args::parse(std::env::args().skip(1)) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
         }
     };
+    // The run seed (ADR-061), fixed once for the whole command line: both sides of an impact run and every matrix
+    // cell use it. A bad `ALRUNNER_SEED` is a bad invocation.
+    if let Command::Test(a)
+    | Command::TestMicrosoft(a)
+    | Command::Debug(a, _)
+    | Command::ImpactIndexBuild(a)
+    | Command::ImpactIndexCheckStatic(a) = &mut command
+        && let Err(e) = seed::ensure(a)
+    {
+        eprintln!("error: {e}");
+        return ExitCode::from(2);
+    }
     // Another `al-runner` on PATH (AL Runner v2's dotnet tool): one line on stderr, at most once a day. `--version`
     // lists the copies instead; `serve` talks a protocol on stdout and stderr and gets no note.
     if !matches!(

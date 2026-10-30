@@ -112,6 +112,8 @@ pub struct StoredCodeunit {
     pub ended: Ended,
     /// Its tests in the order they ran, with their outcome.
     pub tests: Vec<(String, Outcome)>,
+    /// The run seed it ran with (ADR-061 section 5): recorded only; a changed seed is no reason to run it again.
+    pub seed: Option<i32>,
 }
 
 impl StoredCodeunit {
@@ -397,6 +399,7 @@ impl Stored {
                 "dotnet": c.dotnet,
                 "stubbed": c.stubbed,
                 "cut": c.ended == Ended::Cut,
+                "seed": c.seed,
                 "tests": c.tests.iter().map(|(name, o)| {
                     let (kind, message) = match o {
                         Outcome::Pass => ("pass", ""),
@@ -489,6 +492,7 @@ impl Stored {
                     Ended::Normal
                 },
                 tests,
+                seed: c["seed"].as_i64().and_then(|n| i32::try_from(n).ok()),
             });
         }
         Ok(Stored {

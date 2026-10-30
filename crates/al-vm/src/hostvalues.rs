@@ -125,15 +125,17 @@ impl Session {
                 // (types/TestRandomSeededContracts.al:112-129).
                 Some(Value::Integer(seed)) => {
                     self.reseeded_in_test = true;
+                    self.randomized_with_seed = true;
                     self.rng = al_host::random::NetRandom::new(*seed);
                     Ok(Value::Null)
                 }
-                // BC seeds from the clock, so two calls give different sequences. Here the seed is
-                // the host's plus a count, which differs per call and repeats per run (ADR-009).
+                // BC seeds from the clock, so two calls give different sequences. Here the seed is the test
+                // method's derived seed (or the host's) plus a count, which differs per call and repeats with the
+                // run seed (ADR-009, ADR-061).
                 None => {
                     self.reseeded_in_test = true;
                     self.unseeded_randomizes = self.unseeded_randomizes.wrapping_add(1);
-                    let seed = self.host.random_seed.wrapping_add(self.unseeded_randomizes);
+                    let seed = self.unseeded_base.wrapping_add(self.unseeded_randomizes);
                     self.rng = al_host::random::NetRandom::new(seed);
                     Ok(Value::Null)
                 }

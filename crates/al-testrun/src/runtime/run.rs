@@ -270,10 +270,10 @@ fn run_codeunit_inner(
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
-    let mut session = Session::with_host(
-        engine.clone(),
-        crate::host::host_perturbed(scratch.clock_start, &perturb),
-    );
+    let run_seed = scratch.run_seed;
+    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
+    host.run_seed = run_seed.seed;
+    let mut session = Session::with_host(engine.clone(), host);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -654,12 +654,28 @@ fn run_codeunit_inner(
                     // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                     // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                     session.start_random_scope();
+                    // The run seed (ADR-061): the method's `Random` and Guids derive from it and its own name, so
+                    // `--seed N --test X` gives X the values of the full run. A stability variant's own `random.hostSeed`
+                    // or `guid.seed` replaces the derived value for that variant.
+                    let codeunit_id = obj.id.unwrap_or(0);
+                    session.seed_test_method(
+                        codeunit_id,
+                        &routine.name,
+                        perturb.host_seed.is_none(),
+                        perturb.guid_seed.is_none(),
+                    );
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
                     let mut reset = runner.before(&mut session, obj, routine);
-                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2): after codeunit 130301, the
-                    // runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the variant's seed.
-                    if let (Ok(()), Some(seed)) = (&reset, perturb.library_seed) {
+                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
+                    // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
+                    // the variant's seed, else the one derived from the run seed.
+                    let library_seed = perturb.library_seed.or_else(|| {
+                        run_seed
+                            .library
+                            .then(|| al_host::seed::derive_library(run_seed.seed, codeunit_id, &routine.name))
+                    });
+                    if let (Ok(()), Some(seed)) = (&reset, library_seed) {
                         reset = runner_reset::library_seed(&mut session, seed);
                     }
                     let reset_ok = reset.is_ok();
