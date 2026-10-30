@@ -79,6 +79,9 @@ pub(crate) struct TxState {
     /// A `RecordRef.LockTable` on a database table ran since the last Commit: the write transaction is open
     /// (recordref/lt-wc/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
     pub(crate) recref_lock_tx: bool,
+    /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
+    /// table, or a read under RepeatableRead or UpdLock.
+    pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
     /// A read under ReadIsolation ReadUncommitted ran since the last Commit: it opens no write transaction under the
     /// assumption `readuncommitted-read-opens-no-write-transaction`.
     pub(crate) read_uncommitted_read: bool,
@@ -150,6 +153,7 @@ impl TxState {
             lock_tx: false,
             lock_unpinned: None,
             recref_lock_tx: false,
+            isolation_lock_tables: Vec::new(),
             read_uncommitted_read: false,
         }
     }
@@ -366,4 +370,14 @@ pub(crate) enum ReportStart {
     FirstUse,
     /// The request page of a `RunRequestPage`, while it is open.
     RequestOnly,
+}
+
+impl TxState {
+    /// Notes a table a locking ReadIsolation locked (`isolation_lock_tables`).
+    pub(crate) fn note_isolation_lock(&mut self, table: u32, company: Option<String>) {
+        let key = (table, company);
+        if !self.isolation_lock_tables.contains(&key) {
+            self.isolation_lock_tables.push(key);
+        }
+    }
 }
