@@ -1778,6 +1778,49 @@ codeunit 50000 T {{ Subtype = Test;
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
 }
 
+/// al-runner issue 6148: Guided Experience Impl.InsertGuidedExperienceItem imports the app's logo with the extension id (a
+/// Guid) as the description: `Icon.ImportStream(IconInStream, ExtensionId)`. The Tenant Media row's Description is the
+/// Guid's text form in braces and upper case, MIME type image/png, the picture's size, no file name. Pin: onprem
+/// session/UsAppLogo.al:170-186 UsLogo_GuidedExperienceIcon_CallerD (corpus PR 816). Its bytes (re-encoded) stay refused.
+#[test]
+fn issue_6148_media_import_stream_with_a_guid_description() {
+    let main = format!(
+        r#"
+table 50100 "UR Icon" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Icon; Media) {{ }} }} keys {{ key(PK; Code) {{ Clustered = true; }} }} }}
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure ImportWithGuid() var App: Record "Published Application"; Media: Record Media; R: Record "UR Icon"; TM: Record "Tenant Media"; InS: InStream; Id: Guid; begin
+    Id := '{MAIN_ID}';
+    App.SetRange(ID, Id);
+    App.FindFirst();
+    Media.SetRange(ID, App.Logo.MediaId());
+    Media.FindFirst();
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    R.Code := 'A';
+    R.Icon.ImportStream(InS, Id);
+    R.Insert();
+    TM.Get(R.Icon.MediaId());
+    if TM.Description <> '{{5D86850B-0D76-4ECA-BD7B-951AD998E997}}' then Error('description %1', TM.Description);
+    if TM."Mime Type" <> 'image/png' then Error('mime %1', TM."Mime Type");
+    if (TM.Width <> 1) or (TM.Height <> 1) then Error('size'); end; }}"#
+    );
+    all_pass(run_over_system(
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(TINY_PNG.to_vec())),
+        None,
+        &main,
+    ));
+    // BC re-encodes the picture it imports (UsAppLogo.al:7; types/W7Media.al:141-145): a look at the Tenant Media bytes is refused.
+    let look = main
+        .replace(
+            "if (TM.Width <> 1) or (TM.Height <> 1) then Error('size'); end;",
+            "TM.CalcFields(Content); TM.Content.CreateInStream(InS); InS.Read(B); end;",
+        )
+        .replace("InS: InStream;", "InS: InStream; B: Byte;");
+    let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(TINY_PNG.to_vec())), None, &look);
+    assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
+}
+
 /// Media rows other than an app's logo and the null id are not pinned: a read of another id is refused.
 #[test]
 fn media_row_of_another_id_stays_refused() {

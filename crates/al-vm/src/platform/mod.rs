@@ -419,6 +419,10 @@ impl Providers {
                 al_builtins::stream::write_bytes(&blob, &o.bytes);
                 if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
+                } else if al_builtins::media::png_size(&o.bytes).is_some() {
+                    // BC stores an imported PNG re-encoded (onprem session/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
+                    // a look at the bytes is refused.
+                    blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_PNG_STORED_REENCODED.into());
                 }
                 row[pos(t, 3)] = Value::Blob(blob);
                 row[pos(t, 4)] = Value::Text(o.mime.clone().into());

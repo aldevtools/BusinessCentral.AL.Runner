@@ -135,6 +135,12 @@ fn store(c: &mut dyn Ctx) -> Result<&mut MediaStore, Signal> {
 }
 
 fn text_arg(a: &[Value], i: usize) -> Result<String, Signal> {
+    // A Guid description is its text form, in braces and upper case: Guided Experience Impl imports an app's logo with
+    // `Icon.ImportStream(IconInStream, ExtensionId)` and the Tenant Media Description reads '{E92BE076-...}' (onprem
+    // session/UsAppLogo.al:170-186, corpus PR 816).
+    if let Some(Value::Guid(g)) = a.get(i) {
+        return Ok(crate::format::format_guid(g));
+    }
     match a.get(i).and_then(crate::native::text_of) {
         Some(t) => Ok(t.to_string()),
         None => unsupported(format!("a text argument, got {}", a.get(i).describe())),
