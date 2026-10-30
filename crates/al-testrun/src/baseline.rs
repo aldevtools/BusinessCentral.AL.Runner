@@ -157,7 +157,7 @@ pub(crate) fn step_routine(
 
 /// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
 pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
-    run_traced(engine, lowered, false, company, None)
+    run_traced(engine, lowered, false, company, &Default::default())
 }
 
 /// [`run`], and with `trace` what the install code raised and touched (`BaselineRun::trace`, ADR-043 step 2).
@@ -170,7 +170,7 @@ pub fn run_traced(
     lowered: &Lowered,
     trace: bool,
     company: Option<&CompanyData>,
-    clock_date: Option<crate::stability::DateShift>,
+    perturb: &crate::stability::Perturb,
 ) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
     // (object, routine, keep what it wrote when it stops early, no company chosen)
@@ -254,9 +254,9 @@ pub fn run_traced(
     }
 
     crate::install::ensure_facts(engine, lowered);
-    // A `clock.date` variant of a stability run (ADR-058 section 7): install code that reads the clock sees the
-    // variant's date, as the tests do.
-    let host = crate::host::host_shifted(None, clock_date);
+    // A variant of a stability run (ADR-058 section 7): install code sees the variant's host values (clock, seeds,
+    // identity, company), as the tests do.
+    let host = crate::host::host_perturbed(None, perturb);
     // The company data codeunit reads its resource files through `File`; the rest of the install code sees them too,
     // as every session of BCApps' CI server does once the files are in the user folder.
     let host = match company.and_then(|c| c.resources.clone()) {

@@ -2678,3 +2678,46 @@ fn stability_configs_with_forbidden_dimensions_are_refused() {
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(text(&o).contains("\"random.librarySeed\""), "{}", text(&o));
 }
+
+/// ADR-058 phase 2: host-value dimensions (identity, company, clock) flip the tests that read them, a value with spaces
+/// replays from its printed form, and `order.codeunits` without `--isolation disabled` says it cannot change anything.
+#[test]
+fn stability_mode_moves_host_values() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("stab2");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000005801", "Stability2", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50810 \"Stability Host Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure UserIsTestUser()\n    begin\n        if UserId() <> 'TESTUSER' then\n            Error('user %1', UserId());\n    end;\n\n    [Test]\n    procedure CompanyIsCronus()\n    begin\n        if CompanyName() <> 'CRONUS International Ltd.' then\n            Error('company %1', CompanyName());\n    end;\n\n    [Test]\n    procedure BeforeEvening()\n    begin\n        if Time() > 180000T then\n            Error('evening');\n    end;\n}\n",
+    );
+    let a = dir.to_str().unwrap();
+    let cfg = d.path().join("host.json");
+    std::fs::write(
+        &cfg,
+        r#"{"format":1,"dimensions":{"identity.userId":["OTHER"],"company.name":["Other Company"],"clock.timeOfDay":["23:00:00.000"],"order.codeunits":["reverse"]}}"#,
+    )
+    .unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--stability", cfg.to_str().unwrap()]);
+    let t = text(&o);
+    assert_eq!(code(&o), 1, "{t}");
+    assert!(t.contains("3 tests, 0 stable, 3 flipped"), "{t}");
+    assert!(t.contains("company.name=Other Company"), "{t}");
+    assert!(
+        t.contains("order.codeunits cannot change an outcome in this run"),
+        "{t}"
+    );
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability-replay",
+        "company.name=Other Company",
+    ]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert!(text(&o).contains("company Other Company"), "{}", text(&o));
+}

@@ -313,11 +313,6 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
             "--explain runs one test once; use --stability-replay with --test-exact",
         ),
         (a.execute, "a scratch run", "a scratch run has no tests"),
-        (
-            a.isolation == Some(al_testrun::isolation::TestIsolation::Disabled),
-            "--isolation disabled",
-            "what one codeunit leaves for the next is not varied yet (order.codeunits is not built)",
-        ),
     ] {
         if set {
             return Err(format!("--stability cannot be combined with {flag}: {why}"));

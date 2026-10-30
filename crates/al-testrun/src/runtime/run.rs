@@ -171,10 +171,10 @@ pub(crate) fn run_codeunit_core(
     execute: bool,
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
-    let perturb = scratch.perturb;
+    let perturb = scratch.perturb.clone();
     let mut session = Session::with_host(
         engine.clone(),
-        crate::host::host_shifted(scratch.clock_start, perturb.clock_date),
+        crate::host::host_perturbed(scratch.clock_start, &perturb),
     );
     if let Some(b) = baseline {
         session.restore_baseline(b);

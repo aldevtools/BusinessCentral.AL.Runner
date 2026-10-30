@@ -613,7 +613,7 @@ fn run_unit(
             onrun_carry: u.onrun_carry,
             on_run_rows: u.on_run_rows,
             ignore_permission_mock: u.ignore_permission_mock,
-            perturb: u.perturb,
+            perturb: u.perturb.clone(),
             ..Default::default()
         };
         if u.coverage {

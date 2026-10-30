@@ -951,6 +951,7 @@ impl Session {
         };
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
         let random_seed = host.random_seed;
+        let guid_seed = host.guid_seed;
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
@@ -1008,7 +1009,7 @@ impl Session {
             next_temp: 0,
             temp_release: Default::default(),
             next_guid: 0,
-            guid_seed: random_seed,
+            guid_seed: guid_seed.unwrap_or(random_seed),
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
