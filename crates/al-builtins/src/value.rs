@@ -1137,9 +1137,9 @@ pub type RunPageLinkFill = (Vec<(usize, Value)>, Rc<Vec<crate::filter::FieldFilt
 /// (lt-ac/ACRecordIsDirty.al). BC compares values, not writes: a field set back to what was read is not dirty
 /// (ACRecordIsDirty.al:54-56, `after_value_restored`).
 ///
-/// `Clone` gives `Unknown`: whether a copy of a record state (a record passed by value, xRec, a row image,
-/// `RecordRef.GetTable`) keeps the snapshot is not pinned. `:=` copies it with [`DirtyBase::copy`]
-/// (ACRecordIsDirty.al:63-64, `copy_dirty`).
+/// `Clone` gives `Unknown`: whether a copy of a record state (xRec, a row image, `RecordRef.GetTable`) keeps the snapshot is
+/// not pinned. `:=` copies it with [`DirtyBase::copy`] (ACRecordIsDirty.al:63-64, `copy_dirty`), and so do Copy and a record
+/// passed by value to a procedure (lt-ac/Y8RecordIsDirtyShapes.al:236-242, :321-324).
 #[derive(Debug)]
 pub enum DirtyBase {
     /// Nothing pins what IsDirty answers; the text says why.
@@ -1150,8 +1150,17 @@ pub enum DirtyBase {
     /// copies it first ([`RecordState::before_field_write`]), so a read costs no copy.
     Synced,
     /// The fields the variable last read or wrote. `alt` is a second candidate where the corpus does not tell which one BC
-    /// keeps (after TransferFields and Delete): IsDirty answers only where both give the same answer.
-    Row { base: Vec<Value>, alt: Option<Vec<Value>> },
+    /// keeps (after TransferFields and Delete): IsDirty answers only where both give the same answer. `dirty_only`: the
+    /// snapshot was kept by a read or write that answered false (or a `Delete(true)`), which the corpus pins only on a buffer
+    /// that differs from it (lt-ac/Y8RecordIsDirtyShapes.al:278-297, :206-208): an answer "not dirty" is refused.
+    /// `stale_store`: a ModifyAll or DeleteAll changed the stored row behind the variable (Y8RecordIsDirtyShapes.al:410-421),
+    /// so IsDirty does not check its answer against the stored row.
+    Row {
+        base: Vec<Value>,
+        alt: Option<Vec<Value>>,
+        dirty_only: bool,
+        stale_store: bool,
+    },
 }
 
 impl Default for DirtyBase {
@@ -1173,9 +1182,16 @@ impl DirtyBase {
             DirtyBase::Unknown(why) => DirtyBase::Unknown(why),
             DirtyBase::Fresh => DirtyBase::Fresh,
             DirtyBase::Synced => DirtyBase::Synced,
-            DirtyBase::Row { base, alt } => DirtyBase::Row {
+            DirtyBase::Row {
+                base,
+                alt,
+                dirty_only,
+                stale_store,
+            } => DirtyBase::Row {
                 base: base.clone(),
                 alt: alt.clone(),
+                dirty_only: *dirty_only,
+                stale_store: *stale_store,
             },
         }
     }
@@ -1186,6 +1202,8 @@ impl DirtyBase {
             *self = DirtyBase::Row {
                 base: fields.to_vec(),
                 alt: None,
+                dirty_only: false,
+                stale_store: false,
             };
         }
     }

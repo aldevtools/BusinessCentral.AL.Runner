@@ -714,6 +714,8 @@ pub struct Session {
     pub(crate) sql: sqlcount::SqlCounters,
     /// How many record methods that Record.IsDirty tracks are running (isdirty.rs).
     pub(crate) dirty_ops_open: u32,
+    /// The writes with triggers that are running, innermost last (isdirty.rs `DirtyFrame`).
+    pub(crate) dirty_frames: Vec<crate::isdirty::DirtyFrame>,
     /// Whether the test running has reseeded the `Random` sequence (`Randomize`); see [`Session::inherited_random_draws`].
     pub(crate) reseeded_in_test: bool,
     /// How many numbers `Random` has drawn from a sequence the test running did not seed itself.
@@ -1032,6 +1034,7 @@ impl Session {
             calls_made: 0,
             sql: sqlcount::SqlCounters::new_session(),
             dirty_ops_open: 0,
+            dirty_frames: Vec::new(),
             reseeded_in_test: false,
             inherited_draws: 0,
             run_seeded_in_test: false,
@@ -2116,7 +2119,15 @@ impl Session {
                     st.temp_id = Some(self.new_temp_id());
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                (Value::Record(rc), false) => self.record_by_value(&rc),
+                // The copy keeps what Record.IsDirty compares with (lt-ac/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,
+                // `by_value_clean` No).
+                (Value::Record(rc), false) => {
+                    let v = self.record_by_value(&rc);
+                    if let Value::Record(copy) = &v {
+                        copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
+                    }
+                    v
+                }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)
                     if name.eq_ignore_ascii_case("RecordRef") && matches!(r.locals[i].ty, RtType::Record(..)) =>

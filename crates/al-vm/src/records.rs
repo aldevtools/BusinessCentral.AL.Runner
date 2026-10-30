@@ -1339,8 +1339,12 @@ impl Session {
     }
 
     fn run_trigger(&mut self, object: usize, routine: usize, rec: &Rec, xrec: Option<&Rec>) -> Result<(), Signal> {
-        self.call_on_record(object, routine, rec.clone(), xrec, Vec::new())
-            .map(|_| ())
+        let entered = !self.dirty_frames.is_empty() && self.dirty_trigger_enter(rec, xrec);
+        let r = self
+            .call_on_record(object, routine, rec.clone(), xrec, Vec::new())
+            .map(|_| ());
+        self.dirty_trigger_exit(entered);
+        r
     }
 
     /// Every write gets a new, increasing SystemRowVersion.
@@ -3490,7 +3494,12 @@ impl Session {
                         fresh[i] = r.fields[i].clone();
                     }
                     let old = std::mem::replace(&mut r.fields, fresh);
-                    r.is_dirty_base = al_builtins::value::DirtyBase::Row { base: old, alt: None };
+                    r.is_dirty_base = al_builtins::value::DirtyBase::Row {
+                        base: old,
+                        alt: None,
+                        dirty_only: false,
+                        stale_store: false,
+                    };
                     return Ok(Value::Null);
                 }
                 for (i, v) in fresh.into_iter().enumerate() {
