@@ -1853,6 +1853,7 @@ mod tests {
                 var_field: None,
                 var_slot: None,
                 expr_source: None,
+                expr_call: false,
             },
             pred,
             parent: None,
