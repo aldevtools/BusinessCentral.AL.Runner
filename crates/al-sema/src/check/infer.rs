@@ -65,12 +65,24 @@ impl<'a> Checker<'a> {
         // two or more characters is a Text, so it cannot go into an Integer (must-not-compile 1041, `T := C - 'A'`, `I := C + 'AB'`).
         // Other operators, operand shapes and targets are not judged.
         if rhs.kind() == SyntaxKind::BinExpr {
-            if let Some(message) = self.char_literal_result(sc, rhs, target) {
+            if let Some(message) = self
+                .char_literal_result(sc, rhs, target)
+                .or_else(|| self.integer_sum_into_text(sc, rhs, target))
+            {
                 self.diag(sc, rhs, "AL0122", message);
             }
             return;
         }
         let message = match (target, source) {
+            // An Integer variable into a Code[N] (must-not-compile 1250, `C := I` into a Code[20]). Code without a length is
+            // not pinned.
+            (Ty::Code(Some(n)), Ty::Integer) if rhs.kind() == SyntaxKind::NameRef => {
+                format!("Cannot implicitly convert type 'Integer' to 'Code[{n}]'")
+            }
+            // A Text variable into an Integer (must-not-compile 1250, `I := T`). Text[N] is not pinned.
+            (Ty::Integer, Ty::Text(None)) if rhs.kind() == SyntaxKind::NameRef => {
+                "Cannot implicitly convert type 'Text' to 'Integer'".to_string()
+            }
             (Ty::Text(len), Ty::Integer) if rhs.kind() == SyntaxKind::NameRef => {
                 let t = len.map_or("Text".to_string(), |n| format!("Text[{n}]"));
                 format!("Cannot implicitly convert type 'Integer' to '{t}'")
@@ -108,6 +120,26 @@ impl<'a> Checker<'a> {
             _ => return,
         };
         self.diag(sc, rhs, "AL0122", message);
+    }
+
+    /// The message of AL0122 for an Integer sum into a Text: `T := I + 1` (must-not-compile 1250), also two integer literals
+    /// as in `exit(1 + 2)` of a procedure returning Text (al-runner issue 5588, alc measured by the reporter; the text is
+    /// 1250's). Only `+` with two operands that are Integer variables or literals is judged; a Text[N] target is not.
+    fn integer_sum_into_text(&self, sc: &Scope, bin: &SyntaxNode, target: &Ty) -> Option<String> {
+        if !matches!(target, Ty::Text(None)) || op_token(bin) != "+" {
+            return None;
+        }
+        let kids: Vec<SyntaxNode> = bin.children().collect();
+        let [left, right] = kids.as_slice() else { return None };
+        let integer = |n: &SyntaxNode| {
+            let r = n.text_range();
+            matches!(n.kind(), SyntaxKind::NameRef | SyntaxKind::Literal)
+                && matches!(
+                    self.types.get(&(sc.file, r.start().into(), r.end().into())),
+                    Some(Ty::Integer)
+                )
+        };
+        (integer(left) && integer(right)).then(|| "Cannot implicitly convert type 'Integer' to 'Text'".to_string())
     }
 
     /// The message of AL0122 for `Char var - 'A'` into a Text or `Char var + 'AB'` into an Integer, else `None`.
@@ -251,8 +283,18 @@ impl<'a> Checker<'a> {
                             Ty::Enum(_),
                             Ty::Decimal | Ty::Code(_) | Ty::Text(_) | Ty::Boolean | Ty::Date | Ty::Char
                         )
-                ) || (json(target, "JsonObject") && json(source, "JsonToken"));
-                pinned.then(|| source.to_string())
+                ) || (json(target, "JsonObject") && json(source, "JsonToken"))
+                    // Corpus must-not-compile 1190 (Boolean into Text), 1191 (Boolean into Code[10]), 1193 (Date into
+                    // DateTime) and 1833 (BigText into Text; al-runner issue 5588).
+                    || matches!(
+                        (target, source),
+                        (Ty::Text(None), Ty::Boolean) | (Ty::Code(Some(_)), Ty::Boolean) | (Ty::DateTime, Ty::Date)
+                    )
+                    || (matches!(target, Ty::Text(None)) && json(source, "BigText"));
+                pinned.then(|| match source {
+                    Ty::Builtin(b) if b.eq_ignore_ascii_case("BigText") => "BigText".to_string(),
+                    _ => source.to_string(),
+                })
             }
             SyntaxKind::Literal => {
                 // An integer literal to a Boolean (corpus must-not-compile 0432).
@@ -286,6 +328,9 @@ impl<'a> Checker<'a> {
                 match (target, chars) {
                     (Ty::Enum(_), Some(1)) => Some("Char".to_string()),
                     (Ty::Boolean, Some(n)) if n > 1 => Some("Text".to_string()),
+                    // A text literal of two characters into a BigInteger (must-not-compile 1251; the Decimal half of the
+                    // case is `al_integer_text_assignment`'s).
+                    (Ty::BigInteger, Some(n)) if n > 1 => Some("Text".to_string()),
                     _ => None,
                 }
             }
@@ -1056,7 +1101,8 @@ impl<'a> Checker<'a> {
                         E::Val(Ty::Unknown)
                     }
                     E::Callable(c)
-                        if callee.kind() == NameRef && self.al_too_few_arguments(sc, node, &c, arg_tys.len()) =>
+                        if matches!(callee.kind(), NameRef | MemberExpr)
+                            && self.al_too_few_arguments(sc, node, &c, arg_tys.len()) =>
                     {
                         E::Val(Ty::Unknown)
                     }
@@ -1575,19 +1621,23 @@ fn capitalized_kind(t: &Ty) -> String {
 }
 
 impl Checker<'_> {
-    /// AL0135: a bare call of a procedure of the same codeunit, the only candidate of its name, with fewer arguments
-    /// than the procedure has parameters (must-not-compile 0242-own-proc-too-few.al:1, 0066; al-runner issue 5853, also
-    /// on a path no test reaches). The text names the first parameter without an argument and the procedure's parameter
-    /// types; it is alc's for Integer parameters (both cases) and for Text and `var` (the built-in cases, 0067 and
-    /// others). For any other parameter type the text ends before the signature, as that rendering is not pinned.
-    /// Calls on a variable, of a procedure of another object type, or of a name with several candidates are not judged
-    /// here (the overload choice keeps refusing them).
+    /// AL0135: a call of a procedure of a codeunit or table of the workspace, the only candidate of its name, with
+    /// fewer arguments than the procedure has parameters, also on a path no test reaches. Pinned: a bare call in the
+    /// same codeunit (must-not-compile 0242-own-proc-too-few.al:1, 0066; al-runner issue 5853), a call through a
+    /// codeunit variable (2167, 2174-2188), through a record variable (2168), a bare and a `this.` call inside the table
+    /// (2169, 2170; al-runner issue 5588). The text names the first parameter without an argument and the procedure's
+    /// parameter types as alc renders them (`alc_param_type`); where a type's rendering is not pinned the text ends
+    /// before the signature. Procedures of other object types, of dependency apps, and names with several candidates
+    /// are not judged here (the overload choice keeps refusing them).
     pub(crate) fn al_too_few_arguments(&mut self, sc: &Scope, node: &SyntaxNode, cands: &[Cand], argc: usize) -> bool {
         let [c] = cands else { return false };
         let Res::Proc { object, offset } = c.target else {
             return false;
         };
-        if object != sc.oi || self.ws.objects[object].kind != ObjKind::Codeunit || argc >= c.min {
+        if self.ws.is_dependency(object)
+            || !matches!(self.ws.objects[object].kind, ObjKind::Codeunit | ObjKind::Table)
+            || argc >= c.min
+        {
             return false;
         }
         let Some(p) = self.members[object]
@@ -1601,26 +1651,61 @@ impl Checker<'_> {
         let Some(missing) = p.params.get(argc) else {
             return false;
         };
-        let pinned = |t: &Ty| matches!(t, Ty::Integer | Ty::Text(None));
         let mut message = format!(
             "There is no argument given that corresponds to the required formal parameter '{}' of",
             missing.name
         );
-        if p.params.iter().all(|q| pinned(&q.ty)) {
-            let sig: Vec<String> = p
-                .params
-                .iter()
-                .map(|q| {
-                    if q.by_var {
-                        format!("var {}", q.ty)
-                    } else {
-                        q.ty.to_string()
-                    }
-                })
-                .collect();
+        let sig: Option<Vec<String>> = p
+            .params
+            .iter()
+            .map(|q| {
+                let t = alc_param_type(&q.ty)?;
+                Some(if q.by_var { format!("var {t}") } else { t })
+            })
+            .collect();
+        if let Some(sig) = sig {
             message.push_str(&format!(" '{}({})'", p.name, sig.join(", ")));
         }
         self.diag(sc, node, "AL0135", message);
         true
     }
+}
+
+/// A parameter type as alc writes it in the signature of an AL0135 text, for the types the must-not-compile cases pin
+/// (0242, 0066, 2167-2188); `None` for any other.
+fn alc_param_type(t: &Ty) -> Option<String> {
+    const BUILTINS: &[&str] = &[
+        "RecordRef",
+        "FieldRef",
+        "JsonObject",
+        "SecretText",
+        "InStream",
+        "ErrorInfo",
+    ];
+    Some(match t {
+        Ty::Integer
+        | Ty::BigInteger
+        | Ty::Decimal
+        | Ty::Boolean
+        | Ty::Char
+        | Ty::Date
+        | Ty::Time
+        | Ty::DateTime
+        | Ty::Duration
+        | Ty::DateFormula
+        | Ty::Guid
+        | Ty::Option(_)
+        | Ty::Variant
+        | Ty::Text(_)
+        | Ty::Code(Some(_))
+        | Ty::Enum(_) => t.to_string(),
+        Ty::Record { temporary: true, .. } => format!("{t} temporary"),
+        Ty::Record { .. } => t.to_string(),
+        Ty::Object(ObjKind::Codeunit | ObjKind::Page | ObjKind::Interface, _) => capitalized_kind(t),
+        Ty::Builtin(n) => BUILTINS.iter().find(|b| b.eq_ignore_ascii_case(n))?.to_string(),
+        Ty::List(e) => format!("List of [{}]", alc_param_type(e)?),
+        Ty::Dictionary(k, v) => format!("Dictionary of [{}, {}]", alc_param_type(k)?, alc_param_type(v)?),
+        Ty::Array(d, e) if d.len() == 1 => format!("array[{}] of {}", d[0], alc_param_type(e)?),
+        _ => return None,
+    })
 }

@@ -84,10 +84,13 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
         "a property set to a name that is none of its values, where the AL language server lists the values for that element kind (property_values.rs: PageType, MaskType, ObsoleteState, Style, Importance, UpdatePropagation and others; cases 0106 to 1180 and 2248)",
     ),
     ("AL0197", "two objects of one type and name in one app"),
-    ("AL0264", "two codeunits or two tables with one id in one app"),
+    (
+        "AL0264",
+        "two objects of one type with one id in one app; a codeunit or table with the id of one in a direct dependency",
+    ),
     (
         "AL0305",
-        "a codeunit name of 37 characters or more (the 31 to 36 range is not pinned yet)",
+        "an object name over 30 characters (codeunit, table, page, report, query, xmlport, table/page/report extension, profile) or over 20 (permission set)",
     ),
     (
         "AL0135",
@@ -95,7 +98,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0139",
-        "exit with a value in a procedure or trigger of a codeunit that has no return value",
+        "exit with a value in a procedure or trigger without a return value of a codeunit, table, page, report, xmlport, query, table or page extension",
     ),
     (
         "AL0296",
@@ -853,20 +856,19 @@ fn duplicate_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// The object types whose repeated id AL0264 pins: must-not-compile 0036 (two codeunits) and 0296 (two tables).
-const AL0264_KINDS: &[ObjKind] = &[ObjKind::Codeunit, ObjKind::Table];
-
 /// AL0264: one diagnostic for every declaration of an id that an app declares more than once for the same object type
-/// (must-not-compile 0036-two-codeunits-same-id.al:1-2, 0296-duplicate-table-id.al:1-2; al-runner issue 5854). The
-/// text is alc's up to the name of the extension, which names the app's publisher and version: the workspace has
-/// neither. Other object types are not pinned and are not reported; the link step keeps compiling such a program
-/// (`lower::assemble::link_pieces`). Two apps that declare one id are not judged here.
+/// (must-not-compile 0036-two-codeunits-same-id.al:1-2, 0296-duplicate-table-id.al:1-2, and for every other type with
+/// an id 2136-2146 (page, report, query, xmlport, enum, table/page/enum/report extension, permission set and
+/// permission set extension), al-runner issues 5854, 5588). The text is alc's up to the name of the extension, which
+/// names the app's publisher and version: the workspace has neither.
+///
+/// An object with the type and id of an object of a direct dependency is AL0264 as well, on this app's declaration
+/// only (2148-codeunit-id-of-dependency-app.al:1, 2149-table-id-of-dependency-app.al:1). Only codeunits and tables
+/// are pinned across apps, and only for a direct dependency; other types and transitive dependencies are not judged
+/// (docs/probes-needed.md).
 pub(crate) fn duplicate_ids(ws: &Workspace, out: &mut Vec<Diagnostic>) {
-    for oi in duplicate_id_objects(ws) {
+    let report = |out: &mut Vec<Diagnostic>, oi: usize| {
         let o = &ws.objects[oi];
-        if !AL0264_KINDS.contains(&o.kind) {
-            continue;
-        }
         push(
             out,
             ws,
@@ -879,6 +881,33 @@ pub(crate) fn duplicate_ids(ws: &Workspace, out: &mut Vec<Diagnostic>) {
                 o.id.unwrap_or_default()
             ),
         );
+    };
+    let dups = duplicate_id_objects(ws);
+    for &oi in &dups {
+        if ws.objects[oi].kind != ObjKind::Other {
+            report(out, oi);
+        }
+    }
+    let mut by_id: std::collections::HashSet<(usize, ObjKind, u32)> = Default::default();
+    for o in &ws.objects {
+        if let (Some(id), ObjKind::Codeunit | ObjKind::Table) = (o.id, o.kind) {
+            by_id.insert((o.app, o.kind, id));
+        }
+    }
+    for (oi, o) in ws.objects.iter().enumerate() {
+        if ws.kinds[o.app] == AppKind::Dependency || !matches!(o.kind, ObjKind::Codeunit | ObjKind::Table) {
+            continue;
+        }
+        let Some(id) = o.id else { continue };
+        let in_dependency = ws.apps[o.app].dependencies.iter().any(|d| {
+            ws.apps
+                .iter()
+                .enumerate()
+                .any(|(ai, a)| ai != o.app && a.id.eq_ignore_ascii_case(d) && by_id.contains(&(ai, o.kind, id)))
+        });
+        if in_dependency && !dups.contains(&oi) {
+            report(out, oi);
+        }
     }
 }
 
@@ -898,31 +927,42 @@ pub(crate) fn duplicate_id_objects(ws: &Workspace) -> Vec<usize> {
     dups
 }
 
-/// The longest object name the AL compiler accepts, from alc's text (must-not-compile 0055-object-name-too-long.al:1).
+/// The longest object name the AL compiler accepts, from alc's text (must-not-compile 0055-object-name-too-long.al:1,
+/// 2120-codeunit-name-31-characters.al:1).
 const AL0305_LIMIT: usize = 30;
-/// The shortest name of a codeunit without `Subtype = Test` that AL0305 is reported for: 0055 pins a plain codeunit of
-/// 37 characters, and no case pins one of 31 to 36 characters, so such a name compiles here (docs/probes-needed.md).
-const AL0305_PLAIN_PINNED: usize = 37;
+/// The longest permission set name alc accepts (2131-permissionset-name-21-characters.al:1: 21 is refused, 20 compiles).
+const AL0305_PERMISSION_SET_LIMIT: usize = 20;
 
-/// AL0305: a codeunit whose name is too long (al-runner issue 5845). Pinned: a test codeunit of 31 characters
-/// (must-not-compile 2115-test-codeunit-name-31-characters.al:1, corpus PR 736) while one of 30 compiles
-/// (al-language/codeunit/TestScopeIsolationContracts.al:1, codeunit 60170), and a plain codeunit of 37 characters
-/// (0055-object-name-too-long.al:1). Other object types are not pinned.
+/// The name limit AL0305 applies to an object type, where a case pins it: codeunits (0055, 2115, 2120, 2121), tables
+/// (2122), pages (2123), reports (2124), queries (2125), xmlports (2126), table, page and report extensions
+/// (2127-2129), profiles (2130) and permission sets (2131). Enums have no such limit (2132's comment, and
+/// al-language/misc/lt-cv-odd-leads/CvEnumLongNames.al compiles a name of 38). Enum extensions, permission set
+/// extensions and interfaces are not pinned and are not judged (docs/probes-needed.md).
+fn name_limit(kind: ObjKind) -> Option<usize> {
+    match kind {
+        ObjKind::Codeunit
+        | ObjKind::Table
+        | ObjKind::Page
+        | ObjKind::Report
+        | ObjKind::Query
+        | ObjKind::XmlPort
+        | ObjKind::TableExtension
+        | ObjKind::PageExtension
+        | ObjKind::ReportExtension
+        | ObjKind::Profile => Some(AL0305_LIMIT),
+        ObjKind::PermissionSet => Some(AL0305_PERMISSION_SET_LIMIT),
+        _ => None,
+    }
+}
+
+/// AL0305: an object name longer than its type allows (al-runner issues 5845, 5588; see `name_limit`).
 fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
-    for (oi, o) in ws.objects.iter().enumerate() {
-        if ws.kinds[o.app] == AppKind::Dependency || o.kind != ObjKind::Codeunit {
+    for o in &ws.objects {
+        if ws.kinds[o.app] == AppKind::Dependency {
             continue;
         }
-        let len = o.name.chars().count();
-        if len <= AL0305_LIMIT {
-            continue;
-        }
-        let test = || {
-            ws.object_ast(oi)
-                .properties()
-                .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().trim().eq_ignore_ascii_case("Test"))
-        };
-        if len >= AL0305_PLAIN_PINNED || test() {
+        let Some(limit) = name_limit(o.kind) else { continue };
+        if o.name.chars().count() > limit {
             push(
                 out,
                 ws,
@@ -930,7 +970,7 @@ fn long_object_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
                 o.offset,
                 "AL0305",
                 format!(
-                    "The length of the application object identifier '{}' cannot exceed {AL0305_LIMIT} characters.",
+                    "The length of the application object identifier '{}' cannot exceed {limit} characters.",
                     o.name
                 ),
             );
@@ -2616,6 +2656,91 @@ mod tests {
         }
     }
 
+    // must-not-compile 1250: `I := T`, `C := I` into a Code[20] and `T := I + 1` are AL0122. `exit(1 + 2)` in a procedure
+    // returning Text is the third shape through exit (al-runner issue 5588, comment of 2026-10-24).
+    #[test]
+    fn al0122_integer_text_code_assignments() {
+        let cu = |body: &str| {
+            format!(
+                "codeunit 50000 \"MNC BB Codeunit\" {{ procedure DoIt() var I: Integer; T: Text; C: Code[20]; begin {body} end;
+                   procedure Name(): Text begin exit(1 + 2); end; }}"
+            )
+        };
+        let only = |body: &str| -> Vec<String> {
+            messages(&cu(body))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0122"))
+                .collect()
+        };
+        let exit_msg = "AL0122 Cannot implicitly convert type 'Integer' to 'Text'".to_string();
+        assert_eq!(
+            only("I := T;"),
+            vec![
+                "AL0122 Cannot implicitly convert type 'Text' to 'Integer'".to_string(),
+                exit_msg.clone()
+            ]
+        );
+        assert_eq!(
+            only("C := I;"),
+            vec![
+                "AL0122 Cannot implicitly convert type 'Integer' to 'Code[20]'".to_string(),
+                exit_msg.clone()
+            ]
+        );
+        assert_eq!(only("T := I + 1;"), vec![exit_msg.clone(), exit_msg.clone()]);
+        for ok in [
+            "T := Format(I + 1);",
+            "I := I + 1;",
+            "C := Format(I);",
+            "Evaluate(I, T);",
+        ] {
+            assert_eq!(only(ok), vec![exit_msg.clone()], "{ok}");
+        }
+    }
+
+    // must-not-compile 1190 (Boolean into Text), 1191 (Boolean into Code[10]), 1193 (Date into DateTime), 1251 (a text
+    // literal of two characters into a BigInteger and a Decimal) and 1833 (BigText into Text): AL0122.
+    #[test]
+    fn al0122_more_scalar_pairs() {
+        let cu = |body: &str| {
+            format!(
+                "codeunit 50000 \"MNC C\" {{ procedure DoIt() var B: Boolean; T: Text; C: Code[10]; D: Date; DT: DateTime;
+                   BI: BigInteger; Dec: Decimal; BT: BigText; begin {body} end; }}"
+            )
+        };
+        let only = |body: &str| -> Vec<String> {
+            messages(&cu(body))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0122"))
+                .collect()
+        };
+        for (body, want) in [
+            ("T := B;", vec!["Boolean' to 'Text'"]),
+            ("C := B;", vec!["Boolean' to 'Code[10]'"]),
+            ("DT := D;", vec!["Date' to 'DateTime'"]),
+            (
+                "BI := 'xy'; Dec := 'xy';",
+                vec!["Text' to 'BigInteger'", "Text' to 'Decimal'"],
+            ),
+            ("T := BT;", vec!["BigText' to 'Text'"]),
+        ] {
+            let want: Vec<String> = want
+                .iter()
+                .map(|w| format!("AL0122 Cannot implicitly convert type '{w}"))
+                .collect();
+            assert_eq!(only(body), want, "{body}");
+        }
+        for ok in [
+            "T := Format(B);",
+            "DT := CreateDateTime(D, 0T);",
+            "BI := 'x';",
+            "BT.GetSubText(T, 1);",
+            "B := true;",
+        ] {
+            assert!(only(ok).is_empty(), "{ok}");
+        }
+    }
+
     // must-not-compile 0501: a Text literal and a Text variable assigned to a Decimal. AL0122.
     #[test]
     fn al0122_text_into_decimal() {
@@ -2702,6 +2827,141 @@ mod tests {
         assert!(codes(&["codeunit 50000 A { } table 50000 B { fields { field(1; Id; Integer) { } } }"]).is_empty());
     }
 
+    // must-not-compile 2136-2146: AL0264 for every object type with an id, not only codeunits and tables (al-runner
+    // issue 5588). The type is spelled as alc spells it ('XmlPort', 'PermissionSetExtension').
+    #[test]
+    fn al0264_every_object_type_with_an_id() {
+        let want = |kind: &str| {
+            format!(
+                "AL0264 An application object of type '{kind}' with ID '50001' is already declared by the extension"
+            )
+        };
+        let base = "table 50000 \"MNC T\" { fields { field(1; Id; Integer) { } } }
+                    page 50000 \"MNC P\" { SourceTable = \"MNC T\"; }
+                    report 50000 \"MNC R\" { }
+                    enum 50000 \"MNC E\" { value(0; A) { } }";
+        for (kind, a, b) in [
+            (
+                "Page",
+                "page 50001 \"MNC A\" { SourceTable = \"MNC T\"; }",
+                "page 50001 \"MNC B\" { SourceTable = \"MNC T\"; }",
+            ),
+            ("Report", "report 50001 \"MNC A\" { }", "report 50001 \"MNC B\" { }"),
+            (
+                "Query",
+                "query 50001 \"MNC A\" { elements { dataitem(T; \"MNC T\") { column(Id; Id) { } } } }",
+                "query 50001 \"MNC B\" { elements { dataitem(T; \"MNC T\") { column(Id; Id) { } } } }",
+            ),
+            ("XmlPort", "xmlport 50001 \"MNC A\" { }", "xmlport 50001 \"MNC B\" { }"),
+            (
+                "Enum",
+                "enum 50001 \"MNC A\" { value(0; A) { } }",
+                "enum 50001 \"MNC B\" { value(0; A) { } }",
+            ),
+            (
+                "TableExtension",
+                "tableextension 50001 \"MNC A\" extends \"MNC T\" { }",
+                "tableextension 50001 \"MNC B\" extends \"MNC T\" { }",
+            ),
+            (
+                "PageExtension",
+                "pageextension 50001 \"MNC A\" extends \"MNC P\" { }",
+                "pageextension 50001 \"MNC B\" extends \"MNC P\" { }",
+            ),
+            (
+                "EnumExtension",
+                "enumextension 50001 \"MNC A\" extends \"MNC E\" { value(10; X) { } }",
+                "enumextension 50001 \"MNC B\" extends \"MNC E\" { value(11; Y) { } }",
+            ),
+            (
+                "ReportExtension",
+                "reportextension 50001 \"MNC A\" extends \"MNC R\" { }",
+                "reportextension 50001 \"MNC B\" extends \"MNC R\" { }",
+            ),
+            (
+                "PermissionSet",
+                "permissionset 50001 \"MNC A\" { }",
+                "permissionset 50001 \"MNC B\" { }",
+            ),
+        ] {
+            let got: Vec<String> = messages(&format!("{base} {a} {b}"))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0264"))
+                .collect();
+            assert_eq!(got, vec![want(kind), want(kind)], "{kind}");
+        }
+    }
+
+    // must-not-compile 2148 (a codeunit) and 2149 (a table): an object with the id of an object of the same type in a
+    // direct dependency is AL0264, reported once, on this app's declaration. Without the dependency it compiles.
+    #[test]
+    fn al0264_an_id_a_dependency_declares() {
+        let dep = "codeunit 61100 \"Dep C\" { }
+                   table 61101 \"Dep T\" { fields { field(1; Id; Integer) { } } }";
+        assert_eq!(
+            codes_with_dependency(&["codeunit 61100 \"MNC Same\" { }"], Some(dep)),
+            vec!["AL0264"]
+        );
+        assert_eq!(
+            codes_with_dependency(
+                &["table 61101 \"MNC Same\" { fields { field(1; Id; Integer) { } } }"],
+                Some(dep)
+            ),
+            vec!["AL0264"]
+        );
+        // Another type with the id is fine, and so is the same file without the dependency loaded.
+        assert!(codes_with_dependency(&["codeunit 61101 \"MNC Other\" { }"], Some(dep)).is_empty());
+        assert!(codes_with_dependency(&["codeunit 61100 \"MNC Same\" { }"], None).is_empty());
+    }
+
+    // must-not-compile 2120-2131: AL0305 for a name over 30 characters of a codeunit (31 and 36 characters), table,
+    // page, report, query, xmlport, table, page and report extension and profile; 20 for a permission set.
+    #[test]
+    fn al0305_every_pinned_object_type() {
+        let name = "MNC SH Name Length Probe Object"; // 31 characters
+        let want =
+            format!("AL0305 The length of the application object identifier '{name}' cannot exceed 30 characters.");
+        let base = "table 50000 \"MNC T\" { fields { field(1; Id; Integer) { } } }
+                    page 50002 \"MNC P\" { SourceTable = \"MNC T\"; }
+                    report 50002 \"MNC R\" { }";
+        for obj in [
+            format!("codeunit 50001 \"{name}\" {{ }}"),
+            "codeunit 50001 \"MNC SH Name Length Probe Object Abcd\" { }".to_string(),
+            format!("table 50001 \"{name}\" {{ fields {{ field(1; Id; Integer) {{ }} }} }}"),
+            format!("page 50001 \"{name}\" {{ SourceTable = \"MNC T\"; }}"),
+            format!("report 50001 \"{name}\" {{ }}"),
+            format!("query 50001 \"{name}\" {{ elements {{ dataitem(T; \"MNC T\") {{ column(Id; Id) {{ }} }} }} }}"),
+            format!("xmlport 50001 \"{name}\" {{ }}"),
+            format!("tableextension 50001 \"{name}\" extends \"MNC T\" {{ }}"),
+            format!("pageextension 50001 \"{name}\" extends \"MNC P\" {{ }}"),
+            format!("reportextension 50001 \"{name}\" extends \"MNC R\" {{ }}"),
+            format!("profile \"{name}\" {{ Caption = 'X'; RoleCenter = \"MNC P\"; }}"),
+        ] {
+            let got: Vec<String> = messages(&format!("{base} {obj}"))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0305"))
+                .collect();
+            assert_eq!(got.len(), 1, "{obj}: {got:?}");
+            assert!(got[0].starts_with(&want[..want.find('\'').unwrap()]), "{obj}: {got:?}");
+        }
+        assert_eq!(
+            messages("permissionset 50001 \"MNC SH Name Length Pr\" { Assignable = true; }"),
+            vec![
+                "AL0305 The length of the application object identifier 'MNC SH Name Length Pr' cannot exceed 20 characters."
+                    .to_string()
+            ]
+        );
+        // 30 characters compile, a permission set of 20 compiles, and an enum has no such limit
+        // (al-language/misc/lt-cv-odd-leads/CvEnumLongNames.al, 38 characters).
+        for ok in [
+            "table 50001 \"MNC SH Name Length Probe Objec\" { fields { field(1; Id; Integer) { } } }",
+            "permissionset 50001 \"MNC SH Name Length P\" { Assignable = true; }",
+            "enum 50001 \"MNC SH Enum Name That Is Rather Long Ok\" { value(0; A) { } }",
+        ] {
+            assert!(codes(&[ok]).iter().all(|c| c != "AL0305"), "{ok}");
+        }
+    }
+
     // must-not-compile 0055: AL0305 for an object name of 37 characters (al-runner issue 5845).
     #[test]
     fn al0305_an_object_name_too_long() {
@@ -2746,6 +3006,151 @@ mod tests {
         ] {
             assert!(codes(&[ok]).is_empty(), "{ok}");
         }
+    }
+
+    // must-not-compile 2150-2165: AL0139 in the triggers and procedures of tables, fields, pages, actions, reports, data
+    // items, xmlports, queries, table and page extensions and in an event subscriber (al-runner issue 5588).
+    #[test]
+    fn al0139_in_every_pinned_object_type() {
+        let t =
+            "table 50000 \"MNC T\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }";
+        let p = "page 50001 \"MNC P\" { SourceTable = \"MNC T\"; }";
+        for (name, src) in [
+            ("OnInsert", "table 50009 \"MNC X\" { fields { field(1; Id; Integer) { } } trigger OnInsert() begin exit(1); end; }".to_string()),
+            ("OnValidate", "table 50009 \"MNC X\" { fields { field(1; Id; Integer) { trigger OnValidate() begin exit(true); end; } } }".to_string()),
+            ("DoIt", "table 50009 \"MNC X\" { fields { field(1; Id; Integer) { } } procedure DoIt() begin exit('x'); end; }".to_string()),
+            ("OnOpenPage", "page 50009 \"MNC X\" { SourceTable = \"MNC T\"; trigger OnOpenPage() begin exit(1); end; }".to_string()),
+            ("DoIt", "page 50009 \"MNC X\" { SourceTable = \"MNC T\"; local procedure DoIt() begin exit(1); end; }".to_string()),
+            ("OnAction", "page 50009 \"MNC X\" { SourceTable = \"MNC T\"; actions { area(Processing) { action(Go) { trigger OnAction() begin exit(1); end; } } } }".to_string()),
+            ("OnPreReport", "report 50009 \"MNC X\" { ProcessingOnly = true; trigger OnPreReport() begin exit(1); end; }".to_string()),
+            ("OnAfterGetRecord", "report 50009 \"MNC X\" { ProcessingOnly = true; dataset { dataitem(B; \"MNC T\") { trigger OnAfterGetRecord() begin exit(1); end; } } }".to_string()),
+            ("DoIt", "report 50009 \"MNC X\" { ProcessingOnly = true; procedure DoIt() begin exit(1); end; }".to_string()),
+            ("OnPreXmlPort", "xmlport 50009 \"MNC X\" { schema { textelement(Root) { } } trigger OnPreXmlPort() begin exit(1); end; }".to_string()),
+            ("DoIt", "xmlport 50009 \"MNC X\" { schema { textelement(Root) { } } procedure DoIt() begin exit(1); end; }".to_string()),
+            ("OnBeforeOpen", "query 50009 \"MNC X\" { elements { dataitem(B; \"MNC T\") { column(Id; Id) { } } } trigger OnBeforeOpen() begin exit(1); end; }".to_string()),
+            ("DoIt", "query 50009 \"MNC X\" { elements { dataitem(B; \"MNC T\") { column(Id; Id) { } } } procedure DoIt() begin exit(1); end; }".to_string()),
+            ("OnAfterInsert", "tableextension 50009 \"MNC X\" extends \"MNC T\" { trigger OnAfterInsert() begin exit(1); end; }".to_string()),
+            ("DoIt", "pageextension 50009 \"MNC X\" extends \"MNC P\" { procedure DoIt() begin exit(1); end; }".to_string()),
+        ] {
+            let got: Vec<String> = messages(&format!("{t} {p} {src}"))
+                .into_iter()
+                .filter(|m| m.starts_with("AL0139"))
+                .collect();
+            assert_eq!(
+                got,
+                vec![format!("AL0139 Since '{name}' doesn't have a return value, EXIT cannot be called with a value")],
+                "{src}"
+            );
+        }
+        // A page trigger that returns a value keeps compiling.
+        let ok = format!(
+            "{t} page 50009 \"MNC X\" {{ SourceTable = \"MNC T\"; trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end; }}"
+        );
+        assert!(codes(&[&ok]).iter().all(|c| c != "AL0139"));
+    }
+
+    // must-not-compile 2167-2188: AL0135 through a codeunit variable, a record variable, `this`, a bare call inside a
+    // table, and alc's rendering of every pinned parameter type in the signature (al-runner issue 5588).
+    #[test]
+    fn al0135_calls_on_variables_and_parameter_types() {
+        let src = |lib: &str, call: &str| {
+            format!(
+                "table 50000 \"MNC SH Table\" {{ fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ Clustered = true; }} }}
+                   procedure Take(A: Integer; B: Integer) begin end; }}
+                 enum 50000 \"MNC SH Enum\" {{ value(0; None) {{ }} }}
+                 interface \"MNC SH Iface\" {{ procedure X(); }}
+                 page 50003 \"MNC SH Page\" {{ SourceTable = \"MNC SH Table\"; }}
+                 codeunit 50001 \"MNC SH Lib\" {{ {lib} }}
+                 codeunit 50002 \"MNC SH Caller\" {{ procedure Run1() var Lib: Codeunit \"MNC SH Lib\"; R: Record \"MNC SH Table\"; begin {call} end; }}"
+            )
+        };
+        let al0135 =
+            |src: &str| -> Vec<String> { messages(src).into_iter().filter(|m| m.starts_with("AL0135")).collect() };
+        let want = |p: &str, sig: &str| {
+            format!(
+                "AL0135 There is no argument given that corresponds to the required formal parameter '{p}' of '{sig}'"
+            )
+        };
+        assert_eq!(
+            al0135(&src(
+                "procedure Add(A: Integer; B: Integer): Integer begin exit(A + B); end;",
+                "Lib.Add(1);"
+            )),
+            vec![want("B", "Add(Integer, Integer)")]
+        );
+        assert_eq!(
+            al0135(&src("", "R.Take(1);")),
+            vec![want("B", "Take(Integer, Integer)")]
+        );
+        assert_eq!(
+            al0135(&src("procedure Sig(A: Integer) begin end;", "Lib.Sig();")),
+            vec![want("A", "Sig(Integer)")]
+        );
+        for (decl, sig) in [
+            ("R: Record \"MNC SH Table\"", "Record \"MNC SH Table\""),
+            ("var R: Record \"MNC SH Table\"", "var Record \"MNC SH Table\""),
+            (
+                "var R: Record \"MNC SH Table\" temporary",
+                "var Record \"MNC SH Table\" temporary",
+            ),
+            ("R: Code[20]", "Code[20]"),
+            ("R: Option Alpha,Beta", "Option"),
+            ("R: Enum \"MNC SH Enum\"", "Enum \"MNC SH Enum\""),
+            ("R: Decimal", "Decimal"),
+            ("R: Date", "Date"),
+            ("var R: Integer", "var Integer"),
+            ("R: Boolean", "Boolean"),
+            ("R: Time", "Time"),
+            ("R: DateTime", "DateTime"),
+            ("R: Guid", "Guid"),
+            ("R: BigInteger", "BigInteger"),
+            ("R: Char", "Char"),
+            ("R: Text[30]", "Text[30]"),
+            ("R: Duration", "Duration"),
+            ("R: DateFormula", "DateFormula"),
+            ("R: Variant", "Variant"),
+            ("R: RecordRef", "RecordRef"),
+            ("R: FieldRef", "FieldRef"),
+            ("R: List of [Text]", "List of [Text]"),
+            ("R: Dictionary of [Integer, Text]", "Dictionary of [Integer, Text]"),
+            ("R: Codeunit \"MNC SH Lib\"", "Codeunit \"MNC SH Lib\""),
+            ("R: Page \"MNC SH Page\"", "Page \"MNC SH Page\""),
+            ("R: JsonObject", "JsonObject"),
+            ("R: array[3] of Integer", "array[3] of Integer"),
+            ("R: SecretText", "SecretText"),
+            ("R: Interface \"MNC SH Iface\"", "Interface \"MNC SH Iface\""),
+            ("R: InStream", "InStream"),
+            ("R: ErrorInfo", "ErrorInfo"),
+        ] {
+            assert_eq!(
+                al0135(&src(
+                    &format!("procedure Sig(X: Integer; {decl}) begin end;"),
+                    "Lib.Sig(1);"
+                )),
+                vec![want("R", &format!("Sig(Integer, {sig})"))],
+                "{decl}"
+            );
+        }
+        // A bare call and a `this.` call inside the table itself (2169, 2170).
+        let table = |call: &str| {
+            format!(
+                "table 50000 \"MNC T\" {{ fields {{ field(1; Id; Integer) {{ trigger OnValidate() begin {call} end; }} }}
+                   procedure Take(A: Integer; B: Integer) begin end; procedure Run1() begin {call} end; }}"
+            )
+        };
+        assert_eq!(al0135(&table("Take(1);")), vec![want("B", "Take(Integer, Integer)"); 2]);
+        assert_eq!(
+            al0135(&table("this.Take(1);")),
+            vec![want("B", "Take(Integer, Integer)"); 2]
+        );
+        // Enough arguments compile.
+        assert!(
+            al0135(&src(
+                "procedure Add(A: Integer; B: Integer) begin end;",
+                "Lib.Add(1, 2); R.Take(1, 2);"
+            ))
+            .is_empty()
+        );
     }
 
     // must-not-compile 0242 and 0066: AL0135 for a call of an own procedure with too few arguments, also where

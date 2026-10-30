@@ -838,11 +838,15 @@ impl Lowerer<'_> {
                     }
                 }
                 // The OptionCaption of an Option field goes along as a fourth argument.
-                if let (true, Some(captions)) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
+                // A fifth argument 1: the fourth is the OptionCaptionML property text.
+                if let (true, Some((captions, ml))) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(captions))));
+                    if ml {
+                        out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))));
+                    }
                 }
                 // The declared length of a Text or Code variable goes along as a fourth argument.
                 if emit_id == "System.EvaluateBounded#1" {
