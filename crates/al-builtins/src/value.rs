@@ -352,6 +352,10 @@ pub enum ReadBackwards {
 /// A row key and what the repeater's page-variable controls show for it: (control index, value) (`PageState::row_vars`).
 pub type RowVars = (Vec<Value>, Vec<(usize, Value)>);
 
+/// The view of a page's record an action started from: filters, key, the fields of an ad-hoc key, Ascending
+/// (`PageState::view_before_action`).
+pub type ActionView = (Vec<crate::filter::FieldFilter>, usize, Option<Vec<usize>>, bool);
+
 /// The test client's state for one page (ADR-012). Fields grow with the
 /// behaviours the corpus pins.
 pub struct PageState {
@@ -540,6 +544,9 @@ pub struct PageState {
     pub marking_action: bool,
     /// The refresh after such an action took the marked rows it read as the rows the client holds.
     pub marked_rows_held: bool,
+    /// While an action runs: the view of the page's record (filters, key and its ad-hoc fields, Ascending) as it was before
+    /// the action, so the refresh inside the action can tell the view changed (al-runner issue 6381).
+    pub view_before_action: Option<ActionView>,
     /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
     /// before the next move is refused (the page still shows the old row there; not built).
     pub marked_only_read_unbuilt: bool,
@@ -891,6 +898,7 @@ impl PageState {
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
+            view_before_action: None,
             marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,

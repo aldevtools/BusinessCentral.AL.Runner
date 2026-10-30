@@ -690,12 +690,15 @@ registry! {
 
     ActionViewChangeListRereads => {
         id: "action-view-change-list-rereads",
-        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view. Measured on real BC (corpus writer Y5, branch al-runtime-rs-staging-y5); flagged until the file is in the pinned corpus. A key or sort order change is not measured.",
+        assumed: "On a list without OnAfterGetRecord, OnFindRecord and OnNextRecord, an action that changes the filters, key or sort order of the page's record drops the rows the client read under the old view: the next move reads the new view from its first row, and a row the new filters leave out moves to the next row of the new view; SetCurrentKey keeps the row and the next move follows the new key; SetAscending of one field changes nothing visible. Measured on real BC (corpus writer Y5, branches al-runtime-rs-staging-y5 and -y5b); flagged until the files are in the pinned corpus.",
         tests: "No Microsoft test: a partner app's field picker (al-runner issue 6381) walks a Field list whose action changes the table filter, then calls GoToKey.",
-        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al once the corpus bump brings it in; then also an action that only calls SetCurrentKey or SetAscending, followed by GoToKey, Next and First.",
+        probe: "Pinned by pages/lt-y5/Y5GoToKeyAfterActionFilter.al and Y5GoToKeyAfterActionKeyAndTriggers.al once the corpus bump brings them in.",
         awaiting: Awaiting {
             issues: &[6381],
-            files: &["tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al"],
+            files: &[
+                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionFilter.al",
+                "tests/al-language/pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al",
+            ],
             since: "2026-10-30",
         },
     },
