@@ -138,7 +138,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0185",
-        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082); any other missing object is not decided.",
+        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), and for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213); any other missing object is not decided.",
     ),
     (
         "AL0666",
@@ -458,6 +458,7 @@ pub fn check_workspace(ws: &Workspace) -> Vec<Diagnostic> {
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &mut out);
+        unknown_codeunit_variables(ws, oi, &obj, &mut out);
         object_properties(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
@@ -537,6 +538,36 @@ fn platform_integer_without_using(ws: &Workspace, oi: usize, obj: &ast::Object, 
             offset,
             "AL0185",
             "Table 'Integer' is missing".to_string(),
+        );
+    }
+}
+
+/// AL0185 `Codeunit 'X' is missing`: a variable declared with a codeunit type nobody declares (must-not-compile
+/// 0213-unknown-codeunit-var.al:7, a local variable). Only a variable declaration with a one-segment name is judged; a
+/// parameter, a return type, an id and a namespace-qualified name keep compiling (not pinned). `names_object` keeps the
+/// name when an app the file sees, or the platform app, is not loaded.
+fn unknown_codeunit_variables(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
+    let file = ws.objects[oi].file;
+    for t in obj
+        .syntax()
+        .descendants()
+        .filter_map(ast::VarDecl::cast)
+        .filter_map(|d| d.type_ref())
+    {
+        if !t.type_name().eq_ignore_ascii_case("Codeunit") {
+            continue;
+        }
+        let parts = t.object_name_parts();
+        if parts.len() != 1 || parts[0].parse::<u32>().is_ok() || ws.names_object(file, ObjKind::Codeunit, &parts) {
+            continue;
+        }
+        push(
+            out,
+            ws,
+            file,
+            offset_of(t.syntax()),
+            "AL0185",
+            format!("Codeunit '{}' is missing", parts[0]),
         );
     }
 }
@@ -2230,6 +2261,81 @@ mod tests {
             .filter(|d| d.code.starts_with("AL"))
             .map(|d| format!("{} {}", d.code, d.message))
             .collect()
+    }
+
+    /// must-not-compile 0213-unknown-codeunit-var.al:7: a variable of a codeunit type nobody declares is AL0185
+    /// `Codeunit 'X' is missing`. Judged only when every app the file sees is loaded, the platform app included.
+    #[test]
+    fn al0185_variable_of_an_unknown_codeunit_type() {
+        let local = "codeunit 50000 C { procedure P() var X: Codeunit \"No Such\"; begin end; }";
+        let global = "codeunit 50001 G { var X: Codeunit NoSuch; }";
+        let other = "codeunit 2000000001 Other { }";
+        assert_eq!(codes_with_platform(&[local], other), vec!["AL0185"]);
+        assert_eq!(codes_with_platform(&[global], other), vec!["AL0185"]);
+        assert_eq!(
+            messages_with_platform(&[local], other),
+            vec!["AL0185 Codeunit 'No Such' is missing".to_string()]
+        );
+        // Found in the app itself, in the platform app, or named by id: no error.
+        let own = "codeunit 50002 \"No Such\" { }";
+        assert!(codes_with_platform(&[local, own], other).is_empty());
+        assert!(codes_with_platform(&[local], "codeunit 2000000002 \"No Such\" { }").is_empty());
+        let by_id = "codeunit 50003 I { procedure P() var X: Codeunit 50002; begin end; }";
+        assert!(codes_with_platform(&[by_id, own], other).is_empty());
+        // Without the platform app, or with a dependency that is not loaded, the name may exist.
+        assert!(codes(&[local]).is_empty());
+        assert!(codes_with_dependency(&[local], None).is_empty());
+        assert_eq!(codes_with_dependency(&[local], Some(other)), vec!["AL0185"]);
+        assert!(codes_with_dependency(&[local], Some("codeunit 60000 \"No Such\" { }")).is_empty());
+    }
+
+    /// A real app states an `application` floor, so the runner gives it the `Application` aggregate as a dependency next
+    /// to the apps the aggregate propagates (`al_deps::load::Loaded::implied_dependencies`). The aggregate has no source
+    /// and is never loaded; it declares no objects, so it hides no name once Base Application, whose dependencies are
+    /// the rest of the aggregate, is loaded. Without Base Application the name stays undecided.
+    #[test]
+    fn al0185_is_judged_when_only_the_application_aggregate_is_not_loaded() {
+        let local = "codeunit 50000 C { procedure P() var X: Codeunit \"No Such\"; begin end; }";
+        let base = crate::workspace::BASE_APPLICATION_APP_ID;
+        let aggregate = crate::workspace::APPLICATION_AGGREGATE_APP_ID;
+        let run = |deps: Vec<&str>, with_base: bool| -> Vec<String> {
+            let file = |s: &str| vec![("f.al".to_string(), s.to_string())];
+            let mut apps = vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: deps.iter().map(|d| d.to_string()).collect(),
+                files: file(local),
+            }];
+            let mut kinds = vec![crate::workspace::AppKind::Workspace];
+            if with_base {
+                apps.push(AppSource {
+                    id: base.into(),
+                    name: "Base Application".into(),
+                    dependencies: vec![],
+                    files: file("codeunit 80 \"Sales-Post\" { }"),
+                });
+                kinds.push(crate::workspace::AppKind::Dependency);
+            }
+            apps.push(AppSource {
+                id: crate::workspace::PLATFORM_APP_ID.into(),
+                name: "System".into(),
+                dependencies: vec![],
+                files: file("codeunit 2000000001 Other { }"),
+            });
+            kinds.push(crate::workspace::AppKind::Dependency);
+            let ws = Workspace::load_apps(apps, kinds, &Default::default());
+            let r = crate::check::check(&ws, &crate::members::build(&ws), &Catalog::load());
+            r.diagnostics
+                .iter()
+                .filter(|d| d.code.starts_with("AL"))
+                .map(|d| d.code.to_string())
+                .collect()
+        };
+        assert_eq!(run(vec![aggregate, base], true), vec!["AL0185"]);
+        // Base Application not loaded: the aggregate may hold the name.
+        assert!(run(vec![aggregate], false).is_empty());
+        // Another dependency that is not loaded still keeps the name.
+        assert!(run(vec![aggregate, base, "other"], true).is_empty());
     }
 
     #[test]
