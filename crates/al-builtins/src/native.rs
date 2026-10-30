@@ -448,8 +448,8 @@ pub trait Ctx: FormatCtx {
         Err("this context has no file system".into())
     }
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
-    /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close`, and the worksheet writers it handed
-    /// out: assumption clear-closed-workbook-writer).
+    /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
+    /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.
     fn dotnet_clear_is_inert(&mut self, _handle: u64, _clr_type: &str) -> bool {
         false
     }
@@ -2746,13 +2746,14 @@ fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result
         {
             Value::Null
         }
-        // Excel Buffer.CloseBook clears its worksheet writer and its workbook writer after the workbook's Close: the variables
-        // become unassigned (assumption clear-closed-workbook-writer, from Microsoft's Tests-ERM "ERM Analysis View Excel Export").
+        // Excel Buffer.CloseBook clears its worksheet and workbook writers after the workbook's Close, and its worksheet and
+        // workbook readers: the variables become unassigned (assumptions clear-closed-workbook-writer and clear-workbook-reader,
+        // from Microsoft's Tests-ERM; the context marks them). A later call on the object through another
+        // variable is refused (the context remembers the handle).
         Value::DotNet(o)
             if matches!(&o.kind, crate::value::DotNetKind::Host { handle, clr_type }
                 if ctx.dotnet_clear_is_inert(*handle, clr_type)) =>
         {
-            crate::assumptions::assume(crate::assumptions::Assumption::ClearClosedWorkbookWriter);
             Value::Null
         }
         Value::DotNet(o) => {

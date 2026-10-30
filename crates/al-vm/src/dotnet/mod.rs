@@ -83,6 +83,13 @@ pub struct DotNetState {
     /// open (worksheet -> workbook): a `Clear` of either then only unassigns the variable (`clear_is_inert`).
     closed_workbooks: std::collections::HashSet<DotNetHandle>,
     worksheets: HashMap<DotNetHandle, DotNetHandle>,
+    /// The workbook readers `WorkbookReader.Open` made, and the worksheet readers they handed out (worksheet -> workbook):
+    /// a `Clear` of either only unassigns the variable (`clear_is_inert`).
+    workbook_readers: std::collections::HashSet<DotNetHandle>,
+    worksheet_readers: HashMap<DotNetHandle, DotNetHandle>,
+    /// Objects a `Clear` unassigned under those assumptions: another variable may still hold one, and whether the Clear
+    /// disposed it is not pinned, so a later member call on it is refused.
+    cleared: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
@@ -176,6 +183,14 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        if let Value::DotNet(o) = &recv
+            && let DotNetKind::Host { handle, .. } = &o.kind
+            && self.dotnet.cleared.contains(handle)
+        {
+            return unsupported(format!(
+                "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
+            ));
+        }
         let target = match (kind, &recv) {
             (MemberKind::Construct, _) => match &decl {
                 Some(d) => Target::Static(d.clone()),
@@ -689,6 +704,19 @@ impl Session {
             self.dotnet.open_workbooks.insert(*handle, (path, blob));
             return Ok(());
         }
+        // A workbook reader `WorkbookReader.Open` made, and a worksheet reader it hands out (GetWorksheetByName).
+        if let Value::DotNet(o) = result
+            && let DotNetKind::Host { handle, clr_type } = &o.kind
+        {
+            if clr_type.eq_ignore_ascii_case(WORKBOOK_READER) && matches!(target, Target::Static(_)) {
+                self.dotnet.workbook_readers.insert(*handle);
+            } else if clr_type.eq_ignore_ascii_case(WORKSHEET_READER)
+                && let Target::Host(h, _) = target
+                && self.dotnet.workbook_readers.contains(h)
+            {
+                self.dotnet.worksheet_readers.insert(*handle, *h);
+            }
+        }
         if self.dotnet.open_workbooks.is_empty() {
             return Ok(());
         }
@@ -714,17 +742,38 @@ impl Session {
     /// Whether `Clear` of a DotNet variable holding `handle` only unassigns it: a workbook writer `WorkbookWriter.Create(fileName)`
     /// made, after its `Close` or `Dispose`, or a worksheet writer it handed out while open (Excel Buffer.CloseBook; assumption
     /// clear-closed-workbook-writer). Before the Close a Dispose could change what Close writes, which is not pinned.
-    pub(crate) fn dotnet_clear_is_inert(&self, handle: DotNetHandle, clr_type: &str) -> bool {
+    /// A workbook reader `WorkbookReader.Open` made, or a worksheet reader it handed out (Excel Buffer.CloseBook after ReadSheet;
+    /// assumption clear-workbook-reader): a reader has nothing to write, and the AL stream it was opened over was read to its
+    /// end when it was handed to .NET. Another variable may still hold the object: a later call on it is refused (`cleared`).
+    pub(crate) fn dotnet_clear_is_inert(&mut self, handle: DotNetHandle, clr_type: &str) -> bool {
+        use al_builtins::assumptions::{Assumption, assume};
         let dn = &self.dotnet;
-        if clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) {
-            dn.closed_workbooks.contains(&handle)
+        let (inert, why) = if clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) {
+            (
+                dn.closed_workbooks.contains(&handle),
+                Assumption::ClearClosedWorkbookWriter,
+            )
         } else if clr_type.eq_ignore_ascii_case(WORKSHEET_WRITER) {
-            dn.worksheets
+            let closed = dn
+                .worksheets
                 .get(&handle)
-                .is_some_and(|book| dn.closed_workbooks.contains(book))
+                .is_some_and(|book| dn.closed_workbooks.contains(book));
+            (closed, Assumption::ClearClosedWorkbookWriter)
+        } else if clr_type.eq_ignore_ascii_case(WORKBOOK_READER) {
+            (dn.workbook_readers.contains(&handle), Assumption::ClearWorkbookReader)
+        } else if clr_type.eq_ignore_ascii_case(WORKSHEET_READER) {
+            (
+                dn.worksheet_readers.contains_key(&handle),
+                Assumption::ClearWorkbookReader,
+            )
         } else {
-            false
+            return false;
+        };
+        if inert {
+            assume(why);
+            self.dotnet.cleared.insert(handle);
         }
+        inert
     }
 
     /// ADR-056: a static System.IO.File or System.IO.Directory call (`ty` and `member` in lower case) answered by the
@@ -1617,6 +1666,7 @@ fn holds_carried_text(bytes: &[u8]) -> bool {
 const WORKBOOK_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter";
 const WORKBOOK_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
 const WORKSHEET_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
+const WORKSHEET_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetReader";
 
 fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
     let t = clr_type.to_ascii_lowercase();

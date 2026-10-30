@@ -2793,6 +2793,32 @@ fn a_generic_only_method_whose_result_is_not_stored_into_a_dotnet_variable_is_re
     assert!(unsupported(&r).contains("generic only"), "{}", unsupported(&r));
 }
 
+// Excel Buffer.ReadSheet ends with CloseBook, which clears the worksheet reader and the workbook reader: both become unassigned
+// (assumption clear-workbook-reader, Microsoft's Tests-ERM "ERM Account Schedule II" CreateNewExcelTemplate reads two
+// workbooks this way). A later call on a reader another variable still holds is refused: whether the Clear disposed it is not
+// pinned.
+#[test]
+fn clear_of_a_workbook_reader_and_its_worksheet_reader_unassigns_them() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; S: DotNet WorksheetReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body = "B.Data.CreateInStream(I); R := R.Open(I); S := R.GetWorksheetByName('Sheet1'); Clear(S); Clear(R);
+        exit(Format(IsNull(S)) + ' ' + Format(IsNull(R)));";
+    assert_eq!(text(run_mem(&host, vars, body)), "Yes Yes");
+}
+
+#[test]
+fn a_call_on_a_worksheet_reader_cleared_through_another_variable_is_refused() {
+    let host = generic_host();
+    let vars = "R: DotNet WorkbookReader; S: DotNet WorksheetReader; S2: DotNet WorksheetReader; B: Record \"ALT Blob\"; I: InStream;";
+    let body = "B.Data.CreateInStream(I); R := R.Open(I); S := R.GetWorksheetByName('Sheet1'); S2 := S; Clear(S); exit(Format(S2.RowCount));";
+    let r = run_mem(&host, vars, body);
+    assert!(
+        unsupported(&r).contains("cleared through another variable"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
 // What the file holds while the writer is open is not pinned (.NET has created it; its bytes before Close are the package's
 // business): a look at it is refused.
 #[test]
