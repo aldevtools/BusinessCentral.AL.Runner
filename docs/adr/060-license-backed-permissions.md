@@ -1,6 +1,6 @@
 # ADR-060: License-backed permissions: License Permission and the license level of a permission check come from a BC license file
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-30)
 - Date: 2026-10-30
 - Related: ADR-006 (no OS access in core crates), ADR-007 (corpus is the oracle), ADR-009 (match BC where observable),
   ADR-013 (Microsoft's apps from their real source; nothing from Microsoft is committed), ADR-019 (platform table
@@ -224,28 +224,30 @@ License Permission reads and `CheckLicenseFile` answer from it.
 - The runner never ships a license. A run without an artifact license answers less than a run with one, and the
   report says which license (or none) was used.
 
-## Open questions (with recommended answers)
+## Decisions on the open questions (owner, 2026-10-30)
 
-1. **Indirect bits.** Which bits of the mask mean Indirect? *Recommended:* read them from a license that grants
+The owner accepted the recommended answer to each question.
+
+1. **Indirect bits.** Which bits of the mask mean Indirect? *Decided:* read them from a license that grants
    something indirectly (a customer or partner license the owner has locally, inspected locally, never committed), and
    pin the observable result (License Permission shows `Indirect`) in a corpus probe once the corpus CI can import such
    a license. Until then, a mask with unknown bits stops the run with a clear reason.
 2. **Limited Usage column.** How the limited-usage list maps to `Limited Usage Permission`, given table 18 is listed
-   but pinned blank. *Recommended:* answer the column blank for the Cronus license (pinned), and refuse the column for a
+   but pinned blank. *Decided:* answer the column blank for the Cronus license (pinned), and refuse the column for a
    license whose limited-usage list differs from Cronus, until a probe with a second license pins it.
 3. **System object overrides.** Are the three pinned narrowings (Page 2000000000/2000000001 on 28+, Table 2000000001)
-   the only ones? *Recommended:* add a corpus probe that reads License Permission for every system object number
+   the only ones? *Decided:* add a corpus probe that reads License Permission for every system object number
    (2000000000 and up) of each type, per BC major, and serve those rows from the pins.
-4. **Table vs TableDescription.** Confirm that `Table` rows come from `TableDescription`. *Recommended:* one probe row
+4. **Table vs TableDescription.** Confirm that `Table` rows come from `TableDescription`. *Decided:* one probe row
    for Table at a number where the TableDescription and TableData ranges differ (needs a license where they differ;
-   with Cronus they are equal, so accept the inference and note it in `docs/probes-needed.md`).
-5. **Default when the artifact license is missing.** *Recommended:* the pinned rows only, as today, and say so in the
+   with Cronus they are equal, so the inference is accepted and noted in `docs/probes-needed.md`).
+5. **Default when the artifact license is missing.** *Decided:* the pinned rows only, as today, and say so in the
    report. Never fall back to a built-in license.
 6. **License-caused denial texts.** Which error text and code BC raises when the license (not the sets) denies a
-   TableData operation directly or indirectly, a Page open, a Report run, a Codeunit run. *Recommended:* probes queued
+   TableData operation directly or indirectly, a Page open, a Report run, a Codeunit run. *Decided:* probes queued
    in `docs/probes-needed.md`; they need a corpus CI run with a restricted license. Until pinned, enforcement of a
    license denial is refused, not guessed.
-7. **Signature check.** *Recommended:* no check. The user owns the input, and BC's own behavior with a tampered file is
+7. **Signature check.** *Decided:* no check. The user owns the input, and BC's own behavior with a tampered file is
    not observable to AL code.
 
 ## Conformance
