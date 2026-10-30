@@ -3338,3 +3338,22 @@ fn the_artifact_license_gives_every_pinned_row() {
         }
     }
 }
+
+/// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
+/// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
+#[test]
+fn all_obj_with_caption_of_a_table_captioned_over_its_own_stays_refused() {
+    let o = outcomes(
+        r#"table 50001 Wc { Caption = 'Work Center'; fields { field(1; No; Code[20]) { } } keys { key(PK; No) { } } }
+tableextension 50002 WcExt extends Wc { Caption = 'Repro Work Center Extension'; }
+codeunit 50100 T { Subtype = Test;
+  [Test] procedure ReadCaption() var A: Record AllObjWithCaption; begin A.Get(A."Object Type"::Table, 50001); if A."Object Caption" = '' then; end; }"#,
+    );
+    assert!(!o.is_empty());
+    for (n, r) in o {
+        assert!(
+            matches!(&r, Outcome::NotRun(why) if why.contains("caption")),
+            "{n}: {r:?}"
+        );
+    }
+}

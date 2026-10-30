@@ -499,18 +499,15 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, st);
         let mut values = Vec::new();
-        for (i, c) in page.controls.iter().enumerate() {
-            let b @ (ir::Binding::Var(_) | ir::Binding::BaseVar(_)) = &c.binding else {
+        for i in 0..page.controls.len() {
+            let Some((slot, owner, element)) = Self::control_var(page, i) else {
                 continue;
             };
             if !self.in_repeater(st, i) {
                 continue;
             }
-            let Some((slot, owner)) = b.var_slot(c.owner) else {
-                continue;
-            };
             let inst = self.owner_instance(st, owner);
-            values.push((i, inst.borrow().globals[slot].clone()));
+            values.push((i, Self::var_or_element(&inst.borrow().globals[slot], element)));
         }
         values
     }
