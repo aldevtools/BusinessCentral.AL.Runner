@@ -16294,6 +16294,15 @@
         "template": "An invalid length % was specified in stream function. % was expected."
       },
       {
+        "code": "TypeConversion",
+        "file": "crates/al-builtins/src/testcontexts.rs",
+        "generic": false,
+        "line": 52,
+        "pinned": false,
+        "site": null,
+        "template": "The expression System.Func`1[System.Int32] cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavValue value."
+      },
+      {
         "code": "ALSystemString",
         "file": "crates/al-builtins/src/textfns.rs",
         "generic": false,
@@ -16772,7 +16781,7 @@
       }
     ],
     "pinned": 95,
-    "sites": 98
+    "sites": 99
   },
   "language": {
     "bc": "27-29",
