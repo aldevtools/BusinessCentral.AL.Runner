@@ -2604,7 +2604,10 @@ fn issue_6214_license_permission_of_any_object_number() {
         assert!(why.contains("License Permission"), "{t}: {why}");
     }
     // The refusal names the types whose other numbers are assumed.
-    assert!(not_run(&o, "OtherXmlPortNumber").contains("Table, Report, Codeunit and Page"), "{o:?}");
+    assert!(
+        not_run(&o, "OtherXmlPortNumber").contains("Table, Report, Codeunit and Page"),
+        "{o:?}"
+    );
 }
 
 /// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;
