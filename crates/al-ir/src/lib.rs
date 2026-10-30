@@ -311,7 +311,7 @@ impl Object {
 pub const CAPTION_REFUSED: &str = "$CaptionRefused";
 
 /// The name of an object property the lowering adds beside [`CAPTION_REFUSED`] when one tableextension sets a `Caption` over
-/// the table's own: its value is that extension's caption (the TableRelation error names the table by it, al-runner issue 5955).
+/// the table's own: its value is that extension's caption, the caption the runtime's texts and caption reads give (al-runner issues 5955 and 6378).
 pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
