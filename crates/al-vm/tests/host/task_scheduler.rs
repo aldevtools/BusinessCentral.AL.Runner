@@ -4,7 +4,21 @@
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
-table 2000000175 "Scheduled Task" { fields { field(1; ID; Guid) { } } keys { key(PK; ID) { } } }
+table 2000000175 "Scheduled Task"
+{
+    fields
+    {
+        field(1; ID; Guid) { }
+        field(2; "User ID"; Guid) { }
+        field(3; "User Name"; Code[50]) { }
+        field(5; "Run Codeunit"; Integer) { }
+        field(6; "Failure Codeunit"; Integer) { }
+        field(8; "Not Before"; DateTime) { }
+        field(9; "Is Ready"; Boolean) { }
+        field(10; Company; Text[30]) { }
+    }
+    keys { key(PK; ID) { } }
+}
 codeunit 50100 "TS Target" { trigger OnRun() begin end; }
 codeunit 50101 "TS Probe"
 {
@@ -45,6 +59,47 @@ codeunit 50101 "TS Probe"
         exit(Task.Get(Id));
     end;
 
+    // platform/lt-wd/WdScheduledTaskGet.al (90751) and session/lt-cn-session-leads/CnSessionLeads.al:23-46.
+    procedure RowOfOpenTask(): Text
+    var
+        Task: Record "Scheduled Task";
+        Id: Guid;
+        R: Text;
+    begin
+        Id := TaskScheduler.CreateTask(Codeunit::"TS Target", 0, false);
+        R := Format(Task.Get(Id));
+        R += Format(Task."User ID" = UserSecurityId()) + Format(Task."User Name" = UserId()) + Format(Task.Company = CompanyName());
+        R += Format(Task."Run Codeunit" = Codeunit::"TS Target") + Format(Task."Is Ready");
+        Task.Reset();
+        Task.SetRange(ID, Id);
+        R += Format(Task.Count()) + Format(Task.IsEmpty()) + Format(Task.FindFirst());
+        R += Format(TaskScheduler.CancelTask(Id));
+        R += Format(Task.Count()) + Format(Task.IsEmpty());
+        Clear(Task);
+        R += Format(Task.Get(Id)) + Format(Task.Get(CreateGuid()));
+        exit(R);
+    end;
+
+    procedure UnpinnedColumnOfTask(): Boolean
+    var
+        Task: Record "Scheduled Task";
+    begin
+        Task.Get(TaskScheduler.CreateTask(Codeunit::"TS Target", 0, false));
+        exit(Task."Not Before" = 0DT);
+    end;
+
+    procedure RowRolledBack(): Boolean
+    var
+        Task: Record "Scheduled Task";
+        Id: Guid;
+    begin
+        asserterror begin
+            Id := TaskScheduler.CreateTask(Codeunit::"TS Target", 0, false);
+            Error('x');
+        end;
+        exit(Task.Get(Id));
+    end;
+
     procedure UnknownCodeunit()
     begin
         TaskScheduler.CreateTask(99999999, 0, false);
@@ -58,14 +113,31 @@ fn created_tasks_exist_until_cancelled() {
     assert_eq!(r, "NoYesYesYesYesYesNoNoNoNoNo");
 }
 
-// session/lt-cn-session-leads/CnSessionLeads.al:23-46 reads the task's row; the runtime writes none, so the read is refused.
+// session/lt-cn-session-leads/CnSessionLeads.al:23-46 and platform/lt-wd/WdScheduledTaskGet.al: the task created in the open
+// transaction has its row, with the pinned columns, until CancelTask removes it.
 #[test]
-fn a_read_of_the_scheduled_task_table_after_create_task_is_refused() {
+fn a_task_of_the_open_transaction_has_its_row() {
     let r = al_testkit::run_in(SRC, "TS Probe", "ReadTaskRow");
+    assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(true))), "{r:?}");
+    let r = al_testkit::text(al_testkit::run_in(SRC, "TS Probe", "RowOfOpenTask"));
+    assert_eq!(r, "YesYesYesYesYesNo1NoYesYes0YesNoNo");
+}
+
+// The columns no corpus test reads (Not Before, Failure Codeunit, ...) are refused when read.
+#[test]
+fn an_unpinned_column_of_the_task_row_is_refused() {
+    let r = al_testkit::run_in(SRC, "TS Probe", "UnpinnedColumnOfTask");
     assert!(
         matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Scheduled Task")),
         "{r:?}"
     );
+}
+
+// A rollback takes the row back with the task (PlTTaskScheduler.al:198-215).
+#[test]
+fn a_rolled_back_task_has_no_row() {
+    let r = al_testkit::run_in(SRC, "TS Probe", "RowRolledBack");
+    assert!(matches!(r, Ok(al_builtins::value::Value::Boolean(false))), "{r:?}");
 }
 
 #[test]

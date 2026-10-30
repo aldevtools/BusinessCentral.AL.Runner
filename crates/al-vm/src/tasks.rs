@@ -11,6 +11,11 @@
 //!   codeunit 0 and an unknown company do not (PlTTaskScheduler.al:162-170, 184-193).
 //!
 //! Whether a task whose creation was committed still exists is not pinned (it may have run): asking about one is refused.
+//!
+//! A task of the open transaction has its row in the Scheduled Task table: Get answers Yes, a filter on ID counts it, and
+//! CancelTask removes it (platform/lt-wd/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
+//! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
+//! session/lt-cn-session-leads/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -53,9 +58,13 @@ impl Session {
             ids::TASKSCHEDULER_TASKEXISTS_1 => self
                 .task_id(args, "TaskExists")
                 .map(|t| t.map_or(Value::Boolean(false), |t| Value::Boolean(self.tasks.open.contains(&t)))),
-            ids::TASKSCHEDULER_CANCELTASK_1 => self
-                .task_id(args, "CancelTask")
-                .map(|t| Value::Boolean(t.is_some_and(|t| self.tasks.open.remove(&t)))),
+            ids::TASKSCHEDULER_CANCELTASK_1 => self.task_id(args, "CancelTask").map(|t| {
+                let removed = t.is_some_and(|t| self.tasks.open.remove(&t));
+                if let (true, Some(t)) = (removed, t) {
+                    self.remove_task_row(t);
+                }
+                Value::Boolean(removed)
+            }),
             ids::TASKSCHEDULER_SETTASKREADY_1 => self.task_id(args, "SetTaskReady").map(|_| Value::Null),
             _ => return None,
         };
@@ -75,19 +84,65 @@ impl Session {
         Ok(Some(*g))
     }
 
-    /// A read of the Scheduled Task table after this session created a task: the task's row is not written, and which
-    /// of its fields BC fills is pinned only by session/lt-cn-session-leads/CnSessionLeads.al:23-46
-    /// (CreateTask_ScheduledTaskUser), so the read is refused.
+    /// A read of the Scheduled Task table after a transaction that created a task was committed: whether the task still
+    /// exists or already ran is not pinned, so the read is refused. The tasks of the open transaction have their rows.
     pub(crate) fn scheduled_task_read(&self, t: &al_data::TableDef, temporary: bool) -> Result<(), Signal> {
-        if temporary || (self.tasks.open.is_empty() && self.tasks.committed.is_empty()) {
+        if temporary || self.tasks.committed.is_empty() {
             return Ok(());
         }
         if self.engine.program.objects[t.object as usize].id == Some(SCHEDULED_TASK) {
             return unsupported(
-                "a read of the Scheduled Task table after TaskScheduler.CreateTask (the task's row is not modelled)",
+                "a read of the Scheduled Task table after a transaction that created a task was committed (whether the task still exists or already ran is not pinned)",
             );
         }
         Ok(())
+    }
+
+    /// The row of a task created in the open transaction (the module comment lists the pinned columns). The store's
+    /// rollback takes it back with the transaction.
+    fn write_task_row(&mut self, id: [u8; 16], args: &[Value]) {
+        let Some(t) = self.table_def(SCHEDULED_TASK) else {
+            // Nothing in the program reads the table.
+            return;
+        };
+        let whose = "a task created by TaskScheduler.CreateTask";
+        let mut row: al_data::Row = t
+            .fields
+            .iter()
+            .map(|f| crate::platform::unknown(&t, f.id, whose))
+            .collect();
+        let mut set = |name: &str, v: Value| {
+            if let Some(p) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name)) {
+                // A text goes in as the field's own kind of text (Code or Text).
+                row[p] = match (Value::default_for(&t.fields[p].ty), v) {
+                    (Value::Code(_), Value::Text(x)) => Value::Code(x.as_str().to_uppercase().into()),
+                    (_, v) => v,
+                };
+            }
+        };
+        set("ID", Value::Guid(id));
+        set("User ID", Value::Guid(self.host.identity.user_security_id()));
+        set("User Name", Value::Text(self.host.identity.user_id().into()));
+        if let Some(cu) = args.first() {
+            set("Run Codeunit", cu.clone());
+        }
+        // Is Ready is pinned for a task created not ready, Company for a task created without a company argument.
+        if matches!(args.get(2), Some(Value::Boolean(false))) {
+            set("Is Ready", Value::Boolean(false));
+        }
+        if args.len() < 4 {
+            set("Company", Value::Text(self.cx.company.clone().into()));
+        }
+        let cx = self.cx.clone();
+        let _ = al_data::Store::insert(&mut self.store, &cx, &t, row);
+    }
+
+    fn remove_task_row(&mut self, id: [u8; 16]) {
+        let Some(t) = self.table_def(SCHEDULED_TASK) else {
+            return;
+        };
+        let cx = self.cx.clone();
+        let _ = al_data::Store::delete(&mut self.store, &cx, &t, &[Value::Guid(id)]);
     }
 
     fn create_task(&mut self, args: &[Value]) -> Result<Value, Signal> {
@@ -101,6 +156,7 @@ impl Session {
         }
         let id = self.fresh_guid();
         self.tasks.open.insert(id);
+        self.write_task_row(id, args);
         Ok(Value::Guid(id))
     }
 }

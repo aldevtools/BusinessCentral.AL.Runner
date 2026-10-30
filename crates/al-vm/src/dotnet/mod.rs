@@ -455,6 +455,32 @@ impl Session {
                         );
                     }
                 }
+                // `new System.Uri(text)` of a text that is no URI (UriFormatException, as System Application Uri.IsValidUri meets
+                // it), and XmlDocument.LoadXml of a text with no root element (XmlException): the error AL sees is `A call to
+                // <type>[.<member>] failed with this message: <.NET message>`, code `DotNetInvoke:UriFormat` / `DotNetInvoke:Xml`,
+                // caught by a TryFunction and by Codeunit.Run (onprem-dotnet lt-wd-dotnet/WdTryFunctionDotNetException.al:50-102,
+                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6305). Other exceptions of these members stay refused.
+                let pinned = match (kind, e.clr_type.as_str()) {
+                    (MemberKind::Construct, "System.UriFormatException")
+                        if clr_type.eq_ignore_ascii_case("System.Uri") =>
+                    {
+                        Some((clr_type.to_string(), "DotNetInvoke:UriFormat"))
+                    }
+                    (MemberKind::Call, "System.Xml.XmlException")
+                        if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument")
+                            && member.eq_ignore_ascii_case("LoadXml")
+                            && e.message == "Root element is missing." =>
+                    {
+                        Some((format!("{clr_type}.LoadXml"), "DotNetInvoke:Xml"))
+                    }
+                    _ => None,
+                };
+                if let Some((called, code)) = pinned {
+                    return al_builtins::native::raise(
+                        format!("A call to {called} failed with this message: {}", e.message),
+                        code,
+                    );
+                }
                 // System.Enum.Parse(type, name) of a name that is not a member (also one in another case): writer TV, corpus
                 // branch al-runtime-rs-staging-tv 8ae7ac0b, lt-bb-dotnet/BbGetDotNetType.al
                 // TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (assumption dotnet-type-unassigned-enum).
