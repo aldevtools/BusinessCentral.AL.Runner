@@ -667,7 +667,6 @@ registry! {
             issues: &[],
             files: &[
                 "tests/al-language/platform/lt-platform-members/PlTRowVersionValue.al",
-                "tests/al-language/misc/lt-np4-probes/Np4Misc.al",
             ],
             since: "2026-10-30",
         },

@@ -3427,19 +3427,20 @@ impl Session {
                 Some(Value::Text(w)) => Some(w.as_str()),
                 _ => None,
             };
-            let np4 = match method {
+            let next_or_find_form = match method {
                 RecordOp::Find => match find_form {
                     Some(">") => true,
                     Some("<") => !own_pending,
                     _ => false,
                 },
-                RecordOp::Next => !own_pending && (args.is_empty() || matches!(args.first(), Some(Value::Integer(1)))),
+                // Only Next() is pinned: Next(1) and other steps stay unpinned.
+                RecordOp::Next => !own_pending && args.is_empty(),
                 _ => false,
             };
-            if np4 && any_pending {
+            if next_or_find_form && any_pending {
                 self.tx.row_versions.assumed_read = true;
             }
-            let more = np4
+            let more = next_or_find_form
                 || match method {
                     RecordOp::GetBySystemId => true,
                     RecordOp::Find => matches!(find_form, Some("=" | "-" | "+")),
