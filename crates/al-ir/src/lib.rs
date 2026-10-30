@@ -1279,6 +1279,9 @@ pub struct CalcFormula {
     /// Position of the aggregated or looked-up field in the source table.
     pub field: Option<usize>,
     pub conds: Vec<CalcCond>,
+    /// The unprobed assumptions the formula's conditions rest on; the VM marks them when it calculates the formula.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// One where-condition: a field of the source table against a value.
