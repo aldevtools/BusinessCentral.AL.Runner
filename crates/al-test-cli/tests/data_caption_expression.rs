@@ -1,7 +1,8 @@
 //! The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated when
 //! the caption is read. Pinned on a card with a source table (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
 //! :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `... - EXPR-Beta`). An expression whose
-//! value is empty, a new row and a list page are not pinned and are refused.
+//! value is empty, a page with no source table (al-runner issue 6320), a new row and a list page are not pinned and are
+//! refused.
 
 use al_testkit::outcomes_in;
 
@@ -93,8 +94,7 @@ fn the_caption_of_a_page_with_a_data_caption_expression() {
     let o = outcomes_in(SRC, "T");
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("CardWithRows"), "Some(Pass)");
-    assert_eq!(get("EditorWithoutSourceTable"), "Some(Pass)");
-    for t in ["EmptyExpressionIsRefused", "NewRowIsRefused", "ListIsRefused"] {
+    for t in ["EditorWithoutSourceTable", "EmptyExpressionIsRefused", "NewRowIsRefused", "ListIsRefused"] {
         let g = get(t);
         assert!(g.contains("NotRun") && g.contains("DataCaptionExpression"), "{t}: {g}");
     }

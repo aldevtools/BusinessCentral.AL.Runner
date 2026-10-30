@@ -1132,16 +1132,18 @@ impl Session {
     /// The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated now.
     /// Pinned on a card with a source table, standing on a stored row (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
     /// :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `P113 Expr - EXPR-Beta`). A page with
-    /// no source table is assumed to show the same join (`data-caption-expression-no-source-table`, al-runner issue 6320). A
-    /// list, a new row, no row, and an expression whose value is empty are not pinned and are refused.
+    /// no source table (al-runner issue 6320), a list, a new row, no row, and an expression whose value is empty are not pinned
+    /// and are refused.
     fn data_caption_expression_caption(&mut self, st: &St, base: String) -> Result<String, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         if self.is_list(st) {
             return unsupported("the caption of a list page with DataCaptionExpression (not pinned)");
         }
-        let has_source = self.has_source(st);
-        if has_source {
+        if !self.has_source(st) {
+            return unsupported("the caption of a page with DataCaptionExpression and no source table (not pinned)");
+        }
+        {
             let s = st.borrow();
             if s.draft || s.mode == PageMode::New {
                 return unsupported("the caption of a page with DataCaptionExpression on a new row (not pinned)");
@@ -1163,9 +1165,6 @@ impl Session {
         };
         if value.is_empty() {
             return unsupported("the caption of a page with DataCaptionExpression whose value is empty (not pinned)");
-        }
-        if !has_source {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DataCaptionExpressionNoSourceTable);
         }
         Ok(format!("{base} - {value}"))
     }
