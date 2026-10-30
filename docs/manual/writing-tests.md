@@ -287,27 +287,120 @@ permissions. In `serve`, the `runTests` field `ignorePermissionMock` does the sa
 
 ## Test framework features of BC 29
 
-Business Central 29 adds two test framework features. AL Runner does not run them
-yet. It refuses them, so a missing result is never taken for a pass.
+Business Central 29 adds two test framework features: test handlers and data-driven tests.
 
-| Feature | What AL Runner does today | Why |
-|---|---|---|
-| A test codeunit with the `TestHandlers` property, or an extension of the enum `DefaultTestHandler` | Every test of the codeunit is not run. The reason says that `ITestHandler` callbacks are not supported yet. | A handler can skip a test with `TestHandlerContext.Skip`. A skipped test is not a failure and not a refusal, so it needs its own result. |
-| A data-driven test: a procedure with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]` | One not-run row under the procedure name. | Business Central runs it once per case. The name of each case's result row is not known yet. |
+### Test handlers
 
-The decision and the open points are in ADR-059 (`docs/adr/059-test-framework-results.md`).
-The planned change is a fourth result, "skipped", for a test that Business Central
-itself skips, and one result per data-driven case.
+A test codeunit with the `TestHandlers` property, or an extension of the enum
+`DefaultTestHandler`, is not run yet. Every test of the codeunit is reported as not run,
+and the reason says that `ITestHandler` callbacks are not supported yet. A handler can
+skip a test with `TestHandlerContext.Skip`; a skipped test needs a result of its own
+(ADR-059, `docs/adr/059-test-framework-results.md`).
+
+### Data-driven tests
+
+A data-driven test is a procedure with `[TestDataSource(Codeunit, DataSet)]` and no
+`[Test]`. It takes one parameter of type `Interface ITestContext`. The codeunit you name
+implements `ITestDataSource`:
+
+- `ListTestCases(DataSet, Context)` returns the identifiers of the test cases.
+- `GetTestCase(DataSet, Index, Identifier, Context)` returns the `ITestContext` that
+  the test procedure gets for one case. `Index` starts at 1.
+
+```al
+codeunit 50100 "Price Cases" implements ITestDataSource
+{
+    procedure ListTestCases(DataSetIdentifier: Text; context: DataSourceContext): List of [Text]
+    var
+        Cases: List of [Text];
+    begin
+        Cases.Add('small');
+        Cases.Add('large');
+        exit(Cases);
+    end;
+
+    procedure GetTestCase(DataSetIdentifier: Text; TestCaseIndex: Integer; TestCaseIdentifier: Text; context: DataSourceContext): Interface ITestContext
+    var
+        PriceCase: Codeunit "Price Case"; // implements ITestContext and your own interface
+    begin
+        PriceCase.SetId(TestCaseIdentifier);
+        exit(PriceCase);
+    end;
+}
+
+codeunit 50102 "Price Tests"
+{
+    Subtype = Test;
+
+    [TestDataSource(Codeunit::"Price Cases", 'prices')]
+    procedure Price(Context: Interface ITestContext)
+    var
+        PriceCase: Interface "Price Case Data";
+    begin
+        PriceCase := Context as "Price Case Data";
+        // ... test one case
+    end;
+}
+```
+
+AL Runner runs data-driven tests as Business Central 29 does:
+
+- Each case is a result of its own, named `Procedure[identifier]`, for example
+  `Price[small]`. In JUnit it is one `testcase` per case.
+- A data set without cases gives no result, and the procedure does not run.
+- The plain `[Test]` procedures run first, in the order you declared them. Then the
+  data-driven procedures run, in alphabetical order of their names.
+- For each procedure, `ListTestCases` is called once. Then, for each case,
+  `GetTestCase` is called and the procedure runs with what it returned.
+- A failing case fails only its own result. An error in `GetTestCase` fails that case,
+  and the procedure does not run for it.
+- The cases of a codeunit share its global variables and the database, like the tests
+  of a codeunit do. Handler functions work for each case.
+- An empty or blank identifier, a duplicate identifier, or an identifier with `[` or `]`
+  fails the procedure: one failed result under the procedure name, and no case runs.
+
+Business Central ends the test session when `ListTestCases` raises an error, or when the
+data source codeunit calls a `DataSourceContext` method (`CodeunitId`, `AppId`). It then
+reports no data-driven result of the codeunit. AL Runner reports those procedures as not
+run. Do not call `DataSourceContext` methods in a data source.
+
+#### Reading the cases from a file in the app
+
+A data source can read its cases from a file that ships with the app. List the folder
+under `resourceFolders` in `app.json`, and read the file with `NavApp.GetResourceAsText`:
+
+```json
+"resourceFolders": [ "res" ]
+```
+
+```al
+procedure ListTestCases(DataSetIdentifier: Text; context: DataSourceContext): List of [Text]
+var
+    Json: JsonObject;
+    Tok: JsonToken;
+    Item: JsonToken;
+    Cases: List of [Text];
+begin
+    Json.ReadFrom(NavApp.GetResourceAsText('cases.json', TextEncoding::UTF8));
+    Json.Get('cases', Tok);
+    foreach Item in Tok.AsArray() do begin
+        Item.AsObject().Get('id', Tok);
+        Cases.Add(Tok.AsValue().AsText());
+    end;
+    exit(Cases);
+end;
+```
+
+Pass `TextEncoding::UTF8`. A UTF-8 byte order mark at the start of the file stays in the
+text as the character U+FEFF. Without an encoding, Business Central reads one character
+per byte. AL Runner refuses that read for a file with bytes above 127, because which
+characters those bytes become is not known yet. `NavApp.GetResource` gives the raw
+bytes in an `InStream`, and `NavApp.ListResources` lists the file names without the
+folder.
 
 `TestHandlerContext` and `DataSourceContext` variables that your own code creates
 (not handed over by the test framework) work as they do on BC 29: reads return the
 values of a fresh variable. They need BC 29.
-
-Data-driven tests often read their cases from a file in the app. When data-driven
-tests are supported, a data source can read the app's resources with
-`NavApp.GetResource`, `NavApp.GetResourceAsText` or `NavApp.GetResourceAsJson`.
-Resources are the files in your app's Resources folder. Until then, keep the data in
-the test itself.
 
 ## Setup data
 

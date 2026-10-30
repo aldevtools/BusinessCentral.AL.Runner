@@ -32,11 +32,9 @@ reported as not run, with the reason.
   ([issue 3697](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/3697)).
   This is the mode that suppresses unhandled UI. AL Runner does not offer it.
 
-- **Test handlers and data-driven tests (BC 29)**
-  (ADR-059). Codeunits with `TestHandlers` and `[TestDataSource]` procedures are
-  not run. Planned: a "skipped" result for tests that a handler skips, and one
-  result per data-driven case. The name of a case's result row waits for a
-  measurement on a Windows Business Central container.
+- **Test handlers (BC 29)**
+  (ADR-059). Codeunits with `TestHandlers` are not run. Planned: a "skipped" result
+  for tests that a handler skips.
 - **License-backed permissions** (ADR-060, planned). Today `License Permission`
   answers from a few pinned rows and one assumption for the rest. Planned: read the
   rows from a Business Central license file, by default the one in the artifact, and
