@@ -137,14 +137,17 @@ fn message_and_error_show_crlf_as_a_backslash() {
     assert_eq!(out(b.run_in("C", "E")), "line1\\line2\\line3|17|19");
 }
 
-// Error with arguments whose text holds a CR LF: no corpus test pins the text, so it is refused.
+// misc/lt-system-functions/ErrorMessage.al:684-718 (PYC_Error_CrLfAndLoneCrLf): a CR LF in an argument of Error shows as one
+// backslash, in the text and next to other text; a backslash written in the text stays one backslash.
 #[test]
-fn error_with_an_argument_that_holds_crlf_is_refused() {
+fn error_with_an_argument_that_holds_crlf_shows_a_backslash() {
     let r = text(
-        "TB: TextBuilder;",
-        "TB.AppendLine('a'); TB.Append('b'); asserterror Error('%1', TB.ToText()); exit(GetLastErrorText());",
+        "TB: TextBuilder; R: Text;",
+        "TB.AppendLine('a'); TB.Append('b'); asserterror Error('%1', TB.ToText()); R := GetLastErrorText(); \
+         asserterror Error('x%1y', TB.ToText()); R += '|' + GetLastErrorText(); \
+         asserterror Error('p\\q %1', TB.ToText()); exit(R + '|' + GetLastErrorText());",
     );
-    assert!(r.starts_with("refused:"), "{r}");
+    assert_eq!(r, "a\\b|xa\\by|p\\q a\\b");
 }
 
 // record/lt-as-records/AsCodeKeySigns.al:13-124: the key order of Code values drops every leading hyphen, and of two that tie
