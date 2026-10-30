@@ -206,6 +206,8 @@ pub fn run_traced(
             into.push((oi, ri, false, true));
         }
     }
+    // The dependency install roots that run before Company-Initialize: `roots[..early_installs]`.
+    let early_installs = roots.len();
     let company_initialize = (0..objs.len()).find(|&oi| {
         lowered.dependency[oi]
             && objs.heads()[oi].is_kind(al_ir::ObjKind::Codeunit)
@@ -287,13 +289,19 @@ pub fn run_traced(
     // subscriber, no `OnGetPerCompanyUpgradeTags` subscriber answering `SetAllUpgradeTags`). Their per-company install code
     // then sees `HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes
     // (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
-    let under_test: BTreeSet<u32> = (0..objs.len())
-        .filter(|&oi| !lowered.dependency[oi])
-        .map(|oi| objs[oi].app)
-        .collect();
+    let under_test = crate::install::apps_under_test(lowered);
     let mut held = late_apps.clone().unwrap_or_default();
     held.extend(under_test.iter().copied());
-    session.set_apps_not_installed(Some(held));
+    session.set_apps_not_installed(Some(held.clone()));
+    // The dependency apps install one at a time as well (`install::InstallView`): the early ones among themselves, then
+    // the late ones among themselves.
+    // Nothing pins the order of two dependency apps that do not depend on each other (`publish_order_known` covers only the
+    // apps under test).
+    let view = crate::install::InstallView::new(lowered, false);
+    let late_group = late_apps.clone().unwrap_or_default();
+    let early_group: BTreeSet<u32> = (0..lowered.program.apps.len() as u32)
+        .filter(|a| !under_test.contains(a) && !late_group.contains(a))
+        .collect();
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
@@ -304,8 +312,15 @@ pub fn run_traced(
     let mut steps_built = 0;
     let mut step_failed = false;
     for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
-        if late_from == Some(k) {
-            session.set_apps_not_installed(Some(under_test.clone()));
+        let app = objs[oi].app;
+        if k < early_installs {
+            view.apply(&mut session, app, &early_group, &held);
+        } else if late_from.is_some_and(|f| k >= f) {
+            view.apply(&mut session, app, &late_group, &under_test);
+        } else {
+            // Company-Initialize and the company build: every early dependency app is installed.
+            session.set_apps_not_installed(Some(held.clone()));
+            session.set_apps_install_order_unknown(None);
         }
         let is_step = company_roots.contains(&k);
         if is_step && step_failed {
@@ -394,6 +409,7 @@ pub fn run_traced(
     }
     let company_built = !company_roots.is_empty() && steps_built == company_roots.len();
     session.set_apps_not_installed(None);
+    session.set_apps_install_order_unknown(None);
     session.set_environment(run_environment);
     session.trace_faults(false);
     // The baseline is not a test, so no test carries its marks; the run says what the shared start relied on.

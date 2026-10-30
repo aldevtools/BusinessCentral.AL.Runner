@@ -121,6 +121,9 @@ pub enum ModuleLookup {
     NotInstalled,
     /// An app a manifest names as a dependency, which is not part of the workspace.
     OutsideWorkspace,
+    /// Whether the app is installed depends on an install order nobody pinned (an app with no dependency path to the app
+    /// whose install code runs): why.
+    OrderUnknown(String),
 }
 
 /// What builtins need from the running session.

@@ -434,10 +434,14 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_company(&company);
     // BC's install session has no client (`Session::set_install_without_client`).
     session.set_install_without_client(true);
+    let view = InstallView::new(lowered, crate::host::publish_order_known());
+    let under_test = apps_under_test(lowered);
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
         }
+        // One app at a time: the apps under test after it are not installed yet (`InstallView`).
+        view.apply(session, app.app as u32, &under_test, &BTreeSet::new());
         // A session of its own (A4 item 1): any id that is positive and not the test session's 1.
         session.set_install_session_id(Some(2 + k as i32));
         for part in [Part::Company, Part::Database] {
@@ -542,6 +546,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         }
     }
     session.set_install_session_id(None);
+    session.set_apps_not_installed(None);
+    session.set_apps_install_order_unknown(None);
     session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
@@ -592,6 +598,106 @@ fn installed(lowered: &Lowered, o: usize, app: usize) -> bool {
     lowered.dependency[o] || lowered.program.objects[o].app as usize <= app
 }
 
+/// The apps (indexes in `Program::apps`) each app depends on, directly or through other apps.
+fn depends_on(lowered: &Lowered) -> Vec<BTreeSet<u32>> {
+    let apps = &lowered.program.apps;
+    let norm = |s: &str| {
+        s.trim()
+            .trim_start_matches('{')
+            .trim_end_matches('}')
+            .to_ascii_lowercase()
+    };
+    let direct: Vec<Vec<u32>> = apps
+        .iter()
+        .map(|a| {
+            a.dependencies
+                .iter()
+                .filter_map(|d| apps.iter().position(|b| norm(&b.id) == norm(d)).map(|i| i as u32))
+                .collect()
+        })
+        .collect();
+    (0..apps.len())
+        .map(|i| {
+            let mut seen = BTreeSet::new();
+            let mut stack = direct[i].clone();
+            while let Some(d) = stack.pop() {
+                if seen.insert(d) {
+                    stack.extend(direct[d as usize].iter().copied());
+                }
+            }
+            seen
+        })
+        .collect()
+}
+
+/// What the session sees while app `installing` installs, one of the apps of `group` that install one after the other in
+/// dependency order: the apps of `group` that depend on it are not installed yet, nor are the apps of
+/// `held`; the apps of `group` with no dependency path to it in either direction have no known order to it. BC installs one
+/// app at a time in dependency order and an app's install code sees only the apps installed before it and itself: during
+/// XApp A's install no subscriber of XApp B (which depends on A) or of the main app ran and `NavApp.GetModuleInfo` of B
+/// was false; during B's install A's and B's subscribers ran, the main app's did not (corpus branch
+/// al-runtime-rs-staging-y3: tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
+/// install/lt-install-order-subscribers/InstallOrderSubscriberTests.al). Nothing pins the order of two apps with no
+/// dependency path between them, so what one of them could see of the other is refused (`Session::set_apps_install_order_unknown`).
+///
+/// `listed_order`: the run publishes the apps of the group in the order `Program::apps` lists them
+/// (`host::publish_order_known`), so two of them with no dependency path between them install in that order.
+pub(crate) struct InstallView {
+    deps: Vec<BTreeSet<u32>>,
+    listed_order: bool,
+}
+
+impl InstallView {
+    pub(crate) fn new(lowered: &Lowered, listed_order: bool) -> Self {
+        InstallView {
+            deps: depends_on(lowered),
+            listed_order,
+        }
+    }
+
+    /// (not installed, order unknown) while `installing` installs.
+    pub(crate) fn of(
+        &self,
+        installing: u32,
+        group: &BTreeSet<u32>,
+        held: &BTreeSet<u32>,
+    ) -> (BTreeSet<u32>, BTreeSet<u32>) {
+        let mut not_installed = held.clone();
+        let mut unknown = BTreeSet::new();
+        let needs = |a: u32, b: u32| self.deps.get(a as usize).is_some_and(|d| d.contains(&b));
+        for &g in group {
+            if g == installing || needs(installing, g) {
+                continue;
+            }
+            if needs(g, installing) || (self.listed_order && g > installing) {
+                not_installed.insert(g);
+            } else if self.listed_order {
+                not_installed.remove(&g);
+            } else {
+                not_installed.remove(&g);
+                unknown.insert(g);
+            }
+        }
+        (not_installed, unknown)
+    }
+
+    /// Sets what the session sees while `installing` installs.
+    pub(crate) fn apply(&self, session: &mut Session, installing: u32, group: &BTreeSet<u32>, held: &BTreeSet<u32>) {
+        let (not_installed, unknown) = self.of(installing, group, held);
+        session.set_apps_not_installed(Some(not_installed));
+        session.set_apps_install_order_unknown(Some(unknown));
+    }
+}
+
+/// The apps (indexes in `Program::apps`) that have an object the run treats as under test.
+pub(crate) fn apps_under_test(lowered: &Lowered) -> BTreeSet<u32> {
+    let objs = &lowered.program.objects;
+    (0..objs.len())
+        .filter(|&oi| !lowered.dependency[oi])
+        .map(|oi| objs[oi].app)
+        .collect()
+}
+
 /// The subscribers of `Company Triggers` OnCompanyOpen, then OnCompanyOpenCompleted, that are not manual and whose object
 /// `keep` selects, each event in the order BC raises an event to its subscribers (ascending codeunit id: `al-vm`
 /// `dispatch.rs` `event_targets`).
@@ -628,8 +734,22 @@ fn company_open_subscribers(
 /// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
 fn company_open(lowered: &Lowered, session: &mut Session, app: usize, with_dependencies: bool) -> Result<(), String> {
     let engine = session.engine.clone();
+    let view = InstallView::new(lowered, crate::host::publish_order_known());
+    let (_, unknown) = view.of(app as u32, &apps_under_test(lowered), &BTreeSet::new());
+    let objs = &lowered.program.objects;
+    if let Some(&(o, r)) = company_open_subscribers(lowered, &engine.events, |o| {
+        !lowered.dependency[o] && unknown.contains(&objs[o].app)
+    })
+    .first()
+    {
+        return Err(format!(
+            "Company Triggers subscriber {} is in an app with no dependency path to the app that installs; the install \
+             order of the two is not known",
+            label(lowered, o, r)
+        ));
+    }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
-        installed(lowered, o, app) && (with_dependencies || !lowered.dependency[o])
+        installed(lowered, o, app) && (with_dependencies || !lowered.dependency[o]) && !unknown.contains(&objs[o].app)
     });
     run_subscribers(lowered, session, &all)
 }
