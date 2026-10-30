@@ -163,15 +163,22 @@ impl<'a> Checker<'a> {
                     .collect();
                 // An interface also has the procedures of the interfaces it extends
                 // (codeunit/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
-                if procs.is_empty() && *kind == ObjKind::Interface {
+                // A base overload of a name the derived interface declares again with other parameters is a candidate too,
+                // as alc compiles it (al-runner issue 6249); one with the same parameter types is the derived one's.
+                if *kind == ObjKind::Interface {
                     for b in self.ws.interface_bases(oi) {
-                        procs = self.members[b]
-                            .procedures_named(name)
-                            .iter()
-                            .map(|p| proc_cand(p))
-                            .collect();
-                        if !procs.is_empty() {
-                            break;
+                        for p in self.members[b].procedures_named(name) {
+                            let c = proc_cand(p);
+                            let same = |o: &Cand| {
+                                o.param_tys.len() == c.param_tys.len()
+                                    && o.param_tys
+                                        .iter()
+                                        .zip(&c.param_tys)
+                                        .all(|(x, y)| x.eq_ignore_ascii_case(y))
+                            };
+                            if !procs.iter().any(same) {
+                                procs.push(c);
+                            }
                         }
                     }
                 }
