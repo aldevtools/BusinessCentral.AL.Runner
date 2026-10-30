@@ -2275,6 +2275,33 @@ mod tests {
     }
 
     #[test]
+    fn the_missing_dependency_hint_names_an_al_runner_option() {
+        // The error for a dependency nobody provides ends in "pass <flag> DIR". The flag must be one
+        // `al-runner test` takes (it is `--dep`; `--deps` is al-test-cli's spelling).
+        use al_deps::select::{DepDecl, SelectError};
+        use al_deps::version::Version;
+        let err = SelectError::Missing {
+            dep: DepDecl {
+                id: "a".into(),
+                name: "A".into(),
+                publisher: "P".into(),
+                min: Version(1, 0, 0, 0),
+                optional: false,
+            },
+            searched: Box::new([]),
+            symbol_only: Box::default(),
+        }
+        .to_string();
+        let flag = err
+            .split("pass ")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .unwrap_or_else(|| panic!("no `pass FLAG` hint in: {err}"));
+        let a = test_args(&format!("test A {flag} d1"));
+        assert_eq!(a.deps, vec![PathBuf::from("d1")], "{err}");
+    }
+
+    #[test]
     fn the_flags_of_the_v2_tools_parse() {
         use al_testrun::isolation::TestIsolation as I;
         let a = test_args(

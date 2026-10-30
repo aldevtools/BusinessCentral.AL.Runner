@@ -151,7 +151,12 @@ pub(crate) fn type_ref(p: &mut Parser) {
     match kind.as_str() {
         "label" => {
             p.expect(StringLit);
+            // A trailing comma before the `;` is accepted by the AL compiler: `X: Label 'text',;`
+            // (Microsoft's System Application Test).
             while p.eat(Comma) {
+                if p.at(Semicolon) {
+                    break;
+                }
                 inline_property(p);
             }
         }
@@ -408,6 +413,21 @@ mod tests {
         assert_eq!(
             t("Label 'Hi %1', Comment = '%1 = name', Locked = true, MaxLength = 10"),
             "(TypeRef Label 'Hi %1' , (Property Comment = (PropertyValue '%1 = name')) , (Property Locked = (PropertyValue true)) , (Property MaxLength = (PropertyValue 10)))"
+        );
+    }
+
+    #[test]
+    fn a_label_or_textconst_may_end_in_a_trailing_comma() {
+        // The AL compiler accepts `X: Label 'text',;` with no properties after the comma
+        // (Microsoft's System Application Test declares labels this way), and the same shape
+        // after properties and after a TextConst text.
+        assert_eq!(errors("var X: Label 'text',;", var_section), 0);
+        assert_eq!(errors("var X: Label 'text', Locked = true,;", var_section), 0);
+        assert_eq!(errors("var X: TextConst ENU = 'text',;", var_section), 0);
+        assert_eq!(
+            errors("var X: Label 'a',; Y: Integer;", var_section),
+            0,
+            "the next declaration still parses"
         );
     }
 
