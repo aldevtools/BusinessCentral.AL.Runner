@@ -3336,6 +3336,9 @@ fn the_artifact_license_gives_every_pinned_row() {
                 passes(&first, t);
             }
         }
+    }
+}
+
 /// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
 /// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
 #[test]
