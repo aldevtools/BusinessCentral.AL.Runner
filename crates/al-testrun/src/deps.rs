@@ -212,7 +212,33 @@ pub fn load_with(
     extra_dirs: &[PathBuf],
     provision: Option<&Provision>,
 ) -> Result<Dependencies, String> {
-    let project = app_json(app_dir)?;
+    load_with_extra(app_dir, source_dirs, extra_dirs, provision, &[])
+}
+
+/// [`load_with`] where the environment also has `extra` installed, given as (id, name): apps the corpus CI installs for
+/// a test app although no app declares them (oracle.toml `extra_apps`, corpus `.github/workflows/ci.yml` job
+/// test-testlibraries). They are looked up by id like declared dependencies of the app in `app_dir`, with their own
+/// dependencies; one that is not found is skipped and reported like a missing dependency. As for the Test Runner app
+/// (`with_test_environment`), loading them does not make them visible to an app that does not declare them.
+pub fn load_with_extra(
+    app_dir: &Path,
+    source_dirs: &[PathBuf],
+    extra_dirs: &[PathBuf],
+    provision: Option<&Provision>,
+    extra: &[(String, String)],
+) -> Result<Dependencies, String> {
+    let mut project = app_json(app_dir)?;
+    for (id, name) in extra {
+        if !project.dependencies.iter().any(|d| d.id.eq_ignore_ascii_case(id)) {
+            project.dependencies.push(al_deps::select::DepDecl {
+                id: id.clone(),
+                name: name.clone(),
+                publisher: "Microsoft".into(),
+                min: Default::default(),
+                optional: false,
+            });
+        }
+    }
     let mut workspace_apps = Vec::new();
     for d in source_dirs {
         workspace_apps.push(WorkspaceApp {
@@ -222,7 +248,11 @@ pub fn load_with(
     }
     let mut search_dirs = vec![app_dir.join(".alpackages")];
     search_dirs.extend(extra_dirs.iter().cloned());
-    load_project(&project, &workspace_apps, &search_dirs, provision, None, false)
+    // A dependency package with an `application` floor sees the `Application` aggregate and what it depends on, as
+    // alc compiles it (`a_dependency_package_with_an_application_floor_sees_the_application`: Tests-TestLibraries
+    // names Base Application's `Notification Context` without declaring Base Application). The corpus apps declare
+    // their own dependencies; the flag changes only what the packages see.
+    load_project(&project, &workspace_apps, &search_dirs, provision, None, true)
 }
 
 /// `project` with the apps BC's test environment has installed although no test app declares them: Microsoft's Test
@@ -495,6 +525,34 @@ mod tests {
         .unwrap();
         let deps = load_project(&project, &[], &[runner], None, None, false).unwrap();
         assert_eq!(deps.summary, ["Test Runner 27.5.1.2"], "{:?}", deps.log);
+    }
+
+    /// A Microsoft dependency package with an `application` floor and no declared Base Application sees the
+    /// `Application` aggregate and what it depends on, as alc compiles it: Tests-TestLibraries 29.0
+    /// (`ResetStateBeforeTestRun.Codeunit.al:12`, table `Notification Context` of Base Application) declares only
+    /// System Application Test Library, Permissions Mock and Application Test Library, and has `application`
+    /// 29.0.0.0. It compiles in Microsoft's builds and runs before every test of the corpus testlibraries suite.
+    #[test]
+    fn a_dependency_package_with_an_application_floor_sees_the_application() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = app_folder(
+            tmp.path(),
+            "Lib",
+            r#"{"id":"lib","name":"Lib","publisher":"Microsoft","version":"29.0.0.0","application":"29.0.0.0","platform":"29.0.0.0","dependencies":[]}"#,
+            &[("Lib.Codeunit.al", "codeunit 130301 \"Lib\" { }")],
+        );
+        let project = tmp.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("app.json"), json("p", &[])).unwrap();
+        let deps = load_with_extra(&project, &[], &[lib], None, &[("lib".into(), "Lib".into())]).unwrap();
+        let app = deps.apps.iter().find(|a| a.id == "lib").expect("lib loaded");
+        assert!(
+            app.dependencies
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case(al_deps::select::APPLICATION_APP_ID)),
+            "{:?}",
+            app.dependencies
+        );
     }
 
     /// Without a package for it the run goes on without it (the AllObj rows of its codeunits stay refused).

@@ -392,6 +392,7 @@ impl Session {
             s.window.clear();
             s.window_from_start = false;
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             drop(s);
             if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
                 self.pages.scope_unpinned.push(st.clone());
@@ -405,6 +406,7 @@ impl Session {
         s.window.clear();
         s.window_from_start = false;
         s.window_top_unread = false;
+        s.read_up_from_last = None;
         pk_shown
     }
 
@@ -915,8 +917,13 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.marked_rows_held = false;
         }
+        let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
+        let r = match r {
+            Ok(v) => self.drop_window_of_the_old_view(st, view_before).map(|()| v),
+            e => e,
+        };
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -2065,6 +2072,80 @@ impl Session {
             .any(|&k| !Self::same_values(std::slice::from_ref(&now[k]), std::slice::from_ref(&fresh[k]))))
     }
 
+    /// An action that changed the view of a list's record (its filters, its key or its sort order): the rows the client read
+    /// under the old view are not the rows of the new one, so they leave the window and the next move reads the new view from
+    /// its first row. Measured on real BC by corpus writer Y5 (branch al-runtime-rs-staging-y5,
+    /// pages/lt-y5/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
+    /// Previous, GoToKey(2,10), First and Last walk the new view; :143-156 GoToKey(1,50) No and the row stays; :158-174 an
+    /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381). Until that file is in the pinned corpus the
+    /// path is a registered assumption (`action-view-change-list-rereads`). A key or sort order change is not measured: it
+    /// only drops the window (the row stays in the view, and on a list without row triggers no code sees what the client
+    /// reads).
+    ///
+    /// Done only on a list without OnAfterGetRecord, OnFindRecord and OnNextRecord; with those triggers the refresh after the
+    /// action decides what the client holds (`read_list_again_from_row_as`).
+    ///
+    /// A row Rec stands on that the new filters leave out moves to the next row of the new view after it (Y5:158-174, the row
+    /// 1/50 moves to 2/1). The row before it, which a list with row triggers falls back on (`row_after_view_left`), is not
+    /// measured here, and a view left without rows is not either: both are refused.
+    ///
+    /// The probe Find and Next below are record methods: SessionInformation's SQL counters log them as reads of the table.
+    /// A counter read across this action is classified by `sqlcount.rs`, which treats any order of reads no test pins as
+    /// unknown (a new epoch), so a test that compares counters across it is refused rather than given a made-up count. They
+    /// change no row and no row version.
+    fn drop_window_of_the_old_view(&mut self, st: &St, before: Option<ListView>) -> Result<(), Signal> {
+        let Some(before) = before else {
+            return Ok(());
+        };
+        if !st.borrow().open
+            || !self.is_list(st)
+            || ["onaftergetrecord", "onfindrecord", "onnextrecord"]
+                .iter()
+                .any(|t| self.declares(st, t))
+        {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let now = ListView::of(&rec.borrow());
+        let same_filters = before.filters.len() == now.filters.len()
+            && before.filters.iter().zip(&now.filters).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            });
+        if same_filters && before.order == now.order {
+            return Ok(());
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionViewChangeListRereads);
+        {
+            let mut s = st.borrow_mut();
+            s.window.clear();
+            s.window_from_start = false;
+            s.window_top_unread = false;
+        }
+        if same_filters || st.borrow().cursor != Cursor::Row || st.borrow().draft || st.borrow().dirty {
+            return Ok(());
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(());
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0) {
+            let fields = probe.borrow().fields.clone();
+            rec.borrow_mut().fields = fields;
+            return Ok(());
+        }
+        unsupported(
+            "an action changed the filters of a list without row triggers so that no row of the new view follows the row it stood on (not pinned)",
+        )
+    }
+
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
     /// `action_invoke`).
     pub(super) fn read_page_again(&mut self, st: &St) -> Result<(), Signal> {
@@ -2258,6 +2339,7 @@ impl Session {
         curr(self)?;
         // The client holds the rows the refresh read (`read_list_again_from_row_as`).
         st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().read_up_from_last = None;
         Ok(true)
     }
 
@@ -2630,6 +2712,7 @@ impl Session {
             // (pagefindrecord/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
             // list). Left set, First indexed the empty window (al-runner issue 5802).
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             return Ok(());
         }
         let rec = self.page_rec(st);
@@ -3455,4 +3538,24 @@ enum EmptyShape {
     EditList,
     View,
     ViewCard,
+}
+
+/// The view of a list's record an action can change: its filters, and its key and sort order.
+pub(super) struct ListView {
+    filters: Vec<al_builtins::filter::FieldFilter>,
+    order: (usize, Option<Vec<usize>>, bool, u32),
+}
+
+impl ListView {
+    fn of(r: &al_builtins::value::RecordState) -> ListView {
+        ListView {
+            filters: r.filters.clone(),
+            order: (
+                r.key,
+                r.adhoc.as_ref().map(|(_, f)| f.clone()),
+                r.ascending,
+                r.field_descending,
+            ),
+        }
+    }
 }

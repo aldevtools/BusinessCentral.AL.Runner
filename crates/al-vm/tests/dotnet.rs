@@ -1211,6 +1211,39 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
     assert_eq!(text(r), "from .net!", "a later call can still write into the bridge");
 }
 
+// al-runner issue 6317: BC hands .NET the Blob's own stream, so a ZipArchive in Read mode over an OutStream sees the bytes AL
+// wrote through it (corpus tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
+#[test]
+fn an_outstream_argument_over_written_bytes_carries_them_to_the_bridge() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, a) if m == "ReadBack" => {
+            assert_eq!(a[0].value, DotNetValue::OutStreamWith(b"PK zip".to_vec()));
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    bridges: vec![(0, 9)],
+                    written: vec![(9, b"!".to_vec())],
+                    ..Default::default()
+                },
+            })
+        }
+        other => panic!("{other:?}"),
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.ReadBack(O); B.Insert(); B.Get('S'); B.CalcFields(Data);
+         B.Data.CreateInStream(I); I.ReadText(T); exit(T);",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "PK zip!",
+        "bytes .NET writes past the seeded content follow it"
+    );
+}
+
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------
 
 fn no_host() -> Fake {
@@ -2826,4 +2859,37 @@ codeunit 50100 C
         al_testkit::text(al_testkit::run(src, "HostEnvironmentType")),
         "from the web client URL"
     );
+}
+
+/// al-runner issue 6380: `Identity Management.IsWindowsAuthentication` (and its two siblings) asks
+/// `NavUserAccountHelper` for the service tier's credential type. The corpus CI containers answer user name and password
+/// (corpus writer Y5, branch al-runtime-rs-staging-y5, al-language-onprem/lt-y5/Y5AuthenticationTypeOnPrem.al:29-31), and
+/// both of the runner's environments are such a container.
+#[test]
+fn the_credential_type_is_user_name_and_password() {
+    use al_builtins::assumptions::take_hits;
+    for env in [
+        None,
+        Some(al_host::Environment::Saas),
+        Some(al_host::Environment::OnPrem),
+    ] {
+        let host = Fake::new(|r| panic!("the host must not be called: {r:?}"));
+        let (program, blocked, oi, ri) = compile(
+            "U: DotNet NavUserAccountHelper;",
+            "exit(Format(U.IsWindowsAuthentication()) + Format(U.IsUserNamePasswordAuthentication()) + Format(U.IsAccessControlServiceAuthentication()));",
+            ": Text",
+        );
+        let engine = Engine::with_dotnet(program, blocked, cfg(&host));
+        let mut s = match env {
+            None => Session::new(engine),
+            Some(e) => Session::with_host(engine, al_host::Host::default().in_environment(e)),
+        };
+        let inst = s.instance(oi);
+        take_hits();
+        match s.call(oi, ri, inst, vec![]).map(|(v, _)| v) {
+            Ok(Value::Text(t)) => assert_eq!(t, "NoYesNo", "{env:?}"),
+            other => panic!("{env:?}: {other:?}"),
+        }
+        assert!(take_hits().is_empty(), "pinned, not assumed");
+    }
 }

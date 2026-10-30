@@ -56,13 +56,15 @@ fn a_table_extension_caption_is_the_table_caption() {
     assert_eq!(text(al_testkit::run_in(src, "C", "F")), "Ext Caption|Ext Caption");
 }
 
-/// Which caption wins when the table declares one too, or when two extensions do, is not pinned: refused.
+/// One extension's Caption over the table's own wins (corpus writer Y5, branch al-runtime-rs-staging-y5,
+/// tableextension/lt-y5/Y5TestFieldExtCaption.al, al-runner issue 6378). Which one wins when two extensions set one is not
+/// pinned: refused.
 #[test]
 fn a_table_extension_caption_over_another_caption_is_refused() {
     let both = "table 50100 Base { Caption = 'Base Caption'; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
         tableextension 50101 BaseExt extends Base { Caption = 'Ext Caption'; } \
         codeunit 50100 C { procedure F(): Text var R: Record Base; begin exit(R.TableCaption()); end; }";
-    refused(al_testkit::run_in(both, "C", "F"), "caption");
+    assert_eq!(text(al_testkit::run_in(both, "C", "F")), "Ext Caption");
     let two = "table 50100 Base { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
         tableextension 50101 ExtA extends Base { Caption = 'A Caption'; } \
         tableextension 50102 ExtB extends Base { Caption = 'B Caption'; } \
@@ -162,12 +164,13 @@ fn a_caption_class_expression_with_another_area_reads_as_a_literal() {
     refused(al_testkit::run_in(&other, "C", "F"), "CaptionClass");
 }
 
-/// An error text that names a table whose caption is refused (a tableextension sets one over the table's own) is not pinned:
-/// the error is raised, and a read of its text or code refuses.
+/// An error text that names a table whose caption is refused (two tableextensions set one) is not pinned: the error is
+/// raised, and a read of its text or code refuses.
 #[test]
 fn an_error_that_names_a_refused_table_caption_is_unpinned() {
-    let src = "table 50100 Base { Caption = 'Base Caption'; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
-        tableextension 50101 BaseExt extends Base { Caption = 'Ext Caption'; } \
+    let src = "table 50100 Base { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        tableextension 50101 ExtA extends Base { Caption = 'A Caption'; } \
+        tableextension 50102 ExtB extends Base { Caption = 'B Caption'; } \
         codeunit 50100 C { procedure F(): Text var R: Record Base; begin asserterror R.Get(5); exit(GetLastErrorText()); end; \
         procedure G(): Text var R: Record Base; begin asserterror R.Get(5); exit(GetLastErrorCode()); end; \
         procedure H(): Boolean var R: Record Base; begin exit(R.Get(5)); end; }";

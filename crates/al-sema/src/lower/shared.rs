@@ -716,7 +716,9 @@ pub(crate) fn lower_object<'a>(
     }
     // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
     // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
-    // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`).
+    // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
+    // over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
+    // al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
     if o.kind == ObjKind::Table {
         let ext_captions: Vec<(String, String)> = extensions
             .get(&oi)

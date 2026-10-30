@@ -41,6 +41,21 @@ artifact_id = 12973020411
 oracle = "27/junit-dotnet.xml"
 baseline = "metrics/27/passing-dotnet.txt"
 
+# The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
+# (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
+# with them; the main app's environment stays without them.
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+workflow_run = 41044745830
+artifact_id = 12971783466
+oracle = "27/junit-testlibraries.xml"
+baseline = "metrics/27/passing-testlibraries.txt"
+extra_apps = [
+  { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
+  { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+
 [[version]]
 major = 28
 app_runtime = "17.1"
@@ -66,6 +81,21 @@ workflow_run = 41044745830
 artifact_id = 12972348150
 oracle = "28/junit-dotnet.xml"
 baseline = "metrics/28/passing-dotnet.txt"
+
+# The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
+# (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
+# with them; the main app's environment stays without them.
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+workflow_run = 41044745830
+artifact_id = 12972064424
+oracle = "28/junit-testlibraries.xml"
+baseline = "metrics/28/passing-testlibraries.txt"
+extra_apps = [
+  { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
+  { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
 
 # The isolation probe runs only in the corpus's Windows nightly (workflow "Nightly Windows", never
 # in the Linux legs), under two custom test runners. The one nightly artifact that holds it is
@@ -122,3 +152,18 @@ workflow_run = 41044745830
 artifact_id = 12972477210
 oracle = "29/junit-dotnet.xml"
 baseline = "metrics/29/passing-dotnet.txt"
+
+# The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
+# (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
+# with them; the main app's environment stays without them.
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+workflow_run = 41044745830
+artifact_id = 12972192548
+oracle = "29/junit-testlibraries.xml"
+baseline = "metrics/29/passing-testlibraries.txt"
+extra_apps = [
+  { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
+  { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]

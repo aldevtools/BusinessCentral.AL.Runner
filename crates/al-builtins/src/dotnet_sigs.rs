@@ -152,6 +152,13 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (USER_ACCOUNT_HELPER, "IsUserDelegatedAdmin", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsDelegatedUser", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsUserDelegatedHelpdesk", Ret::Boolean),
+    (USER_ACCOUNT_HELPER, "IsWindowsAuthentication", Ret::Boolean),
+    (USER_ACCOUNT_HELPER, "IsUserNamePasswordAuthentication", Ret::Boolean),
+    (
+        USER_ACCOUNT_HELPER,
+        "IsAccessControlServiceAuthentication",
+        Ret::Boolean,
+    ),
     (USER_ACCOUNT_HELPER, "GetEffectivePermissionForObject", Ret::Text),
     (USER_ACCOUNT_HELPER, "IsPermissionSetAssigned", Ret::Boolean),
     (AKV_PROVIDER, "AzureKeyVaultAppSecretProvider", Ret::Object),

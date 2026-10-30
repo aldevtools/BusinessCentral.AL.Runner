@@ -624,7 +624,7 @@ impl Session {
                                     self.tx.note_isolation_lock(key.0, key.1);
                                 }
                                 (ISOLATION_REPEATABLE_READ, false) => {
-                                    self.tx.lock_unpinned = Some("a ReadIsolation RepeatableRead set without a read")
+                                    self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_SET_WITHOUT_READ)
                                 }
                                 (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
                                     self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")

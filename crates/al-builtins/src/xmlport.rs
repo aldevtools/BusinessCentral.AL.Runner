@@ -229,6 +229,29 @@ fn write_elem(e: &Elem, level: usize, out: &mut String) {
     out.push('>');
 }
 
+/// Whether an element's text, or the text of an element below it, holds a line feed that no carriage return comes before.
+pub fn has_bare_line_feed(e: &Elem) -> bool {
+    e.children.iter().any(|c| match c {
+        Node::Elem(c) => has_bare_line_feed(c),
+        Node::Text(t) => t.char_indices().any(|(i, ch)| ch == '\n' && !t[..i].ends_with('\r')),
+    })
+}
+
+/// A serialized document with every line feed that no carriage return comes before written as a carriage return and a line
+/// feed, as an XmlPort export writes a line feed of a text value (misc/lt-np4-probes/Np4XmlPort.al:280, :300, :320 on corpus
+/// master: `len=161`/`177` count a CR before both line feeds of the value). The serializer writes only CR LF between elements,
+/// so a bare line feed comes from text.
+pub fn line_feeds_to_crlf(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 8);
+    for ch in text.chars() {
+        if ch == '\n' && !out.ends_with('\r') {
+            out.push('\r');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// The bytes of an exported document: UTF-16 little endian after a byte order mark.
 pub fn utf16_bom_bytes(text: &str) -> Vec<u8> {
     let mut out = vec![0xFF, 0xFE];

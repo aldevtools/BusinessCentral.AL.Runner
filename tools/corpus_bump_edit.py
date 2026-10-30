@@ -10,6 +10,8 @@ import os, re, sys
 root, sha, run, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 # DOTNET_IDS="27=ID 28=ID 29=ID": the artifact ids of the OnPrem DotNet files (suite onprem-dotnet).
 dotnet = {k: v for k, v in (x.split("=") for x in os.environ.get("DOTNET_IDS", "").split()) if v != "0"}
+# TESTLIB_IDS="27=ID 28=ID 29=ID": the artifact ids of the TestLibraries files (suite testlibraries).
+testlib = {k: v for k, v in (x.split("=") for x in os.environ.get("TESTLIB_IDS", "").split()) if v != "0"}
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
 # oracle.toml: the pin, then per [[version]] table its run and artifact, and its onprem suite's.
 p = root + "/oracle/oracle.toml"
@@ -34,6 +36,7 @@ for b in blocks[1:]:
         parts = [leg_fields(parts[0], oracle)] + [
             leg_fields(s, onprem) if re.search(r'^name = "onprem"', s, re.M)
             else leg_fields(s, dotnet[major]) if re.search(r'^name = "onprem-dotnet"', s, re.M) and major in dotnet
+            else leg_fields(s, testlib[major]) if re.search(r'^name = "testlibraries"', s, re.M) and major in testlib
             else s
             for s in parts[1:]
         ]
