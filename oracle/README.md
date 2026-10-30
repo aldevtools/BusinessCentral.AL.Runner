@@ -34,7 +34,7 @@ overall count.
 | `onprem` (27, 28, 29) | `tests/al-language-onprem` | `<major>/junit-onprem.xml` | the small artifact of the same CI run as the main oracle (ids 11957600568, 11957362118, 11956862735), copied unchanged | 72 |
 | `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the Windows nightly of 2026-10-18, BC 28.5, run 39127745894, artifact 12137159749 | 7 |
 | `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 7 (T5 fails on BC, on purpose) |
-| `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 34 (BC 29: 36, one skipped on purpose) |
+| `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 37 (BC 29: 40, one skipped on purpose) |
 
 The `testlibraries` suite names `extra_apps` in `oracle.toml`: Microsoft's Tests-TestLibraries and Data
 Archive, which the corpus job installs although no test app declares them (corpus `.github/workflows/ci.yml`,
