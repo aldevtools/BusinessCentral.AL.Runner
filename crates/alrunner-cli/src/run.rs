@@ -568,6 +568,8 @@ pub struct WarmCtx {
     pub timings: Option<RequestTimings>,
     /// The dependency apps of the last request, for the next one that would read the same (al-runner issue 5856).
     pub dependencies: Option<KeptDependencies>,
+    /// The license of the BC artifacts a request used, by build, held in memory only (ADR-060: never written anywhere).
+    pub license: Option<(String, al_testrun::license::LicenseUse)>,
 }
 
 /// The dependency apps a warm server read for a request ([`WarmCtx::dependencies`]).
@@ -1177,6 +1179,42 @@ fn test_inner(
             }
         }
     }
+    // ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build, else none. A file that
+    // cannot be read stops the run here, before anything is compiled.
+    let license = match (&a.license, &dependencies.build) {
+        (Some(p), _) => al_testrun::license::LicenseUse::from_file(p)?,
+        (None, Some(u)) => {
+            let kept = warm
+                .as_deref()
+                .and_then(|w| w.license.as_ref())
+                .filter(|(b, _)| *b == u.build.to_string())
+                .map(|(_, l)| l.clone());
+            match kept {
+                Some(l) => l,
+                None => {
+                    let fetch = al_deps::artifact::Fetch {
+                        cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+                        download: !a.no_download,
+                        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions),
+                        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
+                        country: country.clone(),
+                    };
+                    let l = al_testrun::license::LicenseUse::from_artifact(
+                        &al_deps::artifact::HttpCdn::from_env(),
+                        &fetch,
+                        &u.build,
+                    )?;
+                    if let Some(w) = warm.as_deref_mut()
+                        && l.license.is_some()
+                    {
+                        w.license = Some((u.build.to_string(), l.clone()));
+                    }
+                    l
+                }
+            }
+        }
+        (None, None) => al_testrun::license::LicenseUse::none("no BC artifact is used by this run"),
+    };
     // The resolver repeats a note on each round of the artifact feed; say each once.
     let mut seen = BTreeSet::new();
     let mut hidden = 0;
@@ -1441,6 +1479,7 @@ fn test_inner(
     al_testrun::host::set_companies(companies);
     let opts = RunOptions {
         run_seed,
+        license: license.license.clone(),
         only: opts_only,
         lazy: std::iter::repeat_n(None, inputs.len())
             .chain(dependencies.lazy.iter().cloned())
@@ -2124,22 +2163,28 @@ fn test_inner(
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
         write_file(
             path,
-            &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
+            &crate::seed::junit_license(
+                &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
+                &license,
+            ),
         )?;
     } else if let Some(path) = &a.junit {
         let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();
         with_skipped.sort_by_key(|r| (r.app, r.codeunit));
         write_file(
             path,
-            &crate::seed::junit(
-                &output::junit(
-                    &with_skipped,
-                    bc_build.as_deref(),
-                    total_time.as_secs_f64(),
-                    &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
-                    &rt.phases.baseline_assumptions,
+            &crate::seed::junit_license(
+                &crate::seed::junit(
+                    &output::junit(
+                        &with_skipped,
+                        bc_build.as_deref(),
+                        total_time.as_secs_f64(),
+                        &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
+                        &rt.phases.baseline_assumptions,
+                    ),
+                    run_seed,
                 ),
-                run_seed,
+                &license,
             ),
         )?;
     }
@@ -2173,6 +2218,10 @@ fn test_inner(
         for line in r.lines() {
             say!("{line}");
         }
+    }
+    // ADR-060: the license the run used, when it can matter (Microsoft's apps, or a license given).
+    if !a.quiet && (a.verbose || microsoft || a.license.is_some()) {
+        say!("{}", license.line());
     }
     say!(
         "{}",
@@ -2348,9 +2397,12 @@ fn test_inner(
     }
     if let Some(target) = &a.output_json {
         let doc = crate::seed::json(
-            crate::affected::with_selection(
-                output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
-                affected.as_ref(),
+            crate::seed::json_license(
+                crate::affected::with_selection(
+                    output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
+                    affected.as_ref(),
+                ),
+                &license,
             ),
             run_seed,
         );

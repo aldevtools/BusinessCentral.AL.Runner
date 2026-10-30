@@ -511,6 +511,8 @@ fn run_version(
     let mut dependency_summary = Vec::new();
     let mut skipped_dependencies = Vec::new();
     let mut bc_build = None;
+    // ADR-060: the license of the BC artifacts the run uses; none without them (`--no-deps`, or every dependency on disk).
+    let mut license = al_testrun::license::LicenseUse::none("no BC artifact is used by this run");
     if !args.no_deps {
         // Dependencies go after the corpus apps, so the corpus objects keep their positions.
         // ADR-013 Layer A: the oracle leg is the explicit `--bc-version`, so the Microsoft build
@@ -531,6 +533,18 @@ fn run_version(
                 println!("bc build: {} ({})", u.build, origin_word(u.origin));
                 chosen.target.bc.build = Some(u.build.to_string());
                 bc_build = Some(u.build.to_string());
+                let fetch = al_deps::artifact::Fetch {
+                    cache_root: al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
+                    download: provision.download,
+                    query: provision.query.clone(),
+                    local_artifacts: provision.local_artifacts.clone(),
+                    country: provision.country.clone(),
+                };
+                license = al_testrun::license::LicenseUse::from_artifact(
+                    &al_deps::artifact::HttpCdn::from_env(),
+                    &fetch,
+                    &u.build,
+                )?;
             }
             None => println!("bc build: none needed (every dependency came from .alpackages or --deps)"),
         }
@@ -540,6 +554,7 @@ fn run_version(
         skipped_dependencies = deps.skipped;
         apps.extend(deps.apps);
     }
+    println!("{}", license.line());
     if args.fetch_deps {
         println!("dependencies ready for BC {}", chosen.target.bc);
         return Ok(VersionRun {
@@ -668,6 +683,7 @@ fn run_version(
         trace: explained.is_some(),
         // The corpus has no test data: its oracle is a database the cases fill themselves.
         test_data: None,
+        license: license.license.clone(),
         company_data: None,
         compile_cache,
         test_time_limit: None,

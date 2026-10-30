@@ -27,6 +27,9 @@ pub struct RunOptions {
     /// Rows of a restored company, read when a session first touches a table (ADR-020). `None`:
     /// a run without test data, as every corpus run is.
     pub test_data: Option<al_host::testdata::TestData>,
+    /// The BC license of the run (ADR-060): the artifacts' license or `--license FILE`, parsed by the command line.
+    /// `None`: no license; License Permission serves only the pinned rows.
+    pub license: Option<std::sync::Arc<al_host::license::License>>,
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,

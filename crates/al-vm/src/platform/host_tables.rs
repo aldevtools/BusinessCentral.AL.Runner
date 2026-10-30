@@ -1158,11 +1158,7 @@ fn license_out_of_domain(object_type: i64, number: i64) -> StoreError {
     ))
 }
 
-pub(super) fn license_permission_get(
-    t: &TableDef,
-    pk: &[Value],
-    cx: LicenseCx,
-) -> Result<Option<Row>, StoreError> {
+pub(super) fn license_permission_get(t: &TableDef, pk: &[Value], cx: LicenseCx) -> Result<Option<Row>, StoreError> {
     let (Some(ot), Some(n)) = (pk.first().and_then(license_num), pk.get(1).and_then(license_num)) else {
         return Err(refused(
             "License Permission: a key that is not an object type and a number",

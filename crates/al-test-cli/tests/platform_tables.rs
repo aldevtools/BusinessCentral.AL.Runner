@@ -3002,9 +3002,15 @@ codeunit 50000 "T" { Subtype = Test;
 /// The engine of [`engine_over`] with a license loaded (ADR-060).
 fn outcomes_licensed(main: &str, license: &[u8], bc: &str) -> Vec<(String, Outcome)> {
     let (mut engine, l) = engine_over("main", main, None, al_sema::check::Roots::default(), bc);
-    std::sync::Arc::get_mut(&mut engine).expect("a fresh engine").license =
-        Some(std::sync::Arc::new(al_host::license::parse(license).expect("the synthetic license parses")));
-    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("test codeunit T");
+    std::sync::Arc::get_mut(&mut engine).expect("a fresh engine").license = Some(std::sync::Arc::new(
+        al_host::license::parse(license).expect("the synthetic license parses"),
+    ));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
     run_codeunit(&engine, &l, oi)
 }
 
@@ -3015,7 +3021,10 @@ fn synthetic_license() -> Vec<u8> {
         "Synthetic Licensee",
         "1/2/2040",
         &[
-            ("Codeunit", &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)]),
+            (
+                "Codeunit",
+                &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)],
+            ),
             ("TableData", &[(1, 50, 31), (2000000000, 2000000300, 31)]),
             ("TableDescription", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
             ("Page", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
@@ -3181,7 +3190,12 @@ codeunit 50000 \"T\" {
 #[test]
 fn license_permission_answers_from_the_loaded_license() {
     let o = outcomes_licensed(LICENSED_OBJECTS, &synthetic_license(), "29.0.0.0");
-    for t in ["ByKey", "SystemRangeFromThePins", "RangeReadsAndCount", "FirstRowsOfTheTable"] {
+    for t in [
+        "ByKey",
+        "SystemRangeFromThePins",
+        "RangeReadsAndCount",
+        "FirstRowsOfTheTable",
+    ] {
         passes(&o, t);
     }
     for (t, why_has) in [

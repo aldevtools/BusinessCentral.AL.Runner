@@ -306,7 +306,9 @@ pub mod synthetic {
     /// `(first, last, mask)`.
     pub fn file(licensee: &str, expires: &str, lists: &[(&str, &[(i64, i64, u32)])]) -> Vec<u8> {
         let mut text = String::from("Synthetic License Information\r\n****\r\n");
-        text.push_str(&format!("Licensed to             : {licensee}\r\n                          Somewhere\r\n"));
+        text.push_str(&format!(
+            "Licensed to             : {licensee}\r\n                          Somewhere\r\n"
+        ));
         text.push_str("Product Line            : Synthetic test product\r\n");
         text.push_str(&format!("Expires                 : {expires}\r\n****\r\n\r\n\u{FEFF}"));
         text.push_str("<License><Properties><Property name=\"CC\" type=\"String\" id=\"1\"><![CDATA[XX]]></Property></Properties><PermissionCollections>");
@@ -335,7 +337,10 @@ mod tests {
             "Test Licensee",
             "1/2/2040",
             &[
-                ("Codeunit", &[(1, 999, 31), (5000, 5999, 31), (2000000000, 2000000100, 31)]),
+                (
+                    "Codeunit",
+                    &[(1, 999, 31), (5000, 5999, 31), (2000000000, 2000000100, 31)],
+                ),
                 ("TableData", &[(1, 999, 31)]),
                 ("TableDescription", &[(1, 999, 31)]),
                 ("Page", &[(1, 999, 31)]),
@@ -413,7 +418,14 @@ mod tests {
         let e = parse(&bytes).unwrap_err();
         assert!(e.contains("permission mask 63") && e.contains("indirectly"), "{e}");
         // The limited-usage list's masks are not checked: their meaning is not known.
-        assert!(parse(&synthetic::file("X", "1/1/2040", &[("LimitedUsageTable", &[(1, 1, 64)])])).is_ok());
+        assert!(
+            parse(&synthetic::file(
+                "X",
+                "1/1/2040",
+                &[("LimitedUsageTable", &[(1, 1, 64)])]
+            ))
+            .is_ok()
+        );
     }
 
     #[test]
@@ -454,7 +466,12 @@ mod tests {
 
     #[test]
     fn ranges_are_sorted_whatever_the_file_order() {
-        let l = parse(&synthetic::file("X", "1/1/2040", &[("Page", &[(100, 200, 31), (1, 10, 16)])])).unwrap();
+        let l = parse(&synthetic::file(
+            "X",
+            "1/1/2040",
+            &[("Page", &[(100, 200, 31), (1, 10, 16)])],
+        ))
+        .unwrap();
         assert_eq!(l.ranges("Page").unwrap()[0].first, 1);
         assert_eq!(l.mask("Page", 150), Some(Some(31)));
         assert_eq!(l.mask("Page", 5), Some(Some(16)));
