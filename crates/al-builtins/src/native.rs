@@ -1515,6 +1515,28 @@ fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Res
             ..Default::default()
         })));
     }
+    // A TestPage control formats as the text it shows, cut or padded after it as a Text is; the format number changes nothing
+    // (errors/lt-ms-refusals-132/P132TestPageFormatRisky.al:64-89 P132_FormatOfControl_Standard0 and :92-125 _StandardNumbers:
+    // Integer, Decimal, Text, Boolean and DateTime controls with 0, 1, 2 and 9 and a length of 8; errors/lt-ms-refusals-129/
+    // P129FormatTestPageControl.al:94-138 P129_FormatTestPageControl_BooleanOptionCodeTextEnum: Boolean, Option, Code, Text and Enum controls with 0, 2 and 9 and a
+    // length of 5). Other format numbers are not pinned.
+    if matches!(&args[0], Value::TestControl(_)) {
+        if !matches!(std, 0 | 1 | 2 | 9) {
+            return Err(Signal::Unsupported(format!(
+                "Format of a TestPage control with standard format {std} (only 0, 1, 2 and 9 are pinned)"
+            )));
+        }
+        let mut control = args[0].clone();
+        let shown = ctx.page(crate::page_op::PageOp::TestFieldValue, Some(&mut control), &mut [])?;
+        if !matches!(shown, Value::Text(_)) {
+            return Err(Signal::Unsupported(format!(
+                "Format of a TestPage control whose value is {} (not pinned)",
+                shown.describe()
+            )));
+        }
+        let mut inner = [shown, Value::Integer(len), Value::Integer(0)];
+        return format_1(ctx, None, &mut inner);
+    }
     // A record as a whole, a RecordRef and a FieldRef need the table's schema.
     let composite = matches!(&args[0], Value::Record(_))
         || matches!(
