@@ -28,6 +28,11 @@ on:
   # release-tag.yml runs the same checks before it builds a numbered alpha.
   workflow_call:
 
+# Read-only token for every job; cache-cleanup asks for actions: write on its own. No job here writes
+# to the repository (the regen bot is .github/workflows/regen-bot.yml).
+permissions:
+  contents: read
+
 env:
   # The built sidecar, for the sidecar tests and the corpus run. A missing .NET fails, not skips.
   ALRT_DOTNET_SIDECAR: ${{ github.workspace }}/target/dotnet-sidecar/AlDotNetSidecar.dll

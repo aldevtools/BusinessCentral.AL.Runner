@@ -11,17 +11,15 @@ name: Regen bot
 #   - Baselines only grow. A lost baseline case fails the corpus job; then this workflow fails too and
 #     pushes nothing. tools/regen_bot.sh also refuses any removal on its own. Removing a case stays a
 #     human decision (CLAUDE.md hard rule 2).
-#   - The commit message carries `[skip ci]`, so GitHub starts no workflow for the push and CI does
-#     not run twice. Required checks are not affected: the ruleset checks them on pull requests, and
-#     the bot bypasses the ruleset for its own push.
+#   - It pushes with the workflow's GITHUB_TOKEN. GitHub starts no workflow for a push made with that
+#     token, so CI does not run twice; the `[skip ci]` in the commit message is an extra safeguard.
+#     Required checks are not affected: the ruleset checks them on pull requests, and the bot
+#     bypasses the ruleset for its own push.
 #   - One run at a time (a concurrency group that never cancels a running bot). If main moved since
 #     the commit CI ran on, the bot pushes nothing: the CI run of the newer commit regenerates. It
 #     never force-pushes.
-#   - The push needs a bypass of the ruleset `main` (it requires status checks). Preferred: a GitHub
-#     App with the repository permission Contents: read and write, installed on this repository and
-#     added as a bypass actor; its id in the repository variable REGEN_BOT_APP_ID, its private key in
-#     the secret REGEN_BOT_PRIVATE_KEY. Without the variable the bot uses GITHUB_TOKEN, which works
-#     only when "GitHub Actions" can be added as a bypass actor.
+#   - The push needs "GitHub Actions" as an always-allow bypass actor of the ruleset `main` (it
+#     requires status checks). Only this job asks for contents: write.
 #
 # It is a workflow of its own (not a job of ci.yml) because release-tag.yml calls ci.yml with
 # contents: read, and a called job that asks for contents: write fails the call at start-up.
@@ -32,9 +30,7 @@ on:
     types: [completed]
     branches: [main]
 
-permissions:
-  contents: write
-  actions: read
+permissions: {}
 
 concurrency:
   group: regen-bot-main
@@ -50,6 +46,10 @@ jobs:
       github.event.workflow_run.conclusion != 'cancelled' &&
       github.event.workflow_run.conclusion != 'skipped'
     runs-on: ubuntu-latest
+    # The only job of any workflow here that writes to main. actions: read downloads the artifact of the CI run.
+    permissions:
+      contents: write
+      actions: read
     env:
       SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
@@ -58,17 +58,9 @@ jobs:
         run: |
           echo "::error::CI ended '${{ github.event.workflow_run.conclusion }}' on $SHA (${{ github.event.workflow_run.html_url }}). A lost baseline case fails the corpus job. The regen bot pushes nothing; a person decides."
           exit 1
-      - name: App token
-        id: app
-        if: vars.REGEN_BOT_APP_ID != ''
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.REGEN_BOT_APP_ID }}
-          private-key: ${{ secrets.REGEN_BOT_PRIVATE_KEY }}
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-          token: ${{ steps.app.outputs.token || github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: regen-${{ github.event.workflow_run.id }}
@@ -77,15 +69,7 @@ jobs:
           path: ${{ runner.temp }}/regen
       - name: Commit the generated files
         id: commit
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
-          APP_SLUG: ${{ steps.app.outputs.app-slug }}
         run: |
-          if [ -n "$APP_SLUG" ]; then
-            export REGEN_BOT_NAME="$APP_SLUG[bot]"
-            REGEN_BOT_EMAIL="$(gh api "/users/$APP_SLUG%5Bbot%5D" --jq .id)+$APP_SLUG[bot]@users.noreply.github.com"
-            export REGEN_BOT_EMAIL
-          fi
           before=$(git rev-parse HEAD)
           tools/regen_bot.sh . "$RUNNER_TEMP/regen" "$SHA"
           if [ "$(git rev-parse HEAD)" != "$before" ]; then

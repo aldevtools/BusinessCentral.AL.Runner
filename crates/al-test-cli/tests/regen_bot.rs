@@ -162,3 +162,16 @@ fn the_workflow_runs_the_bot_after_a_green_push_to_main() {
     assert!(bot.contains("tools/regen_bot.sh"));
     assert!(!bot.contains("--force"), "the bot never force-pushes");
 }
+
+/// Least privilege: the bot pushes with GITHUB_TOKEN under a ruleset bypass for "GitHub Actions", so
+/// its workflow grants nothing at the top and only the bot job writes contents; ci.yml stays read-only.
+#[test]
+fn only_the_bot_job_gets_contents_write() {
+    let bot = std::fs::read_to_string(root().join(".github/workflows/regen-bot.yml")).unwrap();
+    assert!(bot.contains("\npermissions: {}\n"), "no workflow-wide grant:\n{bot}");
+    let grants = |text: &str| text.lines().filter(|l| l.trim() == "contents: write").count();
+    assert_eq!(grants(&bot), 1, "{bot}");
+    let ci = std::fs::read_to_string(root().join(".github/workflows/ci.yml")).unwrap();
+    assert!(ci.contains("\npermissions:\n  contents: read\n"), "ci.yml is read-only");
+    assert_eq!(grants(&ci), 0, "no job of ci.yml writes to the repository");
+}
