@@ -18,6 +18,9 @@ use std::sync::Arc;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
+/// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
+const UNPINNED_LOCKING_READ: &str = "a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock";
+
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
 
@@ -1563,10 +1566,26 @@ impl Session {
                     .zip(pk)
                     .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|o| o == std::cmp::Ordering::Equal))
         });
+        // Four Commits after the buffer's own write, a read under ReadIsolation UpdLock (Find, as No. Series takes a number) of
+        // another table only, beside writes of other tables only, decides as the same writes after a plain Get: DB:RecordChanged
+        // (record/lt-wb-6287/WbStaleUpdLockTests.al:16-25 UpdLockReadOfAnotherTableFourCommitsLaterRecordChanged, contrast
+        // :29-38; al-runner issue 6287). Other Commit counts and reads of the buffer's own table keep the lock as contact.
+        // The lock then comes from ReadIsolation alone (no LockTable), on other tables only.
+        let read_of_others_only = self.tx.lock_unpinned == Some(UNPINNED_LOCKING_READ)
+            && origin.is_some_and(|o| o.version == mine && o.own_write && o.commits + 4 == self.commits)
+            && self.tx.locked_tables.is_empty()
+            && (!self.tx.lock_tx || self.tx.isolation_lock)
+            && self
+                .tx
+                .isolation_lock_tables
+                .iter()
+                .all(|(o, c)| *o != t.object || *c != company)
+            && self.writes_all_noted()
+            && self.tx.writes.iter().all(|w| w.table != t.object);
         let contact = touched
             || self.tx.rolled_back
-            || self.tx.lock_tx
-            || self.tx.lock_unpinned.is_some()
+            || (self.tx.lock_tx && !read_of_others_only)
+            || (self.tx.lock_unpinned.is_some() && !read_of_others_only)
             || self.store_for(rec).written_since_commit(cx, t);
         match origin.filter(|o| o.version == mine) {
             // A buffer whose version came from its own Modify or Rename after its own Insert or Get in that transaction follows the
@@ -3405,10 +3424,15 @@ impl Session {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
                     self.tx.lock_tx = true;
                     self.tx.isolation_lock = true;
+                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
-                    self.tx.lock_unpinned =
-                        Some("a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock")
+                    // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
+                    // only cause (see `read_of_others_only` in the stale-buffer decision).
+                    if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {
+                        self.tx.lock_unpinned = Some(UNPINNED_LOCKING_READ);
+                    }
+                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_READ_UNCOMMITTED => self.tx.read_uncommitted_read = true,
                 _ => {}
