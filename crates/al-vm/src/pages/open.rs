@@ -2367,6 +2367,33 @@ impl Session {
         Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(rec)?))
     }
 
+    /// Whether the OnOpenPage of a page of its own left Rec on a row of its view, with a primary key that is not blank, other than
+    /// the first row of the view (the shape of AiListOrderTests.al:851, :871).
+    fn onopenpage_left_rec_past_the_first_row(&mut self, st: &St) -> Result<bool, Signal> {
+        if st.borrow().host.is_some() || !self.declares(st, "onopenpage") {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let table = self.table(&rec)?;
+        let blank: Vec<Value> = table.keys[0]
+            .iter()
+            .map(|&f| self.default_value(&table.fields[f].ty))
+            .collect();
+        if Self::same_key(&key, &blank) {
+            return Ok(false);
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(false);
+        }
+        Ok(!self.on_first_row_of_view(&rec)?)
+    }
+
     pub(super) fn page_first_row(&mut self, st: &St) -> Result<(), Signal> {
         // A page that serves its rows from OnFindRecord is asked `=><` when it opens (corpus
         // pageext/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord, `open`).
@@ -2389,6 +2416,12 @@ impl Session {
                 );
             }
             if lookup && lookup_set && self.is_list(st) {
+                "=>"
+            } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
+                // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`
+                // (pages/lt-ai-list-order/AiListOrderTests.al:851 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog
+                // `F:=>=Yes;R:R1006;...`, :871 _SecondLastRow_OpenLog `F:=>=Yes;R:R1005;...`). On the first row it is not pinned
+                // and keeps `=><`.
                 "=>"
             } else {
                 "=><"

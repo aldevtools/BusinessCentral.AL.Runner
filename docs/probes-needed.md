@@ -1087,7 +1087,7 @@ Refused in `al-vm/src/pages/rows.rs` until a probe pins them:
 - GoToKey/GoToRecord on a find list with OnAfterGetCurrRecord from a row other than the first (AiListOrderTests.al:769 pins it from the first row only).
 - GoToKey past a full window of a find list: with OnAfterGetCurrRecord, a second block of 20 rows, or a key the view does not have (AiListOrderTests.al:999 pins 25 rows without that trigger).
 - A descending find list with OnAfterGetCurrRecord that opens on a row other than the last of its view, and First with a second full block above the window (PnF06FindListMoves.al:304, :318 pin 3 and 25 rows).
-- Not observed by its test: the read of the opening row before OnNextRecord(-1) when a find list opens on its last row and has rows above it (AiListOrderTests.al:825 OpenOnRow_SetPositionInOnOpenPage_LastRow; implemented as no read, the one-row rule).
+- Pinned since (AiListOrderTests.al:851, :871): a find list that opens on its last row does not read it again before OnNextRecord(-1), on the row before the last it does, and OnFindRecord is asked `=>` when OnOpenPage left Rec on a row other than the first. Still not pinned: the Which of OnFindRecord when OnOpenPage leaves Rec on the first row of the view (kept `=><`).
 
 ## Platform tables and session facts (lane-platform-tables, 2026-10-19)
 
