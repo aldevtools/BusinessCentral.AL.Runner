@@ -66,18 +66,18 @@ pub const DIMENSIONS: &[Dimension] = &[
     dim("isolation.alone", Class::Safe, true, "false"),
     dim("order.methods", Class::Safe, true, "declared"),
     dim("workDate.offset", Class::Safe, true, "+0D"),
-    dim("order.codeunits", Class::Safe, false, "declared"),
-    dim("random.hostSeed", Class::Safe, false, "1"),
-    dim("guid.seed", Class::Safe, false, "1"),
+    dim("order.codeunits", Class::Safe, true, "declared"),
+    dim("random.hostSeed", Class::Safe, true, "1"),
+    dim("guid.seed", Class::Safe, true, "1"),
     dim("clock.date", Class::Safe, true, "+0D"),
-    dim("clock.timeOfDay", Class::Safe, false, "12:00:00.000"),
-    dim("clock.stepMs", Class::Safe, false, "1"),
-    dim("identity.userId", Class::Safe, false, "TESTUSER"),
-    dim("identity.userSecurityId", Class::Safe, false, ""),
-    dim("identity.sessionId", Class::Safe, false, "1"),
-    dim("identity.serviceInstanceId", Class::Safe, false, "1"),
-    dim("identity.tenantId", Class::Safe, false, "default"),
-    dim("company.name", Class::Safe, false, ""),
+    dim("clock.timeOfDay", Class::Safe, true, "12:00:00.000"),
+    dim("clock.stepMs", Class::Safe, true, "1"),
+    dim("identity.userId", Class::Safe, true, "TESTUSER"),
+    dim("identity.userSecurityId", Class::Safe, true, ""),
+    dim("identity.sessionId", Class::Safe, true, "1"),
+    dim("identity.serviceInstanceId", Class::Safe, true, "1"),
+    dim("identity.tenantId", Class::Safe, true, "default"),
+    dim("company.name", Class::Safe, true, ""),
     dim("numberSeries.offset", Class::Safe, false, "0"),
     dim("data.setup", Class::Safe, false, ""),
     dim(
@@ -333,7 +333,7 @@ fn days_in_month(year: i32, month: u32) -> u32 {
 }
 
 /// What a variant changes for the runner (`RunOptions::perturb`). The default is a normal run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Perturb {
     /// `order.methods`.
     pub method_order: MethodOrder,
@@ -345,12 +345,82 @@ pub struct Perturb {
     pub work_date: Option<DateShift>,
     /// `clock.date`: the date of the run clock, moved or fixed (install baseline and tests).
     pub clock_date: Option<DateShift>,
+    /// `order.codeunits`: the order test codeunits run in when they share the database (`--isolation disabled`).
+    pub codeunit_order: MethodOrder,
+    /// `random.hostSeed`: the seed of the session's `Random` before AL calls `Randomize`.
+    pub host_seed: Option<i32>,
+    /// `guid.seed`: the seed of `CreateGuid` and new SystemIds.
+    pub guid_seed: Option<i32>,
+    /// `clock.timeOfDay`: the time of day the run clock starts at, in milliseconds after midnight (UTC).
+    pub time_of_day: Option<i64>,
+    /// `clock.stepMs`: how far each read of the clock moves it (positive).
+    pub step_ms: Option<i64>,
+    /// `identity.*`.
+    pub identity: al_host::IdentityOverrides,
+    /// `company.name`: the session company's name (no test data).
+    pub company_name: Option<String>,
 }
 
 impl Perturb {
     /// A normal run.
     pub fn is_base(&self) -> bool {
         *self == Perturb::default()
+    }
+
+    /// The host values of the variant as text, empty when they are a normal run's: the key of an install baseline,
+    /// which install code builds under these values (ADR-058 section 7).
+    pub fn host_key(&self) -> String {
+        let mut k = Vec::new();
+        if let Some(d) = &self.clock_date {
+            k.push(format!("date={}", d.text()));
+        }
+        if let Some(t) = self.time_of_day {
+            k.push(format!("tod={t}"));
+        }
+        if let Some(t) = self.step_ms {
+            k.push(format!("step={t}"));
+        }
+        if let Some(t) = self.host_seed {
+            k.push(format!("rnd={t}"));
+        }
+        if let Some(t) = self.guid_seed {
+            k.push(format!("guid={t}"));
+        }
+        let i = &self.identity;
+        if let Some(t) = &i.user_id {
+            k.push(format!("user={t}"));
+        }
+        if let Some(t) = &i.user_security_id {
+            k.push(format!("usid={}", al_builtins::format::format_guid(t)));
+        }
+        if let Some(t) = i.session_id {
+            k.push(format!("session={t}"));
+        }
+        if let Some(t) = i.service_instance_id {
+            k.push(format!("instance={t}"));
+        }
+        if let Some(t) = &i.tenant_id {
+            k.push(format!("tenant={t}"));
+        }
+        if let Some(t) = &self.company_name {
+            k.push(format!("company={t}"));
+        }
+        k.join(";")
+    }
+
+    /// The run clock's instant `ms` (Unix milliseconds) under this variant: date moved (`clock.date`), then the time
+    /// of day set (`clock.timeOfDay`).
+    pub fn clock_ms(&self, ms: i64) -> i64 {
+        let ms = self.clock_date.map_or(ms, |d| d.apply_ms(ms));
+        match self.time_of_day {
+            Some(t) => ms.div_euclid(MS_PER_DAY) * MS_PER_DAY + t,
+            None => ms,
+        }
+    }
+
+    /// Whether the variant changes the clock the sessions read.
+    pub fn moves_clock(&self) -> bool {
+        self.clock_date.is_some() || self.time_of_day.is_some()
     }
 }
 
@@ -486,7 +556,7 @@ pub fn parse_config(text: &str) -> Result<Config, String> {
                         apply(&mut Perturb::default(), name, j)?;
                     }
                 }
-                Values::Range { .. } if name != "random.librarySeed" => {
+                Values::Range { .. } if !RANGE_DIMENSIONS.contains(&name.as_str()) => {
                     return Err(format!("the dimension \"{name}\" takes a list of values, not a range"));
                 }
                 Values::Range { .. } => {}
@@ -593,25 +663,79 @@ fn parse_values(name: &str, v: &Json) -> Result<Values, String> {
     }
 }
 
+/// The dimensions that take a range of integers.
+const RANGE_DIMENSIONS: &[&str] = &[
+    "random.librarySeed",
+    "random.hostSeed",
+    "guid.seed",
+    "clock.stepMs",
+    "identity.sessionId",
+    "identity.serviceInstanceId",
+];
+
+/// The dimensions whose printed value is read back as JSON (a number or a boolean), not as text.
+const JSON_VALUED: &[&str] = &[
+    "isolation.alone",
+    "random.librarySeed",
+    "random.hostSeed",
+    "guid.seed",
+    "clock.stepMs",
+    "identity.sessionId",
+    "identity.serviceInstanceId",
+];
+
+/// An order value: `declared`, `reverse`, `shuffle:SEED` or a bare `shuffle` (seed 0, drawn later).
+fn order_of(s: &str) -> Option<MethodOrder> {
+    match s {
+        "declared" => Some(MethodOrder::Declared),
+        "reverse" => Some(MethodOrder::Reverse),
+        "shuffle" => Some(MethodOrder::Shuffle(0)),
+        _ => s
+            .strip_prefix("shuffle:")?
+            .parse::<u64>()
+            .ok()
+            .map(MethodOrder::Shuffle),
+    }
+}
+
+/// `HH:MM:SS` or `HH:MM:SS.mmm`, as milliseconds after midnight.
+fn time_of_day(s: &str) -> Option<i64> {
+    let (hms, ms) = match s.split_once('.') {
+        Some((a, b)) if b.len() == 3 && b.bytes().all(|c| c.is_ascii_digit()) => (a, b.parse::<i64>().ok()?),
+        Some(_) => return None,
+        None => (s, 0),
+    };
+    let parts: Vec<&str> = hms.split(':').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|p| p.len() != 2 || !p.bytes().all(|c| c.is_ascii_digit()))
+    {
+        return None;
+    }
+    let (h, m, sec) = (
+        parts[0].parse::<i64>().ok()?,
+        parts[1].parse::<i64>().ok()?,
+        parts[2].parse::<i64>().ok()?,
+    );
+    (h < 24 && m < 60 && sec < 60).then_some(((h * 60 + m) * 60 + sec) * 1000 + ms)
+}
+
 /// Puts the value `v` of dimension `name` into `p`. Returns the value as text (the form a variant line prints and
 /// `--stability-replay` reads back).
 pub fn apply(p: &mut Perturb, name: &str, v: &Json) -> Result<String, String> {
     let bad = |what: &str| format!("the dimension \"{name}\" takes {what}, not {v}");
     match name {
-        "order.methods" => {
+        "order.methods" | "order.codeunits" => {
             let s = v
                 .as_str()
                 .ok_or_else(|| bad("\"declared\", \"reverse\" or \"shuffle:SEED\""))?;
-            p.method_order = match s {
-                "declared" => MethodOrder::Declared,
-                "reverse" => MethodOrder::Reverse,
-                _ => match s.strip_prefix("shuffle:").map(str::parse::<u64>) {
-                    Some(Ok(seed)) => MethodOrder::Shuffle(seed),
-                    // A bare "shuffle" gets its seed from the master seed when the variants are formed.
-                    _ if s == "shuffle" => MethodOrder::Shuffle(0),
-                    _ => return Err(bad("\"declared\", \"reverse\" or \"shuffle:SEED\"")),
-                },
-            };
+            let order = order_of(s).ok_or_else(|| bad("\"declared\", \"reverse\" or \"shuffle:SEED\""))?;
+            if name == "order.methods" {
+                p.method_order = order;
+            } else {
+                p.codeunit_order = order;
+            }
             Ok(s.to_string())
         }
         "isolation.alone" => {
@@ -644,6 +768,87 @@ pub fn apply(p: &mut Perturb, name: &str, v: &Json) -> Result<String, String> {
             } else {
                 p.work_date = shift;
             }
+            Ok(s.to_string())
+        }
+        "random.hostSeed" | "guid.seed" | "identity.sessionId" | "identity.serviceInstanceId" | "clock.stepMs" => {
+            let n = match v {
+                Json::Number(n) => n.as_i64(),
+                Json::String(s) => s.parse::<i64>().ok(),
+                _ => None,
+            }
+            .and_then(|n| i32::try_from(n).ok());
+            // The corpus pins positive session and service instance ids (ADR-058 row "identity"); two reads of the
+            // clock must differ (ADR-045), so a step is positive.
+            let positive = name != "random.hostSeed" && name != "guid.seed";
+            let n = match n {
+                Some(n) if !positive || n > 0 => n,
+                _ if positive => return Err(bad("a positive integer")),
+                _ => return Err(bad("an integer")),
+            };
+            // 1 is the value of a normal run for each of these.
+            let set = (n != 1).then_some(n);
+            match name {
+                "random.hostSeed" => p.host_seed = set,
+                "guid.seed" => p.guid_seed = set,
+                "identity.sessionId" => p.identity.session_id = set,
+                "identity.serviceInstanceId" => p.identity.service_instance_id = set,
+                _ => p.step_ms = set.map(i64::from),
+            }
+            Ok(n.to_string())
+        }
+        "clock.timeOfDay" => {
+            let s = v
+                .as_str()
+                .ok_or_else(|| bad("a time of day such as \"23:59:59.500\""))?;
+            let t = time_of_day(s).ok_or_else(|| bad("a time of day such as \"23:59:59.500\""))?;
+            // Noon is the run clock's time of day in a normal run (ADR-045).
+            p.time_of_day = (t != MS_PER_DAY / 2).then_some(t);
+            Ok(s.to_string())
+        }
+        "identity.userId" => {
+            let s = v.as_str().ok_or_else(|| bad("a user name"))?;
+            if s.is_empty() || s.chars().count() > 50 || !s.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return Err(format!(
+                    "the dimension \"{name}\" takes a plain name (letters and digits, up to 50 characters), not {v}; \
+                     names with other characters (for example \\ or spaces) need a corpus pin first"
+                ));
+            }
+            p.identity.user_id = (s != "TESTUSER").then(|| s.to_string());
+            Ok(s.to_string())
+        }
+        "identity.userSecurityId" => {
+            let s = v.as_str().ok_or_else(|| bad("a Guid"))?;
+            let g = al_builtins::ops::parse_guid(s)
+                .ok_or_else(|| bad("a Guid such as \"{0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0}\""))?;
+            if g == [0; 16] {
+                return Err(bad("a Guid that is not the null Guid"));
+            }
+            p.identity.user_security_id = Some(g);
+            Ok(s.to_string())
+        }
+        "identity.tenantId" => {
+            let s = v.as_str().ok_or_else(|| bad("a tenant id"))?;
+            // The corpus pins only that the tenant id is not empty; plain ids keep clear of anything else.
+            if s.is_empty() || s.len() > 128 || !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err(bad("a tenant id of letters, digits, - and _ (up to 128 characters)"));
+            }
+            p.identity.tenant_id = (s != "default").then(|| s.to_string());
+            Ok(s.to_string())
+        }
+        "company.name" => {
+            let s = v.as_str().ok_or_else(|| bad("a company name"))?;
+            if s.is_empty()
+                || s.chars().count() > 30
+                || s.starts_with(' ')
+                || s.ends_with(' ')
+                || !s.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')
+            {
+                return Err(format!(
+                    "the dimension \"{name}\" takes a name of letters, digits and spaces (up to 30 characters), \
+                     not {v}; names with filter characters (& | * ' @) or other characters need a corpus pin first"
+                ));
+            }
+            p.company_name = Some(s.to_string());
             Ok(s.to_string())
         }
         _ => Err(format!("\"{name}\" is not a stability dimension this runner applies")),
@@ -735,7 +940,7 @@ fn variant_of(index: usize, assignment: &[(&str, &Json)]) -> Result<Variant, Str
     // Registry order, so a variant line reads the same whatever the order of the file.
     for d in DIMENSIONS {
         if let Some((_, j)) = assignment.iter().find(|(n, _)| *n == d.name) {
-            let before = perturb;
+            let before = perturb.clone();
             let text = apply(&mut perturb, d.name, j)?;
             if perturb != before {
                 values.push((d.name.to_string(), text));
@@ -758,7 +963,7 @@ pub fn variants(cfg: &Config, master: u64, max: usize) -> Result<Vec<Variant>, S
         let v = variant_of(out.len(), assignment)?;
         // A value equal to the default, or a combination already formed, adds no variant.
         if !seen.contains(&v.perturb) {
-            seen.push(v.perturb);
+            seen.push(v.perturb.clone());
             out.push(v);
         }
         Ok(())
@@ -840,8 +1045,19 @@ pub fn parse_values_text(text: &str) -> Result<Variant, String> {
     if t == "base" {
         return variant_of(0, &[]);
     }
-    let mut pairs = Vec::new();
+    // A value may hold spaces (`company.name=Other Company`): a word without `=` belongs to the value before it.
+    let mut words: Vec<String> = Vec::new();
     for part in t.split_whitespace() {
+        match words.last_mut() {
+            Some(last) if !part.contains('=') => {
+                last.push(' ');
+                last.push_str(part);
+            }
+            _ => words.push(part.to_string()),
+        }
+    }
+    let mut pairs = Vec::new();
+    for part in &words {
         let Some((name, value)) = part.split_once('=') else {
             return Err(format!("\"{part}\" is not name=value"));
         };
@@ -850,7 +1066,7 @@ pub fn parse_values_text(text: &str) -> Result<Variant, String> {
             return Err(format!("the dimension \"{name}\" cannot be replayed by this runner"));
         }
         let j = match name {
-            "isolation.alone" | "random.librarySeed" => serde_json::from_str(value).unwrap_or(Json::from(value)),
+            n if JSON_VALUED.contains(&n) => serde_json::from_str(value).unwrap_or(Json::from(value)),
             _ => Json::from(value),
         };
         pairs.push((name.to_string(), j));
@@ -1017,7 +1233,7 @@ mod tests {
     #[test]
     fn unknown_names_unbuilt_dimensions_and_matrix_axes_are_refused() {
         assert!(refused(r#"{"format":1,"dimensions":{"clock.weather":["x"]}}"#).contains("not a known"));
-        assert!(refused(r#"{"format":1,"dimensions":{"guid.seed":[2]}}"#).contains("not built yet"));
+        assert!(refused(r#"{"format":1,"dimensions":{"numberSeries.offset":[2]}}"#).contains("not built yet"));
         assert!(refused(r#"{"format":1,"matrix":{"bcVersion":["29.0"]}}"#).contains("not built yet"));
         assert!(refused(r#"{"format":1,"matrix":{"planet":["x"]}}"#).contains("not a matrix axis"));
         assert!(refused(r#"{"format":1,"colour":1}"#).contains("unknown field"));
@@ -1096,7 +1312,50 @@ mod tests {
         assert_eq!(both.perturb.method_order, MethodOrder::Reverse);
         assert!(both.perturb.work_date.is_some());
         assert!(replay("base", None).unwrap().perturb.is_base());
-        assert!(replay("guid.seed=3", None).is_err());
+        assert!(replay("numberSeries.offset=3", None).is_err());
+        // Phase 2: a value with spaces and numbers read back.
+        let co = replay("company.name=Other Company clock.stepMs=5", None).unwrap();
+        assert_eq!(co.perturb.company_name.as_deref(), Some("Other Company"));
+        assert_eq!(co.perturb.step_ms, Some(5));
+        assert_eq!(replay(&co.describe(), None).unwrap().perturb, co.perturb);
+    }
+
+    #[test]
+    fn phase_two_values_are_checked_before_anything_runs() {
+        let one = |name: &str, v: &str| parse_config(&format!(r#"{{"format":1,"dimensions":{{"{name}":[{v}]}}}}"#));
+        // Two reads of the clock must differ (ADR-045).
+        assert!(one("clock.stepMs", "0").unwrap_err().contains("positive"));
+        assert!(one("identity.sessionId", "-1").unwrap_err().contains("positive"));
+        assert!(
+            one("identity.userId", r#""DOMAIN.user""#)
+                .unwrap_err()
+                .contains("pin first")
+        );
+        assert!(
+            one("identity.userId", r#""two words""#)
+                .unwrap_err()
+                .contains("pin first")
+        );
+        assert!(one("company.name", r#""A&B""#).unwrap_err().contains("pin first"));
+        assert!(one("company.name", r#""a name longer than thirty chars""#).is_err());
+        assert!(one("identity.tenantId", r#""""#).is_err());
+        assert!(one("identity.userSecurityId", r#""{00000000-0000-0000-0000-000000000000}""#).is_err());
+        assert!(one("clock.timeOfDay", r#""24:00:00""#).is_err());
+        assert!(one("clock.timeOfDay", r#""23:59:59.5""#).is_err());
+        assert!(one("clock.timeOfDay", r#""23:59:59.500""#).is_ok());
+        assert!(one("order.codeunits", r#""reverse""#).is_ok());
+        // The integer dimensions take a range.
+        let c = cfg(r#"{"format":1,"dimensions":{"random.hostSeed":{"range":[2,1000],"samples":2}},"masterSeed":3}"#);
+        let vs = variants(&c, 3, 1000).unwrap();
+        assert!(
+            vs[1..]
+                .iter()
+                .all(|v| v.perturb.host_seed.is_some_and(|n| (2..=1000).contains(&n)))
+        );
+        assert!(refused(r#"{"format":1,"dimensions":{"company.name":{"range":[1,2]}}}"#).contains("list"));
+        // Values equal to a normal run's form no variant.
+        let c = cfg(r#"{"format":1,"dimensions":{"clock.timeOfDay":["12:00:00.000"],"identity.userId":["TESTUSER"]}}"#);
+        assert_eq!(variants(&c, 0, 1000).unwrap().len(), 1);
     }
 
     #[test]

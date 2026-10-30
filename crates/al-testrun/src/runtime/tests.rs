@@ -3390,3 +3390,187 @@ fn stability_variants_change_only_what_they_name() {
     };
     assert_eq!(failing(leap), ["NotOnLeapDay"]);
 }
+
+/// Phase 2 of ADR-058: each test fails with the host value it reads, so a variant shows which values it moved.
+const STABILITY_HOST_APP: &str = "codeunit 60991 StabilityHostProbe
+{
+    Subtype = Test;
+
+    [Test]
+    procedure HostRandom()
+    begin
+        Error('%1', Random(1000000));
+    end;
+
+    [Test]
+    procedure NewGuid()
+    begin
+        Error('%1', CreateGuid());
+    end;
+
+    [Test]
+    procedure TimeOfDay()
+    begin
+        Error('%1', Format(Time(), 0, '<Hours24,2>:<Minutes,2>'));
+    end;
+
+    [Test]
+    procedure ClockStep()
+    var
+        A: DateTime;
+        B: DateTime;
+    begin
+        A := CurrentDateTime();
+        B := CurrentDateTime();
+        Error('%1', B - A);
+    end;
+
+    [Test]
+    procedure Identity()
+    begin
+        Error('%1|%2|%3|%4|%5', UserId(), UserSecurityId(), SessionId(), ServiceInstanceId(), TenantId());
+    end;
+
+    [Test]
+    procedure Company()
+    begin
+        Error('%1', CompanyName());
+    end;
+}
+codeunit 60992 StabilityWriter
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Writes()
+    var
+        R: Record StabilityRow;
+    begin
+        R.Id := 1;
+        R.Insert();
+    end;
+}
+codeunit 60993 StabilityReader
+{
+    Subtype = Test;
+
+    [Test]
+    procedure SeesTheWriter()
+    var
+        R: Record StabilityRow;
+    begin
+        if R.IsEmpty() then
+            Error('the writer has not run');
+    end;
+}
+table 60990 StabilityRow
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+    }
+}";
+
+fn stability_host_messages(perturb: crate::stability::Perturb, disabled: bool) -> Vec<(String, String)> {
+    let opts = RunOptions {
+        perturb,
+        isolation: disabled.then_some(TestIsolation::Disabled),
+        ..Default::default()
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), STABILITY_HOST_APP.into())],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    );
+    let mut v: Vec<(String, String)> = rt
+        .results()
+        .iter()
+        .map(|r| {
+            let m = match &r.outcome {
+                Outcome::Pass => "pass".to_string(),
+                Outcome::Fail(m) => m.clone(),
+                Outcome::NotRun(why) => panic!("{} not run: {why}", r.test),
+            };
+            (r.test.clone(), m)
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// The tests whose message differs from the base variant's.
+fn moved(perturb: crate::stability::Perturb, disabled: bool) -> Vec<String> {
+    let base = stability_host_messages(Default::default(), disabled);
+    let other = stability_host_messages(perturb, disabled);
+    assert_eq!(base.len(), other.len());
+    base.iter()
+        .zip(&other)
+        .filter(|(a, b)| a.1 != b.1)
+        .map(|(a, _)| a.0.clone())
+        .collect()
+}
+
+#[test]
+fn stability_host_value_variants_change_only_what_they_name() {
+    use crate::stability::{Perturb, apply};
+    let of = |name: &str, v: serde_json::Value| {
+        let mut p = Perturb::default();
+        apply(&mut p, name, &v).unwrap();
+        p
+    };
+    // The base run is repeatable.
+    assert_eq!(moved(Perturb::default(), false), Vec::<String>::new());
+    assert_eq!(moved(of("random.hostSeed", 7.into()), false), ["HostRandom"]);
+    assert_eq!(moved(of("guid.seed", 7.into()), false), ["NewGuid"]);
+    assert_eq!(
+        moved(of("clock.timeOfDay", "23:59:59.000".into()), false),
+        ["TimeOfDay"]
+    );
+    assert_eq!(moved(of("clock.stepMs", 250.into()), false), ["ClockStep"]);
+    assert_eq!(moved(of("identity.userId", "OTHERUSER".into()), false), ["Identity"]);
+    assert_eq!(
+        moved(
+            of(
+                "identity.userSecurityId",
+                "{0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0}".into()
+            ),
+            false
+        ),
+        ["Identity"]
+    );
+    assert_eq!(moved(of("identity.sessionId", 42.into()), false), ["Identity"]);
+    assert_eq!(moved(of("identity.serviceInstanceId", 3.into()), false), ["Identity"]);
+    assert_eq!(moved(of("identity.tenantId", "contoso".into()), false), ["Identity"]);
+    assert_eq!(moved(of("company.name", "Other Company".into()), false), ["Company"]);
+    // The values a test reads are the variant's.
+    let msgs = stability_host_messages(of("company.name", "Other Company".into()), false);
+    assert!(msgs.contains(&("Company".into(), "Other Company".into())), "{msgs:?}");
+    let msgs = stability_host_messages(of("clock.timeOfDay", "23:59:59.000".into()), false);
+    assert!(msgs.contains(&("TimeOfDay".into(), "23:59".into())), "{msgs:?}");
+    // Codeunit order matters only when codeunits share the database (--isolation disabled).
+    assert_eq!(
+        moved(of("order.codeunits", "reverse".into()), false),
+        Vec::<String>::new()
+    );
+    let base = stability_host_messages(Default::default(), true);
+    assert!(base.contains(&("SeesTheWriter".into(), "pass".into())), "{base:?}");
+    // Reversed, the reader runs before the writer. (The probe codeunit runs at another place in the chain too, so its
+    // Guid moves with the session's counter; only the pass/fail outcomes are compared here.)
+    let rev = stability_host_messages(of("order.codeunits", "reverse".into()), true);
+    assert!(
+        rev.contains(&("SeesTheWriter".into(), "the writer has not run".into())),
+        "{rev:?}"
+    );
+    let passing = |v: &[(String, String)]| v.iter().filter(|(_, m)| m == "pass").count();
+    assert_eq!(passing(&base) - passing(&rev), 1, "{rev:?}");
+}

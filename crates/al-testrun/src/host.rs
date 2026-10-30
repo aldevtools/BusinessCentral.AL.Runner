@@ -176,36 +176,43 @@ pub fn companies() -> al_host::Companies {
     COMPANIES.read().map(|r| r.clone()).unwrap_or_default()
 }
 
-/// The run clock with its date moved (a `clock.date` variant of a stability run, ADR-058): the time of day and the
-/// 1 ms per read stay.
-pub struct ShiftedClock(pub crate::stability::DateShift);
+/// The run clock under a variant of a stability run (ADR-058 `clock.date`, `clock.timeOfDay`): its date moved and its
+/// time of day set; the step per read stays the session's.
+pub struct PerturbedClock(pub crate::stability::Perturb);
 
-impl Clock for ShiftedClock {
+impl Clock for PerturbedClock {
     fn now_utc_millis(&self) -> i64 {
-        self.0.apply_ms(SystemClock.now_utc_millis())
+        self.0.clock_ms(SystemClock.now_utc_millis())
     }
 }
 
-/// [`host_at`] whose clock's date is moved by `shift` (ADR-058 `clock.date`); `None` is [`host_at`].
-pub fn host_shifted(start: Option<i64>, shift: Option<crate::stability::DateShift>) -> Host {
-    host_in_company_shifted(start, company_name().as_deref(), shift)
+/// [`host_at`] with the host values of a stability variant (ADR-058): clock, seeds, clock step, identity and company.
+/// The default [`Perturb`](crate::stability::Perturb) is [`host_at`].
+pub fn host_perturbed(start: Option<i64>, p: &crate::stability::Perturb) -> Host {
+    let company = p.company_name.clone().or_else(company_name);
+    let mut host = host_in_company_perturbed(start, company.as_deref(), p);
+    if p.host_seed.is_some() || p.guid_seed.is_some() {
+        // `guid.seed` is its own host value in a variant: moving one seed leaves the other at a normal run's.
+        host.random_seed = p.host_seed.unwrap_or(al_host::DEFAULT_RANDOM_SEED);
+        host.guid_seed = Some(p.guid_seed.unwrap_or(al_host::DEFAULT_RANDOM_SEED));
+    }
+    if let Some(step) = p.step_ms {
+        host.clock_step_ms = step;
+    }
+    host.with_identity_overrides(p.identity.clone())
 }
 
 /// [`host_at`] with the company name given instead of read from the run setting.
 pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
-    host_in_company_shifted(start, company, None)
+    host_in_company_perturbed(start, company, &Default::default())
 }
 
-fn host_in_company_shifted(
-    start: Option<i64>,
-    company: Option<&str>,
-    shift: Option<crate::stability::DateShift>,
-) -> Host {
-    let host = match (start, shift) {
-        (Some(ms), None) => Host::new(FixedClock(ms), AlRunnerIdentity),
-        (Some(ms), Some(s)) => Host::new(FixedClock(s.apply_ms(ms)), AlRunnerIdentity),
-        (None, None) => Host::new(SystemClock, AlRunnerIdentity),
-        (None, Some(s)) => Host::new(ShiftedClock(s), AlRunnerIdentity),
+fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crate::stability::Perturb) -> Host {
+    let host = match (start, p.moves_clock()) {
+        (Some(ms), false) => Host::new(FixedClock(ms), AlRunnerIdentity),
+        (Some(ms), true) => Host::new(FixedClock(p.clock_ms(ms)), AlRunnerIdentity),
+        (None, false) => Host::new(SystemClock, AlRunnerIdentity),
+        (None, true) => Host::new(PerturbedClock(p.clone()), AlRunnerIdentity),
     };
     let host = match company {
         Some(c) => host.in_company(c),

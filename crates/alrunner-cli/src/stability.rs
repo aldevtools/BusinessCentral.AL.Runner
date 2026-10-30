@@ -22,7 +22,7 @@ pub struct Plan {
 
 impl Plan {
     pub fn perturbs(&self) -> Vec<stability::Perturb> {
-        self.variants.iter().map(|v| v.perturb).collect()
+        self.variants.iter().map(|v| v.perturb.clone()).collect()
     }
 }
 
@@ -61,6 +61,15 @@ pub fn plan(a: &TestArgs, cell: &str) -> Result<Option<Plan>, String> {
     let (seed, picked) = master_seed(&st.config);
     let max = a.stability_max.unwrap_or(stability::DEFAULT_MAX_VARIANTS);
     let variants = stability::variants(&st.config, seed, max).map_err(|e| format!("--stability {}: {e}", st.source))?;
+    // `order.codeunits` changes outcomes only where codeunits share the database (ADR-058 section 2).
+    if st.config.dimensions.iter().any(|(n, _)| n == "order.codeunits")
+        && a.isolation != Some(al_testrun::isolation::TestIsolation::Disabled)
+    {
+        eprintln!(
+            "stability: order.codeunits cannot change an outcome in this run: each test codeunit starts from the \
+             database after install; use --isolation disabled to run the codeunits on one database"
+        );
+    }
     if picked {
         eprintln!(
             "stability: master seed {seed} (picked from the clock; put \"masterSeed\": {seed} in the config to repeat this run)"
