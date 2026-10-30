@@ -354,7 +354,7 @@ fn assemblies_come_from_the_assembly_dir_by_simple_name() {
     t.culture = None;
     t.public_key_token = None;
     let r = sess.get_property(DotNetTarget::Static(t), "ProtocolVersion");
-    assert_eq!(r.unwrap().value, DotNetValue::Int32(3));
+    assert_eq!(r.unwrap().value, DotNetValue::Int32(4));
     sess.close();
 }
 
@@ -426,6 +426,43 @@ fn an_outstream_argument_becomes_a_bridge_and_what_dotnet_writes_comes_back_afte
     let r2 = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
     assert!(r.streams.written.is_empty());
     assert_eq!(r2.streams.written, vec![(bridge, b"!".to_vec())], "only the new bytes");
+    sess.close();
+}
+
+// al-runner issue 6317: an OutStream over bytes its Blob holds hands .NET a stream that starts with them, at their end.
+#[test]
+fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_write_over_them() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let w = sess
+        .construct(
+            &ty("System.IO.StreamWriter"),
+            vec![arg(DotNetValue::OutStreamWith(b"abc".to_vec()))],
+        )
+        .unwrap();
+    let (_, bridge) = w.streams.bridges[0];
+    let writer = handle_of(&w);
+    let base = handle_of(&sess.get_property(DotNetTarget::Instance(writer), "BaseStream").unwrap());
+    let len = sess.get_property(DotNetTarget::Instance(base), "Length").unwrap();
+    assert_eq!(len.value, DotNetValue::Int64(3), "the bridge holds the bytes");
+    let pos = sess.get_property(DotNetTarget::Instance(base), "Position").unwrap();
+    assert_eq!(pos.value, DotNetValue::Int64(3), "and stands at their end");
+    sess.invoke(DotNetTarget::Instance(writer), "Write", vec![s("d")])
+        .unwrap();
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
+    assert_eq!(
+        r.streams.written,
+        vec![(bridge, b"d".to_vec())],
+        "only what follows the seed comes back"
+    );
+    sess.set_property(DotNetTarget::Instance(base), "Position", DotNetValue::Int64(0))
+        .unwrap();
+    let why = refused(sess.invoke(
+        DotNetTarget::Instance(base),
+        "WriteByte",
+        vec![arg(DotNetValue::Byte(1))],
+    ));
+    assert!(why.contains("over the bytes an AL OutStream held"), "{why}");
     sess.close();
 }
 
@@ -632,7 +669,7 @@ fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
     assert!(
-        why.contains("protocol mismatch") && why.contains("99") && why.contains('3'),
+        why.contains("protocol mismatch") && why.contains("99") && why.contains('4'),
         "{why}"
     );
     sess.close();

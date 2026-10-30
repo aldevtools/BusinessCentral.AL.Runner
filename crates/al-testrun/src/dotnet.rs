@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 3;
+pub const PROTOCOL: u64 = 4;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -1238,6 +1238,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::Handle { handle, ty } => json!({"t":"h","v":handle,"type":ty}),
         DotNetValue::InStream(b) => json!({"t":"ins","v":base64(b)}),
         DotNetValue::OutStream => json!({"t":"outs"}),
+        DotNetValue::OutStreamWith(b) => json!({"t":"outs","v":base64(b)}),
     }
 }
 
@@ -1543,6 +1544,11 @@ mod tests {
             assert_eq!(decode(&encode(&v)), Ok(v.clone()), "{v:?}");
         }
         assert_eq!(encode(&DotNetValue::OutStream)["t"], "outs");
+        let seeded = encode(&DotNetValue::OutStreamWith(b"abc".to_vec()));
+        assert_eq!(
+            (seeded["t"].as_str(), seeded["v"].as_str()),
+            (Some("outs"), Some("YWJj"))
+        );
         assert_eq!(encode(&DotNetValue::InStream(b"abc".to_vec()))["v"], "YWJj");
     }
 
