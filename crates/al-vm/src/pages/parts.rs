@@ -32,9 +32,10 @@ impl Session {
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
         let parts = std::mem::take(&mut st.borrow_mut().parts);
-        for (_, child) in parts {
-            self.mark_closed(&child);
+        for (_, child) in &parts {
+            self.mark_closed(child);
         }
+        st.borrow_mut().closed_parts = parts;
     }
 
     /// Creates the page of every part control, before the host's own triggers run: the host's
@@ -228,6 +229,30 @@ impl Session {
                 // The page's own code reaching a part after the page ran and closed is not a TestPage the test closed (Posted Purchase
                 // Document Lines.CopyLineToDoc reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned): refused, as the other
                 // calls of such a page are (see test_page_op).
+                // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
+                // rows the part's record holds, after OK and after Cancel alike (pages/lt-wd/WdPartAfterRunModal.al:75-100
+                // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
+                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Pinned for a page that ran modally and
+                // a part that was created while it was open; anything else stays refused.
+                Err(Signal::Error(e))
+                    if runtime
+                        && e.code == "TestPageNotOpened"
+                        && st.borrow().ran
+                        && st.borrow().last_run_modal == Some(true) =>
+                {
+                    let kept = st
+                        .borrow()
+                        .closed_parts
+                        .iter()
+                        .find(|(i, _)| *i == control)
+                        .map(|(_, c)| c.clone());
+                    if let Some(c) = kept {
+                        return Ok(c);
+                    }
+                    return unsupported(
+                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
+                    );
+                }
                 Err(Signal::Error(e)) if runtime && e.code == "TestPageNotOpened" => {
                     return unsupported(
                         "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",

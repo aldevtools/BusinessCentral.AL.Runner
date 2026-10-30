@@ -1144,8 +1144,29 @@ impl Session {
         // Paging_GoToKey_Nav and 68164 TestPage_Control_Texts_GuidDurationAndBlankNumbers), and an action after them is refused
         // (`actions.rs`). Any other control call is refused.
         if m != PageMethod::Invoke && st.borrow().read_after_goto {
+            // AsBoolean and AsInteger of a field, Visible, Editable and Caption of a field and Enabled of an action read
+            // nothing either, and the action after them reads the row twice as after a Value read (pages/lt-wd/
+            // WdGoToKeyTypedReads.al:124-247, corpus branch al-runtime-rs-staging-1030c, al-runner issue 6304). Pinned on a
+            // page that is not a lookup; OK of a lookup after them is not pinned, so there they still mark the doubt.
+            let kind = match &c.target {
+                ControlTarget::Control(i) => Some(page_of(&self.engine(), st).controls[*i].kind.clone()),
+                _ => None,
+            };
+            let pinned_read = match kind {
+                Some(ir::ControlKind::Field) => matches!(
+                    m,
+                    PageMethod::AsBoolean
+                        | PageMethod::AsInteger
+                        | PageMethod::Visible
+                        | PageMethod::Editable
+                        | PageMethod::Caption
+                ),
+                Some(ir::ControlKind::Action) => m == PageMethod::Enabled,
+                _ => false,
+            };
             match m {
                 PageMethod::Value => {}
+                _ if pinned_read && !st.borrow().lookup => {}
                 PageMethod::SetValue => st.borrow_mut().read_after_goto_set = true,
                 PageMethod::AsBoolean
                 | PageMethod::AsDate

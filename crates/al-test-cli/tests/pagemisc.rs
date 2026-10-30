@@ -1123,19 +1123,17 @@ fn a_page_variable_reaches_the_part_of_a_page_that_never_ran() {
     ));
 }
 
-// Posted Purchase Document Lines.CopyLineToDoc reads a part after RunModal returned: refused, not failed with the TestPage error.
+// Posted Purchase Document Lines.CopyLineToDoc reads a part after RunModal returned: the page's code reaches the part of its
+// last run (pages/lt-wd/WdPartAfterRunModal.al, al-runner issue 6321).
 #[test]
-fn a_page_variable_reaching_a_part_after_the_page_closed_is_refused_not_failed() {
+fn a_page_variable_reaching_a_part_after_run_modal_returned_reads_it() {
     let o = outcomes(&format!(
         "{HELPERS}
         [Test] [HandlerFunctions('H')]
         procedure Closed() var W: Page \"PM Never Ran Host\"; begin W.RunModal(); W.Reach(); end;
         [ModalPageHandler] procedure H(var T: TestPage \"PM Never Ran Host\") begin T.OK().Invoke(); end;"
     ));
-    assert!(
-        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("not open") && why.contains("not pinned")),
-        "{o:?}"
-    );
+    assert!(matches!(&o[0].1, Outcome::Pass), "{o:?}");
 }
 
 // Warehouse Pick Summary.SetRecords hands its part (a temporary-table page) the rows before the page runs; the part keeps them when it opens.
