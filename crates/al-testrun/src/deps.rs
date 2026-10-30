@@ -248,7 +248,11 @@ pub fn load_with_extra(
     }
     let mut search_dirs = vec![app_dir.join(".alpackages")];
     search_dirs.extend(extra_dirs.iter().cloned());
-    load_project(&project, &workspace_apps, &search_dirs, provision, None, false)
+    // A dependency package with an `application` floor sees the `Application` aggregate and what it depends on, as
+    // alc compiles it (`a_dependency_package_with_an_application_floor_sees_the_application`: Tests-TestLibraries
+    // names Base Application's `Notification Context` without declaring Base Application). The corpus apps declare
+    // their own dependencies; the flag changes only what the packages see.
+    load_project(&project, &workspace_apps, &search_dirs, provision, None, true)
 }
 
 /// `project` with the apps BC's test environment has installed although no test app declares them: Microsoft's Test
@@ -521,6 +525,34 @@ mod tests {
         .unwrap();
         let deps = load_project(&project, &[], &[runner], None, None, false).unwrap();
         assert_eq!(deps.summary, ["Test Runner 27.5.1.2"], "{:?}", deps.log);
+    }
+
+    /// A Microsoft dependency package with an `application` floor and no declared Base Application sees the
+    /// `Application` aggregate and what it depends on, as alc compiles it: Tests-TestLibraries 29.0
+    /// (`ResetStateBeforeTestRun.Codeunit.al:12`, table `Notification Context` of Base Application) declares only
+    /// System Application Test Library, Permissions Mock and Application Test Library, and has `application`
+    /// 29.0.0.0. It compiles in Microsoft's builds and runs before every test of the corpus testlibraries suite.
+    #[test]
+    fn a_dependency_package_with_an_application_floor_sees_the_application() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = app_folder(
+            tmp.path(),
+            "Lib",
+            r#"{"id":"lib","name":"Lib","publisher":"Microsoft","version":"29.0.0.0","application":"29.0.0.0","platform":"29.0.0.0","dependencies":[]}"#,
+            &[("Lib.Codeunit.al", "codeunit 130301 \"Lib\" { }")],
+        );
+        let project = tmp.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("app.json"), json("p", &[])).unwrap();
+        let deps = load_with_extra(&project, &[], &[lib], None, &[("lib".into(), "Lib".into())]).unwrap();
+        let app = deps.apps.iter().find(|a| a.id == "lib").expect("lib loaded");
+        assert!(
+            app.dependencies
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case(al_deps::select::APPLICATION_APP_ID)),
+            "{:?}",
+            app.dependencies
+        );
     }
 
     /// Without a package for it the run goes on without it (the AllObj rows of its codeunits stay refused).
