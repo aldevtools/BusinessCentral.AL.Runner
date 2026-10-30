@@ -447,13 +447,15 @@ pub(crate) fn is_stmt(k: SyntaxKind) -> bool {
 /// - `HttpRequestMessage.Method`: network/TestHttpRequestMessage.al:23; `.Content`: :39.
 /// - `TestHttpResponseMessage.HttpStatusCode`, `.ReasonPhrase`, `.IsBlockedByEnvironment`, `.IsSuccessfulRequest` and
 ///   `HttpClient.Timeout`: the HTTP probes (PZHttpHandler.al; network/lt-http/HttpClient.al, TestHttpMessages.al).
+/// - `HttpClient.UseServerCertificateValidation`, `.UseResponseCookies` (`Client.UseResponseCookies := false`):
+///   network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74.
 /// - `File.TextMode`, `File.WriteMode`: Base Application's "Export Consolidation" report.
 /// - `FilterPageBuilder.PageCaption`: the call form is pinned by filterpage/TestFilterPageBuilder.al:600.
 /// - `XmlReadOptions.PreserveWhitespace`, `XmlWriteOptions.PreserveWhitespace` (al-runner issue 5647): the call form is
 ///   pinned by xml/XmlDocReadWrite.al:215-217 and :399-406, what `ReadFrom` then reads by misc/W4XmlJsonHttp.al:18-19
 ///   (ReadFrom_InnerWhitespace, _WhitespaceAroundTheRoot, _TextContentWhitespace), what `WriteTo` writes by
 ///   xml/TestXmlDocumentWriteToOutStreamContracts.al.
-fn is_property_setter(receiver: &str, name: &str) -> bool {
+pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
     matches!(
         (receiver, name),
         ("FieldRef" | "TestField", "Value")
@@ -492,7 +494,8 @@ fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "TestHttpResponseMessage",
                 "HttpStatusCode" | "ReasonPhrase" | "IsBlockedByEnvironment" | "IsSuccessfulRequest"
             )
-            | ("HttpClient", "Timeout")
+            // network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:24-33,51-53,71
+            | ("HttpClient", "Timeout" | "UseServerCertificateValidation" | "UseResponseCookies")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
             | ("XmlReadOptions" | "XmlWriteOptions", "PreserveWhitespace")
