@@ -265,6 +265,9 @@ impl Lowerer<'_> {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
                 let args = sec.args();
+                // `args` unquotes a lone quoted name ("Profile Name" becomes Profile Name), which `plain_name` no longer
+                // reads as a name: it reads the argument as written (al-runner issue 6314).
+                let raw_args = sec.args_raw();
                 match args.get(1).map(|a| crate::pages::classify_source(a, &ow.names)) {
                     Some(crate::pages::Source::RecField(f)) => {
                         let pos = table.and_then(|t| {
@@ -307,7 +310,7 @@ impl Lowerer<'_> {
                     // nothing else in scope has the name; with a procedure of the page or the table, a page variable or another
                     // control of that name, which one BC binds is not pinned: refused.
                     Some(crate::pages::Source::Expr)
-                        if let Some((n, p)) = crate::pages::plain_name(args.get(1).map_or("", |a| a.as_str()))
+                        if let Some((n, p)) = crate::pages::plain_name(raw_args.get(1).map_or("", |a| a.as_str()))
                             .and_then(|n| {
                                 let t = table?;
                                 let p = self.members[t]
@@ -387,7 +390,7 @@ impl Lowerer<'_> {
                             None => {
                                 let base_slot = raw
                                     .owner
-                                    .and_then(|_| crate::pages::plain_name(args.get(1)?))
+                                    .and_then(|_| crate::pages::plain_name(raw_args.get(1)?))
                                     .and_then(|n| globals.iter().position(|g| g.name.eq_ignore_ascii_case(&n)));
                                 match base_slot {
                                     Some(slot) => binding = ir::Binding::BaseVar(slot),
