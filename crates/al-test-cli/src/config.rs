@@ -35,7 +35,7 @@ impl CompaniesValue {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct VersionEntry {
     pub major: u16,
     /// The corpus CI leg the oracle came from (the newest minor of the major).
@@ -101,6 +101,20 @@ pub struct SuiteEntry {
     pub artifact_id: Option<u64>,
     /// Ratchet path, relative to the repository root.
     pub baseline: String,
+    /// The apps the corpus CI installs for this suite although no test app declares them (corpus
+    /// `.github/workflows/ci.yml`, `extra_apps` of the job that runs the suite). They change what AL code sees (the
+    /// test runner runs codeunits of Tests-TestLibraries around every test, `al-testrun` `runner_reset.rs`), so a
+    /// suite that names any runs in an environment of its own: its own compile and run, with these apps loaded like
+    /// declared dependencies, and without the main app's tests.
+    #[serde(default)]
+    pub extra_apps: Vec<ExtraApp>,
+}
+
+/// An app of `SuiteEntry::extra_apps`: the id it is found by, and its name for messages.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ExtraApp {
+    pub id: String,
+    pub name: String,
 }
 
 impl VersionEntry {
@@ -295,6 +309,40 @@ baseline = "metrics/28/passing-isolation-function.txt"
         assert_eq!(v.suites[1].runner, Some(61300));
         assert_eq!(v.suites[1].corpus_commit.as_deref(), Some("old"));
         assert!(f.versions.iter().find(|v| v.major == 27).unwrap().suites.is_empty());
+    }
+
+    // The corpus CI installs apps no test app declares for some suites (corpus .github/workflows/ci.yml, job
+    // test-testlibraries, `extra_apps`): such a suite names them, and runs in an environment of its own.
+    #[test]
+    fn a_suite_names_the_apps_its_environment_adds() {
+        let t = format!(
+            r#"{TOML}
+[[version.suite]]
+name = "onprem"
+app = "corpus/tests/al-language-onprem"
+oracle = "28/junit-onprem.xml"
+baseline = "metrics/28/passing-onprem.txt"
+
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+oracle = "28/junit-testlibraries.xml"
+baseline = "metrics/28/passing-testlibraries.txt"
+extra_apps = [
+  {{ id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" }},
+  {{ id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" }},
+]
+"#
+        );
+        let f = OracleFile::parse(&t).unwrap();
+        let v = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert!(v.suites[0].extra_apps.is_empty());
+        let names: Vec<_> = v.suites[1].extra_apps.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Tests-TestLibraries", "Data Archive"]);
+        assert_eq!(v.suites[1].extra_apps[1].id, "7819d79d-feea-4f09-bbed-5bbaca4bf323");
+        // An app without its id cannot be looked up: the dependency apps are found by id.
+        let no_id = t.replace(r#"id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", "#, "");
+        assert!(OracleFile::parse(&no_id).is_err());
     }
 
     #[test]

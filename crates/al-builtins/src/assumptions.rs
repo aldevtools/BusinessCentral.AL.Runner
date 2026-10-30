@@ -880,6 +880,49 @@ registry! {
         assumed: "The SystemId of a Field row is the Guid of the bytes of 2000000041, the table number and the field number, each little-endian, then four zero bytes. Measured only on the newest major for one table numbered above 65535, its field 2 and the user-name system fields 2000000005-8 (platform/lt-wc/WcFieldRowCopy.al:48, :60-63); a read of the SystemId of any other Field row (a table below 65536 or a system table, another system field, an older major) runs on the same rule.",
         tests: "No Microsoft test: a partner app's field picker page buffers Field rows of any table in a temporary Field record.",
         probe: "The SystemId of the Field rows of a table below 65536, a Base Application table, a tableextension field, field 2000000000 (SystemId) and the timestamp row (No. 0), on all three majors.",
+    },    RepeatableReadFindSetOpensWriteTransaction => {
+        id: "repeatable-read-findset-write-transaction",
+        assumed: "A FindSet on a database table under ReadIsolation RepeatableRead, as the first read after the isolation was set, leaves the session in a write transaction. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_ReadIsolation_RepeatableRead_Reads (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's tests read rows under RepeatableRead and then check the write transaction.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4Misc.al"],
+            since: "2026-10-30",
+        },
+    },
+    EmptyErrorListControlValidate => {
+        id: "empty-error-list-control-validate",
+        assumed: "Error('') out of a control's own OnValidate during TestPage SetValue on a List or a Worksheet page opened on its own ends the SetValue quietly: the test goes on, the last error has the empty text and code NSValidateField:Dialog, the control shows the old value and the row keeps it. Pinned on corpus master by misc/lt-np4-probes/Np4EmptyError.al NP4_EE_ControlValidate_List and _Worksheet (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's worksheet tests set a value whose validation ends with an empty error.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4EmptyError.al"],
+            since: "2026-10-30",
+        },
+    },
+    XmlPortOnceOnceNested => {
+        id: "xmlport-once-once-nested",
+        assumed: "An XmlPort export of a table element without LinkTable below another table element with MinOccurs = Once and MaxOccurs = Once writes the first row of each pass; a pass without rows writes the record as it stands, which after a pass of two rows holds the second row. Pinned on corpus master by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_OnceOnce_ZeroAndOneRows and _TwoRows (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's export of a document with one optional line.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4XmlPort.al"],
+            since: "2026-10-30",
+        },
+    },
+    XmlPortPreserveWhiteSpaceExport => {
+        id: "xmlport-preserve-white-space-export",
+        assumed: "An Xml XmlPort export with Encoding = UTF8 and PreserveWhiteSpace = true writes the same as without it, also with DefaultNamespace and UseDefaultNamespace; a line feed in a text value is written as CR LF (with PreserveWhiteSpace or a default namespace; another shape with a line feed is refused). Pinned on corpus master by misc/lt-np4-probes/Np4XmlPort.al NP4_XmlPort_PreserveWhiteSpace_WithNamespace, _DefaultWhiteSpace_WithNamespace and _PreserveWhiteSpace_NoNamespace (corpus PR 871), which the pinned corpus does not hold yet.",
+        tests: "No Microsoft test: a partner app's export in its own namespace.",
+        probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
+        awaiting: Awaiting {
+            issues: &[],
+            files: &["tests/al-language/misc/lt-np4-probes/Np4XmlPort.al"],
+            since: "2026-10-30",
+        },
     },
 }
 
