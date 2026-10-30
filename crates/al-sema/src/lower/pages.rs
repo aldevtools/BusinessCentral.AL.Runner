@@ -158,6 +158,7 @@ impl Lowerer<'_> {
                     var_field: None,
                     var_slot: None,
                     expr_source: None,
+                    expr_call: false,
                 });
                 continue;
             }
@@ -261,6 +262,7 @@ impl Lowerer<'_> {
             let mut var_field = None;
             let mut var_slot = None;
             let mut expr_source = None;
+            let mut expr_call = false;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
@@ -369,6 +371,7 @@ impl Lowerer<'_> {
                                                 Some(((t, p), slot))
                                             });
                                     (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
+                                    expr_call = args.get(1).is_some_and(|a| crate::pages::call_shape(a));
                                     // Only text with no quote and single spaces: how BC writes other text is not pinned.
                                     expr_source =
                                         args.get(1).filter(|a| crate::pages::plain_spacing(a)).and_then(|a| {
@@ -476,6 +479,7 @@ impl Lowerer<'_> {
                 var_field,
                 var_slot,
                 expr_source,
+                expr_call,
             });
         }
         let base = owner_of(None);

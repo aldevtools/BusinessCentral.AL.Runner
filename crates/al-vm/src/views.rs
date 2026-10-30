@@ -184,6 +184,8 @@ impl Session {
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
             // record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
+            // filters/lt-wc/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
+            FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::Or(xs) => xs
                 .iter()
                 .map(|x| self.filter_text_with(x, iso))
@@ -645,6 +647,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::And(xs) => FilterExpr::And(xs.iter().map(ordinals).collect()),
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
+        FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
     }
 }
 

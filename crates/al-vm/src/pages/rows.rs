@@ -3505,8 +3505,9 @@ impl Session {
     /// A ModalPageHandler that raised an error left its page open: the platform still asks the close, the parts first with
     /// None, then the page with its own action, and RunModal raises the handler's error (pages/lt-modal-query-close-veto/
     /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
-    /// for a refusal by a page with open parts; a page without parts, or one where no close trigger is declared, closes as before
-    /// without asking; a close the trigger allows, or one with an unsaved row, is refused.
+    /// for a refusal by a page with open parts, and for a close allowed in lookup mode (WbModalHandlerCloseTests.al); a page without
+    /// parts, or one where no close trigger is declared, closes as before without asking; another allowed close, or one with an
+    /// unsaved row, is refused.
     fn close_modal_after_handler_error(&mut self, st: &St) -> Result<(), Signal> {
         let parts: Vec<St> = st
             .borrow()
@@ -3528,8 +3529,13 @@ impl Session {
             );
         }
         let a = self.unattended_action(st);
+        let lookup = st.borrow().lookup;
         match self.close_with(st, a, false, false) {
             Ok(_) if st.borrow().open && st.borrow().close_vetoed => self.refuse_unpinned_modal_veto(st),
+            // Allowed in lookup mode: the part answers None, the page LookupCancel, the page closes and RunModal raises the
+            // handler's error, also an error of a page action the handler invoked (pages/lt-wb-6291/WbModalHandlerCloseTests.al:9-39
+            // `Part:None|Page:LookupCancel`, al-runner issue 6291). Outside lookup mode it is not pinned.
+            Ok(_) if lookup && !st.borrow().open => Ok(()),
             Err(Signal::Error(_)) | Ok(_) => unsupported(
                 "a page left open by a ModalPageHandler that raised an error, whose close is allowed (not pinned)",
             ),
