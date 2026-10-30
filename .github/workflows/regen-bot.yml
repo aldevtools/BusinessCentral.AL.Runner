@@ -1,0 +1,95 @@
+name: Regen bot
+
+# Keeps the generated files on main current, so pull requests never regenerate them. Owner decision
+# of 2026-10-30: the bot pushes straight to main, no pull request.
+#
+# After CI finishes on a push to main, the bot takes what that run's corpus job wrote (artifact
+# `regen-<run id>`): the baselines metrics/<major>/passing*.txt from the measured corpus run, the two
+# coverage maps and the table of docs/probes-needed.md. It commits them with tools/regen_bot.sh and
+# pushes. There is no second corpus run.
+#
+#   - Baselines only grow. A lost baseline case fails the corpus job; then this workflow fails too and
+#     pushes nothing. tools/regen_bot.sh also refuses any removal on its own. Removing a case stays a
+#     human decision (CLAUDE.md hard rule 2).
+#   - It pushes with the workflow's GITHUB_TOKEN. GitHub starts no workflow for a push made with that
+#     token, so CI does not run twice; the `[skip ci]` in the commit message is an extra safeguard.
+#     Required checks are not affected: the ruleset checks them on pull requests, and the bot
+#     bypasses the ruleset for its own push.
+#   - One run at a time (a concurrency group that never cancels a running bot). If main moved since
+#     the commit CI ran on, the bot pushes nothing: the CI run of the newer commit regenerates. It
+#     never force-pushes.
+#   - The push needs "GitHub Actions" as an always-allow bypass actor of the ruleset `main` (it
+#     requires status checks). Only this job asks for contents: write.
+#
+# It is a workflow of its own (not a job of ci.yml) because release-tag.yml calls ci.yml with
+# contents: read, and a called job that asks for contents: write fails the call at start-up.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: regen-bot-main
+  cancel-in-progress: false
+
+jobs:
+  regen-bot:
+    name: regen bot
+    # Only a push to main; a cancelled CI run (a newer push replaced it) is left to the newer run.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    # The only job of any workflow here that writes to main. actions: read downloads the artifact of the CI run.
+    permissions:
+      contents: write
+      actions: read
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Stop when CI failed
+        if: github.event.workflow_run.conclusion != 'success'
+        run: |
+          echo "::error::CI ended '${{ github.event.workflow_run.conclusion }}' on $SHA (${{ github.event.workflow_run.html_url }}). A lost baseline case fails the corpus job. The regen bot pushes nothing; a person decides."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: regen-${{ github.event.workflow_run.id }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/regen
+      - name: Commit the generated files
+        id: commit
+        run: |
+          before=$(git rev-parse HEAD)
+          tools/regen_bot.sh . "$RUNNER_TEMP/regen" "$SHA"
+          if [ "$(git rev-parse HEAD)" != "$before" ]; then
+            echo "made=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Push to main
+        if: steps.commit.outputs.made == 'true'
+        run: |
+          main_now() { git ls-remote origin refs/heads/main | cut -f1; }
+          if [ "$(main_now)" != "$SHA" ]; then
+            echo "::notice::main moved since $SHA; the CI run of the newer commit regenerates. Nothing pushed."
+            exit 0
+          fi
+          if git push origin HEAD:refs/heads/main; then
+            echo "::notice::pushed $(git rev-parse --short HEAD) to main"
+            exit 0
+          fi
+          if [ "$(main_now)" != "$SHA" ]; then
+            echo "::notice::main moved during the push; the CI run of the newer commit regenerates. Nothing pushed."
+            exit 0
+          fi
+          echo "::error::the push to main was refused. The bot needs a bypass of the ruleset main (see the header of .github/workflows/regen-bot.yml)."
+          exit 1

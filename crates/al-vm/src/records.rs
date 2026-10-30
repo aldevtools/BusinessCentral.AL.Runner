@@ -4758,7 +4758,18 @@ impl Session {
                         al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
                     })
                 };
-                let mut parsed = parse(&text);
+                // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
+                let record_id = if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId))
+                    && args.len() <= 2
+                {
+                    self.record_id_filter_text(text.trim())?
+                } else {
+                    None
+                };
+                let mut parsed = match record_id {
+                    Some(p) => p,
+                    None => parse(&text),
+                };
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
