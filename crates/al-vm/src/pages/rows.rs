@@ -2647,6 +2647,7 @@ impl Session {
             }
             Err(e) => return Err(e),
         };
+        st.borrow_mut().go_to_want = Some(want.clone());
         if st.borrow().marked_refill_in_key.is_some() {
             return self.go_to_record_after_marked_refill(st, &want);
         }

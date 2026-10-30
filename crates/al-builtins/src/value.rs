@@ -547,6 +547,13 @@ pub struct PageState {
     /// While an action runs: the view of the page's record (filters, key and its ad-hoc fields, Ascending) as it was before
     /// the action, so the refresh inside the action can tell the view changed (al-runner issue 6381).
     pub view_before_action: Option<ActionView>,
+    /// An action runs on a list whose Rec had MarkedOnly on: a refresh after it that finds MarkedOnly off holds the rows it read.
+    pub unmarking_action: bool,
+    /// A marking OnDrillDown with CurrPage.Update(false) left Rec on another row of a list without row triggers, with a part, in a
+    /// key other than the primary key: a field read before the next other call shows this row, the one shown before.
+    pub shown_until_next_call: Option<Vec<Value>>,
+    /// The primary key the last TestPage GoToKey or GoToRecord looked for (`marked_view_changed_by_move`).
+    pub go_to_want: Option<Vec<Value>>,
     /// A marking OnDrillDown with CurrPage.Update(false) moved Rec off the shown row of a list in its primary key: a field read
     /// before the next move is refused (the page still shows the old row there; not built).
     pub marked_only_read_unbuilt: bool,
@@ -899,6 +906,9 @@ impl PageState {
             marking_action: false,
             marked_rows_held: false,
             view_before_action: None,
+            unmarking_action: false,
+            shown_until_next_call: None,
+            go_to_want: None,
             marked_only_read_unbuilt: false,
             marked_refill_in_key: None,
             read_after_goto: false,
