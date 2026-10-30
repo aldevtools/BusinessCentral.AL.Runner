@@ -529,6 +529,17 @@ impl Describe for Tok {
     }
 }
 
+/// Whether `text` has a `%n` placeholder right before or after a wildcard. A record's SetFilter keeps it as written (see `tokenize`);
+/// elsewhere (a Query column) that is not pinned.
+pub fn placeholder_next_to_wildcard(text: &str) -> bool {
+    let c: Vec<char> = text.chars().collect();
+    (0..c.len().saturating_sub(1)).any(|i| {
+        c[i] == '%'
+            && c[i + 1].is_ascii_digit()
+            && ((i > 0 && matches!(c[i - 1], '*' | '?')) || matches!(c.get(i + 2), Some('*' | '?')))
+    })
+}
+
 fn tokenize(text: &str, args: &[Value], kept_placeholder: &mut bool) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -1846,5 +1857,20 @@ mod tests {
             key_cmp(&[Value::Code("A".into())], &[Value::Code("A".into())]),
             Ordering::Equal
         );
+    }
+}
+
+#[cfg(test)]
+mod placeholder_wildcard_tests {
+    use super::placeholder_next_to_wildcard as p;
+
+    #[test]
+    fn finds_a_placeholder_next_to_a_wildcard() {
+        for t in ["%1*", "*%1*", "@*%1*", "*%1", "?%1", "<>%1*"] {
+            assert!(p(t), "{t}");
+        }
+        for t in ["%1", "%1&*a*", "a*|%1", "*", "%"] {
+            assert!(!p(t), "{t}");
+        }
     }
 }
