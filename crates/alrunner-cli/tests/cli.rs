@@ -210,8 +210,9 @@ fn a_run_reports_pass_fail_and_not_run_and_exits_1_on_a_failure() {
     assert!(!t.contains('\x1b'), "piped output is plain: {t}");
     assert!(t.contains("  passed "), "the summary table: {t}");
     assert!(t.contains("Tests: 4 total, 2 passed, 1 failed, 1 not run"), "{t}");
-    // The summary says failures are not to be trusted without test data.
-    assert!(t.contains("no test data"), "{t}");
+    // The app uses no Microsoft app (no platform or application in app.json), so it needs no CRONUS
+    // company: the summary must not say its failures are untrusted for lack of test data.
+    assert!(!t.contains("no test data"), "{t}");
     assert!(t.contains("Top refusals"), "{t}");
     assert!(!t.contains("Top failures"), "failures are ranked only on request: {t}");
     assert!(t.contains("Result: FAILED (exit 1)"), "{t}");
