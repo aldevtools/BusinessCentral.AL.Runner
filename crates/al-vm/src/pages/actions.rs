@@ -915,8 +915,13 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.marked_rows_held = false;
         }
+        let filters_before = self.has_source(st).then(|| self.page_rec(st).borrow().filters.clone());
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
+        let r = match r {
+            Ok(v) => self.drop_window_of_the_old_filters(st, filters_before).map(|()| v),
+            e => e,
+        };
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -1990,6 +1995,75 @@ impl Session {
         Ok(table.keys[0]
             .iter()
             .any(|&k| !Self::same_values(std::slice::from_ref(&now[k]), std::slice::from_ref(&fresh[k]))))
+    }
+
+    /// An action that changed the filters of a list's record: the rows the client read under the old filters are not rows of
+    /// the new view, so they leave the window and the next move reads the new view from its first row (al-runner issue 6381:
+    /// GoToKey to a row of the new view found it on the reporter's real-BC run). Done only on a list without OnAfterGetRecord,
+    /// OnFindRecord and OnNextRecord, where no code sees which rows the client reads; with those triggers the refresh after
+    /// the action decides what the client holds (`read_list_again_from_row_as`).
+    ///
+    /// A row Rec stands on that the new filters leave out moves to the next row of the new view after it, else the one
+    /// before it, as on a list with row triggers after an action (`row_after_view_left`): the action with only
+    /// `Rec.SetRange` stands on the first row of the new group (Y5GoToKeyAfterActionFilter.al, branch above). A view left
+    /// without rows is not pinned and is refused.
+    fn drop_window_of_the_old_filters(
+        &mut self,
+        st: &St,
+        before: Option<Vec<al_builtins::filter::FieldFilter>>,
+    ) -> Result<(), Signal> {
+        let Some(before) = before else {
+            return Ok(());
+        };
+        if !st.borrow().open
+            || !self.is_list(st)
+            || ["onaftergetrecord", "onfindrecord", "onnextrecord"]
+                .iter()
+                .any(|t| self.declares(st, t))
+        {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let now = rec.borrow().filters.clone();
+        let same = before.len() == now.len()
+            && before.iter().zip(&now).all(|(a, b)| {
+                a.field == b.field
+                    && a.group == b.group
+                    && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
+            });
+        if same {
+            return Ok(());
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.window.clear();
+            s.window_from_start = false;
+            s.window_top_unread = false;
+        }
+        if st.borrow().cursor != Cursor::Row || st.borrow().draft || st.borrow().dirty {
+            return Ok(());
+        }
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(());
+        }
+        for step in [1, -1] {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?, Value::Integer(n) if n != 0)
+            {
+                let fields = probe.borrow().fields.clone();
+                rec.borrow_mut().fields = fields;
+                return Ok(());
+            }
+        }
+        unsupported(
+            "an action changed the filters of a list so that its view has no row (the row it shows then is not pinned)",
+        )
     }
 
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
