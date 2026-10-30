@@ -276,6 +276,14 @@ impl DateShift {
         Ok(DateShift::Offset { years, months, days })
     }
 
+    /// The shift as text, for keys: `2028-02-29`, or the offset as years, months and days (`1Y0M0D`).
+    pub fn text(&self) -> String {
+        match *self {
+            DateShift::Fixed { year, month, day } => format!("{year:04}-{month:02}-{day:02}"),
+            DateShift::Offset { years, months, days } => format!("{years}Y{months}M{days}D"),
+        }
+    }
+
     /// No change at all.
     pub fn is_zero(&self) -> bool {
         matches!(

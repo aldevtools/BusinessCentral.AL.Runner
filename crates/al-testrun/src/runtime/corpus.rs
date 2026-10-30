@@ -2029,7 +2029,7 @@ fn baseline_key(
     let mut key = crate::baseline_cache::KeyBuilder::new();
     // A `clock.date` variant of a stability run (ADR-058 section 7) runs the install code on another date.
     if let Some(shift) = &opts.perturb.clock_date {
-        key.text("clock_date", &format!("{shift:?}"));
+        key.text("clock_date", &shift.text());
     }
     // The restored database: which backup, as the provider says (file, length, modification time, company). A
     // provider that cannot say gets nothing kept.
