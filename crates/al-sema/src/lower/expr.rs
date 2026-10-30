@@ -1160,11 +1160,29 @@ impl Lowerer<'_> {
         let page = self.resolve_obj(kind, &page)?;
         self.embeds.borrow_mut().insert(page);
         let layout = self.layouts.page_layout(page).ok_or("page layout")?;
-        let control = layout
-            .controls
-            .iter()
-            .position(|c| c.name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| format!("control `{name}` is not in the page layout"))?;
+        let found = layout.controls.iter().position(|c| c.name.eq_ignore_ascii_case(name));
+        // A parameterless TestPage method that returns a TestAction, written without parentheses (`P.OK.Invoke()`), is the
+        // method when no control has its name: a parameterless method reads the same without parentheses
+        // (pages/lt-ca-odd-667/CaTestPageTests.al:261-282 Ca07_CaptionWithoutParentheses, _fixtures/Assert.al:167 RecRef.Count).
+        // A control of that name wins (handlers/TestPageKeywordActionName_Tests.al:64).
+        if found.is_none() && matches!(self.ty_ref(recv), Ty::TestPage(_)) {
+            if let Some(m) = ["OK", "Cancel", "Yes", "No", "Edit", "View"]
+                .iter()
+                .find(|m| m.eq_ignore_ascii_case(name))
+            {
+                let receiver = match self.place(recv) {
+                    Ok(p) => ir::Arg::Ref(p),
+                    Err(_) => ir::Arg::Value(self.expr(recv)?),
+                };
+                return Ok(ir::Expr::Builtin {
+                    id: super::call::builtin_id(&format!("TestPage.{m}#1"))?,
+                    receiver: Some(Box::new(receiver)),
+                    args: Vec::new(),
+                    ret_used: true,
+                });
+            }
+        }
+        let control = found.ok_or_else(|| format!("control `{name}` is not in the page layout"))?;
         let runtime = matches!(self.ty_ref(recv), Ty::Object(ObjKind::Page, _));
         let control = self.control_ref(page, &layout.controls[control].name, control);
         Ok(ir::Expr::Control {
