@@ -899,8 +899,12 @@ fn license_pinned_ss(object_type: i64, number: i64) -> Option<([i32; 5], bool)> 
     }
 }
 
-/// The object types whose other numbers are assumed to be rows with every permission `Yes`: Report, Codeunit and Page.
-const LICENSE_TYPES: &[i64] = &[3, 5, 8];
+/// The object types whose other numbers are assumed to be rows with every permission `Yes`: Table, Report, Codeunit and
+/// Page. Table rests on the same evidence as Codeunit (al-runner issue 6214, reopened): every pinned Table row of a number
+/// from 1 to 99999999 has every permission `Yes` (platform/lt-ag-contoso/AgLicensePermission.al Table 50000 and 70000123;
+/// lt-ss1030/SsLicensePermissionObjects.al:37-45 LicensePermission_Table_UnusedNumbers, Table 50123, 99999 and 70000456,
+/// and :141-149 LicensePermission_Table_Top, Table 100000).
+const LICENSE_TYPES: &[i64] = &[1, 3, 5, 8];
 
 /// The highest number the assumption covers: Codeunit 99999999 is the highest number pinned `Yes` below 1999999999, which
 /// lt-ss1030/SsLicensePermissionObjects.al:102-103 pins as a row with every permission blank, so "every number up to
@@ -935,7 +939,7 @@ fn license_known(t: &TableDef, object_type: i64, number: i64) -> Option<Row> {
         }
         return Some(r);
     }
-    // Every other Report, Codeunit or Page numbered 1 to 99999999 is assumed to be a row with every permission `Yes`, as
+    // Every other Table, Report, Codeunit or Page numbered 1 to 99999999 is assumed to be a row with every permission `Yes`, as
     // each pinned row of such a number is (al-runner issue 6214). Other numbers and types, number 0 of another type than
     // TableData and Codeunit, and a negative number are not pinned and stay refused.
     if LICENSE_TYPES.contains(&object_type) && (1..=LICENSE_ASSUMED_MAX).contains(&number) {
@@ -955,7 +959,7 @@ fn license_num(v: &Value) -> Option<i64> {
 
 fn license_unpinned(object_type: i64, number: i64) -> StoreError {
     refused(format!(
-        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, lt-ss1030/SsLicensePermissionObjects.al pins a sample of numbers, and numbers from 1 to 99999999 are assumed for Report, Codeunit and Page)"
+        "License Permission: whether object type {object_type} number {number} is a row is not pinned (only the rows platform/lt-platform-tables/PtCloudTables.al and platform/lt-ag-contoso/AgLicensePermission.al read are, lt-ss1030/SsLicensePermissionObjects.al pins a sample of numbers, and numbers from 1 to 99999999 are assumed only for Table, Report, Codeunit and Page)"
     ))
 }
 
