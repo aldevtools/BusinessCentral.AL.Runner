@@ -1056,7 +1056,8 @@ impl<'a> Checker<'a> {
                         E::Val(Ty::Unknown)
                     }
                     E::Callable(c)
-                        if callee.kind() == NameRef && self.al_too_few_arguments(sc, node, &c, arg_tys.len()) =>
+                        if matches!(callee.kind(), NameRef | MemberExpr)
+                            && self.al_too_few_arguments(sc, node, &c, arg_tys.len()) =>
                     {
                         E::Val(Ty::Unknown)
                     }
@@ -1575,19 +1576,23 @@ fn capitalized_kind(t: &Ty) -> String {
 }
 
 impl Checker<'_> {
-    /// AL0135: a bare call of a procedure of the same codeunit, the only candidate of its name, with fewer arguments
-    /// than the procedure has parameters (must-not-compile 0242-own-proc-too-few.al:1, 0066; al-runner issue 5853, also
-    /// on a path no test reaches). The text names the first parameter without an argument and the procedure's parameter
-    /// types; it is alc's for Integer parameters (both cases) and for Text and `var` (the built-in cases, 0067 and
-    /// others). For any other parameter type the text ends before the signature, as that rendering is not pinned.
-    /// Calls on a variable, of a procedure of another object type, or of a name with several candidates are not judged
-    /// here (the overload choice keeps refusing them).
+    /// AL0135: a call of a procedure of a codeunit or table of the workspace, the only candidate of its name, with
+    /// fewer arguments than the procedure has parameters, also on a path no test reaches. Pinned: a bare call in the
+    /// same codeunit (must-not-compile 0242-own-proc-too-few.al:1, 0066; al-runner issue 5853), a call through a
+    /// codeunit variable (2167, 2174-2188), through a record variable (2168), a bare and a `this.` call inside the table
+    /// (2169, 2170; al-runner issue 5588). The text names the first parameter without an argument and the procedure's
+    /// parameter types as alc renders them (`alc_param_type`); where a type's rendering is not pinned the text ends
+    /// before the signature. Procedures of other object types, of dependency apps, and names with several candidates
+    /// are not judged here (the overload choice keeps refusing them).
     pub(crate) fn al_too_few_arguments(&mut self, sc: &Scope, node: &SyntaxNode, cands: &[Cand], argc: usize) -> bool {
         let [c] = cands else { return false };
         let Res::Proc { object, offset } = c.target else {
             return false;
         };
-        if object != sc.oi || self.ws.objects[object].kind != ObjKind::Codeunit || argc >= c.min {
+        if self.ws.is_dependency(object)
+            || !matches!(self.ws.objects[object].kind, ObjKind::Codeunit | ObjKind::Table)
+            || argc >= c.min
+        {
             return false;
         }
         let Some(p) = self.members[object]
@@ -1601,26 +1606,61 @@ impl Checker<'_> {
         let Some(missing) = p.params.get(argc) else {
             return false;
         };
-        let pinned = |t: &Ty| matches!(t, Ty::Integer | Ty::Text(None));
         let mut message = format!(
             "There is no argument given that corresponds to the required formal parameter '{}' of",
             missing.name
         );
-        if p.params.iter().all(|q| pinned(&q.ty)) {
-            let sig: Vec<String> = p
-                .params
-                .iter()
-                .map(|q| {
-                    if q.by_var {
-                        format!("var {}", q.ty)
-                    } else {
-                        q.ty.to_string()
-                    }
-                })
-                .collect();
+        let sig: Option<Vec<String>> = p
+            .params
+            .iter()
+            .map(|q| {
+                let t = alc_param_type(&q.ty)?;
+                Some(if q.by_var { format!("var {t}") } else { t })
+            })
+            .collect();
+        if let Some(sig) = sig {
             message.push_str(&format!(" '{}({})'", p.name, sig.join(", ")));
         }
         self.diag(sc, node, "AL0135", message);
         true
     }
+}
+
+/// A parameter type as alc writes it in the signature of an AL0135 text, for the types the must-not-compile cases pin
+/// (0242, 0066, 2167-2188); `None` for any other.
+fn alc_param_type(t: &Ty) -> Option<String> {
+    const BUILTINS: &[&str] = &[
+        "RecordRef",
+        "FieldRef",
+        "JsonObject",
+        "SecretText",
+        "InStream",
+        "ErrorInfo",
+    ];
+    Some(match t {
+        Ty::Integer
+        | Ty::BigInteger
+        | Ty::Decimal
+        | Ty::Boolean
+        | Ty::Char
+        | Ty::Date
+        | Ty::Time
+        | Ty::DateTime
+        | Ty::Duration
+        | Ty::DateFormula
+        | Ty::Guid
+        | Ty::Option(_)
+        | Ty::Variant
+        | Ty::Text(_)
+        | Ty::Code(Some(_))
+        | Ty::Enum(_) => t.to_string(),
+        Ty::Record { temporary: true, .. } => format!("{t} temporary"),
+        Ty::Record { .. } => t.to_string(),
+        Ty::Object(ObjKind::Codeunit | ObjKind::Page | ObjKind::Interface, _) => capitalized_kind(t),
+        Ty::Builtin(n) => BUILTINS.iter().find(|b| b.eq_ignore_ascii_case(n))?.to_string(),
+        Ty::List(e) => format!("List of [{}]", alc_param_type(e)?),
+        Ty::Dictionary(k, v) => format!("Dictionary of [{}, {}]", alc_param_type(k)?, alc_param_type(v)?),
+        Ty::Array(d, e) if d.len() == 1 => format!("array[{}] of {}", d[0], alc_param_type(e)?),
+        _ => return None,
+    })
 }

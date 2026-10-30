@@ -750,9 +750,22 @@ impl<'a> Checker<'a> {
             let before = self.diags.len();
             self.cur_ret = r.return_type().map(|t| Ty::from_type_ref(&t));
             // AL0139 (must-not-compile 0048-exit-value-without-return-type.al:1, a procedure of a codeunit;
-            // 0348, its OnRun trigger; al-runner issue 5852). Routines of other object types are not pinned.
-            self.cur_no_result =
-                (self.cur_ret.is_none() && self.ws.objects[oi].kind == ObjKind::Codeunit).then(|| r.name());
+            // 0348, its OnRun trigger; al-runner issue 5852; and 2150-2165:1, the triggers and procedures of tables,
+            // fields, pages, actions, reports, data items, xmlports, queries, table and page extensions, and an event
+            // subscriber; al-runner issue 5588). Report extensions are not pinned. The page triggers whose signature
+            // returns a value are left out, in case one is written without its return type (not pinned).
+            let judged = matches!(
+                self.ws.objects[oi].kind,
+                ObjKind::Codeunit
+                    | ObjKind::Table
+                    | ObjKind::Page
+                    | ObjKind::Report
+                    | ObjKind::XmlPort
+                    | ObjKind::Query
+                    | ObjKind::TableExtension
+                    | ObjKind::PageExtension
+            ) && !(r.is_trigger() && RETURNING_TRIGGERS.iter().any(|t| t.eq_ignore_ascii_case(&r.name())));
+            self.cur_no_result = (self.cur_ret.is_none() && judged).then(|| r.name());
             if let Some(body) = r.body() {
                 self.walk(&mut sc, &body);
             }
@@ -932,6 +945,19 @@ impl<'a> Checker<'a> {
         }
     }
 }
+
+/// Triggers whose signature in BC returns a value (page and request page record triggers, OnQueryClosePage, a page
+/// field's OnLookup). AL0139 is not judged in them when the return type is left out: that form is not pinned.
+const RETURNING_TRIGGERS: &[&str] = &[
+    "OnQueryClosePage",
+    "OnFindRecord",
+    "OnNextRecord",
+    "OnInsertRecord",
+    "OnModifyRecord",
+    "OnDeleteRecord",
+    "OnLookup",
+    "OnDrillDown",
+];
 
 /// The `SourceTable` of the object's request page, unquoted, if it states one.
 fn request_page_source_table(obj: &ast::Object) -> Option<String> {
