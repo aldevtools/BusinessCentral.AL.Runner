@@ -974,7 +974,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // length, when the date's day is below n; else day n of the next month, cut back the same way (`<D29>` on
             // 2023-02-28 stays 2023-02-28, `<D31>` on 2023-01-31 is 2023-02-28).
             Term::DayLetterFirst { n, forward: true } if matches!(n, 15 | 28 | 29 | 31) => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstNp4);
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let n = n as u32;
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
@@ -993,7 +993,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // The Monday of ISO week n of the date's year when it is after the date, else of the next year's week n
             // (NP4_CalcDate_W17: 2023-04-15 2023-04-24, 2023-06-30 2024-04-22). A date inside week n is not pinned.
             Term::WeekLetterFirst { n } => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstNp4);
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let monday = |year: i32| {
                     // ISO week 1 holds January 4.
                     let jan4 = day_from_civil(year, 1, 4);
@@ -1008,7 +1008,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             // The first day of quarter n of the date's year when it is after the date, else of the next year
             // (NP4_CalcDate_Q3: 2023-06-30 2023-07-01, 2023-12-31 2024-07-01). A date inside quarter n is not pinned.
             Term::QuarterLetterFirst { n } => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstNp4);
+                crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 let first = (n - 1) * 3 + 1;
                 if (first..first + 3).contains(&m) {
                     return unsupported(format!("date formula `Q{n}` on a date inside quarter {n} (not pinned)"));
@@ -1029,7 +1029,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                     if !forward {
                         return unsupported("date formula `-Mn` on the first day of month n (not pinned)");
                     }
-                    crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstNp4);
+                    crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLetterFirstForms);
                 }
                 let year = match (forward, m < n, m > n) {
                     (true, true, _) | (false, _, true) => y,
@@ -1136,7 +1136,7 @@ mod tests {
 
     /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4DateFormulas.al NP4_CalcDate_*.
     #[test]
-    fn letter_first_formulas_follow_the_np4_pins() {
+    fn letter_first_formulas_follow_the_pins() {
         type Ymd = (i32, u32, u32);
         let cases: &[(&str, Ymd, Ymd)] = &[
             ("<D15>", (2023, 2, 14), (2023, 2, 15)),

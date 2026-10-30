@@ -691,7 +691,7 @@ registry! {
             since: "2026-10-30",
         },
     },
-    DateFormulaLetterFirstNp4 => {
+    DateFormulaLetterFirstForms => {
         id: "date-formula-letter-first-forms",
         assumed: "CalcDate with `<D15>`, `<D28>`, `<D29>`, `<D31>`, `<W17>`, `<Q3>`, and `<Mn>` on the first day of month n: day n of the month (cut back to its length) while the date's day is below n, else of the next month; the Monday of ISO week 17 or the first day of quarter 3 after the date; the next year's month n. Pinned on corpus master by misc/lt-np4-probes/Np4DateFormulas.al (corpus PR 871), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's booking date tests.",
