@@ -1211,6 +1211,39 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
     assert_eq!(text(r), "from .net!", "a later call can still write into the bridge");
 }
 
+// al-runner issue 6317: BC hands .NET the Blob's own stream, so a ZipArchive in Read mode over an OutStream sees the bytes AL
+// wrote through it (corpus tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
+#[test]
+fn an_outstream_argument_over_written_bytes_carries_them_to_the_bridge() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, a) if m == "ReadBack" => {
+            assert_eq!(a[0].value, DotNetValue::OutStreamWith(b"PK zip".to_vec()));
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    bridges: vec![(0, 9)],
+                    written: vec![(9, b"!".to_vec())],
+                    ..Default::default()
+                },
+            })
+        }
+        other => panic!("{other:?}"),
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.ReadBack(O); B.Insert(); B.Get('S'); B.CalcFields(Data);
+         B.Data.CreateInStream(I); I.ReadText(T); exit(T);",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "PK zip!",
+        "bytes .NET writes past the seeded content follow it"
+    );
+}
+
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------
 
 fn no_host() -> Fake {
