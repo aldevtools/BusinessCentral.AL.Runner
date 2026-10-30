@@ -109,6 +109,9 @@ pub(crate) struct RowVersionTx {
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A read the assumption row-version-next-and-find-forms covers ran while rows were unsent: a value read from now on
+    /// rests on it.
+    pub(crate) assumed_read: bool,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
@@ -257,6 +260,9 @@ pub(crate) struct EventState {
     pub(crate) skip_dependency_subscribers: bool,
     /// Apps whose subscribers do not run, because they are not installed yet (`Session::set_apps_not_installed`).
     pub(crate) not_installed_apps: Option<std::collections::BTreeSet<u32>>,
+    /// Apps with no dependency path to the app whose install code runs (`Session::set_apps_install_order_unknown`): BC's
+    /// order between them is not known, so a subscriber of one of them that the install code reaches is refused.
+    pub(crate) order_unknown_apps: Option<std::collections::BTreeSet<u32>>,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
     pub(crate) global_setups: std::collections::HashMap<usize, globaltriggers::GlobalSetup>,
 }

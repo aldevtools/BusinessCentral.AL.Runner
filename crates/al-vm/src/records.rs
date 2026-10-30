@@ -1485,6 +1485,9 @@ impl Session {
         if let Some(why) = rv.unpinned {
             return Err(why);
         }
+        if rv.assumed_read {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RowVersionNextAndFindForms);
+        }
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");
         }
@@ -3423,21 +3426,42 @@ impl Session {
             // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
             // send those rows too (platform/lt-platform-members/PlTRowVersionValue.al:917-980
             // NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction, _InsertThenFind_OpenTransaction, :1009-1040
-            // _InsertThenCalcFields_OpenTransaction). A CalcFields whose own table holds none, Next and other Find forms stay
-            // unpinned.
-            let own_pending = || {
-                self.tx
-                    .row_versions
-                    .pending_inserts
-                    .iter()
-                    .any(|(o, c, _)| *o == t.object && *c == company)
+            // _InsertThenCalcFields_OpenTransaction). On corpus master (corpus PR 871, awaiting the bump: assumption
+            // row-version-next-and-find-forms) PlTRowVersionValue.al NP4_RowVersions_InsertA_FindSetNextOfB and
+            // _InsertA_FindFormsOfB: Next() and Find('='/'>'/'<'/'-'/'+') of another table send nothing;
+            // _InsertA_FindSetNextAndFindGreaterOfA: Find('>') of the inserted table sends its rows. A CalcFields whose own
+            // table holds none, Next or Find('<') of the inserted table, Next(N) and other Find forms stay unpinned.
+            let own_pending = self
+                .tx
+                .row_versions
+                .pending_inserts
+                .iter()
+                .any(|(o, c, _)| *o == t.object && *c == company);
+            let any_pending = !self.tx.row_versions.pending_inserts.is_empty();
+            let find_form = match args.first() {
+                Some(Value::Text(w)) => Some(w.as_str()),
+                _ => None,
             };
-            let more = match method {
-                RecordOp::GetBySystemId => true,
-                RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if matches!(w.as_str(), "=" | "-" | "+")),
-                RecordOp::CalcFields => own_pending(),
+            let next_or_find_form = match method {
+                RecordOp::Find => match find_form {
+                    Some(">") => true,
+                    Some("<") => !own_pending,
+                    _ => false,
+                },
+                // Only Next() is pinned: Next(1) and other steps stay unpinned.
+                RecordOp::Next => !own_pending && args.is_empty(),
                 _ => false,
             };
+            if next_or_find_form && any_pending {
+                self.tx.row_versions.assumed_read = true;
+            }
+            let more = next_or_find_form
+                || match method {
+                    RecordOp::GetBySystemId => true,
+                    RecordOp::Find => matches!(find_form, Some("=" | "-" | "+")),
+                    RecordOp::CalcFields => own_pending,
+                    _ => false,
+                };
             self.note_read_for_row_versions(
                 t.object,
                 &company,
