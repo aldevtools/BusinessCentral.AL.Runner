@@ -1197,11 +1197,8 @@ mod tests {
         ] {
             assert!(layout_of(ok).run_reasons.is_empty(), "{ok}");
         }
-        for refused in [
-            "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; fieldelement(N; L.X) { } } } } } }",
-        ] {
-            assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");
-        }
+        let refused = "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; fieldelement(N; L.X) { } } } } } }";
+        assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");
     }
 
     #[test]
