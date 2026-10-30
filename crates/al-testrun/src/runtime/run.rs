@@ -269,7 +269,11 @@ fn run_codeunit_inner(
     execute: bool,
 ) -> Vec<(String, Outcome)> {
     let obj = &lowered.program.objects[object];
-    let mut session = Session::with_host(engine.clone(), crate::host::host_at(scratch.clock_start));
+    let perturb = scratch.perturb;
+    let mut session = Session::with_host(
+        engine.clone(),
+        crate::host::host_shifted(scratch.clock_start, perturb.clock_date),
+    );
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -297,6 +301,13 @@ fn run_codeunit_inner(
                     keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
                 })
         })
+        .collect();
+    // `order.methods` of a stability run (ADR-058): the test methods in another order.
+    let tests: Vec<usize> = perturb
+        .method_order
+        .arrange(tests.len())
+        .into_iter()
+        .map(|i| tests[i])
         .collect();
     if execute {
         session.capture_messages();
@@ -375,6 +386,12 @@ fn run_codeunit_inner(
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
                 session.commit_transaction();
+                // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
+                // login code set it; a `WorkDate(d)` of the test still wins.
+                if let Some(shift) = perturb.work_date {
+                    let day = session.work_date();
+                    session.set_work_date(shift.apply_day(day));
+                }
                 wrote
             }
         }
@@ -639,7 +656,12 @@ fn run_codeunit_inner(
                     session.start_random_scope();
                     // What the test (and the runner's steps around it) writes counts from here.
                     let changes_from = session.store_mut().change_counter();
-                    let reset = runner.before(&mut session, obj, routine);
+                    let mut reset = runner.before(&mut session, obj, routine);
+                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2): after codeunit 130301, the
+                    // runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with the variant's seed.
+                    if let (Ok(()), Some(seed)) = (&reset, perturb.library_seed) {
+                        reset = runner_reset::library_seed(&mut session, seed);
+                    }
                     let reset_ok = reset.is_ok();
                     if let Err(why) = &reset {
                         runner_refused = Some(why.clone());
