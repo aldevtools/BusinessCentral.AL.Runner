@@ -300,6 +300,12 @@ impl Session {
                     None
                 } else {
                     let text = text_of(args.get(1).unwrap_or(&Value::Null)).unwrap_or_default();
+                    // Only a record's SetFilter is pinned to keep such a placeholder as written (filters/W4Filters.al:661-695).
+                    if args.len() > 2 && al_builtins::filter::placeholder_next_to_wildcard(&text) {
+                        return Err(Signal::Unsupported(
+                            "Query SetFilter with a placeholder next to a wildcard (not pinned)".into(),
+                        ));
+                    }
                     let engine = self.engine.clone();
                     let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
                     Some(
