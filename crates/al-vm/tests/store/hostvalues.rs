@@ -436,13 +436,32 @@ fn sleep_of_zero_is_allowed_and_a_negative_wait_is_refused() {
     }
 }
 
+// platform/lt-platform-members/PlTSession.al:245-266 (GlobalLanguage_InvalidIds): 0, -1 and 99999 raise NotSupportedLanguage and
+// leave the language unchanged, and so do 1000, 4096, 8192, 9999, 32767 and 65535 (:326-360, GlobalLanguage_PositiveIds); other ids
+// that are not positive are not pinned.
 #[test]
-fn global_language_accepts_only_positive_ids() {
-    for bad in ["0", "-1"] {
+fn global_language_raises_for_the_pinned_invalid_ids() {
+    for bad in ["0", "-1", "99999", "1000", "4096", "8192", "9999", "32767", "65535"] {
         match run(&format!("procedure F() begin GlobalLanguage({bad}); end;")) {
-            Err(Signal::Unsupported(m)) => assert!(m.contains("positive language id"), "{bad}: {m}"),
+            Err(Signal::Error(e)) => {
+                assert_eq!(
+                    e.message,
+                    format!(
+                        "'{bad}' is not a valid language code. You must specify a locale identifier (LCID) or code in the format of language-country/region, such as en-US, de-DE, or da-DK."
+                    )
+                );
+                assert_eq!(e.code, "NotSupportedLanguage");
+            }
             other => panic!("{bad}: {other:?}"),
         }
+    }
+    let r = run("[TryFunction] local procedure TrySet() begin GlobalLanguage(0); end; \
+         procedure F(): Text var Old: Integer; begin Old := GlobalLanguage(); \
+         exit(Format(TrySet()) + Format(GlobalLanguage() = Old)); end;");
+    assert!(matches!(&r, Ok(Value::Text(t)) if t.as_str() == "NoYes"), "{r:?}");
+    match run("procedure F() begin GlobalLanguage(-2); end;") {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("are pinned"), "{m}"),
+        other => panic!("{other:?}"),
     }
 }
 
@@ -1174,4 +1193,24 @@ fn geturl_of_the_service_client_types_builds_the_pinned_addresses() {
         let r = get_url(body, None);
         assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
     }
+}
+
+/// al-runner issue 6301: `Sleep(D)` with a Duration waits D's milliseconds, the Integer the Duration converts to
+/// (types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+#[test]
+fn sleep_takes_a_duration_as_its_milliseconds() {
+    assert_eq!(
+        text(
+            "A: DateTime; B: DateTime; D: Duration;",
+            "D := 200; A := CurrentDateTime(); Sleep(D); B := CurrentDateTime(); exit(Format(B - A = 201));"
+        ),
+        "Yes"
+    );
+    assert_eq!(
+        text(
+            "A: DateTime; D: Duration;",
+            "A := CurrentDateTime(); Sleep(D); exit(Format(CurrentDateTime() - A = 1));"
+        ),
+        "Yes"
+    );
 }

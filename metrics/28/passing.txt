@@ -13209,6 +13209,8 @@
 74208 SelectLatestVersion_UnknownTable
 74210 ApplicationArea_SetAndRestore
 74210 ApplicationArea_SetTwiceAndInvalid
+74210 GlobalLanguage_InvalidIds
+74210 GlobalLanguage_PositiveIds
 74210 GlobalLanguage_SetAndRestore
 74210 Language_Relations
 74210 LogMessage_DataClassificationValues
