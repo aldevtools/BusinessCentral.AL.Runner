@@ -147,6 +147,10 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "report/lt-ch-report-leads/ChReportPart.al",
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
     ),
+    (
+        "pages/lt-wb-6283/WbBareRunModal.al",
+        "the checker does not resolve a bare RunModal() in a page procedure (al-runner issue 6283; corpus bump to 28de3f39)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,

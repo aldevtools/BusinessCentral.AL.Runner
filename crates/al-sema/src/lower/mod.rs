@@ -447,6 +447,8 @@ pub(crate) fn is_stmt(k: SyntaxKind) -> bool {
 /// - `HttpRequestMessage.Method`: network/TestHttpRequestMessage.al:23; `.Content`: :39.
 /// - `TestHttpResponseMessage.HttpStatusCode`, `.ReasonPhrase`, `.IsBlockedByEnvironment`, `.IsSuccessfulRequest` and
 ///   `HttpClient.Timeout`: the HTTP probes (PZHttpHandler.al; network/lt-http/HttpClient.al, TestHttpMessages.al).
+/// - `HttpClient.UseServerCertificateValidation`, `.UseResponseCookies` (`Client.UseResponseCookies := false`):
+///   network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:16-74.
 /// - `File.TextMode`, `File.WriteMode`: Base Application's "Export Consolidation" report.
 /// - `FilterPageBuilder.PageCaption`: the call form is pinned by filterpage/TestFilterPageBuilder.al:600.
 /// - `XmlReadOptions.PreserveWhitespace`, `XmlWriteOptions.PreserveWhitespace` (al-runner issue 5647): the call form is
@@ -492,7 +494,7 @@ fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "TestHttpResponseMessage",
                 "HttpStatusCode" | "ReasonPhrase" | "IsBlockedByEnvironment" | "IsSuccessfulRequest"
             )
-            | ("HttpClient", "Timeout")
+            | ("HttpClient", "Timeout" | "UseServerCertificateValidation" | "UseResponseCookies")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")
             | ("XmlReadOptions" | "XmlWriteOptions", "PreserveWhitespace")
