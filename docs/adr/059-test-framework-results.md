@@ -1,6 +1,6 @@
 # ADR-058: Results of BC 29 test framework features: skipped tests and data-driven test cases
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-10-30)
 - Date: 2026-10-30
 
 ## Context
