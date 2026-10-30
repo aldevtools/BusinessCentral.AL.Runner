@@ -890,7 +890,9 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         // it (:114-120). Other white space, VT or FF next to a date and other white space inside one are not pinned.
         const PINNED_WS: [char; 7] = [' ', '\t', '\r', '\n', '\u{B}', '\u{C}', '\u{A0}'];
         if text.chars().any(|c| c.is_whitespace() && !PINNED_WS.contains(&c)) {
-            return unsupported(format!("Evaluate of `{text}` into a Date with format 9 and this white space (not pinned)"));
+            return unsupported(format!(
+                "Evaluate of `{text}` into a Date with format 9 and this white space (not pinned)"
+            ));
         }
         let t = text.trim_matches(PINNED_WS);
         if t.is_empty() {
@@ -901,15 +903,20 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         }
         if t.len() != text.trim_matches(' ').len() {
             if text.contains(['\u{B}', '\u{C}']) {
-                return unsupported(format!("Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"));
+                return unsupported(format!(
+                    "Evaluate of `{text}` into a Date with format 9: VT or FF next to a date (not pinned)"
+                ));
             }
             crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
         }
-        if t.contains(PINNED_WS) {
+        // Blanks inside keep their old reading (a rejected date, P86Eval.al:Fmt92_Return_F9 `Jan 15 2024`).
+        if t.contains(|c: char| c != ' ' && PINNED_WS.contains(&c)) {
             if t.contains('\t') && t.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '\t') {
                 return Ok(Parsed::Rejected);
             }
-            return unsupported(format!("Evaluate of `{text}` into a Date with format 9: white space inside (not pinned)"));
+            return unsupported(format!(
+                "Evaluate of `{text}` into a Date with format 9: white space inside (not pinned)"
+            ));
         }
         // The first day of the calendar reads as the empty date, and year 0 as the day after it
         // (types/lt-datetime/Evaluate.al:Date_Format9 `iso min`, `iso 0D` and `iso year 0`).

@@ -58,7 +58,19 @@ fn build(parts: &[&str]) -> String {
 
 #[test]
 fn format_9_reads_white_space_alone_as_the_empty_date_and_drops_it_around_a_date() {
-    for parts in [&["9"][..], &["9", "9"], &[" "], &["  "], &["13"], &["10"], &["13", "10"], &["11"], &["12"], &["160"], &[]] {
+    for parts in [
+        &["9"][..],
+        &["9", "9"],
+        &[" "],
+        &["  "],
+        &["13"],
+        &["10"],
+        &["13", "10"],
+        &["11"],
+        &["12"],
+        &["160"],
+        &[],
+    ] {
         assert_eq!(eval9(&build(parts)), "Yes| ok|", "{parts:?}");
     }
     for parts in [
