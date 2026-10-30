@@ -18,9 +18,6 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
 
-/// How far a read of the clock moves it on: the resolution of `DateTime` and `Time` (ADR-045).
-pub(crate) const READ_STEP_MS: i64 = 1;
-
 /// Day number (1 = 0001-01-01) of 1970-01-01.
 fn unix_epoch_day() -> i64 {
     i64::from(day_from_civil(1970, 1, 1))
@@ -39,11 +36,12 @@ impl Session {
     }
 
     /// One reading of the clock by AL code (`Today`, `Time`, `CurrentDateTime`, the .NET clock
-    /// members): the instant now, after which the clock moves on by [`READ_STEP_MS`], so the next
+    /// members): the instant now, after which the clock moves on by the host's step (1 ms, the resolution of `DateTime`
+    /// and `Time`; `Host::clock_step_ms`), so the next
     /// reading is later (ADR-045). `Sleep` adds to the same counter, so there is one source.
     pub(crate) fn read_clock_millis(&mut self) -> i64 {
         let at = self.now_millis();
-        self.waited_ms += READ_STEP_MS;
+        self.waited_ms += self.host.clock_step_ms;
         at
     }
 
@@ -89,7 +87,7 @@ impl Session {
         Some(match id {
             ids::SYSTEM_TODAY_1 => {
                 let day = self.today_day_number();
-                self.waited_ms += READ_STEP_MS;
+                self.waited_ms += self.host.clock_step_ms;
                 Ok(Value::Date(day, false))
             }
             ids::SYSTEM_TIME_1 => Ok(Value::Time(self.read_clock_millis().rem_euclid(MS_PER_DAY) + 1)),
