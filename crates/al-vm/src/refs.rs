@@ -101,6 +101,55 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
 impl Session {
     /// A lock through a RecordRef: whether it starts the write transaction is pinned for Record only
     /// (codeunit/TestCodeunitRunWriteTransaction.al:211-278), so a lock it started is marked as not pinned.
+    /// `RecordRef.SetTable(V)` with a RecordRef in the Variant V (recordref/lt-wc/WcSetTableVariant.al).
+    fn set_table_into_recordref(
+        &mut self,
+        rec: &Rc<RefCell<RecordState>>,
+        lib: &Lib,
+        other: &Lib,
+    ) -> Result<Value, Signal> {
+        // The receiver itself: nothing changes, the two stay one object (:72-100 WC_SetTable_VariantHoldsSameRecordRef).
+        if Rc::ptr_eq(lib, other) {
+            return Ok(Value::Null);
+        }
+        let dst = match &*other.borrow() {
+            LibraryValue::RecordRef(r) => r.clone(),
+            // A RecordRef that is not open (:163-185 WC_SetTable_VariantHoldsClosedRecordRef): it stays not open.
+            LibraryValue::Empty => {
+                return Err(crate::transactions::al_error_code(
+                    "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.",
+                    "Conversion",
+                ));
+            }
+            _ => return unsupported("RecordRef.SetTable into a RecordRef opened on a system table (not pinned)"),
+        };
+        if Rc::ptr_eq(rec, &dst) {
+            return Ok(Value::Null);
+        }
+        // Another table (:142-160 WC_SetTable_VariantHoldsRecordRefOfOtherTable).
+        if rec.borrow().table != dst.borrow().table {
+            return Err(crate::transactions::al_error_code(
+                "The table IDs do not match.",
+                "TableIdMismatch",
+            ));
+        }
+        // Another RecordRef of the same table: it takes a copy of the filters and the current row and is not shared
+        // afterwards (:103-140 WC_SetTable_VariantHoldsOtherRecordRefOfSameTable). Pinned for two database RecordRefs of
+        // the session's company only.
+        {
+            let (s, d) = (rec.borrow(), dst.borrow());
+            if s.temporary || d.temporary || s.company != d.company {
+                return unsupported(
+                    "RecordRef.SetTable into another RecordRef that is temporary or in another company (not pinned)",
+                );
+            }
+        }
+        let mut copy = rec.borrow().clone();
+        own_unloaded_blobs(&mut copy);
+        *other.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+        Ok(Value::Null)
+    }
+
     fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
         if !locked_before && self.tx.lock_tx {
             self.tx.lock_tx = false;
@@ -1267,6 +1316,22 @@ impl Session {
             // filters. The corpus pins that the Record's old buffer does not flow into the
             // ref (recordref/TestRecordRefGetSetTableContracts.al:78-104).
             "SetTable" => {
+                // A Variant argument (recordref/lt-wc/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
+                if args.len() == 1 {
+                    match args.first() {
+                        Some(Value::Null) => {
+                            // :188-203 WC_SetTable_EmptyVariant.
+                            return Err(crate::transactions::al_error_code(
+                                "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
+                                "NotInitialized",
+                            ));
+                        }
+                        Some(Value::Library(name, other)) if name.eq_ignore_ascii_case("RecordRef") => {
+                            return self.set_table_into_recordref(&rec, lib, other);
+                        }
+                        _ => {}
+                    }
+                }
                 let Some(Value::Record(dst)) = args.first() else {
                     return unsupported(format!("RecordRef.SetTable of {}", args.first().describe()));
                 };
