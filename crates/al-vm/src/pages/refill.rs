@@ -253,6 +253,7 @@ impl Session {
             s.view_read_to_end = false;
             s.window_read_up = false;
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
             s.refresh = false;
@@ -348,6 +349,7 @@ impl Session {
             s.view_read_to_end = false;
             s.window_read_up = false;
             s.window_top_unread = false;
+            s.read_up_from_last = None;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
             s.refresh = false;

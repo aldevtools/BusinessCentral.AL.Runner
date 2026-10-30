@@ -1227,7 +1227,23 @@ impl Session {
                 }
                 LibraryValue::OutStream(blob, _) => {
                     book.outs.push((arg, blob.clone()));
-                    DotNetValue::OutStream
+                    // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
+                    // that zip (corpus tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al:77-96
+                    // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
+                    // stands at their end; a write over them is refused by the host. A stream standing elsewhere keeps the
+                    // empty bridge whose bytes land at the AL position (the earlier behavior).
+                    let buf = blob.borrow();
+                    let at_end = buf.loaded
+                        && !buf.first_write_truncates
+                        && buf.render_pending.is_none()
+                        && buf.dotnet_view == 0
+                        && !buf.bytes.is_empty()
+                        && buf.write_pos == buf.bytes.len();
+                    if at_end {
+                        DotNetValue::OutStreamWith(buf.bytes.clone())
+                    } else {
+                        DotNetValue::OutStream
+                    }
                 }
                 other => return unsupported(format!("an AL library value ({}) passed to .NET", other.describe())),
             },
@@ -1265,7 +1281,7 @@ impl Session {
             DotNetValue::Handle { handle, ty } => {
                 Value::DotNet(Rc::new(DotNetObject::host(handle, ty, self.dotnet.release.clone())))
             }
-            DotNetValue::InStream(_) | DotNetValue::OutStream => {
+            DotNetValue::InStream(_) | DotNetValue::OutStream | DotNetValue::OutStreamWith(_) => {
                 return unsupported("the host returned an AL stream value");
             }
         })

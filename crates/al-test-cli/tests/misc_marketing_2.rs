@@ -87,19 +87,20 @@ fn evaluate_into_a_record_id_reads_an_option_key_field() {
     );
 }
 
-// The shapes of an Option key value WcUnpinnedSingles.al does not pin are refused (docs/probes-needed.md).
+// The shapes of an Option key value types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:414 RecordId_OptionKeyShapes pins:
+// a name in another case, blanks around it and a quoted empty value.
 #[test]
-fn evaluate_into_a_record_id_refuses_the_unpinned_option_key_shapes() {
-    for v in ["invoice", " Invoice", "\"\""] {
-        let o = run(&format!(
-            "[Test] procedure T1() var Rid: RecordId; begin if Evaluate(Rid, 'MM Doc: {v},D-001') then; end;"
-        ));
-        assert!(
-            matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Option key field")),
-            "{v}: {:?}",
-            o[0].1
-        );
-    }
+fn evaluate_into_a_record_id_reads_case_blanks_and_a_quoted_empty_option_key() {
+    all_pass(
+        r#"[Test] procedure Shapes() var Rid: RecordId; begin
+             if not Evaluate(Rid, 'MM Doc: invoice,D-001') then Error('case');
+             if Format(Rid) <> 'MM Doc: Invoice,D-001' then Error('case %1', Format(Rid));
+             if not Evaluate(Rid, 'MM Doc:  Invoice ,D-001') then Error('blanks');
+             if Format(Rid) <> 'MM Doc: Invoice,D-001' then Error('blanks %1', Format(Rid));
+             if not Evaluate(Rid, 'MM Doc: "",D-001') then Error('quoted');
+             if Format(Rid) <> 'MM Doc: " ",D-001' then Error('quoted %1', Format(Rid));
+         end;"#,
+    );
 }
 
 // errors/lt-ms-refusals-128/P128EvalRecordId.al pins a single-field key, types/lt-evaluate-recordid/EvaluateRecordIdComposite.al a composite

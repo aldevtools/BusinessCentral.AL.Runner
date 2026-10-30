@@ -1334,6 +1334,11 @@ fn rfc1123(t: &str) -> Option<Parsed> {
     Some(Parsed::Value(Value::DateTime(v)))
 }
 
+/// A TAB, two TABs or one space: the texts Evaluate reads as an empty Date and shows as `""` in a Boolean's error.
+fn is_blank_tabs(text: &str) -> bool {
+    matches!(text, "\t" | "\t\t" | " ")
+}
+
 /// The value of a Date or a Guid in the form `Evaluate` reads it (and `Format` writes it), for a reader that has no
 /// variable to evaluate into: `None` for any other type, a text that is no such value, or a form not pinned.
 pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
@@ -1379,21 +1384,42 @@ pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
     evaluate_with(c, a, true)
 }
 
-/// `Evaluate` into an Option field that declares an OptionCaption (the lowering appends the captions as a comma list): the
-/// text names a member by its caption first, else by its name, else it is an ordinal of any size (corpus errors/
-/// lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoOptionField_NumericCaptions: with captions `1,2,3` the text `1`
-/// is the first member, `3` the third and `4` the ordinal 4; with `Ten,Twenty,Thirty` `twenty` is the second member, `Two`
-/// the third by its name and `Three` is rejected). A rejected text gives `false`; a format number and a failure with the
-/// result unused are not pinned.
+/// `Evaluate` into an Option field that declares an OptionCaption (the lowering appends the captions as a comma list, or the
+/// OptionCaptionML property text and a fifth argument 1): the text names a member by its caption first, else by its name, else
+/// it is an ordinal of any size (corpus errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoOptionField_NumericCaptions:
+/// with captions `1,2,3` the text `1` is the first member, `3` the third and `4` the ordinal 4; with `Ten,Twenty,Thirty` `twenty`
+/// is the second member, `Two` the third by its name and `Three` is rejected). Pinned by types/lt-option-evaluate-captions/
+/// OptionEvaluateCaptions.al:
+/// - a caption that is the name of another member names its own member (:162 CaptionIsNameOfAnotherMember); of two members with
+///   the same caption the first is taken (:177 SameCaptionTwice);
+/// - blanks, a TAB and CR LF around the text and around a caption do not count, a text of only a TAB names the blank member;
+///   a double space inside or a prefix does not match (:192 BlanksAndPrefixes);
+/// - OptionCaptionML: the captions of the session language, ENU where it has none, and the member names; under 1031 the ENU
+///   caption is not one (:236 CaptionML_ByLanguage);
+/// - the format numbers 2 and 9 read as 0 (:270 FormatNumber);
+/// - with the result unused a rejected text raises `'<text>' is not an option. The existing options are: <captions>` with code
+///   InvalidOptionString (:330 ResultUnused_Errors).
+///
+/// A rejected text gives `false` with the result used.
 pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
         (crate::native::text_of(&a[1]), a.get(3).cloned(), a[0].clone())
     else {
         return unsupported("Evaluate into an Option field without its captions");
     };
-    if !matches!(a.get(2), Some(Value::Integer(0))) {
-        return unsupported("Evaluate into an Option field with a format number (not pinned)");
+    if !matches!(a.get(2), Some(Value::Integer(0 | 2 | 9))) {
+        return unsupported("Evaluate into an Option field with a format number other than 0, 2 and 9 (not pinned)");
     }
+    let captions: String = if matches!(a.get(4), Some(Value::Integer(1))) {
+        let list = crate::format::ml_text_in_language(captions.as_str(), c.language())
+            .map_err(|e| Signal::Unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
+        if list.split(',').count() != names.len() {
+            return unsupported("OptionCaptionML with another number of entries than the members (not pinned)");
+        }
+        list
+    } else {
+        captions.as_str().to_string()
+    };
     let t = text.trim();
     // An empty or blank text names a blank member (errors/lt-ms-refusals-131/P131EvalOption.al:107-108: `''` and `' '` give the
     // member `" "` of caption `' '`, :146: a field without a blank member rejects `''`).
@@ -1401,10 +1427,10 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
         if t.is_empty() {
             n.trim().is_empty()
         } else {
-            n.eq_ignore_ascii_case(t)
+            n.trim().eq_ignore_ascii_case(t)
         }
     };
-    let by_caption = captions.as_str().split(',').position(same);
+    let by_caption = captions.split(',').position(same);
     let by_name = names.iter().position(|n| same(n));
     let digits = t.strip_prefix('+').unwrap_or(t);
     let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
@@ -1416,7 +1442,13 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
-        None => unsupported("Evaluate into an Option field failing with the result unused (error text not pinned yet)"),
+        None if text.as_str() != t || text.chars().any(char::is_control) => unsupported(
+            "Evaluate into an Option field failing with the result unused, of a text with blanks or control characters (not pinned)",
+        ),
+        None => crate::native::raise(
+            format!("'{t}' is not an option. The existing options are: {captions}"),
+            "InvalidOptionString",
+        ),
     }
 }
 
@@ -1924,6 +1956,9 @@ fn evaluate_with_max(
         && !(matches!(number, 1 | 2) && matches!(a[0], Value::Text(_) | Value::Code(_)))
         && !(matches!(number, 1..=3) && matches!(a[0], Value::Duration(_)))
         && !matches!(a[0], Value::Date(..))
+        // An Option variable reads number 2 as 0 (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:270 FormatNumber
+        // `var 2 lower`).
+        && !(number == 2 && variable_option && matches!(a[0], Value::Option(..)))
     {
         return unsupported(format!(
             "Evaluate with format number {number} (not pinned by the corpus)"
@@ -1957,6 +1992,13 @@ fn evaluate_with_max(
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
         // Every number but 9 reads a Date as the default does (types/lt-datetime/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; errors/lt-ms-refusals-130/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
+        // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
+        // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump). Pinned for
+        // Evaluate only: `read_text` and the other readers of `date` do not take it.
+        Value::Date(..) if number != 9 && is_blank_tabs(&text) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+            Parsed::Value(Value::Date(0, false))
+        }
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
@@ -2116,10 +2158,18 @@ fn evaluate_with_max(
                 },
                 (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
                 _ if c.ret_used() => return Ok(Value::Boolean(false)),
+                // A TAB shows as `\t` in the error (types/lt-option-evaluate-captions/OptionEvaluateCaptions.al:330
+                // ResultUnused_Errors `var tab`); the other control characters are not pinned.
+                _ if text.chars().any(|ch| ch.is_control() && ch != '\t') => {
+                    return unsupported(
+                        "Evaluate into an Option variable failing with the result unused, of a text with a control character other than TAB (not pinned)",
+                    );
+                }
                 _ => {
                     return crate::native::raise(
                         format!(
-                            "'{text}' is not an option. The existing options are: {}",
+                            "'{}' is not an option. The existing options are: {}",
+                            text.replace('\t', "\\t"),
                             members.join(",")
                         ),
                         "InvalidOptionString",
@@ -2201,6 +2251,15 @@ fn evaluate_with_max(
                 Value::DateTime(_) => "DateTime",
                 _ => "Boolean",
             };
+            // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
+            let text = if ty == "Boolean" && is_blank_tabs(&text) {
+                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+                String::new()
+            } else {
+                text.to_string()
+            };
             // In German the text is pinned for Decimal only (types/lt-evaluate-decimal-text/EvalDecimalDe.al:
             // P175_De_StatementErrorText, P175_De_Format9StatementErrorText).
             match (c.session_locale().map(|l| l.0), ty) {
@@ -2276,6 +2335,27 @@ fn evaluate_with_max(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Corpus master (corpus PR 871) misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date: a TAB, two TABs and a space read as
+    /// the empty date in format 0.
+    #[test]
+    fn tabs_and_a_space_read_as_the_empty_date() {
+        for t in ["\t", "\t\t", " "] {
+            assert!(is_blank_tabs(t), "{t:?}");
+        }
+    }
+
+    /// The TAB rule is pinned for Evaluate only: `date` and `read_text` do not read a TAB or a space as the empty date.
+    #[test]
+    fn a_reader_other_than_evaluate_does_not_read_tabs_as_the_empty_date() {
+        for t in ["\t", "\t\t", " "] {
+            assert!(
+                !matches!(date(t, 0, None, None, false), Ok(Parsed::Value(Value::Date(0, false)))),
+                "{t:?}"
+            );
+            assert!(read_text(&crate::value::RtType::Date, t).is_none(), "{t:?}");
+        }
+    }
 
     /// types/lt-datetime/Evaluate.al:209,233 Time_Format9: `13:45:06.1234` with format 9 is 13:45:06.123; a fourth digit of 5 or
     /// more and longer fractions are refused (rounding not pinned).
