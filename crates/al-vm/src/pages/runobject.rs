@@ -297,7 +297,6 @@ impl Session {
             if self.is_list(target) && (ro.on_rec || !linked) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunObjectTargetViewWithoutLink);
             }
-            target.borrow_mut().run_object_record = true;
         }
         self.page_instance(target)?;
         let base = self.page_rec(target);
@@ -345,11 +344,8 @@ impl Session {
                         (*pf, FilterExpr::Range(Some(value.clone()), Some(value)))
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        if text == "''" {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::SubPageLinkEmptyTerm,
-                            );
-                        }
+                        // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // SubPageLink).
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self
                             .parse_filter_text(text, &ty)

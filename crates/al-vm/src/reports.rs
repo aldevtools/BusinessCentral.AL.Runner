@@ -1183,8 +1183,10 @@ impl Session {
         Ok(())
     }
 
-    /// The request page's OnInit of a report that a procedure uses first (see `first_use`). An OnInit a reportextension adds is
-    /// left to the run, which refuses it.
+    /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
+    /// before the procedure's body, and the run does not run it again, with or without the request page
+    /// (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,
+    /// which refuses it.
     fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
         let object = inst.borrow().object as usize;
         let engine = self.engine.clone();
@@ -1201,7 +1203,6 @@ impl Session {
         let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
             return Ok(());
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
         self.report.rp_init_done.push(Rc::downgrade(inst));
         self.call(object, r, inst.clone(), Vec::new()).map(|_| ())
     }
@@ -2029,9 +2030,9 @@ impl Session {
         {
             return Ok(());
         }
-        // It ran at the procedure that used the variable first (request-page-oninit-at-first-use).
+        // It ran at the procedure that used the variable first and does not run again
+        // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageOnInitAtFirstUse);
             return Ok(());
         }
         if with_parameters {
@@ -2718,9 +2719,9 @@ impl Session {
         } else {
             self.custom_layout(&schema)?
         };
-        let payload_unpinned = match custom {
-            Some(_) => self.custom_layout_views_unpinned(&inst, &schema, &parameters, record_ref)?,
-            None => None,
+        let filter_views = match custom {
+            Some(_) => self.custom_layout_filter_views(&inst, &schema, &parameters, record_ref)?,
+            None => Ok("[]".into()),
         };
         // A report with columns and no layout at all: the rendering formats stop after OnInitReport with the error, which a used result
         // turns into false (report/lt-report-pre-rendering/ReportPreRenderingSaveAsPdf.al: P195_SaveAsPdf_PreRenderingOrder and its
@@ -2977,7 +2978,7 @@ impl Session {
                             "{id} to a file of a report with a Custom layout (only a stream is handed to the merger)"
                         ));
                     };
-                    return self.render_custom_layout(&schema, &format, layout, bytes, &blob, payload_unpinned);
+                    return self.render_custom_layout(&schema, &format, layout, bytes, &blob, filter_views);
                 }
                 if document_ready {
                     let SaveTarget::Stream(blob) = &target else {
@@ -3217,73 +3218,153 @@ impl Session {
         }
     }
 
-    /// Why the ObjectPayload of a rendered `SaveAs` with a custom layout is not pinned, when its data items have a view the
-    /// caller gave: its `filterviews` is pinned only empty, for a SaveAs with no request parameters and no view
-    /// (report/lt-report-layout-merger/ReportMergerPayload.al:37-38), and for one view given in the request parameters
-    /// (:152), whose field-number form is not built here. The payload is then refused on use; the merger still runs.
-    fn custom_layout_views_unpinned(
+    /// The `filterviews` of the ObjectPayload of a rendered `SaveAs` with a custom layout, as JSON text, or why it is not pinned
+    /// (the payload is then refused on use; the merger still runs). It is `[]` for a SaveAs with no view the caller gave: no
+    /// request parameters (report/lt-report-layout-merger/ReportMergerPayload.al:37-38), parameters with options only and a
+    /// report whose only filter is its DataItemTableView (ReportMergerUnmasked.al:336-396). With a view from SetTableView, a
+    /// RecordRef or a data item element of the request parameters it holds one object per data item, `{"name","tableid","view"}`,
+    /// the view written as the request parameters write it (ReportMergerUnmasked.al:262-334). Pinned only for a report with one
+    /// data item, without a DataItemTableView, and a view on the primary key, ascending, with filters in group 0: anything else
+    /// is refused on use.
+    fn custom_layout_filter_views(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         parameters: &str,
         record_ref: Option<&Value>,
-    ) -> Result<Option<&'static str>, Signal> {
-        if record_ref.is_some() {
-            return Ok(Some(
-                "the ObjectPayload of a custom layout merger for a SaveAs with a RecordRef (its filterviews is pinned only empty)",
-            ));
+    ) -> Result<Result<String, &'static str>, Signal> {
+        let mut given: Vec<(usize, Rec)> = Vec::new();
+        let items = &schema.report().items;
+        if let Some(rr) = record_ref {
+            let Value::Library(_, h) = rr else {
+                return Ok(Err(
+                    "the ObjectPayload of a custom layout merger for a SaveAs with a record that is no RecordRef",
+                ));
+            };
+            let rec = match &*h.borrow() {
+                al_builtins::value::LibraryValue::RecordRef(rec) => rec.clone(),
+                _ => {
+                    return Ok(Err(
+                        "the ObjectPayload of a custom layout merger for a SaveAs with a record that is no RecordRef",
+                    ));
+                }
+            };
+            let table = rec.borrow().table as usize;
+            match items.iter().position(|i| i.table == Some(table)) {
+                Some(at) => given.push((at, rec)),
+                None => {
+                    return Ok(Err(
+                        "the ObjectPayload of a custom layout merger for a RecordRef over no data item's table",
+                    ));
+                }
+            }
         }
-        let mut rest = parameters;
-        while let Some(at) = rest.find("<DataItem ") {
-            let tag = &rest[at..];
-            let Some(end) = tag.find('>') else { break };
-            if tag[..end].ends_with('/') {
-                rest = &tag[end..];
+        for (name, view) in crate::pages::request::parameter_item_views(parameters) {
+            if view.trim().is_empty() {
                 continue;
             }
-            let body = &tag[end + 1..];
-            let close = body.find("</DataItem>").unwrap_or(body.len());
-            if !body[..close].trim().is_empty() {
-                return Ok(Some(
-                    "the ObjectPayload of a custom layout merger for a SaveAs with a data item view in the request parameters \
-                     (its filterviews is pinned only empty)",
+            let Some(at) = items.iter().position(|i| i.name == name && i.slot.is_some()) else {
+                return Ok(Err(
+                    "the ObjectPayload of a custom layout merger for a view of a data item the report does not have",
                 ));
-            }
-            rest = &body[close..];
+            };
+            let base = self.base_item_record(inst, &items[at])?;
+            let copy: Rec = Rc::new(RefCell::new(base.borrow().clone()));
+            self.apply_parameter_view(&copy, &view)?;
+            given.push((at, copy));
         }
-        for item in &schema.report().items {
+        for (at, item) in items.iter().enumerate() {
             if item.slot.is_none() {
                 continue;
             }
             let rec = self.base_item_record(inst, item)?;
             let key = Rc::as_ptr(&rec) as usize;
-            if self.report.set_view_filters.iter().any(|(k, _)| *k == key) {
-                return Ok(Some(
-                    "the ObjectPayload of a custom layout merger for a SaveAs after SetTableView (its filterviews is pinned \
-                     only empty)",
+            // The entries are keyed by the record's address, which a later record can reuse: an entry counts only while the
+            // record still holds the filters SetTableView gave it.
+            let Some(origin) = self
+                .report
+                .set_view_filters
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, o)| o.clone())
+            else {
+                continue;
+            };
+            if origin.is_empty() {
+                return Ok(Err(
+                    "the ObjectPayload of a custom layout merger for a SaveAs after SetTableView of a record without filters \
+                     (its filterviews is not pinned)",
                 ));
             }
+            let now: Vec<crate::state::ViewFilterKey> = rec
+                .borrow()
+                .filters
+                .iter()
+                .map(|f| Ok((f.field, f.group, self.filter_text(&f.expr)?)))
+                .collect::<Result<_, Signal>>()?;
+            if now == origin {
+                given.push((at, rec));
+            }
         }
-        Ok(None)
+        let Some((at, rec)) = given.first().cloned() else {
+            return Ok(Ok("[]".into()));
+        };
+        if given.len() > 1 || items.len() > 1 {
+            return Ok(Err(
+                "the ObjectPayload of a custom layout merger for a view given twice or a report with several data items \
+                 (its filterviews is pinned for one data item and one view)",
+            ));
+        }
+        let item = &items[at];
+        let pinned = {
+            let r = rec.borrow();
+            item.view.is_none()
+                && r.key == 0
+                && r.ascending
+                && r.field_descending == 0
+                && !r.marked_only
+                && !r.filters.is_empty()
+                && r.filters.iter().all(|f| f.group == 0)
+        };
+        if !pinned {
+            return Ok(Err(
+                "the ObjectPayload of a custom layout merger for a view other than filters in group 0 on the primary key, ascending, \
+                 of a data item without DataItemTableView (its filterviews is not pinned)",
+            ));
+        }
+        let view = self.parameter_view(&rec)?;
+        let table = rec.borrow().table;
+        use al_builtins::json::string_literal as lit;
+        Ok(Ok(format!(
+            "[{{\"name\":{},\"tableid\":{},\"view\":{}}}]",
+            lit(&item.name),
+            self.object_id_of(table),
+            lit(&view)
+        )))
     }
 
     /// The ObjectPayload the platform hands a custom layout merger: 19 keys in this order, the same for every format but
     /// `documenttype` (report/lt-report-layout-merger/ReportMergerPayload.al:37-38 Pdf, :54-55 Word, :71-72 Excel, :88-89 Html,
     /// :172-175 the keys of all four, :199-200 a second report; ReportMergerLayoutChoice.al:30-31, :94-95 the layout's name
-    /// and mime type; ReportMergerStatic.al:93-95 the static form). `objectname` is the report's caption (`LT Merger Main`).
-    /// The values the corpus masks (invokedby, invokeddatetime, companyname, layoutapplicationid, reportrunid) are pinned
-    /// only in shape (a GUID, an ISO date time): their exact text is the assumption custom-layout-merger.
+    /// and mime type; ReportMergerStatic.al:93-95 the static form). `objectname` is the report's caption (`LT Merger Main`),
+    /// or its object name when it has no Caption (ReportMergerUnmasked.al:398-425, Payload_ReportWithoutCaption).
+    /// The values the other files mask are pinned by ReportMergerUnmasked.al: invokedby is UserSecurityId(), layoutapplicationid
+    /// the app id and reportrunid a new id per call, each as lower-case GUID text without braces (:171-205, :247-263);
+    /// companyname is CompanyName() (:171-205); invokeddatetime is the clock as `yyyy-mm-ddThh:mm:ss.fff+hh:mm` (:213-245; the
+    /// session time zone is UTC here, so the offset is `+00:00`). `filter_views` is the text of filterviews, or why it is not
+    /// pinned (see `custom_layout_filter_views`).
     fn custom_layout_payload(
         &mut self,
         schema: &Schema,
         format: &str,
         layout: &ir::RenderingLayout,
-        unpinned: Option<&'static str>,
+        filter_views: Result<String, &'static str>,
     ) -> Result<Value, Signal> {
         use al_builtins::json::string_literal as lit;
-        if let Some(why) = unpinned {
-            return Ok(al_builtins::json::unpinned_object(why));
-        }
+        let filter_views = match filter_views {
+            Ok(v) => v,
+            Err(why) => return Ok(al_builtins::json::unpinned_object(why)),
+        };
         let document_type = match format {
             "Pdf" => "application/pdf",
             "Word" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -3306,11 +3387,7 @@ impl Session {
                     );
                 }
             },
-            None => {
-                return Ok(al_builtins::json::unpinned_object(
-                    "the ObjectPayload of a custom layout merger of a report without a Caption (its objectname is not pinned)",
-                ));
-            }
+            None => o.name.clone(),
         };
         let app = self
             .engine
@@ -3331,17 +3408,18 @@ impl Session {
         );
         let t = ms.rem_euclid(86_400_000);
         let when = format!(
-            "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z",
+            "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}.{:03}+00:00",
             t / 3_600_000,
             t / 60_000 % 60,
             t / 1000 % 60,
             t % 1000
         );
         let text = format!(
-            "{{\"filterviews\":[],\"version\":1,\"objectname\":{},\"objectid\":{},\"documenttype\":{},\"invokedby\":{},\
+            "{{\"filterviews\":{},\"version\":1,\"objectname\":{},\"objectid\":{},\"documenttype\":{},\"invokedby\":{},\
              \"invokeddatetime\":{},\"companyname\":{},\"printername\":\"\",\"duplex\":false,\"color\":false,\
              \"defaultcopies\":1,\"papertray\":null,\"intent\":\"Save\",\"layoutmodel\":\"Custom\",\"layoutname\":{},\
              \"layoutmimetype\":{},\"layoutapplicationid\":{},\"reportrunid\":{}}}",
+            filter_views,
             lit(&caption),
             self.object_id_of(schema.object as u32),
             lit(document_type),
@@ -3368,7 +3446,7 @@ impl Session {
         (layout, layout_bytes): (ir::RenderingLayout, Vec<u8>),
         dataset: Vec<u8>,
         blob: &al_builtins::stream::BlobRef,
-        payload_unpinned: Option<&'static str>,
+        filter_views: Result<String, &'static str>,
     ) -> Result<Value, Signal> {
         use al_builtins::stream::{Encoding, InState};
         use al_builtins::value::LibraryValue;
@@ -3414,7 +3492,7 @@ impl Session {
         .iter()
         .map(|n| n.to_string())
         .collect();
-        let payload = self.custom_layout_payload(schema, format, &layout, payload_unpinned)?;
+        let payload = self.custom_layout_payload(schema, format, &layout, filter_views)?;
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             Value::Option(action, members),

@@ -7,7 +7,7 @@
 //!
 //! Every neighbour nobody measured is refused.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -338,13 +338,8 @@ fn the_neighbours_writers_te_and_th_measured_follow_one_rule_at_any_commit_count
             &format!("codeunit 50160 C\n{{\n    procedure Probe(): Text begin exit({call}); end;"),
             1,
         );
-        clear_hits();
-        let r = text(al_testkit::run_in(&src, "C", "Probe"));
-        assert!(
-            take_hits().contains(&Assumption::StaleOwnWriteNeighbourAnyCommits),
-            "{call}"
-        );
-        r
+        // Pinned at every count (SbStaleOwnModify.al Y2_4C_*, Y2_5C_*, Y2_10C_*, Y2_12C_*): no assumption.
+        text(al_testkit::run_in(&src, "C", "Probe"))
     };
     // The three shapes of 6028 (two Commits, lock; three Commits, Modify or Delete of another row) keep their own assumption.
     for n in [1, 3, 4, 5, 10] {

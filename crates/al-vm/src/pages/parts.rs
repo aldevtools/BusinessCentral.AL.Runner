@@ -1024,11 +1024,8 @@ impl Session {
                         });
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        if text == "''" {
-                            al_builtins::assumptions::assume(
-                                al_builtins::assumptions::Assumption::SubPageLinkEmptyTerm,
-                            );
-                        }
+                        // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // SubPageLink).
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self

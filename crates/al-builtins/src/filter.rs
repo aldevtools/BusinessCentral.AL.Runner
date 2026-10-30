@@ -304,7 +304,7 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
             .flatten()
     };
     // The form a view writes, `yyyy-mm-ddThh:mm:ss[.f]Z` in UTC, reads back (P136Filter.al TV_SetView_DateTime_GetViewRoundTrip
-    // `same view=Yes`, with the view text of UN_DateTimeFilter_* on writer UN's corpus branch, commit d3bcc580).
+    // `same view=Yes`, with the view text of UN_DateTimeFilter_* errors/lt-ms-refusals-136/P136Filter.al:447-586).
     if let Some((d, c)) = t.strip_suffix('Z').and_then(|r| r.split_once('T')) {
         let p: Vec<&str> = d.split('-').collect();
         if !(digit_groups(d, '-', 3) && p[0].len() == 4 && p[1].len() == 2 && p[2].len() == 2) {
@@ -328,7 +328,6 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
             Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
             None => 0,
         };
-        crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
         return (h < 24 && mi < 60 && sec < 60)
             .then(|| Value::DateTime((i64::from(day) - 1) * 86_400_000 + ((h * 60 + mi) * 60 + sec) * 1000 + ms + 1));
     }
@@ -361,26 +360,16 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
         Some(f) => num(f, f.len())? * 10_i64.pow(3 - f.len() as u32),
         None => 0,
     };
-    // Other hours (P136Filter.al UN_DateTimeFilter_HourNotTwelve*, _MoreHourForms* on writer UN's corpus branch, commit
-    // d3bcc580; assumption `datetime-filter-day-and-hours`): `08:30 AM`, `08:30 PM`, `05:45:10.5 PM`, and without a suffix a
+    // Other hours (errors/lt-ms-refusals-136/P136Filter.al:497-586, UN_DateTimeFilter_HourNotTwelve*, _MoreHourForms*): `08:30 AM`, `08:30 PM`, `05:45:10.5 PM`, and without a suffix a
     // 24-hour clock (`08:30`, `17:45`, `00:00`). An hour past 12 with AM or PM is an error whose filter texts are not built here.
     let h = match suffix {
         Some("PM") if h == 12 => 12,
         Some("AM") if h == 12 => 0,
-        Some("PM") if (1..12).contains(&h) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
-            h + 12
-        }
-        Some("AM") if (1..12).contains(&h) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
-            h
-        }
+        Some("PM") if (1..12).contains(&h) => h + 12,
+        Some("AM") if (1..12).contains(&h) => h,
         Some(_) => return None,
         None if h == 12 => 12,
-        None if h < 24 => {
-            crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
-            h
-        }
+        None if h < 24 => h,
         None => return None,
     };
     (m < 60 && s < 60)
@@ -388,7 +377,7 @@ fn datetime_filter_text(t: &str) -> Option<Value> {
 }
 
 /// The day a DateTime filter text names when it is a date alone, in an English session: `MM/DD/YY`, `M/DD/YY` or `YYYY-MM-DD`
-/// (P136Filter.al UN_DateTimeFilter_DateAlone* on writer UN's corpus branch, commit d3bcc580). A date alone stands for the
+/// (P136Filter.al UN_DateTimeFilter_DateAlone* errors/lt-ms-refusals-136/P136Filter.al:447-586). A date alone stands for the
 /// whole day, from 00:00:00 to 23:59:59 (a row at 23:59:59.999 is not matched). `None` for any other text.
 fn datetime_filter_day(t: &str) -> Option<i32> {
     let ctx = DATE_CONTEXT.with(std::cell::Cell::get)?;
@@ -846,9 +835,8 @@ impl Parser<'_> {
             }
             T::DateTime if letters_only(text.trim()) => return Err(not_evaluated("DateTime", text.trim())),
             // A dotted date in an English session, alone or with a clock, is no DateTime (P136Filter.al UN_DateTimeFilter_DateAlone,
-            // _MoreHourForms_3 `15.01.25`, `15.01.25 08:30` on writer UN's corpus branch, commit d3bcc580).
+            // _MoreHourForms_3 `15.01.25`, `15.01.25 08:30` errors/lt-ms-refusals-136/P136Filter.al:447-586).
             T::DateTime if dotted_datetime_text(text.trim()) => {
-                crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
                 return Err(not_evaluated("DateTime", text.trim()));
             }
             T::DateTime if datetime_filter_text(text.trim()).is_some() => {
@@ -1014,7 +1002,6 @@ impl Parser<'_> {
         match (t, self.ty) {
             (Tok::Raw(s), crate::value::RtType::DateTime) => {
                 let day = datetime_filter_day(s.trim())?;
-                crate::assumptions::assume(crate::assumptions::Assumption::DatetimeFilterDayAndHours);
                 Some(day)
             }
             _ => None,
@@ -1497,7 +1484,7 @@ mod tests {
         });
     }
 
-    /// P136Filter.al UN_DateTimeFilter_* (writer UN's corpus branch, commit d3bcc580): a date alone covers its whole day, other
+    /// errors/lt-ms-refusals-136/P136Filter.al:447-586 UN_DateTimeFilter_*: a date alone covers its whole day, other
     /// hours read on a 24-hour clock or with AM/PM, `15.01.25` raises the evaluate error.
     #[test]
     fn datetime_filter_date_alone_and_other_hours() {

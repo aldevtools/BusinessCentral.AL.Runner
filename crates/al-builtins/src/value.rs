@@ -447,9 +447,6 @@ pub struct PageState {
     pub run_page_link_opened: bool,
     /// Its OnOpenPage moved Rec to a linked row with a FindFirst or FindLast that found one.
     pub run_page_link_open_moved: bool,
-    /// The record the page opens on came from an action's RunObject (RunPageOnRec, RunPageLink or RunPageView), not from
-    /// Page.Run: the open reads it once.
-    pub run_object_record: bool,
     /// Set by the opener for the page's next open: the values an action's `RunPageLink` fills into Rec before OnOpenPage
     /// (field position, value), with the link's filters (`RecordState::run_page_link`). `None`: the link fills nothing pinned.
     pub open_rec_fill: Option<RunPageLinkFill>,
@@ -852,7 +849,6 @@ impl PageState {
             open_rec_unpinned: None,
             run_page_link_opened: false,
             run_page_link_open_moved: false,
-            run_object_record: false,
             open_rec_fill: None,
             temp_reads_once_more: false,
             reads_once_more_in: None,
