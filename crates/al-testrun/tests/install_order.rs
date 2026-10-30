@@ -55,3 +55,102 @@ fn dependency_apps_install_one_at_a_time() {
     });
     assert_eq!(got, Outcome::Pass);
 }
+
+/// A test-toolkit app (here with System Application Test Library's id) and an application app with no dependency path
+/// between them: the application app installs first, the toolkit app after it (owner decision 2026-10-30, BcContainerHelper's
+/// `Import-TestToolkitToBcContainer`). During the application app's install the toolkit's subscriber does not run; during the
+/// toolkit's install the application app's subscriber runs. Nothing is refused.
+#[test]
+fn test_toolkit_apps_install_after_the_application_apps() {
+    const TOOLKIT_ID: &str = "9856ae4f-d1a7-46ef-89bb-6ef056398228";
+    const BASE_ID: &str = "55555555-5555-5555-5555-555555555555";
+    // The application app: its own subscriber to A's event and an install codeunit that raises it.
+    const BASE: &str = r#"
+codeunit 65000 BaseSubs
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Events, 'OnPhase', '', false, false)]
+    local procedure OnPhase(Phase: Text)
+    var
+        E: Codeunit Events;
+    begin
+        E.Log('Base-sub|' + Phase);
+    end;
+}
+codeunit 65001 BaseInstall
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Codeunit Events;
+    begin
+        E.Raise('base-install');
+    end;
+}
+"#;
+    const TOOLKIT: &str = r#"
+codeunit 66000 KitSubs
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Events, 'OnPhase', '', false, false)]
+    local procedure OnPhase(Phase: Text)
+    var
+        E: Codeunit Events;
+    begin
+        E.Log('Kit-sub|' + Phase);
+    end;
+}
+codeunit 66001 KitInstall
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Codeunit Events;
+    begin
+        E.Raise('kit-install');
+    end;
+}
+"#;
+    const MAIN_T: &str = r#"
+codeunit 64001 T
+{
+    Subtype = Test;
+
+    local procedure Expect(Entry: Text; Want: Boolean)
+    var
+        L: Record Log;
+    begin
+        if L.Get(Entry) <> Want then
+            Error('%1: expected %2', Entry, Want);
+    end;
+
+    [Test]
+    procedure ToolkitAfterApplication()
+    begin
+        Expect('Base-sub|base-install', true);
+        Expect('Kit-sub|base-install', false);
+        Expect('Base-sub|kit-install', true);
+        Expect('Kit-sub|kit-install', true);
+    end;
+}
+"#;
+    // The toolkit app is listed first, so only the toolkit rule puts it after the application app.
+    let apps = vec![
+        app(MAIN_ID, &[A_ID, BASE_ID, TOOLKIT_ID], MAIN_T),
+        app(TOOLKIT_ID, &[A_ID], TOOLKIT),
+        app(BASE_ID, &[A_ID], BASE),
+        app(A_ID, &[], A),
+    ];
+    let kinds = vec![
+        al_sema::AppKind::Workspace,
+        al_sema::AppKind::Dependency,
+        al_sema::AppKind::Dependency,
+        al_sema::AppKind::Dependency,
+    ];
+    let rt = CorpusRuntime::run_for_apps(apps, kinds, &[], &Default::default(), None, Default::default());
+    let got = rt.first_outcome(&CaseId {
+        codeunit: 64001,
+        name: "ToolkitAfterApplication".into(),
+    });
+    assert_eq!(got, Outcome::Pass);
+}

@@ -974,7 +974,17 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
    `al-test-cli` says so (`host::set_publish_order_known`), and there two apps under test with no dependency path between
    them install in the order the run lists them, so item 2 refuses nothing in the corpus run. Other runs (`al-runner`)
    do not know the order their pipeline publishes in, and item 2 applies. The dependency apps never use it.
-4. Tests: `al-testrun/tests/install_order.rs`, `al-testrun/tests/install_order_listed.rs`.
+4. **The application apps install before the test-toolkit apps (Accepted, owner, 2026-10-30).** BcContainerHelper's
+   `Import-TestToolkitToBcContainer` publishes and installs the test toolkit into a container whose application apps are
+   installed already, and BCApps' CI builds its test containers that way. The toolkit apps are the ones its
+   `GetTestToolkitApps` lists (BcContainerHelper 6.1.12 HelperFunctions.ps1:381-407): Permissions Mock, Test Runner, Any,
+   Library Assert, Library Variable Storage, System Application Test Library, Business Foundation Test Libraries,
+   Application Test Library, Tests-TestLibraries, AI Test Toolkit. They are matched by app id
+   (`install::TEST_TOOLKIT_APP_IDS`), not by name. The source is the recipe script, not a corpus probe. Within each of the
+   two groups the rules of items 1 and 2 stay: dependency order, and order unknown refused. Found by the Cash Flow bucket
+   (BC 27.5): without it, `Reten. Pol. Test Installer` (System Application Test Library) stopped on a Base Application
+   subscriber to `GetGlobalTableTriggerMask`, and two tables of the install baseline lost their rows.
+5. Tests: `al-testrun/tests/install_order.rs`, `al-testrun/tests/install_order_listed.rs`.
 
 ### Still not pinned (probes wanted)
 

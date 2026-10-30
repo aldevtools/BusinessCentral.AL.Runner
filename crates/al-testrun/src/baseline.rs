@@ -197,8 +197,17 @@ pub fn run_traced(
     let is_late = |app: usize| late_apps.as_ref().is_some_and(|l| l.contains(&(app as u32)));
     let mut roots: Vec<(usize, usize, bool, bool)> = Vec::new();
     let mut late_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
+    // The test-toolkit apps install after the application apps (`install::TEST_TOOLKIT_APP_IDS`, ADR-046 amendment 6).
+    let toolkit = crate::install::test_toolkit_apps(lowered);
+    let mut toolkit_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
     for app in crate::install::plan(lowered, &engine.events, true) {
-        let into = if is_late(app.app) { &mut late_roots } else { &mut roots };
+        let into = if is_late(app.app) {
+            &mut late_roots
+        } else if toolkit.contains(&(app.app as u32)) {
+            &mut toolkit_roots
+        } else {
+            &mut roots
+        };
         for &(oi, ri) in &app.company {
             into.push((oi, ri, false, false));
         }
@@ -206,7 +215,10 @@ pub fn run_traced(
             into.push((oi, ri, false, true));
         }
     }
-    // The dependency install roots that run before Company-Initialize: `roots[..early_installs]`.
+    // The dependency install roots that run before Company-Initialize: `roots[..early_installs]`, the application apps' first,
+    // the test-toolkit apps' from `toolkit_from`.
+    let toolkit_from = roots.len();
+    roots.extend(toolkit_roots);
     let early_installs = roots.len();
     let company_initialize = (0..objs.len()).find(|&oi| {
         lowered.dependency[oi]
@@ -302,6 +314,12 @@ pub fn run_traced(
     let early_group: BTreeSet<u32> = (0..lowered.program.apps.len() as u32)
         .filter(|a| !under_test.contains(a) && !late_group.contains(a))
         .collect();
+    // Application apps first, with the test-toolkit apps not installed yet; then the toolkit apps, with every application app
+    // installed (ADR-046 amendment 6, owner 2026-10-30).
+    let (toolkit_group, app_group): (BTreeSet<u32>, BTreeSet<u32>) =
+        early_group.iter().copied().partition(|a| toolkit.contains(a));
+    let mut held_for_apps = held.clone();
+    held_for_apps.extend(toolkit_group.iter().copied());
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
@@ -313,8 +331,10 @@ pub fn run_traced(
     let mut step_failed = false;
     for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
         let app = objs[oi].app;
-        if k < early_installs {
-            view.apply(&mut session, app, &early_group, &held);
+        if k < toolkit_from {
+            view.apply(&mut session, app, &app_group, &held_for_apps);
+        } else if k < early_installs {
+            view.apply(&mut session, app, &toolkit_group, &held);
         } else if late_from.is_some_and(|f| k >= f) {
             view.apply(&mut session, app, &late_group, &under_test);
         } else {

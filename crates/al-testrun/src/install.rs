@@ -690,6 +690,43 @@ impl InstallView {
     }
 }
 
+/// The app ids of Microsoft's test-toolkit apps: what BcContainerHelper's `Import-TestToolkitToBcContainer` publishes and
+/// installs into a container whose application apps are installed already (BcContainerHelper 6.1.12 HelperFunctions.ps1:381-407,
+/// `GetTestToolkitApps`: Permissions Mock, Test Runner, Any, Library Assert, Library Variable Storage, System Application Test
+/// Library, Business Foundation Test Libraries, Application Test Library, Tests-TestLibraries, AI Test Toolkit). BCApps' CI
+/// builds its test containers the same way. The ids are the apps' manifests' (the same in the three supported majors).
+/// Owner decision 2026-10-30 (ADR-046 amendment 6): the application apps install before these.
+pub(crate) const TEST_TOOLKIT_APP_IDS: &[&str] = &[
+    "40860557-a18d-42ad-aecb-22b7dd80dc80", // Permissions Mock
+    "23de40a6-dfe8-4f80-80db-d70f83ce8caf", // Test Runner
+    "e7320ebb-08b3-4406-b1ec-b4927d3e280b", // Any
+    "dd0be2ea-f733-4d65-bb34-a28f4624fb14", // Library Assert
+    "5095f467-0a01-4b99-99d1-9ff1237d286f", // Library Variable Storage
+    "9856ae4f-d1a7-46ef-89bb-6ef056398228", // System Application Test Library
+    "bee8cf2f-494a-42f4-aabd-650e87934d39", // Business Foundation Test Libraries
+    "d852d5d2-a39d-4179-baeb-f99a19e32510", // Application Test Library
+    "5d86850b-0d76-4eca-bd7b-951ad998e997", // Tests-TestLibraries
+    "2156302a-872f-4568-be0b-60968696f0d5", // AI Test Toolkit
+];
+
+/// The dependency apps (indexes in `Program::apps`) whose id is in [`TEST_TOOLKIT_APP_IDS`].
+pub(crate) fn test_toolkit_apps(lowered: &Lowered) -> BTreeSet<u32> {
+    let norm = |s: &str| {
+        s.trim()
+            .trim_start_matches('{')
+            .trim_end_matches('}')
+            .to_ascii_lowercase()
+    };
+    lowered
+        .program
+        .apps
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.dependency && TEST_TOOLKIT_APP_IDS.contains(&norm(&a.id).as_str()))
+        .map(|(i, _)| i as u32)
+        .collect()
+}
+
 /// The apps (indexes in `Program::apps`) that have an object the run treats as under test.
 pub(crate) fn apps_under_test(lowered: &Lowered) -> BTreeSet<u32> {
     let objs = &lowered.program.objects;
