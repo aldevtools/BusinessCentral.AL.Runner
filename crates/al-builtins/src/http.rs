@@ -2230,10 +2230,11 @@ fn client_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out 
 /// (lowering drops the result of `if ... then;` with no branches). A request of the client that no handler answers is
 /// refused (`cert_validation_set`); with a handler it is answered as before
 /// (al-language-onprem/network/HttpClientAuthConfig.al:117-126 `after_certificate_validation_off`).
+///
+/// The call answers its argument when that repeats the setting made last (network/lt-httpclient-property-assign/
+/// HttpClientPropertyAssign.al:24-27,36-37); any other used result stays refused. `false` on a client whose only change is its
+/// timeout gives it the default timeout back (HttpClientPropertyAssign.al:73-77).
 fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if c.ret_used() {
-        return unsupported("the result of HttpClient.UseServerCertificateValidation (not pinned)");
-    }
     let off = match a.first() {
         Some(Value::Boolean(b)) => !*b,
         other => {
@@ -2243,21 +2244,27 @@ fn client_use_cert_validation(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
             ));
         }
     };
+    let ret_used = c.ret_used();
     with_client(r, |s| {
+        if ret_used && s.cert_validation_last != Some(!off) {
+            return unsupported("the result of HttpClient.UseServerCertificateValidation (not pinned)");
+        }
         if off {
             let filled = {
                 let b = s.default_headers.borrow();
                 !b.items.is_empty() || !b.secret.is_empty()
             };
-            if filled || !s.base_address.is_empty() || s.timeout_ms != HttpClientState::default().timeout_ms {
+            if filled || !s.base_address.is_empty() {
                 return unsupported(
                     "HttpClient.UseServerCertificateValidation(false) on a client with default request headers, a base address or a timeout: whether the client keeps them is not pinned",
                 );
             }
             s.default_headers = crate::value::new_header_list(crate::value::HeaderKind::Default);
+            s.timeout_ms = HttpClientState::default().timeout_ms;
         }
         s.cert_validation_set = true;
-        Ok(Value::Null)
+        s.cert_validation_last = Some(!off);
+        Ok(if ret_used { Value::Boolean(!off) } else { Value::Null })
     })?
 }
 
@@ -2271,7 +2278,7 @@ fn send(
     c: &mut dyn Ctx,
     method: &str,
     url: (String, bool),
-    cert_validation_set: bool,
+    (cert_validation_set, cert_validation_off): (bool, bool),
     response: Option<&Value>,
 ) -> Out {
     let state = c.http_send(HttpOutgoing {
@@ -2280,6 +2287,7 @@ fn send(
         has_secret_uri: false,
         unpinned_join: url.1,
         cert_validation_set,
+        cert_validation_off,
     })?;
     let Some(Value::Library(_, cell)) = response else {
         return unsupported("HttpClient call without a response variable");
@@ -2324,7 +2332,12 @@ fn send(
 macro_rules! verb {
     ($name:ident, $method:expr, $with_content:expr) => {
         fn $name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-            let (base, cert) = with_client(r, |s| (s.base_address.clone(), s.cert_validation_set))?;
+            let (base, cert) = with_client(r, |s| {
+                (
+                    s.base_address.clone(),
+                    (s.cert_validation_set, s.cert_validation_last == Some(false)),
+                )
+            })?;
             let path = text(a, 0)?;
             let url = resolve_request_path(&base, &path)?;
             let response = if $with_content { a.get(2) } else { a.get(1) };
@@ -2339,7 +2352,12 @@ verb!(client_put, "PUT", true);
 verb!(client_patch, "PATCH", true);
 
 fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let (base, cert) = with_client(r, |s| (s.base_address.clone(), s.cert_validation_set))?;
+    let (base, cert) = with_client(r, |s| {
+        (
+            s.base_address.clone(),
+            (s.cert_validation_set, s.cert_validation_last == Some(false)),
+        )
+    })?;
     let Some(Value::Library(_, req)) = a.first() else {
         return unsupported("HttpClient.Send without a request");
     };

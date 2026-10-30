@@ -25,6 +25,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "iterationTracking",
     "announceStart",
     "serverUrl",
+    "license",
     "tdd",
     "runSelectedOnly",
     "ignorePermissionMock",
@@ -290,6 +291,12 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     {
         a.server_url = Some(al_host::check_server_url(u).map_err(|e| format!("`serverUrl`: {e}"))?);
     }
+    // ADR-060: `license`, the request's `--license FILE`.
+    match fields.get("license") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(p)) if !p.is_empty() => a.license = Some(PathBuf::from(p)),
+        Some(_) => return Err("`license` is the path of a .bclicense file".into()),
+    }
     // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
     if !matches!(fields.get("tdd"), None | Some(Value::Null)) {
         a.tdd = flag(fields, "tdd")?;
@@ -492,6 +499,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 "selection",
                 "seed",
                 "seedSource",
+                "license",
             ] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();
@@ -882,6 +890,25 @@ mod tests {
         assert!(e.contains("serverUrl"), "{e}");
         let (a, _) = request_args(&base(), &fields(json!({"command": "runTests", "sourcePaths": ["/a"]}))).unwrap();
         assert!(a.server_url.is_none());
+    }
+
+    /// ADR-060: `license` is the request's `--license FILE`.
+    #[test]
+    fn the_license_field_names_the_license_file() {
+        let (a, _) = request_args(
+            &base(),
+            &fields(json!({"command": "runTests", "sourcePaths": ["/a"], "license": "/l/Dev.bclicense"})),
+        )
+        .unwrap();
+        assert_eq!(a.license.as_deref(), Some(std::path::Path::new("/l/Dev.bclicense")));
+        let (a, _) = request_args(&base(), &fields(json!({"command": "runTests", "sourcePaths": ["/a"]}))).unwrap();
+        assert!(a.license.is_none());
+        let e = request_args(
+            &base(),
+            &fields(json!({"command": "runTests", "sourcePaths": ["/a"], "license": 5})),
+        )
+        .unwrap_err();
+        assert!(e.contains("`license`"), "{e}");
     }
 
     #[test]

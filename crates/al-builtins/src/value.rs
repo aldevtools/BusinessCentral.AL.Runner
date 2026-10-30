@@ -1574,6 +1574,8 @@ pub struct HttpClientState {
     /// `UseServerCertificateValidation` was called on this client (also before a `Clear`): a request of it that no handler
     /// answers is refused, since what the setting does to such a request is not pinned.
     pub cert_validation_set: bool,
+    /// The value of the last `UseServerCertificateValidation` since the client was made or cleared.
+    pub cert_validation_last: Option<bool>,
 }
 
 impl Default for HttpClientState {
@@ -1583,6 +1585,7 @@ impl Default for HttpClientState {
             timeout_ms: 100_000,
             default_headers: new_header_list(HeaderKind::Default),
             cert_validation_set: false,
+            cert_validation_last: None,
         }
     }
 }

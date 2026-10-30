@@ -27,6 +27,7 @@ pub mod install;
 mod install_reach;
 pub mod isolation;
 pub mod junit;
+pub mod license;
 pub mod observe;
 pub mod reach;
 pub mod refusals;

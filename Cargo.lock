@@ -96,6 +96,7 @@ version = "3.0.0-alpha.10"
 dependencies = [
  "jiff",
  "md-5",
+ "quick-xml",
  "sha1",
  "sha2",
 ]
