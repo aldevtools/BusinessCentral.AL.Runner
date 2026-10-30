@@ -62,11 +62,12 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
 | Tables | An in-memory store | No row locks, no other session, no SQL errors. `LockTable(false)` is refused. |
 | Transactions | Snapshots. A passing test commits at its boundary. `asserterror` rolls back. | Commit order across sessions is not modeled. |
 | Test data | CRONUS from the artifact, loaded per table on first touch | Only the demo company. |
-| Identity | User `TESTUSER`, tenant `default`, company `My Company`, session 1 | Tests that probe real authentication or other users. |
+| Companies | One company by default. `--companies LIST` or `all` models several, like Business Central ([Writing tests](writing-tests.md#companies)). | Microsoft's per-company tables read in another company are not run, except a few empty setup tables. |
+| Identity | User `TESTUSER`, tenant `default`, one company (the session company), session 1 | Tests that probe real authentication or other users. |
 | Environment | `--environment saas` (default) or `onprem` | Server topology is fixed. |
 | Clock | Starts at the system time and moves forward 1 ms on every read. `Sleep(n)` moves it n ms and does not wait. | A test sees a jump, not a delay. |
 | Client UI | Handlers and the `TestPage` client | No pixels, no layout, no add-ins. |
-| Permissions | Everything is granted | A test that expects "access denied" fails here. |
+| Permissions | Everything is granted | A test that expects "access denied" fails here. A test that lowers its own permissions is not run, unless you pass `--ignore-permission-mock`; it is then a flagged pass. |
 | Task scheduler | `CanCreateTask` is false. `CreateTask` returns an id and never runs the task. | A task never executes. |
 | `StartSession` | Starts nothing during an install; raises Business Central's error in a test run under `codeunit` or `test` isolation; under `disabled` (or `RequiredTestIsolation = Disabled` with `--isolation required`) runs the session's codeunit to its end inside the call and commits what it wrote | No session runs at the same time as the test. A start while the test holds an uncommitted write, an error in the session, a Timeout, another company, and reads of WorkDate, GlobalLanguage, GuiAllowed or CurrentClientType in the session are reported as not run. |
 | Isolated storage | One store per app | User scopes are refused. |
@@ -86,6 +87,15 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
 | Multi-user locking, deadlocks, SQL error behavior | Use a real service tier. |
 | Windows-only .NET libraries (`System.Drawing`, imaging) | Fake the image step. |
 | Apps that ship without AL source | Provide an `.app` with source. The message names the app. |
+
+## App files and BC 29 test framework
+
+- An app's `app.json` with a UTF-8 byte-order mark, and `.al` files in UTF-16, are
+  read as the AL compiler reads them.
+- The `logo` of `app.json` (a PNG) is served as the Logo of the app's Published
+  Application row. A logo that is not a PNG is refused.
+- `TestHandlers` codeunits and data-driven tests (`[TestDataSource]`) are refused
+  as not run. See [Writing tests](writing-tests.md#test-framework-features-of-bc-29).
 
 ## DotNet
 
