@@ -62,6 +62,10 @@ pub enum DotNetValue {
     InStream(Vec<u8>),
     /// An AL `OutStream` handed to .NET: the host creates a writable bridge stream.
     OutStream,
+    /// An AL `OutStream` whose Blob already holds the bytes, written up to their end: the host's bridge starts with them and
+    /// stands at their end, so .NET can seek back and read them (BC hands .NET the Blob's own read, write and seek stream;
+    /// al-runner issue 6317). Writing over them is refused by the host.
+    OutStreamWith(Vec<u8>),
 }
 
 /// An argument: a value plus whether the AL caller passed a variable that .NET may write back.
