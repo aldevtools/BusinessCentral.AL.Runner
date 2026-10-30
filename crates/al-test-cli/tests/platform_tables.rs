@@ -3367,6 +3367,7 @@ codeunit 50000 "T" { Subtype = Test;
     if Fn('H5') <> 'OnAfterActionEvent - 1998974045' then Error('H5 %1', Fn('H5')); end; }"#,
     );
     passes(&o, "Rows");
+}
 
 /// AllObjWithCaption of a table whose own Caption one tableextension overrides is not measured (al-runner issue 6378 pins
 /// the error texts, TableCaption and RecordRef.Caption only): the read of its Object Caption stays refused.
