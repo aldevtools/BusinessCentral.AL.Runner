@@ -946,3 +946,51 @@ the apps under test while the dependency apps install, Company-Initialize and th
 subscribers still run there (install/lt-ug-install-trigger-setup/UgInstallTests.al:37-41). Tests:
 `al-testrun/tests/install_hold_back.rs`. With the bump, the upgrade-tag cases of misc/lt-cm-upgrade-tag (codeunit 84835
 `Item44_*`) need this fix: without it the install code inserts its own tag a second time.
+
+## Amendment 6 (2026-10-30): one app at a time, for every app
+
+Status: Accepted (owner, 2026-10-30), including the corpus listed-order exception (item 3).
+
+Owner direction (2026-10-30): BC installs apps one at a time in dependency order. While an app installs, only the apps
+installed before it and the app itself are installed. Measured on BC 29 (corpus branch al-runtime-rs-staging-y3:
+tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
+install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's subscribers ran,
+for its integration event and its table's OnAfterInsertEvent, and `NavApp.GetModuleInfo` of XApp B was false; during
+B's install A's and B's ran, the main app's did not; at test time all ran.
+
+### Built
+
+1. `install::InstallView` (`al-testrun/src/install.rs`): while an app installs, the apps of its install group that depend on
+   it are not installed (no subscriber runs, `GetModuleInfo` is false). Groups: the dependency apps installed before the
+   company is built, the dependency apps installed after it (`installed_first` recipes), and the apps under test. Earlier
+   groups are installed; later groups are held back as before (amendment 5).
+2. Two apps of a group with no dependency path between them have no pinned order. While one installs, an event that a
+   (non-manual) subscriber of the other would receive raises `Signal::Unsupported`, and so does `GetModuleInfo` of the
+   other app (`Session::set_apps_install_order_unknown`, `al-vm/src/dispatch.rs`, `ctx.rs`). A Company Triggers subscriber
+   of such an app stops the install routines of the app that installs. What that install code touches is refused as for
+   any install routine that cannot run.
+3. The corpus run publishes its apps as the corpus CI does, one after the other in a fixed order (corpus
+   `.github/workflows/ci.yml` `app_dirs`: fixture, A, D, B, C, then the main app; `deps::corpus_publish_dirs`).
+   `al-test-cli` says so (`host::set_publish_order_known`), and there two apps under test with no dependency path between
+   them install in the order the run lists them, so item 2 refuses nothing in the corpus run. Other runs (`al-runner`)
+   do not know the order their pipeline publishes in, and item 2 applies. The dependency apps never use it.
+4. **The application apps install before the test-toolkit apps (Accepted, owner, 2026-10-30).** BcContainerHelper's
+   `Import-TestToolkitToBcContainer` publishes and installs the test toolkit into a container whose application apps are
+   installed already, and BCApps' CI builds its test containers that way. The toolkit apps are the ones its
+   `GetTestToolkitApps` lists (BcContainerHelper 6.1.12 HelperFunctions.ps1:381-407): Permissions Mock, Test Runner, Any,
+   Library Assert, Library Variable Storage, System Application Test Library, Business Foundation Test Libraries,
+   Application Test Library, Tests-TestLibraries, AI Test Toolkit. They are matched by app id
+   (`install::TEST_TOOLKIT_APP_IDS`), not by name. The source is the recipe script, not a corpus probe. Within each of the
+   two groups the rules of items 1 and 2 stay: dependency order, and order unknown refused. Found by the Cash Flow bucket
+   (BC 27.5): without it, `Reten. Pol. Test Installer` (System Application Test Library) stopped on a Base Application
+   subscriber to `GetGlobalTableTriggerMask`, and two tables of the install baseline lost their rows.
+5. Tests: `al-testrun/tests/install_order.rs`, `al-testrun/tests/install_order_listed.rs`.
+
+### Still not pinned (probes wanted)
+
+- The install order of two apps with no dependency path between them, outside the corpus run (refused, see item 2).
+- The corpus run compiles all test apps into one program: while the OnPrem suites' test app installs, the main app counts
+  as installed (it is listed before it), while the corpus CI's OnPrem job never publishes the main app. Not changed here.
+- Install code that reads data another app with no dependency path to it wrote in its own install code: not detected; only
+  subscribers and `GetModuleInfo` are refused.
+- Table extension triggers of an app installed later, on a table of the app that installs: not covered by the probe.

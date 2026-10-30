@@ -1153,6 +1153,7 @@ impl Session {
                 unpinned_event_depth: 0,
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
+                order_unknown_apps: None,
                 global_setups: Default::default(),
             },
             coverage: CoverageState {
@@ -1530,6 +1531,13 @@ impl Session {
     /// back while the company is built.
     pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
         self.events.not_installed_apps = apps;
+    }
+
+    /// The apps (indexes in `Program::apps`) with no dependency path to the app whose install code runs: whether BC installs
+    /// them before or after it is not known, so an event the install code raises that one of their subscribers would
+    /// receive, and `NavApp.GetModuleInfo` of one of them, are refused. `None`: no install runs.
+    pub fn set_apps_install_order_unknown(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        self.events.order_unknown_apps = apps;
     }
 
     /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply

@@ -418,6 +418,28 @@ impl Session {
                     continue;
                 }
             }
+            // While an app installs, a subscriber of an app with no dependency path to it runs only if BC installed that app
+            // first, and nothing pins that order: refused. Apps with a path between them install in dependency order
+            // (corpus branch al-runtime-rs-staging-y3, install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :104-117).
+            let app = engine.program.objects[s.object].app;
+            if !s.manual
+                && self
+                    .events
+                    .order_unknown_apps
+                    .as_ref()
+                    .is_some_and(|apps| apps.contains(&app))
+            {
+                return unsupported(format!(
+                    "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
+                     to; the install order of the two is not known",
+                    engine
+                        .program
+                        .apps
+                        .get(app as usize)
+                        .map(|a| a.name.as_str())
+                        .unwrap_or("?")
+                ));
+            }
             if self.events.skip_dependency_subscribers
                 && engine
                     .program
