@@ -19,7 +19,10 @@ use std::sync::Arc;
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
 /// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
-const UNPINNED_LOCKING_READ: &str = "a read other than FindFirst under ReadIsolation RepeatableRead or UpdLock";
+const UNPINNED_LOCKING_READ: &str =
+    "a read other than FindFirst and FindSet under ReadIsolation RepeatableRead or UpdLock";
+/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead set on a database table without a read yet.
+pub(crate) const REPEATABLE_READ_SET_WITHOUT_READ: &str = "a ReadIsolation RepeatableRead set without a read";
 
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
@@ -47,7 +50,7 @@ pub(crate) const XP_BUFFER_AFTER_EXPORT: &str = "the table element record's buff
 /// or more rows with export triggers: only the first row is written (QrXpContainerOccurs.al TS_Again_TrMember on branch
 /// al-runtime-rs-staging-pub-ts), the row the record holds afterwards is not pinned (generic rules,
 /// [`Session::unpinned_buffer_op`]).
-pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table element record holds after an export of three or more rows with export triggers is not pinned";
+pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table element record holds after an export of three or more rows with export triggers, or below another table element without LinkTable, is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason, while an export runs, of a table element record with LinkTable, no LinkFields and
 /// MaxOccurs = Once below another table element after a pass that found two or more rows: only the first row is written
@@ -3444,8 +3447,21 @@ impl Session {
             // A FindFirst under RepeatableRead or UpdLock starts the write transaction, one under ReadCommitted does not
             // (codeunit/TestCodeunitRunWriteTransaction.al:254-278 RN_ReadIsolation_WriteTransactionState, :357-370). Other
             // reads under a locking isolation are not pinned; a ReadUncommitted read opens none under an assumption.
+            // A FindSet under RepeatableRead as the first read after the isolation was set opens it as well
+            // (misc/lt-np4-probes/Np4Misc.al:219 NP4_ReadIsolation_RepeatableRead_Reads `findset Yes|1|Yes`, corpus master): the
+            // isolation set without a read is then no longer the open question.
             match rec.borrow().read_isolation {
-                ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK if method == RecordOp::FindFirst => {
+                ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
+                    if method == RecordOp::FindFirst || (method == RecordOp::FindSet && !rec.borrow().temporary) =>
+                {
+                    if method == RecordOp::FindSet && rec.borrow().read_isolation == ISOLATION_REPEATABLE_READ {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::RepeatableReadFindSetOpensWriteTransaction,
+                        );
+                    }
+                    if self.tx.lock_unpinned == Some(REPEATABLE_READ_SET_WITHOUT_READ) {
+                        self.tx.lock_unpinned = None;
+                    }
                     self.tx.lock_tx = true;
                     self.tx.isolation_lock = true;
                     self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());

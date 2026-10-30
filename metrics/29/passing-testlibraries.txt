@@ -1,0 +1,2 @@
+# Corpus cases the runtime passes. CI fails if any of these stops passing.
+# Regenerate with `al-test-cli --update-baseline`; never edit by hand to hide a regression.
