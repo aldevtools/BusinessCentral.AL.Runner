@@ -665,8 +665,8 @@ registry! {
 
 
     EvaluateDateBlankTabs => {
-        id: "evaluate-date-blank-tabs",
-        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date. Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date (corpus PR 871), which the pinned corpus does not hold yet.",
+        id: "evaluate-blank-tabs",
+        assumed: "Evaluate of a TAB, two TABs or one space into a Date (format 0) succeeds with the empty date; into a Boolean it fails with the error text showing the value as \"\". Pinned on corpus master by misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date and NP4_Evaluate_Tab_Boolean (corpus PR 871), which the pinned corpus does not hold yet.",
         tests: "No Microsoft test: a partner app's tests evaluate a TAB into a Date with the result unused.",
         probe: "Pinned on corpus master (corpus PR 871); delete this entry when the corpus bump brings it.",
         awaiting: Awaiting {

@@ -879,7 +879,7 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         return Ok(Parsed::Value(Value::Date(0, false)));
     }
     // A TAB, two TABs and one space read as the empty date too (corpus master, corpus PR 871:
-    // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-date-blank-tabs awaits the bump).
+    // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Date; assumption evaluate-blank-tabs awaits the bump).
     if matches!(text, "\t" | "\t\t" | " ") {
         crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
         return Ok(Parsed::Value(Value::Date(0, false)));
@@ -2176,6 +2176,15 @@ fn evaluate_with_max(
                 Value::Time(_) => "Time",
                 Value::DateTime(_) => "DateTime",
                 _ => "Boolean",
+            };
+            // A Boolean's error shows a TAB, two TABs or a space as the empty value `""` (corpus master, corpus PR 871:
+            // misc/lt-np4-probes/Np4Misc.al NP4_Evaluate_Tab_Boolean; assumption evaluate-blank-tabs awaits the bump).
+            // Integer and Decimal show them as written (NP4_Evaluate_Tab_Integer, _Decimal).
+            let text = if ty == "Boolean" && matches!(text.as_str(), "\t" | "\t\t" | " ") {
+                crate::assumptions::assume(crate::assumptions::Assumption::EvaluateDateBlankTabs);
+                String::new()
+            } else {
+                text.to_string()
             };
             // In German the text is pinned for Decimal only (types/lt-evaluate-decimal-text/EvalDecimalDe.al:
             // P175_De_StatementErrorText, P175_De_Format9StatementErrorText).
