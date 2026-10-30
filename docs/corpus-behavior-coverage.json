@@ -13876,7 +13876,7 @@
       "pinned": 805
     },
     {
-      "catalog": 123,
+      "catalog": 130,
       "dimension": "events",
       "items": [
         {
@@ -14031,6 +14031,69 @@
           "pinned": true,
           "runtime_reads": false,
           "site": "events/lt-system-events-upgrade-subs/P118RiskyGetUserToken.al:54"
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnAfterGetCurrRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnClosePageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnInsertRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnModifyRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnNewRecordEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnOpenPageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
+        },
+        {
+          "corpus_uses": 0,
+          "group": "(any)",
+          "ms_uses": 0,
+          "name": "OnQueryClosePageEvent",
+          "pinned": false,
+          "runtime_reads": true,
+          "site": null
         },
         {
           "corpus_uses": 0,
