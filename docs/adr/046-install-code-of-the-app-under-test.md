@@ -954,7 +954,7 @@ Status: Accepted (owner, 2026-10-30), including the corpus listed-order exceptio
 Owner direction (2026-10-30): BC installs apps one at a time in dependency order. While an app installs, only the apps
 installed before it and the app itself are installed. Measured on BC 29 (corpus branch al-runtime-rs-staging-y3:
 tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
-install/lt-install-order-subscribers/InstallOrderSubscriberTests.al): during XApp A's install only A's subscribers ran,
+install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's subscribers ran,
 for its integration event and its table's OnAfterInsertEvent, and `NavApp.GetModuleInfo` of XApp B was false; during
 B's install A's and B's ran, the main app's did not; at test time all ran.
 

@@ -420,7 +420,7 @@ impl Session {
             }
             // While an app installs, a subscriber of an app with no dependency path to it runs only if BC installed that app
             // first, and nothing pins that order: refused. Apps with a path between them install in dependency order
-            // (corpus branch al-runtime-rs-staging-y3, install/lt-install-order-subscribers/InstallOrderSubscriberTests.al).
+            // (corpus branch al-runtime-rs-staging-y3, install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79, :104-117).
             let app = engine.program.objects[s.object].app;
             if !s.manual
                 && self

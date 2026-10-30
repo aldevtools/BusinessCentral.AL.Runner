@@ -2,7 +2,7 @@
 //! itself are installed: subscribers of an app installed later do not run, and `NavApp.GetModuleInfo` does not find that app.
 //! Measured on BC 29 (corpus branch al-runtime-rs-staging-y3: tests/al-language-xapp-a/Y3XaInstallEvents.al,
 //! tests/al-language-xapp-b/Y3XbInstallEvents.al, tests/al-language/install/lt-install-order-subscribers/
-//! InstallOrderSubscriberTests.al): during XApp A's install only A's own subscribers ran, for its integration event and for
+//! InstallOrderSubscriberTests.al:66-79, :90-91, :104-117, :139-144): during XApp A's install only A's own subscribers ran, for its integration event and for
 //! the OnAfterInsertEvent of its table, and GetModuleInfo(B) was false; during B's install A's and B's ran, the main app's did
 //! not; at test time all of them ran.
 //!

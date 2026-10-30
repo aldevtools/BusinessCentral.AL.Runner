@@ -636,8 +636,9 @@ fn depends_on(lowered: &Lowered) -> Vec<BTreeSet<u32>> {
 /// app at a time in dependency order and an app's install code sees only the apps installed before it and itself: during
 /// XApp A's install no subscriber of XApp B (which depends on A) or of the main app ran and `NavApp.GetModuleInfo` of B
 /// was false; during B's install A's and B's subscribers ran, the main app's did not (corpus branch
-/// al-runtime-rs-staging-y3: tests/al-language-xapp-a/Y3XaInstallEvents.al, tests/al-language-xapp-b/Y3XbInstallEvents.al,
-/// install/lt-install-order-subscribers/InstallOrderSubscriberTests.al). Nothing pins the order of two apps with no
+/// al-runtime-rs-staging-y3: install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79 (A's install), :90-91
+/// (GetModuleInfo of B), :104-117 (B's install), :139-144 (test time); fixtures tests/al-language-xapp-a/Y3XaInstallEvents.al,
+/// tests/al-language-xapp-b/Y3XbInstallEvents.al). Nothing pins the order of two apps with no
 /// dependency path between them, so what one of them could see of the other is refused (`Session::set_apps_install_order_unknown`).
 ///
 /// `listed_order`: the run publishes the apps of the group in the order `Program::apps` lists them

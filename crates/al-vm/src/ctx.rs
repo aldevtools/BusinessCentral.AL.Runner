@@ -346,7 +346,7 @@ impl al_builtins::native::Ctx for Session {
         let parse = |s: &str| ops::parse_guid(s);
         if let Some(i) = apps.iter().position(|a| parse(&a.id).as_ref() == Some(id)) {
             // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
-            // tests/al-language-xapp-a/Y3XaInstallEvents.al `SeesB`: getModuleInfo=No during XApp A's install).
+            // install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
             let events = &self.events;
             if events
                 .not_installed_apps
