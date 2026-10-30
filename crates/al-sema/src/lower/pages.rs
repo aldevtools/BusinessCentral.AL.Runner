@@ -159,6 +159,7 @@ impl Lowerer<'_> {
                     var_slot: None,
                     expr_source: None,
                     expr_call: false,
+                    array_element: None,
                 });
                 continue;
             }
@@ -263,6 +264,7 @@ impl Lowerer<'_> {
             let mut var_slot = None;
             let mut expr_source = None;
             let mut expr_call = false;
+            let mut array_element = None;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
                 binding = ir::Binding::Caption;
             } else if raw.kind == ir::ControlKind::Field {
@@ -374,6 +376,21 @@ impl Lowerer<'_> {
                                     expr_call = args.get(1).is_some_and(|a| {
                                         crate::pages::call_shape(a) || crate::pages::member_call_shape(a)
                                     });
+                                    // An element of a one-dimensional page array with a number index in its bounds
+                                    // (`ElementText[2]`): shown as a plain page variable is (al-runner issue 6379; corpus
+                                    // branch al-runtime-rs-staging-y5, pages/lt-y5/Y5PartArrayElementControl.al).
+                                    array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
+                                        |(v, text)| {
+                                            let index: usize =
+                                                text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
+                                            let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+                                            let RtType::Array(dims, _) = &globals[slot].ty else {
+                                                return None;
+                                            };
+                                            (dims.len() == 1 && index >= 1 && index <= dims[0] as usize)
+                                                .then_some((slot, index - 1))
+                                        },
+                                    );
                                     // A call as written, Editable False (record/lt-x3-6368/X3PageControlCalls.al:142-147,
                                     // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
                                     // BC writes other text is not pinned.
@@ -489,6 +506,7 @@ impl Lowerer<'_> {
                 var_slot,
                 expr_source,
                 expr_call,
+                array_element,
             });
         }
         let base = owner_of(None);

@@ -1040,6 +1040,12 @@ pub struct Control {
     /// record/lt-x3-6368/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
+    /// For a page's own control bound to an element of a one-dimensional page array variable with a number index
+    /// (`ElementText[2]`): the slot of the array among the page's globals and the element's 0-based position. It shows
+    /// what a control bound to a plain page variable shows (pages/lt-y5/Y5PartArrayElementControl.al on corpus branch
+    /// al-runtime-rs-staging-y5, al-runner issue 6379).
+    #[serde(default)]
+    pub array_element: Option<(usize, usize)>,
 }
 
 /// The action an `actionref` delegates to.
