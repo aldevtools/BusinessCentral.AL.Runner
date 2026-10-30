@@ -922,3 +922,23 @@ Item 1 of the owner decision (decision 4c gone) waits for the key: without it, f
 database's two companies run in the default mode and fail (69852 `EventLog_RowsWrittenBeforeTheTestSessionStarted`,
 `EventLog_InstallRowCompany`; 83950 `InstallOrder_ThisApp_FiveSubscribersPerCompanyAndPerDatabase`,
 `InstallOrder_DependencyAppA_TwoSubscribersAndCompanyOpenCalls`). It is built on its own branch.
+
+## Amendment 5 (2026-10-30): the corpus run uses two companies
+
+### Built
+
+1. **CRM Connection Setup is pinned empty in both companies** (install/lt-bf-install-probes/BfInstallTests.al:317-318,
+   corpus issue 811, the same on 27.5, 28.5 and 29.0). It joins the Base Application tables that start empty in "My
+   Company" without test data (`al-vm/src/companies.rs`).
+2. **`companies` is in `oracle/oracle.toml`** (`["CRONUS International Ltd.", "My Company"]`, BfInstallTests.al:60-62).
+   The full corpus run with the key: BC 27, 28 and 29 each 13 newly pass, 0 lost.
+3. **Decision 4c is gone in the default mode** (amendment 4, item 1): the default mode answers a shared table that
+   per-company install code writes with the one write of its one company. `tools/company_mode_check.sh` now allows a
+   case to fail in the default mode where the opt-in passes (a case that counts the corpus database's two companies).
+
+### Not yet built: the apps under test install after the company exists
+
+Corpus PR 815 (issue 812, not yet on corpus master) pins that a freshly installed app's per-company install code sees
+`HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes. The runtime today runs the
+apps under test's subscribers during the dependency installs and Company-Initialize. The fix (hold them back there) waits
+for that pin.

@@ -755,7 +755,7 @@ impl Lowerer<'_> {
         };
         let field = f.field.as_deref().map(src_pos).transpose()?;
         let mut conds = Vec::new();
-        let mut assumes = Vec::new();
+        let assumes = Vec::new();
         for c in &f.conds {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
@@ -800,10 +800,8 @@ impl Lowerer<'_> {
                         ir::CalcValue::Filter("<>''".into())
                     } else if matches!(src_fields[pos].ty, Ty::Date) && bare.eq_ignore_ascii_case("=0D") {
                         // `filter(= 0D)` and `filter(=0D)` match the empty rows as `filter(0D)` does, also when a FlowField
-                        // filters on such a FlowField (corpus master CalcFormulaDateLiteral.al:47-61,76-95, tests :205-280
-                        // EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, _Chained_GroupOverFlowField; not yet in the
-                        // pinned corpus: assumption calcformula-filter-equals-empty-date until the bump).
-                        assumes.push(al_builtins::assumptions::Assumption::CalcformulaFilterEqualsEmptyDate);
+                        // filters on such a FlowField (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:47-61,76-95,
+                        // tests :205-280 EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, _Chained_GroupOverFlowField).
                         ir::CalcValue::Filter("''".into())
                     } else {
                         ir::CalcValue::Filter(rewrite_quotes(raw))

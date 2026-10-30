@@ -249,20 +249,16 @@ fn findset_isempty_count_and_calcsums_send_the_inserted_rows() {
     );
 }
 
-// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction (corpus PR 820, not yet in the
-// pinned corpus: assumption row-version-sent-by-more-reads until the bump).
+// PlTRowVersionValue.al NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction.
 #[test]
 fn getbysystemid_sends_the_inserted_rows() {
-    use al_builtins::assumptions::{Assumption, take_hits};
-    take_hits();
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "GetBySystemIdRead")),
         "insert= getbysystemid> "
     );
-    assert!(take_hits().contains(&Assumption::RowVersionSentByMoreReads));
 }
 
-// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenFind_OpenTransaction: Find('='), Find('-') and Find('+').
+// PlTRowVersionValue.al NP3_RowVersions_InsertThenFind_OpenTransaction: Find('='), Find('-') and Find('+').
 #[test]
 fn find_with_equal_minus_and_plus_sends_the_inserted_rows() {
     for which in ["=", "-", "+"] {
@@ -275,7 +271,7 @@ fn find_with_equal_minus_and_plus_sends_the_inserted_rows() {
     }
 }
 
-// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenCalcFields_OpenTransaction: CalcFields of a record whose table
+// PlTRowVersionValue.al NP3_RowVersions_InsertThenCalcFields_OpenTransaction: CalcFields of a record whose table
 // the open transaction inserted into.
 #[test]
 fn calcfields_of_an_inserted_table_sends_its_rows() {
