@@ -1187,6 +1187,7 @@ impl Session {
         self.tx.lock_tx = false;
         self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
+        self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
     }
@@ -1272,6 +1273,7 @@ impl Session {
         self.tx.lock_tx = false;
         self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
+        self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {

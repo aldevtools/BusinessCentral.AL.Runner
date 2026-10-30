@@ -76,6 +76,9 @@ pub(crate) struct TxState {
     /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
     /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
     pub(crate) lock_unpinned: Option<&'static str>,
+    /// A `RecordRef.LockTable` on a database table ran since the last Commit: the write transaction is open
+    /// (recordref/lt-wc/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
+    pub(crate) recref_lock_tx: bool,
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
@@ -149,6 +152,7 @@ impl TxState {
             inconsistent: Vec::new(),
             lock_tx: false,
             lock_unpinned: None,
+            recref_lock_tx: false,
             isolation_lock_tables: Vec::new(),
             read_uncommitted_read: false,
         }

@@ -26,6 +26,9 @@ pub enum FilterExpr {
     /// `<>` before a wildcard pattern: the texts the pattern does not match. `<>*` keeps no row, not even the blank one
     /// (record/lt-bl-wildcard-getfilter/WildcardGetFilter.al:106-173, Forms_CodeField and Forms_TextField).
     NotLike(String, bool),
+    /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field (filters/lt-wc/WcInvalidFilterExpr.al:
+    /// 84-90 `@`, :93-111 `<>@`).
+    AtSignAlone(bool),
 }
 
 impl FilterExpr {
@@ -64,6 +67,7 @@ impl FilterExpr {
             FilterExpr::Ge(x) => matches!(ord(x), Some(Ordering::Greater | Ordering::Equal)),
             FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci)),
             FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
+            FilterExpr::AtSignAlone(negated) => !negated,
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
             FilterExpr::And(xs) => xs.iter().all(|x| x.matches(v)),
         }
@@ -135,6 +139,16 @@ pub const NOT_EVALUATED: &str = "filter value not evaluated: ";
 /// The prefix of the error for a number filter that starts with a placeholder kept as written; the filter text follows
 /// (`The variable "%1*" was not understood.`, filters/W4Filters.al:694 `num_star_after`).
 pub const VARIABLE_NOT_UNDERSTOOD: &str = "filter variable not understood: ";
+
+/// The parse error of a Text filter with an unclosed `(` (filters/lt-wc/WcInvalidFilterExpr.al:66-90 `((*`, `(`, `((x`, `(c-a`).
+const MISSING_PARENTHESIS: &str = "A ')' is missing.";
+
+/// The parse error of a Text filter with `)` or `<>` where it cannot stand (WcInvalidFilterExpr.al:71-87 `c-a)`, `@<>C-A`, `@<>`).
+fn did_not_expect(what: &str) -> String {
+    format!(
+        "{FILTER_SYNTAX}An error occurred while interpreting the filter: Did not expect '{what}'.\\\\For more information, see https://go.microsoft.com/fwlink/?linkid=2158058."
+    )
+}
 
 /// The upper case of a Code filter value. Under Turkish or Azerbaijani a value with `i` is not pinned (only an assignment to a Code
 /// is, text/lt-text-functions/CaseConv.Codeunit.al:280-310) and is refused.
@@ -502,6 +516,9 @@ pub fn parse_filter_with(
     let mut p = Parser { toks, i: 0, ty, enums };
     let e = p.or()?;
     if p.i != p.toks.len() {
+        if matches!(ty, crate::value::RtType::Text(_)) && matches!(p.toks[p.i], Tok::Op(")")) {
+            return Err(did_not_expect(")"));
+        }
         return Err(format!("unexpected {} in filter `{text}`", p.toks[p.i].describe()));
     }
     Ok(e)
@@ -971,6 +988,17 @@ impl Parser<'_> {
                 self.i = at + 1;
                 Ok(Some(FilterExpr::NotLike(p, ci)))
             }
+            // On a Text field `<>@` before a value without a wildcard keeps the rows that do not equal it without regard to case,
+            // and `<>@` alone keeps none (WcInvalidFilterExpr.al:93-111 `<>@C-A`, `<>@c-b`, `<>@`).
+            Some(Tok::Raw(s)) if ci && matches!(self.ty, T::Text(_)) => {
+                let p = s.clone();
+                self.i = at + 1;
+                Ok(Some(FilterExpr::NotLike(p, true)))
+            }
+            None if ci && matches!(self.ty, T::Text(_)) && self.toks.len() == 2 => {
+                self.i = at;
+                Ok(Some(FilterExpr::AtSignAlone(true)))
+            }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
             Some(Tok::Arg(s)) if s == "*" => Ok(None),
             Some(Tok::Arg(s)) if wild(s) => Err(format!("`<>%n` with the wildcard text `{s}` (not pinned)")),
@@ -1013,8 +1041,15 @@ impl Parser<'_> {
         match self.peek_op() {
             Some("(") => {
                 self.i += 1;
+                let text_field = matches!(self.ty, crate::value::RtType::Text(_));
+                if text_field && self.i == self.toks.len() {
+                    return Err(format!("{FILTER_SYNTAX}{MISSING_PARENTHESIS}"));
+                }
                 let e = self.or()?;
                 if self.peek_op() != Some(")") {
+                    if text_field && self.i == self.toks.len() {
+                        return Err(format!("{FILTER_SYNTAX}{MISSING_PARENTHESIS}"));
+                    }
                     return Err("missing `)` in filter".into());
                 }
                 self.i += 1;
@@ -1022,6 +1057,20 @@ impl Parser<'_> {
             }
             Some("@") => {
                 self.i += 1;
+                // On a Text field (WcInvalidFilterExpr.al:66-90): `@` alone keeps every row, `@<>` raises, and `@@C-A` reads the
+                // second `@` as the value's first character (no row holds `@C-A`; GetFilter writes `@@C-A`).
+                if matches!(self.ty, crate::value::RtType::Text(_)) {
+                    match (self.toks.get(self.i), self.toks.get(self.i + 1)) {
+                        (None, _) if self.toks.len() == 1 => return Ok(FilterExpr::AtSignAlone(false)),
+                        (Some(Tok::Op("<>")), _) => return Err(did_not_expect("<>")),
+                        (Some(Tok::Op("@")), Some(Tok::Raw(s))) if self.toks.len() == 3 && !s.contains(['*', '?']) => {
+                            let s = format!("@{s}");
+                            self.i += 2;
+                            return Ok(FilterExpr::Like(s, true));
+                        }
+                        _ => {}
+                    }
+                }
                 let v = self.value().ok_or("value expected after @")?;
                 self.single(v, true)
             }
