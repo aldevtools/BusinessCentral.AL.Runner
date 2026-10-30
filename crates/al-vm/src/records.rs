@@ -1465,6 +1465,9 @@ impl Session {
         if let Some(why) = rv.unpinned {
             return Err(why);
         }
+        if rv.assumed_send {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RowVersionSentByMoreReads);
+        }
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");
         }
@@ -3372,10 +3375,31 @@ impl Session {
         {
             // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
+            // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
+            // send those rows too (corpus master platform/lt-platform-members/PlTRowVersionValue.al:917-980
+            // NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction, _InsertThenFind_OpenTransaction, :1009-1040
+            // _InsertThenCalcFields_OpenTransaction; not yet in the pinned corpus: assumption row-version-sent-by-more-reads
+            // until the bump). A CalcFields whose own table holds none, Next and other Find forms stay unpinned.
+            let own_pending = || {
+                self.tx
+                    .row_versions
+                    .pending_inserts
+                    .iter()
+                    .any(|(o, c, _)| *o == t.object && *c == company)
+            };
+            let more = match method {
+                RecordOp::GetBySystemId => true,
+                RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if matches!(w.as_str(), "=" | "-" | "+")),
+                RecordOp::CalcFields => own_pending(),
+                _ => false,
+            };
+            if more && own_pending() {
+                self.tx.row_versions.assumed_send = true;
+            }
             self.note_read_for_row_versions(
                 t.object,
                 &company,
-                matches!(
+                more || matches!(
                     method,
                     RecordOp::Get
                         | RecordOp::FindFirst

@@ -9,6 +9,7 @@ use al_testkit::text;
 const SRC: &str = r#"
 table 50160 "Rv A" { fields { field(1; Id; Integer) { } field(2; Amount; Decimal) { } } keys { key(PK; Id) { } } }
 table 50161 "Rv B" { fields { field(1; Id; Integer) { } field(2; Amount; Decimal) { } } keys { key(PK; Id) { } } }
+table 50162 "Rv F" { fields { field(1; Id; Integer) { } field(2; Total; Integer) { FieldClass = FlowField; CalcFormula = count("Rv A"); } } keys { key(PK; Id) { } } }
 codeunit 50160 C
 {
     var
@@ -126,6 +127,56 @@ codeunit 50160 C
         exit(Log);
     end;
 
+    procedure GetBySystemIdRead(): Text
+    var
+        A: Record "Rv A";
+        A2: Record "Rv A";
+        Id: Guid;
+    begin
+        Start();
+        A.Id := 1;
+        A.Insert();
+        Id := A.SystemId;
+        Snap('insert');
+        A2.GetBySystemId(Id);
+        Snap('getbysystemid');
+        exit(Log);
+    end;
+
+    procedure FindForm(): Text
+    var
+        A: Record "Rv A";
+        A2: Record "Rv A";
+    begin
+        Start();
+        A.Id := 1;
+        A.Insert();
+        Snap('insert');
+        A2.Id := 1;
+        A2.Find('=');
+        Snap('find');
+        exit(Log);
+    end;
+
+    procedure CalcFieldsOwn(): Text
+    var
+        A: Record "Rv A";
+        F: Record "Rv F";
+    begin
+        Start();
+        F.DeleteAll();
+        Commit();
+        Prev := LastUsedRowVersion();
+        A.Id := 1;
+        A.Insert();
+        F.Id := 1;
+        F.Insert();
+        Snap('insert');
+        F.CalcFields(Total);
+        Snap('calcfields');
+        exit(Log + Format(F.Total));
+    end;
+
     procedure ReadKinds(): Text
     var
         A: Record "Rv A";
@@ -195,5 +246,41 @@ fn findset_isempty_count_and_calcsums_send_the_inserted_rows() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "ReadKinds")),
         "findset> isempty> count> calcsums> "
+    );
+}
+
+// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenGetBySystemId_OpenTransaction (corpus PR 820, not yet in the
+// pinned corpus: assumption row-version-sent-by-more-reads until the bump).
+#[test]
+fn getbysystemid_sends_the_inserted_rows() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    take_hits();
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "GetBySystemIdRead")),
+        "insert= getbysystemid> "
+    );
+    assert!(take_hits().contains(&Assumption::RowVersionSentByMoreReads));
+}
+
+// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenFind_OpenTransaction: Find('='), Find('-') and Find('+').
+#[test]
+fn find_with_equal_minus_and_plus_sends_the_inserted_rows() {
+    for which in ["=", "-", "+"] {
+        let src = SRC.replace("A2.Find('=')", &format!("A2.Find('{which}')"));
+        assert_eq!(
+            text(al_testkit::run_in(&src, "C", "FindForm")),
+            "insert= find> ",
+            "Find('{which}')"
+        );
+    }
+}
+
+// Corpus master PlTRowVersionValue.al NP3_RowVersions_InsertThenCalcFields_OpenTransaction: CalcFields of a record whose table
+// the open transaction inserted into.
+#[test]
+fn calcfields_of_an_inserted_table_sends_its_rows() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "CalcFieldsOwn")),
+        "insert= calcfields> 1"
     );
 }
