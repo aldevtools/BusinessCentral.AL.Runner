@@ -80,6 +80,20 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_files_dir(dir.clone());
     }
     let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    if args.assumptions_doc {
+        let path = root.join("docs/probes-needed.md");
+        let text = read(&path)?;
+        let new = al_builtins::assumptions::probes_needed_doc(&text)?;
+        if new != text {
+            write(&path, &new)?;
+        }
+        println!(
+            "{}: assumptions table {}",
+            path.display(),
+            if new == text { "current" } else { "rewritten" }
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
     if let Some(dir) = &args.behavior_coverage_map {
         return behavior_coverage_map(&root, dir.as_deref());
     }
@@ -682,6 +696,7 @@ fn run_version(
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
+        perturb: Default::default(),
     };
     let load_time = started.elapsed();
     let rt = runtime::CorpusRuntime::try_run_suites_with(

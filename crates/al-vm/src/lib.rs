@@ -947,6 +947,7 @@ impl Session {
         };
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
         let random_seed = host.random_seed;
+        let guid_seed = host.guid_seed;
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
@@ -1004,7 +1005,7 @@ impl Session {
             next_temp: 0,
             temp_release: Default::default(),
             next_guid: 0,
-            guid_seed: random_seed,
+            guid_seed: guid_seed.unwrap_or(random_seed),
             rng: al_host::random::NetRandom::new(random_seed),
             random_draws: 0,
             calls_made: 0,
@@ -1186,6 +1187,8 @@ impl Session {
         self.tx.lock_tx = false;
         self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
+        self.tx.recref_lock_tx = false;
+        self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
     }
 
@@ -1270,6 +1273,8 @@ impl Session {
         self.tx.lock_tx = false;
         self.tx.isolation_lock = false;
         self.tx.lock_unpinned = None;
+        self.tx.recref_lock_tx = false;
+        self.tx.isolation_lock_tables.clear();
         self.tx.read_uncommitted_read = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;

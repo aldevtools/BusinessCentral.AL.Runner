@@ -351,11 +351,10 @@ fn a_lookup_on_a_page_with_a_part_shows_the_picked_value_in_every_pinned_form() 
 
 #[test]
 fn a_lookup_on_a_page_with_a_part_keeps_the_unmeasured_forms_refused() {
-    // A SubPageLink with a filter entry, two field entries, and a SubPageView: no corpus test reads the host after a lookup
-    // with these.
+    // A SubPageLink with a filter entry, and a SubPageView: no corpus test reads the host after a lookup with these. Two
+    // field entries are pinned since (pages/lt-wb-6290/WbLookupListPartTests.al:21-31, tests/lookup_two_field_link.rs).
     for link in [
         "SubPageLink = \"No.\" = const('R1');",
-        "SubPageLink = \"No.\" = field(\"No.\"), \"No.\" = field(\"No.\");",
         "SubPageView = where(\"No.\" = const('R1'));",
     ] {
         let o = part_outcome("CurrPage.Update(false);", link);

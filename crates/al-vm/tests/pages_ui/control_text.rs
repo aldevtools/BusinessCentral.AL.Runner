@@ -330,6 +330,28 @@ codeunit 69992 C {
     );
 }
 
+/// The same with a quoted field name that holds a space (`field(Ctl; "Profile Name")`, al-runner issue 6314): the quotes
+/// only spell the name, so the control is the field, on a page and on a control a page extension adds.
+#[test]
+fn a_control_bound_to_a_bare_quoted_field_name_is_the_field() {
+    let src = r#"
+table 69990 "CT Row" { fields { field(1; K; Integer) { } field(2; "Profile Name"; Code[30]) { Caption = 'Profile Caption'; } } keys { key(PK; K) { } } }
+page 69991 "CT Card" { PageType = Card; SourceTable = "CT Row";
+  layout { area(Content) { group(G) { field(Prof; "Profile Name") { Editable = Ed; } } } }
+  var Ed: Boolean; }
+pageextension 69993 "CT Card Ext" extends "CT Card" {
+  layout { addlast(G) { field(ExtProf; "Profile Name") { } } } }
+codeunit 69992 C {
+  procedure F(): Text var R: Record "CT Row"; P: TestPage "CT Card"; T: Text; begin
+    R.K := 1; R."Profile Name" := 'A1'; R.Insert(); P.OpenEdit();
+    T := P.Prof.Caption() + '|' + P.Prof.Value() + '|' + Format(P.Prof.Editable()) + '|' + P.ExtProf.Caption() + '|' + P.ExtProf.Value();
+    P.Close(); exit(T); end; }"#;
+    assert_eq!(
+        text(al_testkit::run_in(src, "C", "F")),
+        "Profile Caption|A1|No|Profile Caption|A1"
+    );
+}
+
 /// A bare name that is also a procedure of the page, or of the source table, or a page variable, could mean either; which one
 /// BC binds is not pinned: the page is refused.
 #[test]

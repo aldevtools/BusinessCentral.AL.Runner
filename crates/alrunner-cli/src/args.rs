@@ -10,6 +10,8 @@ pub enum Command {
     /// `al-runner --list-assumptions`: the registry of unprobed assumptions with the counts of the last run.
     ListAssumptions(Option<PathBuf>),
     Test(Box<TestArgs>),
+    /// Text to print on stdout and exit 0 (`al-runner test --stability-print-preset microsoft`).
+    PrintText(String),
     /// `al-runner test-microsoft [OPTIONS] [APP...]` (ADR-052 section 2): every Microsoft test app of the build, run by
     /// Microsoft's recipe, without collecting their paths; with APPs, the ones that reach the extension (`--affected-from
     /// microsoft`).
@@ -227,6 +229,103 @@ pub struct TestArgs {
     pub matrix_memory_gb: Option<f64>,
     /// Hidden `--matrix-cell FILE`: this run is one cell of a matrix and writes its `--output-json` document to FILE.
     pub matrix_cell: Option<PathBuf>,
+    /// `--stability FILE|microsoft` (ADR-058): run the selected tests once per variant of the config, over one compile,
+    /// and report the tests whose outcome changes.
+    pub stability: Option<StabilityArg>,
+    /// `--stability-replay ID|VALUES`: run one variant alone, as a normal run.
+    pub stability_replay: Option<String>,
+    /// `--stability-max N`: the most variants a `matrix` strategy forms (default 1000).
+    pub stability_max: Option<usize>,
+    /// `--stability-allow-flips`: exit 0 although a test changed outcome (a report-only run).
+    pub stability_allow_flips: bool,
+}
+
+/// The config `--stability` names: a preset or a file, its text and what it says.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StabilityArg {
+    /// The preset name or the file as given.
+    pub source: String,
+    pub text: String,
+    pub config: al_testrun::stability::Config,
+}
+
+/// Reads the config `--stability` names: a preset name, else a file. The error is a refusal (exit 2).
+fn stability_config(source: &str) -> Result<StabilityArg, String> {
+    let text = match al_testrun::stability::preset(source) {
+        Some(t) => t.to_string(),
+        None => std::fs::read_to_string(source).map_err(|e| {
+            format!("--stability: cannot read the config file {source}: {e} (the preset is `microsoft`)")
+        })?,
+    };
+    let config = al_testrun::stability::parse_config(&text).map_err(|e| format!("--stability {source}: {e}"))?;
+    Ok(StabilityArg {
+        source: source.to_string(),
+        text,
+        config,
+    })
+}
+
+/// The checks of `--stability` and its options (ADR-058): exit 2 for a combination it cannot take. A config's
+/// selection applies when the command line selects nothing (command-line options win).
+fn stability_args(a: &mut TestArgs) -> Result<(), String> {
+    let Some(st) = &a.stability else {
+        for (set, flag) in [
+            (a.stability_max.is_some(), "--stability-max"),
+            (a.stability_allow_flips, "--stability-allow-flips"),
+        ] {
+            if set {
+                return Err(format!("{flag} needs --stability"));
+            }
+        }
+        if let Some(r) = &a.stability_replay {
+            // Without a config only printed values name a variant.
+            al_testrun::stability::parse_values_text(r)
+                .map_err(|e| format!("--stability-replay {r}: {e} (an id such as 29.0-w1/3 needs --stability)"))?;
+        }
+        return Ok(());
+    };
+    let listed = |v: &Option<String>| v.as_deref().is_some_and(|v| v.contains(','));
+    for (set, flag, why) in [
+        (
+            a.matrix.is_some() || listed(&a.bc_version) || listed(&a.country),
+            "--matrix or lists in --bc-version/--country",
+            "matrix axes are not built yet in the stability mode; run one cell per command",
+        ),
+        (
+            !a.impact_of.is_empty(),
+            "--impact-of",
+            "impact runs are not combined with it (ADR-058 section 6)",
+        ),
+        (
+            !a.affected_from.is_empty(),
+            "--affected-from",
+            "impact runs are not combined with it (ADR-058 section 6)",
+        ),
+        (a.affected, "--affected", "not built yet in the stability mode"),
+        (
+            a.recipe,
+            "--recipe microsoft",
+            "a recipe runs several lanes; not built yet in the stability mode",
+        ),
+        (
+            a.explain.is_some(),
+            "--explain",
+            "--explain runs one test once; use --stability-replay with --test-exact",
+        ),
+        (a.execute, "a scratch run", "a scratch run has no tests"),
+    ] {
+        if set {
+            return Err(format!("--stability cannot be combined with {flag}: {why}"));
+        }
+    }
+    let sel = st.config.selection.clone();
+    let cli_selects = !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty();
+    if !cli_selects {
+        a.codeunits = sel.codeunits;
+        a.exact = sel.tests;
+        a.excludes = sel.exclude_tests;
+    }
+    Ok(())
 }
 
 impl TestArgs {
@@ -359,6 +458,20 @@ selects only the tests both match)
                          the test methods that are enabled: the other tests do not run, so their
                          globals, rows, time and refusals do not reach the selected ones. The
                          codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
+    --stability FILE|microsoft
+                         Stability mode (ADR-058): run the selected tests once per variant of a
+                         JSON config (or the preset `microsoft`: another Library - Random seed,
+                         each test alone, reverse order, work date plus one year) over one
+                         compile, and list the tests whose outcome changes. Exit 1 on a change
+                         between pass and fail.
+    --stability-replay ID|VALUES
+                         Run one variant as a normal run: its id (29.0-w1/3) with --stability, or
+                         its printed values (order.methods=reverse).
+    --stability-max N    The most variants the matrix strategy forms (default 1000).
+    --stability-allow-flips
+                         Exit 0 although a test changed outcome (a report-only run).
+    --stability-print-preset microsoft
+                         Print the preset as a starting point for a config file.
     --ignore-permission-mock
                          Run the tests that lower their own permissions (Permissions Mock, Library -
                          Lower Permissions) with every access granted, instead of leaving them not
@@ -1175,6 +1288,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.coverage_json = Some(text()?.into());
             }
             "--test-exact" => a.exact.push(text()?),
+            "--stability" => a.stability = Some(stability_config(&text()?)?),
+            "--stability-replay" => a.stability_replay = Some(text()?),
+            "--stability-max" => a.stability_max = Some(number("--stability-max", &text()?)?),
+            "--stability-print-preset" => {
+                let name = text()?;
+                return al_testrun::stability::preset(&name)
+                    .map(|t| Command::PrintText(t.to_string()))
+                    .ok_or_else(|| {
+                        format!("--stability-print-preset: no preset `{name}` (the preset is `microsoft`)")
+                    });
+            }
             "--exclude-test" => a.excludes.push(text()?),
             "--define" => a.defines.push(text()?),
             "--preprocessor-symbols" => a.defines.extend(
@@ -1205,6 +1329,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--junit" => a.junit = Some(text()?.into()),
             "--explain" => a.explain = Some(text()?),
             "--allow-not-run" => a.allow_not_run = true,
+            "--stability-allow-flips" => a.stability_allow_flips = true,
             "--verbose" | "-v" => a.verbose = true,
             "--quiet" | "-q" => a.quiet = true,
             "--timings" => a.timings = true,
@@ -1457,6 +1582,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
         return Ok(Command::Debug(Box::new(a), transport));
     }
+    stability_args(&mut a)?;
     impact_args(&a)?;
     if !a.affected_from.is_empty() {
         affected_args(&a, "--affected-from")?;
@@ -2149,6 +2275,33 @@ mod tests {
         assert_eq!(a.package_caches, vec![PathBuf::from("pc")]);
         assert_eq!(a.codeunits, vec![5, 6]);
         assert_eq!(a.filters, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn the_missing_dependency_hint_names_an_al_runner_option() {
+        // The error for a dependency nobody provides ends in "pass <flag> DIR". The flag must be one
+        // `al-runner test` takes (it is `--dep`; `--deps` is al-test-cli's spelling).
+        use al_deps::select::{DepDecl, SelectError};
+        use al_deps::version::Version;
+        let err = SelectError::Missing {
+            dep: DepDecl {
+                id: "a".into(),
+                name: "A".into(),
+                publisher: "P".into(),
+                min: Version(1, 0, 0, 0),
+                optional: false,
+            },
+            searched: Box::new([]),
+            symbol_only: Box::default(),
+        }
+        .to_string();
+        let flag = err
+            .split("pass ")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .unwrap_or_else(|| panic!("no `pass FLAG` hint in: {err}"));
+        let a = test_args(&format!("test A {flag} d1"));
+        assert_eq!(a.deps, vec![PathBuf::from("d1")], "{err}");
     }
 
     #[test]

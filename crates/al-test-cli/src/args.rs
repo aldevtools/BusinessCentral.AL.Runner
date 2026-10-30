@@ -87,6 +87,8 @@ pub struct Args {
     pub top_assumptions: Option<usize>,
     /// `--list-assumptions`: print the registry of unprobed assumptions with the counts of the last run, then stop.
     pub list_assumptions: bool,
+    /// `--assumptions-doc`: rewrite the generated table of `docs/probes-needed.md` from the registry, then stop.
+    pub assumptions_doc: bool,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -166,6 +168,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             a.list_assumptions = true;
             continue;
         }
+        if flag == "--assumptions-doc" {
+            a.assumptions_doc = true;
+            continue;
+        }
         if flag == "--awaiting-assumptions" {
             a.awaiting_assumptions = true;
             continue;
@@ -209,7 +215,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--junit" => a.junit = Some(text()?.into()),
             "--update-baseline" => a.update_baseline = true,
             "--no-ratchet" => a.no_ratchet = true,
-            "--deps" => a.deps.push(text()?.into()),
+            "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
             "--all-versions" => a.all_versions = true,
             "--bc-version" => a.bc_version = Some(text()?),
@@ -291,7 +297,7 @@ INPUT
   --oracle FILE               the oracle table (default: ROOT/oracle/oracle.toml)
   --bc-version PREFIX         which BC version's oracle to run, e.g. 28 or 28.5 (default: the newest)
   --all-versions              run every version in the oracle table, then compare them
-  --deps DIR                  extra directory of .app packages for the dependencies (repeatable)
+  --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
   --no-download               never fetch a dependency app from the artifact feed
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
@@ -331,6 +337,8 @@ DIAGNOSE
                               --json carries them, --explain names them
   --list-assumptions          print the registry of unprobed assumptions with the counts of the last
                               run, then stop
+  --assumptions-doc           rewrite the generated table of docs/probes-needed.md from the registry
+                              of unprobed assumptions, then stop
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -387,6 +395,13 @@ mod tests {
     }
 
     #[test]
+    fn dep_is_accepted_as_well_as_deps() {
+        // The shared missing-dependency hint names al-runner's `--dep DIR`; al-test-cli takes it too.
+        let a = run(&["--dep", "d1", "--deps", "d2"]).unwrap();
+        assert_eq!(a.deps, vec![PathBuf::from("d1"), PathBuf::from("d2")]);
+    }
+
+    #[test]
     fn selection_flags_repeat() {
         let a = run(&[
             "--codeunit",
@@ -424,6 +439,12 @@ mod tests {
         assert!(!run(&["--no-deps"]).unwrap().list_assumptions);
         let a = run(&["--awaiting-assumptions", "--summary"]).unwrap();
         assert!(a.awaiting_assumptions && a.summary);
+    }
+
+    #[test]
+    fn assumptions_doc_is_a_flag() {
+        assert!(run(&["--assumptions-doc"]).unwrap().assumptions_doc);
+        assert!(!run(&["--no-deps"]).unwrap().assumptions_doc);
     }
 
     #[test]

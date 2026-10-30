@@ -972,6 +972,10 @@ impl Binding {
     }
 }
 
+/// The name of the routine the lowering makes from a page's `DataCaptionExpression` (`al_sema::pages::data_caption_routine`):
+/// it returns the expression's value as Text.
+pub const DATA_CAPTION_ROUTINE: &str = "__datacaption_0";
+
 /// A control property: written as a literal, or an expression compiled to a
 /// routine of the page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1030,6 +1034,11 @@ pub struct Control {
     /// (record/TestPageControlFieldArraySource.al).
     #[serde(default)]
     pub expr_source: Option<(String, bool)>,
+    /// For a page's own control bound to an expression that is a single call written as a name with or without an argument
+    /// list (`CompanyName`, `Format(Costs[1])`): Page Control Field serves its row with no source field
+    /// (record/lt-wb-6284/WbPageControlBuiltIn.al, al-runner issue 6284).
+    #[serde(default)]
+    pub expr_call: bool,
 }
 
 /// The action an `actionref` delegates to.

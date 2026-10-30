@@ -95,6 +95,52 @@ impl RunnerReset {
     }
 }
 
+/// Codeunit 130440 "Library - Random" of Microsoft's test libraries.
+pub(crate) const LIBRARY_RANDOM: u32 = 130440;
+
+/// `Library - Random`.SetSeed(`seed`) on the session's single instance, as codeunit 130301 calls it with 1 (a
+/// `random.librarySeed` variant of a stability run, ADR-058). Without codeunit 130440 in the program the step does
+/// nothing (the command line says so). The error is why the test is not run.
+pub(crate) fn library_seed(session: &mut Session, seed: i32) -> Result<(), String> {
+    let engine = session.engine.clone();
+    let Some(object) = engine.codeunit_object(Some(LIBRARY_RANDOM)) else {
+        return Ok(());
+    };
+    let obj = &engine.program.objects[object];
+    let Some(routine) = obj
+        .routines
+        .iter()
+        .position(|r| !r.is_trigger && r.name.eq_ignore_ascii_case("SetSeed"))
+    else {
+        return Err(format!(
+            "the stability variant sets the seed of codeunit {LIBRARY_RANDOM} \"{}\", which has no SetSeed procedure in this compile",
+            obj.name
+        ));
+    };
+    let instance = session.codeunit_instance(object);
+    match session.call(
+        object,
+        routine,
+        instance,
+        vec![al_builtins::value::Value::Integer(seed)],
+    ) {
+        Ok(_) => Ok(()),
+        Err(Signal::Unsupported(r)) => Err(format!(
+            "the stability variant calls {}.SetSeed({seed}), and it was refused: {r}",
+            obj.name
+        )),
+        Err(Signal::Error(e)) => Err(format!(
+            "the stability variant calls {}.SetSeed({seed}), and it failed: {}",
+            obj.name, e.message
+        )),
+        Err(other) => Err(format!(
+            "the stability variant calls {}.SetSeed({seed}), and it ended with {}",
+            obj.name,
+            other.describe()
+        )),
+    }
+}
+
 fn run(session: &mut Session, codeunit: &Option<(u32, String)>, at: &str) -> Result<(), String> {
     let Some((id, name)) = codeunit else {
         return Ok(());

@@ -94,6 +94,11 @@ public sealed class Server
                 var args = DecodeArgs(req);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
                 var cands = type.GetMethods(flags).Where(m => m.Name == name && !m.IsGenericMethodDefinition).ToArray();
+                // A foreach loop calls MoveNext by name. An enumerator that implements IEnumerator only explicitly
+                // (System.Xml.EmptyEnumerator, from an empty XmlAttributeCollection; al-runner issue 6316) has no public
+                // member of that name: it answers through the interface.
+                if (cands.Length == 0 && args.Length == 0 && name == "MoveNext" && target is System.Collections.IEnumerator ie)
+                    return Done(ie.MoveNext(), null, null, null, typeof(bool));
                 if (cands.Length == 0 && args.Length == 0)
                 {
                     // AL lets a property be written as a call: `Encoding.UTF8()`.
@@ -149,6 +154,9 @@ public sealed class Server
                 var field = type.GetField(name, flags);
                 if (field != null)
                     return Done(field.GetValue(field.IsStatic ? null : target), null, null, null, field.FieldType);
+                // `Current` of an enumerator that implements IEnumerator only explicitly (see MoveNext in "invoke").
+                if (name == "Current" && target is System.Collections.IEnumerator cur)
+                    return Done(cur.Current, null, null, null, typeof(object));
                 // AL lets a method be called without parentheses.
                 var m = type.GetMethods(flags).Where(x => x.Name == name && x.GetParameters().Length == 0 && !x.IsGenericMethodDefinition).FirstOrDefault();
                 if (m != null)

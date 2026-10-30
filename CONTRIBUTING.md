@@ -81,9 +81,14 @@ A full corpus run with `al-test-cli` takes about 20 seconds:
 ```
 
 It lists what newly passes and which baseline cases stopped passing. No baseline case may stop
-passing. Do not edit `metrics/<major>/passing.txt` in your pull request: CI checks that no
-case stops passing, and a maintainer adds the new passes in a separate pull request. Say in
-your pull request which corpus cases newly pass.
+passing. CI fails a pull request that loses one.
+
+Do not update the baselines (`metrics/<major>/passing*.txt`), the coverage maps
+(`docs/corpus-coverage.*`, `docs/corpus-behavior-coverage.*`) or the assumptions table in
+`docs/probes-needed.md`. A bot commits them to `main` after your pull request is merged, so new
+passes are added to the baseline then. Say in your pull request which corpus cases newly pass. CI does not fail when these files are out of date in a pull
+request. One generated file still belongs in your pull request: if you add a builtin, run
+`cargo run -p al-builtins --example gen_builtin_ids` and commit `crates/al-builtins/src/builtin_ids.rs`.
 
 To work on one test: `--explain TestName` shows why a test ends as it does, and `--codeunit ID`
 or `--test NAME` runs only part of the corpus. `./target/release/al-test-cli --help` lists every
