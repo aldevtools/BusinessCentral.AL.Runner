@@ -672,6 +672,9 @@ pub struct ExtLayout {
     pub reasons: Vec<String>,
     /// The `labels` section of the extension.
     pub labels: Vec<(String, String)>,
+    /// Why a run that renders output cannot run: the layouts of a `rendering` section. They change no dataset, so a
+    /// Report.SaveAs as Xml runs (report/lt-reportext-rendering/ReportExtensionSaveAs.al:194-201, :252-260).
+    pub output: Vec<String>,
 }
 
 /// Walks reportextension `obj`. Only what the corpus pins is understood
@@ -685,6 +688,7 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
         adds: Vec::new(),
         reasons: Vec::new(),
         labels: Vec::new(),
+        output: Vec::new(),
     };
     for p in obj.properties() {
         let name = p.name().to_ascii_lowercase();
@@ -777,6 +781,9 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
                 Ok(l) => out.labels.extend(l),
                 Err(why) => out.reasons.push(format!("reportextension {why}")),
             },
+            n if LAYOUT_SECTIONS.contains(&n) => out
+                .output
+                .push(format!("reportextension section {n} (a layout) is not supported yet")),
             other => out
                 .reasons
                 .push(format!("reportextension section {other} is not supported yet")),
