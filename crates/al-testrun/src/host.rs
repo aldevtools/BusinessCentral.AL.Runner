@@ -161,6 +161,22 @@ pub fn company_name() -> Option<String> {
     COMPANY_NAME.read().ok().and_then(|r| r.clone())
 }
 
+/// The apps under test install in the order the run lists them, also two that do not depend on each other: the run
+/// publishes them as the corpus CI does (corpus `.github/workflows/ci.yml` `app_dirs`: fixture, A, D, B, C, then the main
+/// app, one after the other; `deps::corpus_publish_dirs`). Off by default: then the order of two apps under test with no
+/// dependency path between them is not known (`install::InstallView`).
+static PUBLISH_ORDER_KNOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sets whether the apps under test install in the order the run lists them ([`publish_order_known`]).
+pub fn set_publish_order_known(known: bool) {
+    PUBLISH_ORDER_KNOWN.store(known, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the apps under test install in the order the run lists them (set by [`set_publish_order_known`]).
+pub fn publish_order_known() -> bool {
+    PUBLISH_ORDER_KNOWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The companies of the run's database (`--companies`, ADR-046 decision 2). The default is one company.
 static COMPANIES: std::sync::RwLock<al_host::Companies> = std::sync::RwLock::new(al_host::Companies::One);
 

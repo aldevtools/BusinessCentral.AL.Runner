@@ -642,6 +642,8 @@ fn run_version(
     // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
     // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
     let corpus_deps = deps::corpus_publish_dirs(&root.join(&cfg.corpus_app))?;
+    // So the apps under test install in that order, also two that do not depend on each other (`install::InstallView`).
+    al_test_cli::host::set_publish_order_known(true);
     let main_app = corpus_deps.len();
     let mut app_dirs = corpus_deps.clone();
     app_dirs.push(root.join(&cfg.corpus_app));

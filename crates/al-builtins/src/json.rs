@@ -873,6 +873,18 @@ fn as_integer(s: &Scalar) -> Result<Value, Signal> {
     if let Scalar::Val(Value::Char(n)) = s {
         return Ok(Value::Integer(i32::from(*n)));
     }
+    // A number with a fraction rounds to the nearest whole number, a tie to the even one (corpus master, corpus PR 871:
+    // misc/lt-np4-probes/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal, _FromText: 1324.55 1325, 2.5 2, 1.5 2,
+    // 0.5 0, -0.5 0, -1.5 -2, -2.5 -2, 3.4999 3; assumption json-asinteger-fraction awaits the bump).
+    if let Scalar::Val(Value::Decimal(d)) = s
+        && !d.fract().is_zero()
+    {
+        crate::assumptions::assume(crate::assumptions::Assumption::JsonAsIntegerFraction);
+        let r = d.round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointNearestEven);
+        return i32::try_from(r.mantissa() / 10i128.pow(r.scale()))
+            .map(Value::Integer)
+            .or_else(|_| unsupported("number out of Integer range"));
+    }
     i32::try_from(as_i64(s)?)
         .map(Value::Integer)
         .or_else(|_| unsupported("number out of Integer range"))
@@ -2599,6 +2611,29 @@ pub fn write_text(h: &Handle, out: &mut String) -> Result<(), Signal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal (corpus master, corpus PR 871).
+    #[test]
+    fn a_fraction_read_as_integer_rounds_ties_to_even() {
+        for (v, want) in [
+            ("1324.55", 1325),
+            ("2.5", 2),
+            ("1.5", 2),
+            ("0.5", 0),
+            ("0.4", 0),
+            ("-0.5", 0),
+            ("-1.5", -2),
+            ("-2.5", -2),
+            ("-1324.55", -1325),
+            ("3.4999", 3),
+        ] {
+            let d: rust_decimal::Decimal = v.parse().unwrap();
+            assert!(
+                matches!(as_integer(&Scalar::Val(Value::Decimal(d))), Ok(Value::Integer(n)) if n == want),
+                "{v}"
+            );
+        }
+    }
 
     /// json/JsonValueGetters.al UN_BooleanTextGetters* (writer UN's corpus branch, commit d3bcc580).
     #[test]
