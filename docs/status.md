@@ -97,9 +97,9 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
 
 - **Company modes (ADR-046).** One company by default; `--companies LIST|all` runs the per-company install
   code in each declared company and models BC with several companies. User text: `docs/manual/writing-tests.md`.
-- **Test framework, BC 29 (ADR-059, Proposed).** `TestHandlers` and `[TestDataSource]` are refused; the
-  `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome and per-case
-  results wait for the ADR and a Windows probe.
+- **Test framework, BC 29 (ADR-059, Accepted).** Data-driven tests (`[TestDataSource]`) run with one result per
+  case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). `TestHandlers` are refused; the
+  `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome waits for a pin.
 - **Planned: license-backed permissions (ADR-060)** and the stability testing mode (ADR-058, Accepted; built in
   open pull requests).
 

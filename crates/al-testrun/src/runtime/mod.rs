@@ -809,6 +809,7 @@ mod blocked;
 mod cache;
 mod compiled;
 mod corpus;
+mod data_driven;
 mod handlers;
 mod run;
 mod runner_reset;

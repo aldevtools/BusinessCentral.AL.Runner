@@ -1698,6 +1698,9 @@ pub struct Instance {
 pub enum LibraryValue {
     #[default]
     Empty,
+    /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
+    /// refused there (`testcontexts.rs`).
+    HandedContext,
     Text(String),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
     TextCap(String, i32),
