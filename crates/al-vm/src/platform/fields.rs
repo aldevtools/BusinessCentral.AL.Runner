@@ -373,6 +373,29 @@ fn set_field_row_system_id(t: &TableDef, r: &mut al_data::Row, table_no: u32, fi
     }
 }
 
+/// Marks assumption field-row-system-id when a read of column SystemId of a Field row (`row`, in the columns of the Field
+/// table `schema`) gives the value of [`field_row_system_id`] for a row outside the measured shapes: a table numbered
+/// 65536 to 1999999999, a field below 2000000000 or one of 2000000005-8, on a major with `user_name_fields`
+/// (WcFieldRowCopy.al:48, :60-63). `v` is the value read; a value code wrote is not marked.
+pub(crate) fn note_field_row_system_id(schema: &al_ir::Table, row: &[Value], v: &Value, user_name_fields: bool) {
+    let col = |id: u32| schema.fields.iter().position(|f| f.id == id).and_then(|i| row.get(i));
+    let (Some(Value::Integer(tid)), Some(Value::Integer(no))) = (col(1), col(2)) else {
+        return;
+    };
+    let (Ok(tid), Ok(no)) = (u32::try_from(*tid), u32::try_from(*no)) else {
+        return;
+    };
+    if !matches!((v, field_row_system_id(tid, no)), (Value::Guid(a), Value::Guid(b)) if *a == b) {
+        return;
+    }
+    let measured = user_name_fields
+        && (65_536..2_000_000_000).contains(&tid)
+        && (no < 2_000_000_000 || (2_000_000_005..=2_000_000_008).contains(&no));
+    if !measured {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldRowSystemId);
+    }
+}
+
 fn field_row_system_id(table_no: u32, field_no: u32) -> Value {
     let mut g = [0u8; 16];
     // `Value::Guid` holds the bytes in the order of the text.

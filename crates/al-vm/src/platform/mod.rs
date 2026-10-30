@@ -16,6 +16,7 @@ pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
 pub(crate) mod coverage;
 mod date;
 mod fields;
+pub(crate) use fields::note_field_row_system_id;
 pub(crate) use fields::user_name_system_field;
 mod host_tables;
 pub(crate) use host_tables::culture_name;

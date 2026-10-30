@@ -1161,6 +1161,22 @@ impl Session {
         }
     }
 
+    /// A read of column SystemId of a Field row (platform table 2000000041) marks assumption field-row-system-id
+    /// outside the measured shapes (`platform::note_field_row_system_id`).
+    pub(crate) fn note_field_row_system_id(&self, table: usize, pos: usize, row: &[Value], v: &Value) {
+        let o = &self.engine.program.objects[table];
+        if o.id != Some(2_000_000_041) {
+            return;
+        }
+        let Some(schema) = o.table.as_ref() else {
+            return;
+        };
+        if schema.fields.get(pos).is_some_and(|f| f.id == 2_000_000_000) {
+            let user_name_fields = self.has(al_version::Gate::PlatformMetadataColumnsFrom29);
+            crate::platform::note_field_row_system_id(schema, row, v, user_name_fields);
+        }
+    }
+
     /// The value of field `pos` of the record `record` holds (the read of `Rec.Field`, also of a field of a procedure's
     /// result).
     pub(crate) fn read_record_field(&mut self, record: Value, pos: usize) -> Result<Value, Signal> {
@@ -1209,6 +1225,9 @@ impl Session {
                 let v = r.fields[*pos].clone();
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::Unsupported(why.to_string()));
+                }
+                if let Value::Guid(_) = &v {
+                    self.note_field_row_system_id(r.table as usize, *pos, &r.fields, &v);
                 }
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
                     return Err(Signal::Unsupported(why));
