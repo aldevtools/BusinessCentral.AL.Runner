@@ -4,6 +4,7 @@
 pub mod library_kind;
 pub mod signature;
 pub mod stream;
+pub mod testcontexts;
 pub mod text;
 pub mod textfns;
 pub mod value;

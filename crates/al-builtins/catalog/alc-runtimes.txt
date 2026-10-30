@@ -53,6 +53,8 @@ Cookie.Path inst () -> Text	0	13.0..	1.0..13.0 declaration
 Cookie.Secure inst () -> Boolean	0	13.0..	1.0..13.0 declaration
 Cookie.Value inst (?Value: Text) -> Text	0	13.0..	1.0..13.0 declaration
 Cookie.Value inst (?Value: Text) -> Text	1	13.0..	1.0..13.0 declaration
+DataSourceContext.AppId inst () -> Guid @18.0	0	18.0..	1.0..18.0 declaration
+DataSourceContext.CodeunitId inst () -> Integer @18.0	0	18.0..	1.0..18.0 declaration
 DataTransfer.AddConstantValue inst (Value: Any, DestinationField: Integer)	2	10.0..	1.0..10.0 declaration
 DataTransfer.AddDestinationFilter inst (DestinationField: Integer, String: Text, ?Value: Any*) @17.0	2	17.0..	1.0..10.0 declaration; 10.0..17.0 AL0666 '17.0' or greater
 DataTransfer.AddDestinationFilter inst (DestinationField: Integer, String: Text, ?Value: Any*) @17.0	3	17.0..	1.0..10.0 declaration; 10.0..17.0 AL0666 '17.0' or greater
@@ -1604,6 +1606,12 @@ TestFilter.GetFilter inst (Field: TestFilterField) -> Text	1	1.0..
 TestFilter.SetCurrentKey inst (Field1: TestFilterField, ?Field2: TestFilterField*) -> Boolean?	1	1.0..	
 TestFilter.SetCurrentKey inst (Field1: TestFilterField, ?Field2: TestFilterField*) -> Boolean?	2	1.0..	
 TestFilter.SetFilter inst (Field: TestFilterField, String: Text)	2	1.0..	
+TestHandlerContext.CodeunitId inst () -> Integer @18.0	0	18.0..	1.0..18.0 declaration
+TestHandlerContext.CodeunitName inst () -> Text @18.0	0	18.0..	1.0..18.0 declaration
+TestHandlerContext.ProcedureName inst () -> Text @18.0	0	18.0..	1.0..18.0 declaration
+TestHandlerContext.Skip inst (Reason: Text) @18.0	1	18.0..	1.0..18.0 declaration
+TestHandlerContext.Success inst () -> Boolean @18.0	0	18.0..	1.0..18.0 declaration
+TestHandlerContext.TestCaseName inst () -> Text @18.0	0	18.0..	1.0..18.0 declaration
 TestHttpRequestMessage.HasSecretUri inst () -> Boolean	0	15.0..	1.0..15.0 declaration
 TestHttpRequestMessage.Path inst () -> Text	0	15.0..	1.0..15.0 declaration
 TestHttpRequestMessage.QueryParameters inst () -> Dictionary of [Text, Text]	0	15.0..	1.0..15.0 declaration
