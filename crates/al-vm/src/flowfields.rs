@@ -545,6 +545,63 @@ impl Session {
         let cx = self.cx_for(rec, &src_t)?;
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
         use ir::CalcMethod as M;
+        // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
+        // lookup are pinned (corpus master record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
+        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count;
+        // assumption calcformula-filter-equals-empty-date until the bump). Other methods are not pinned.
+        let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
+        let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
+            .iter()
+            .cloned()
+            .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
+        if !flow.is_empty() {
+            if !matches!(calc.method, M::Count | M::Exist | M::Lookup) || calc.negate {
+                return unsupported(
+                    "a CalcFormula sum, average, min, max or signed formula with a condition on a FlowField of its source table (not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CalcformulaFilterEqualsEmptyDate);
+            let mut rows = Vec::new();
+            self.each_row(&cx, &src_t, &stored, |row| {
+                rows.push(row.to_vec());
+                Ok(())
+            })?;
+            let mut matched: Vec<Vec<Value>> = Vec::new();
+            for row in rows {
+                let Value::Record(probe) = self.default_value(&RtType::Record(calc.table as u32, false)) else {
+                    return unsupported("a source record of a FlowField");
+                };
+                {
+                    let mut p = probe.borrow_mut();
+                    p.fields = row.clone();
+                    p.company = rec.borrow().company.clone();
+                }
+                let mut pass = true;
+                for c in &flow {
+                    self.check_calc_field(calc.table, c.field)?;
+                    let v = self.calc_value(&probe, c.field, &mut Vec::new())?;
+                    if !c.expr.matches(&v) {
+                        pass = false;
+                        break;
+                    }
+                }
+                if pass {
+                    matched.push(row);
+                    if calc.method != M::Count {
+                        break;
+                    }
+                }
+            }
+            let value = match calc.method {
+                M::Count => Value::Integer(matched.len() as i32),
+                M::Exist => Value::Boolean(!matched.is_empty()),
+                _ => match matched.first() {
+                    Some(row) => row[calc.field.expect("field")].clone(),
+                    None => self.default_value(&f.ty),
+                },
+            };
+            return ops::convert(value, &f.ty);
+        }
         let value = match calc.method {
             M::Count => {
                 let n = self.store.count(&cx, &src_t, &filters).map_err(store_err)? as i32;
@@ -685,6 +742,9 @@ impl Session {
         calc: &ir::CalcFormula,
         stack: &mut Vec<usize>,
     ) -> Result<Vec<FieldFilter>, Signal> {
+        for a in &calc.assumes {
+            al_builtins::assumptions::assume(*a);
+        }
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let own = &engine.program.objects[table].table.as_ref().expect("table").fields;
