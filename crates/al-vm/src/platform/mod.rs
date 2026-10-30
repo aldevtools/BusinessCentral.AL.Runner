@@ -346,6 +346,14 @@ impl Providers {
         })))
     }
 
+    /// What License Permission answers from (ADR-060).
+    fn license_cx<'e>(&self, e: &'e Engine) -> host_tables::LicenseCx<'e> {
+        host_tables::LicenseCx {
+            license: e.license.as_deref(),
+            target: e.target.as_ref(),
+        }
+    }
+
     pub(super) fn engine(&self) -> Arc<Engine> {
         self.engine.upgrade().expect("a session outlives its provider's reads")
     }
@@ -766,7 +774,10 @@ impl VirtualTables for Providers {
             Virtual::Integer => integer::get(t, pk),
             Virtual::Date => date::get(t, pk),
             Virtual::WindowsLanguage => host_tables::windows_language_get(t, pk),
-            Virtual::LicensePermission => host_tables::license_permission_get(t, pk),
+            Virtual::LicensePermission => {
+                let e = self.engine();
+                host_tables::license_permission_get(t, pk, self.license_cx(&e))
+            }
             Virtual::EventSubscription => {
                 Ok(self.with_event_stats(t, self.listed(t, Virtual::EventSubscription)?.get(t, pk)?))
             }
@@ -797,7 +808,10 @@ impl VirtualTables for Providers {
             Virtual::Integer => integer::next(t, scan),
             Virtual::Date => date::next(t, scan),
             Virtual::WindowsLanguage => host_tables::windows_language_next(t, scan),
-            Virtual::LicensePermission => host_tables::license_permission_next(t, scan),
+            Virtual::LicensePermission => {
+                let e = self.engine();
+                host_tables::license_permission_next(t, scan, self.license_cx(&e))
+            }
             Virtual::EventSubscription => {
                 if let Some(m) = self.event_filtered_listing(t, scan.filters)? {
                     return m.next(t, scan);
@@ -877,7 +891,10 @@ impl VirtualTables for Providers {
             Virtual::Integer => integer::count(t, filters),
             Virtual::Date => date::count(t, filters),
             Virtual::WindowsLanguage => host_tables::windows_language_count(t, filters),
-            Virtual::LicensePermission => host_tables::license_permission_count(t, filters),
+            Virtual::LicensePermission => {
+                let e = self.engine();
+                host_tables::license_permission_count(t, filters, self.license_cx(&e))
+            }
             Virtual::EventSubscription => {
                 if let Some(m) = self.event_filtered_listing(t, filters)? {
                     return m.count(t, filters);

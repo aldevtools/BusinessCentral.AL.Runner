@@ -1017,3 +1017,29 @@ fn a_local_procedure_of_a_codeunit_does_not_hide_a_builtin_codeunit_method_of_it
         vec!["AL0161 'Secret()' is inaccessible due to its protection level"]
     );
 }
+
+/// codeunit/lt-sc-overload-record-interface/ScOverloadRecordInterface.al:50-107: with a `var Record` and an `Interface`
+/// overload, an enum or a codeunit that implements the interface takes the Interface one, a record the Record one.
+#[test]
+fn an_enum_or_codeunit_that_implements_the_interface_takes_the_interface_overload() {
+    let i = "interface \"ALT I\" { procedure Name(): Text; }";
+    let e = "enum 50901 \"ALT K\" implements \"ALT I\" { DefaultImplementation = \"ALT I\" = \"ALT Impl\"; value(0; Plain) { } }";
+    let t = "table 50902 \"ALT Row\" { fields { field(1; Id; Integer) { } } }";
+    let imp = "codeunit 50903 \"ALT Impl\" implements \"ALT I\" { procedure Name(): Text begin end; }";
+    let src = cu(
+        "procedure Get(var Rec: Record \"ALT Row\"; J: JsonObject): Text begin end; \
+         local procedure Get(I: Interface \"ALT I\"; J: JsonObject): Text begin end; \
+         procedure ByEnum(E: Enum \"ALT K\"; J: JsonObject): Text begin exit(Get(E, J)); end; \
+         procedure ByCu(var C: Codeunit \"ALT Impl\"; J: JsonObject): Text begin exit(Get(C, J)); end; \
+         procedure ByRec(var R: Record \"ALT Row\"; J: JsonObject): Text begin exit(Get(R, J)); end;",
+    );
+    let at = |call: &str| match res_in(&[i, e, t, imp, &src], call, call) {
+        Res::Proc { offset, .. } => offset,
+        other => panic!("{other:?}"),
+    };
+    let intf = src.find("local procedure Get").unwrap();
+    let rec = src.find("procedure Get(var Rec").unwrap();
+    assert_eq!(at("Get(E, J)"), intf);
+    assert_eq!(at("Get(C, J)"), intf);
+    assert_eq!(at("Get(R, J)"), rec);
+}

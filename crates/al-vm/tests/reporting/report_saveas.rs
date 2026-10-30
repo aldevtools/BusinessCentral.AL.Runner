@@ -579,6 +579,27 @@ report 68319 "Probe Temporary Report"
     }
 }
 
+report 68920 "Probe Ext Base"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = BaseRdlc;
+    dataset { dataitem(Item; "Probe Rep Child") { column(Num; Id) { } } }
+    rendering { layout(BaseRdlc) { Type = RDLC; LayoutFile = './Base.rdlc'; } }
+}
+report 68921 "Probe Ext Base NoRender"
+{
+    UsageCategory = None;
+    dataset { dataitem(Item; "Probe Rep Child") { column(Num; Id) { } } }
+}
+reportextension 68922 "Probe Ext Rendering" extends "Probe Ext Base"
+{
+    rendering { layout(ExtRdlcA) { Type = RDLC; LayoutFile = './A.rdlc'; } layout(ExtRdlcB) { Type = RDLC; LayoutFile = './B.rdlc'; } }
+}
+reportextension 68923 "Probe Ext NoRender Ext" extends "Probe Ext Base NoRender"
+{
+    rendering { layout(ExtOnly) { Type = RDLC; LayoutFile = './Only.rdlc'; } }
+}
+
 codeunit 68304 Helpers
 {
     procedure Seed()
@@ -1430,4 +1451,40 @@ fn caption_labels_come_before_declared_labels_on_a_report_of_one_data_item() {
         text.contains("<Labels>|    <Label name=\"IdColCaption\">Id</Label>|    <Label name=\"NameColCaption\">Name</Label>|    <Label name=\"Declared\">Declared label</Label>|    <Label name=\"Other\">Other label</Label>|  </Labels>"),
         "{text}"
     );
+}
+
+// report/lt-reportext-rendering/ReportExtensionSaveAs.al:194-201, :252-260: a reportextension's rendering section changes no
+// dataset: Report.SaveAs as Xml answers true with the dataset, with and without a base layout; Html on the RDLC default
+// layout answers the layout error (:238-243). Pdf, Word and Excel stay refused as rendered formats.
+#[test]
+fn a_reportextension_rendering_section_leaves_the_xml_dataset_and_the_html_error() {
+    for id in [68920, 68921] {
+        let out = f(&format!(
+            "var Buf: Record \"Probe Rep Parent\"; Out: OutStream; Ok: Boolean; begin
+                Buf.Data.CreateOutStream(Out);
+                Ok := Report.SaveAs({id}, '', ReportFormat::Xml, Out);
+                Buf.CalcFields(Data);
+                exit(Format(Ok) + '|' + Format(Buf.Data.HasValue()));
+            end;"
+        ));
+        assert_eq!(out, "Yes|Yes", "{id}");
+    }
+    assert_eq!(
+        f(
+            "var Buf: Record \"Probe Rep Parent\"; Out: OutStream; Ok: Boolean; begin
+            Buf.Data.CreateOutStream(Out);
+            ClearLastError();
+            Ok := Report.SaveAs(68920, '', ReportFormat::Html, Out);
+            exit(Format(Ok) + '|' + GetLastErrorText());
+        end;"
+        ),
+        "No|The Html output format is not supported by the current report layout format."
+    );
+    let why = refusal(
+        "var Buf: Record \"Probe Rep Parent\"; Out: OutStream; begin
+            Buf.Data.CreateOutStream(Out);
+            Report.SaveAs(68920, '', ReportFormat::Pdf, Out);
+        end;",
+    );
+    assert!(why.contains("Pdf"), "{why}");
 }

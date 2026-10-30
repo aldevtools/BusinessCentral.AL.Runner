@@ -936,9 +936,13 @@ database's two companies run in the default mode and fail (69852 `EventLog_RowsW
    per-company install code writes with the one write of its one company. `tools/company_mode_check.sh` now allows a
    case to fail in the default mode where the opt-in passes (a case that counts the corpus database's two companies).
 
-### Not yet built: the apps under test install after the company exists
+### Built after the corpus bump to 28de3f397: the apps under test install after the company exists
 
-Corpus PR 815 (issue 812, not yet on corpus master) pins that a freshly installed app's per-company install code sees
-`HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes. The runtime today runs the
-apps under test's subscribers during the dependency installs and Company-Initialize. The fix (hold them back there) waits
-for that pin.
+Corpus PR 815 (issue 812) pins that a freshly installed app's per-company install code sees `HasUpgradeTag` = No for its
+own tag and no row its `OnCompanyInitialize` subscriber writes, in both companies
+(install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43). The install baseline now holds back the subscribers of
+the apps under test while the dependency apps install, Company-Initialize and the company build run
+(`al-testrun/src/baseline.rs`). Their own install code runs after the baseline with every app installed, so their own
+subscribers still run there (install/lt-ug-install-trigger-setup/UgInstallTests.al:37-41). Tests:
+`al-testrun/tests/install_hold_back.rs`. With the bump, the upgrade-tag cases of misc/lt-cm-upgrade-tag (codeunit 84835
+`Item44_*`) need this fix: without it the install code inserts its own tag a second time.

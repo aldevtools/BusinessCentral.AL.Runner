@@ -149,6 +149,8 @@ pub struct TestArgs {
     pub test_timeout_secs: Option<u64>,
     pub require_dotnet: bool,
     pub files_dir: Option<PathBuf>,
+    /// `--license FILE` (serve: `license`): the BC license the run uses instead of the BC artifacts' (ADR-060).
+    pub license: Option<PathBuf>,
     /// `--environment saas|onprem`: what Environment Information answers (default saas, as probed).
     pub environment: Option<al_host::Environment>,
     /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database. `None`: one company.
@@ -1002,6 +1004,11 @@ OTHER
                          per-company install code of the apps under test runs once in each company, then
                          the per-database part (ADR-046). Default: one company, the session company.
     --files-dir DIR      Let the File data type read and write real files under DIR.
+    --license FILE       The BC license file (.bclicense) the run uses: a developer, partner or
+                         customer license. Default: the license in the BC artifacts of the run's
+                         build. License Permission reads answer from it. The file is read for
+                         this run only, never copied or cached. A file that cannot be read stops
+                         the run. The summary names the license (licensee, expiry, SHA-256).
     --define SYMBOL      A preprocessor symbol (`#if SYMBOL`) for the APPs. Repeatable.
                          `--preprocessor-symbols A,B` names several. Like the AL compiler,
                          al-runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`):
@@ -1465,6 +1472,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--quiet" | "-q" => a.quiet = true,
             "--timings" => a.timings = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
+            "--license" => a.license = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
             "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
             "--server-url" => {

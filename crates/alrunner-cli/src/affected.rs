@@ -168,6 +168,8 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
         (&a.test_data_path, "--test-data"),
         (&a.package_path, "--package"),
         (&a.disabled_tests_dir, "--disabled-tests"),
+        // ADR-060: another license can change what License Permission answers; a run without one keeps the hash.
+        (&a.license, "--license"),
     ] {
         if let Some(p) = path {
             h.update(flag.as_bytes());

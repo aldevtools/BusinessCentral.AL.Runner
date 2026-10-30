@@ -112,9 +112,40 @@ pub fn json(doc: String, s: RunSeed) -> String {
     }
 }
 
+/// The license of the run (ADR-060) as the `license` object of an `--output-json` document.
+pub fn json_license(doc: String, license: &al_testrun::license::LicenseUse) -> String {
+    match serde_json::from_str::<serde_json::Value>(&doc) {
+        Ok(mut d) if d.is_object() => {
+            d["license"] = license.json();
+            serde_json::to_string_pretty(&d).expect("a JSON value serializes")
+        }
+        _ => doc,
+    }
+}
+
 /// `<property name="seed" value="N" />` on every `testsuite` of a JUnit file, as in v2.
 pub fn junit(xml: &str, s: RunSeed) -> String {
-    let prop = format!("<property name=\"seed\" value=\"{}\" />", s.seed);
+    with_properties(xml, &format!("<property name=\"seed\" value=\"{}\" />", s.seed))
+}
+
+/// The license of the run (ADR-060) as `license.<name>` properties on every `testsuite` of a JUnit file.
+pub fn junit_license(xml: &str, license: &al_testrun::license::LicenseUse) -> String {
+    let esc = |v: &str| {
+        v.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let props: String = license
+        .properties()
+        .iter()
+        .map(|(k, v)| format!("<property name=\"license.{k}\" value=\"{}\" />", esc(v)))
+        .collect();
+    with_properties(xml, &props)
+}
+
+/// `prop` (one or more `<property>` elements) added to the properties of every `testsuite` of a JUnit file.
+fn with_properties(xml: &str, prop: &str) -> String {
     let mut out = String::with_capacity(xml.len() + 64);
     let mut rest = xml;
     while let Some(at) = rest.find("<testsuite ") {
@@ -134,7 +165,7 @@ pub fn junit(xml: &str, s: RunSeed) -> String {
         if rest[lead..].starts_with("<properties>") {
             let open = lead + "<properties>".len();
             out.push_str(&rest[..open]);
-            out.push_str(&prop);
+            out.push_str(prop);
             rest = &rest[open..];
         } else {
             out.push_str(&format!("\n    <properties>{prop}</properties>"));

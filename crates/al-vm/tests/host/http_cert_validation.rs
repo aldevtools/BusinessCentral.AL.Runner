@@ -82,6 +82,42 @@ codeunit 50191 C
         exit(Format(Client.DefaultRequestHeaders().Contains('X-Test')));
     end;
 
+    // network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:24-32, :51-55: the property-assign form; the call
+    // form answers its argument when that is the setting already made.
+    procedure PropertyAssign(): Text
+    var
+        Client: HttpClient;
+        Flag: Boolean;
+        R: Text;
+    begin
+        Client.UseServerCertificateValidation := false;
+        R := Format(Client.UseServerCertificateValidation(false));
+        Client.UseServerCertificateValidation := true;
+        R += ' ' + Format(Client.UseServerCertificateValidation(true));
+        Client.UseServerCertificateValidation := not Flag;
+        Client.UseResponseCookies := false;
+        Client.UseResponseCookies := true;
+        exit(R);
+    end;
+
+    procedure ResultOfAChange(): Boolean
+    var
+        Client: HttpClient;
+    begin
+        Client.UseServerCertificateValidation := false;
+        exit(Client.UseServerCertificateValidation(true));
+    end;
+
+    // HttpClientPropertyAssign.al:73-77: `false` on a client with a timeout gives the default timeout back.
+    procedure TimeoutReset(): Text
+    var
+        Client: HttpClient;
+    begin
+        Client.Timeout := 5000;
+        Client.UseServerCertificateValidation := false;
+        exit(Format(Client.Timeout()));
+    end;
+
     procedure SendWithoutHandler()
     var
         Client: HttpClient;
@@ -114,4 +150,15 @@ fn the_result_is_refused_unless_an_empty_if_drops_it() {
 #[test]
 fn a_request_no_handler_answers_is_refused_after_the_call() {
     assert!(refused(run(SRC, "SendWithoutHandler")).contains("UseServerCertificateValidation"));
+}
+
+#[test]
+fn the_property_assign_form_sets_the_value_and_the_call_answers_the_setting_it_repeats() {
+    assert_eq!(text(run(SRC, "PropertyAssign")), "No Yes");
+    assert!(refused(run(SRC, "ResultOfAChange")).contains("result"));
+}
+
+#[test]
+fn false_gives_a_client_with_a_timeout_the_default_timeout() {
+    assert_eq!(text(run(SRC, "TimeoutReset")), "1 minute 40 seconds");
 }

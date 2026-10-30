@@ -125,6 +125,9 @@ pub struct Engine {
     /// Rows of a restored company, read when a session first touches a table (ADR-020). `None`: a
     /// run without test data.
     pub test_data: Option<al_host::testdata::TestData>,
+    /// The BC license of the run (ADR-060): License Permission answers from it. `None`: no license was available, and
+    /// only the pinned rows are served.
+    pub license: Option<Arc<al_host::license::License>>,
     /// (table object, field position) -> the error BC raises when it evaluates the field's
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
@@ -398,6 +401,7 @@ impl Engine {
             resources_read: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
+            license: None,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
             object_facts: object_facts.into(),
@@ -439,6 +443,7 @@ impl Engine {
             resources_read: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
+            license: None,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
             object_facts: self.object_facts.clone(),
@@ -495,6 +500,7 @@ impl Engine {
             resources_read,
             dotnet_called,
             test_data,
+            license,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
             program: _,
@@ -534,6 +540,7 @@ impl Engine {
         *resources_read.get_mut() = false;
         *dotnet_called.get_mut() = false;
         *test_data = None;
+        *license = None;
     }
 
     /// The first compiled codeunit with this id, in program order: the object `Codeunit.Run(Id)` runs. Found in an index
