@@ -1452,7 +1452,7 @@ impl Session {
     /// Two fields of one number and different types, between two tables of the same app: DB:TypeMisMatch naming the fields, the
     /// tables and the types, whatever the value, and the fields copied before the failing one stay copied
     /// (record/lt-record-write/RcBTransfer.al:265-357, Transfer_TypeDifferences_Narrowing, _DecimalFraction, _Widening,
-    /// Transfer_DifferentPrimaryKey). Pinned for Decimal into Integer or BigInteger and Integer into Code, between tables whose
+    /// Transfer_DifferentPrimaryKey). Pinned for Decimal into Integer or BigInteger, Integer into Code, and Boolean and Text either way, between tables whose
     /// captions are their names; anything else gives `None` and stays refused. Between tables of different apps BC skips the field
     /// instead (Transfer_From_Another_Apps_Table_Type_Mismatch_BQ), which is not implemented.
     fn transfer_type_mismatch(
@@ -1472,12 +1472,15 @@ impl Session {
             RtType::Decimal => Some("Decimal"),
             RtType::BigInteger => Some("BigInteger"),
             RtType::Code(_) => Some("Code"),
+            RtType::Text(_) => Some("Text"),
+            RtType::Boolean => Some("Boolean"),
             _ => None,
         };
         let (to_ty, from_ty) = (name(&t.fields[dp].ty)?, name(&from.fields[sp].ty)?);
+        // Text and Boolean either way: misc/lt-probes-needed-6/PnF07TransferEnumOption.al:185-206 Transfer_BooleanAndText.
         if !matches!(
             (to_ty, from_ty),
-            ("Integer" | "BigInteger", "Decimal") | ("Code", "Integer")
+            ("Integer" | "BigInteger", "Decimal") | ("Code", "Integer") | ("Text", "Boolean") | ("Boolean", "Text")
         ) {
             return None;
         }

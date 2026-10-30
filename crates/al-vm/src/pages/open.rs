@@ -13,17 +13,12 @@ impl Session {
             return Err(error(ALREADY_OPEN));
         }
         // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pageext/lt-bl-implicit-creation/
-        // ImplicitCreation.al:308-318 Worksheet_OpenNew, a worksheet that declares no trigger). Whether OnInit or
-        // OnOpenPage run before the error is not pinned, so a worksheet that declares either is refused.
+        // ImplicitCreation.al:308-318 Worksheet_OpenNew), before OnInit or OnOpenPage run (Y8OpenNewPageTypes.al:306-317,
+        // `log=` empty for a worksheet that declares both).
         if mode == PageMode::New {
             let object = st.borrow().object as usize;
             let engine = self.engine();
             if engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet) {
-                if self.declares(st, "oninit") || self.declares(st, "onopenpage") {
-                    return unsupported(
-                        "OpenNew of a Worksheet that declares OnInit or OnOpenPage (whether they run before the NotSupportedPageViewMode error is not pinned)",
-                    );
-                }
                 let Some(id) = engine.program.objects[object].id else {
                     return unsupported("OpenNew of a Worksheet without an id (the error text is not pinned)");
                 };
