@@ -7,7 +7,10 @@ use al_data::TableDef;
 
 /// The Time Zone table lists the host's zones, `No.` from 1 (record/TestTimeZoneVirtualTable.al:
 /// more than one row, `No.` running 1 to N without gaps, a non-blank `ID`, `Get(1)` the first row of
-/// a scan, `Get` past the end finds nothing).
+/// a scan, `Get` past the end finds nothing). The default host serves the 144 rows of the corpus CI
+/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al:42-240; `al_host::time_zone_table`). The real table depends
+/// on the host Windows version (UvTimeZoneRows.al:7-11: a Windows SaaS sandbox lists 141 rows); the corpus CI
+/// answer is served.
 pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
     i.time_zones
         .iter()
@@ -1010,19 +1013,9 @@ pub(super) fn license_permission_count(t: &TableDef, filters: &[FieldFilter]) ->
     Ok(usize::from(filters.iter().all(|f| f.expr.matches(&r[f.field]))))
 }
 
-/// Why `Get(No.)` of the Time Zone table is refused, if it is. BC lists the 144 Windows time zones, numbered as Windows
-/// sorts them (record/lt-at-partner-gaps/AtTimeZoneNumbering.al:41-47: `count = 144`, `2 = UTC-11`, `3 = Aleutian Standard
-/// Time`); the runtime lists a few host zones in another order, so which zone a number from 2 to 144 names is not known
-/// here. Get(1) keeps the first row of a scan (record/TestTimeZoneVirtualTable.al:GetOne_AgreesWithTheFirstRowOfFindSet)
-/// and a number past 144 finds nothing (:GetOnANumberPastTheEnd_ReturnsFalse).
-pub(crate) fn time_zone_get_refusal(no: &Value) -> Option<&'static str> {
-    matches!(no, Value::Integer(n) if (2..=144).contains(n)).then_some(
-        "Get of a Time Zone row by a number from 2 to 144: BC lists 144 Windows time zones in Windows order, the runtime only a few host zones (not pinned which zone a number names)",
-    )
-}
-
 /// A read of the Time Zone table filtered to one Windows time zone id that is not among the host rows: one row with that
-/// ID, whose `No.` and `Display Name` are unknown (refused when read). BC on Windows lists every Windows zone, the runtime
+/// ID, whose `No.` and `Display Name` are unknown (refused when read). The default host lists every Windows id of CLDR's
+/// list (record/lt-uv-time-zone-table/UvTimeZoneRows.al), so this only matters for a host that lists fewer zones. BC on Windows lists every Windows zone, the runtime
 /// a few host zones; Pacific, UTC, Arabian, GMT, Eastern and Tokyo each find one row and an unknown id none (corpus branch
 /// al-runtime-rs-staging-uq at d651ec93, bump PR 809: record/lt-at-partner-gaps/AtTimeZoneNumbering.al
 /// UQ_TimeZone_LookupById). That every other Windows id of CLDR's list is a row is assumed (`time-zone-windows-id-is-a-row`,
@@ -1080,18 +1073,4 @@ pub(crate) fn time_zone_by_id(t: &TableDef, i: &Ident, filters: &[FieldFilter]) 
 /// of that language (ADR-053 decision 3).
 pub(crate) fn culture_name(id: i32) -> Option<&'static str> {
     LANGUAGES.iter().find(|l| l.0 == id).map(|l| l.4)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn get_of_a_time_zone_number_after_the_first_is_refused() {
-        assert!(time_zone_get_refusal(&Value::Integer(1)).is_none());
-        assert!(time_zone_get_refusal(&Value::Integer(2)).is_some());
-        assert!(time_zone_get_refusal(&Value::Integer(144)).is_some());
-        assert!(time_zone_get_refusal(&Value::Integer(145)).is_none());
-        assert!(time_zone_get_refusal(&Value::Integer(999_999)).is_none());
-    }
 }

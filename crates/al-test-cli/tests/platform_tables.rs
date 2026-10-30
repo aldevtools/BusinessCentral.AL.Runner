@@ -2694,11 +2694,10 @@ fn issue_6214_license_permission_of_any_object_number() {
     assert!(why.contains("Limited Usage Permission"), "{why}");
 }
 
-/// Issue 6218: a lookup by `ID` of a Windows time zone finds one row, also for a zone outside the runtime's default rows;
-/// an id that is no Windows zone finds none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
-/// record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById (Pacific, UTC, Arabian, GMT, Eastern, Tokyo;
-/// `No Such Standard Time` absent). Other Windows ids are assumed (`time-zone-windows-id-is-a-row`); the `No.` and
-/// `Display Name` of such a row are not pinned and are refused when read.
+/// Issue 6218: a lookup by `ID` of a Windows time zone finds one row; an id that is no Windows zone finds none
+/// (record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById). Since corpus PR 829 the whole table is pinned
+/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al: 144 rows, `Arabian Standard Time` = No. 83 at :154, `W. Europe Standard
+/// Time` = No. 55 at :116), so the `No.` of every zone is served.
 const ISSUE_6218_OBJECTS: &str = "
 codeunit 50000 \"T\" {
     Subtype = Test;
@@ -2738,13 +2737,23 @@ codeunit 50000 \"T\" {
     end;
 
     [Test]
-    procedure NumberOfAZoneOutsideTheDefaultRows()
+    procedure NumberOfEveryZoneIsServed()
     var
         TimeZone: Record \"Time Zone\";
     begin
         TimeZone.SetRange(ID, 'Arabian Standard Time');
         TimeZone.FindFirst();
-        if TimeZone.\"No.\" = 0 then;
+        if TimeZone.\"No.\" <> 83 then
+            Error('Arabian No. %1', TimeZone.\"No.\");
+        TimeZone.Reset();
+        if TimeZone.Count() <> 144 then
+            Error('count %1', TimeZone.Count());
+        TimeZone.Get(55);
+        if TimeZone.ID <> 'W. Europe Standard Time' then
+            Error('55: %1', TimeZone.ID);
+        TimeZone.Get(142);
+        if TimeZone.\"Display Name\" <> '(UTC+13:00) Nuku''alofa' then
+            Error('142: %1', TimeZone.\"Display Name\");
     end;
 }";
 
@@ -2753,8 +2762,7 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
     let o = outcomes(ISSUE_6218_OBJECTS);
     passes(&o, "WindowsZoneIdIsInTimeZoneTable");
     passes(&o, "OtherWindowsZone");
-    let why = not_run(&o, "NumberOfAZoneOutsideTheDefaultRows");
-    assert!(why.contains("Time Zone"), "{why}");
+    passes(&o, "NumberOfEveryZoneIsServed");
 }
 
 /// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (here three Option members) leaves only its
