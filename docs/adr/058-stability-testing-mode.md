@@ -340,3 +340,21 @@ The owner accepted the ADR with the recommended answer to each open question, an
 6. **Config format.** JSON.
 7. **Change from review.** `events.subscriberOrder` is "never", not "pin first": the corpus pins the order of
    subscribers across apps as fixed (ascending app id, dependencies first).
+
+## Decided without owner review (2026-10-30, phase 3: matrix axes)
+
+Implementation choices inside sections 3 and 4; no seam changes.
+
+- **Cell names.** `<major>.<minor>-<country>`, then `-companies<n>` (the n-th value of the `companies` axis, from 1)
+  and `-<environment>` when the config names those axes, for example `29.0-w1-companies2-onprem/3@4271833`. A config
+  without those axes keeps the phase 1 ids.
+- **`companies` values.** `null` (one company, the default), `"all"`, or a list of names (the session company first),
+  each passed to the cell as `--companies`. The cell runs as a multi-company database does under ADR-046.
+- **Command line and config.** An axis the config names cannot be combined with its own option (`bcVersion` with
+  `--bc-version` or `--matrix`, `country` with `--country` or `--matrix`, `environment` with `--environment`,
+  `companies` with `--companies`); a config without version or country axes takes the cells of a version or country
+  list on the command line, as section 3 says.
+- **Replay.** A variant id of a matrix config names its cell; the replay runs that cell alone in one process.
+- **Report.** Each cell is compared with its own base variant. The matrix report adds a table of the stability cells
+  and the flips within each; differences between the base variants of cells stay in ADR-052's "Differs between cells"
+  (not computed between the environment cells of one process).

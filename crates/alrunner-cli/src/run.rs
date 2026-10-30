@@ -1642,7 +1642,7 @@ fn test_inner(
                                 "stability: variant {} of {}: {}  {}",
                                 i + 1,
                                 plan.variants.len(),
-                                plan.id(v),
+                                plan.id_at(i),
                                 v.describe()
                             );
                         },
