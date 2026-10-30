@@ -926,7 +926,7 @@ fn user_agent_parts(v: &str) -> Result<Option<Vec<String>>, Signal> {
             };
             if !ok {
                 return unsupported(format!(
-                    "User-Agent or Server value {v:?}: a product that is not `name` or `name/version` (not pinned)"
+                    "User-Agent or Server value `{v}`: a product that is not `name` or `name/version` (not pinned)"
                 ));
             }
             out.push(product);
