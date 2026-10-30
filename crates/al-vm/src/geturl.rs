@@ -473,7 +473,8 @@ impl Session {
         }
         // The bookmark: the table number, then the primary key fields. Only a key of one Code[10], Code[20] or Code[50]
         // field, one Integer field, a Code[20] and an Integer field (in that order), or two Code[20] fields is pinned
-        // (TGetUrl.al:439-447 GetUrl_Web_BookmarkOfCodeKeys for Code[10], Code[50] and two Code[20]).
+        // (TGetUrl.al:439-447 GetUrl_Web_BookmarkOfCodeKeys for Code[10], Code[50] and two Code[20]), and an Enum or Option field
+        // followed by a Code[20] field (platform/lt-system-database-members/GetUrlBookmarkEnumKey.al:80-170).
         let table_id = match self.engine.program.objects[t.object as usize].id {
             Some(id) => id,
             None => return unsupported("GetUrl bookmark of a table without an id"),
@@ -489,6 +490,7 @@ impl Session {
                 | [RtType::Integer]
                 | [RtType::Code(Some(20)), RtType::Integer]
                 | [RtType::Code(Some(20)), RtType::Code(Some(20))]
+                | [RtType::Enum(_) | RtType::Option(_), RtType::Code(Some(20))]
         );
         if !ok {
             return unsupported(
@@ -496,6 +498,8 @@ impl Session {
             );
         }
         let two_codes = key.len() == 2 && matches!(shape[1], RtType::Code(_));
+        // An empty Code after an Enum or Option field is pinned (GetUrlBookmarkEnumKey.al:102, :151).
+        let enum_code = key.len() == 2 && matches!(shape[0], RtType::Enum(_) | RtType::Option(_));
         for &p in key.iter() {
             match &r.fields[p] {
                 Value::Code(c) => {
@@ -503,17 +507,37 @@ impl Session {
                     if !s.is_ascii() {
                         return unsupported("GetUrl bookmark of a Code value with a non-ASCII character (not pinned)");
                     }
-                    if s.is_empty() && key.len() > 1 && !two_codes {
+                    if s.is_empty() && key.len() > 1 && !two_codes && !enum_code {
                         return unsupported("GetUrl bookmark of an empty Code in a two-field key (not pinned)");
                     }
                     // A non-empty Code is marked 0xff, an empty one 0x00 (TGetUrl.al:446-447 `two second empty`,
-                    // `two first empty`).
-                    data.extend_from_slice(&[0x02, 0x7b, if s.is_empty() { 0x00 } else { 0xff }]);
+                    // `two first empty`). A Code of six digits is marked 0x06 (GetUrlBookmarkEnumKey.al:149-150
+                    // `order 106001`); a Code that starts with a digit in another form is not pinned.
+                    let marker = if s.is_empty() {
+                        0x00
+                    } else if s.starts_with(|c: char| c.is_ascii_digit()) {
+                        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
+                            return unsupported(
+                                "GetUrl bookmark of a Code value that starts with a digit (pinned only for six digits)",
+                            );
+                        }
+                        0x06
+                    } else {
+                        0xff
+                    };
+                    data.extend_from_slice(&[0x02, 0x7b, marker]);
                     for b in s.bytes() {
                         data.extend_from_slice(&[b, 0]);
                     }
                     data.extend_from_slice(&[0, 0]);
                     size += 5 + 2 * s.len();
+                }
+                // An Enum field is marked 0x8b and carries the value's number, an Option field its ordinal
+                // (GetUrlBookmarkEnumKey.al:99-104 `fifth A1` = 5, :168-169 `fifth A1` = 2).
+                Value::Enum(_, n) | Value::Option(n, _) => {
+                    data.extend_from_slice(&[0x00, 0x8b]);
+                    data.extend_from_slice(&n.to_le_bytes());
+                    size += 6;
                 }
                 Value::Integer(n) => {
                     data.extend_from_slice(&[0x00, 0x87]);

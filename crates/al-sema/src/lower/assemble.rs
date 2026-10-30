@@ -566,7 +566,17 @@ pub(crate) fn build_shared<'a>(
             continue;
         }
         let obj = ws.object_ast(oi);
-        let l = crate::reports::layout(&obj);
+        let mut l = crate::reports::layout(&obj);
+        // The layouts a reportextension adds refuse a run that renders output, as the report's own do.
+        for &e in changing.get(&oi).into_iter().flatten() {
+            if let Some(el) = ext_layouts[e].as_ref() {
+                l.output.extend(
+                    el.output
+                        .iter()
+                        .map(|w| format!("reportextension \"{}\": {w}", ws.objects[e].name)),
+                );
+            }
+        }
         let mut slots = HashMap::default();
         for i in &l.items {
             let next = slots.len();

@@ -1284,6 +1284,9 @@ impl Session {
             if empty_view && self.update_on_empty_list_view(st)? {
                 return Ok(Value::Null);
             }
+            if self.update_on_untouched_draft_row(st)? {
+                return Ok(Value::Null);
+            }
             if let Some(shape) = empty {
                 if self.empty_page_after_action(st, shape)? {
                     return Ok(Value::Null);
@@ -1681,6 +1684,76 @@ impl Session {
             s.refresh = false;
             s.refresh_by_update = false;
             s.refresh_update_false = false;
+        }
+        self.page_first_row(st)?;
+        Ok(true)
+    }
+
+    /// After an action on a list opened for view that stands on the draft row New() started below its first row, untouched,
+    /// and called `CurrPage.Update(false)`: the client drops the draft and stands on the first row again, which it reads as
+    /// when it opens, and stores nothing (pages/lt-sc-update-empty-row/ScUpdateEmptyRow.al:215-241
+    /// OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ; agcr id=0 count=2 ; before id=0 ; after id=0 ; agcr id=1
+    /// count=2`, `rows after` 2). Pinned for a top-level list without OnFindRecord/OnNextRecord whose draft was started on the
+    /// first row of the view. Update(true), or a draft started on another row, is refused; an action without Update goes on as
+    /// before.
+    fn update_on_untouched_draft_row(&mut self, st: &St) -> Result<bool, Signal> {
+        let (shape, update_false, anchor) = {
+            let s = st.borrow();
+            (
+                s.open
+                    && s.host.is_none()
+                    && s.parts.is_empty()
+                    && s.refresh
+                    && s.refresh_by_update
+                    && s.cursor == Cursor::NewLine
+                    && s.draft
+                    && !s.dirty
+                    && s.mode == PageMode::View,
+                s.refresh_update_false,
+                s.after_new.clone(),
+            )
+        };
+        if !(shape
+            && self.is_list(st)
+            && self.has_source(st)
+            && !self.is_request_page(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord"))
+        {
+            return Ok(false);
+        }
+        if self.view_row_count(st)? == 0 {
+            return Ok(false);
+        }
+        let first = {
+            let rec = self.page_rec(st);
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            match self.record_op(RecordOp::FindFirst, &probe, &mut [])? {
+                Value::Boolean(true) => Some(self.row_key(&probe)?),
+                _ => None,
+            }
+        };
+        let on_first = match (anchor, first) {
+            (Some(a), Some(f)) => {
+                let table = self.table(&self.page_rec(st))?;
+                Self::same_key(&table.primary_key(&a), &f)
+            }
+            _ => false,
+        };
+        if !update_false || !on_first {
+            return unsupported(
+                "CurrPage.Update on an untouched new row of a list opened for view (pinned only for Update(false) on a row started below the first row)",
+            );
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+            s.draft = false;
+            s.new_by_call = false;
+            s.after_new = None;
         }
         self.page_first_row(st)?;
         Ok(true)

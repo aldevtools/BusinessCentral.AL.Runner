@@ -455,7 +455,7 @@ pub(crate) fn is_stmt(k: SyntaxKind) -> bool {
 ///   pinned by xml/XmlDocReadWrite.al:215-217 and :399-406, what `ReadFrom` then reads by misc/W4XmlJsonHttp.al:18-19
 ///   (ReadFrom_InnerWhitespace, _WhitespaceAroundTheRoot, _TextContentWhitespace), what `WriteTo` writes by
 ///   xml/TestXmlDocumentWriteToOutStreamContracts.al.
-fn is_property_setter(receiver: &str, name: &str) -> bool {
+pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
     matches!(
         (receiver, name),
         ("FieldRef" | "TestField", "Value")
@@ -494,6 +494,7 @@ fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "TestHttpResponseMessage",
                 "HttpStatusCode" | "ReasonPhrase" | "IsBlockedByEnvironment" | "IsSuccessfulRequest"
             )
+            // network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:24-33,51-53,71
             | ("HttpClient", "Timeout" | "UseServerCertificateValidation" | "UseResponseCookies")
             | ("File", "TextMode" | "WriteMode")
             | ("DataTransfer", "UpdateAuditFields")

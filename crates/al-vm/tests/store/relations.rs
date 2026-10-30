@@ -295,3 +295,48 @@ fn validate_calculates_a_flowfield_named_by_an_arm_condition() {
     );
     assert_eq!(text(r), "ONLYA|ONLYB");
 }
+
+// record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140: a condition `const("Enum"::Value)` on an Enum field
+// of the field's own enum selects its arm as `const(Value)` does. An enum other than the field's is not pinned.
+#[test]
+fn an_enum_qualified_const_condition_selects_its_arm() {
+    let src = r#"
+enum 91240 "LT SC Std" { Extensible = true; value(0; A) { } value(1; B) { } value(2; C) { } }
+enum 91245 "LT SC Other" { value(0; A) { } }
+table 91241 "LT SC Rel A" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+table 91242 "LT SC Rel B" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+table 91243 "LT SC Rel Host"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Standard; Enum "LT SC Std") { }
+        field(3; Kind; Enum "LT SC Std") { }
+        field(4; Bic; Text[50]) { TableRelation = if (Standard = const("LT SC Std"::A)) "LT SC Rel A".Code else if (Kind = const("LT SC Std"::B)) "LT SC Rel B".Code; }
+        field(5; Other; Text[50]) { TableRelation = if (Standard = const("LT SC Other"::A)) "LT SC Rel A".Code; }
+    }
+    keys { key(PK; Id) { } }
+}
+codeunit 50100 C
+{
+    [TryFunction]
+    local procedure V(S: Enum "LT SC Std"; K: Enum "LT SC Std"; Value: Text)
+    var H: Record "LT SC Rel Host";
+    begin H.Standard := S; H.Kind := K; H.Validate(Bic, Value); end;
+    local procedure T(S: Enum "LT SC Std"; K: Enum "LT SC Std"; Value: Text): Text
+    begin if V(S, K, Value) then exit('ok'); exit('no'); end;
+    procedure F(): Text
+    var A: Record "LT SC Rel A"; B: Record "LT SC Rel B";
+    begin
+        A.Code := 'AA'; A.Insert(); B.Code := 'BB'; B.Insert();
+        exit(T("LT SC Std"::A, "LT SC Std"::B, 'AA') + T("LT SC Std"::A, "LT SC Std"::B, 'BB') + T("LT SC Std"::C, "LT SC Std"::B, 'BB')
+            + T("LT SC Std"::C, "LT SC Std"::B, 'AA') + T("LT SC Std"::B, "LT SC Std"::A, 'ZZ'));
+    end;
+    procedure G()
+    var H: Record "LT SC Rel Host";
+    begin H.Validate(Other, 'AA'); end;
+}
+"#;
+    assert_eq!(text(al_testkit::run(src, "F")), "oknooknook");
+    assert!(matches!(al_testkit::run(src, "G"), Err(Signal::Unsupported(_))));
+}

@@ -603,6 +603,7 @@ fn data_item_row(
     if let Some(text) = &item.view {
         let mut where_text = None;
         let mut descending = false;
+        let mut ascending = false;
         for (word, inner) in view_segments(text).map_err(|e| format!("{}: {e}", what()))? {
             match word.as_str() {
                 "sorting" => {
@@ -614,6 +615,8 @@ fn data_item_row(
                     ));
                 }
                 "order" if inner.trim().eq_ignore_ascii_case("descending") => descending = true,
+                // An explicit `order(ascending)` writes ORDER(0) (ScReportMetadataViews.al:89).
+                "order" if inner.trim().eq_ignore_ascii_case("ascending") => ascending = true,
                 "order" => return Err(format!("{}: order({}) is not pinned", what(), inner.trim())),
                 "where" => where_text = Some(inner),
                 other => return Err(format!("{}: `{other}` in the view is not pinned", what())),
@@ -621,6 +624,8 @@ fn data_item_row(
         }
         if descending {
             view.push("ORDER(1)".into());
+        } else if ascending {
+            view.push("ORDER(0)".into());
         }
         if let Some(w) = where_text {
             view.push(where_const(table, c.full, &w).map_err(|e| format!("{}: where({w}): {e}", what()))?);
@@ -633,28 +638,44 @@ fn data_item_row(
 
 /// `WHERE(Field1=0(1))` for the single `field = const(value)` condition of an Integer field: the Report Data Items
 /// table writes the filter type number (0 for a const) in front of the value, unlike a page's source table view
-/// (report/lt-y-report-props/YReportExt.al:231, misc/lt-probes-needed-3/PnC21Metadata.al:206, :218). Other field
-/// types are not pinned for this table (an option member's ordinal or name, an enum, text).
+/// (report/lt-y-report-props/YReportExt.al:231, misc/lt-probes-needed-3/PnC21Metadata.al:206, :218). On a Code field
+/// `const('')` is `0()` and `filter('A*|B')` is `1(A*|B)` (report/lt-sc-report-metadata-views/ScReportMetadataViews.al:88,
+/// :90). Other values and field types are not pinned for this table (an option member's ordinal or name, an enum, text).
 fn where_const(table: &Table, _objects: &al_ir::Objects, inner: &str) -> Result<String, String> {
     let (field, rest) = inner.split_once('=').ok_or("not a field = const(value)")?;
-    let rest = rest.trim();
-    let lower = rest.to_ascii_lowercase();
-    let value = lower
-        .strip_prefix("const(")
-        .and_then(|_| rest[6..].strip_suffix(')'))
-        .ok_or("only const(value) is pinned")?
-        .trim();
     let name = ident(field);
     let f = table
         .fields
         .iter()
         .find(|f| f.name.eq_ignore_ascii_case(&name))
         .ok_or("no such field")?;
-    match &f.ty {
-        RtType::Integer | RtType::BigInteger if value.parse::<i64>().is_ok() => {
-            Ok(format!("WHERE(Field{}=0({value}))", f.id))
+    where_condition(f.id, &f.ty, rest)
+}
+
+/// `WHERE(...)` for field `id` of type `ty` and the condition text after `=` (see `where_const`).
+fn where_condition(id: u32, ty: &RtType, rest: &str) -> Result<String, String> {
+    let rest = rest.trim();
+    let lower = rest.to_ascii_lowercase();
+    let (kind, value) = match (lower.strip_prefix("const("), lower.strip_prefix("filter(")) {
+        (Some(_), _) => (0, rest[6..].strip_suffix(')')),
+        (_, Some(_)) => (1, rest[7..].strip_suffix(')')),
+        _ => (0, None),
+    };
+    let value = value.ok_or("only const(value) or filter(text) is pinned")?.trim();
+    // A single-quoted literal without inner quotes.
+    let literal = value
+        .strip_prefix('\'')
+        .and_then(|v| v.strip_suffix('\''))
+        .filter(|v| !v.contains('\''));
+    match (ty, kind) {
+        (RtType::Integer | RtType::BigInteger, 0) if value.parse::<i64>().is_ok() => {
+            Ok(format!("WHERE(Field{id}=0({value}))"))
         }
-        _ => Err("only a number on an Integer field is pinned".into()),
+        (RtType::Code(_), 0) if literal == Some("") => Ok(format!("WHERE(Field{id}=0())")),
+        (RtType::Code(_), 1) if literal.is_some_and(|l| !l.is_empty()) => {
+            Ok(format!("WHERE(Field{id}=1({}))", literal.unwrap_or_default()))
+        }
+        _ => Err("only a number on an Integer field, const('') and a filter literal on a Code field are pinned".into()),
     }
 }
 
@@ -694,5 +715,39 @@ mod data_item_id_tests {
                 1792377636, 589499809, 1227196426, 120712215, 758408832, 1167510851, 1369927887
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use al_builtins::value::RtType;
+
+    // report/lt-sc-report-metadata-views/ScReportMetadataViews.al:86-90.
+    #[test]
+    fn the_where_of_a_code_field_writes_const_blank_and_a_filter_literal() {
+        assert_eq!(
+            super::where_condition(1, &RtType::Code(Some(20)), "const('')").unwrap(),
+            "WHERE(Field1=0())"
+        );
+        assert_eq!(
+            super::where_condition(1, &RtType::Code(Some(20)), "filter('A*|B')").unwrap(),
+            "WHERE(Field1=1(A*|B))"
+        );
+        assert_eq!(
+            super::where_condition(3, &RtType::Integer, "const(5)").unwrap(),
+            "WHERE(Field3=0(5))"
+        );
+        // Not pinned: another const of a Code field, a filter of an Integer field.
+        assert!(super::where_condition(1, &RtType::Code(Some(20)), "const('X')").is_err());
+        assert!(super::where_condition(3, &RtType::Integer, "filter('1..5')").is_err());
+    }
+
+    #[test]
+    fn the_data_item_ids_of_the_views_probe() {
+        let ids: Vec<i32> = ["EmptyCode", "Ascending", "Filtered"]
+            .iter()
+            .map(|n| super::data_item_id(n).unwrap())
+            .collect();
+        assert_eq!(ids, [57155483, 1027492269, 1968063604]);
     }
 }

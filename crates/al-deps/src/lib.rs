@@ -10,6 +10,7 @@ pub mod build;
 pub mod cache;
 pub mod demo;
 pub mod lazy;
+pub mod license;
 pub mod load;
 pub mod package;
 pub mod remote;
