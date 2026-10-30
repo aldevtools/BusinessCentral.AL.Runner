@@ -15,6 +15,7 @@
 //   {"t":"h","v":12,"type":"System.IO.MemoryStream"}   object held here
 //   {"t":"ins","v":"<base64>"}             AL InStream: the unread bytes
 //   {"t":"outs"}                           AL OutStream: becomes a bridge stream
+//   {"t":"outs","v":"<base64>"}            AL OutStream over a Blob that holds these bytes: the bridge starts with them
 using System.Globalization;
 using System.Text.Json.Nodes;
 
@@ -97,9 +98,12 @@ public sealed class Marshaller
             }
             case "outs":
             {
-                var ms = new MemoryStream();
+                // An OutStream over bytes AL already wrote: BC hands .NET the Blob's own stream, which reads, writes and
+                // seeks, standing at the end of the bytes (al-runner issue 6317, corpus lt-wd-dotnet/WdZipArchiveOverOutStream.al).
+                var seed = o["v"] is JsonNode sv ? Convert.FromBase64String(sv.GetValue<string>()) : Array.Empty<byte>();
+                var ms = seed.Length == 0 ? new MemoryStream() : new SeededBridge(seed);
                 long id = nextBridge++;
-                bridges[id] = (ms, 0);
+                bridges[id] = (ms, seed.Length);
                 NewBridges.Add((index, id));
                 return ms;
             }
@@ -166,6 +170,30 @@ public sealed class Marshaller
 
 /// A request this process cannot serve: type or member not found, no matching overload. It is
 /// reported as a refusal, not as an exception of the code under test (ADR-014 section 7).
+/// A bridge that starts with the bytes the AL Blob holds, positioned at their end. The host appends only what is written after
+/// them, so a write over them (or a shorter length) is refused: what BC's Blob then holds is not pinned.
+public sealed class SeededBridge : MemoryStream
+{
+    readonly int seeded;
+
+    public SeededBridge(byte[] seed)
+    {
+        base.Write(seed, 0, seed.Length);
+        seeded = seed.Length;
+    }
+
+    void Check(long at)
+    {
+        if (at < seeded)
+            throw new Refusal("a .NET write over the bytes an AL OutStream held before the call (what the Blob then holds is not pinned)");
+    }
+
+    public override void Write(byte[] buffer, int offset, int count) { if (count > 0) Check(Position); base.Write(buffer, offset, count); }
+    public override void Write(ReadOnlySpan<byte> buffer) { if (buffer.Length > 0) Check(Position); base.Write(buffer); }
+    public override void WriteByte(byte value) { Check(Position); base.WriteByte(value); }
+    public override void SetLength(long value) { Check(value); base.SetLength(value); }
+}
+
 public sealed class Refusal : Exception
 {
     public Refusal(string message) : base(message) { }
