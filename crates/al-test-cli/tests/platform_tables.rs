@@ -2551,7 +2551,8 @@ codeunit 50000 "T" { Subtype = Test;
 ///   Delete blank (:94-117); Limited Usage is not read there and stays unknown. Page at 2000000000 and 2000000001 differs
 ///   by major (:103-115) and is refused.
 ///
-/// Other Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
+/// TableData and Table at eight numbers of the ISV and customer ranges are pinned (lt-ss1030/SsLicensePermissionObjects.al:56-87,
+/// corpus PR 852). Other Table, Report, Codeunit and Page numbers from 1 to 99999999 are assumed (`license-permission-any-object`); 1999999999
 /// is a blank row, so the assumption stops at the highest number pinned `Yes` below it (Codeunit 99999999,
 /// AgLicensePermission.al:43-67). Other numbers, other types and a negative number stay refused.
 const ISSUE_6214_OBJECTS: &str = "
@@ -2649,7 +2650,25 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Table, 70012345);
+        if Describe(ObjType::Table, 70012345) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::Table, 70012345));
+    end;
+
+    [Test]
+    procedure IsvTableDataNumbers()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::TableData, 70000500) + '|' + Describe(ObjType::TableData, 99999999) <> 'R=Yes I=Yes M=Yes D=Yes X=Yes|R=Yes I=Yes M=Yes D=Yes X=Yes' then
+            Error('got %1', Describe(ObjType::TableData, 70000500));
+    end;
+
+    [Test]
+    procedure OtherTableDataNumber()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::TableData, 70012345);
     end;
 
     [Test]
@@ -2677,13 +2696,15 @@ fn issue_6214_license_permission_of_any_object_number() {
         "OtherNumberOfTheIsvRange",
         "PinnedUnusedNumbers",
         "TopOfTheRange",
+        "OtherTableNumber",
+        "IsvTableDataNumbers",
     ] {
         passes(&o, t);
     }
     for t in [
         "PageAtTheTop",
         "BetweenTheRanges",
-        "OtherTableNumber",
+        "OtherTableDataNumber",
         "OtherXmlPortNumber",
         "NegativeNumber",
     ] {
