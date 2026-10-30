@@ -4329,11 +4329,6 @@ impl Session {
                     }
                     pk = crate::sqltime::rounded_key(&pk);
                 }
-                if self.engine.program.objects[t.object as usize].id == Some(2_000_000_164) {
-                    if let Some(why) = pk.first().and_then(crate::platform::time_zone_get_refusal) {
-                        return unsupported(why);
-                    }
-                }
                 match self
                     .store_for(rec)
                     .get(&cx, &t, &pk)

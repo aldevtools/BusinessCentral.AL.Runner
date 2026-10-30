@@ -56,10 +56,11 @@ before you open a source file.
 - Build once in release and use the binary: `cargo build --release`, then
   `./target/release/al-test-cli --root .` (add `--junit FILE` for per-test
   outcomes and refusal reasons).
-- After making corpus cases pass: `./target/release/al-test-cli --root .
-  --update-baseline` and commit `metrics/<major>/passing.txt` with the code (add `--bc-version
-  N` for another BC major; the default is the newest). The update refuses while
-  any baseline case regresses.
+- Do not regenerate `metrics/<major>/passing*.txt`, the coverage maps (`docs/corpus-coverage.*`,
+  `docs/corpus-behavior-coverage.*`) or the table in `docs/probes-needed.md` in a feature PR: after
+  each merge to `main`, the regen bot (`.github/workflows/regen-bot.yml`) adds the new passes from
+  main's CI run and pushes them. PR CI still fails a PR that loses a baseline case. Baseline lines
+  are only ever added by the bot; removing one stays a human decision (hard rule 2).
 - **Fast loop** (a full run takes about 20 s with Microsoft's apps and `check.sh` minutes; do not
   iterate on either). `./target/release/al-test-cli --help` lists every flag.
   1. Rank what is refused: `al-test-cli --root . --top-refusals 15` (add `--top-refusals-area record`
