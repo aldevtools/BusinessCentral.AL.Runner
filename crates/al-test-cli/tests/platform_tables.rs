@@ -498,6 +498,24 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
     }
 }
 
+// Windows Language ids the corpus pins as no row: 1, 127 and 4096 (errors/lt-ms-refusals-129/P129WindowsLanguage.al:63-96),
+// 1, 2, 7, 9, 10 and 12 (errors/lt-ms-refusals-137/P137WindowsLanguage.al:24-54). Get of one of them is false; an id next to
+// them (3, 4095) is still refused.
+#[test]
+fn windows_language_get_of_a_pinned_absent_id_is_false() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Absent() var W: Record "Windows Language"; begin if W.Get(1) then Error('1'); if W.Get(2) then Error('2'); if W.Get(7) then Error('7'); if W.Get(9) then Error('9'); if W.Get(10) then Error('10'); if W.Get(12) then Error('12'); if W.Get(127) then Error('127'); if W.Get(4096) then Error('4096'); end;
+  [Test] procedure NextToAbsent() var W: Record "Windows Language"; begin if W.Get(3) then; end;
+  [Test] procedure Below4096() var W: Record "Windows Language"; begin if W.Get(4095) then; end; }"#,
+    );
+    passes(&o, "Absent");
+    for t in ["NextToAbsent", "Below4096"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("whether language"), "{t}: {why}");
+    }
+}
+
 // License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
 // platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
