@@ -159,7 +159,7 @@ pub const DIMENSIONS: &[Dimension] = &[
     ),
 ];
 
-/// The matrix axes of the config (ADR-058 section 3). None is built yet in this version.
+/// The matrix axes of the config (ADR-058 section 3).
 pub const MATRIX_AXES: &[&str] = &["bcVersion", "country", "environment", "companies"];
 
 /// The dimension of the registry with this name (exact, as the config spells it).
@@ -359,6 +359,9 @@ pub struct Perturb {
     pub identity: al_host::IdentityOverrides,
     /// `company.name`: the session company's name (no test data).
     pub company_name: Option<String>,
+    /// The `environment` matrix axis: the server kind of the cell (ADR-058 section 3). `None`: the run's own
+    /// (`--environment`).
+    pub environment: Option<al_host::Environment>,
 }
 
 impl Perturb {
@@ -404,6 +407,9 @@ impl Perturb {
         }
         if let Some(t) = &self.company_name {
             k.push(format!("company={t}"));
+        }
+        if let Some(e) = self.environment {
+            k.push(format!("environment={}", environment_text(e)));
         }
         k.join(";")
     }
@@ -453,9 +459,142 @@ pub struct Selection {
     pub exclude_tests: Vec<String>,
 }
 
+/// The matrix axes of a config (ADR-058 section 3). An empty list: the axis is not named, the run's own value holds.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MatrixAxes {
+    /// `bcVersion`: the versions as given (`29.0`, `29`, a full build); the run resolves each as `--bc-version` does.
+    pub bc_versions: Vec<String>,
+    /// `country`: country codes, lower case.
+    pub countries: Vec<String>,
+    /// `environment`: the server kinds. Cells that differ only here share one compile (ADR-058 section 3).
+    pub environments: Vec<al_host::Environment>,
+    /// `companies`: each value as `--companies` takes it (`A,B` or `all`); `None` is the default, one company.
+    pub companies: Vec<Option<String>>,
+}
+
+impl MatrixAxes {
+    /// Whether no axis is named.
+    pub fn is_empty(&self) -> bool {
+        self.bc_versions.is_empty()
+            && self.countries.is_empty()
+            && self.environments.is_empty()
+            && self.companies.is_empty()
+    }
+
+    /// Whether an axis is named whose cells cannot share a compile or a process: version, country, companies
+    /// (ADR-058 section 3; each such cell is one child process, as a matrix run of ADR-052).
+    pub fn has_child_axes(&self) -> bool {
+        !self.bc_versions.is_empty() || !self.countries.is_empty() || !self.companies.is_empty()
+    }
+}
+
+/// The text of an environment as the config and the cell names write it.
+pub fn environment_text(e: al_host::Environment) -> &'static str {
+    match e {
+        al_host::Environment::Saas => "saas",
+        al_host::Environment::OnPrem => "onprem",
+    }
+}
+
+/// Reads the `matrix` object of a config.
+fn parse_matrix(m: &Json) -> Result<MatrixAxes, String> {
+    let Some(m) = m.as_object() else {
+        return Err("\"matrix\" must be an object".into());
+    };
+    let mut axes = MatrixAxes::default();
+    for (axis, v) in m {
+        if !MATRIX_AXES.contains(&axis.as_str()) {
+            return Err(format!(
+                "\"{axis}\" is not a matrix axis (known: {})",
+                MATRIX_AXES.join(", ")
+            ));
+        }
+        let Some(list) = v.as_array() else {
+            return Err(format!("the matrix axis \"{axis}\" takes a list of values"));
+        };
+        if list.is_empty() {
+            return Err(format!("the matrix axis \"{axis}\" has no values"));
+        }
+        let text = |j: &Json, what: &str| -> Result<String, String> {
+            j.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("the matrix axis \"{axis}\" takes {what}, not {j}"))
+        };
+        let mut keys: Vec<String> = Vec::new();
+        for j in list {
+            let key = match axis.as_str() {
+                "bcVersion" => {
+                    let t = text(j, "a BC version as a string such as \"29.0\"")?;
+                    let ok = !t.is_empty()
+                        && t.split('.')
+                            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+                        && t.split('.').count() <= 4;
+                    if !ok {
+                        return Err(format!(
+                            "the matrix axis \"bcVersion\" takes a BC version such as \"29.0\", not \"{t}\""
+                        ));
+                    }
+                    axes.bc_versions.push(t.clone());
+                    t
+                }
+                "country" => {
+                    let t = text(j, "a country code such as \"w1\"")?;
+                    let c = al_deps::artifact::normalize_country(&t)
+                        .map_err(|e| format!("the matrix axis \"country\": {e}"))?;
+                    axes.countries.push(c.clone());
+                    c
+                }
+                "environment" => {
+                    let t = text(j, "\"saas\" or \"onprem\"")?;
+                    let e: al_host::Environment =
+                        t.parse().map_err(|e| format!("the matrix axis \"environment\": {e}"))?;
+                    axes.environments.push(e);
+                    environment_text(e).to_string()
+                }
+                _ => {
+                    // `companies`: null (one company, the default), `"all"`, `"A,B"` or `["A", "B"]`.
+                    let value = match j {
+                        Json::Null => None,
+                        Json::String(s) => Some(s.clone()),
+                        Json::Array(names) => {
+                            let names: Option<Vec<&str>> = names.iter().map(Json::as_str).collect();
+                            let names = names.ok_or_else(|| {
+                                format!("the matrix axis \"companies\" takes lists of company names, not {j}")
+                            })?;
+                            if names.iter().any(|n| n.contains(',')) {
+                                return Err(format!(
+                                    "the matrix axis \"companies\": a company name with a comma cannot be given to --companies ({j})"
+                                ));
+                            }
+                            Some(names.join(","))
+                        }
+                        _ => {
+                            return Err(format!(
+                                "the matrix axis \"companies\" takes null, \"all\" or a list of company names, not {j}"
+                            ));
+                        }
+                    };
+                    if let Some(v) = &value {
+                        al_host::Companies::parse(v).map_err(|e| format!("the matrix axis \"companies\": {e}"))?;
+                    }
+                    axes.companies.push(value.clone());
+                    value.unwrap_or_default()
+                }
+            };
+            if keys.contains(&key) {
+                return Err(format!("the matrix axis \"{axis}\" names {j} twice"));
+            }
+            keys.push(key);
+        }
+    }
+    Ok(axes)
+}
+
 /// A parsed and checked config.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
+    /// The matrix axes (ADR-058 section 3); empty when the config names none.
+    pub matrix: MatrixAxes,
     /// In registry order ([`DIMENSIONS`]).
     pub dimensions: Vec<(String, Values)>,
     pub strategy: Strategy,
@@ -506,23 +645,10 @@ pub fn parse_config(text: &str) -> Result<Config, String> {
         }
         None => return Err("the stability config needs \"format\": 1".into()),
     }
-    if let Some(m) = obj.get("matrix") {
-        let Some(m) = m.as_object() else {
-            return Err("\"matrix\" must be an object".into());
-        };
-        if let Some(axis) = m.keys().next() {
-            if MATRIX_AXES.contains(&axis.as_str()) {
-                return Err(format!(
-                    "the matrix axis \"{axis}\" is not built yet in this version of the stability mode; use \
-                     --bc-version, --country or --environment on the command line for one cell"
-                ));
-            }
-            return Err(format!(
-                "\"{axis}\" is not a matrix axis (known: {})",
-                MATRIX_AXES.join(", ")
-            ));
-        }
-    }
+    let matrix = match obj.get("matrix") {
+        Some(m) => parse_matrix(m)?,
+        None => MatrixAxes::default(),
+    };
     let mut dimensions = Vec::new();
     if let Some(d) = obj.get("dimensions") {
         let Some(d) = d.as_object() else {
@@ -626,6 +752,7 @@ pub fn parse_config(text: &str) -> Result<Config, String> {
         }
     }
     Ok(Config {
+        matrix,
         dimensions,
         strategy,
         master_seed,
@@ -1247,12 +1374,71 @@ mod tests {
     fn unknown_names_unbuilt_dimensions_and_matrix_axes_are_refused() {
         assert!(refused(r#"{"format":1,"dimensions":{"clock.weather":["x"]}}"#).contains("not a known"));
         assert!(refused(r#"{"format":1,"dimensions":{"numberSeries.offset":[2]}}"#).contains("not built yet"));
-        assert!(refused(r#"{"format":1,"matrix":{"bcVersion":["29.0"]}}"#).contains("not built yet"));
         assert!(refused(r#"{"format":1,"matrix":{"planet":["x"]}}"#).contains("not a matrix axis"));
         assert!(refused(r#"{"format":1,"colour":1}"#).contains("unknown field"));
         assert!(refused(r#"{"format":2}"#).contains("format 2"));
         assert!(refused(r#"{"dimensions":{}}"#).contains("format"));
         assert!(refused("not json").contains("not valid JSON"));
+    }
+
+    /// ADR-058 section 3, phase 3: the matrix axes of a config, each a list of values, checked before anything runs.
+    #[test]
+    fn matrix_axes_are_read_and_bad_values_are_refused() {
+        let c = cfg(
+            r#"{"format":1,"matrix":{"bcVersion":["28.5","29.0"],"country":["w1","US"],"environment":["saas","onprem"],"companies":[null,["CRONUS International Ltd.","Second"],"all"]}}"#,
+        );
+        assert_eq!(c.matrix.bc_versions, vec!["28.5", "29.0"]);
+        assert_eq!(c.matrix.countries, vec!["w1", "us"]);
+        assert_eq!(
+            c.matrix.environments,
+            vec![al_host::Environment::Saas, al_host::Environment::OnPrem]
+        );
+        assert_eq!(
+            c.matrix.companies,
+            vec![
+                None,
+                Some("CRONUS International Ltd.,Second".to_string()),
+                Some("all".to_string())
+            ]
+        );
+        assert!(c.matrix.has_child_axes());
+        assert!(c.dimensions.is_empty());
+        let only_env = cfg(r#"{"format":1,"matrix":{"environment":["onprem"]}}"#);
+        assert!(!only_env.matrix.has_child_axes());
+        assert!(cfg(r#"{"format":1}"#).matrix.is_empty());
+        for (text, want) in [
+            (r#"{"format":1,"matrix":{"bcVersion":[]}}"#, "has no values"),
+            (r#"{"format":1,"matrix":{"bcVersion":["29.0","29.0"]}}"#, "twice"),
+            (r#"{"format":1,"matrix":{"bcVersion":[29.0]}}"#, "a BC version"),
+            (r#"{"format":1,"matrix":{"bcVersion":["next"]}}"#, "a BC version"),
+            (r#"{"format":1,"matrix":{"country":["w-1"]}}"#, "not a country code"),
+            (r#"{"format":1,"matrix":{"environment":["cloud"]}}"#, "environment"),
+            (
+                r#"{"format":1,"matrix":{"companies":[["A",""]]}}"#,
+                "empty company name",
+            ),
+            (r#"{"format":1,"matrix":{"companies":[null,null]}}"#, "twice"),
+            (r#"{"format":1,"matrix":{"country":"w1"}}"#, "a list"),
+        ] {
+            let e = refused(text);
+            assert!(e.contains(want), "{text}: {e}");
+        }
+    }
+
+    /// The environment of a cell is a host value its install baseline is built under (ADR-058 section 3: cells that
+    /// differ only in `environment` share the compile, each with its own install baseline).
+    #[test]
+    fn the_environment_of_a_cell_is_a_host_value() {
+        let p = Perturb {
+            environment: Some(al_host::Environment::OnPrem),
+            ..Default::default()
+        };
+        assert!(p.host_key().contains("environment=onprem"), "{}", p.host_key());
+        assert!(!p.is_base());
+        let host = crate::host::host_perturbed(Some(0), &p);
+        assert_eq!(host.identity.environment(), al_host::Environment::OnPrem);
+        let host = crate::host::host_perturbed(Some(0), &Perturb::default());
+        assert_eq!(host.identity.environment(), al_host::Environment::Saas);
     }
 
     #[test]
