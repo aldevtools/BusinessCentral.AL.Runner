@@ -414,6 +414,8 @@ impl Session {
                             // P81RecordRefTables.al:137-150 SetTable_ClosedRecordRef_Error; P92Locking.al:38-49.
                             | "SetTable"
                             | "RecordLevelLocking"
+                            // Never opened, Open(0) and closed (recordref/lt-wc/WcRecordRefLockTable.al:89-137), with and without Wait.
+                            | "LockTable"
                     )
                 }) =>
             {
@@ -1075,7 +1077,14 @@ impl Session {
                 let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
                 let locked = self.tx.lock_tx;
                 let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
+                // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
+                // temporary table it starts none (recordref/lt-wc/WcRecordRefLockTable.al:28-87). What else follows from it
+                // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
+                let started = !locked && self.tx.lock_tx;
                 self.lock_through_recordref(locked, "a RecordRef.LockTable");
+                if started {
+                    self.tx.recref_lock_tx = true;
+                }
                 r
             }
             "ReadIsolation" => {

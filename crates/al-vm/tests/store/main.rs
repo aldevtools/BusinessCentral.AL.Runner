@@ -32,6 +32,7 @@ mod record_builtins;
 mod record_is_dirty;
 mod record_ref_into_record;
 mod record_ref_set_table_variant;
+mod record_ref_lock_table_tx;
 mod recordref;
 mod records;
 mod relation_option_blank_const;

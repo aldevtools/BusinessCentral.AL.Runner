@@ -608,7 +608,8 @@ fn a_guarded_run_after_locktable_fails_with_db_ok() {
     );
 }
 
-// Not pinned: a RepeatableRead set without a read, and a RecordRef.LockTable. What IsInWriteTransaction answers is refused.
+// Not pinned: a RepeatableRead set without a read. What IsInWriteTransaction answers is refused. A RecordRef.LockTable on a
+// database table opens the write transaction (recordref/lt-wc/WcRecordRefLockTable.al:28-51).
 #[test]
 fn an_unpinned_lock_shape_refuses_is_in_write_transaction() {
     let m = refused(run("procedure F(): Text var R: Record \"TX T\"; begin
@@ -616,11 +617,13 @@ fn an_unpinned_lock_shape_refuses_is_in_write_transaction() {
             exit(Format(Database.IsInWriteTransaction()));
         end;"));
     assert!(m.contains("not pinned"), "{m}");
-    let m = refused(run("procedure F(): Text var RR: RecordRef; begin
+    assert_eq!(
+        f("var RR: RecordRef; begin
             RR.Open(50900); RR.LockTable();
             exit(Format(Database.IsInWriteTransaction()));
-        end;"));
-    assert!(m.contains("not pinned"), "{m}");
+        end;"),
+        "Yes"
+    );
     // A Commit ends the unpinned state.
     assert_eq!(
         f("var R: Record \"TX T\"; begin
