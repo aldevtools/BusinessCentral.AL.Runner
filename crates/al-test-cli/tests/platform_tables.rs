@@ -785,7 +785,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// "Page Metadata" reads a property as the page's extensions leave it: one extension's value wins over the page's
 /// (pageext/lt-z-page-ext-props/ZPageExtProps.al:629, 685-1110), an extension of another page changes nothing, and two
-/// extensions that set it are not pinned, so the row is refused.
+/// extensions that set it are not pinned, so a read of that column is refused (the rest of the row is served, al-runner issue 6251).
 #[test]
 fn a_page_metadata_property_is_the_one_extension_value_and_two_extensions_are_refused() {
     let o = outcomes(
@@ -801,7 +801,7 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(50002); if M.InsertAllowed then Error('card'); if not M.ModifyAllowed then Error('card modify');
     M.Get(50003); if M.InsertAllowed then Error('other'); end;
   [Test] procedure TwoExtensions() var M: Record "Page Metadata"; begin
-    M.Get(50004); end; }"#,
+    M.Get(50004); if M.Name <> 'Twice' then Error('name'); if M.ModifyAllowed then; end; }"#,
     );
     passes(&o, "OneExtension");
     let why = match o.iter().find(|(n, _)| n == "TwoExtensions").map(|(_, o)| o) {
@@ -2757,15 +2757,18 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
     assert!(why.contains("Time Zone"), "{why}");
 }
 
-/// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (`filter(<option name>)`) leaves only its
+/// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (here three Option members) leaves only its
 /// SourceTableView column unknown. A filtered read that leaves the page out, and a Get of it that reads other columns, are
-/// served; a read of its SourceTableView is still refused (only the shapes in `view_text` are pinned).
+/// served; a read of its SourceTableView is still refused. `filter(<option name>)` reads `FILTER(<ordinal>)`
+/// (lt-ss1030/SsPageMetaFilterView.al:97-113).
 #[test]
 fn page_metadata_serves_the_rows_beside_a_page_whose_view_is_not_pinned() {
     let o = outcomes(
         r#"table 50100 "PM Document" { fields { field(1; "Document Type"; Option) { OptionMembers = Quote,Order,Invoice; } field(2; "No."; Code[20]) { } }
     keys { key(PK; "Document Type", "No.") { Clustered = true; } } }
-page 50100 "PM Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote));
+page 50100 "PM Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote|Order|Invoice));
+    layout { area(Content) { repeater(Lines) { field("No."; Rec."No.") { } } } } }
+page 50102 "PM Only Quotes" { PageType = List; SourceTable = "PM Document"; SourceTableView = where("Document Type" = filter(Quote));
     layout { area(Content) { repeater(Lines) { field("No."; Rec."No.") { } } } } }
 page 50101 "PM Documents API" { PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'document';
     EntitySetName = 'documents'; SourceTable = "PM Document"; DelayedInsert = true;
@@ -2778,11 +2781,42 @@ codeunit 50000 "T" { Subtype = Test;
     M.Get(Page::"PM Quotes"); if M.SourceTable <> Database::"PM Document" then Error('got %1', M.SourceTable); end;
   [Test] procedure ViewRead() var M: Record "Page Metadata"; begin
     M.Get(Page::"PM Quotes"); if M.SourceTableView = '' then Error('empty view'); end;
+  [Test] procedure PinnedViewRead() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Only Quotes"); if M.SourceTableView <> 'WHERE(Field1=FILTER(0))' then Error('got %1', M.SourceTableView); end;
   [Test] procedure FilterOnView() var M: Record "Page Metadata"; begin
     M.SetRange(SourceTable, Database::"PM Document"); M.SetFilter(SourceTableView, '<>%1', ''); if M.FindFirst() then; end; }"#,
     );
     passes(&o, "FilterOnApiPagesOfATable");
     passes(&o, "GetReadsOtherColumns");
-    assert!(not_run(&o, "ViewRead").contains("filter(Quote)"), "{o:?}");
-    assert!(not_run(&o, "FilterOnView").contains("filter(Quote)"), "{o:?}");
+    passes(&o, "PinnedViewRead");
+    assert!(not_run(&o, "ViewRead").contains("filter(Quote|Order|Invoice)"), "{o:?}");
+    assert!(
+        not_run(&o, "FilterOnView").contains("filter(Quote|Order|Invoice)"),
+        "{o:?}"
+    );
+}
+
+/// al-runner issue 6251 follow-up: a page whose PageType is not pinned (System Application's "Power BI Element Addin Host" is a
+/// `UserControlHost`) leaves only its PageType column unknown. A read that filters on PageType and on SourceTable, which the
+/// page does not match, is served; a read of its PageType is refused.
+#[test]
+fn page_metadata_serves_the_rows_beside_a_page_whose_page_type_is_not_pinned() {
+    let o = outcomes(
+        r#"table 50100 "PM Document" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50100 "PM Host" { PageType = UserControlHost; layout { area(Content) { } } }
+page 50101 "PM Documents API" { PageType = API; APIPublisher = 'repro'; APIGroup = 'repro'; APIVersion = 'v1.0'; EntityName = 'document';
+    EntitySetName = 'documents'; SourceTable = "PM Document"; DelayedInsert = true;
+    layout { area(Content) { repeater(Lines) { field(number; Rec."No.") { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure FilterOnApiPagesOfATable() var M: Record "Page Metadata"; begin
+    M.SetRange(PageType, M.PageType::API); M.SetRange(SourceTable, Database::"PM Document"); M.FindFirst();
+    if M.ID <> Page::"PM Documents API" then Error('got %1', M.ID); end;
+  [Test] procedure GetReadsName() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Host"); if M.Name <> 'PM Host' then Error('got %1', M.Name); end;
+  [Test] procedure TypeRead() var M: Record "Page Metadata"; begin
+    M.Get(Page::"PM Host"); if M.PageType = M.PageType::API then Error('api'); end; }"#,
+    );
+    passes(&o, "FilterOnApiPagesOfATable");
+    passes(&o, "GetReadsName");
+    assert!(not_run(&o, "TypeRead").contains("UserControlHost"), "{o:?}");
 }
