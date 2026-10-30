@@ -2230,3 +2230,24 @@ pageextension 50102 X extends P {
     let x = obj("X");
     assert_eq!(body(x, "XBare"), body(x, "XQual"));
 }
+
+/// al-runner issue 6283: a bare `RunModal()` in a page procedure is the page's own `RunModal`, as the bare `LookupMode(true)`
+/// before it is (issue 6021). It lowers to the same IR as the `CurrPage.RunModal()` form (pinned by
+/// pages/lt-wb-6283/WbBareRunModal.al:35-43).
+#[test]
+fn a_bare_run_modal_in_a_page_lowers_as_the_currpage_form() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50100 P {
+    SourceTable = T;
+    procedure Bare(): Boolean begin LookupMode(true); RunModal(); if RunModal() = Action::LookupOK then exit(true); end;
+    procedure Qual(): Boolean begin CurrPage.LookupMode(true); CurrPage.RunModal(); if CurrPage.RunModal() = Action::LookupOK then exit(true); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
+    let p = &l.program.objects[i];
+    let body = |r: &str| format!("{:?}", p.routines.iter().find(|x| x.name == r).unwrap().body);
+    assert_eq!(body("Bare"), body("Qual"));
+}
