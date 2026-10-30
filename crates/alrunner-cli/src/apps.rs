@@ -62,7 +62,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         // The folder's own app.json: it can say more than the package manifest does.
         manifest = al_testrun::runtime::load_manifest(path)?;
         versions = al_testrun::target::read_app_versions(path)?;
-        let text = std::fs::read_to_string(path.join("app.json")).map_err(|e| e.to_string())?;
+        let text = al_deps::load::read_text(&path.join("app.json"))?;
         let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("app.json: {e}"))?;
         symbols = json["preprocessorSymbols"]
             .as_array()
@@ -321,5 +321,37 @@ mod build_choice_tests {
             "{note}"
         );
         assert!(!c.rule.contains("floor no floor"), "{c:?}");
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+
+    /// An app folder whose app.json starts with a UTF-8 byte-order mark and whose `.al` files are UTF-16 LE and BE with a
+    /// byte-order mark: the AL compiler accepts it (alc 17.0.41.14626, checked 2026-10-30; `al_deps::load::decode_text`).
+    #[test]
+    fn an_app_folder_with_a_bom_app_json_and_utf16_sources_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path();
+        let mut json = b"\xef\xbb\xbf".to_vec();
+        json.extend_from_slice(
+            br#"{"id":"BB","name":"Bom","publisher":"P","version":"1.0.0.0","runtime":"14.0","preprocessorSymbols":["X"],"dependencies":[]}"#,
+        );
+        std::fs::write(app.join("app.json"), json).unwrap();
+        let utf16 = |be: bool, s: &str| -> Vec<u8> {
+            let mut out = if be { vec![0xfe, 0xff] } else { vec![0xff, 0xfe] };
+            for u in s.encode_utf16() {
+                out.extend_from_slice(&if be { u.to_be_bytes() } else { u.to_le_bytes() });
+            }
+            out
+        };
+        std::fs::write(app.join("Le.al"), utf16(false, "codeunit 1 Le { }")).unwrap();
+        std::fs::write(app.join("Be.al"), utf16(true, "codeunit 2 Be { }")).unwrap();
+        let input = load(app, None).unwrap();
+        assert_eq!(input.json.name, "Bom");
+        assert_eq!(input.symbols, vec!["X".to_string()]);
+        let texts: Vec<&str> = input.source.files.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(texts, vec!["codeunit 2 Be { }", "codeunit 1 Le { }"]);
     }
 }

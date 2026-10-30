@@ -26,6 +26,69 @@ pub struct AppJson {
     pub dependencies: Vec<DepDecl>,
 }
 
+/// The text of a source or manifest file as the AL compiler reads it: UTF-16 little or big endian when it starts with
+/// that byte-order mark, else UTF-8, with a leading UTF-8 byte-order mark dropped. alc 17.0 accepts all of these for
+/// `app.json` and `.al` files (checked on Linux, 2026-10-30; see `an_app_folder_with_byte_order_marks_and_utf16_sources`).
+/// Text that is not valid in its encoding is an error.
+pub fn decode_text(bytes: &[u8]) -> Result<String, String> {
+    let utf16 = |rest: &[u8], be: bool| -> Result<String, String> {
+        if rest.len() % 2 != 0 {
+            return Err("stream did not contain valid UTF-16: odd number of bytes".into());
+        }
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| {
+                if be {
+                    u16::from_be_bytes([c[0], c[1]])
+                } else {
+                    u16::from_le_bytes([c[0], c[1]])
+                }
+            })
+            .collect();
+        String::from_utf16(&units).map_err(|_| "stream did not contain valid UTF-16".to_string())
+    };
+    match bytes {
+        [0xff, 0xfe, rest @ ..] => utf16(rest, false),
+        [0xfe, 0xff, rest @ ..] => utf16(rest, true),
+        [0xef, 0xbb, 0xbf, rest @ ..] => std::str::from_utf8(rest).map(str::to_string).map_err(|e| e.to_string()),
+        _ => std::str::from_utf8(bytes)
+            .map(str::to_string)
+            .map_err(|e| e.to_string()),
+    }
+}
+
+/// [`decode_text`] of the file at `path`; an error names the path.
+pub fn read_text(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    decode_text(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// [`decode_text`], but bytes that are not valid UTF-8 become U+FFFD instead of an error (the source readers kept that
+/// behavior for UTF-8 files before UTF-16 was read).
+pub fn decode_text_lossy(bytes: &[u8]) -> String {
+    match bytes {
+        [0xff, 0xfe, ..] | [0xfe, 0xff, ..] => decode_text(bytes).unwrap_or_else(|_| {
+            let be = bytes[0] == 0xfe;
+            let units: Vec<u16> = bytes[2..]
+                .chunks(2)
+                .map(|c| {
+                    let pair = [c[0], c.get(1).copied().unwrap_or(0)];
+                    if be {
+                        u16::from_be_bytes(pair)
+                    } else {
+                        u16::from_le_bytes(pair)
+                    }
+                })
+                .collect();
+            String::from_utf16_lossy(&units)
+        }),
+        _ => {
+            let rest = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+            String::from_utf8_lossy(rest).into_owned()
+        }
+    }
+}
+
 /// Parses an `app.json`. Versions are minimums; a missing one is 0.0.0.0.
 pub fn parse_app_json(text: &str) -> Result<AppJson, String> {
     let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -120,8 +183,7 @@ fn read_folder_sources(dir: &Path) -> Result<Sources, String> {
             } else if ext_is(&p, "al") {
                 let rel = p.strip_prefix(dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
                 let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
-                let text = String::from_utf8_lossy(&bytes);
-                out.push((rel, text.strip_prefix('\u{feff}').unwrap_or(&text).to_string()));
+                out.push((rel, decode_text_lossy(&bytes)));
             }
         }
     }
@@ -131,7 +193,7 @@ fn read_folder_sources(dir: &Path) -> Result<Sources, String> {
 
 fn folder_manifest(dir: &Path, vars: &Vars) -> Result<Manifest, String> {
     let p = dir.join("app.json");
-    let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let text = read_text(&p)?;
     manifest_of_source_zip(&text, vars).map_err(|e| format!("{}: {e}", p.display()))
 }
 
@@ -454,9 +516,9 @@ type PackageExtras = (Resources, bool, Option<al_ir::AppLogo>);
 /// time here.
 fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<PackageExtras, String> {
     if !path.is_file() {
-        let declared = std::fs::read_to_string(path.join("app.json"))
+        let declared = read_text(&path.join("app.json"))
             .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(t.trim_start_matches('\u{feff}')).ok())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(|v| v["logo"].as_str().map(String::from));
         return Ok((
             Vec::new(),
@@ -1136,6 +1198,52 @@ mod tests {
         let (found, problems) = scan_path(&dir.path().join("notes.zip"), None);
         assert!(found.is_empty());
         assert_eq!(problems.len(), 1, "{problems:?}");
+    }
+
+    /// An app.json that starts with a UTF-8 byte-order mark, and `.al` files in UTF-16 LE and BE with a byte-order mark
+    /// and in UTF-8 with one: the AL compiler accepts all of them (checked with alc 17.0.41.14626 on Linux, 2026-10-30:
+    /// such a folder compiles, and an unknown name inside the UTF-16 BE file gets AL0118 at its line and column).
+    pub(crate) fn bom_app_folder(app: &Path) {
+        std::fs::create_dir_all(app).unwrap();
+        let mut json = b"\xef\xbb\xbf".to_vec();
+        json.extend_from_slice(br#"{"id":"BB","name":"Bom","publisher":"P","version":"1.0.0.0","dependencies":[]}"#);
+        std::fs::write(app.join("app.json"), json).unwrap();
+        let utf16 = |be: bool, s: &str| -> Vec<u8> {
+            let mut out = if be { vec![0xfe, 0xff] } else { vec![0xff, 0xfe] };
+            for u in s.encode_utf16() {
+                out.extend_from_slice(&if be { u.to_be_bytes() } else { u.to_le_bytes() });
+            }
+            out
+        };
+        std::fs::write(app.join("Le.al"), utf16(false, "codeunit 1 \"L\u{e4}\" { }")).unwrap();
+        std::fs::write(app.join("Be.al"), utf16(true, "codeunit 2 Be { }")).unwrap();
+        let mut u8 = b"\xef\xbb\xbf".to_vec();
+        u8.extend_from_slice(b"codeunit 3 U8 { }");
+        std::fs::write(app.join("U8.al"), u8).unwrap();
+    }
+
+    #[test]
+    fn an_app_folder_with_byte_order_marks_and_utf16_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("bom");
+        bom_app_folder(&app);
+        let (m, sources) = read_package_at(&app).unwrap();
+        assert_eq!(m.name, "Bom");
+        let texts: Vec<(&str, &str)> = sources.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+        assert_eq!(
+            texts,
+            vec![
+                ("Be.al", "codeunit 2 Be { }"),
+                ("Le.al", "codeunit 1 \"L\u{e4}\" { }"),
+                ("U8.al", "codeunit 3 U8 { }")
+            ]
+        );
+        assert_eq!(read_text(&app.join("app.json")).unwrap().chars().next(), Some('{'));
+        // UTF-16 without a byte-order mark, or with an odd byte count, is no UTF-16 text the reader guesses.
+        assert_eq!(decode_text(b"\xff\xfea\x00").unwrap(), "a");
+        assert!(decode_text(b"\xff\xfea").is_err());
+        assert!(decode_text(b"\xff\xfe\x00\xd8").is_err());
+        assert!(decode_text(b"\xc3\x28").is_err());
     }
 
     #[test]

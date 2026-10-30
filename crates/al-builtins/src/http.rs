@@ -467,15 +467,46 @@ fn method(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn set_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let u = text(a, 0)?;
     match checked_uri(c, &u)? {
-        Some(n) => with_request(r, |s| s.uri = Some(n)).map(|()| Value::Boolean(true)),
+        Some(n) => with_request(r, |s| {
+            s.uri = Some(n);
+            s.uri_secret = false;
+        })
+        .map(|()| Value::Boolean(true)),
         None => Ok(Value::Boolean(false)),
     }
 }
 
+/// `GetRequestUri` of a request whose uri is secret reads empty; a plain uri set over a secret one reads back
+/// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:79, :110, :113).
 fn get_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    Ok(Value::Text(
-        with_request(r, |s| s.uri.clone())?.unwrap_or_default().into(),
-    ))
+    let uri = with_request(r, |s| if s.uri_secret { None } else { s.uri.clone() })?;
+    Ok(Value::Text(uri.unwrap_or_default().into()))
+}
+
+/// `SetSecretRequestUri(SecretText)` answers whether the uri is valid and keeps a valid one as the request's secret uri. The forms
+/// the corpus pins agree with `SetRequestUri`: empty, `not a uri` and a rooted path answer false; `ftp://`, `https://` with a
+/// port, user info, a fragment or no path answer true; the method stays (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:
+/// 118-158 SecretUri_InvalidValues, :160-192 SecretUri_Variants, :194-207 SecretUri_Method_Unchanged). A statement with an
+/// invalid uri is not pinned (refused), nor is a form `SetRequestUri` itself has not measured.
+fn set_secret_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let (u, _) = text_or_secret(a, 0)?;
+    match normalize_uri(&u) {
+        Ok(n) => with_request(r, |s| {
+            s.uri = Some(n);
+            s.uri_secret = true;
+        })
+        .map(|()| Value::Boolean(true)),
+        Err(false) if c.ret_used() => Ok(Value::Boolean(false)),
+        Err(false) => unsupported("SetSecretRequestUri with an invalid uri as a statement (its error is not pinned)"),
+        Err(true) => unsupported("a secret request uri of a form SetRequestUri has not measured (not pinned)"),
+    }
+}
+
+/// `GetSecretRequestUri` gives the uri as a SecretText, plain or secret; empty on a request with none
+/// (xml/lt-xml-attr-doc-http-members/P97ReqSecretUri.al:75 `new_secret` Yes, :106 `after_plain_secret` No).
+fn get_secret_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
+    let uri = with_request(r, |s| s.uri.clone())?.unwrap_or_default();
+    Ok(lib("SecretText", LibraryValue::Text(uri)))
 }
 
 fn request_get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -1848,6 +1879,49 @@ fn headers_get_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     Ok(Value::Boolean(true))
 }
 
+/// `GetSecretValues(Name, var Values)` reads the secret values a name holds (xml/lt-xml-attr-doc-http-members/P97HdrSecretValues.al):
+/// - the name is matched without regard to case (:106, :136); a name with only plain values, a missing name and an empty name
+///   answer false (:103-105), and so does a collection no GetHeaders filled (:210-221 GetSecretValues_UninitialisedHeaders);
+/// - an array is filled from the first element; when the values do not fit, false and the array is left as it was
+///   (:102 `four_into_three`);
+/// - a list gets the values appended; on false it is left as it was (:141-163 GetSecretValues_ListIsClearedOrAppended);
+/// - Remove and Clear drop the secret values (:165-186), TryAddWithoutValidation stores one (:188-208).
+///
+/// Only the answer as a used result is pinned: a statement, and a name that is no token or a content header name, are refused.
+/// Whether a false answer sets the last error is not measured: it is left as it was, as GetValues does on request headers.
+fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if !c.ret_used() {
+        return unsupported("HttpHeaders.GetSecretValues as a statement (not pinned)");
+    }
+    let name = text(a, 0)?;
+    let values = with_bag(r.as_deref(), |b| {
+        if !name.is_empty() && restricted_lookup(b, &name).is_err() {
+            return unsupported(format!(
+                "HttpHeaders.GetSecretValues of `{name}`, a content header or no token (not pinned)"
+            ));
+        }
+        Ok(find(&b.secret, &name).map(|(_, v)| v.clone()))
+    })??;
+    let Some(values) = values.filter(|_| !name.is_empty()) else {
+        return Ok(Value::Boolean(false));
+    };
+    let secret = |v: String| lib("SecretText", LibraryValue::Text(v));
+    match a.get(1) {
+        Some(Value::Array(arr)) => {
+            let mut arr = arr.borrow_mut();
+            if values.len() > arr.len() {
+                return Ok(Value::Boolean(false));
+            }
+            for (i, v) in values.into_iter().enumerate() {
+                arr[i] = secret(v);
+            }
+        }
+        Some(Value::List(list)) => list.borrow_mut().extend(values.into_iter().map(secret)),
+        other => return unsupported(format!("HttpHeaders.GetSecretValues into {}", other.describe())),
+    }
+    Ok(Value::Boolean(true))
+}
+
 /// `TryAddWithoutValidation` adds without checking the value or the known headers: false for a name that is no
 /// token, or for a content header on request, response or client headers; true otherwise
 /// (network/lt-http/HttpHeaders.al:TryAddWithoutValidationBasics, TryAddWithoutValidationRestricted).
@@ -2270,6 +2344,11 @@ fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         return unsupported("HttpClient.Send without a request");
     };
     let (method, uri) = match &*req.borrow() {
+        LibraryValue::HttpRequest(s) if s.uri_secret => {
+            return unsupported(
+                "HttpClient.Send of a request with a secret uri (what the request and a handler see is not pinned)",
+            );
+        }
         LibraryValue::HttpRequest(s) => (s.method.clone().unwrap_or_else(|| "GET".into()), s.uri.clone()),
         LibraryValue::Empty => ("GET".into(), None),
         other => return unsupported(format!("HttpClient.Send of {}", other.describe())),
@@ -2638,12 +2717,17 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("HttpHeaders", "GetValues") if ty(1).starts_with("Array") || ty(1).starts_with("List") => {
             Some(headers_get_values)
         }
+        ("HttpHeaders", "GetSecretValues") if ty(1).starts_with("Array") || ty(1).starts_with("List") => {
+            Some(headers_get_secret_values)
+        }
         ("HttpHeaders", "TryAddWithoutValidation") => Some(headers_try_add),
         ("HttpRequestMessage", "Content") => Some(request_content),
         ("HttpRequestMessage", "GetHeaders") => Some(request_get_headers),
         ("HttpRequestMessage", "Method") => Some(method),
         ("HttpRequestMessage", "SetRequestUri") if n == 1 && ty(0) == "Text" => Some(set_request_uri),
         ("HttpRequestMessage", "GetRequestUri") => Some(get_request_uri),
+        ("HttpRequestMessage", "SetSecretRequestUri") if n == 1 => Some(set_secret_request_uri),
+        ("HttpRequestMessage", "GetSecretRequestUri") => Some(get_secret_request_uri),
         ("HttpClient", "Get") => Some(client_get),
         ("HttpClient", "Delete") => Some(client_delete),
         ("HttpClient", "Post") => Some(client_post),
