@@ -349,6 +349,22 @@ impl Session {
             }
             return None;
         }
+        // Without the row triggers, with a part, in a key other than the primary key: the page still shows the row it showed
+        // before the drilldown until the next call other than a field read; the rest reads as without that (corpus writer Y1,
+        // branch al-runtime-rs-staging-y1, pages/lt-y1-6289/Y1ClearMarkedOnly.al:446 Y1_Clear_NameKeyWithPartNoTriggers
+        // `after drilldown` `4` with Rec left on row 1, then `goto 2 filtered` `false/1`; al-runner issue 6289). In the primary key
+        // it is not pinned and stays as it was.
+        if update_false && !row_triggers && with_parts && self.page_rec(st).borrow().key != 0 {
+            let rec = self.page_rec(st);
+            let moved = shown_before.as_ref().is_some_and(|shown| {
+                self.table(&rec)
+                    .is_ok_and(|t| !Self::same_key(&t.primary_key(shown), &t.primary_key(&rec.borrow().fields)))
+            });
+            if moved {
+                st.borrow_mut().shown_until_next_call = shown_before;
+            }
+            return None;
+        }
         if !update_false || !row_triggers || st.borrow().window.is_empty() {
             return None;
         }
@@ -420,6 +436,19 @@ impl Session {
         f: impl FnOnce(&mut Self) -> Result<Value, Signal>,
     ) -> Result<Value, Signal> {
         use al_builtins::page_op::PageOp;
+        // A field read right after a marking drilldown on a list without row triggers shows the row shown before it
+        // (`drilldown_marked_only_refresh`); any other call ends that.
+        if st.borrow().shown_until_next_call.is_some() {
+            if method == PageOp::TestFieldValue {
+                let shown = st.borrow().shown_until_next_call.clone().unwrap_or_default();
+                let rec = self.page_rec(st);
+                let held = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+                let r = f(self);
+                rec.borrow_mut().fields = held;
+                return r;
+            }
+            st.borrow_mut().shown_until_next_call = None;
+        }
         // After the marking drilldown on a list in another key (`drilldown_marked_only_refresh`): reading what a field shows and
         // GoToRecord are measured (al-runner issue 6008); nothing else is.
         if st.borrow().marked_refill_in_key.is_some()
@@ -471,7 +500,12 @@ impl Session {
             ));
         }
         if !st.borrow().marked_only_unshown {
-            return f(self);
+            if !matches!(method, PageOp::TestPageFirst | PageOp::TestPageGoToRecord) {
+                return f(self);
+            }
+            st.borrow_mut().go_to_want = None;
+            let r = f(self)?;
+            return self.marked_view_changed_by_move(st, method, r);
         }
         match method {
             PageOp::TestPageClose => {
@@ -490,6 +524,101 @@ impl Session {
                 "{method} after an OnDrillDown turned MarkedOnly on without CurrPage.Update (what the page shows then is not pinned)"
             )),
         }
+    }
+
+    /// After a TestPage First or GoToRecord on a list with a part, OnAfterGetCurrRecord of the row it reached marked the rows again
+    /// with MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows of the new view and stays on the row
+    /// Rec was left on; a GoToRecord of a row outside the new view is false (corpus writer Y1, branch al-runtime-rs-staging-y1,
+    /// pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
+    /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
+    /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
+    /// not pinned: none run here. Pinned for a list in its primary key whose marked rows fit a window and hold Rec's row.
+    fn marked_view_changed_by_move(
+        &mut self,
+        st: &St,
+        method: al_builtins::page_op::PageOp,
+        r: Value,
+    ) -> Result<Value, Signal> {
+        use al_builtins::page_op::PageOp;
+        if !self.has_source(st) || !self.is_list(st) {
+            return Ok(r);
+        }
+        let rec = self.page_rec(st);
+        let due = {
+            let s = st.borrow();
+            s.open
+                && s.refresh
+                && s.refresh_by_update
+                && s.refresh_update_false
+                && s.host.is_none()
+                && !s.parts.is_empty()
+                && s.cursor == Cursor::Row
+                && !s.draft
+        } && rec.borrow().marked_only
+            && self.is_list(st)
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if !due {
+            return Ok(r);
+        }
+        if rec.borrow().key != 0 {
+            return unsupported(
+                "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false) on a list in a key other \
+                 than the primary key (not pinned)",
+            );
+        }
+        let refuse = || {
+            unsupported(
+                "a TestPage move whose OnAfterGetCurrRecord marked rows again and called CurrPage.Update(false), with Rec outside the \
+                 marked rows or more of them than a window holds (not pinned)",
+            )
+        };
+        let table = self.table(&rec)?;
+        let at = table.primary_key(&rec.borrow().fields);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        let mut rows = Vec::new();
+        self.ret_used = true;
+        let mut more = matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("-".into())])?,
+            Value::Boolean(true)
+        );
+        while more {
+            if rows.len() >= Self::WINDOW {
+                return refuse();
+            }
+            let stored = probe.borrow().fields.clone();
+            rows.push(al_builtins::value::WindowRow {
+                key: table.primary_key(&stored),
+                stored: stored.clone(),
+                shown: stored,
+            });
+            self.ret_used = true;
+            more = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
+        }
+        if !rows.iter().any(|w| Self::same_key(&w.key, &at)) {
+            return refuse();
+        }
+        let want = st.borrow_mut().go_to_want.take();
+        {
+            let mut s = st.borrow_mut();
+            s.window = rows;
+            s.window_from_start = true;
+            s.window_whole = true;
+            s.window_eof = true;
+            s.window_top_unread = false;
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+        }
+        let mut pk = at.clone();
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut pk)?;
+        if method == PageOp::TestPageGoToRecord {
+            let found = want.is_some_and(|w| Self::same_key(&w, &at));
+            return Ok(Value::Boolean(matches!(r, Value::Boolean(true)) && found));
+        }
+        Ok(r)
     }
 
     /// `Lookup()` on a control with no OnLookup trigger of its own: the source table field's
@@ -913,6 +1042,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.marking_action = !marked_only_before || again_with_part;
+            s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
@@ -927,6 +1057,7 @@ impl Session {
             s.in_action = was_in_action;
             s.editable_set_later = None;
             s.marking_action = false;
+            s.unmarking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
         // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
@@ -2373,10 +2504,13 @@ impl Session {
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
         let once_more = self.still_reads_once_more(st);
-        let marked_by_action = {
+        let by_action_update_false = {
             let s = st.borrow();
             s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
-        } && rec.borrow().marked_only;
+        };
+        let marked_by_action = by_action_update_false && rec.borrow().marked_only;
+        // An action on a list with a part that held marked rows turned MarkedOnly off and called CurrPage.Update(false).
+        let unmarked_by_action = by_action_update_false && !rec.borrow().marked_only && st.borrow().unmarking_action;
         if once_more && !read_first {
             // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
             // (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
@@ -2548,6 +2682,23 @@ impl Session {
             s.window_from_start = true;
             s.window_whole = true;
             s.marked_rows_held = true;
+        } else if read_first && unmarked_by_action {
+            // The client holds the rows of the view without MarkedOnly this refresh read: a GoToRecord finds a row that was not
+            // marked, and First goes to the first row of the page's key (corpus writer Y1, branch al-runtime-rs-staging-y1,
+            // pages/lt-y1-6289/Y1ClearMarkedOnly.al:362 Y1_Clear_NameKeyWithPartAndTriggers `goto 2 cleared` `true/2`, `first
+            // cleared` `true/4`; :390 _Row4; :418 Y1_Clear_PrimaryKeyWithPartAndTriggers `true/4`, `true/1`; al-runner issue 6289).
+            // Pinned for a view that fits a window.
+            if back.len() + rows.len() > Self::WINDOW || view_left {
+                return unsupported(
+                    "an action turned MarkedOnly off for a list with more rows than a window holds (the rows the client holds are not pinned)",
+                );
+            }
+            back.reverse();
+            back.extend(rows);
+            let mut s = st.borrow_mut();
+            s.window = back;
+            s.window_from_start = true;
+            s.window_whole = true;
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
             // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
