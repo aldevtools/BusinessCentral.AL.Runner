@@ -87,6 +87,8 @@ pub struct Args {
     pub top_assumptions: Option<usize>,
     /// `--list-assumptions`: print the registry of unprobed assumptions with the counts of the last run, then stop.
     pub list_assumptions: bool,
+    /// `--assumptions-doc`: rewrite the generated table of `docs/probes-needed.md` from the registry, then stop.
+    pub assumptions_doc: bool,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -164,6 +166,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
         }
         if flag == "--list-assumptions" {
             a.list_assumptions = true;
+            continue;
+        }
+        if flag == "--assumptions-doc" {
+            a.assumptions_doc = true;
             continue;
         }
         if flag == "--awaiting-assumptions" {
@@ -331,6 +337,8 @@ DIAGNOSE
                               --json carries them, --explain names them
   --list-assumptions          print the registry of unprobed assumptions with the counts of the last
                               run, then stop
+  --assumptions-doc           rewrite the generated table of docs/probes-needed.md from the registry
+                              of unprobed assumptions, then stop
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -424,6 +432,12 @@ mod tests {
         assert!(!run(&["--no-deps"]).unwrap().list_assumptions);
         let a = run(&["--awaiting-assumptions", "--summary"]).unwrap();
         assert!(a.awaiting_assumptions && a.summary);
+    }
+
+    #[test]
+    fn assumptions_doc_is_a_flag() {
+        assert!(run(&["--assumptions-doc"]).unwrap().assumptions_doc);
+        assert!(!run(&["--no-deps"]).unwrap().assumptions_doc);
     }
 
     #[test]
