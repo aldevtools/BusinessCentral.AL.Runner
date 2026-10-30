@@ -2149,7 +2149,13 @@ fn test_inner(
             say!("{line}");
         }
     }
-    say!("{}", style::bold(&output::summary_line(&counts, test_data.is_some())));
+    say!(
+        "{}",
+        style::bold(&output::summary_line(
+            &counts,
+            output::needs_no_data_note(microsoft, test_data.is_some())
+        ))
+    );
     if !a.quiet && counts.total > 0 {
         for line in output::summary_table(&counts) {
             say!("{line}");
